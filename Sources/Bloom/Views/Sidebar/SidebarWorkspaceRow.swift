@@ -32,6 +32,7 @@ struct SidebarWorkspaceRow: View {
     @Binding var archivePresentation: SidebarArchivePresentation
 
     @Environment(AppModel.self) private var app
+    @Environment(\.sidebarRowIndent) private var rowIndent
 
     /// Where this row is on screen, for the card that opens beside it. Held rather than reported:
     /// see `HoverCardAnchor`.
@@ -62,7 +63,7 @@ struct SidebarWorkspaceRow: View {
         // about the row, and a workspace that is fading in is still selectable, draggable and
         // right clickable throughout: it is a row that is fully there and briefly not drawn.
         .arrivingRow(arrival.isArriving(workspace.id))
-        .padding(.leading, SidebarMetrics.rowIndent)
+        .padding(.leading, rowIndent)
         // Which project this row is under.
         //
         // A `Section` said it structurally: the row was an `AXOutlineRow` one disclosure level

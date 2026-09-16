@@ -402,6 +402,7 @@ struct SidebarView: View {
     private var paneRowsList: some View {
         ForEach(paneRows) { row in
             paneRow(row)
+                .environment(\.sidebarRowIndent, grouping == .projects ? SidebarMetrics.rowIndent : 0)
         }
         // The list's own row reordering, which is `NSOutlineView`'s: the insertion line, the
         // drag image, the autoscroll at the pane's edges, the snap back on a cancel and the

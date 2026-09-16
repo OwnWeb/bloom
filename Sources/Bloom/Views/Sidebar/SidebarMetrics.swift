@@ -96,7 +96,13 @@ enum SidebarMetrics {
     ///
     /// Derived from `nameColumn` rather than measured, for the reason that constant gives: resize
     /// the project tile and the whole ladder moves together.
-    static let crewIndent: CGFloat = nameColumn - markColumn / 2
+    static let crewIndent: CGFloat = crewIndent(rowIndent: rowIndent)
+
+    /// `crewIndent` for a pane whose workspace rows start at `rowIndent`, which is zero in the
+    /// status view. See `EnvironmentValues.sidebarRowIndent`.
+    static func crewIndent(rowIndent: CGFloat) -> CGFloat {
+        rowIndent + markColumn + Metrics.spacing - markColumn / 2
+    }
 
     /// The click target of a control that lives on a workspace row, such as the archive button
     /// that is revealed under the pointer.
@@ -123,4 +129,15 @@ enum SidebarMetrics {
     /// How large the chevron itself is drawn. Roughly a five point mark: the smallest thing in
     /// the pane, because it is furniture rather than content.
     static let caretSize: CGFloat = 9
+}
+
+extension EnvironmentValues {
+    /// How far the pane's rows start right of the leading edge the list hands them.
+    ///
+    /// `SidebarMetrics.rowIndent` under a project, where the gutter holds the project's chevron
+    /// and the rows hang under its tile. Zero in the status view, which has no project headers and
+    /// so nothing in that gutter: Seb photographed it as seventeen points of empty space down the
+    /// pane's leading edge, and Finder's sidebar, measured against it, starts its section headings
+    /// and its icons on the list's own inset with nothing in front of them.
+    @Entry var sidebarRowIndent: CGFloat = SidebarMetrics.rowIndent
 }

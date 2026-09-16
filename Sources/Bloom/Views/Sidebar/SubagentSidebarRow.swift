@@ -16,6 +16,7 @@ struct SubagentSidebarRow: View {
     var row: SubagentRow
 
     @Environment(\.backgroundProminence) private var prominence
+    @Environment(\.sidebarRowIndent) private var rowIndent
 
     /// Whether the row is sitting on the accent selection fill, where the meaning colours are
     /// unreadable and the shape has to carry the meaning alone. Read exactly as `WorkspaceRow`
@@ -55,7 +56,7 @@ struct SubagentSidebarRow: View {
         // share its name column, so this indent is the only thing in the pane saying a subagent
         // is inside its workspace. The last level this pane gets: see `SubagentRow.rows` for why
         // depth past one is drawn here rather than a step further in.
-        .padding(.leading, SidebarMetrics.rowIndent + SidebarMetrics.subagentIndent)
+        .padding(.leading, rowIndent + SidebarMetrics.subagentIndent)
         // The mark is the fact a sighted reader gets for free and a screen reader gets not at all.
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(row.title))
