@@ -7,7 +7,7 @@ struct SidebarArchivePresentationTests {
     func optimisticRemoval() {
         var presentation = SidebarArchivePresentation()
         let request = request()
-        let generation = presentation.begin(workspaceID: request.workspace.id, source: .menu)
+        let generation = presentation.begin(workspaceID: request.workspace.id, source: .button)
 
         presentation.rowDisappeared(request.workspace.id, isArchiving: true)
         presentation.present(request, generation: generation)
@@ -15,7 +15,7 @@ struct SidebarArchivePresentationTests {
         presentation.rowAppeared(request.workspace.id)
 
         #expect(presentation.request?.id == request.id)
-        #expect(presentation.source == .menu)
+        #expect(presentation.source == .button)
         #expect(!presentation.isRequesting)
     }
 

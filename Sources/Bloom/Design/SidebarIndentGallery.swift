@@ -142,8 +142,7 @@ struct SidebarIndentGallery: View {
             isRunning: false,
             renaming: $renaming,
             onArchive: { _ in },
-            archiveRequest: .constant(nil),
-            menuArchiveRequest: .constant(nil)
+            archiveRequest: .constant(nil)
         )
         .padding(.leading, SidebarMetrics.rowIndent)
         .frame(height: 32)

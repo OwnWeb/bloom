@@ -20,22 +20,29 @@ import BloomCore
 /// one is a different, shorter menu about a worktree that no longer exists, so it stays where it
 /// is, in `HomeRowMenu`, next to the reasoning for it.
 ///
-/// ## Three groups, and the rule is what each one acts on
+/// ## Four groups, and the rule is what each one acts on
 ///
-/// The first group is about the CHECKOUT ON DISK: it opens the worktree, in the editor and in
-/// anything else that can take it, shows it, puts its branch on the clipboard, and runs the
-/// repository's setup script in it. The next four are about the ROW
-/// and change nothing outside Bloom: whether it floats, whether it is shouting at you, what colour
-/// it is, what it is called. The last destroys it, behind a rule of its own, which is the grouping
-/// this menu already had and the same rhythm a project header's menu is built on. See
-/// `RepoHeaderRow` for why three rules and not four.
+/// The first group is about the ROW and changes nothing outside Bloom: what it is called, whether
+/// it floats, whether it is shouting at you, what colour it is. Rename leads, because it is the
+/// item people reach for most and it used to sit fourth, under a submenu, where it was hunted for.
+/// The second is about the CHECKOUT ON DISK: it opens the worktree, in the editor and in anything
+/// else that can take it, shows it, puts its branch on the clipboard, and runs the repository's
+/// setup script in it. The third is the PROJECT the workspace belongs to, and it is a group of one
+/// because nothing else in this menu acts on anything that wide. The last destroys the workspace,
+/// behind a rule of its own.
+///
+/// Project Settings is here because the row lost its hover menu. The row's archive button is the
+/// only control left under the pointer, so the right click is where everything else lives, and
+/// the owner went looking for the project's settings there. It opens the project this row is in,
+/// not the selected workspace's, which is why it is a plain button rather than `MenuCommand`: that
+/// would show File's Shift Command comma beside it, a shortcut that acts on a different project
+/// whenever the row right clicked is not the selected one.
 ///
 /// Running setup is the only one of the four that CHANGES the checkout rather than looking at it,
 /// so it sits at the foot of its group rather than at the top next to Open in Editor, where a slip
 /// of the pointer would start a `composer install`. It is not in the row group, which is for the
 /// things that change nothing outside Bloom, and it is not down beside Archive, which is a group
-/// of one on purpose. A fourth rule for one item would say less than the rule the first group
-/// already has.
+/// of one on purpose.
 ///
 /// Ask Siri, which the owner sees at the top of this menu, is not in this list and is not ours to
 /// move. macOS 27 puts it on context menus itself for a user who has Apple Intelligence on. The
@@ -100,6 +107,7 @@ struct WorkspaceMenuItems: View {
     var onRename: (WorkspaceID) -> Void
 
     @Environment(AppModel.self) private var app
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         switch scope {
@@ -110,16 +118,18 @@ struct WorkspaceMenuItems: View {
 
     @ViewBuilder
     private var rowItems: some View {
+        renameItem
+        WorkspacePinItem(workspace: workspace, app: app)
+        WorkspaceUnreadItem(workspace: workspace, app: app)
+        WorkspaceColourItem(workspace: workspace, app: app)
+        Divider()
         openInEditorItem
         openWorktreeInItem
         revealInFinderItem
         copyBranchItem
         setupItem
         Divider()
-        WorkspacePinItem(workspace: workspace, app: app)
-        WorkspaceUnreadItem(workspace: workspace, app: app)
-        WorkspaceColourItem(workspace: workspace, app: app)
-        renameItem
+        projectSettingsItem
         Divider()
         // Straight through, with no dialog of its own. Whether this needs confirming is not
         // something a menu can know: it depends on what is uncommitted, what is running and what
@@ -183,6 +193,14 @@ struct WorkspaceMenuItems: View {
 
     private var revealInFinderItem: some View {
         Button("Reveal in Finder") { Reveal.inFinder(workspace.path) }
+    }
+
+    /// The project's settings window, for the project this workspace is in. See the type's note
+    /// on why it is not `MenuCommand`.
+    private var projectSettingsItem: some View {
+        Button(MenuBarCatalogue[.projectSettings].title) {
+            openWindow(id: RepoSettingsWindow.id, value: workspace.repoID)
+        }
     }
 
     private var copyBranchItem: some View {

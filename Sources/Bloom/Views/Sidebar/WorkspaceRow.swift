@@ -55,10 +55,8 @@ struct WorkspaceRow: View {
     /// Raised to `SidebarWorkspaceRow`, which owns both the confirmation and the call into the
     /// model, so this button and the row's context menu cannot end up on different paths.
     var onArchive: (Workspace) -> Void
-    var onMenuArchive: (() -> Void)?
     var isArchiveActive = false
     @Binding var archiveRequest: ArchiveRequest?
-    @Binding var menuArchiveRequest: ArchiveRequest?
     var onConfirmArchive: (ArchiveRequest) -> Void = { _ in }
 
     @Environment(AppModel.self) private var app
@@ -311,18 +309,18 @@ struct WorkspaceRow: View {
 
     // MARK: - Trailing
 
-    /// Whether the two hover controls are being shown. Never while renaming: the field owns the
+    /// Whether the hover control is being shown. Never while renaming: the field owns the
     /// whole row, and controls drawn over its trailing edge would sit on the text being typed.
     private var controlsShown: Bool { (isHovered || isArchiveActive) && !isRenaming }
 
-    /// The width the controls cover when they are shown: the two buttons, side by side.
-    private static let controlsWidth = SidebarMetrics.rowButton * 2
+    /// The width the controls cover when they are shown: the archive button alone.
+    private static let controlsWidth = SidebarMetrics.rowButton
 
     /// How far the content underneath fades before the controls begin, so a name that reaches
     /// them is cut with a fade rather than a cliff.
     private static let controlsFade: CGFloat = 12
 
-    /// The row's two controls, drawn over the trailing edge while the pointer is on the row.
+    /// The row's hover control, drawn over the trailing edge while the pointer is on the row.
     ///
     /// Conductor swaps the counts for the controls under the pointer, the owner asked for the
     /// same, and a swap is the right shape here because the two are never both worth reading: the
@@ -353,20 +351,18 @@ struct WorkspaceRow: View {
     /// down a pane whose job is to name the work would read as an invitation. The menu is the same
     /// argument: a column of ellipses says nothing about any of the rows it is drawn on.
     ///
-    /// The menu leads and the archive follows, so the archive keeps the row's trailing edge it
-    /// has always had. Moving a destructive control that people have already learned the position
-    /// of, so that a habitual click lands on a menu instead, is a worse trade than either order is
-    /// worth.
+    /// There used to be a menu beside the archive, drawing `WorkspaceMenuItems`, the same items
+    /// the row's right click offers. It went because it was that and nothing more: a second door
+    /// to a menu everyone already opens with a right click, costing twenty points of every hovered
+    /// name. Archive stays because it is the one thing people reach for often enough to want it
+    /// under the pointer, and it is still in the right click menu for anyone who looks there.
     private var hoverControls: some View {
-        HStack(spacing: 0) {
-            moreMenu
-            archiveButton
-        }
-        .opacity(controlsShown ? 1 : 0)
-        // An invisible control still takes clicks, which over the trailing edge of a row would
-        // be the worst possible bug in a destructive one. The pointer has to be on the row for
-        // either to be drawn at all, so this costs nothing real.
-        .allowsHitTesting(controlsShown)
+        archiveButton
+            .opacity(controlsShown ? 1 : 0)
+            // An invisible control still takes clicks, which over the trailing edge of a row would
+            // be the worst possible bug in a destructive one. The pointer has to be on the row
+            // for it to be drawn at all, so this costs nothing real.
+            .allowsHitTesting(controlsShown)
     }
 
     /// The mask that clears the ground under the controls while they are shown.
@@ -402,69 +398,6 @@ struct WorkspaceRow: View {
                 .opacity(controlsShown ? 1 : 0)
             }
             .compositingGroup()
-    }
-
-    /// Everything you can do to this workspace, one press away instead of one right click away.
-    ///
-    /// It draws `WorkspaceMenuItems`, which is the identical view `SidebarWorkspaceRow` hands to
-    /// `.contextMenu` on this same row, so the button and the right click cannot come up with
-    /// different menus. That is not tidiness: two menus on one row that differ by an item is a
-    /// worse bug than the button being in the wrong place, and this menu already exists in one
-    /// copy precisely because the sidebar's and Home's had drifted apart.
-    ///
-    /// It came from the title bar, where it was three items (Open in Editor, Reveal in Finder,
-    /// Copy Branch Name) that this row's menu already carried in full. So nothing was merged and
-    /// nothing was lost: the affordance moved onto the thing it acts on, and the three items are
-    /// still in the Workspace menu with their shortcuts for anyone with no pointer on this row.
-    ///
-    /// **Archive is in here as well as beside it, and the two ask differently on purpose.** The
-    /// button next to this one confirms every time because it appears unbidden under the pointer
-    /// a few points from the row you meant to click. Choosing Archive out of an open menu is not
-    /// that: you opened the menu and read the item, exactly as with the right click, so it takes
-    /// the conditional path that stays quiet when there is nothing to lose. See
-    /// `SidebarWorkspaceRow.confirmRowArchive`.
-    private var moreMenu: some View {
-        Menu {
-            WorkspaceMenuItems(workspace: workspace, onArchive: onMenuArchive) { renaming = $0 }
-        } label: {
-            // Still the CIRCLED ellipsis, which is not what the colour complaint looked like it
-            // was asking for. A bare `ellipsis` was the obvious partner for `archivebox`, on the
-            // grounds that a plain outline should stand beside a plain outline, and it was drawn
-            // and rejected on the picture: the archive is an enclosing glyph, so three loose dots
-            // beside it read as a control and a smudge rather than as a pair. The ink says the
-            // same. Counted over the two boxes on a window capture, the ring and the archive come
-            // to 176 and 215 inked pixels; the bare dots come to 48, under a quarter of their
-            // neighbour. The circle is the one that matches the weight it has to live next to.
-            Label("More for \(workspace.name)", systemImage: "ellipsis.circle")
-                .labelStyle(.iconOnly)
-                .font(Typo.caption)
-                // The archive button's box, so the two stand at one size and the press target is
-                // the box rather than the glyph. `fixedSize` below is what stops the menu style
-                // widening it again.
-                .frame(width: SidebarMetrics.rowButton, height: SidebarMetrics.rowButton)
-                .contentShape(RoundedRectangle(cornerRadius: Metrics.cornerSmall))
-        }
-        // Not `.borderlessButton`, and this pair of lines is the whole of "it's strange that we
-        // have archive and circle dots in another color".
-        //
-        // `.borderlessButton` draws its label in an ink of its own and ignores the colour it is
-        // given, wherever that colour is stated. Measured off a window capture of this row, with
-        // both controls carrying the identical `foregroundStyle`: the archive's darkest pixel was
-        // #7A7B7C, which is `secondaryLabelColor` composited on the sidebar, and the menu's was
-        // #A5A8A9 with a mean of #B2B5B6, a tertiary weight nothing asked for. Moving the colour
-        // onto the label's own leaf changed neither number by a single count, which is what rules
-        // out the glyph and rules out the call site: the style is simply not passing it down.
-        //
-        // `.button` does pass it down, because it defers to the BUTTON style, and `.plain` is the
-        // one the archive beside it already uses. Re-measured the same way, the ellipsis's dots
-        // came out at #7A7B7C, equal to the archive's darkest pixel to the count.
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .foregroundStyle(isEmphasized ? Palette.textInverted : Palette.textSecondary)
-        .help("More for this workspace")
-        .archiveConfirmation($menuArchiveRequest, arrowEdge: .leading, onConfirm: onConfirmArchive)
     }
 
     private var archiveButton: some View {

@@ -12,10 +12,10 @@ import BloomCore
 /// is the pane itself. `DetailSplitViewController` publishes it here on every layout pass.
 ///
 /// It used to be two numbers added together, because the worktree's menu sat in the accessory
-/// as well and only SwiftUI knew how wide that control came out. That menu is on the workspace's
-/// own row in the sidebar now, so the accessory is the band and nothing else, and the second
-/// number went with it rather than being left at zero for the next reader to wonder about. See
-/// `WorkspaceRow.moreMenu`.
+/// as well and only SwiftUI knew how wide that control came out. That menu is the workspace row's
+/// right click menu in the sidebar now, so the accessory is the band and nothing else, and the
+/// second number went with it rather than being left at zero for the next reader to wonder about.
+/// See `WorkspaceMenuItems`.
 ///
 /// A collapsed inspector is the same fact said with a zero, rather than a second flag that can
 /// disagree with the first: a hidden inspector has no width, and the strip above it has nothing to
@@ -101,7 +101,7 @@ final class InspectorGeometry {
 /// alone. The owner said the ellipsis was in the wrong place and should be on the workspace's row
 /// in the sidebar, which is the thing it acts on, and its three items were already in that row's
 /// menu word for word. So the chip is gone rather than moved, and this accessory is one view
-/// again. See `WorkspaceRow.moreMenu`.
+/// again. See `WorkspaceMenuItems`.
 ///
 /// Nothing was rearranged to close the gap. The chip stood at the LEADING end of the accessory,
 /// which is a trailing accessory, so the band was never displaced by it: taking it away lets the
