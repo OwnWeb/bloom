@@ -252,11 +252,6 @@ struct SidebarView: View {
             guard !Task.isCancelled else { return }
             reorderNote = nil
         }
-        .overlay {
-            if app.repos.isEmpty, app.isLoaded {
-                noProjects
-            }
-        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             SidebarStatusBar(
                 filter: $filter,
@@ -917,26 +912,10 @@ struct SidebarView: View {
 
     // MARK: - Empty
 
-    /// The first sentence anybody reads, on the pane that will hold their projects.
-    ///
-    /// It used to say "Point Bloom at a git repository to start running agents in it", which for
-    /// the person with an idea and no folder is the sentence that ends the evaluation. It had also
-    /// stopped being true: Bloom will make the repository, and now it will make the folder too.
-    ///
-    /// One button, where there were two. The second said Choose a folder and went to a file panel,
-    /// which is the same fork the `+` above used to offer and is now the Choose inside the sheet.
-    private var noProjects: some View {
-        ContentUnavailableView {
-            Label("No projects yet", systemImage: "folder.badge.plus")
-        } description: {
-            Text("Start a new project, or point Bloom at a repository you already have.")
-        } actions: {
-            Button("Start a project", systemImage: "plus", action: startProject)
-                .buttonStyle(.borderedProminent)
-                // Explicit so every primary action reads from the shared semantic token.
-                .tint(Palette.controlAccent)
-        }
-    }
+    // No empty state of its own. With no projects, Home in the middle of the window already says
+    // so and carries the button that starts one, and a second "No projects yet" with a second
+    // Start a project button in the sidebar was the same call to action printed twice on first
+    // run. The Projects heading's `+` and the status bar's projects button are still here.
 
     // MARK: - Actions
 

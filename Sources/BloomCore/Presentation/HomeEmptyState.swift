@@ -103,12 +103,9 @@ public enum HomeEmptyState: Sendable, Equatable {
     public var message: String {
         switch self {
         case .noProjects:
-            // Deliberately NOT what the sidebar's empty panel says, which is what this was. On
-            // first run both are on screen at once, one in the sidebar and one in the middle of
-            // the window, and they were the same sentence printed twice under two headings that
-            // also matched, which reads as a rendering bug. The sidebar keeps the pitch, because
-            // it is standing where the projects will be and it holds the button that adds one.
-            // Home says what Home will show, in the future tense.
+            // The only empty state on first run. The sidebar used to draw its own, with the same
+            // button, and the two read as one call to action printed twice. Home says what Home
+            // will show, in the future tense.
             return "Everything running on this Mac will be listed here, newest first."
         case .noWorkspaces:
             return "A workspace gets a branch, a worktree and an agent of its own."
