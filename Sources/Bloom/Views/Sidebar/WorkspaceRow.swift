@@ -415,8 +415,7 @@ struct WorkspaceRow: View {
         .foregroundStyle(isEmphasized ? Palette.textInverted : Palette.textSecondary)
         // One notation for a shortcut in a tooltip, everywhere: the glyphs, in brackets, after
         // the sentence. The app had three, and this row was the one that wrote two spaces and
-        // no brackets. The other two were `SidebarProjectsHeader`, which already reads this
-        // way, and `ComposerStopButton`, which spelled the keys out in words.
+        // no brackets. Another was `ComposerStopButton`, which spelled the keys out in words.
         .help("Archive workspace (\(MenuBarCatalogue[.archive].keyText))")
         .accessibilityLabel("Archive \(workspace.name)")
         .archiveConfirmation($archiveRequest, arrowEdge: .leading, onConfirm: onConfirmArchive)

@@ -152,12 +152,15 @@ struct SidebarView: View {
             // The heading is the project view's alone. The status view's headings are its own
             // sections, and a "Projects" label over rows that are not grouped by project would be
             // naming something that is not there. Starting a project is still one press away, on
-            // the projects button in the status bar, in both shapes.
+            // the projects button in the status bar, in both shapes, which is why the heading has
+            // no button of its own: it had one, and it was the same action twice in one pane.
             if grouping == .projects {
                 Section {
                     paneRowsList
                 } header: {
-                    SidebarProjectsHeader(onStartProject: startProject)
+                    Text("Projects")
+                        .bold()
+                        .accessibilityAddTraits(.isHeader)
                 }
             } else {
                 Section { paneRowsList }
