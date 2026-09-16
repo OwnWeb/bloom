@@ -382,9 +382,10 @@ struct RootView: View {
         // where the post was already being received and because `openWindow` needs a view: the
         // window itself is `CreateWorkspaceWindow`, and it is keyed by project, so asking twice
         // for the same project brings the first one forward with its draft still in it.
-        // File, New Ask Bloom Conversation opens a tab and keeps the existing conversations.
+        // File, New Ask Bloom Conversation adds a conversation and keeps the existing ones. It
+        // opens the panel, unless the full pane is already showing them.
         .onReceive(NotificationCenter.default.publisher(for: .bloomNewAskConversation)) { _ in
-            app.selection = .ask
+            AskPanelModel.shared.open(app: app)
             Task { await app.ask.newConversation() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .bloomNewWorkspace)) { note in

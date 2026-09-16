@@ -104,8 +104,13 @@ struct WindowTitleControl: View {
                 field(workspace)
             } else if let workspace = app.selectedWorkspace {
                 label(workspace)
-            } else {
-                // Home, or Ask Bloom. There is nothing to rename, so it is text and only text.
+            } else if app.selection != .home {
+                // Ask Bloom's full pane. There is nothing to rename, so it is text and only text.
+                //
+                // Home draws no title at all. It said "Bloom", which names the application in its
+                // own window, and the owner found a title there odd: the search field and the
+                // sidebar already say where you are. The window keeps its title for the Window
+                // menu and Mission Control. See `WindowTitle`.
                 titleText
                     .accessibilityValue(isBusy ? "Running" : "")
                     .frame(maxWidth: Self.maximumWidth, alignment: .leading)

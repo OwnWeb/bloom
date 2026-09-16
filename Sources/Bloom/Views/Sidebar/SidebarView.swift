@@ -116,10 +116,6 @@ struct SidebarView: View {
     /// the same reason.
     @State private var hasSettled = false
 
-    /// Whether the pointer is on Home's row, which is what lights its `+`. Per row rather than an
-    /// id shared across the pane, so crossing the list lights one thing at a time.
-    @State private var isHomeHovered = false
-
     /// Which rows have just been added to the list, so they can fade in rather than appear. The
     /// rules for what counts as "just added" are `RowArrival`'s, and they are the same rules
     /// Home's list uses.
@@ -136,28 +132,9 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $listSelection) {
-            // One row, and it is the root of the list rather than one of three destinations:
-            // Mail's All Inboxes, Photos' Library. Search and Archive were here, and both were
-            // the same list of workspaces Home draws. Search is a field in the window's toolbar
-            // now and the archive is a chip on Home, which carries the one thing the Archive
-            // screen had and Home did not: what each finished workspace still costs. See
-            // `HomeScope`.
+            // No rows above the projects. Home and Ask Bloom were two here, with the pane's `+` on
+            // Home, and all three are buttons in the status bar now. See `SidebarDock`.
             //
-            // Their sixty points are not refilled. The Projects heading moves up to sit under the
-            // title bar, which is where a source list's content begins in Finder, in Mail and in
-            // Xcode.
-            Section {
-                homeRow
-                // The one row that came back, and it needed an argument. Search and Archive were
-                // taken out because both were the list of workspaces Home already draws. This is
-                // not that list under a filter: it is a conversation, it holds state a chip on
-                // Home cannot hold, and it is the only thing in the window scoped to no workspace.
-                //
-                // Under Home rather than over it, because Home is where you land and this is where
-                // you go. See `SidebarSelection.ask`.
-                askRow
-            }
-
             // One native section supplies the Projects heading's font and spacing. The rows
             // stay in one ForEach so dragging still uses the same indices in `paneRows`.
             //
@@ -256,6 +233,7 @@ struct SidebarView: View {
             SidebarStatusBar(
                 filter: $filter,
                 onCreateWorkspace: { presentCreate(in: $0) },
+                onNewWorkspace: { presentCreate(in: nil) },
                 onStartProject: startProject,
                 note: reorderNote?.sentence
             )
@@ -834,80 +812,6 @@ struct SidebarView: View {
             listHasKeyboard: listHasKeyboard,
             windowIsKey: windowIsKey
         )
-    }
-
-    /// The root of the pane, as a row of the list. There used to be three of these.
-    ///
-    /// The mark is inked by `SidebarNavRow` so it follows the row's emphasized semantic label
-    /// colour rather than retaining the unselected source-list tint.
-    private func navRow(_ target: SidebarSelection, title: String, icon: String) -> some View {
-        SidebarNavRow(title: title, icon: icon)
-            .tag(target)
-            .sidebarSelection(selectionStyle(for: target))
-    }
-
-    /// Home, with the pane's one `+` on it.
-    ///
-    /// **The status view has no project headers, so it had nowhere to start anything from.** In the
-    /// project view every project's header carries a `+` and the Projects heading carries the one
-    /// that starts a project; grouped by status neither exists, which left creating something to
-    /// the menu bar and to a filter menu nobody opens to create. The top row of the pane is where
-    /// it goes: it is in both shapes, it is where the eye starts, and it is the row that is about
-    /// no particular workspace.
-    ///
-    /// A menu rather than a button, because there are two things to make and the pane cannot guess
-    /// which: New workspace goes to the create window, which asks for the project; Start a project
-    /// is the other half, and both post through the same notifications every other entry point
-    /// uses, so nothing here behaves differently from the File menu.
-    private var homeRow: some View {
-        HStack(spacing: 0) {
-            SidebarNavRow(title: "Home", icon: "house")
-
-            Spacer(minLength: Metrics.spacingSmall)
-
-            Menu {
-                // The owner's own words and order, rather than the menu bar's titles. Workspace
-                // leads because it is the one reached for daily; a project is started far less.
-                // File says "New Workspace…" and "Start a Project…" because a menu bar is set in
-                // Title Case on this platform; a menu inside the window is not, and the pane's
-                // other menus ("Project settings…", "Hide project") are already sentence case.
-                Button("New workspace…") { presentCreate(in: nil) }
-                Button("New project…", action: startProject)
-            } label: {
-                Label("New", systemImage: "plus")
-                    .labelStyle(.iconOnly)
-                    .font(Typo.label)
-                    .frame(width: Metrics.headerButton.width, height: Metrics.headerButton.height)
-                    .contentShape(RoundedRectangle(cornerRadius: Metrics.cornerSmall))
-            }
-            // The same three lines the workspace row's own menu carries, and for the reason
-            // measured there: `.borderlessButton` draws its label in an ink of its own and ignores
-            // the colour it is given, which came out a tertiary weight nothing asked for.
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .foregroundStyle(
-                isHomeHovered ? Palette.textPrimary : Palette.textSecondary
-            )
-            .help("New workspace or project")
-        }
-        .contentShape(Rectangle())
-        .onHoverChange { isHomeHovered = $0 }
-        .tag(SidebarSelection.home)
-        .sidebarSelection(selectionStyle(for: .home))
-    }
-
-    /// Home's row is a name. This one also says what the conversation is doing, because it is the
-    /// only row in the pane whose agent is not in a workspace: nothing else in the window would
-    /// report it, and a hand raised in a room nobody is in is a turn that waits for ever.
-    ///
-    /// The same mark the workspace rows below carry, from the same type, so the column says
-    /// "working" and "waiting on you" in one shape throughout.
-    private var askRow: some View {
-        SidebarNavRow(title: AskConversation.title, icon: PaneGlyph.chat, status: app.askStatus)
-            .tag(SidebarSelection.ask)
-            .sidebarSelection(selectionStyle(for: .ask))
     }
 
     // MARK: - Empty

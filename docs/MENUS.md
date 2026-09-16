@@ -83,6 +83,7 @@ contribute for free.
 | Next / Previous Workspace | `⌥⌘↓` `⌥⌘↑` | any workspace exists |
 | Next Unread | `⇧⌘U` | something is unread |
 | Go to Home | `⇧⌘H` | not already on Home |
+| Ask Bloom | `⌘J` | Ask Bloom is not open as the full pane |
 | Zoom In / Zoom Out / Actual Size | `⌘+` `⌘-` `⌘0` | the focused text can zoom |
 | Enter Full Screen | `⌃⌘F` | AppKit |
 

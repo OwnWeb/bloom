@@ -72,16 +72,25 @@ struct SearchPanelWindowOverlay: View {
 
     private var geometry: SearchPanelWindowGeometry { .shared }
 
+    /// Ask Bloom's panel shares this ground. It is the other card that has to be in front of the
+    /// whole window rather than one pane of it, and the two never show at once: opening either
+    /// closes the other. See `AskPanelModel`.
+    private var ask: AskPanelModel { .shared }
+
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
                 if panel.isOpen {
                     dim
                     card(inWindow: proxy.size.width)
+                } else if ask.isOpen {
+                    dim
+                    askCard(in: proxy.size)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .animation(reduceMotion ? nil : Motion.pane, value: panel.isOpen)
+            .animation(reduceMotion ? nil : Motion.pane, value: ask.isOpen)
         }
         // A hosting view starts a new SwiftUI environment, so the model has to be handed back in.
         // `TitleBarStrip` does the same, one accessory along, for the same reason.
@@ -99,7 +108,10 @@ struct SearchPanelWindowOverlay: View {
             // The click outside, taken here rather than by the window under it. See the head of
             // this file for what that is protecting.
             .contentShape(Rectangle())
-            .onTapGesture { panel.close(app: app) }
+            .onTapGesture {
+                panel.close(app: app)
+                ask.close()
+            }
             .accessibilityHidden(true)
             .transition(.opacity)
     }
@@ -124,6 +136,21 @@ struct SearchPanelWindowOverlay: View {
             }
         }
         .padding(.top, geometry.titleBarHeight + SearchPanelLayout.topInset)
+        .transition(.opacity)
+    }
+
+    /// Centred in the window below the title bar, rather than hung from the top as the search card
+    /// is: it is tall, and a tall card hung from the top leaves its composer at the foot of the
+    /// window with nothing under it.
+    private func askCard(in window: CGSize) -> some View {
+        let room = CGSize(width: window.width, height: window.height - geometry.titleBarHeight)
+        return AskPanelView(
+            app: app,
+            width: AskPanelLayout.width(inWindow: room.width),
+            height: AskPanelLayout.height(inWindow: room.height)
+        )
+        .frame(width: room.width, height: room.height)
+        .padding(.top, geometry.titleBarHeight)
         .transition(.opacity)
     }
 }
@@ -216,7 +243,7 @@ final class SearchPanelOverlayHost: NSHostingView<SearchPanelWindowOverlay> {
     ///
     /// The traffic lights are the second nil, and the head of `SearchPanelWindowOverlay` says why.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard SearchPanelModel.shared.isOpen else { return nil }
+        guard SearchPanelModel.shared.isOpen || AskPanelModel.shared.isOpen else { return nil }
         // `point` arrives in the SUPERVIEW's coordinates and the buttons were measured in the
         // superview's coordinates, so they are compared there and nothing is converted. Converting
         // into this view would be the mistake: a hosting view is flipped, so the y would come out

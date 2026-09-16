@@ -1,8 +1,9 @@
 import SwiftUI
 import BloomCore
 
-/// The strip pinned to the bottom of the sidebar: the two controls that narrow or explain the
-/// list, and a line the pane borrows when it has something to say about itself.
+/// The strip pinned to the bottom of the sidebar: Home, New and Ask Bloom (`SidebarDock`), the two
+/// controls that narrow or explain the list, and a line the pane borrows when it has something to
+/// say about itself.
 ///
 /// The filter lives down here rather than in a header, which is where Xcode and Finder put the
 /// controls that narrow a source list.
@@ -13,6 +14,8 @@ struct SidebarStatusBar: View {
     /// Raised to the sidebar so the projects submenu's New workspace posts for the create window
     /// through the same door every other entry point uses. See `SidebarView.presentCreate`.
     var onCreateWorkspace: (Repo) -> Void = { _ in }
+    /// New workspace with no project named, which the create window asks for.
+    var onNewWorkspace: () -> Void = {}
     var onStartProject: () -> Void = {}
     /// Whether the projects the owner has hidden are in the list. A preference rather than this
     /// window's state, which is why it is `@AppStorage` here and in `SidebarView` rather than a
@@ -36,6 +39,8 @@ struct SidebarStatusBar: View {
             Hairline()
 
             HStack(spacing: Metrics.spacingSmall) {
+                SidebarDock(onNewWorkspace: onNewWorkspace, onStartProject: onStartProject)
+
                 noteLabel
 
                 Spacer(minLength: Metrics.spacingSmall)
@@ -48,8 +53,8 @@ struct SidebarStatusBar: View {
                         grouping: $storedGrouping
                     )
                     SidebarProjectsMenu(repos: app.repos, onCreateWorkspace: onCreateWorkspace)
-                    // The same words Home's own plus uses, so one action is not named two ways
-                    // inside one pane. See `SidebarView.homeRow`.
+                    // The same words the New button's menu uses, so one action is not named two
+                    // ways inside one pane. See `SidebarDock`.
                     Button("New project…", action: onStartProject)
                 } label: {
                     controlLabel(

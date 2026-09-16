@@ -131,14 +131,14 @@ struct BloomCommands: Commands {
             .disabled(model.selectedWorkspace == nil)
 
             MenuCommand(.newSession) {
-                if model.selection == .ask {
+                if model.isAskInFront {
                     Task { await model.ask.newConversation() }
                     return
                 }
                 guard let workspace = model.selectedModel else { return }
                 NewPane.open(.chat, in: workspace) { WorkspaceTabsStore.shared.select($0, in: workspace) }
             }
-            .disabled(model.selectedModel == nil && model.selection != .ask)
+            .disabled(model.selectedModel == nil && !model.isAskInFront)
 
             // The other four things that open a tab in the workspace's centre column, which until
             // now existed only as key equivalents on hidden buttons inside `SessionTabsView`. The
@@ -224,7 +224,7 @@ struct BloomCommands: Commands {
             }
             // Scoped to the main window as well as to there being a tab, because this item holds
             // Cmd+W for the whole app. See `MainWindowFocus`.
-            .disabled(isMainWindowFocused != true || (closableTab == nil && !canCloseAskTab))
+            .disabled(isMainWindowFocused != true || (model.isAskInFront ? !canCloseAskTab : closableTab == nil))
 
             Divider()
 
@@ -453,6 +453,7 @@ struct BloomCommands: Commands {
             // AppKit finds first would silently have killed the other. Cmd+Shift+H is what Home is
             // bound to in Finder and in Safari anyway, so this is where it should always have been.
             MenuCommand(.goToHome) {
+                AskPanelModel.shared.close()
                 model.selection = .home
             }
             .disabled(model.selection == .home)
@@ -462,8 +463,10 @@ struct BloomCommands: Commands {
             // keylessness nothing could compare against the rest of the bar, which is what
             // `MenuCommand`'s header calls the whole point of it. The argument for no key is on
             // the row itself now.
+            // Opens and closes the panel rather than going anywhere. On the full pane the
+            // conversation is already in front, so there is nothing to open.
             MenuCommand(.goToAsk) {
-                model.selection = .ask
+                AskPanelModel.shared.toggle(app: model)
             }
             .disabled(model.selection == .ask)
         }
@@ -839,7 +842,7 @@ struct BloomCommands: Commands {
     /// Greyed on a strip with nothing to move to, rather than on no workspace at all, which is
     /// the same rule Split Right follows two items above.
     private var canCycleCentreTabs: Bool {
-        if model.selection == .ask { return model.ask.sessions.count > 1 }
+        if model.isAskInFront { return model.ask.sessions.count > 1 }
         guard let workspace = model.selectedModel else { return false }
         return WorkspaceTabsStore.shared.entries(in: workspace).count > 1
     }
@@ -862,7 +865,7 @@ struct BloomCommands: Commands {
     /// `TabCycle.numbered` in the core.
     @ViewBuilder
     private var goToTabMenu: some View {
-        if model.selection == .ask {
+        if model.isAskInFront {
             MenuCommandGroup(.goToTab) {
                 ForEach(TabCycle.numbered(model.ask.sessions.map(\.id))) { entry in
                     if let chat = model.ask.sessions.first(where: { $0.id == entry.tab }) {
@@ -935,11 +938,11 @@ struct BloomCommands: Commands {
     /// Closing a conversation still goes through `CloseSessionAlert`, which asks when there is
     /// something to lose by it and never asks when there is not. That is the whole of what the old
     /// Close Session did, so nothing about a chat closes more quietly than it used to.
-    private var canCloseAskTab: Bool { model.selection == .ask && model.ask.sessions.count > 1 }
+    private var canCloseAskTab: Bool { model.isAskInFront && model.ask.sessions.count > 1 }
 
     private func closeSelectedTab() {
-        if canCloseAskTab, let id = model.ask.selectedID {
-            model.ask.requestClose(id)
+        if model.isAskInFront {
+            if canCloseAskTab, let id = model.ask.selectedID { model.ask.requestClose(id) }
             return
         }
         guard let workspace = model.selectedModel, let target = closableTab else { return }

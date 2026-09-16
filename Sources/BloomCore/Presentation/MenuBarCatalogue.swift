@@ -140,10 +140,10 @@ public enum MenuBarCatalogue {
         MenuBarItem(.previousWorkspace, in: .view, "Previous Workspace", key: .init(.upArrow, .command, .option), availability: .needsAnyWorkspace),
         MenuBarItem(.nextUnread, in: .view, "Next Unread", key: .init("u", .command, .shift), availability: .sometimes),
         MenuBarItem(.goToHome, in: .view, "Go to Home", key: .init("h", .command, .shift), availability: .sometimes),
-        // No key. Every letter that would read as this one is taken by something in front of it,
-        // and a menu item is discoverable without one where a second binding on a key the composer
-        // already uses is not.
-        MenuBarItem(.goToAsk, in: .view, "Go to Ask Bloom", availability: .sometimes),
+        // Command-J opens and closes the Ask Bloom panel. It had no key while Ask was a place in the
+        // sidebar, because a destination is a click away; a panel in front of the window is the
+        // kind of thing a key is for, and J was free. See `AskPanelModel`.
+        MenuBarItem(.goToAsk, in: .view, "Ask Bloom", key: .command("j"), availability: .sometimes),
         MenuBarItem(.zoomIn, in: .view, "Zoom In", key: .command("+"), availability: .sometimes),
         MenuBarItem(.zoomOut, in: .view, "Zoom Out", key: .command("-"), availability: .sometimes),
         MenuBarItem(.actualSize, in: .view, "Actual Size", key: .command("0"), availability: .sometimes),

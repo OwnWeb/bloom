@@ -30,7 +30,13 @@ struct SearchPanelOverlay: ViewModifier {
             // is the flag it reads. The panel's field is a field in the window exactly as the
             // toolbar's was. See `HomeListKeyboard`.
             .onChange(of: panel.isOpen) { _, open in
-                app.isSearchFieldFocused = open
+                app.isSearchFieldFocused = open || AskPanelModel.shared.isOpen
+                if open { raise() }
+            }
+            // Ask Bloom's panel is drawn by the same host. Home's list must leave the keyboard
+            // alone while it is up for the same reason: its composer is a field somebody types in.
+            .onChange(of: AskPanelModel.shared.isOpen) { _, open in
+                app.isSearchFieldFocused = open || panel.isOpen
                 if open { raise() }
             }
             // The list is rebuilt when its inputs move rather than while drawing, which is the

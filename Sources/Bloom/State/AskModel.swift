@@ -149,6 +149,14 @@ final class AskModel {
         transcripts[id]?.isRunning == true || transcripts[id]?.subagents.isWorking == true
     }
 
+    /// The mark one conversation's row wears in the panel's rail. See `AskPanelLayout.status`.
+    func status(for id: SessionID) -> WorkspaceStatus? {
+        AskPanelLayout.status(
+            isRunning: isRunning(id),
+            isAwaitingPermission: transcripts[id]?.isAwaitingPermission == true
+        )
+    }
+
     var isRunning: Bool { transcripts.keys.contains { isRunning($0) } }
     var isAwaitingPermission: Bool { transcripts.values.contains { $0.isAwaitingPermission } }
 

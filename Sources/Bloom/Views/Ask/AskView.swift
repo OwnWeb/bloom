@@ -1,13 +1,12 @@
 import SwiftUI
 import BloomCore
 
-/// Ask conversations share the app's tab chrome, visible once a second conversation is open.
+/// Ask Bloom given the whole centre column, reached from the panel's expand button.
+///
+/// Conversations share the app's tab chrome here, visible once a second one is open. The panel
+/// lists the same conversations in a rail instead. See `AskPanelView`.
 struct AskView: View {
     @Environment(AppModel.self) private var app
-
-    private var textSize: ChatTextSize { ColourThemePreference.shared.chatTextSize }
-    private var chatFontID: String { ColourThemePreference.shared.chatFont }
-    private var lineHeight: ChatLineHeight { ColourThemePreference.shared.chatLineHeight }
 
     var body: some View {
         let isStripShown = app.ask.sessions.count > 1
@@ -21,22 +20,7 @@ struct AskView: View {
         )
         VStack(spacing: 0) {
             if isStripShown { AskTabStrip(busy: busy) }
-            if let trouble = app.ask.trouble {
-                EmptyStateView(
-                    glyph: "exclamationmark.triangle",
-                    title: "This conversation has nowhere to run",
-                    message: trouble
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let transcript = app.ask.transcript {
-                AskConversationView(transcript: transcript)
-                    .id(transcript.session.id)
-            } else {
-                // The moment between the pane opening and the store answering. Nothing is drawn
-                // rather than an empty state, because an empty state that appears for one frame
-                // and is replaced reads as a fault.
-                Color.clear
-            }
+            AskConversationContent()
         }
         .background(Palette.windowBackground)
         // A lone conversation has no tab to sweep, so its segment runs along the top edge, the
@@ -52,58 +36,5 @@ struct AskView: View {
             WindowTitleText.shared.setBusy(shows, for: .ask)
         }
         .onDisappear { WindowTitleText.shared.setBusy(false, for: .ask) }
-        .environment(\.fontScale, textSize.scale)
-        .environment(\.chatFont, ChatFont(rawValue: chatFontID))
-        .environment(\.chatLineHeight, lineHeight)
-        // Not in a body: `open()` writes observed state and can create a session row.
-        .task { await app.ask.open() }
-        .confirmationDialog("Stop and close this conversation?", isPresented: Binding(
-            get: { app.ask.closingID != nil }, set: { if !$0 { app.ask.closingID = nil } }
-        ), titleVisibility: .visible) {
-            Button("Stop and Close", role: .destructive) {
-                if let id = app.ask.closingID { Task { await app.ask.close(id) } }
-                app.ask.closingID = nil
-            }
-            Button("Cancel", role: .cancel) { app.ask.closingID = nil }
-        } message: {
-            Text("The agent will stop. The conversation will be archived.")
-        }
     }
-
-}
-
-private struct AskConversationView: View {
-    let transcript: TranscriptModel
-    @State private var isTranscriptScrolledUp = false
-    @State private var room = ComposerRoom()
-
-    var body: some View {
-        TranscriptView(transcript: transcript, emptyState: Self.opening) {
-            isTranscriptScrolledUp = $0
-        }
-        .environment(\.composerRoom, room)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(alignment: .bottom) {
-            ComposerDock(
-                showsJumpToNewest: isTranscriptScrolledUp,
-                onJumpToNewest: transcript.jumpToLiveEnd
-            ) {
-                ComposerView(
-                    transcript: transcript,
-                    model: nil,
-                    room: room,
-                    placeholder: AskConversation.placeholder
-                )
-            }
-        }
-        .onGeometryChange(for: CGFloat.self) { PaneMeasure.room($0.size.height) } action: {
-            room.height = $0
-        }
-    }
-
-    private static let opening = TranscriptEmptyState(
-        glyph: PaneGlyph.chat,
-        title: AskConversation.emptyHeading,
-        message: AskConversation.emptyDetail
-    )
 }
