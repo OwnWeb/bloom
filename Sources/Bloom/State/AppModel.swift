@@ -649,16 +649,30 @@ final class AppModel {
             // anything makes, and the projects in particular almost never change.
             // `refreshDiffStats` has compared before assigning all along; this is the same rule in
             // the other place that publishes.
-            if repos != loadedRepos { repos = loadedRepos }
-            if workspaces != reconciled {
-                // A diff stat moving and nothing else is the one reload the figures roll on, and
-                // the curve is on this write because a list row ignores any it starts itself. See
-                // `WorkspaceListReconciliation.changesOnlyDiffStats`.
-                if WorkspaceListReconciliation.changesOnlyDiffStats(from: workspaces, to: reconciled),
-                   !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-                    withAnimation(Motion.hover) { workspaces = reconciled }
-                } else {
-                    workspaces = reconciled
+            let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            // A project added, removed, hidden or unhidden takes rows out of the sidebar or puts
+            // them in, and the curve has to be on this write for the list to play it: keyed to a
+            // value in the sidebar, the rows went in a single frame. Both lists go in the one
+            // transaction, because removing a project removes its workspaces in the same reload.
+            // Not on launch, where the first fill would otherwise slide in.
+            if isLoaded, !reduceMotion,
+               ProjectVisibilityMotion.movesProjectRows(from: repos, to: loadedRepos) {
+                withAnimation(.easeOut(duration: ProjectVisibilityMotion.seconds)) {
+                    repos = loadedRepos
+                    if workspaces != reconciled { workspaces = reconciled }
+                }
+            } else {
+                if repos != loadedRepos { repos = loadedRepos }
+                if workspaces != reconciled {
+                    // A diff stat moving and nothing else is the one reload the figures roll on,
+                    // and the curve is on this write because a list row ignores any it starts
+                    // itself. See `WorkspaceListReconciliation.changesOnlyDiffStats`.
+                    if WorkspaceListReconciliation.changesOnlyDiffStats(from: workspaces, to: reconciled),
+                       !reduceMotion {
+                        withAnimation(Motion.hover) { workspaces = reconciled }
+                    } else {
+                        workspaces = reconciled
+                    }
                 }
             }
             // The stood-in row goes exactly when the real one arrives, and here rather than at the

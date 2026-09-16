@@ -36,3 +36,29 @@ import Testing
         #expect(ProjectVisibilityMotion.seconds == TranscriptMotion.arrival(reduceMotion: false)?.seconds)
     }
 }
+
+/// Which reloads of the projects `AppModel.reload` publishes inside an animation.
+@Suite struct ProjectRowsMovementTests {
+    private let first = Repo(name: "bloom", path: "/code/bloom")
+    private let second = Repo(name: "site", path: "/code/site")
+
+    @Test func hidingOrUnhidingAProjectMovesRows() {
+        var hidden = second
+        hidden.hidden = true
+        #expect(ProjectVisibilityMotion.movesProjectRows(from: [first, second], to: [first, hidden]))
+        #expect(ProjectVisibilityMotion.movesProjectRows(from: [first, hidden], to: [first, second]))
+    }
+
+    @Test func addingOrRemovingAProjectMovesRows() {
+        #expect(ProjectVisibilityMotion.movesProjectRows(from: [first, second], to: [first]))
+        #expect(ProjectVisibilityMotion.movesProjectRows(from: [first], to: [first, second]))
+    }
+
+    @Test func renamingFoldingOrReorderingMovesNothing() {
+        var renamed = second
+        renamed.name = "website"
+        renamed.collapsed = true
+        #expect(!ProjectVisibilityMotion.movesProjectRows(from: [first, second], to: [first, renamed]))
+        #expect(!ProjectVisibilityMotion.movesProjectRows(from: [first, second], to: [second, first]))
+    }
+}
