@@ -891,12 +891,13 @@ struct SidebarView: View {
             Spacer(minLength: Metrics.spacingSmall)
 
             Menu {
-                // The owner's own words and his own order, rather than the menu bar's titles.
+                // The owner's own words and order, rather than the menu bar's titles. Workspace
+                // leads because it is the one reached for daily; a project is started far less.
                 // File says "New Workspace…" and "Start a Project…" because a menu bar is set in
                 // Title Case on this platform; a menu inside the window is not, and the pane's
                 // other menus ("Project settings…", "Hide project") are already sentence case.
-                Button("New project…", action: startProject)
                 Button("New workspace…") { presentCreate(in: nil) }
+                Button("New project…", action: startProject)
             } label: {
                 Label("New", systemImage: "plus")
                     .labelStyle(.iconOnly)
