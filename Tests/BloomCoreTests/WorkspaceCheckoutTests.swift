@@ -129,7 +129,8 @@ struct WorkspaceCheckoutTests {
             defaultBranch: "main",
             pullRequestHeads: WorkspaceCheckoutPlan.heads(of: requests)
         )
-        #expect(branches.map(\.name) == ["wip"])
+        // The default branch leads, as it does everywhere on this tab since it was offered there.
+        #expect(branches.map(\.name) == ["main", "wip"])
     }
 
     @Test("Being in use does not save a branch from the exclusions that are still right")
@@ -142,7 +143,9 @@ struct WorkspaceCheckoutTests {
             inUse: ["figma-mcp-check": .workspace("Coral Bay"), "main": .workspace("Coral Bay")],
             pullRequestHeads: WorkspaceCheckoutPlan.heads(of: requests)
         )
-        #expect(branches.isEmpty)
+        // The default branch is offered and wears what holds it; the pull request's head is not.
+        #expect(branches.map(\.name) == ["main"])
+        #expect(branches.first?.inUseBy == .workspace("Coral Bay"))
     }
 
     @Test("A fork's head does not hide a branch of this repository that shares its name")
@@ -155,7 +158,7 @@ struct WorkspaceCheckoutTests {
             defaultBranch: "main",
             pullRequestHeads: WorkspaceCheckoutPlan.heads(of: requests)
         )
-        #expect(branches.map(\.name) == ["patch-1"])
+        #expect(branches.map(\.name) == ["main", "patch-1"])
     }
 
     @Test("Only origin's branches count as remote branches")

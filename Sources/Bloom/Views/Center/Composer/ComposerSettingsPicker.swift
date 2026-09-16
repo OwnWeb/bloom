@@ -34,52 +34,20 @@ struct ComposerSettingsPicker: View {
     var body: some View {
         let matched = library.list.matching(controls)
 
-        Menu {
+        Group {
+            // With no presets the menu is a dead end: a greyed "No presets yet" above the one item
+            // anybody could choose, so every change of model took two clicks. The owner asked for
+            // the panel straight away until there is a preset to offer. Its "Save as preset…" is
+            // what makes the first one, and the menu comes back the moment it exists.
             if library.presets.isEmpty {
-                Text("No presets yet")
-            } else {
-                Section("Presets") {
-                    ForEach(library.presets) { preset in
-                        // A toggle rather than a button, because the tick is the menu's to draw
-                        // and a toggle is what asks for it. See `ComposerOptionMenu.rows`.
-                        Toggle(isOn: Binding(
-                            get: { matched?.id == preset.id },
-                            set: { _ in MainActor.assumeIsolated { onPreset(preset) } }
-                        )) {
-                            Text(preset.name)
-                            Text(presetSummary(preset))
-                        }
-                    }
+                Button { isOpen = true } label: {
+                    settingsLabel(matched: matched)
                 }
+                .buttonStyle(.plain)
+            } else {
+                presetMenu(matched: matched)
             }
-
-            Divider()
-
-            Button("Custom…") {
-                // After the menu has closed, so the popover is not dismissed with it.
-                DispatchQueue.main.async { isOpen = true }
-            }
-
-            Divider()
-
-            Button("Manage presets…") {
-                SettingsTabRequest.post(.presets)
-                openSettings()
-            }
-        } label: {
-            ComposerControlLabel(
-                systemImage: "slider.horizontal.3",
-                text: isCompact ? nil : label(matched: matched),
-                tint: Palette.textSecondary,
-                isActive: isOpen,
-                showsMenuIndicator: true,
-                showsDot: matched == nil && !library.presets.isEmpty
-            )
         }
-        // The same three modifiers `ComposerOptionMenu` needs, for the reasons it gives.
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
         .fixedSize(horizontal: false, vertical: true)
         .help(matched == nil ? "Agent settings" : "Agent settings, preset \(matched?.name ?? "")")
         .accessibilityLabel("Agent settings")
@@ -104,6 +72,55 @@ struct ComposerSettingsPicker: View {
             .environment(\.fontScale, 1)
         }
         .task { await library.load(from: app.store) }
+    }
+
+    private func presetMenu(matched: ModelPreset?) -> some View {
+        Menu {
+            Section("Presets") {
+                ForEach(library.presets) { preset in
+                    // A toggle rather than a button, because the tick is the menu's to draw
+                    // and a toggle is what asks for it. See `ComposerOptionMenu.rows`.
+                    Toggle(isOn: Binding(
+                        get: { matched?.id == preset.id },
+                        set: { _ in MainActor.assumeIsolated { onPreset(preset) } }
+                    )) {
+                        Text(preset.name)
+                        Text(presetSummary(preset))
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Custom…") {
+                // After the menu has closed, so the popover is not dismissed with it.
+                DispatchQueue.main.async { isOpen = true }
+            }
+
+            Divider()
+
+            Button("Manage presets…") {
+                SettingsTabRequest.post(.presets)
+                openSettings()
+            }
+        } label: {
+            settingsLabel(matched: matched)
+        }
+        // The same three modifiers `ComposerOptionMenu` needs, for the reasons it gives.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+    }
+
+    private func settingsLabel(matched: ModelPreset?) -> some View {
+        ComposerControlLabel(
+            systemImage: "slider.horizontal.3",
+            text: isCompact ? nil : label(matched: matched),
+            tint: Palette.textSecondary,
+            isActive: isOpen,
+            showsMenuIndicator: true,
+            showsDot: matched == nil && !library.presets.isEmpty
+        )
     }
 
     private var allModels: [ComposerOption] { models.flatMap(\.options) }

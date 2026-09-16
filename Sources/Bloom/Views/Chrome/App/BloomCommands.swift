@@ -463,12 +463,10 @@ struct BloomCommands: Commands {
             // keylessness nothing could compare against the rest of the bar, which is what
             // `MenuCommand`'s header calls the whole point of it. The argument for no key is on
             // the row itself now.
-            // Opens and closes the panel rather than going anywhere. On the full pane the
-            // conversation is already in front, so there is nothing to open.
+            // Opens and closes the panel rather than going anywhere.
             MenuCommand(.goToAsk) {
                 AskPanelModel.shared.toggle(app: model)
             }
-            .disabled(model.selection == .ask)
         }
 
         // Zoom, at the foot of the View menu, where Safari, Preview and Notes all keep it, and
@@ -938,7 +936,8 @@ struct BloomCommands: Commands {
     /// Closing a conversation still goes through `CloseSessionAlert`, which asks when there is
     /// something to lose by it and never asks when there is not. That is the whole of what the old
     /// Close Session did, so nothing about a chat closes more quietly than it used to.
-    private var canCloseAskTab: Bool { model.isAskInFront && model.ask.sessions.count > 1 }
+    /// The last one closes too, and is replaced by a blank conversation. See `AskModel.close`.
+    private var canCloseAskTab: Bool { model.isAskInFront && model.ask.selectedID != nil }
 
     private func closeSelectedTab() {
         if model.isAskInFront {

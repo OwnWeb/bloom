@@ -56,12 +56,11 @@ struct ArchiveNavigationTests {
     }
 
     /// Nil rather than `.home`, and the difference is a write. The caller only assigns when there
-    /// is somewhere to go, so archiving from Home's row menu, from Ask Bloom or from the sidebar
+    /// is somewhere to go, so archiving from Home's row menu, from the Ask Bloom panel or from the sidebar
     /// while nothing is selected writes nothing to the selection at all.
     @Test("a window on no workspace is not moved")
     func destinationsWithNoWorkspaceAreLeftAlone() {
         #expect(ArchiveNavigation.destination(leaving: .home, archiving: archived) == nil)
-        #expect(ArchiveNavigation.destination(leaving: .ask, archiving: archived) == nil)
     }
 
     /// An archived workspace open for reading is not a workspace being archived: its worktree

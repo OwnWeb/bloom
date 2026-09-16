@@ -77,6 +77,13 @@ final class AskModel {
         defer { isChanging = false }
         do {
             if !hasOpened { sessions = try await store.sessionsWithoutWorkspace() }
+            // A blank conversation is already a new one. Making another would only pile up rows
+            // the rail does not show.
+            if let blank = sessions.first(where: isBlank) {
+                hasOpened = true
+                await select(blank.id)
+                return
+            }
             let directory = try await newDirectory()
             let made = try await store.createAskConversation(directory: directory)
             sessions.append(made)
@@ -119,7 +126,18 @@ final class AskModel {
         if isRunning(id) { closingID = id } else { Task { await close(id) } }
     }
 
+    /// Closing the last conversation archives it and leaves a blank one in its place, rather than
+    /// refusing. The owner wanted to be able to close it, and a pane with no conversation at all
+    /// has no composer to type into: the blank one is what shows the empty state, its suggestions
+    /// and a real composer, with the model and settings the closed one had.
     func close(_ id: SessionID) async {
+        if sessions.count == 1, let only = sessions.first, only.id == id {
+            // Already the blank one the close would leave behind.
+            if isBlank(only) { return }
+            if selectedID != id { await select(id) }
+            await startFresh()
+            return
+        }
         guard !isChanging, sessions.count > 1, let store = app.store else { return }
         isChanging = true
         defer { isChanging = false }
@@ -141,6 +159,23 @@ final class AskModel {
             if let index = sessions.firstIndex(where: { $0.id == id }) { sessions[index].title = title }
             transcripts[id]?.session.title = title
         } catch { report(error, title: "Could not rename the conversation") }
+    }
+
+    /// The conversations the rail lists: everything but the blank ones. See `AskConversation.isBlank`.
+    var listedSessions: [Session] { sessions.filter { !isBlank($0) } }
+
+    /// Blank by its row, unless its transcript already has something in it, which covers the
+    /// moment between a message going out and the title it earns being written.
+    func isBlank(_ chat: Session) -> Bool {
+        if transcripts[chat.id]?.hasNothingToShow == false { return false }
+        return AskConversation.isBlank(transcripts[chat.id]?.session ?? chat)
+    }
+
+    /// Names a conversation after its first message. See `AskConversation.automaticTitle`.
+    func nameFromFirstMessage(_ id: SessionID, prompt: String) async {
+        let current = transcripts[id]?.session.title ?? sessions.first { $0.id == id }?.title ?? ""
+        guard let title = AskConversation.automaticTitle(current: current, prompt: prompt) else { return }
+        await rename(id, title: title)
     }
 
     func title(for chat: Session) -> String { transcripts[chat.id]?.session.title ?? chat.title }

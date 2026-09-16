@@ -23,6 +23,7 @@ import BloomCore
 /// custom label away and draws only the indicator, which is why it rendered as a lone letter.
 struct SidebarView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.isSidebarFolded) private var isSidebarFolded
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The window's undo manager. Only a view can see it, and `AppModel` is where the archive
     /// that wants it happens, so the sidebar hands it over. Any view in the window would do; this
@@ -88,6 +89,9 @@ struct SidebarView: View {
     /// being removed and reinserted, with nothing to animate it. This changes when, and only when,
     /// a row moves, so a status update that moves nothing puts the list into no transaction.
     @State private var statusArrangement: [String] = []
+    /// The selected workspace that stays in Ready to read until it is left. See
+    /// `SidebarReadingHold`.
+    @State private var readingHold: WorkspaceID?
 
     /// What the status bar says instead of the running count, briefly, after a drag that could not
     /// land where it was let go. See `move(from:to:)`.
@@ -131,6 +135,13 @@ struct SidebarView: View {
     @State private var childArrival = RowArrival<String>()
 
     var body: some View {
+        answering(observing(animating(list)))
+    }
+
+    /// The list itself. `body` is four steps (this, `animating`, `observing` and `answering`)
+    /// because the chain as one expression was past what the CI runner's type checker would
+    /// finish in a release build: green on this Mac, red there, three times.
+    private var list: some View {
         List(selection: $listSelection) {
             // No rows above the projects. Home and Ask Bloom were two here, with the pane's `+` on
             // Home, and all three are buttons in the status bar now. See `SidebarDock`.
@@ -173,6 +184,11 @@ struct SidebarView: View {
         } onConfirm: { pending in
             Task { await stop(pending) }
         }
+    }
+
+    /// The motion keyed to the list's values, one step of `body`. See `list`.
+    private func animating(_ list: some View) -> some View {
+        list
         // What puts the fold back.
         //
         // A `List` animates nothing on its own: rows arrive and leave in whatever transaction the
@@ -229,6 +245,15 @@ struct SidebarView: View {
             guard !Task.isCancelled else { return }
             reorderNote = nil
         }
+        // A struct of its own rather than a closure here: written inline, it put `body` past what
+        // the CI runner's type checker would finish, green on this Mac and red there.
+        .toolbar {
+            SidebarToolbar(
+                isFolded: isSidebarFolded,
+                onNewWorkspace: { presentCreate(in: nil) },
+                onStartProject: startProject
+            )
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             SidebarStatusBar(
                 filter: $filter,
@@ -238,6 +263,11 @@ struct SidebarView: View {
                 note: reorderNote?.sentence
             )
         }
+    }
+
+    /// What the pane listens to: the model's changes, the filter, the selection and the menu bar.
+    private func observing(_ pane: some View) -> some View {
+        pane
         // Keyed to `isLoaded` rather than run once, because the projects arrive from the store
         // after the first draw. Timing the settle from an empty pane would let the whole restored
         // set of folds animate as it lands.
@@ -284,6 +314,11 @@ struct SidebarView: View {
             archivePresentation.cancel()
             regroup(rescoped: true)
         }
+    }
+
+    /// The selection, the keyboard and the menu bar. Its own step for the reason `list` gives.
+    private func answering(_ pane: some View) -> some View {
+        pane
         .onAppear { SwitchProbe.attachSidebarSelection($listSelection) }
         .onDisappear {
             archivePresentation.cancel()
@@ -626,6 +661,7 @@ struct SidebarView: View {
             )
             let listing = SidebarStatusListing.build(
                 workspaces: groups.flatMap(\.workspaces),
+                holding: readingHold,
                 status: status(of:)
             )
             // Written here rather than derived in `body`, in the same breath as the rows, so the
@@ -747,6 +783,12 @@ struct SidebarView: View {
     private func follow(_ target: SidebarSelection) {
         renaming = nil
         listSelection = target
+        let hold = SidebarReadingHold.next(
+            selection: target, current: readingHold, workspaces: app.workspaces
+        )
+        guard hold != readingHold else { return }
+        readingHold = hold
+        if grouping == .status { reflow() }
     }
 
     /// Delete on the selected row, from the keyboard.
@@ -889,6 +931,58 @@ struct SidebarView: View {
     /// entry point posts and behaves identically.
     private func startProject() {
         NotificationCenter.default.post(name: .bloomNewProject, object: nil)
+    }
+}
+
+extension EnvironmentValues {
+    /// Whether the window's sidebar column is folded away. A sidebar's toolbar items stay in the
+    /// title bar after the column has gone, beside the detail column's own toggle, so the sidebar
+    /// reads this to take New and its toggle away with it.
+    @Entry var isSidebarFolded = false
+}
+
+/// New and the collapse button, in one piece of glass, the way the detail column's plus, search
+/// and inspector share one.
+///
+/// The system's own toggle cannot join a group: it is `NavigationSplitView`'s item, and a `+`
+/// beside it came out as two separate capsules. So `RootView` removes that toggle and this is its
+/// replacement, with the detail column's toolbar drawing one while the sidebar is folded away.
+/// Folded, this draws nothing, because a sidebar's toolbar items otherwise stay in the title bar
+/// after the column has gone.
+struct SidebarToolbar: ToolbarContent {
+    var isFolded: Bool
+    var onNewWorkspace: () -> Void
+    var onStartProject: () -> Void
+
+    var body: some ToolbarContent {
+        if !isFolded {
+            // Pushes the pair to the sidebar's trailing edge. Without it they sat against the
+            // traffic lights.
+            ToolbarSpacer(.flexible, placement: .primaryAction)
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                Menu {
+                    Button("New workspace…", action: onNewWorkspace)
+                    Button("New project…", action: onStartProject)
+                } label: {
+                    Label("New", systemImage: "plus")
+                }
+                .menuIndicator(.hidden)
+                .help("New workspace or project")
+
+                SidebarToggleButton()
+            }
+        }
+    }
+}
+
+/// Folds the sidebar away or brings it back, through the same notification the View menu uses.
+struct SidebarToggleButton: View {
+    var body: some View {
+        Button("Toggle Sidebar", systemImage: "sidebar.left") {
+            NotificationCenter.default.post(name: .bloomToggleSidebar, object: nil)
+        }
+        .help("Toggle the sidebar")
     }
 }
 

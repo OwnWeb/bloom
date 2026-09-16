@@ -76,6 +76,10 @@ struct WorkspaceNameText: View {
         // weight. Set on the visible `Text` alone, an unread name would be measured light and
         // drawn heavy, and the last letter of every unread row would be clipped.
         .fontWeight(isUnread ? Self.unreadWeight : .regular)
+        // Keyed to the flag alone. The mark is written through the store, so the menu press that
+        // asked for it has no transaction left by the time the row redraws, and without this an
+        // unread row in the projects view snapped heavy where the status view moves it.
+        .animation(reduceMotion ? nil : Motion.hover, value: isUnread)
         .clipped()
         .task(id: reveal?.id) { await play() }
     }

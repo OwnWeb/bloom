@@ -188,3 +188,60 @@ struct SidebarMarkPolicyTests {
         }
     }
 }
+
+/// The row the owner clicked in Ready to read stays there until they leave it.
+@Suite("Sidebar reading hold")
+struct SidebarReadingHoldTests {
+    private func workspace(_ id: String, unread: Bool) -> Workspace {
+        var workspace = Workspace(
+            id: WorkspaceID(id),
+            repoID: RepoID("r1"),
+            name: id,
+            branch: "bloom/\(id)",
+            path: "/tmp/\(id)",
+            baseBranch: "main"
+        )
+        workspace.unread = unread
+        return workspace
+    }
+
+    @Test func selectingAnUnreadWorkspaceHoldsIt() {
+        let rows = [workspace("a", unread: true)]
+        let hold = SidebarReadingHold.next(selection: .workspace(WorkspaceID("a")), current: nil, workspaces: rows)
+        #expect(hold == WorkspaceID("a"))
+    }
+
+    @Test func selectingAReadWorkspaceHoldsNothing() {
+        let rows = [workspace("a", unread: false)]
+        let hold = SidebarReadingHold.next(selection: .workspace(WorkspaceID("a")), current: nil, workspaces: rows)
+        #expect(hold == nil)
+    }
+
+    /// The flag clears a moment after arrival, and the selection re-firing must not drop the hold.
+    @Test func theHoldSurvivesTheFlagClearingWhileSelected() {
+        let rows = [workspace("a", unread: false)]
+        let id = WorkspaceID("a")
+        let hold = SidebarReadingHold.next(selection: .workspace(id), current: id, workspaces: rows)
+        #expect(hold == id)
+    }
+
+    @Test func leavingTheWorkspaceReleasesIt() {
+        let rows = [workspace("a", unread: false), workspace("b", unread: false)]
+        let id = WorkspaceID("a")
+        #expect(SidebarReadingHold.next(selection: .workspace(WorkspaceID("b")), current: id, workspaces: rows) == nil)
+        #expect(SidebarReadingHold.next(selection: .home, current: id, workspaces: rows) == nil)
+    }
+
+    @Test func aHeldWorkspaceIsListedInReadyToRead() {
+        let rows = [workspace("a", unread: false), workspace("b", unread: false)]
+        let listing = SidebarStatusListing.build(workspaces: rows, holding: WorkspaceID("a"), status: { _ in .clean })
+        #expect(listing.sections.map(\.group) == [.readyToRead, .idle])
+        #expect(listing.sections.first?.workspaces.map(\.id.rawValue) == ["a"])
+    }
+
+    @Test func aHoldDoesNotPullAWorkingRowOutOfWorking() {
+        let rows = [workspace("a", unread: false)]
+        let listing = SidebarStatusListing.build(workspaces: rows, holding: WorkspaceID("a"), status: { _ in .running })
+        #expect(listing.sections.map(\.group) == [.working])
+    }
+}

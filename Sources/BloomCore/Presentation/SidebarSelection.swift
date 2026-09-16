@@ -13,18 +13,6 @@ import Foundation
 /// still costs, is on that scope's own rows. See `HomeScope.showsFootprints`.
 public enum SidebarSelection: Hashable, Sendable {
     case home
-    /// The conversation that sits above every project. See `AskConversation`.
-    ///
-    /// The second root under Home, and adding one back needs an argument, because Search and
-    /// Archive were both taken out of the sidebar for being the same list of workspaces Home
-    /// already draws. This is not that list under a filter. It is a conversation, it holds state a
-    /// chip on Home cannot hold, and it is the only thing in the window scoped to no workspace.
-    ///
-    /// Its `workspaceID` is nil, and everything that hangs off that gets the right answer for
-    /// free: no inspector, no terminal, no diff poll, no pull request accessory, and a Workspace
-    /// menu that greys itself. That is the same fall-out `.home` gets, which is what it should be,
-    /// because neither of them is a worktree.
-    case ask
     case workspace(WorkspaceID)
     /// An archived workspace, open for reading.
     ///
@@ -93,11 +81,11 @@ public enum SidebarSelection: Hashable, Sendable {
     /// exactly the one `.subagent` and `.crew` document at length: an empty inspector, a greyed
     /// Workspace menu and a stopped composer, on a selection where nothing about the workspace
     /// changed. `.archived` being nil is the other half of the same decision, argued on its own
-    /// case, and it now says so here too instead of falling through with `.home` and `.ask`.
+    /// case, and it now says so here too instead of falling through with `.home`.
     public var workspaceID: WorkspaceID? {
         switch self {
         case .workspace(let id), .subagent(let id, _), .subagentCall(let id, _), .crew(let id, _): id
-        case .home, .ask, .archived: nil
+        case .home, .archived: nil
         }
     }
 

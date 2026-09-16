@@ -38,6 +38,9 @@ struct RootView: View {
         return windowWiring(
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 SidebarView()
+                // Replaced by `SidebarToggleButton`, so it can share glass with New.
+                .toolbar(removing: .sidebarToggle)
+                .environment(\.isSidebarFolded, columnVisibility == .detailOnly)
                 .scrollContentBackground(.hidden)
                 .background {
                     Group {
@@ -92,7 +95,7 @@ struct RootView: View {
                     .toolbar {
                         BloomWindowToolbar(
                             app: app,
-                            startFreshAskConversation: { Task { await app.ask.newConversation() } }
+                            isSidebarFolded: columnVisibility == .detailOnly
                         )
                     }
                     // Said here as well as under `navigationTitle` below, and deliberately.
@@ -382,8 +385,8 @@ struct RootView: View {
         // where the post was already being received and because `openWindow` needs a view: the
         // window itself is `CreateWorkspaceWindow`, and it is keyed by project, so asking twice
         // for the same project brings the first one forward with its draft still in it.
-        // File, New Ask Bloom Conversation adds a conversation and keeps the existing ones. It
-        // opens the panel, unless the full pane is already showing them.
+        // File, New Ask Bloom Conversation adds a conversation and keeps the existing ones, and
+        // opens the panel to show it.
         .onReceive(NotificationCenter.default.publisher(for: .bloomNewAskConversation)) { _ in
             AskPanelModel.shared.open(app: app)
             Task { await app.ask.newConversation() }

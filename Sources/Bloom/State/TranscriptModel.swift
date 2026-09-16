@@ -717,6 +717,11 @@ final class TranscriptModel {
         // bubble that goes on screen are one object with one id. Drawn twice under two ids is the
         // duplicate that would appear the moment the queue was read back.
         let delivery = Delivery(targetSessionID: session.id, body: body, interactionMode: interactionMode ?? session.interactionMode)
+        // Ask Bloom is the only transcript with no workspace, and the only one named this way.
+        if workspace == nil {
+            let id = session.id
+            Task { await app.ask.nameFromFirstMessage(id, prompt: body) }
+        }
         messageArrivals.sent(delivery.id)
         if queuesNextMessage || (isRunning && delivery.interactionMode != activeInteractionMode) {
             pendingDeliveries.append(delivery)

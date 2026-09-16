@@ -149,4 +149,40 @@ public enum AskConversation {
     public static let emptyDetail =
         "Start a new project or a workspace, ask what is running and what needs you, "
         + "find the workspace with the failing checks, and open it."
+
+    /// The title a conversation takes from its first message, or nil when it already has one.
+    ///
+    /// Every conversation is made as "Ask Bloom", so a rail of them read "Ask Bloom" down the whole
+    /// column. The first line of the first thing asked is what a person would call it, and it is
+    /// there the moment the message is sent, with no model to wait on. A title somebody typed is
+    /// never overwritten, because only the default is replaced.
+    public static func automaticTitle(current: String, prompt: String) -> String? {
+        guard current == title else { return nil }
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Git.title(from: trimmed, maxLength: 40)
+    }
+
+    /// Whether a conversation has never been used: never named, never started.
+    ///
+    /// The rail leaves these out. Closing the last conversation leaves a blank one behind so the
+    /// panel keeps a composer to type into, and a rail with one "Ask Bloom" row in it after you
+    /// closed everything looked like the close had not worked.
+    public static func isBlank(_ session: Session) -> Bool {
+        session.title == title && session.agentSessionID == nil
+    }
+
+    /// What the empty pane offers to send in one click, under `suggestionsHeading`.
+    ///
+    /// Each is a whole question, answered with nothing else typed: a chip that needs finishing is
+    /// a chip that makes somebody click, then type, then send, which is the clicking around the
+    /// owner asked this pane to stop. Every one is something the bridge's tools can actually do.
+    public static let suggestionsHeading = "Try asking Bloom:"
+    public static let suggestions = [
+        "What needs my attention right now?",
+        "Which workspaces have failing checks?",
+        "What is running at the moment?",
+        "Which workspaces did I touch yesterday?",
+        "Archive the workspaces whose pull requests are merged",
+    ]
 }

@@ -19,8 +19,6 @@ struct DetailColumn: View {
             switch app.selection {
             case .home:
                 HomeView()
-            case .ask:
-                AskView()
             case .workspace(let id):
                 workspace(id)
             case .crew(let workspaceID, let sessionID):

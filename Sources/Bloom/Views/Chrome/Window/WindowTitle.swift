@@ -31,9 +31,6 @@ struct WindowTitle: ViewModifier {
 
     private var title: String {
         if let workspace = app.selectedWorkspace { return workspace.name }
-        // The Window menu, Mission Control and the Dock all read this, and "Bloom" in a list of
-        // windows says nothing about which one you left open.
-        if case .ask = app.selection { return AskConversation.title }
         return "Bloom"
     }
 

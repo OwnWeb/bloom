@@ -1,30 +1,26 @@
 import SwiftUI
 import BloomCore
 
-/// The detail column's toolbar. NavigationSplitView owns the sidebar toggle so it stays over
-/// the sidebar while expanded. Search and the inspector use standard toolbar buttons; only the
+/// The detail column's toolbar. The sidebar draws its own toggle while it is open, grouped with
+/// New (see `SidebarView`), so this one draws a toggle only while the sidebar is folded. Search and the inspector use standard toolbar buttons; only the
 /// pull request band needs a title-bar accessory to follow the inspector's width.
 struct BloomWindowToolbar: ToolbarContent {
     let app: AppModel
-    let startFreshAskConversation: () -> Void
+    let isSidebarFolded: Bool
 
     var body: some ToolbarContent {
+        if isSidebarFolded {
+            ToolbarItem(placement: .navigation) {
+                SidebarToggleButton()
+            }
+        }
+
         ToolbarItem(placement: .navigation) {
             WindowTitleControl(app: app)
                 .padding(.leading, Metrics.spacingWide)
         }
         // The editable window title is text, so it does not need a button's background.
         .sharedBackgroundVisibility(.hidden)
-
-        if app.selection == .ask, app.ask.session != nil {
-            ToolbarItem(placement: .navigation) {
-                Button(action: startFreshAskConversation) {
-                    Image(systemName: "square.and.pencil")
-                }
-                .help("Start a new Ask Bloom conversation")
-                .accessibilityLabel("Start a new Ask Bloom conversation")
-            }
-        }
 
         ToolbarSpacer(.flexible, placement: .navigation)
 

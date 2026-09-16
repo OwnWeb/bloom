@@ -33,11 +33,6 @@ struct SidebarDock: View {
                 // The same words, and the same order, the plus on Home's row had.
                 Button("New workspace…", action: onNewWorkspace)
                 Button("New project…", action: onStartProject)
-                Divider()
-                Button("New Ask Bloom conversation") {
-                    if app.selection != .ask { AskPanelModel.shared.open(app: app) }
-                    Task { await app.ask.newConversation() }
-                }
             } label: {
                 label("New", systemImage: "plus", item: .new, isActive: false)
             }
@@ -53,7 +48,7 @@ struct SidebarDock: View {
             Button { askBloom() } label: {
                 label(
                     AskConversation.title, systemImage: PaneGlyph.chat, item: .ask,
-                    isActive: AskPanelModel.shared.isOpen || app.selection == .ask
+                    isActive: AskPanelModel.shared.isOpen
                 )
                 // The mark the Ask Bloom row wore. A question left running behind a closed panel
                 // is otherwise a turn nothing in the window reports. See `AppModel.askStatus`.
@@ -77,10 +72,7 @@ struct SidebarDock: View {
         app.selection = .home
     }
 
-    /// The full pane already shows the conversation, so the button there is a place you are rather
-    /// than a panel to open. See `AskPanelModel`.
     private func askBloom() {
-        guard app.selection != .ask else { return }
         AskPanelModel.shared.toggle(app: app)
     }
 
