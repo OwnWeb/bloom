@@ -1192,8 +1192,14 @@ final class WorkspaceModel {
         setupTask?.cancel()
         setupGeneration += 1
         let generation = setupGeneration
-        setupTask = Task { [weak self] in
+        let workspaceID = workspace.id
+        setupTask = Task { [weak self, weak app = self.app] in
             await self?.runSetupThenSend(repo: repo, cliSession: cliSession, cliPrompt: prompt)
+            if let self {
+                self.releaseStartHold(afterCLILaunch: cliSession != nil)
+            } else {
+                app?.endStart(workspaceID)
+            }
             if let cliDelivery, let self, !Task.isCancelled,
                !self.pendingCLILaunches.contains(cliDelivery.targetSessionID),
                CenterTabStore.shared.terminal(for: cliDelivery.targetSessionID, in: self.workspace.id) != nil {
@@ -1204,6 +1210,24 @@ final class WorkspaceModel {
             // dropped the live handle, which left the new run with nothing able to cancel it.
             guard let self, self.setupGeneration == generation else { return }
             self.setupTask = nil
+        }
+    }
+
+    /// Gives up the start hold once setup and the first delivery are behind it.
+    ///
+    /// A chat turn has already set the running flag by the time `drain` returns, so the hold has
+    /// either been settled by it or there is no turn coming. A CLI agent in a terminal is only
+    /// seen running once its own status file says so, which is a poll away, so that one keeps
+    /// the hold a few seconds longer rather than dropping the row to Idle in between.
+    private func releaseStartHold(afterCLILaunch: Bool) {
+        let id = workspace.id
+        guard afterCLILaunch else {
+            app.endStart(id)
+            return
+        }
+        Task { [weak app = self.app] in
+            try? await Task.sleep(for: .seconds(10))
+            app?.endStart(id)
         }
     }
 

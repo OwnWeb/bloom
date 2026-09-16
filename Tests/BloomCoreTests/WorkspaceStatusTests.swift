@@ -593,6 +593,24 @@ struct AwaitingPermissionStatusTests {
         #expect(WorkspaceStatus.resolve(workspace: workspace, isRunning: true, pullRequest: nil) == .running)
     }
 
+    /// A workspace between its worktree existing and anything running in it. It used to resolve to
+    /// its branch and drop to Idle for that moment, which is the bounce `WorkspaceStartHold` exists
+    /// to stop.
+    @Test("a workspace still starting keeps the setting up mark until something else is true")
+    func startingHoldsTheMark() {
+        let fresh = workspace()
+        #expect(WorkspaceStatus.resolve(workspace: fresh, isRunning: false, pullRequest: nil, isStarting: true) == .settingUp)
+        #expect(WorkspaceStatus.resolve(workspace: fresh, isRunning: true, pullRequest: nil, isStarting: true) == .running)
+        #expect(SidebarStatusGroup.of(
+            WorkspaceStatus.resolve(workspace: fresh, isRunning: false, pullRequest: nil, isStarting: true)
+        ) == .working)
+
+        var failed = workspace()
+        failed.apply(.runStarted)
+        failed.apply(.runFinished(succeeded: false, log: ""))
+        #expect(WorkspaceStatus.resolve(workspace: failed, isRunning: false, pullRequest: nil, isStarting: true) == .setupFailed)
+    }
+
     @Test("only the waiting state asks for an answer")
     func onlyOneStateNeedsAnswering() {
         #expect(WorkspaceStatus.allCases.filter(\.needsAnswer) == [.awaitingPermission])

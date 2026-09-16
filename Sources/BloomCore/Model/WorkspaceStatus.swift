@@ -65,11 +65,16 @@ public enum WorkspaceStatus: String, Sendable, Hashable, CaseIterable, Codable {
     /// `isAwaitingPermission` is passed in for the same reason `isRunning` is: only the app layer
     /// knows which agents are blocked, and it defaults to false so no existing caller changes
     /// meaning by not knowing about it.
+    ///
+    /// `isStarting` is a workspace just created whose setup or first turn has not begun yet. It
+    /// wears the same mark the pending row did, so the row does not drop to Idle between the
+    /// worktree existing and anything running in it. See `WorkspaceStartHold`.
     public static func resolve(
         workspace: Workspace,
         isRunning: Bool,
         pullRequest: PullRequest?,
-        isAwaitingPermission: Bool = false
+        isAwaitingPermission: Bool = false,
+        isStarting: Bool = false
     ) -> WorkspaceStatus {
         if workspace.setupState == .running { return .settingUp }
         // Ahead of `running`, because a blocked workspace looking the same as a working one is the
@@ -77,6 +82,7 @@ public enum WorkspaceStatus: String, Sendable, Hashable, CaseIterable, Codable {
         if isAwaitingPermission { return .awaitingPermission }
         if isRunning { return .running }
         if workspace.setupState == .failed { return .setupFailed }
+        if isStarting { return .settingUp }
 
         // **Below the pull request, and it used to be above it.** A turn that merged its own pull
         // request ends unread, so the row drew the unread dot over the merge until somebody opened

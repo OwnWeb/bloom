@@ -49,6 +49,7 @@ struct SidebarWorkspaceRow: View {
             workspace: workspace,
             isRunning: app.isRunning(workspace),
             isAwaitingPermission: app.isAwaitingPermission(workspace),
+            isStarting: app.isStarting(workspace),
             trailingRepo: trailingRepo,
             subagentCount: app.subagents(of: workspace.id).count,
             isShowingSubagents: isShowingSubagents,

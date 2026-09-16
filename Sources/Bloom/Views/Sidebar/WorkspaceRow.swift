@@ -36,6 +36,7 @@ struct WorkspaceRow: View {
     /// stays a pure function of its inputs.
     var isRunning: Bool
     var isAwaitingPermission = false
+    var isStarting = false
     /// The project this row belongs to, drawn as a tile at the trailing edge, and only in the
     /// status view: there the rows of six projects are interleaved by what each agent is doing, so
     /// nothing else on the row says where the work lives. Nil in the project view, where the header
@@ -95,7 +96,8 @@ struct WorkspaceRow: View {
             workspace: workspace,
             isRunning: isRunning,
             pullRequest: pullRequest,
-            isAwaitingPermission: isAwaitingPermission
+            isAwaitingPermission: isAwaitingPermission,
+            isStarting: isStarting
         )
         let statusDescription = status.summary(pullRequest: pullRequest)
 

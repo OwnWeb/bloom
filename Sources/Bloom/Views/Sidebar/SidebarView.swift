@@ -696,7 +696,8 @@ struct SidebarView: View {
             workspace: workspace,
             isRunning: app.isRunning(workspace),
             pullRequest: WorkspacePullRequests.shared.pullRequest(for: workspace.id),
-            isAwaitingPermission: app.isAwaitingPermission(workspace)
+            isAwaitingPermission: app.isAwaitingPermission(workspace),
+            isStarting: app.isStarting(workspace)
         )
     }
 

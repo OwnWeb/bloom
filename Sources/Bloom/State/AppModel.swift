@@ -328,6 +328,26 @@ final class AppModel {
         pendingWorkspaces.removeAll { $0.id == id }
     }
 
+    /// Workspaces whose worktree exists and in which nothing has started yet, so that the row the
+    /// pending one hands over to does not drop to Idle for that moment. See `WorkspaceStartHold`.
+    ///
+    /// Observed because the sidebar and Home resolve their marks from it.
+    private(set) var startHold = WorkspaceStartHold()
+
+    func isStarting(_ workspace: Workspace) -> Bool {
+        startHold.contains(workspace.id)
+    }
+
+    /// Taken before the `reload` that retires the pending row, so the two land in one update.
+    func beginStart(_ id: WorkspaceID) {
+        startHold.begin(id)
+    }
+
+    func endStart(_ id: WorkspaceID) {
+        guard startHold.contains(id) else { return }
+        startHold.release(id)
+    }
+
     private var refreshTask: Task<Void, Never>?
     /// When each workspace's diff stat was last asked about, for this launch only. Read by
     /// `DiffRefreshSchedule` to decide which of them this tick is for. Outside observation because
@@ -1272,6 +1292,7 @@ final class AppModel {
             .union(TerminalSessionStore.shared.runningWorkspaceIDs)
         let waiting = AgentTurns.workspaces(.awaitingPermission, stored: storedActivity, live: live)
         if runningWorkspaceIDs != running { runningWorkspaceIDs = running }
+        if !startHold.ids.isDisjoint(with: running) { startHold.settle(running: running) }
         if waitingWorkspaceIDs != waiting { waitingWorkspaceIDs = waiting }
 
         // Ask Bloom is in neither set, because a `SessionActivity` carries a workspace id and

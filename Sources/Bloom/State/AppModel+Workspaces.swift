@@ -270,6 +270,7 @@ extension AppModel {
             throw error
         }
 
+        beginStart(started.workspace.id)
         await adopt(started, repo: repo, prompt: spoken, opensWith: opensWith, select: select)
 
         // Only a first discovery says anything. `OceanPick.notice` is nil for a repeat voyage,
