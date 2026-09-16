@@ -13,8 +13,8 @@ import CoreGraphics
 /// already uses. `SearchPanelWindowOverlay` is why that ground and not a SwiftUI overlay on the
 /// split view: the overlay dimmed the centre column and left the inspector lit.
 ///
-/// The full pane is still there, one button away in the panel's header, for a conversation long
-/// enough to want the whole window.
+/// There is no full pane any more. It was one button away in the panel's header, and the owner
+/// found the panel enough on its own, so the button, the pane and its tab strip all went.
 ///
 /// # Why the size is here
 ///
@@ -60,9 +60,8 @@ public enum AskPanelLayout {
 
     /// Newest first, as Mail and Messages list a conversation.
     ///
-    /// The store hands conversations back in the order they were made, which is the right order
-    /// for the full pane's tab strip, where a new tab goes on the end. A list read top down is the
-    /// other way round: the conversation just started is the one being looked for.
+    /// The store hands conversations back in the order they were made. A list read top down wants
+    /// the other way round: the conversation just started is the one being looked for.
     public static func railOrder<ID>(_ ids: [ID]) -> [ID] {
         ids.reversed()
     }

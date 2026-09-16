@@ -3,8 +3,7 @@ import BloomCore
 
 /// The selected Ask conversation, its transcript and its composer, with nothing around them.
 ///
-/// Shared by the full pane and the panel, so the two cannot draw a conversation two ways. What
-/// each puts around it (a tab strip, a rail) is theirs.
+/// What the panel puts beside it, the rail of conversations and a header, is `AskPanelView`'s.
 struct AskConversationContent: View {
     @Environment(AppModel.self) private var app
 
@@ -83,6 +82,8 @@ private struct AskConversationView: View {
     private static let opening = TranscriptEmptyState(
         glyph: PaneGlyph.chat,
         title: AskConversation.emptyHeading,
-        message: AskConversation.emptyDetail
+        message: AskConversation.emptyDetail,
+        suggestionsHeading: AskConversation.suggestionsHeading,
+        suggestions: AskConversation.suggestions
     )
 }

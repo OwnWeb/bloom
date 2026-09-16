@@ -23,8 +23,9 @@ import BloomCore
 /// ## Four groups, and the rule is what each one acts on
 ///
 /// The first group is about the ROW and changes nothing outside Bloom: what it is called, whether
-/// it floats, whether it is shouting at you, what colour it is. Rename leads, because it is the
-/// item people reach for most and it used to sit fourth, under a submenu, where it was hunted for.
+/// it floats, whether it is shouting at you, what colour it is. The unread mark leads, because the
+/// owner reaches for it most, straight after a turn finishes; Rename follows, which it used to
+/// lead, having once sat fourth under a submenu where it was hunted for.
 /// The second is about the CHECKOUT ON DISK: it opens the worktree, in the editor and in anything
 /// else that can take it, shows it, puts its branch on the clipboard, and runs the repository's
 /// setup script in it. The third is the PROJECT the workspace belongs to, and it is a group of one
@@ -118,9 +119,9 @@ struct WorkspaceMenuItems: View {
 
     @ViewBuilder
     private var rowItems: some View {
+        WorkspaceUnreadItem(workspace: workspace, app: app)
         renameItem
         WorkspacePinItem(workspace: workspace, app: app)
-        WorkspaceUnreadItem(workspace: workspace, app: app)
         WorkspaceColourItem(workspace: workspace, app: app)
         Divider()
         openInEditorItem

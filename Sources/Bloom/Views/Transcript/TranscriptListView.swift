@@ -1011,7 +1011,11 @@ struct TranscriptListView: View {
         .overlay { TranscriptHoverOverlay(host: hoverHost) }
         .overlay {
             if showsPlaceholder {
-                TranscriptPlaceholderView(isRunningSetup: isRunningSetup, emptyState: emptyState)
+                TranscriptPlaceholderView(
+                    isRunningSetup: isRunningSetup,
+                    emptyState: emptyState,
+                    onSuggestion: { prompt in Task { await transcript.submit(prompt) } }
+                )
                     .padding(.bottom, composerRoom?.clearance ?? 0)
             }
         }

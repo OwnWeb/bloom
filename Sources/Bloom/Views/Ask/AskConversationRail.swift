@@ -3,8 +3,8 @@ import BloomCore
 
 /// Every open Ask conversation, down the leading edge of the panel, newest first.
 ///
-/// The full pane lists the same conversations as tabs. A panel has no tab strip to borrow and a
-/// strip of titles across a card this size truncates every one of them after a word, so here they
+/// Rows rather than tabs, because a strip of titles across a card this size truncates every one
+/// of them after a word, so here they
 /// are rows: the title in full, and the mark the sidebar's own rows wear when a turn is running or
 /// waiting on you, so a conversation left running behind another one still says so.
 struct AskConversationRail: View {
@@ -12,12 +12,9 @@ struct AskConversationRail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // No heading. The panel is already what you opened Ask Bloom to see, so its name over
+            // the rail and over the conversation said the same thing twice. New stays.
             HStack(spacing: Metrics.spacing) {
-                Label(AskConversation.title, systemImage: PaneGlyph.chat)
-                    .font(Typo.labelEmphasis)
-                    .foregroundStyle(Palette.textPrimary)
-                    .lineLimit(1)
-
                 Spacer(minLength: Metrics.spacingSmall)
 
                 Button { Task { await app.ask.newConversation() } } label: {
@@ -36,12 +33,11 @@ struct AskConversationRail: View {
 
             ScrollView {
                 LazyVStack(spacing: Metrics.spacingHair) {
-                    ForEach(AskPanelLayout.railOrder(app.ask.sessions), id: \.id) { chat in
+                    ForEach(AskPanelLayout.railOrder(app.ask.listedSessions), id: \.id) { chat in
                         AskConversationRailRow(
                             title: app.ask.title(for: chat),
                             status: app.ask.status(for: chat.id),
                             isSelected: app.ask.selectedID == chat.id,
-                            canClose: app.ask.sessions.count > 1,
                             onSelect: { Task { await app.ask.select(chat.id) } },
                             onClose: { app.ask.requestClose(chat.id) }
                         )
@@ -60,7 +56,6 @@ private struct AskConversationRailRow: View {
     var title: String
     var status: WorkspaceStatus?
     var isSelected: Bool
-    var canClose: Bool
     var onSelect: () -> Void
     var onClose: () -> Void
 
@@ -93,7 +88,6 @@ private struct AskConversationRailRow: View {
         .onHoverChange { isHovered = $0 }
         .contextMenu {
             Button("Close Conversation", action: onClose)
-                .disabled(!canClose)
         }
         .accessibilityValue(status?.label ?? "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])

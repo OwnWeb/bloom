@@ -88,6 +88,9 @@ struct SidebarView: View {
     /// being removed and reinserted, with nothing to animate it. This changes when, and only when,
     /// a row moves, so a status update that moves nothing puts the list into no transaction.
     @State private var statusArrangement: [String] = []
+    /// The selected workspace that stays in Ready to read until it is left. See
+    /// `SidebarReadingHold`.
+    @State private var readingHold: WorkspaceID?
 
     /// What the status bar says instead of the running count, briefly, after a drag that could not
     /// land where it was let go. See `move(from:to:)`.
@@ -228,6 +231,29 @@ struct SidebarView: View {
             try? await Task.sleep(for: .seconds(2.4))
             guard !Task.isCancelled else { return }
             reorderNote = nil
+        }
+        // New and the collapse button, in one piece of glass, the way the detail column's plus,
+        // search and inspector share one. The system's own toggle cannot join a group: it is
+        // `NavigationSplitView`'s item, and a `+` beside it came out as two separate capsules. So
+        // `RootView` removes that toggle and this is its replacement, with the detail column's
+        // toolbar drawing one while the sidebar is folded away.
+        .toolbar {
+            // Pushes the pair to the sidebar's trailing edge. Without it they sat against the
+            // traffic lights, and the detail column's own group is pushed the same way.
+            ToolbarSpacer(.flexible, placement: .primaryAction)
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                Menu {
+                    Button("New workspace…") { presentCreate(in: nil) }
+                    Button("New project…", action: startProject)
+                } label: {
+                    Label("New", systemImage: "plus")
+                }
+                .menuIndicator(.hidden)
+                .help("New workspace or project")
+
+                SidebarToggleButton()
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             SidebarStatusBar(
@@ -626,6 +652,7 @@ struct SidebarView: View {
             )
             let listing = SidebarStatusListing.build(
                 workspaces: groups.flatMap(\.workspaces),
+                holding: readingHold,
                 status: status(of:)
             )
             // Written here rather than derived in `body`, in the same breath as the rows, so the
@@ -747,6 +774,12 @@ struct SidebarView: View {
     private func follow(_ target: SidebarSelection) {
         renaming = nil
         listSelection = target
+        let hold = SidebarReadingHold.next(
+            selection: target, current: readingHold, workspaces: app.workspaces
+        )
+        guard hold != readingHold else { return }
+        readingHold = hold
+        if grouping == .status { reflow() }
     }
 
     /// Delete on the selected row, from the keyboard.
@@ -889,6 +922,16 @@ struct SidebarView: View {
     /// entry point posts and behaves identically.
     private func startProject() {
         NotificationCenter.default.post(name: .bloomNewProject, object: nil)
+    }
+}
+
+/// Folds the sidebar away or brings it back, through the same notification the View menu uses.
+struct SidebarToggleButton: View {
+    var body: some View {
+        Button("Toggle Sidebar", systemImage: "sidebar.left") {
+            NotificationCenter.default.post(name: .bloomToggleSidebar, object: nil)
+        }
+        .help("Toggle the sidebar")
     }
 }
 

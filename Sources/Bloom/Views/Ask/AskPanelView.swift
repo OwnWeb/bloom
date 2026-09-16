@@ -20,10 +20,14 @@ struct AskPanelView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            AskConversationRail()
-                .frame(width: AskPanelLayout.railWidth)
+            // No rail until there is a conversation to list. An empty column with only a `+` in it
+            // offered a new conversation beside the one already waiting to be typed into.
+            if !app.ask.listedSessions.isEmpty {
+                AskConversationRail()
+                    .frame(width: AskPanelLayout.railWidth)
 
-            Hairline(axis: .vertical)
+                Hairline(axis: .vertical)
+            }
 
             VStack(spacing: 0) {
                 header
@@ -57,9 +61,6 @@ struct AskPanelView: View {
 
             Spacer(minLength: Metrics.spacing)
 
-            headerButton("Open in the window", systemImage: "arrow.up.left.and.arrow.down.right") {
-                AskPanelModel.shared.expand(app: app)
-            }
             headerButton("Close", systemImage: "xmark") {
                 AskPanelModel.shared.close()
             }
@@ -69,9 +70,12 @@ struct AskPanelView: View {
         .frame(height: Metrics.barHeight + Metrics.spacingWide)
     }
 
+    /// The conversation's own name, and nothing for one that has not earned one yet, rather than
+    /// "Ask Bloom" over a panel that is already Ask Bloom.
     private var title: String {
-        guard let session = app.ask.session else { return AskConversation.title }
-        return app.ask.title(for: session)
+        guard let session = app.ask.session, !app.ask.isBlank(session) else { return "" }
+        let title = app.ask.title(for: session)
+        return title == AskConversation.title ? "" : title
     }
 
     private func headerButton(

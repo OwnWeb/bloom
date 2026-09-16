@@ -129,9 +129,9 @@ enum ArchiveFailureProbe {
             guard let request = app.pendingArchive else { harness.fail("no second refusal") }
             let navigation = Task { await app.confirmArchive(request) }
             while !app.isArchiving(workspace.id) { await Task.yield() }
-            app.selection = .ask
+            app.selection = .home
             await navigation.value
-            if app.selection != .ask { failures.append("refusal overrode newer navigation") }
+            if app.selection != .home { failures.append("refusal overrode newer navigation") }
             let saved = try await store.workspace(id: workspace.id)
             if saved?.state != .active { failures.append("refused workspace was archived") }
             if try Data(contentsOf: marker) != Data("keep this work".utf8) {

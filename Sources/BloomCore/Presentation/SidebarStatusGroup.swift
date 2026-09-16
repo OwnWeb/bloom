@@ -124,13 +124,17 @@ public struct SidebarStatusListing: Equatable, Sendable {
     ///   chose.
     /// - Parameter status: the verdict for one workspace, which only the app layer can answer
     ///   because it alone knows what is running and what GitHub said.
+    /// - Parameter holding: a workspace to list as unread although its flag has cleared. See
+    ///   `SidebarReadingHold`.
     public static func build(
         workspaces: [Workspace],
+        holding: WorkspaceID? = nil,
         status: (Workspace) -> WorkspaceStatus
     ) -> SidebarStatusListing {
         var byGroup: [SidebarStatusGroup: [Workspace]] = [:]
         for workspace in workspaces {
-            byGroup[SidebarStatusGroup.of(status(workspace), unread: workspace.unread), default: []].append(workspace)
+            let unread = workspace.unread || workspace.id == holding
+            byGroup[SidebarStatusGroup.of(status(workspace), unread: unread), default: []].append(workspace)
         }
 
         return SidebarStatusListing(
