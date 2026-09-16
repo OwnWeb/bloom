@@ -52,6 +52,10 @@ final class SoftwareUpdater: NSObject, SPUUpdaterDelegate {
     /// Held while agents finish. See `updater(_:shouldPostponeRelaunchForUpdate:untilInvokingBlock:)`.
     @ObservationIgnored private var postponedInstall: (() -> Void)?
 
+    /// Waiting for the agents to finish so a refused background check can be asked for again.
+    /// See `retryDeferredCheckWhenAgentsFinish`.
+    @ObservationIgnored private var deferredCheckRetry: Task<Void, Never>?
+
     private override init() {}
 
     // MARK: - Starting
@@ -110,6 +114,7 @@ final class SoftwareUpdater: NSObject, SPUUpdaterDelegate {
 
     /// The app menu's "Check for Updates" item.
     func checkForUpdates() {
+        cancelDeferredCheckRetry()
         controller?.updater.checkForUpdates()
     }
 
@@ -152,6 +157,7 @@ final class SoftwareUpdater: NSObject, SPUUpdaterDelegate {
         guard !SoftwareUpdate.mayCheckInBackground(runningCount: running) else { return }
 
         Log.updates.info("Background check deferred: \(running, privacy: .public) agents running")
+        retryDeferredCheckWhenAgentsFinish()
         throw NSError(
             domain: "be.spatie.bloom.updates",
             code: 1,
@@ -234,6 +240,56 @@ final class SoftwareUpdater: NSObject, SPUUpdaterDelegate {
             allowTerminationWithoutAsking()
             install()
         }
+    }
+
+    /// Asks for the refused background check again once nothing is mid turn.
+    ///
+    /// Sparkle stamps the last check date before it asks `mayPerform`, and after a refusal it
+    /// schedules the next check a whole `checkInterval` away, measured from the refusal. So a check
+    /// that lands on a busy moment is not deferred, it is skipped for the day, and relaunching does
+    /// not help because the date is already written. Someone whose agents are usually running would
+    /// go days without looking. Polled on the same five second tick as
+    /// `waitForAgentsThenInstall`, for the reasons given there.
+    ///
+    /// The retry goes back through `mayPerform`, so a turn that starts in between defers it again
+    /// and starts a fresh wait. A check the user asks for meanwhile cancels it, since that answers
+    /// the same question.
+    private func retryDeferredCheckWhenAgentsFinish() {
+        guard deferredCheckRetry == nil else { return }
+        deferredCheckRetry = Task { @MainActor [weak self] in
+            while true {
+                try? await Task.sleep(for: .seconds(5))
+                // Cancelled by `checkForUpdates`, which has already cleared the handle and may
+                // have started a new one, so leave it alone.
+                guard !Task.isCancelled else { return }
+                guard let self, let app, let updater = controller?.updater else { return }
+
+                // Switched off while waiting: nothing left to retry.
+                guard updater.automaticallyChecksForUpdates else {
+                    deferredCheckRetry = nil
+                    return
+                }
+
+                let isDue = SoftwareUpdate.retriesDeferredCheck(
+                    runningCount: app.runningAgentCount,
+                    checksAutomatically: updater.automaticallyChecksForUpdates,
+                    sessionInProgress: updater.sessionInProgress
+                )
+                guard isDue else { continue }
+
+                // Cleared before the call, because a turn starting in between makes `mayPerform`
+                // refuse again synchronously, and that refusal has to be free to start a new wait.
+                deferredCheckRetry = nil
+                Log.updates.info("Agents finished, running the deferred background check")
+                updater.checkForUpdatesInBackground()
+                return
+            }
+        }
+    }
+
+    private func cancelDeferredCheckRetry() {
+        deferredCheckRetry?.cancel()
+        deferredCheckRetry = nil
     }
 
     /// Stops the quit confirmation asking a second time.

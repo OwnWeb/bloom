@@ -101,6 +101,18 @@ struct SoftwareUpdateTests {
         #expect(!SoftwareUpdate.mayCheckInBackground(runningCount: 5))
     }
 
+    @Test("asks again for a deferred check once the agents are done")
+    func deferredCheckIsRetried() {
+        #expect(SoftwareUpdate.retriesDeferredCheck(runningCount: 0, checksAutomatically: true, sessionInProgress: false))
+    }
+
+    @Test("does not retry a deferred check while it would still be refused or ignored")
+    func deferredCheckWaits() {
+        #expect(!SoftwareUpdate.retriesDeferredCheck(runningCount: 2, checksAutomatically: true, sessionInProgress: false))
+        #expect(!SoftwareUpdate.retriesDeferredCheck(runningCount: 0, checksAutomatically: false, sessionInProgress: false))
+        #expect(!SoftwareUpdate.retriesDeferredCheck(runningCount: 0, checksAutomatically: true, sessionInProgress: true))
+    }
+
     @Test("counts the agents in the heading rather than saying 'some'")
     func headingCountsThem() {
         #expect(SoftwareUpdate.interruptionTitle(runningCount: 1) == "An agent is still running")

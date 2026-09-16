@@ -112,13 +112,31 @@ public enum SoftwareUpdate {
     /// what a successful background check produces is an alert offering to install and restart,
     /// and that alert appearing over five running agents is an invitation to lose all five. The
     /// check costs nothing to defer: Sparkle reschedules and asks again later, by which time the
-    /// agents are usually done.
+    /// agents are usually done, but only because `SoftwareUpdater` asks again when they are. Sparkle
+    /// records a refused check as a check that happened and waits a full `checkInterval` before the
+    /// next, so without that retry a Mac whose agents were busy whenever the timer fired would never
+    /// look at all. See `retriesDeferredCheck`.
     ///
     /// This is deliberately not applied to a check the user asked for. Looking is not installing,
     /// and an updater that refuses to even look while a long turn is running would be answering a
     /// question nobody asked.
     public static func mayCheckInBackground(runningCount: Int) -> Bool {
         runningCount == 0
+    }
+
+    /// Whether a background check refused by `mayCheckInBackground` should be asked for again now.
+    ///
+    /// Only once the last agent has finished, only while the user still wants automatic checks,
+    /// because they may have switched them off in the meantime, and only while Sparkle has no
+    /// session of its own open: `checkForUpdatesInBackground` logs an error and does nothing when
+    /// one is in progress, which would spend the retry on a call that was always going to be
+    /// ignored.
+    public static func retriesDeferredCheck(
+        runningCount: Int,
+        checksAutomatically: Bool,
+        sessionInProgress: Bool
+    ) -> Bool {
+        mayCheckInBackground(runningCount: runningCount) && checksAutomatically && !sessionInProgress
     }
 
     /// Why a background check was skipped, for the log and for Sparkle's own error.
