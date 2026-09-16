@@ -30,6 +30,15 @@ enum FileReview {
         }
     }
 
+    /// A file named by where it is on disk, which is what a link clicked in a document preview
+    /// arrives as. Inside the worktree it opens by its relative path, the way every other door
+    /// opens a file, so the tab and the file list agree about which file it is.
+    static func open(absolutePath: String, in model: WorkspaceModel) {
+        let root = URL(filePath: model.workspace.path).standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        let relative = absolutePath.hasPrefix(root) ? String(absolutePath.dropFirst(root.count)) : absolutePath
+        open(path: relative, in: model, focusing: true)
+    }
+
     static func open(location: CodeLocation, in model: WorkspaceModel, recording: Bool = true) {
         var location = location
         location.path = location.displayPath(relativeTo: model.workspace.path)

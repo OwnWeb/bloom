@@ -31,6 +31,9 @@ final class SourceEditorState {
     @ObservationIgnored var navigationTask: Task<Void, Never>?
     var message: String?
     var prefersEditing = false
+    /// Whether a Markdown or HTML file shows its rendered document rather than its source. On by
+    /// default, since a report or a plan an agent wrote is written to be read. See `FileTabMode`.
+    var prefersPreview = true
     @ObservationIgnored weak var textView: CodeTextView?
 
     func go(to location: CodeLocation) {

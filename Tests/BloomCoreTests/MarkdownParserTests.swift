@@ -410,4 +410,17 @@ struct MarkdownParserTests {
             _ = MarkdownParser.parse(String(document.prefix(length)))
         }
     }
+
+    @Test("an image is its own inline, inside a link as well, with any title dropped")
+    func image() {
+        #expect(MarkdownParser.parse("see ![flow](docs/flow.png \"Flow\")") == [
+            .paragraph(inline: [.text("see "), .image(alt: "flow", url: "docs/flow.png")]),
+        ])
+        #expect(MarkdownParser.parse("[![badge](badge.svg)](https://ci)") == [
+            .paragraph(inline: [.link(text: [.image(alt: "badge", url: "badge.svg")], url: "https://ci")]),
+        ])
+        #expect(MarkdownParser.parse("wow! [a](b)") == [
+            .paragraph(inline: [.text("wow! "), .link(text: [.text("a")], url: "b")]),
+        ])
+    }
 }

@@ -17,7 +17,7 @@ struct MarkdownPreviewButton: View {
         .controlSize(.small)
         .fixedSize()
         .foregroundStyle(isPresented ? Palette.accent : Palette.textSecondary)
-        .help(isPresented ? "Go back to code" : "Show Markdown preview")
-        .accessibilityLabel(isPresented ? "Go back to code" : "Show Markdown preview")
+        .help(isPresented ? "Go back to code" : "Show the rendered document")
+        .accessibilityLabel(isPresented ? "Go back to code" : "Show the rendered document")
     }
 }

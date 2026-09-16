@@ -475,6 +475,10 @@ enum InlineNSAttributes {
                         range: NSRange(location: start, length: output.length - start)
                     )
                 }
+            case let .image(alt, url):
+                // A transcript row has no room for the picture, so it is the alternative text,
+                // linked to the image where the address is one Bloom opens.
+                render([.link(text: [.text(alt)], url: url)], font: font, code: code, color: color, traits: traits, into: output)
             case .lineBreak:
                 output.append(run("\n", font: faced(font, traits), color: color))
             }
@@ -496,7 +500,7 @@ enum InlineNSAttributes {
     static func hasLink(_ values: [MarkdownInline]) -> Bool {
         values.contains { value in
             switch value {
-            case .link: true
+            case .link, .image: true
             case let .emphasis(children), let .strong(children), let .strikethrough(children):
                 hasLink(children)
             case let .code(text): SourceReference.url(text) != nil
@@ -577,6 +581,10 @@ private final class InlineAttributesKey: NSObject {
             hasher.combine(url.prefix(sample))
         case .lineBreak:
             hasher.combine(6)
+        case let .image(alt, url):
+            hasher.combine(7)
+            hasher.combine(alt.prefix(sample))
+            hasher.combine(url.prefix(sample))
         }
     }
 
@@ -671,6 +679,8 @@ private enum InlineAttributes {
                 } else {
                     output += render(text, font: font, code: code, color: color, intents: intents)
                 }
+            case let .image(alt, url):
+                output += render([.link(text: [.text(alt)], url: url)], font: font, code: code, color: color, intents: intents)
             case .lineBreak:
                 output += run("\n", font: font, color: color, intents: intents)
             }
