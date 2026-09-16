@@ -125,9 +125,7 @@ struct FileHeaderBar: View {
                     compact
                     collapsed
                 }
-            }
-            if let onToggleMarkdownPreview {
-                MarkdownPreviewButton(isPresented: showsMarkdownPreview, action: onToggleMarkdownPreview)
+                previewButton
             }
         }
         .padding(.horizontal, InspectorLayout.inset)
@@ -174,8 +172,17 @@ struct FileHeaderBar: View {
 
     /// All-files review owns the layout settings. Keep each file's identity and progress
     /// visible, with less frequent and destructive actions in its menu.
+    ///
+    /// **The preview button leads this cluster rather than trailing it, because it is the one
+    /// control in it that is not always there.** It is drawn only for a file something can be
+    /// previewed from, and at the trailing edge its presence or absence pushed everything to its
+    /// left along: one row read `+404 −0 · Viewed · ⋯ · Preview` and the next `+5 −3 · Viewed ·
+    /// ⋯`, so the tick and the menu sat at two different places down a list of forty files, which
+    /// is a list nobody's eye can run down. The cluster is right aligned, so whatever is conditional
+    /// belongs at its left end and the controls every row has keep one column.
     private var reviewControls: some View {
         HStack(spacing: InspectorLayout.gap) {
+            previewButton
             if !file.isBinary {
                 HStack(spacing: 4) {
                     Text("+\(file.additions)").foregroundStyle(Palette.positive)
@@ -274,6 +281,15 @@ struct FileHeaderBar: View {
         .controlSize(.small)
         .fixedSize()
         .fileBarHint(FileBarControls.more, into: $hint)
+    }
+
+    /// Absent unless this file has something to preview, which is what puts it at the left of the
+    /// cluster it sits in. See `reviewControls`.
+    @ViewBuilder
+    private var previewButton: some View {
+        if let onToggleMarkdownPreview {
+            MarkdownPreviewButton(isPresented: showsMarkdownPreview, action: onToggleMarkdownPreview)
+        }
     }
 
     private func viewedToggle(labelled: Bool) -> some View {

@@ -21,6 +21,10 @@ struct AllFilesReviewView: View {
     @State private var destinationPrepared = false
     @State private var collapsedPaths: Set<String> = []
     @State private var hasNavigated = false
+    /// The ticked files as the `viewedPaths` handler last saw them, or nil until the store has
+    /// answered. Written from that one place and nowhere else: see `ReviewCollapse` for why a
+    /// remembered set rather than a rule over the current one.
+    @State private var lastViewed: Set<String>?
 
     var body: some View {
         if model.reviewFiles.isEmpty {
@@ -119,9 +123,24 @@ struct AllFilesReviewView: View {
                         collapsedPaths.formIntersection(paths)
                         if let pendingDestination, !paths.contains(pendingDestination) { self.pendingDestination = nil }
                     }
+                    .onChange(of: viewedPaths, initial: true) { _, viewed in
+                        guard let viewed else { return }
+                        collapsedPaths = ReviewCollapse.collapsed(
+                            collapsedPaths, viewed: viewed, wasViewed: lastViewed
+                        )
+                        lastViewed = viewed
+                    }
                 }
             }
         }
+    }
+
+    /// Which files are ticked as read, or nil while the marks are still being read out of the
+    /// store. Nil rather than an empty set, because an empty set is also what a workspace with
+    /// nothing ticked looks like, and `ReviewCollapse` has to tell the two apart.
+    private var viewedPaths: Set<String>? {
+        guard model.hasReadViewedFiles else { return nil }
+        return Set(model.reviewFiles.filter { model.isViewed($0) }.map(\.id))
     }
 
     private func follow(_ path: String, using reader: ScrollViewProxy) {

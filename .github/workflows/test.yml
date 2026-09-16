@@ -264,6 +264,9 @@ jobs:
       - name: Check diff scrolling and comment focus
         run: ./Tools/review-run-probe.sh
 
+      - name: Check that a ticked file folds
+        run: ./Tools/review-run-probe.sh --review-fold-only
+
       - name: Preserve failed review probe evidence
         if: ${{ failure() }}
         uses: actions/upload-artifact@v7
