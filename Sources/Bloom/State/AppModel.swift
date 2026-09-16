@@ -1067,6 +1067,12 @@ final class AppModel {
         return archived
     }
 
+    /// The projects most recently started in, newest first, archived workspaces included. See
+    /// `RecentProjects`.
+    func recentProjects() async -> [Repo] {
+        RecentProjects.ordered(repos, workspaces: workspaces + (await archivedWorkspaces()))
+    }
+
     /// Called from the two places that can change what is archived: a completed archive, and a
     /// completed restore. Not from `reload`, which runs for a diff stat refresh several times a
     /// minute and would turn the cache into a per-refresh database read.

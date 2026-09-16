@@ -59,8 +59,9 @@ struct CreateWorkspaceWindow: Scene {
 /// A project that has been removed is not an error here, which is the one difference from
 /// `RepoSettingsWindow`: this window has a project picker in its own header, so the honest answer
 /// to "that project is gone" is the same fallback the view makes when it is opened with no project
-/// at all. `CreateWorkspaceView.load` picks the selected workspace's project, or the first one, or
-/// puts up the empty state when there are no projects left to start in.
+/// at all. `CreateWorkspaceView.load` picks the last project started in, the selected
+/// workspace's project, or the first one, or puts up the empty state when there are no projects
+/// left to start in.
 private struct CreateWorkspaceWindowContent: View {
     let repoID: RepoID?
 

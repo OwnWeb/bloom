@@ -25,7 +25,7 @@ import BloomCore
 /// the sheet it was in, so every route that ended the sheet ends the window.
 struct CreateWorkspaceView: View {
     /// Which project to start in. The sidebar passes the repo whose `+` was clicked, otherwise
-    /// the repo of whatever is selected. Either way the project arrives decided, so the control
+    /// the project a workspace was last started in, or the repo of whatever is selected. Either way the project arrives decided, so the control
     /// for it never asks a question: it reports, and opens only if you want to change your mind.
     var initialRepo: Repo?
 
@@ -34,6 +34,8 @@ struct CreateWorkspaceView: View {
     @Environment(\.openWindow) private var openWindow
 
     @State private var repoID: RepoID?
+    /// The picker's Recent section, newest first. See `RecentProjects`.
+    @State private var recentRepoIDs: [RepoID] = []
     @State private var prompt = ""
     @State private var caret = 0
     @State private var isFocused = false
@@ -240,6 +242,11 @@ struct CreateWorkspaceView: View {
         // in flight when the project changed could land another project's branches on this one's
         // window. `.task(id:)` cancels the stale load; `load` checks before writing.
         .task(id: repoID) { await load() }
+        // Keyed on both lists that can change the answer: a workspace started or archived
+        // elsewhere while this window is open, and an archive cleared out.
+        .task(id: [app.workspaces.count, app.archivedRevision]) {
+            recentRepoIDs = await app.recentProjects().map(\.id)
+        }
         // The keyboard goes to the pull request box rather than to the task, when the window was
         // opened to open a pull request. `load` puts it in the task unconditionally, so this has
         // to come after it rather than beside it.
@@ -352,12 +359,15 @@ struct CreateWorkspaceView: View {
                 // arrives as a bitmap of the same `RepoIcon` the chip and the sidebar draw. See
                 // `RepoIconImage`.
                 //
-                // One picker keeps a single selection across both visibility groups.
+                // One picker keeps a single selection across both sections. A project can be in
+                // both, so rows are tagged with their section too, and only one of them is ticked.
+                // See `ProjectMenuGroup.Choice`.
+                let groups = ProjectMenuGroup.grouped(app.repos, recent: recentRepoIDs)
                 Picker("Project", selection: Binding(
-                    get: { repoID ?? RepoID("") },
-                    set: { repoID = $0.rawValue.isEmpty ? nil : $0 }
+                    get: { ProjectMenuGroup.choice(for: repoID, in: groups) },
+                    set: { repoID = $0.repoID.rawValue.isEmpty ? nil : $0.repoID }
                 )) {
-                    ForEach(ProjectMenuGroup.grouped(app.repos)) { group in
+                    ForEach(groups) { group in
                         Section(group.title) {
                             ForEach(group.repos) { candidate in
                                 Label {
@@ -368,7 +378,7 @@ struct CreateWorkspaceView: View {
                                         Image(nsImage: mark).renderingMode(.original)
                                     }
                                 }
-                                .tag(candidate.id)
+                                .tag(ProjectMenuGroup.Choice(kind: group.kind, repoID: candidate.id))
                             }
                         }
                     }
@@ -910,7 +920,9 @@ struct CreateWorkspaceView: View {
         if repoID == nil {
             // Writing `repoID` restarts this task for the resolved project, so the listing below
             // runs once per project rather than once on open and again on the change.
+            let recent = await app.recentProjects().first
             repoID = initialRepo?.id
+                ?? recent?.id
                 ?? app.selectedWorkspace.flatMap { app.repo(for: $0) }?.id
                 ?? app.repos.first?.id
             return

@@ -440,18 +440,25 @@ struct RootView: View {
 
     // MARK: - Actions
 
-    /// Opens the create window, on the project that was asked for or on the one the window is
-    /// already looking at.
+    /// Opens the create window, on the project that was asked for, or else on the project a
+    /// workspace was last started in, or else on the one the window is already looking at.
     ///
-    /// The project is resolved here rather than inside the window, because it is the selection in
-    /// THIS window that answers "which project did they mean", and a window keyed by project has
-    /// to be given one before it exists. A machine with no projects at all opens it with none,
-    /// which is the empty state that offers to add one; every control that could ask is disabled
-    /// or diverted in that state anyway.
+    /// The project is resolved here rather than inside the window, because a window keyed by
+    /// project has to be given one before it exists. A machine with no projects at all opens it
+    /// with none, which is the empty state that offers to add one; every control that could ask
+    /// is disabled or diverted in that state anyway.
+    ///
+    /// The last project started in wins over the selection, which is what the owner asked for.
+    /// The sidebar's `+` still names its project outright, and that is never second-guessed.
     private func openCreateWindow(in repo: Repo?) {
-        let target = repo ?? app.selectedWorkspace.flatMap(app.repo(for:)) ?? app.repos.first
-        guard let target else { return openWindow(id: CreateWorkspaceWindow.id) }
-        openWindow(id: CreateWorkspaceWindow.id, value: target.id)
+        if let repo { return openWindow(id: CreateWorkspaceWindow.id, value: repo.id) }
+        Task {
+            let target = await app.recentProjects().first
+                ?? app.selectedWorkspace.flatMap(app.repo(for:))
+                ?? app.repos.first
+            guard let target else { return openWindow(id: CreateWorkspaceWindow.id) }
+            openWindow(id: CreateWorkspaceWindow.id, value: target.id)
+        }
     }
 
     private func confirmArchive(_ request: ArchiveRequest) {

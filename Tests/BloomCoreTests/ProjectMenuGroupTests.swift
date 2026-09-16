@@ -3,33 +3,44 @@ import Testing
 
 @Suite("Project menu groups")
 struct ProjectMenuGroupTests {
-    @Test("visible projects come first and each group is alphabetical regardless of sidebar order")
-    func alphabeticalGroups() {
-        let repos = [
-            Repo(name: "zebra", path: "/zebra", sortOrder: 0, hidden: true),
-            Repo(name: "VicGames", path: "/VicGames", sortOrder: 1),
-            Repo(name: "alpha", path: "/alpha", sortOrder: 2, hidden: true),
-            Repo(name: "bloom", path: "/bloom", sortOrder: 3),
-            Repo(name: "runbloom.app", path: "/runbloom.app", sortOrder: 4)
-        ]
+    private let zebra = Repo(name: "zebra", path: "/zebra", sortOrder: 0, hidden: true)
+    private let vicGames = Repo(name: "VicGames", path: "/VicGames", sortOrder: 1)
+    private let alpha = Repo(name: "alpha", path: "/alpha", sortOrder: 2, hidden: true)
+    private let bloom = Repo(name: "bloom", path: "/bloom", sortOrder: 3)
 
-        let groups = ProjectMenuGroup.grouped(repos)
+    private var repos: [Repo] { [zebra, vicGames, alpha, bloom] }
 
-        #expect(groups.map(\.title) == ["Visible projects", "Hidden projects"])
-        #expect(groups.map(\.hidden) == [false, true])
-        #expect(groups.map { $0.repos.map(\.id) } == [
-            [repos[3].id, repos[4].id, repos[1].id],
-            [repos[2].id, repos[0].id]
+    @Test("recent comes first in the order given, then every project alphabetically, hidden or not")
+    func recentThenAll() {
+        let groups = ProjectMenuGroup.grouped(repos, recent: [zebra.id, bloom.id])
+
+        #expect(groups.map(\.title) == ["Recent", "All projects"])
+        #expect(groups.map { $0.repos.map(\.name) } == [
+            ["zebra", "bloom"],
+            ["alpha", "bloom", "VicGames", "zebra"]
         ])
     }
 
-    @Test("empty groups have no heading", arguments: [false, true])
-    func emptyGroups(hidden: Bool) {
-        let repo = Repo(name: "bloom", path: "/bloom", hidden: hidden)
-        let groups = ProjectMenuGroup.grouped([repo])
+    @Test("no history leaves only the full list, and no projects leaves nothing")
+    func emptyGroups() {
+        #expect(ProjectMenuGroup.grouped(repos, recent: []).map(\.kind) == [.all])
+        #expect(ProjectMenuGroup.grouped([], recent: [bloom.id]).isEmpty)
+    }
 
-        #expect(groups.map(\.hidden) == [hidden])
-        #expect(groups.flatMap(\.repos).map(\.id) == [repo.id])
-        #expect(ProjectMenuGroup.grouped([]).isEmpty)
+    @Test("a recent id for a project that has gone is dropped")
+    func removedProject() {
+        let groups = ProjectMenuGroup.grouped([bloom], recent: [alpha.id, bloom.id])
+
+        #expect(groups.first?.repos.map(\.id) == [bloom.id])
+    }
+
+    /// The same project is listed twice, and only one of its rows can be the ticked one.
+    @Test("the tick goes on the recent row when there is one, otherwise on the full list")
+    func choice() {
+        let groups = ProjectMenuGroup.grouped(repos, recent: [bloom.id])
+
+        #expect(ProjectMenuGroup.choice(for: bloom.id, in: groups) == .init(kind: .recent, repoID: bloom.id))
+        #expect(ProjectMenuGroup.choice(for: alpha.id, in: groups) == .init(kind: .all, repoID: alpha.id))
+        #expect(ProjectMenuGroup.choice(for: nil, in: groups) == .init(kind: .all, repoID: RepoID("")))
     }
 }
