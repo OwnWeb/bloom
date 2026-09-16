@@ -350,24 +350,11 @@ struct SidebarView: View {
         // action rather than a second path to the same place: `AppModel.archive` runs the git
         // safety check, says what is at stake when there is anything, and registers the undo, so
         // the reflex costs no more here than Shift+Cmd+Delete does from the menu.
-        .onDeleteCommand {
-            guard let id = listSelection?.workspaceID,
-                  let workspace = app.workspaces.first(where: { $0.id == id }) else { return }
-            guard paneRows.contains(where: { row in
-                if case .workspace(let shown, _) = row { return shown.id == workspace.id }
-                return false
-            }) else { return }
-            archiveFromKeyboard(workspace)
-        }
+        .onDeleteCommand { archiveSelectedRow() }
         // Rename from the menu bar, which reaches the field this list owns. A workspace this pane
         // is not drawing is ignored, so Home and the sidebar can both listen to one post.
         .onReceive(NotificationCenter.default.publisher(for: .bloomRenameWorkspace)) { note in
-            guard let raw = note.userInfo?[Notification.bloomWorkspaceIDKey] as? String else {
-                return
-            }
-            let id = WorkspaceID(raw)
-            guard app.workspaces.contains(where: { $0.id == id }) else { return }
-            renaming = id
+            beginRename(note)
         }
         // Moving off a row has to close whatever field was open on it, or the rename would carry
         // on editing a workspace that is no longer on screen.
@@ -377,12 +364,7 @@ struct SidebarView: View {
         // workspace mid rename silently lost the name. The row watches `renaming` and commits when
         // it is taken away, which is `InPlaceRename`'s `dismissed` ending. See `WorkspaceRow.end`.
         .onChange(of: app.selection, initial: true) { _, target in
-            renaming = nil
-            listSelection = target
-            // Before the rows are rebuilt, so the row being selected is held in the section it is
-            // in AS you select it rather than in the one reading it has just moved it to.
-            holdSelectedRow(target)
-            if grouping == .status { reflow() }
+            follow(target)
         }
         // Not observed state, so this write invalidates nothing and is safe from an update.
         .onChange(of: undoManager, initial: true) { _, manager in
@@ -788,6 +770,53 @@ struct SidebarView: View {
             return
         }
         app.selection = target
+    }
+
+    /// The menu bar asking for a rename, which reaches the field this list owns. A workspace this
+    /// pane is not drawing is ignored, so Home and the sidebar can both listen to one post.
+    private func beginRename(_ note: Notification) {
+        guard let raw = note.userInfo?[Notification.bloomWorkspaceIDKey] as? String else { return }
+        let id = WorkspaceID(raw)
+        guard app.workspaces.contains(where: { $0.id == id }) else { return }
+        renaming = id
+    }
+
+    /// The selection moving, wherever it moved from.
+    ///
+    /// Moving off a row has to close whatever field was open on it, or the rename would carry on
+    /// editing a workspace that is no longer on screen. Closing it no longer throws away what was
+    /// typed: the row watches `renaming` and commits when it is taken away, which is
+    /// `InPlaceRename`'s `dismissed` ending. See `WorkspaceRow.end`.
+    private func follow(_ target: SidebarSelection) {
+        renaming = nil
+        listSelection = target
+        // Before the rows are rebuilt, so the row being selected is held in the section it is in AS
+        // you select it rather than in the one reading it has just moved it to.
+        holdSelectedRow(target)
+        if grouping == .status { reflow() }
+    }
+
+    /// Delete on the selected row, from the keyboard.
+    ///
+    /// **A method rather than the closure it was, and the reason is a build that only fails on
+    /// somebody else's machine.** Written inline it was two `guard`s and a pattern match inside a
+    /// `body` that had grown three more animations and a second arrival tracker, and the whole
+    /// expression stopped type checking in reasonable time: green here, red on the CI runner, which
+    /// is slower and is the green that counts. Nothing about what it does changed.
+    private func archiveSelectedRow() {
+        guard let id = listSelection?.workspaceID,
+              let workspace = app.workspaces.first(where: { $0.id == id }),
+              isDrawn(workspace) else { return }
+        archiveFromKeyboard(workspace)
+    }
+
+    /// Whether this workspace has a row in the pane right now, rather than being filtered out or
+    /// folded away inside a project.
+    private func isDrawn(_ workspace: Workspace) -> Bool {
+        paneRows.contains { row in
+            guard case .workspace(let shown, _) = row else { return false }
+            return shown.id == workspace.id
+        }
     }
 
     private func archiveFromKeyboard(_ workspace: Workspace) {
