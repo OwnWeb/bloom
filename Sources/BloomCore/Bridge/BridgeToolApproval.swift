@@ -207,6 +207,12 @@ public enum BridgeToolApproval {
         // goes. An ask in front of it would hang a turn that may be running with nobody watching,
         // for a message that is already in front of a person. See `WorkspaceSayTool`.
         "workspace_say",
+        // The projects Bloom has, read from its own database. It changes nothing, and it is the
+        // call a workspace agent makes before naming another project to `workspace_start`, so an
+        // ask here would hang the turn that is about to hand work on, with nothing for a person
+        // to weigh: the names are the owner's own sidebar. `project_add` and `project_hide` stay
+        // off the list and off the workspace role, because they change that sidebar.
+        "project_list",
     ]
 
     /// Whether this ask is Bloom answering itself.

@@ -241,9 +241,10 @@ extension AppModel {
     /// enough to name it.
     ///
     /// Neither the project nor the origin is worked out here any more. `WorkspaceStartTool`
-    /// decides both, because it is the half that knows which caller is which: an agent may only
-    /// ever be given the project its own workspace is in, and the owner's standalone client names
-    /// one out loud from the list Bloom already has. Two callers, one answer, decided once. This
+    /// decides both, because it is the half that knows which caller is which: an agent is given
+    /// the project its own workspace is in unless it names another, and the owner's standalone
+    /// client always names one, both from the list Bloom already has. Two callers, one answer,
+    /// decided once. `repo` is therefore not necessarily the caller's own project. This
     /// side runs the same sequence the Create sheet runs and nothing else.
     private func startWorkspaceForBridge(
         _ order: AgentWorkspaceOrder,

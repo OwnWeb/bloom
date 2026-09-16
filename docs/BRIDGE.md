@@ -151,12 +151,12 @@ places: the listing, the dispatch and the gate.
 | Tool | What it does | workspace | owner |
 | --- | --- | :---: | :---: |
 | `whoami` | What this connection is: the workspace and its branch, the worktree path, the project, and whether the workspace was created by the owner or by another agent. From the owner's own client, which copy of Bloom was reached and how much it is holding | ✓ | ✓ |
-| `project_list` | Every project in the sidebar: name, path, default branch, how many workspaces it has, how many of those have an agent mid turn and how many have one stopped on a question, whether it is still where Bloom recorded it, whether it is hidden | | ✓ |
+| `project_list` | Every project in the sidebar: name, path, default branch, how many workspaces it has, how many of those have an agent mid turn and how many have one stopped on a question, whether it is still where Bloom recorded it, whether it is hidden | ✓ | ✓ |
 | `project_add` | Register a git repository that **already exists** as a project | | ✓ |
 | `project_hide` | Take a project out of the sidebar. A view preference and nothing more | | ✓ |
 | `project_unhide` | Put it back, in the place it already had | | ✓ |
 | `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why | | ✓ |
-| `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
+| `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. A workspace agent starts it in its own project, or in another one it names With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
 | `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own, or one it started (by name or id), for a workspace agent; any of them, named out loud, for the owner | ✓ | ✓ |
 | `workspace_archive` | Archive a workspace through normal safety checks, keeping its branch and history. For a workspace agent, its own once the turn asking for it has ended, or one it started, by id and at once; any of them, named out loud and at once, for the owner | ✓ | ✓ |
 | `workspace_merge` | Ask a workspace's own agent to merge its pull request | | ✓ |
@@ -448,9 +448,26 @@ bare "not a git repository", a model reaches for `git init` and makes a reposito
 asked for one, with whatever was lying in the folder as its first commit. The refusal is written to
 head that off in words rather than to hope.
 
-A workspace agent cannot name a project to `workspace_start`, because its own is the only one it may act in, and `project` is
-refused rather than ignored if it names one. The owner's client must name one, because nothing else
-says which.
+A workspace agent may leave `project` out of `workspace_start`, and the new workspace goes in the
+project it is already in. It may also name another project, which is how work found in one
+repository is handed to a workspace in another: an agent in the site's project that finds the fix
+belongs in the app starts it there. The owner's client must name one, because nothing else says
+which. Either way the name goes through `BridgeProjectLookup`, so both may only name a project Bloom
+already has and both are refused in the same words when it matches nothing or matches more than
+one. `project_list` is offered to a workspace agent for this reason and no other; `project_add` and
+the two hiding tools stay with the owner, because they change the owner's sidebar.
+
+Naming another project changes where the worktree is cut and nothing else. The new workspace is
+still `.agent` origin with the caller as its parent, and every rule that reads parentage reads the
+parent's workspace id rather than its repository: the ceiling on running children counts it, the
+parent may rename and archive it by id, `workspace_say` and `workspace_diff` reach it by id, and it
+may not start workspaces of its own. It is drawn in the sidebar under the project it was started in,
+which is where its worktree is, and not under the parent's.
+
+The spawn key is scoped by the parent, as before, and by the project as well when the parent named
+one other than its own. Otherwise the same prompt sent to two projects would be answered the second
+time with the first one's workspace. Leaving it out, or naming the project the caller is already in,
+produces the key every earlier call produced, so a retry is still recognised as the same call.
 
 ### A subagent is not a started workspace, and the crew tools are about the difference
 
@@ -860,7 +877,7 @@ So `BridgeToolApproval` names the tools Bloom answers for itself:
 
 | Self-approved | Not |
 | --- | --- |
-| `whoami`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say` | everything else |
+| `whoami`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list` | everything else |
 
 It is a list rather than "anything with our prefix", so a tool added later is opted in by somebody
 thinking about it rather than by inheriting a decision made before it existed.
@@ -934,9 +951,11 @@ And what a person would otherwise be weighing has already been decided in the co
 window is asked for anything: the depth limit, the ceiling of three and the name rule are all in
 `Crew`, which is the same argument `workspace_start` is on this list under.
 
-The project tools are not on it, and that is deliberate rather than an omission: the list is for
-tools an agent must be able to call while nobody is watching, and those are called by the owner's
-own client, where the owner is by definition sitting there to answer.
+`project_list` is on it and the other project tools are not, and that is deliberate rather than an
+omission: the list is for tools an agent must be able to call while nobody is watching. A workspace
+agent reads `project_list` before naming another project to `workspace_start`, and it changes
+nothing. `project_add`, `project_hide` and `project_unhide` change the owner's sidebar and are called
+by the owner's own client, where the owner is by definition sitting there to answer.
 
 `quick_prompt_list` is on it and the other three quick prompt tools are not, which is the same test
 applied four times. The listing is offered to `.workspace`, so it can be called by an agent running on

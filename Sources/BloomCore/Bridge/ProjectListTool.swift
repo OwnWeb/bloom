@@ -1,19 +1,23 @@
 import Foundation
 
-/// `project_list`: the projects Bloom has, for a client that is not sitting in one.
+/// `project_list`: the projects Bloom has, for a caller that wants to name one.
 ///
-/// Owner only, and that is not caution about the cost of the call, which is one `SELECT`. A
-/// workspace agent already knows its project and cannot act in any other, so the only thing this
-/// would give it is the names and the paths of every other repository the owner works on, which is
-/// information it has no use for and did not ask to be told. The owner's own client has no
-/// workspace to be scoped by, so listing is the only way it can find out what it may name.
+/// The owner's own client has no workspace to be scoped by, so listing is the only way it can find
+/// out what it may name.
+///
+/// It used to be owner only, on the grounds that a workspace agent already knew its project and
+/// could act in no other, so the names and paths of every other repository were information it had
+/// no use for. That stopped being true when `workspace_start` let a workspace agent name another
+/// project to hand work to, and a tool that takes a project name from a caller who cannot find out
+/// the names is a tool that gets guessed at. The rest of the project tools stay with the owner:
+/// adding a repository and hiding one are the owner's decisions about the sidebar, not an agent's.
 ///
 /// Read only, and it says so in the description because that is what the model weighs before
 /// deciding whether the call is worth making.
 public struct ProjectListTool: BridgeToolHandling {
     public init() {}
 
-    public let roles: Set<BridgeRole> = [.owner]
+    public let roles: Set<BridgeRole> = [.workspace, .owner]
 
     public let tool = BridgeTool(
         name: "project_list",
@@ -31,8 +35,8 @@ public struct ProjectListTool: BridgeToolHandling {
             project with workspaces and agents_running 0 has worktrees sitting idle, which is not \
             the same as having none, and a project with workspaces 0 has none at all.
 
-            workspace_list names those same workspaces one by one and is counted from the same \
-            rows, so this project's workspaces is how many it lists for the project and its \
+            workspace_list, for a caller that has it, names those same workspaces one by one and \
+            is counted from the same rows, so this project's workspaces is how many it lists for the project and its \
             agents_running is how many of them it marks agent_running.
 
             Call it before naming a project in any other tool, because Bloom will only act on \
@@ -97,14 +101,18 @@ public struct ProjectListTool: BridgeToolHandling {
 
             let hidden = ProjectVisibility.hiddenCount(projects)
             guard hidden > 0 else { return .json(.object(["projects": .array(rows)])) }
+            // The way back is named only to a caller that can take it. `project_unhide` is the
+            // owner's, and a workspace agent told to call a tool it does not have would try.
+            let wayBack = identity.role == .owner
+                ? "and project_unhide puts one back in the list."
+                : "and the owner can put one back in the list."
             return .json(.object([
                 "projects": .array(rows),
                 "hidden_projects": .integer(hidden),
                 "note": .string(
                     "\(hidden == 1 ? "One project is" : "\(hidden) projects are") hidden from "
                         + "Bloom's sidebar. That is a view preference and nothing else: they are "
-                        + "still projects, their workspaces still run, and project_unhide puts "
-                        + "one back in the list."
+                        + "still projects, their workspaces still run, " + wayBack
                 ),
             ]))
         } catch {
