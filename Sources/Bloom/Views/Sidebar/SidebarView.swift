@@ -56,14 +56,6 @@ struct SidebarView: View {
     /// built here, and emptied when a workspace's turn ends: see `reflow`.
     @State private var expandedSubagents: Set<WorkspaceID> = []
 
-    /// The selected row, and the section it was in when it was selected.
-    ///
-    /// What stops a row moving out from under the pointer: reading a finished turn, answering a
-    /// permission question or watching a turn end all change which section a row belongs in, and
-    /// all three happen while somebody is looking at that row. It settles when the selection moves.
-    /// The rule itself is `SidebarStatusListing.build`, in the core, where it is tested.
-    @State private var stuckRow: SidebarStatusListing.StuckRow?
-
     /// What the list itself thinks is selected. See the `onChange` pair below for why this is not
     /// bound straight to the model.
     @State private var listSelection: SidebarSelection?
@@ -299,6 +291,12 @@ struct SidebarView: View {
         // reason: an agent starting or finishing changes no project's membership, its filtering or
         // its order. See `AppModel.crewRows`.
         .onChange(of: app.crewRows) { _, _ in reflow() }
+        // An agent starting or stopping, or a question being asked or answered, moves a row between
+        // the status view's sections without writing the workspace, so `app.workspaces` never
+        // changes and nothing else would rebuild the run. The project view draws these as marks
+        // on rows it already has, so it needs no rebuild.
+        .onChange(of: app.runningWorkspaceIDs) { _, _ in if grouping == .status { reflow() } }
+        .onChange(of: app.waitingWorkspaceIDs) { _, _ in if grouping == .status { reflow() } }
         // A create appearing, and the same row being retired when the stored one lands. The run
         // and not the groups, for the same reason: a workspace being cut changes no project's
         // membership, its filtering or its order.
@@ -655,8 +653,7 @@ struct SidebarView: View {
             )
             let listing = SidebarStatusListing.build(
                 workspaces: groups.flatMap(\.workspaces),
-                status: status(of:),
-                stuck: stuckRow
+                status: status(of:)
             )
             // Written here rather than derived in `body`, in the same breath as the rows, so the
             // move and the value the move is animated on land in one update.
@@ -688,19 +685,6 @@ struct SidebarView: View {
             pullRequest: WorkspacePullRequests.shared.pullRequest(for: workspace.id),
             isAwaitingPermission: app.isAwaitingPermission(workspace)
         )
-    }
-
-    /// Holds the selected row in the section it was in when it was selected, and lets the last one
-    /// go. See `stuckRow`.
-    private func holdSelectedRow(_ selection: SidebarSelection) {
-        guard let id = selection.workspaceID,
-              let workspace = app.workspaces.first(where: { $0.id == id })
-        else {
-            stuckRow = nil
-            return
-        }
-        guard stuckRow?.id != id else { return }
-        stuckRow = .init(id: id, group: SidebarStatusGroup.of(status(of: workspace)))
     }
 
     // MARK: - Reordering
@@ -790,10 +774,6 @@ struct SidebarView: View {
     private func follow(_ target: SidebarSelection) {
         renaming = nil
         listSelection = target
-        // Before the rows are rebuilt, so the row being selected is held in the section it is in AS
-        // you select it rather than in the one reading it has just moved it to.
-        holdSelectedRow(target)
-        if grouping == .status { reflow() }
     }
 
     /// Delete on the selected row, from the keyboard.

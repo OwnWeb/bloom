@@ -42,6 +42,20 @@ public enum SidebarStatusGroup: String, CaseIterable, Sendable, Hashable {
         }
     }
 
+    /// Which section a workspace belongs in, counting a turn nobody has read even when the row's
+    /// mark says something else.
+    ///
+    /// `WorkspaceStatus.resolve` lets a pull request outrank unread, because the mark on a row is
+    /// better spent on red checks or a merge than on a dot. Grouped by that verdict alone, every
+    /// unread workspace with a pull request sat in Idle, and only once `gh` had answered for it,
+    /// which is why it looked intermittent. The mark keeps the pull request; the section asks
+    /// whether there is something to read. Needs you and Working still come first, because a
+    /// question or a running turn is more urgent than output waiting.
+    public static func of(_ status: WorkspaceStatus, unread: Bool) -> Self {
+        let group = of(status)
+        return group == .idle && unread ? .readyToRead : group
+    }
+
     public var title: String {
         switch self {
         case .needsYou: "Needs you"
@@ -78,11 +92,11 @@ public enum SidebarStatusGroup: String, CaseIterable, Sendable, Hashable {
 
 /// The pane's sections, in order, with the workspaces in each.
 ///
-/// A value rather than a function over the rows in a view body, because the rule underneath it is
-/// the one that has to be tested: a workspace does NOT leave its section while it is the selected
-/// row. Reading a finished turn, answering a permission question, or watching a turn end in the row
-/// you are looking at would all otherwise move that row out from under the pointer, into a section
-/// that may itself be folded. See `stuck`.
+/// A row goes wherever its state says, including the selected one. It used to be held in the
+/// section it was selected in, so that reading a turn or watching one end would not move it out
+/// from under the pointer; with the move animated, a row travelling to its new section reads as
+/// the state changing rather than as the list jumping, and the hold only left a running row sitting
+/// under Idle until the selection moved.
 public struct SidebarStatusListing: Equatable, Sendable {
     public struct Section: Equatable, Sendable {
         public var group: SidebarStatusGroup
@@ -110,19 +124,13 @@ public struct SidebarStatusListing: Equatable, Sendable {
     ///   chose.
     /// - Parameter status: the verdict for one workspace, which only the app layer can answer
     ///   because it alone knows what is running and what GitHub said.
-    /// - Parameter stuck: the row that is selected, and the section it was in when it was selected.
-    ///   It stays there until the selection moves. Nil when nothing in the pane is selected.
     public static func build(
         workspaces: [Workspace],
-        status: (Workspace) -> WorkspaceStatus,
-        stuck: StuckRow? = nil
+        status: (Workspace) -> WorkspaceStatus
     ) -> SidebarStatusListing {
         var byGroup: [SidebarStatusGroup: [Workspace]] = [:]
         for workspace in workspaces {
-            let group = stuck?.id == workspace.id
-                ? stuck?.group ?? SidebarStatusGroup.of(status(workspace))
-                : SidebarStatusGroup.of(status(workspace))
-            byGroup[group, default: []].append(workspace)
+            byGroup[SidebarStatusGroup.of(status(workspace), unread: workspace.unread), default: []].append(workspace)
         }
 
         return SidebarStatusListing(
@@ -148,16 +156,5 @@ public struct SidebarStatusListing: Equatable, Sendable {
                 return lhs.offset < rhs.offset
             }
             .map(\.element)
-    }
-
-    /// The selected row and the section it is held in. See `build`.
-    public struct StuckRow: Equatable, Sendable {
-        public var id: WorkspaceID
-        public var group: SidebarStatusGroup
-
-        public init(id: WorkspaceID, group: SidebarStatusGroup) {
-            self.id = id
-            self.group = group
-        }
     }
 }

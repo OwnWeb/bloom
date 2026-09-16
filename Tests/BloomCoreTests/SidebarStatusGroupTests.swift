@@ -3,11 +3,6 @@ import Testing
 @testable import BloomCore
 
 /// What the pane looks like when it is sorted by what each workspace needs.
-///
-/// The rule worth the suite is the last block: a selected row keeps its section. Everything in the
-/// pane that moves a row between sections (reading it, answering it, an agent finishing) happens
-/// while somebody is looking at that row, and a list that reorders itself under the pointer is the
-/// failure this was built to avoid.
 @Suite("Sidebar status grouping")
 struct SidebarStatusGroupTests {
     private func workspace(_ id: String, touched: Date = .distantPast) -> Workspace {
@@ -52,6 +47,31 @@ struct SidebarStatusGroupTests {
         for state in states {
             #expect(SidebarStatusGroup.of(state) == .idle, "\(state) should be idle")
         }
+    }
+
+    /// The mark on the row says the pull request, and the section still says there is a turn to
+    /// read. Grouping by the mark alone put these in Idle as soon as `gh` had answered.
+    @Test func anUnreadTurnOutranksThePullRequestForTheSection() {
+        for state: WorkspaceStatus in [.merged, .checksPassed, .pullRequestOpen, .changed] {
+            #expect(SidebarStatusGroup.of(state, unread: true) == .readyToRead, "\(state)")
+            #expect(SidebarStatusGroup.of(state, unread: false) == .idle, "\(state)")
+        }
+    }
+
+    @Test func aQuestionOrARunningTurnStillOutranksUnread() {
+        #expect(SidebarStatusGroup.of(.awaitingPermission, unread: true) == .needsYou)
+        #expect(SidebarStatusGroup.of(.running, unread: true) == .working)
+    }
+
+    @Test func anUnreadWorkspaceWithAMergedPullRequestIsListedAsReadyToRead() {
+        var merged = workspace("merged")
+        merged.unread = true
+        let listing = SidebarStatusListing.build(
+            workspaces: [merged, workspace("read")],
+            status: { _ in .merged }
+        )
+        #expect(listing.sections.map(\.group) == [.readyToRead, .idle])
+        #expect(listing.sections.first?.workspaces.map(\.id.rawValue) == ["merged"])
     }
 
     @Test func everyStateHasASection() {
@@ -119,48 +139,6 @@ struct SidebarStatusGroupTests {
         for group in SidebarStatusGroup.allCases where group != .idle {
             #expect(!group.ranksByRecency, "\(group) should keep the pane's order")
         }
-    }
-
-    // MARK: - The selected row stays put
-
-    @Test func readingTheSelectedRowDoesNotMoveIt() {
-        let rows = [workspace("a"), workspace("b")]
-        // "a" was unread when it was selected, and reading it has just made it clean.
-        let listing = SidebarStatusListing.build(
-            workspaces: rows,
-            status: { _ in .clean },
-            stuck: .init(id: WorkspaceID("a"), group: .readyToRead)
-        )
-        #expect(listing.sections.map(\.group) == [.readyToRead, .idle])
-        #expect(listing.sections.first?.workspaces.map(\.id.rawValue) == ["a"])
-    }
-
-    @Test func aTurnEndingUnderThePointerLeavesTheRowWhereItWas() {
-        let listing = SidebarStatusListing.build(
-            workspaces: [workspace("a")],
-            status: { _ in .unread },
-            stuck: .init(id: WorkspaceID("a"), group: .working)
-        )
-        #expect(listing.sections.map(\.group) == [.working])
-    }
-
-    @Test func everyOtherRowSettlesWhereItsStateSaysEvenWhileOneIsHeld() {
-        let listing = SidebarStatusListing.build(
-            workspaces: [workspace("held"), workspace("free")],
-            status: { _ in .unread },
-            stuck: .init(id: WorkspaceID("held"), group: .idle)
-        )
-        #expect(listing.sections.map(\.group) == [.readyToRead, .idle])
-        #expect(listing.sections.first?.workspaces.map(\.id.rawValue) == ["free"])
-    }
-
-    @Test func aHeldRowThatIsNoLongerInThePaneHoldsNothing() {
-        let listing = SidebarStatusListing.build(
-            workspaces: [workspace("a")],
-            status: { _ in .running },
-            stuck: .init(id: WorkspaceID("gone"), group: .needsYou)
-        )
-        #expect(listing.sections.map(\.group) == [.working])
     }
 
     // MARK: - Folding
