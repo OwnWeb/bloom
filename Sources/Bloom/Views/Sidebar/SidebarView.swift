@@ -135,13 +135,13 @@ struct SidebarView: View {
     @State private var childArrival = RowArrival<String>()
 
     var body: some View {
-        answering(observing(pane))
+        answering(observing(animating(list)))
     }
 
-    /// The list and everything drawn with it. Split from the change handlers in `observing` because
-    /// the chain as one expression was past what the CI runner's type checker would finish in a
-    /// release build: green on this Mac, red there, twice.
-    private var pane: some View {
+    /// The list itself. `body` is four steps (this, `animating`, `observing` and `answering`)
+    /// because the chain as one expression was past what the CI runner's type checker would
+    /// finish in a release build: green on this Mac, red there, three times.
+    private var list: some View {
         List(selection: $listSelection) {
             // No rows above the projects. Home and Ask Bloom were two here, with the pane's `+` on
             // Home, and all three are buttons in the status bar now. See `SidebarDock`.
@@ -184,6 +184,11 @@ struct SidebarView: View {
         } onConfirm: { pending in
             Task { await stop(pending) }
         }
+    }
+
+    /// The motion keyed to the list's values, one step of `body`. See `list`.
+    private func animating(_ list: some View) -> some View {
+        list
         // What puts the fold back.
         //
         // A `List` animates nothing on its own: rows arrive and leave in whatever transaction the
@@ -311,7 +316,7 @@ struct SidebarView: View {
         }
     }
 
-    /// The selection, the keyboard and the menu bar. Its own step for the reason `pane` gives.
+    /// The selection, the keyboard and the menu bar. Its own step for the reason `list` gives.
     private func answering(_ pane: some View) -> some View {
         pane
         .onAppear { SwitchProbe.attachSidebarSelection($listSelection) }
