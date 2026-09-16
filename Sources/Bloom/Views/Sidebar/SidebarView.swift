@@ -233,30 +233,14 @@ struct SidebarView: View {
             guard !Task.isCancelled else { return }
             reorderNote = nil
         }
-        // New and the collapse button, in one piece of glass, the way the detail column's plus,
-        // search and inspector share one. The system's own toggle cannot join a group: it is
-        // `NavigationSplitView`'s item, and a `+` beside it came out as two separate capsules. So
-        // `RootView` removes that toggle and this is its replacement, with the detail column's
-        // toolbar drawing one while the sidebar is folded away.
+        // A struct of its own rather than a closure here: written inline, it put `body` past what
+        // the CI runner's type checker would finish, green on this Mac and red there.
         .toolbar {
-            if !isSidebarFolded {
-                // Pushes the pair to the sidebar's trailing edge. Without it they sat against the
-                // traffic lights, and the detail column's own group is pushed the same way.
-                ToolbarSpacer(.flexible, placement: .primaryAction)
-
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Menu {
-                        Button("New workspace…") { presentCreate(in: nil) }
-                        Button("New project…", action: startProject)
-                    } label: {
-                        Label("New", systemImage: "plus")
-                    }
-                    .menuIndicator(.hidden)
-                    .help("New workspace or project")
-
-                    SidebarToggleButton()
-                }
-            }
+            SidebarToolbar(
+                isFolded: isSidebarFolded,
+                onNewWorkspace: { presentCreate(in: nil) },
+                onStartProject: startProject
+            )
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             SidebarStatusBar(
@@ -933,6 +917,41 @@ extension EnvironmentValues {
     /// title bar after the column has gone, beside the detail column's own toggle, so the sidebar
     /// reads this to take New and its toggle away with it.
     @Entry var isSidebarFolded = false
+}
+
+/// New and the collapse button, in one piece of glass, the way the detail column's plus, search
+/// and inspector share one.
+///
+/// The system's own toggle cannot join a group: it is `NavigationSplitView`'s item, and a `+`
+/// beside it came out as two separate capsules. So `RootView` removes that toggle and this is its
+/// replacement, with the detail column's toolbar drawing one while the sidebar is folded away.
+/// Folded, this draws nothing, because a sidebar's toolbar items otherwise stay in the title bar
+/// after the column has gone.
+struct SidebarToolbar: ToolbarContent {
+    var isFolded: Bool
+    var onNewWorkspace: () -> Void
+    var onStartProject: () -> Void
+
+    var body: some ToolbarContent {
+        if !isFolded {
+            // Pushes the pair to the sidebar's trailing edge. Without it they sat against the
+            // traffic lights.
+            ToolbarSpacer(.flexible, placement: .primaryAction)
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                Menu {
+                    Button("New workspace…", action: onNewWorkspace)
+                    Button("New project…", action: onStartProject)
+                } label: {
+                    Label("New", systemImage: "plus")
+                }
+                .menuIndicator(.hidden)
+                .help("New workspace or project")
+
+                SidebarToggleButton()
+            }
+        }
+    }
 }
 
 /// Folds the sidebar away or brings it back, through the same notification the View menu uses.

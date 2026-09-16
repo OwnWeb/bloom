@@ -13,8 +13,8 @@ struct CentredWindowPlacementTests {
         #expect(frame.midY == owner.midY)
     }
 
-    @Test("Changing steps keeps the top edge still when growing and shrinking", arguments: [300.0, 424.0, 534.0, 747.0])
-    func resize(height: Double) {
+    @Test("Changing steps keeps the top edge still when growing and shrinking", arguments: [300, 424, 534, 747] as [CGFloat])
+    func resize(height: CGFloat) {
         let before = CGRect(x: 400, y: 400, width: 520, height: 424)
         let frame = CentredWindowPlacement.frame(size: CGSize(width: 520, height: height), keepingTopOf: before,
                                                 visible: CGRect(x: 0, y: 0, width: 2000, height: 1400))
