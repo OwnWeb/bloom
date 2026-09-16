@@ -65,7 +65,9 @@ struct ReviewPaneView: View {
                 // Pinned to the top, not centred, which is what an unaligned fill means and what
                 // a reader reported on 0.20.0: a file with a handful of lines in it floated in
                 // the middle of a tall pane with a band of empty above it. Every one of the views
-                // this holds reads top down, and the empty states inside them centre themselves.
+                // this holds reads top down. The empty states below do not centre themselves, as
+                // this once assumed: `ContentUnavailableView` hugs its content, so each one fills
+                // the pane itself, or "is gone" sits under the toolbar.
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             if drawsComposer {
@@ -113,8 +115,10 @@ struct ReviewPaneView: View {
     private var content: some View {
         if model.isLoadingChanges || !model.hasReadChanges {
             LoadingView("Reading changes")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error = model.changesError {
             EmptyStateView(glyph: "exclamationmark.triangle", title: "Could not read changes", message: error)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if tab.showsAllFiles, !tab.isPinnedToPath {
             AllFilesReviewView(
                 model: model, selectedPath: tab.path,
@@ -131,6 +135,7 @@ struct ReviewPaneView: View {
                            message: model.changedFiles.isEmpty
                             ? model.diffScope.emptyMessage(base: model.workspace.baseBranch)
                             : "Pick a changed file in the inspector to read it here.")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if tab.path.isEmpty {
             // Asked before the two branches below, because with no path there is nothing to look
             // for and `isPresent` answers optimistically until the first look comes back.
@@ -141,6 +146,7 @@ struct ReviewPaneView: View {
                     ? "Nothing in this worktree differs from \(model.workspace.baseBranch) yet."
                     : "Pick a file in the inspector to read it here."
             )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if isPresent, FileMediaView.isMedia(path: tab.path) {
             // An image, a PDF, a video. `FilePreview` reads a file as text and would say there is
             // nothing to show, which for the screenshot somebody just attached is both wrong and
@@ -166,6 +172,7 @@ struct ReviewPaneView: View {
                 title: "\((tab.path as NSString).lastPathComponent) is gone",
                 message: "It is no longer in this worktree. Pick another file in the inspector."
             )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
