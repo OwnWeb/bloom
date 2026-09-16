@@ -40,6 +40,7 @@ struct RootView: View {
                 SidebarView()
                 // Replaced by `SidebarToggleButton`, so it can share glass with New.
                 .toolbar(removing: .sidebarToggle)
+                .environment(\.isSidebarFolded, columnVisibility == .detailOnly)
                 .scrollContentBackground(.hidden)
                 .background {
                     Group {

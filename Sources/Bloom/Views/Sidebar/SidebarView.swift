@@ -23,6 +23,7 @@ import BloomCore
 /// custom label away and draws only the indicator, which is why it rendered as a lone letter.
 struct SidebarView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.isSidebarFolded) private var isSidebarFolded
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The window's undo manager. Only a view can see it, and `AppModel` is where the archive
     /// that wants it happens, so the sidebar hands it over. Any view in the window would do; this
@@ -238,21 +239,23 @@ struct SidebarView: View {
         // `RootView` removes that toggle and this is its replacement, with the detail column's
         // toolbar drawing one while the sidebar is folded away.
         .toolbar {
-            // Pushes the pair to the sidebar's trailing edge. Without it they sat against the
-            // traffic lights, and the detail column's own group is pushed the same way.
-            ToolbarSpacer(.flexible, placement: .primaryAction)
+            if !isSidebarFolded {
+                // Pushes the pair to the sidebar's trailing edge. Without it they sat against the
+                // traffic lights, and the detail column's own group is pushed the same way.
+                ToolbarSpacer(.flexible, placement: .primaryAction)
 
-            ToolbarItemGroup(placement: .primaryAction) {
-                Menu {
-                    Button("New workspace…") { presentCreate(in: nil) }
-                    Button("New project…", action: startProject)
-                } label: {
-                    Label("New", systemImage: "plus")
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Menu {
+                        Button("New workspace…") { presentCreate(in: nil) }
+                        Button("New project…", action: startProject)
+                    } label: {
+                        Label("New", systemImage: "plus")
+                    }
+                    .menuIndicator(.hidden)
+                    .help("New workspace or project")
+
+                    SidebarToggleButton()
                 }
-                .menuIndicator(.hidden)
-                .help("New workspace or project")
-
-                SidebarToggleButton()
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -923,6 +926,13 @@ struct SidebarView: View {
     private func startProject() {
         NotificationCenter.default.post(name: .bloomNewProject, object: nil)
     }
+}
+
+extension EnvironmentValues {
+    /// Whether the window's sidebar column is folded away. A sidebar's toolbar items stay in the
+    /// title bar after the column has gone, beside the detail column's own toggle, so the sidebar
+    /// reads this to take New and its toggle away with it.
+    @Entry var isSidebarFolded = false
 }
 
 /// Folds the sidebar away or brings it back, through the same notification the View menu uses.
