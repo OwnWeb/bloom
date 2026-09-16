@@ -70,7 +70,7 @@ struct WorkspaceCheckoutTests {
             remote: ["origin/main", "origin/wip", "origin/theirs", "origin/HEAD"],
             defaultBranch: "main"
         )
-        #expect(branches.map(\.name) == ["theirs", "wip"])
+        #expect(branches.map(\.name) == ["main", "theirs", "wip"])
         #expect(branches.first { $0.name == "wip" }?.isLocal == true)
         #expect(branches.first { $0.name == "theirs" }?.isLocal == false)
     }
@@ -86,9 +86,23 @@ struct WorkspaceCheckoutTests {
             defaultBranch: "main",
             inUse: ["review": .workspace("Quiet Harbour")]
         )
-        #expect(branches.map(\.name) == ["review", "wip"])
+        #expect(branches.map(\.name) == ["main", "review", "wip"])
         #expect(branches.first { $0.name == "review" }?.inUseBy == .workspace("Quiet Harbour"))
         #expect(branches.first { $0.name == "wip" }?.inUseBy == nil)
+    }
+
+    /// It used to be dropped as the branch the project's checkout is on, and somebody looking for
+    /// main on the Existing branch tab was told nothing matched. It leads, marked when it is taken.
+    @Test("The default branch is offered first, wearing the project checkout that holds it")
+    func offersTheDefaultBranchFirst() {
+        let branches = WorkspaceCheckoutPlan.offeredBranches(
+            local: ["alpha", "main"],
+            remote: ["origin/main", "origin/beta"],
+            defaultBranch: "main",
+            inUse: ["main": .projectCheckout(path: "/dev/flare")]
+        )
+        #expect(branches.map(\.name) == ["main", "alpha", "beta"])
+        #expect(branches.first?.inUseBy == .projectCheckout(path: "/dev/flare"))
     }
 
     /// What a caller naming a branch by name is looked up in. The picker drops the default branch

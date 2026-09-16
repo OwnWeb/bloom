@@ -210,9 +210,14 @@ public enum WorkspaceCheckoutPlan {
     ///
     /// A branch that exists on both sides is one entry and it counts as local, because that is the
     /// checkout that will actually happen. `origin/HEAD` is dropped: it is a symbolic ref rather
-    /// than a branch, and a worktree cut from it lands on a name nobody typed. The default branch
-    /// is dropped too, because it is the one branch that is already checked out in the project
-    /// itself and git will refuse it.
+    /// than a branch, and a worktree cut from it lands on a name nobody typed.
+    ///
+    /// The default branch is listed, and first. It used to be dropped, because it is normally the
+    /// branch the project's own checkout is on and git will refuse it. Somebody wanting to work on
+    /// main went looking for it on this tab, typed `origin/main`, and was told nothing matched, which reads as a branch that does not exist rather than one that is taken.
+    /// So it is offered like any other held branch: `inUse` names the project's checkout on the
+    /// row, and picking it says why git will not open it twice. When the project is on another
+    /// branch it is free, and opening it works.
     ///
     /// A head with a pull request open on it is dropped as well, and that one is not tidiness.
     /// The two entries would open the same branch under different bases: the branch entry measures
@@ -248,32 +253,28 @@ public enum WorkspaceCheckoutPlan {
             byName[name] = false
             remoteByName[name] = remote
         }
-        byName[defaultBranch] = nil
         for name in pullRequestHeads { byName[name] = nil }
         return byName
             .map { ExistingBranch(name: $0.key, isLocal: $0.value, inUseBy: inUse[$0.key], remoteName: remoteByName[$0.key]) }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            .sorted {
+                if ($0.name == defaultBranch) != ($1.name == defaultBranch) { return $0.name == defaultBranch }
+                return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
     }
 
     /// The same merge with nothing dropped: every branch the repository has, local and remote, in
     /// one list, with whatever is holding each.
     ///
     /// What the picker offers is a subset of this, and the difference is that the picker is a list
-    /// somebody reads while a caller that names a branch by name has already read one. The default
-    /// branch is the case that matters: it is dropped from the picker because it is normally the
-    /// branch the project's own checkout is on, and git will not have it twice, but "normally" is
-    /// not always. A project left on a feature branch has its default branch free, and hiding it
-    /// there would refuse a checkout git would have allowed. So nothing is hidden and `inUse`
-    /// answers the question instead, which is git's own worktree listing rather than an assumption
-    /// about which branch the project is on.
-    ///
-    /// Pull request heads are not dropped either, for the same reason: there is no pull request
-    /// row here to offer instead.
+    /// somebody reads while a caller that names a branch by name has already read one. Pull request
+    /// heads are the case that matters: the picker drops them for the pull request row, and there
+    /// is no pull request row here to offer instead. `inUse` answers whether git will allow the
+    /// checkout, which is git's own worktree listing rather than an assumption about which branch
+    /// the project is on.
     public static func everyBranch(
         local: [String], remote: [String], inUse: [String: BranchHolder] = [:], remoteNames: [String] = ["origin"]
     ) -> [ExistingBranch] {
-        // The empty string excludes nothing: `offeredBranches` drops the branch it is given as the
-        // default, and no branch is called "". One merge rule, asked for twice.
+        // No default branch to lead with, and no branch is called "". One merge rule, asked for twice.
         offeredBranches(local: local, remote: remote, defaultBranch: "", inUse: inUse, remoteNames: remoteNames)
     }
 

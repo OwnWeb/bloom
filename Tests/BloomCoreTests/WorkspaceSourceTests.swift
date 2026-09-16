@@ -30,10 +30,12 @@ struct WorkspaceSourceTests {
     private func offering(
         pullRequests: [PullRequestListing] = [],
         branches: [ExistingBranch] = [],
-        baseBranches: [String] = []
+        baseBranches: [String] = [],
+        defaultBranch: String = "main"
     ) -> WorkspaceSourceOffering {
         WorkspaceSourceOffering(
-            pullRequests: pullRequests, branches: branches, baseBranches: baseBranches
+            pullRequests: pullRequests, branches: branches, baseBranches: baseBranches,
+            defaultBranch: defaultBranch
         )
     }
 
@@ -297,12 +299,13 @@ struct WorkspaceSourceTests {
     func offersNothingForTheOrdinaryCase() {
         let offered = offering(
             branches: [
+                ExistingBranch(name: "main", isLocal: true),
                 ExistingBranch(name: "mine", isLocal: true, inUseBy: .projectCheckout(path: "/p")),
                 ExistingBranch(name: "theirs", isLocal: true, inUseBy: .otherWorktree(path: "/c")),
             ],
             baseBranches: ["main", "mine", "theirs"]
         )
-        // `branches` never holds the default branch, so cutting from it is never second-guessed.
+        // The default branch is free here and still not second-guessed: it is the ordinary base.
         #expect(offered.carryOn(from: "main") == nil)
         #expect(offered.carryOn(from: "") == nil)
         // Git would refuse both, so offering them would be offering a refusal.

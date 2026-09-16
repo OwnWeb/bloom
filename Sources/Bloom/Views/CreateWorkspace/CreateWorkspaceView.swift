@@ -854,14 +854,14 @@ struct CreateWorkspaceView: View {
     /// The three lists the picker ranks, as one value.
     ///
     /// The base branches are this window's own listing rather than `checkoutOptions.branches`. The
-    /// two are different questions: what may be cut from includes the default branch and every
-    /// head a pull request speaks for, and what may be opened does not. See
-    /// `WorkspaceCheckoutPlan.offeredBranches`.
+    /// two are different questions: what may be cut from includes every head a pull request
+    /// speaks for, and what may be opened does not. See `WorkspaceCheckoutPlan.offeredBranches`.
     private var offering: WorkspaceSourceOffering {
         WorkspaceSourceOffering(
             pullRequests: checkoutOptions.pullRequests,
             branches: checkoutOptions.branches,
-            baseBranches: branchOptions
+            baseBranches: branchOptions,
+            defaultBranch: repo?.defaultBranch ?? ""
         )
     }
 

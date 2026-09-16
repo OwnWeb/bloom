@@ -188,18 +188,22 @@ public struct WorkspaceSourceOffering: Sendable, Hashable {
     public let pullRequests: [PullRequestListing]
     public let branches: [ExistingBranch]
     /// What a new branch may be cut from. The project's branches, which is a different list from
-    /// `branches` above: that one has the default branch and the pull request heads taken out of
-    /// it, and both are perfectly good things to cut a branch from.
+    /// `branches` above: that one has the pull request heads taken out of it, and they are
+    /// perfectly good things to cut a branch from.
     public let baseBranches: [String]
+    /// The project's default branch, which a new branch is ordinarily cut from. See `carryOn`.
+    public let defaultBranch: String
 
     public init(
         pullRequests: [PullRequestListing] = [],
         branches: [ExistingBranch] = [],
-        baseBranches: [String] = []
+        baseBranches: [String] = [],
+        defaultBranch: String = ""
     ) {
         self.pullRequests = pullRequests
         self.branches = branches
         self.baseBranches = baseBranches
+        self.defaultBranch = defaultBranch
     }
 
     /// The "Open, and carry on" section: what somebody else has already written.
@@ -240,8 +244,10 @@ public struct WorkspaceSourceOffering: Sendable, Hashable {
     /// verb in one click, rather than guessing which of the two was meant.
     ///
     /// Nothing is offered for the default branch, which is what a new branch is ordinarily cut
-    /// from and is not in `branches`, nor for a branch git would refuse: one held by the project's
-    /// own checkout or by a worktree Bloom did not make. A branch one of Bloom's own workspaces
+    /// from: it is in `branches` now, and a window that opens asking "open main instead?" whenever
+    /// the project happens to be on another branch is second-guessing the ordinary case. Nor for a
+    /// branch git would refuse: one held by the project's own checkout or by a worktree Bloom did
+    /// not make. A branch one of Bloom's own workspaces
     /// holds is offered, because picking it goes to that workspace, which is exactly "use the
     /// existing one".
     ///
@@ -252,6 +258,7 @@ public struct WorkspaceSourceOffering: Sendable, Hashable {
     public func carryOn(
         from base: String, holders: [String: BranchHolder] = [:]
     ) -> WorkspaceCarryOnOffer? {
+        guard base != defaultBranch else { return nil }
         if let request = pullRequests.first(where: { !$0.isCrossRepository && $0.headRefName == base }) {
             return WorkspaceCarryOnOffer(
                 source: .pullRequest(.listed(request)), branch: base, holder: holders[base]
