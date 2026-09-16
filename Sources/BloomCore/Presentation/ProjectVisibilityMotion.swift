@@ -77,6 +77,23 @@ public enum ProjectVisibilityMotion: Equatable, Sendable {
         reduceMotion ? .instant : .reflow(seconds: seconds)
     }
 
+    /// Whether a reload of the projects moves the sidebar's rows: a project added, removed, hidden
+    /// or unhidden.
+    ///
+    /// `AppModel.reload` publishes the projects inside an animation when this is true, and only
+    /// then. The sidebar keyed this animation to the displayed project ids for months and hiding a
+    /// project still dropped its rows in one frame, because a `List` only animates in the
+    /// transaction its data was written in, which is what `NumericTextProbe` measured for the diff
+    /// stats. See `WorkspaceListReconciliation.changesOnlyDiffStats`.
+    ///
+    /// A rename, a new colour, a fold or a reorder is not one of these. A fold has its own curve on
+    /// the list, and a reorder is already published by `AppModel.reorderProjects` before the store
+    /// answers, so the reload that follows it finds nothing to move.
+    public static func movesProjectRows(from old: [Repo], to new: [Repo]) -> Bool {
+        Set(old.map(\.id)) != Set(new.map(\.id))
+            || Set(old.filter(\.hidden).map(\.id)) != Set(new.filter(\.hidden).map(\.id))
+    }
+
     /// Whether an arriving row should be faded in on top of the reflow.
     ///
     /// A row that is LEAVING has a place to leave from, and a row that is MOVING has a place to
