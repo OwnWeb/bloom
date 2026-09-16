@@ -155,7 +155,7 @@ private struct ComposerSettingsPanel: View {
             Hairline()
 
             HStack(spacing: Metrics.spacing) {
-                Text(fastModeLabel)
+                Text("Fast mode")
                     .font(Typo.label)
 
                 Spacer(minLength: Metrics.spacing)
@@ -165,7 +165,7 @@ private struct ComposerSettingsPanel: View {
                         .font(Typo.label)
                         .foregroundStyle(Palette.textSecondary)
                 } else {
-                    Toggle(fastModeLabel, isOn: fastBinding)
+                    Toggle("Fast mode", isOn: fastBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .controlSize(.small)
@@ -251,10 +251,6 @@ private struct ComposerSettingsPanel: View {
 
     private var modelBinding: Binding<String> {
         Binding(get: { controls.model }, set: { id in MainActor.assumeIsolated { onModel(id) } })
-    }
-
-    private var fastModeLabel: String {
-        controls.agentKind == .codex ? "Fast mode" : "Prefer faster replies"
     }
 
     private var fastBinding: Binding<Bool> {
