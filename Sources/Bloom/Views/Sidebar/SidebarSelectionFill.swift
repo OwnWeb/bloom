@@ -15,7 +15,9 @@ import BloomCore
 /// A `listRowBackground` replaces the table's own selection drawing in this list rather than
 /// sitting on top of it, which is what let `69dc61d3` paint the pane blue while it was resting and
 /// `874c2050` paint it grey while it was focused. Home's rows need an opaque ground to hide the
-/// accent (see `HomeRowBackground`), but that is an inset list, and the sidebar is glass.
+/// accent (see `HomeRowBackground`), but that is an inset list, and the sidebar is glass. Replacing
+/// it was not reliable on its own, so the table's own drawing is switched off as well: see
+/// `SidebarKeyboardFocus`.
 ///
 /// The keyboard is shown with an edge, not a colour. The fill is identical in both selected
 /// states, so nothing about the report can come back, and the edge is what says the arrow keys are

@@ -12,6 +12,15 @@ import SwiftUI
 /// itself: a `.background` sits beside the list's scroll view, not inside it (see
 /// `SidebarSelectionGallery.FirstResponderProbe`), and SwiftUI does not promise which of its own
 /// views is whose parent. The table whose scroll view covers this view's centre is the sidebar's.
+///
+/// **It also switches the table's own selection drawing off, because `listRowBackground` alone did
+/// not always.** The grey fill replaces AppKit's selection in the steady state, but the report came
+/// back: the selected workspace solid accent blue with the keyboard edge drawn on top of it, so the
+/// fill and the edge were both there and AppKit had painted the row view under them anyway. That
+/// happens in a window of its own, a row view emphasised before SwiftUI has put the background
+/// back, and no amount of timing on our side closes it. `selectionHighlightStyle = .none` does,
+/// because then the table has no selection to draw in any state, and it is watched and put back
+/// in case the list resets it when it rebuilds.
 struct SidebarKeyboardFocus: NSViewRepresentable {
     var onChange: (_ listHasKeyboard: Bool, _ windowIsKey: Bool) -> Void
 
@@ -31,8 +40,10 @@ final class SidebarKeyboardFocusView: NSView {
     var onChange: ((Bool, Bool) -> Void)?
 
     private var responderObservation: NSKeyValueObservation?
+    private var highlightObservation: NSKeyValueObservation?
     private var keyObservers: [NSObjectProtocol] = []
     private weak var table: NSTableView?
+    private weak var observedTable: NSTableView?
     private var reported: (listHasKeyboard: Bool, windowIsKey: Bool)?
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -63,6 +74,8 @@ final class SidebarKeyboardFocusView: NSView {
     func stopObserving() {
         responderObservation?.invalidate()
         responderObservation = nil
+        highlightObservation?.invalidate()
+        highlightObservation = nil
         keyObservers.forEach(NotificationCenter.default.removeObserver)
         keyObservers.removeAll()
     }
@@ -77,6 +90,7 @@ final class SidebarKeyboardFocusView: NSView {
     private func refresh() {
         guard let window else { return report(listHasKeyboard: false, windowIsKey: false) }
         let table = sidebarTable(in: window)
+        if let table { suppressNativeSelection(on: table) }
         report(
             listHasKeyboard: table != nil && window.firstResponder === table,
             windowIsKey: window.isKeyWindow
@@ -87,6 +101,16 @@ final class SidebarKeyboardFocusView: NSView {
         if let reported, reported == (listHasKeyboard, windowIsKey) { return }
         reported = (listHasKeyboard, windowIsKey)
         onChange?(listHasKeyboard, windowIsKey)
+    }
+
+    /// Leaves the selection's drawing to `SidebarSelectionFill` alone. See the type's comment.
+    private func suppressNativeSelection(on table: NSTableView) {
+        if table.selectionHighlightStyle != .none { table.selectionHighlightStyle = .none }
+        guard highlightObservation == nil || observedTable !== table else { return }
+        observedTable = table
+        highlightObservation = table.observe(\.selectionHighlightStyle) { [weak self] _, _ in
+            Task { @MainActor in self?.refresh() }
+        }
     }
 
     /// Kept weakly and checked again each time, because the list can rebuild its table and a
