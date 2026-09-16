@@ -135,6 +135,13 @@ struct SidebarView: View {
     @State private var childArrival = RowArrival<String>()
 
     var body: some View {
+        answering(observing(pane))
+    }
+
+    /// The list and everything drawn with it. Split from the change handlers in `observing` because
+    /// the chain as one expression was past what the CI runner's type checker would finish in a
+    /// release build: green on this Mac, red there, twice.
+    private var pane: some View {
         List(selection: $listSelection) {
             // No rows above the projects. Home and Ask Bloom were two here, with the pane's `+` on
             // Home, and all three are buttons in the status bar now. See `SidebarDock`.
@@ -251,6 +258,11 @@ struct SidebarView: View {
                 note: reorderNote?.sentence
             )
         }
+    }
+
+    /// What the pane listens to: the model's changes, the filter, the selection and the menu bar.
+    private func observing(_ pane: some View) -> some View {
+        pane
         // Keyed to `isLoaded` rather than run once, because the projects arrive from the store
         // after the first draw. Timing the settle from an empty pane would let the whole restored
         // set of folds animate as it lands.
@@ -297,6 +309,11 @@ struct SidebarView: View {
             archivePresentation.cancel()
             regroup(rescoped: true)
         }
+    }
+
+    /// The selection, the keyboard and the menu bar. Its own step for the reason `pane` gives.
+    private func answering(_ pane: some View) -> some View {
+        pane
         .onAppear { SwitchProbe.attachSidebarSelection($listSelection) }
         .onDisappear {
             archivePresentation.cancel()
