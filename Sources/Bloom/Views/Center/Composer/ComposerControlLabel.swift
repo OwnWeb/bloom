@@ -19,6 +19,9 @@ struct ComposerControlLabel<Icon: View>: View {
     /// it is given to sixteen points, which is what left the pickers a whole row shorter than the
     /// buttons next to them.
     var showsMenuIndicator: Bool = false
+    /// A small accent dot after the words, which the settings button uses to say its settings are
+    /// a one-off rather than one of the saved presets.
+    var showsDot: Bool = false
     @ViewBuilder var icon: Icon
 
     @State private var isHovered = false
@@ -30,6 +33,13 @@ struct ComposerControlLabel<Icon: View>: View {
 
             if let text {
                 Text(text).lineLimit(1)
+            }
+
+            if showsDot {
+                Circle()
+                    .fill(Palette.accent)
+                    .frame(width: 5, height: 5)
+                    .accessibilityHidden(true)
             }
 
             if showsMenuIndicator {
@@ -58,13 +68,15 @@ extension ComposerControlLabel where Icon == Image {
         text: String?,
         tint: Color = Palette.textSecondary,
         isActive: Bool = false,
-        showsMenuIndicator: Bool = false
+        showsMenuIndicator: Bool = false,
+        showsDot: Bool = false
     ) {
         self.init(
             text: text,
             tint: tint,
             isActive: isActive,
             showsMenuIndicator: showsMenuIndicator,
+            showsDot: showsDot,
             icon: { Image(systemName: systemImage) }
         )
     }

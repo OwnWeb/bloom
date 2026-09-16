@@ -320,7 +320,7 @@ extension AppModel {
     func resolvedControls(for repo: Repo?) async throws -> ComposerControls {
         guard let store else { return ComposerControls() }
 
-        let appDefaults = await AppDefaults.load(from: store)
+        let appDefaults = await AppDefaults.loadForNewSessions(from: store)
         let repoSettings = await Task.detached(priority: .userInitiated) {
             repo.map { SettingsLoader.load(repo: $0.path) } ?? RepoSettings()
         }.value

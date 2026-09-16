@@ -9,7 +9,18 @@ import Foundation
 enum SettingsTabRequest {
     static let name = Notification.Name("be.spatie.bloom.settings.tab")
 
-    static func post(_ tab: SettingsTab) {
+    /// The tab asked for most recently, kept until the Settings window reads it as it appears. A
+    /// notification posted before the window exists reaches nobody, so "Manage presets…" opened
+    /// Settings on whichever pane it was left on the first time it was pressed.
+    @MainActor private static var pending: SettingsTab?
+
+    @MainActor static func takePending() -> SettingsTab? {
+        defer { pending = nil }
+        return pending
+    }
+
+    @MainActor static func post(_ tab: SettingsTab) {
+        pending = tab
         NotificationCenter.default.post(name: name, object: nil, userInfo: ["tab": tab.rawValue])
     }
 

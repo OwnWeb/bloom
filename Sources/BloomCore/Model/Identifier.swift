@@ -91,6 +91,12 @@ public struct QuickPromptID: Identifier {
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }
 
+/// One of the owner's saved model presets, the named sets the composer's model menu lists.
+public struct ModelPresetID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
 /// A message somebody has asked for that has not gone to the agent yet. See `Delivery`.
 public struct DeliveryID: Identifier {
     public let rawValue: String

@@ -258,23 +258,20 @@ struct ComposerFooterView: View {
                     outputStyles: choices.outputStyles,
                     permissionModes: choices.permissionModes,
                     isCompact: isCompact,
+                    onPreset: selectPreset,
                     onModel: selectModel,
                     onEffort: { id in edit { $0.effort = id } },
                     onOutputStyle: { id in edit { $0.outputStyle = id } },
                     onPermissionMode: selectPermissionMode,
-                    onFastMode: { value in
-                        edit {
-                            if $0.agentKind == .codex {
-                                $0.codexFastMode = value
-                            } else {
-                                $0.isFastMode = value
-                            }
-                        }
-                    },
                     onContextWindow: { tokens in edit { $0.codexContextWindow = tokens } },
+                    onInteractionMode: { mode in edit { $0.interactionMode = mode } }
+                )
+
+                ComposerFastModeToggle(
+                    controls: controls,
                     codexSpeed: codexSpeed,
                     codexSpeedFailed: loadedSpeedRequest == speedRequest && speedFailed,
-                    onInteractionMode: { mode in edit { $0.interactionMode = mode } }
+                    onChange: { value in edit { $0 = $0.settingFastMode(value) } }
                 )
             }
 
@@ -430,6 +427,16 @@ struct ComposerFooterView: View {
     /// `xhigh`. Offering a level the model does not take is offering something the server refuses.
     private var efforts: [ComposerOption] {
         catalog.efforts(for: controls.agentKind, model: controls.model)
+    }
+
+    /// Every field the preset names, in one edit, so nothing the last model left behind survives.
+    /// The effort still goes through the catalogue, for the reason `selectModel` gives: a level the
+    /// model no longer takes is a level the server refuses.
+    private func selectPreset(_ preset: ModelPreset) {
+        edit {
+            $0 = $0.applying(preset)
+            $0.effort = catalog.resolvedEffort($0.effort, for: $0.agentKind, model: $0.model)
+        }
     }
 
     /// Choosing a model out of another backend's section is choosing that backend.

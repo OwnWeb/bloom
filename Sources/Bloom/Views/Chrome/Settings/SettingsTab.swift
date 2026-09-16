@@ -6,6 +6,7 @@ enum SettingsTab: String, Hashable, CaseIterable {
     case notifications
     case agents
     case sessions
+    case presets
     case permissions
     case prompts
     case terminal
@@ -19,6 +20,7 @@ enum SettingsTab: String, Hashable, CaseIterable {
         case .notifications: "Notifications"
         case .agents: "Agents"
         case .sessions: "Sessions"
+        case .presets: "Model Presets"
         case .permissions: "Permissions"
         case .prompts: "Prompts"
         case .terminal: "Terminal"
@@ -34,6 +36,7 @@ enum SettingsTab: String, Hashable, CaseIterable {
         case .notifications: "bell"
         case .agents: "person.2"
         case .sessions: "bubble.left.and.bubble.right"
+        case .presets: "slider.horizontal.3"
         case .permissions: "hand.raised"
         case .prompts: "text.bubble"
         case .terminal: "terminal"

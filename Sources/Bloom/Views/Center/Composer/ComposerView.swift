@@ -763,7 +763,7 @@ struct ComposerView: View {
         let wasPrepared = (try? await store.setting(appliedKey)) == "1"
         guard !wasPrepared, transcript.session.agentSessionID == nil else { return }
 
-        let appDefaults = await AppDefaults.load(from: store)
+        let appDefaults = await AppDefaults.loadForNewSessions(from: store)
 
         // Off the main actor because it reads up to six files from disk.
         var repoSettings = RepoSettings()

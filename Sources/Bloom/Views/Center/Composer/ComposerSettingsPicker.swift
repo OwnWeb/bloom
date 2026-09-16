@@ -3,9 +3,13 @@ import BloomCore
 
 /// One calm entry point for the settings that qualify the next agent turn.
 ///
-/// Model, effort, output style, permissions and fast mode used to compete as five adjacent
-/// controls. They belong to one decision, so the footer now keeps the model visible and moves the
-/// complete set into one native settings panel.
+/// Model, effort, output style and permissions used to compete as adjacent controls. They belong
+/// to one decision, so the footer keeps that decision visible and offers it two ways: a menu of the
+/// owner's saved presets, which sets every field at once, and "Custom…", the full panel for a
+/// one-off. The panel can save what it is set to as a new preset.
+///
+/// Fast mode is not in here any more. It is `ComposerFastModeToggle`, beside this button, because
+/// it combines with any preset rather than being one of the things a preset chooses.
 struct ComposerSettingsPicker: View {
     var controls: ComposerControls
     var models: [ComposerModelSection]
@@ -13,33 +17,73 @@ struct ComposerSettingsPicker: View {
     var outputStyles: [ComposerOption]
     var permissionModes: [ComposerOption]
     var isCompact: Bool
+    var onPreset: @MainActor (ModelPreset) -> Void
     var onModel: @MainActor (String) -> Void
     var onEffort: @MainActor (String) -> Void
     var onOutputStyle: @MainActor (String) -> Void
     var onPermissionMode: @MainActor (String) -> Void
-    var onFastMode: @MainActor (Bool) -> Void
     var onContextWindow: @MainActor (Int) -> Void
-    var codexSpeed: CodexSpeed?
-    var codexSpeedFailed = false
     var onInteractionMode: @MainActor (InteractionMode) -> Void = { _ in }
 
+    @Environment(AppModel.self) private var app
+    @Environment(\.openSettings) private var openSettings
     @State private var isOpen = false
 
+    private var library: ModelPresetLibrary { .shared }
+
     var body: some View {
-        Button { isOpen = true } label: {
+        let matched = library.list.matching(controls)
+
+        Menu {
+            if library.presets.isEmpty {
+                Text("No presets yet")
+            } else {
+                Section("Presets") {
+                    ForEach(library.presets) { preset in
+                        // A toggle rather than a button, because the tick is the menu's to draw
+                        // and a toggle is what asks for it. See `ComposerOptionMenu.rows`.
+                        Toggle(isOn: Binding(
+                            get: { matched?.id == preset.id },
+                            set: { _ in MainActor.assumeIsolated { onPreset(preset) } }
+                        )) {
+                            Text(preset.name)
+                            Text(presetSummary(preset))
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Custom…") {
+                // After the menu has closed, so the popover is not dismissed with it.
+                DispatchQueue.main.async { isOpen = true }
+            }
+
+            Divider()
+
+            Button("Manage presets…") {
+                SettingsTabRequest.post(.presets)
+                openSettings()
+            }
+        } label: {
             ComposerControlLabel(
                 systemImage: "slider.horizontal.3",
-                text: isCompact ? nil : modelLabel,
+                text: isCompact ? nil : label(matched: matched),
                 tint: Palette.textSecondary,
                 isActive: isOpen,
-                showsMenuIndicator: true
+                showsMenuIndicator: true,
+                showsDot: matched == nil && !library.presets.isEmpty
             )
         }
+        // The same three modifiers `ComposerOptionMenu` needs, for the reasons it gives.
+        .menuStyle(.button)
         .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize(horizontal: false, vertical: true)
-        .help("Agent settings")
+        .help(matched == nil ? "Agent settings" : "Agent settings, preset \(matched?.name ?? "")")
         .accessibilityLabel("Agent settings")
-        .accessibilityValue(summary)
+        .accessibilityValue(summary(matched: matched))
         .popover(isPresented: $isOpen, arrowEdge: .top) {
             ComposerSettingsPanel(
                 controls: controls,
@@ -47,18 +91,19 @@ struct ComposerSettingsPicker: View {
                 efforts: efforts,
                 outputStyles: outputStyles,
                 permissionModes: permissionModes,
+                matchedPreset: matched,
+                suggestedPresetName: "\(modelLabel) \(effortLabel)",
                 onModel: onModel,
                 onEffort: onEffort,
                 onOutputStyle: onOutputStyle,
                 onPermissionMode: onPermissionMode,
-                onFastMode: onFastMode,
                 onContextWindow: onContextWindow,
-                codexSpeed: codexSpeed,
-                codexSpeedFailed: codexSpeedFailed,
-                onInteractionMode: onInteractionMode
+                onInteractionMode: onInteractionMode,
+                onSavePreset: savePreset
             )
             .environment(\.fontScale, 1)
         }
+        .task { await library.load(from: app.store) }
     }
 
     private var allModels: [ComposerOption] { models.flatMap(\.options) }
@@ -67,9 +112,31 @@ struct ComposerSettingsPicker: View {
         ComposerOption.label(for: controls.model, in: allModels)
     }
 
-    private var summary: String {
-        let effort = ComposerOption.label(for: controls.effort, in: efforts)
-        return "\(modelLabel), \(effort), \(controls.permissionMode.label)"
+    private var effortLabel: String {
+        ComposerOption.label(for: controls.effort, in: efforts)
+    }
+
+    /// The preset's name when the composer is set to one, and otherwise the two choices that say
+    /// most about what a turn costs. The dot beside a one-off is drawn by the label.
+    private func label(matched: ModelPreset?) -> String {
+        if let matched { return matched.name }
+        return "\(modelLabel) · \(effortLabel)"
+    }
+
+    private func summary(matched: ModelPreset?) -> String {
+        let base = "\(modelLabel), \(effortLabel), \(controls.permissionMode.label(on: controls.agentKind))"
+        guard let matched else { return base }
+        return "\(matched.name): \(base)"
+    }
+
+    /// The permission mode, which is the one field a preset's name most often leaves unsaid.
+    private func presetSummary(_ preset: ModelPreset) -> String {
+        preset.permissionMode.label(on: preset.backend)
+    }
+
+    private func savePreset(_ name: String) {
+        guard let name = ModelPreset.cleanName(name) else { return }
+        library.add(ModelPreset(name: name, controls: controls), in: app.store)
     }
 }
 
@@ -79,15 +146,19 @@ private struct ComposerSettingsPanel: View {
     var efforts: [ComposerOption]
     var outputStyles: [ComposerOption]
     var permissionModes: [ComposerOption]
+    var matchedPreset: ModelPreset?
+    var suggestedPresetName: String
     var onModel: @MainActor (String) -> Void
     var onEffort: @MainActor (String) -> Void
     var onOutputStyle: @MainActor (String) -> Void
     var onPermissionMode: @MainActor (String) -> Void
-    var onFastMode: @MainActor (Bool) -> Void
     var onContextWindow: @MainActor (Int) -> Void
-    var codexSpeed: CodexSpeed?
-    var codexSpeedFailed = false
     var onInteractionMode: @MainActor (InteractionMode) -> Void = { _ in }
+    var onSavePreset: @MainActor (String) -> Void
+
+    /// The name being typed for a new preset, or nil while the row shows its button.
+    @State private var presetName: String?
+    @FocusState private var isNamingFocused: Bool
 
     private static let width: CGFloat = 300
 
@@ -154,29 +225,9 @@ private struct ComposerSettingsPanel: View {
 
             Hairline()
 
-            HStack(spacing: Metrics.spacing) {
-                Text("Fast mode")
-                    .font(Typo.label)
-
-                Spacer(minLength: Metrics.spacing)
-
-                if controls.agentKind == .codex, codexSpeed == nil {
-                    Text(codexSpeedFailed ? "Unavailable" : "Loading…")
-                        .font(Typo.label)
-                        .foregroundStyle(Palette.textSecondary)
-                } else {
-                    Toggle("Fast mode", isOn: fastBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .disabled(controls.agentKind == .codex && codexSpeed?.supportsFast != true)
-                }
-            }
-            .padding(.horizontal, Metrics.gutter)
-            .padding(.vertical, Metrics.inset)
-            .help(controls.agentKind == .codex
-                  ? "Faster replies use more of your Codex allowance. Changes apply to this conversation."
-                  : "Disable thinking for faster replies.")
+            presetRow
+                .padding(.horizontal, Metrics.gutter)
+                .padding(.vertical, Metrics.inset)
         }
         .frame(width: Self.width)
     }
@@ -253,14 +304,49 @@ private struct ComposerSettingsPanel: View {
         Binding(get: { controls.model }, set: { id in MainActor.assumeIsolated { onModel(id) } })
     }
 
-    private var fastBinding: Binding<Bool> {
-        Binding(
-            get: {
-                controls.agentKind == .codex
-                    ? codexSpeed?.isFast(override: controls.codexFastMode) ?? false
-                    : controls.isFastMode
-            },
-            set: { value in MainActor.assumeIsolated { onFastMode(value) } }
-        )
+    /// "Save as preset…", which becomes a name field in place, or a line saying which preset these
+    /// settings already are, so the same set cannot be saved twice by accident.
+    @ViewBuilder
+    private var presetRow: some View {
+        if let presetName {
+            HStack(spacing: Metrics.spacing) {
+                TextField("Preset name", text: Binding(
+                    get: { presetName },
+                    set: { self.presetName = $0 }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .focused($isNamingFocused)
+                .onSubmit(save)
+                .onExitCommand { self.presetName = nil }
+
+                Button("Cancel") { self.presetName = nil }
+                    .controlSize(.small)
+                Button("Save", action: save)
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(ModelPreset.cleanName(presetName) == nil)
+            }
+        } else if let matchedPreset {
+            Text("Saved as preset \u{201C}\(matchedPreset.name)\u{201D}")
+                .font(Typo.label)
+                .foregroundStyle(Palette.textSecondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight, alignment: .leading)
+        } else {
+            Button("Save as preset…") {
+                presetName = suggestedPresetName
+                isNamingFocused = true
+            }
+            .linkButton()
+            .font(Typo.label)
+            .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight, alignment: .leading)
+        }
+    }
+
+    private func save() {
+        guard let presetName, ModelPreset.cleanName(presetName) != nil else { return }
+        onSavePreset(presetName)
+        self.presetName = nil
     }
 }

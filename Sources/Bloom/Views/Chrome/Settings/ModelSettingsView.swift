@@ -3,6 +3,7 @@ import BloomCore
 
 /// The root owns defaults so switching panes preserves edits and serialises their writes.
 struct ModelSettingsView: View {
+    @Environment(AppModel.self) private var app
     @Binding var defaults: AppDefaults
     @State private var outputStyles = ComposerOutputStyleCatalog()
 
@@ -23,8 +24,16 @@ struct ModelSettingsView: View {
             } header: {
                 Text("Models")
             } footer: {
-                Text("Each row selects a model and reasoning effort. Project model settings take priority. Existing sessions keep their settings.")
-                    .settingsFootnote()
+                VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
+                    Text("Each row selects a model and reasoning effort. Project model settings take priority. Existing sessions keep their settings.")
+                        .settingsFootnote()
+                    // Said here, because otherwise this row looks broken: a default preset
+                    // outranks it, and new sessions would ignore whatever it is set to.
+                    if let preset = ModelPresetLibrary.shared.list.defaultPreset {
+                        Text("New sessions start on the default preset, \u{201C}\(preset.name)\u{201D}, rather than on this row. Change that under Model Presets.")
+                            .settingsFootnote()
+                    }
+                }
             }
 
             Section("New session behaviour") {
@@ -65,17 +74,18 @@ struct ModelSettingsView: View {
         .settingsForm()
         .task {
             ComposerModelCatalog.shared.load()
+            await ModelPresetLibrary.shared.load(from: app.store)
             await outputStyles.refreshIfStale(project: nil)
         }
     }
 }
 
-/// The model and effort pair appears twice and has to stay identical in both places, and both
-/// lists come from `ComposerModelCatalog`, which is the composer's own menu: one section per
-/// backend, Codex's models fetched rather than written down, and each Codex model's own set of
-/// reasoning levels. Building a second list here is how the screen came to offer four Claude Code
+/// The model and effort pair appears three times, twice on this screen and once in the preset
+/// editor, and has to stay identical in all of them. Both lists come from `ComposerModelCatalog`,
+/// which is the composer's own menu: one section per backend, Codex's models fetched rather than
+/// written down, and each Codex model's own set of reasoning levels. Building a second list here is how the screen came to offer four Claude Code
 /// models while every chat could be moved to a GPT one.
-private struct ModelAndEffortPickers: View {
+struct ModelAndEffortPickers: View {
     @Binding var model: String
     @Binding var effort: String
     /// Written by the model picker, never picked on its own. Choosing a model out of the Codex

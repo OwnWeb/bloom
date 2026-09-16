@@ -945,7 +945,7 @@ struct CreateWorkspaceView: View {
         let path = repo.path
         var appDefaults = AppDefaults()
         if let store = app.store {
-            appDefaults = await AppDefaults.load(from: store)
+            appDefaults = await AppDefaults.loadForNewSessions(from: store)
         }
 
         // The gathering and both branch decisions live in the core, where the suite can reach

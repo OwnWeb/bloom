@@ -34,7 +34,7 @@ struct SettingsView: View {
                     navigationRows([.general, .appearance, .menuBar, .notifications])
                 }
                 Section("Agents") {
-                    navigationRows([.agents, .sessions, .permissions, .prompts])
+                    navigationRows([.agents, .sessions, .presets, .permissions, .prompts])
                 }
                 Section("Terminal & connections") {
                     navigationRows([.terminal, .commandLine])
@@ -45,7 +45,14 @@ struct SettingsView: View {
             // The menu bar's "Menubar Settings…" names the pane it wants; without this the window
             // opens on whichever pane it was left on, which is not what that row promises.
             .onReceive(NotificationCenter.default.publisher(for: SettingsTabRequest.name)) { notification in
-                if let requested = SettingsTabRequest.tab(in: notification) { tab = requested }
+                if let requested = SettingsTabRequest.tab(in: notification) {
+                    tab = requested
+                    _ = SettingsTabRequest.takePending()
+                }
+            }
+            // A request made while the window was closed, which the notification above never saw.
+            .onAppear {
+                if let requested = SettingsTabRequest.takePending() { tab = requested }
             }
 
             Divider()
@@ -107,6 +114,7 @@ struct SettingsView: View {
         case .notifications: NotificationSettingsView()
         case .agents: AgentsSettingsView()
         case .sessions: ModelSettingsView(defaults: defaultsBinding).disabled(!isLoaded)
+        case .presets: ModelPresetSettingsView()
         case .permissions: ApprovalSettingsView(defaults: defaultsBinding, isReady: isLoaded)
         case .prompts: PromptSettingsView()
         case .terminal: TerminalSettingsView()
