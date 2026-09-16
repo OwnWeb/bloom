@@ -32,6 +32,8 @@ import BloomCore
 struct PendingWorkspaceRow: View {
     var pending: PendingWorkspace
 
+    @Environment(\.sidebarRowIndent) private var rowIndent
+
     var body: some View {
         Label {
             HStack(spacing: Metrics.spacing) {
@@ -50,7 +52,7 @@ struct PendingWorkspaceRow: View {
             WorkspaceStatusGlyph(status: .settingUp)
         }
         .labelStyle(SidebarRowLabelStyle())
-        .padding(.leading, SidebarMetrics.rowIndent)
+        .padding(.leading, rowIndent)
         // One element, because there is nothing in it to navigate between, and a value rather than
         // a second label so a screen reader says the name and then what is happening to it.
         .accessibilityElement(children: .combine)

@@ -19,6 +19,7 @@ struct CrewSidebarRow: View {
     var row: CrewRow
 
     @Environment(\.backgroundProminence) private var prominence
+    @Environment(\.sidebarRowIndent) private var rowIndent
 
     /// Whether the row is sitting on the accent selection fill, where the meaning colours are
     /// unreadable and the shape has to carry the meaning alone. Read exactly as `WorkspaceRow` and
@@ -44,7 +45,7 @@ struct CrewSidebarRow: View {
         // like neither, and the row read as a sibling of the workspace rather than as something
         // under it. On the name column it is unambiguous, because the only thing above it in that
         // column is the name of the thing it belongs to.
-        .padding(.leading, SidebarMetrics.crewIndent)
+        .padding(.leading, SidebarMetrics.crewIndent(rowIndent: rowIndent))
         // The dot is the fact a sighted reader gets for free and a screen reader gets not at all,
         // and here it is the ONLY thing carrying the state: the row deliberately has no word on it.
         .accessibilityElement(children: .combine)

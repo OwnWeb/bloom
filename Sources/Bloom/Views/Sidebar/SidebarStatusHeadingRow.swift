@@ -18,6 +18,7 @@ struct SidebarStatusHeadingRow: View {
     var onToggleFold: (() -> Void)?
 
     @State private var isHovered = false
+    @Environment(\.sidebarRowIndent) private var rowIndent
 
     var body: some View {
         HStack(spacing: Metrics.spacingSmall) {
@@ -44,7 +45,7 @@ struct SidebarStatusHeadingRow: View {
                     .opacity(isHovered || isFolded ? 1 : 0)
             }
         }
-        .padding(.leading, SidebarMetrics.rowIndent)
+        .padding(.leading, rowIndent)
         .padding(.trailing, Metrics.spacing)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
