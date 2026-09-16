@@ -85,7 +85,7 @@ public enum LinkPolicy {
             case let .emphasis(children), let .strong(children), let .strikethrough(children):
                 collect(children, into: &found)
             // A span of code is being quoted, and neither of the others can hold an address.
-            case .text, .code, .lineBreak:
+            case .text, .code, .lineBreak, .image:
                 break
             }
         }

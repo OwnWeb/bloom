@@ -388,7 +388,11 @@ struct DiffView: View {
     }
 
     private var markdownPreviewAction: (() -> Void)? {
-        guard allowsWorktreeActions, Language.detect(path: file.path) == .markdown, !file.isBinary, file.change != .deleted else {
+        // A section of the all-files review previews Markdown natively, at a fixed height. An HTML
+        // report in a box that size is not a way to read one, so it gets its preview in the file tab.
+        let kind = DocumentPreview.kind(path: file.path)
+        guard allowsWorktreeActions, kind == .markdown || (kind == .html && embeddedWidth == nil),
+              !file.isBinary, file.change != .deleted else {
             return nil
         }
         return {
@@ -401,8 +405,9 @@ struct DiffView: View {
     private var fileContent: some View {
         if embeddedWidth == nil {
             MarkdownPreviewContent(
-                path: absolutePath, revision: model.changesGeneration,
-                isPresented: $showsMarkdownPreview
+                path: absolutePath, worktree: model.workspace.path, revision: model.changesGeneration,
+                isPresented: $showsMarkdownPreview,
+                openFile: { FileReview.open(absolutePath: $0, in: model) }
             ) {
                 sourceContent
             }

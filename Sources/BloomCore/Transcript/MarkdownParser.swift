@@ -15,6 +15,8 @@ public indirect enum MarkdownInline: Sendable, Hashable {
     case strikethrough([MarkdownInline])
     case code(String)
     case link(text: [MarkdownInline], url: String)
+    /// `![alt](url)`. The transcript draws the alternative text; a document preview draws the picture.
+    case image(alt: String, url: String)
     case lineBreak
 }
 
@@ -500,6 +502,7 @@ private enum InlineParser {
                 let previous = cursor
                 if consumeEscape(into: &result)
                     || consumeCode(into: &result)
+                    || consumeImage(into: &result)
                     || consumeLink(into: &result)
                     || consumeAutolink(into: &result)
                     || consumeDelimited("**", make: MarkdownInline.strong, into: &result)
@@ -542,13 +545,32 @@ private enum InlineParser {
         }
 
         mutating func consumeLink(into result: inout [MarkdownInline]) -> Bool {
-            guard source[cursor] == "[", let closeText = unescaped("]", from: source.index(after: cursor)) else { return false }
+            guard source[cursor] == "[", let closeText = closingBracket(from: source.index(after: cursor)) else { return false }
             let openURL = source.index(after: closeText)
             guard openURL < source.endIndex, source[openURL] == "(", let closeURL = unescaped(")", from: source.index(after: openURL)) else { return false }
             let text = String(source[source.index(after: cursor)..<closeText])
             let url = String(source[source.index(after: openURL)..<closeURL]).trimmingCharacters(in: .whitespaces)
             guard !url.isEmpty else { return false }
             result.append(.link(text: InlineParser.parse(text), url: url))
+            cursor = source.index(after: closeURL)
+            return true
+        }
+
+        /// Taken before `consumeLink`, which would otherwise read the brackets and leave the `!`
+        /// standing in front of them as text. A title after the address (`"like this"`) is dropped.
+        mutating func consumeImage(into result: inout [MarkdownInline]) -> Bool {
+            guard source[cursor] == "!" else { return false }
+            let open = source.index(after: cursor)
+            guard open < source.endIndex, source[open] == "[",
+                  let closeText = unescaped("]", from: source.index(after: open)) else { return false }
+            let openURL = source.index(after: closeText)
+            guard openURL < source.endIndex, source[openURL] == "(",
+                  let closeURL = unescaped(")", from: source.index(after: openURL)) else { return false }
+            let target = source[source.index(after: openURL)..<closeURL].trimmingCharacters(in: .whitespaces)
+            let url = target.split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
+            guard !url.isEmpty else { return false }
+            let alt = String(source[source.index(after: open)..<closeText])
+            result.append(.image(alt: alt, url: url.trimmingCharacters(in: CharacterSet(charactersIn: "<>"))))
             cursor = source.index(after: closeURL)
             return true
         }
@@ -583,6 +605,27 @@ private enum InlineParser {
             result.append(.link(text: [.text(link.text)], url: link.url))
             cursor = link.range.upperBound
             return true
+        }
+
+        /// The `]` that closes a link's text, counting brackets opened inside it, so the image in
+        /// `[![badge](badge.svg)](https://ci)` stays inside the link rather than ending it.
+        func closingBracket(from start: String.Index) -> String.Index? {
+            var position = start
+            var escaped = false
+            var depth = 0
+            while position < source.endIndex {
+                let character = source[position]
+                if !escaped {
+                    if character == "[" { depth += 1 }
+                    if character == "]" {
+                        if depth == 0 { return position }
+                        depth -= 1
+                    }
+                }
+                escaped = character == "\\" && !escaped
+                position = source.index(after: position)
+            }
+            return nil
         }
 
         func unescaped(_ character: Character, from start: String.Index) -> String.Index? {
