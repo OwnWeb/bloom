@@ -25,8 +25,25 @@ struct SidebarFilterMenuItems: View {
     /// How many projects are hidden right now, which the toggle says out loud. Passed in rather
     /// than read from the model, so the probe can photograph the menu for any number.
     var hiddenCount: Int
+    /// Which shape the pane is in, as the stored string the preference holds.
+    ///
+    /// **Here rather than as a segmented control in the strip, and the owner asked for that in
+    /// those words.** A picker in the status bar is two words of chrome under every project in the
+    /// pane, permanently, for a choice somebody makes rarely; the filter is already the control
+    /// that answers "why is the sidebar not what I expected", and this belongs with it. The strip
+    /// goes back to the two icons it had.
+    @Binding var grouping: String
 
     var body: some View {
+        // The pane's shape leads, because it changes what the rows below the heading mean: the
+        // filter narrows a list, and this decides what kind of list it is.
+        Picker("Group by", selection: $grouping) {
+            ForEach(SidebarGrouping.allCases, id: \.rawValue) { option in
+                Label(option.title, systemImage: option.icon).tag(option.rawValue)
+            }
+        }
+        .pickerStyle(.inline)
+
         // The picker's own label is the heading, rather than a `Section` around it. An inline
         // picker already draws its label as a section header, so wrapping it in a section drew
         // two headings above three rows, photographed and thrown away.

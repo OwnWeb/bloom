@@ -10,6 +10,10 @@ struct SidebarStatusBar: View {
     @Environment(AppModel.self) private var app
 
     @Binding var filter: SidebarFilter
+    /// Raised to the sidebar so the projects submenu's New workspace posts for the create window
+    /// through the same door every other entry point uses. See `SidebarView.presentCreate`.
+    var onCreateWorkspace: (Repo) -> Void = { _ in }
+    var onStartProject: () -> Void = {}
     /// Whether the projects the owner has hidden are in the list. A preference rather than this
     /// window's state, which is why it is `@AppStorage` here and in `SidebarView` rather than a
     /// second `@State` passed down. See `ProjectVisibility.showsHiddenKey`.
@@ -17,6 +21,11 @@ struct SidebarStatusBar: View {
     /// Something the pane has to say about itself, for a moment, in place of the running count.
     /// The sidebar owns both the sentence and how long it lasts. See `SidebarView.move(from:to:)`.
     var note: String?
+
+    /// Which shape the pane is in. The same key `SidebarView` binds, rather than a value passed
+    /// down, for the reason `showsHiddenProjects` is: two views reading one preference cannot
+    /// disagree about it. See `SidebarGrouping`.
+    @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.status.rawValue
 
     @State private var isShowingLegend = false
     @State private var isFilterHovered = false
@@ -27,7 +36,7 @@ struct SidebarStatusBar: View {
             Hairline()
 
             HStack(spacing: Metrics.spacingSmall) {
-                status
+                noteLabel
 
                 Spacer(minLength: Metrics.spacingSmall)
 
@@ -35,8 +44,13 @@ struct SidebarStatusBar: View {
                     SidebarFilterMenuItems(
                         filter: $filter,
                         showsHiddenProjects: $showsHiddenProjects,
-                        hiddenCount: ProjectVisibility.hiddenCount(app.repos)
+                        hiddenCount: ProjectVisibility.hiddenCount(app.repos),
+                        grouping: $storedGrouping
                     )
+                    SidebarProjectsMenu(repos: app.repos, onCreateWorkspace: onCreateWorkspace)
+                    // The same words Home's own plus uses, so one action is not named two ways
+                    // inside one pane. See `SidebarView.homeRow`.
+                    Button("New project…", action: onStartProject)
                 } label: {
                     controlLabel(
                         "Filter the sidebar",
@@ -112,23 +126,16 @@ struct SidebarStatusBar: View {
     }
 
     /// A readout, so it is set as text rather than as the filled `Chip` it used to be. A pill in a
-    /// status bar reads as a control that does nothing when clicked, and this one sits beside three
+    /// status bar reads as a control that does nothing when clicked, and this one sits beside two
     /// controls that really are clickable.
-    /// **The running count went, and the line stayed.**
     ///
-    /// It read "Idle" most of the time and "2 running" the rest, and the list above it says both
-    /// already: a running workspace carries a glyph and its project carries one too, so the strip
-    /// was a second, quieter copy of a fact the reader was already looking at. A permanent readout
-    /// of the resting state is a thing the eye learns to skip, and it took the leading end of the
-    /// strip to do it.
-    ///
-    /// What is left is the note, and it is why this is not simply deleted. A drag that could not
-    /// land where it was let go borrows this line rather than raising anything of its own: it is
-    /// the one place in the pane that talks about the pane, and an alert for a drop that went one
-    /// row too far would be an answer several sizes too big for the question. With nothing to say
-    /// the strip is now the controls alone.
+    /// **The running count went, and the line stayed.** It read "Idle" most of the time and
+    /// "2 running" the rest, and the list above says both already. What is left is the note: a drag
+    /// that could not land where it was let go borrows this line rather than raising anything of
+    /// its own. With nothing to say the strip is the two controls alone, which is what it was
+    /// before the grouping picker briefly joined them and what the owner asked to have back.
     @ViewBuilder
-    private var status: some View {
+    private var noteLabel: some View {
         if let note {
             Label(note, systemImage: "arrow.uturn.backward")
                 .font(Typo.caption)
@@ -138,5 +145,4 @@ struct SidebarStatusBar: View {
                 .accessibilityLabel(note)
         }
     }
-
 }

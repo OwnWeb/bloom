@@ -32,6 +32,10 @@ struct BloomCommands: Commands {
     /// Opens the project settings window, which is a scene rather than a sheet.
     @Environment(\.openWindow) private var openWindow
 
+    /// Which shape the sidebar is in, read from the preference the pane itself writes. See the
+    /// View menu's own group for why the item is up here as well as down there.
+    @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.status.rawValue
+
     init(model: AppModel) {
         self.model = model
     }
@@ -318,10 +322,32 @@ struct BloomCommands: Commands {
             .disabled(model.repos.isEmpty)
         }
 
+        // How the sidebar is grouped, at the head of the View menu, because what the pane IS comes
+        // before what is shown beside it: the items under this split the centre column and toggle
+        // the two side columns, all of which are about the window's furniture rather than about
+        // the list somebody reads.
+        //
+        // The same preference the sidebar's own filter menu binds, so the two controls can never
+        // disagree. A menu bar is a map of what the app can do, which is the whole reason this is
+        // here as well: a shape you can only reach by opening a control at the foot of one pane is
+        // a shape most people never find. See `SidebarGrouping`.
         // Splitting the centre column. Cmd+D is deliberately not used: a terminal pane already
         // owns it for splitting shells, and one keystroke that splits two different things
         // depending on where the pointer last was is worse than two that each mean one thing.
+        //
+        // **The grouping picker is the first thing in this group rather than a group of its own,
+        // and that is a limit rather than a preference.** `CommandsBuilder` takes ten members, this
+        // body already had ten, and an eleventh compiles locally against the cached build and fails
+        // on a clean one with "extra argument in call" pointing at the closing brace of `body`.
         CommandGroup(after: .sidebar) {
+            Picker("Group Sidebar By", selection: $storedGrouping) {
+                ForEach(SidebarGrouping.allCases, id: \.rawValue) { option in
+                    Text(option.title).tag(option.rawValue)
+                }
+            }
+
+            Divider()
+
             splitMenu(.splitRight, axis: .horizontal, symbol: PaneSymbol.splitRight)
             splitMenu(.splitDown, axis: .vertical, symbol: PaneSymbol.splitDown)
 
