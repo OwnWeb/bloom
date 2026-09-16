@@ -23,6 +23,7 @@ extension View {
         formStyle(.grouped)
             .hidesScrollEdgeRule()
             .modifier(SettingsLabelColumn())
+            .disclosureGroupStyle(.wholeRow)
     }
 }
 

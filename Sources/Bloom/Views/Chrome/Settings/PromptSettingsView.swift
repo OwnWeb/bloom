@@ -67,6 +67,7 @@ struct PromptSettingsView: View {
                 }
                 .padding(Metrics.inset)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .disclosureGroupStyle(.wholeRow)
             }
             .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
         }
