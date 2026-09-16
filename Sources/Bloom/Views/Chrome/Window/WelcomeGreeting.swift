@@ -24,8 +24,8 @@ struct WelcomeGreeting: View {
     /// False when somebody has walked back to this screen from the checks. A return is not an
     /// arrival, and replaying the whole opening on one is how a nice moment becomes a wait.
     let isFirstVisit: Bool
-    /// What the one button says, from `OnboardingFlow` rather than from here, so the words that
-    /// name the next screen live with the sequence that decides which screen that is.
+    /// What the one button says, from `OnboardingFlow` rather than from here, so every button that
+    /// moves the sequence takes its words from one place.
     let continueTitle: String?
     let onContinue: () -> Void
 
@@ -173,11 +173,10 @@ struct WelcomeGreeting: View {
                 .modifier(Rise(entered: entered, animation: step(0.40)))
 
             // Nothing under the button. There WAS a line here naming what the next screen goes
-            // looking for, and it was answering a question the button had stopped asking: it was
-            // written when the button said "Check my Mac", which could be read as anything from a
-            // hardware scan to something rummaging through the disk. "See what Bloom needs"
-            // already says that pressing it shows you a list, so the line under it was the screen
-            // explaining its own button.
+            // looking for, written when the button said "Check my Mac", which could be read as
+            // anything from a hardware scan to something rummaging through the disk. The screens
+            // after this one say what they are about themselves, so a caption here would be the
+            // greeting explaining a screen nobody has seen yet.
         }
         .padding(.top, Metrics.pane + Metrics.inset)
         .frame(maxWidth: .infinity)

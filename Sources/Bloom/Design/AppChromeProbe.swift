@@ -40,7 +40,7 @@ enum AppChromeProbe {
         }
         ColourThemePreference.shared.chatTextSize = oldSize
         await render(ChromeTabsFixture(), size: CGSize(width: 720, height: 96), name: "tabs")
-        await render(WelcomeGreeting(isFirstVisit: false, continueTitle: "See what Bloom needs", onContinue: {}),
+        await render(WelcomeGreeting(isFirstVisit: false, continueTitle: OnboardingFlow.startTitle, onContinue: {}),
                      size: CGSize(width: 520, height: 424), name: "welcome-inactive")
         let emptyAligned = await render(NotesPageFixture(), size: CGSize(width: 960, height: 680), name: "notes-empty")
         let narrowAligned = await render(NotesPageFixture(body: "Remember to keep the launch page concise.\n\nDecisions\nUse the current colours and retain the product screenshots.\n\nNext steps\nReview the mobile layout and check the signup flow."),

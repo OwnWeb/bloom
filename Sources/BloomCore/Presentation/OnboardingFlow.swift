@@ -69,48 +69,9 @@ public enum OnboardingStep: String, Sendable, Hashable, CaseIterable, Identifiab
     /// in Settings for the rest of the app's life, which is where somebody goes back for it.
     public var isOptional: Bool { self == .commandLine || self == .keepAwake }
 
-    /// What the button that opens this screen says, or nil for a screen nothing advances to.
-    ///
-    /// Named after the screen it opens rather than after the act of moving, which is why there is
-    /// a table here at all: "Continue" would be true of every wizard ever shipped and would tell
-    /// nobody what they are about to see.
-    ///
-    /// The checks entry said "Check my Mac", which named the object and left the act to the
-    /// imagination, and on a screen that has just asked to look at somebody's machine the
-    /// imagination fills that in badly: a hardware scan, a disk sweep, something rummaging. What
-    /// it actually does is look down the PATH for four tools and ask two of them whether they are
-    /// signed in, so the button names the screen it opens instead.
-    ///
-    /// The command line entry said "One more thing", and the words were about the position in the
-    /// sequence rather than about the screen. The position moved: a screen after it makes a button
-    /// promising to be the last one into a button that is not. It names the capability now, which
-    /// is what the position wording was standing in for. Not "Connect your terminal", which is the
-    /// same screen described as a job somebody has been given, and the one thing that step must
-    /// not do is read as a job: Bloom works perfectly without it.
-    ///
-    /// The prompt entry is the sentence the screen leads with rather than the name of the sheet it
-    /// ends at. "Submit a prompt" is what the button ON that screen says, because by then somebody
-    /// has read what a prompt does here; arriving at a form nobody has been told the purpose of is
-    /// how a menu item three menus deep goes unread in the first place.
-    ///
-    /// The postcard entry is word for word the Help menu's own item for the same screen, without
-    /// the title case and the ellipsis a menu row is set with. Two surfaces open one screen, and
-    /// `MenuBarItem.title`
-    /// already says a row matches the wording of whatever else offers the same thing, so a button
-    /// here saying something else would teach two names for one address. It reads as an ask and
-    /// that is honest: the screen is where the address and the copy button are, so pressing it is
-    /// where sending one starts. Nothing on the screen has to be done, which is the part the
-    /// screen itself says.
-    public var arrivalButtonTitle: String? {
-        switch self {
-        case .greeting: nil
-        case .checks: "See what Bloom needs"
-        case .keepAwake: "Keep this Mac awake"
-        case .commandLine: "Use Bloom from your terminal"
-        case .promptSubmission: "Say what Bloom does next"
-        case .postcard: "Send us a postcard"
-        }
-    }
+    /// Whether any button moves the sequence onto this screen. The greeting is where it starts, so
+    /// nothing does.
+    public var isArrivedAt: Bool { self != .greeting }
 }
 
 /// Where the window opens, how it moves, and which steps it has at all.
@@ -217,7 +178,29 @@ public struct OnboardingFlow: Sendable, Hashable {
     public var canGoBack: Bool { back != nil }
 
     /// What the button that moves the sequence on says, or nil on a step that has no next.
-    public var forwardButtonTitle: String? { next?.arrivalButtonTitle }
+    ///
+    /// "Continue", on every screen. It was a table naming the screen each press opened, "Keep this
+    /// Mac awake" and "Use Bloom from your terminal", on the argument that "Continue" tells nobody
+    /// what they are about to see. The first person to walk through it on a fresh Mac read those
+    /// as the decision rather than as the way on: "I don't want that, so I'll look for something
+    /// else to click". A footer button that reads as an imperative, on a screen whose own button
+    /// is the offer, is two answers to one question. The screen's content says what it is about,
+    /// the dots beside the button say how far along the sequence is, and the button only moves.
+    /// The greeting is the one exception, because it has no content for the button to follow on
+    /// from: its button starts the sequence rather than continuing one.
+    public var forwardButtonTitle: String? {
+        guard next != nil else { return nil }
+        return step == .greeting ? Self.startTitle : Self.forwardTitle
+    }
+
+    public static let forwardTitle = "Continue"
+    public static let startTitle = "Get started"
+
+    /// Where this screen sits in the sequence, counted from one, for the dots in the footer.
+    ///
+    /// Asked of `steps` rather than of `OnboardingStep.order`, so an offer that is not made on this
+    /// Mac is not a dot somebody never reaches.
+    public var progress: (position: Int, count: Int) { (position + 1, steps.count) }
 
     /// What the control back to the previous step says.
     ///
@@ -296,9 +279,9 @@ public struct OnboardingPrimary: Sendable, Hashable {
         if step == .checks, verdict == .blocked {
             self.action = .checkAgain
             self.title = verdict.primaryButtonTitle
-        } else if let next, let forward = next.arrivalButtonTitle {
+        } else if let next, next.isArrivedAt {
             self.action = .advance(next)
-            self.title = forward
+            self.title = step == .greeting ? OnboardingFlow.startTitle : OnboardingFlow.forwardTitle
         } else {
             self.action = .finish
             self.title = Self.finishTitle

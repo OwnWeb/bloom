@@ -92,10 +92,11 @@ private struct WelcomeLayoutContent: View {
         Group {
             if fixture.showsChecks {
                 WelcomeView(inspection: fixture.inspection, registration: fixture.registration,
+                            agentDefault: WelcomeAgentDefault(store: { nil }),
                             start: .checks, onFinish: {})
                     .transition(.opacity)
             } else {
-                WelcomeGreeting(isFirstVisit: false, continueTitle: "See what Bloom needs",
+                WelcomeGreeting(isFirstVisit: false, continueTitle: OnboardingFlow.startTitle,
                                 onContinue: { fixture.showsChecks = true })
                     .transition(.opacity)
             }

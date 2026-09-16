@@ -117,36 +117,28 @@ struct OnboardingFlowTests {
         #expect(flow.next == .promptSubmission)
     }
 
-    @Test("The forward button names the screen it opens")
+    @Test("The forward button moves on rather than naming a decision")
     func titles() {
-        #expect(OnboardingStep.greeting.arrivalButtonTitle == nil)
-        #expect(OnboardingFlow(step: .greeting).forwardButtonTitle == "See what Bloom needs")
-        #expect(
-            OnboardingFlow(step: .checks).forwardButtonTitle
-                == OnboardingStep.promptSubmission.arrivalButtonTitle
-        )
-        #expect(
-            OnboardingFlow(step: .checks, offersCommandLine: true).forwardButtonTitle
-                == OnboardingStep.commandLine.arrivalButtonTitle
-        )
-        #expect(
-            OnboardingFlow(step: .promptSubmission).forwardButtonTitle
-                == OnboardingStep.postcard.arrivalButtonTitle
-        )
+        #expect(OnboardingStep.greeting.isArrivedAt == false)
+        #expect(OnboardingFlow(step: .greeting).forwardButtonTitle == "Get started")
+        for step in [OnboardingStep.checks, .keepAwake, .commandLine, .promptSubmission] {
+            #expect(
+                OnboardingFlow(step: step, offersCommandLine: true, offersKeepAwake: true)
+                    .forwardButtonTitle == "Continue"
+            )
+        }
         #expect(OnboardingFlow(step: .postcard).forwardButtonTitle == nil)
-        // The command line screen is no longer last, so its button may no longer say so. This is
-        // the assertion that fails if "One more thing" ever comes back to a step with a step
-        // after it.
-        #expect(OnboardingStep.commandLine.arrivalButtonTitle == "Use Bloom from your terminal")
-        #expect(OnboardingStep.promptSubmission.arrivalButtonTitle == "Say what Bloom does next")
-        // Word for word the Help menu's own item for the same screen, without the title case and
-        // the ellipsis a menu row is set with. Two surfaces open one screen, and this is the
-        // assertion that fails if one of them is reworded on its own.
-        #expect(OnboardingStep.postcard.arrivalButtonTitle == "Send us a postcard")
-        #expect(
-            MenuBarCatalogue[.postcardware].title
-                == "Send Us a Postcard…"
-        )
+    }
+
+    @Test("Progress counts only the screens this Mac is shown")
+    func progress() {
+        let everything = OnboardingFlow(step: .keepAwake, offersCommandLine: true, offersKeepAwake: true)
+        #expect(everything.progress.position == 3)
+        #expect(everything.progress.count == 6)
+
+        let lean = OnboardingFlow(step: .promptSubmission)
+        #expect(lean.progress.position == 3)
+        #expect(lean.progress.count == 4)
     }
 
     @Test("A first run opens on the greeting, and every other reason opens on the checks")
@@ -219,22 +211,22 @@ struct OnboardingPrimaryTests {
         #expect(primary.title == "Check again")
     }
 
-    @Test("A step with somewhere to go goes there, and says which screen that is")
+    @Test("A step with somewhere to go goes there")
     func advancing() {
         let toChecks = OnboardingPrimary(step: .greeting, verdict: .checking, next: .checks)
         #expect(toChecks.action == .advance(.checks))
-        #expect(toChecks.title == "See what Bloom needs")
+        #expect(toChecks.title == "Get started")
 
         let toOffer = OnboardingPrimary(step: .checks, verdict: .ready, next: .commandLine)
         #expect(toOffer.action == .advance(.commandLine))
-        #expect(toOffer.title == OnboardingStep.commandLine.arrivalButtonTitle)
+        #expect(toOffer.title == "Continue")
 
         // The command line screen leads somewhere now, so its own button moves rather than leaves.
         let toPrompt = OnboardingPrimary(
             step: .commandLine, verdict: .ready, next: .promptSubmission
         )
         #expect(toPrompt.action == .advance(.promptSubmission))
-        #expect(toPrompt.title == OnboardingStep.promptSubmission.arrivalButtonTitle)
+        #expect(toPrompt.title == "Continue")
     }
 
     @Test("The last step's button leaves, whatever the verdict is doing behind it")

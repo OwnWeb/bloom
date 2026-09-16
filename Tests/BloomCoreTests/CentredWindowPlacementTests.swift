@@ -13,13 +13,24 @@ struct CentredWindowPlacementTests {
         #expect(frame.midY == owner.midY)
     }
 
-    @Test("Changing steps preserves the centre when growing and shrinking", arguments: [424.0, 534.0, 747.0])
+    @Test("Changing steps keeps the top edge still when growing and shrinking", arguments: [300.0, 424.0, 534.0, 747.0])
     func resize(height: Double) {
         let before = CGRect(x: 400, y: 400, width: 520, height: 424)
-        let frame = CentredWindowPlacement.frame(size: CGSize(width: 520, height: height), around: before,
+        let frame = CentredWindowPlacement.frame(size: CGSize(width: 520, height: height), keepingTopOf: before,
                                                 visible: CGRect(x: 0, y: 0, width: 2000, height: 1400))
+        #expect(frame.maxY == before.maxY)
         #expect(frame.midX == before.midX)
-        #expect(frame.midY == before.midY)
+        #expect(frame.height == height)
+    }
+
+    @Test("A step too tall for the space below is lifted rather than cut off")
+    func resizeNearBottom() {
+        let visible = CGRect(x: 0, y: 30, width: 1440, height: 870)
+        let before = CGRect(x: 400, y: 60, width: 520, height: 424)
+        let frame = CentredWindowPlacement.frame(size: CGSize(width: 520, height: 747), keepingTopOf: before,
+                                                visible: visible)
+        #expect(visible.contains(frame))
+        #expect(frame.minY == visible.minY)
     }
 
     @Test("Keeps every edge on the owner's display", arguments: [-1800.0, 0.0, 1800.0])

@@ -23,6 +23,8 @@ struct WelcomeView: View {
     /// The optional third step's model: the command, and whether the owner's own Claude Code has
     /// already been told about this Bloom.
     let registration: CommandLineRegistration
+    /// Which agent new sessions start on, offered under the checks when more than one is ready.
+    let agentDefault: WelcomeAgentDefault
     let onFinish: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -37,11 +39,13 @@ struct WelcomeView: View {
     init(
         inspection: SetupInspection,
         registration: CommandLineRegistration,
+        agentDefault: WelcomeAgentDefault,
         start: OnboardingStep,
         onFinish: @escaping () -> Void
     ) {
         self.inspection = inspection
         self.registration = registration
+        self.agentDefault = agentDefault
         self.onFinish = onFinish
         _flow = State(initialValue: OnboardingFlow(step: start))
     }
@@ -62,7 +66,10 @@ struct WelcomeView: View {
     private static let plinthBottom: CGFloat = 22
 
     var body: some View {
-        Group {
+        // Top aligned, so the two screens of a crossfade share a title bar while the window
+        // changes height under them, rather than both sitting centred in a frame that is moving.
+        // `CentredWindowPlacement.frame(size:keepingTopOf:visible:)` is the window's half of this.
+        ZStack(alignment: .top) {
             switch flow.step {
             case .greeting:
                 WelcomeGreeting(
@@ -247,9 +254,45 @@ struct WelcomeView: View {
         VStack(alignment: .leading, spacing: Metrics.pane - Metrics.spacingSmall) {
             verdict(report)
             checks(report)
+            if OnboardingAgentChoice.isOffered(in: report) {
+                agentChoice(OnboardingAgentChoice.candidates(in: report))
+                    .transition(reduceMotion ? .identity : .opacity)
+            }
         }
         .padding(Metrics.pane)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Which of the ready agents new sessions start on. See `OnboardingAgentChoice` for why it is
+    /// asked here and only on a Mac with more than one.
+    ///
+    /// Under the rows rather than as a mark on one of them, because the rows are the machine's
+    /// answer and this is the owner's: a radio button beside "Codex" would sit in a column of
+    /// facts reading as one more of them.
+    private func agentChoice(_ candidates: [AgentKind]) -> some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing) {
+            HStack(spacing: Metrics.spacingWide) {
+                Text("New sessions start on")
+                    .font(Typo.bodyEmphasis)
+                    .foregroundStyle(Palette.textPrimary)
+                Spacer(minLength: Metrics.spacingWide)
+                Picker("New sessions start on", selection: Binding(
+                    get: { agentDefault.selected ?? AppDefaults.fallbackBackend },
+                    set: { agentDefault.choose($0) }
+                )) {
+                    ForEach(candidates, id: \.self) { kind in
+                        Text(kind.label).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            Text("Change it any time in Settings, Models.")
+                .font(Typo.label)
+                .foregroundStyle(Palette.textSecondary)
+        }
+        .onAppear { agentDefault.load() }
     }
 
     /// The headline and the sentence, which change once as the last row settles.
@@ -658,6 +701,8 @@ struct WelcomeView: View {
                     .foregroundStyle(Palette.link)
             }
 
+            progressDots
+
             Spacer(minLength: Metrics.inset)
 
             // The two quiet controls are at opposite ends rather than side by side. Back and
@@ -694,6 +739,29 @@ struct WelcomeView: View {
         .padding(.horizontal, Metrics.pane)
         .padding(.vertical, Metrics.inset + Metrics.spacingSmall)
         .background(Palette.surfaceSunken)
+    }
+
+    /// How far along the sequence this screen is, as a row of dots beside the back control.
+    ///
+    /// Asked for by the first person to walk through the sequence on a fresh Mac, once the footer
+    /// button stopped naming the next screen: "Continue" says the way on, and without these nothing
+    /// said how much more of it there was. Dots rather than "Step 3 of 6", because the count moves
+    /// when an offer arrives late and a numeral changing under somebody reads as a mistake where
+    /// one more dot does not. Next to back rather than centred, so they never collide with the
+    /// quiet control the checks screen puts beside the primary button.
+    private var progressDots: some View {
+        let progress = flow.progress
+        return HStack(spacing: Metrics.spacing) {
+            ForEach(1...max(progress.count, 1), id: \.self) { position in
+                Circle()
+                    .fill(position == progress.position ? Palette.controlAccent : Palette.textTertiary.opacity(0.35))
+                    .frame(width: Metrics.spacing, height: Metrics.spacing)
+            }
+        }
+        .padding(.leading, flow.canGoBack ? Metrics.inset : 0)
+        .animation(reduceMotion ? nil : Motion.pane, value: progress.position)
+        .accessibilityElement()
+        .accessibilityLabel("Step \(progress.position) of \(progress.count)")
     }
 
     private func perform(_ action: OnboardingPrimary.Action) {

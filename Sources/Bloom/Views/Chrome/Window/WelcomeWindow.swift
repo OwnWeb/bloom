@@ -29,6 +29,9 @@ enum WelcomeWindow {
     /// once per open: the window is built once and `isReleasedWhenClosed` is off, so it is closed
     /// and shown again for the life of the process.
     private static var closeWatch: NSObjectProtocol?
+    /// Watches Bloom's main window settling while the welcome is first placed. See
+    /// `followOwnerWhileItSettles`.
+    private static var ownerWatch: [NSObjectProtocol] = []
 
     /// The running state, handed over by `BloomAppDelegate` once the scene exists, and used for
     /// exactly one thing: the bridge the command line step offers to point a terminal at.
@@ -56,7 +59,10 @@ enum WelcomeWindow {
         restarting: Bool = false
     ) {
         let existing = prepare(trigger: trigger, restarting: restarting)
-        if !existing.isVisible { centre(existing) }
+        if !existing.isVisible {
+            centre(existing)
+            followOwnerWhileItSettles(existing)
+        }
         existing.makeKeyAndOrderFront(nil)
         // Only when Bloom is already the front application, or when somebody asked for this
         // window by name. `NSApp.activate()` was unconditional, and the caller behind it is an
@@ -81,6 +87,42 @@ enum WelcomeWindow {
         window.setFrame(CentredWindowPlacement.frame(
             size: window.frame.size, around: anchor, visible: screen.visibleFrame
         ), display: false)
+    }
+
+    /// Centres again each time Bloom's main window moves or resizes in the first moments after
+    /// the welcome opens, and then lets go.
+    ///
+    /// A first launch opens this window from `applicationDidFinishLaunching`, which is before
+    /// SwiftUI has finished placing the main window: the one `centre` above measured a frame the
+    /// main window was about to leave, and the welcome came up low and to the right of Bloom,
+    /// running off the bottom of the display. Waiting for the main window instead would be
+    /// guessing at when SwiftUI is done, so this listens for it being done. Time boxed, so a
+    /// welcome somebody has dragged somewhere, or a main window resized a minute later, is left
+    /// where its owner put it.
+    private static func followOwnerWhileItSettles(_ window: NSWindow) {
+        ownerWatch.forEach(NotificationCenter.default.removeObserver)
+        let names: [Notification.Name] = [
+            NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didBecomeMainNotification,
+        ]
+        ownerWatch = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+                // An identity rather than the window, because a notification is not sendable into
+                // the main actor. The window itself is found again on the other side.
+                guard let moved = (note.object as? NSWindow).map(ObjectIdentifier.init) else { return }
+                MainActor.assumeIsolated {
+                    guard moved != ObjectIdentifier(window),
+                          let owner = NSApp.windows.first(where: { ObjectIdentifier($0) == moved }),
+                          WindowRoles.target(owner).role == .workspace
+                    else { return }
+                    centre(window)
+                }
+            }
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            ownerWatch.forEach(NotificationCenter.default.removeObserver)
+            ownerWatch = []
+        }
     }
 
     /// Preparing is separate from presentation so the lifecycle can be exercised offscreen.
@@ -146,6 +188,7 @@ enum WelcomeWindow {
         let host = WelcomeHostingController(rootView: WelcomeView(
             inspection: model,
             registration: offer,
+            agentDefault: WelcomeAgentDefault(store: { await waitForStore() }),
             start: OnboardingFlow.firstStep(trigger: trigger),
             onFinish: { close() }
         ), contentWidth: WelcomeView.contentWidth)
@@ -184,6 +227,18 @@ enum WelcomeWindow {
         // other end is waiting for. See `WindowRoles`.
         WindowRoles.mark(window, as: .utility)
         return window
+    }
+
+    /// The database, once bootstrap has opened it, for the same first-launch race
+    /// `waitForAgentOverrides` describes.
+    fileprivate static func waitForStore(timeout: Duration = .seconds(3)) async -> Store? {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if let store = app?.store { return store }
+            try? await Task.sleep(for: .milliseconds(150))
+            if Task.isCancelled { return nil }
+        }
+        return app?.store
     }
 
     /// Wait briefly for bootstrap to open the database, then read the paths the Agents pane wrote.
@@ -316,12 +371,16 @@ enum SetupRehearsal {
         git: SetupOutcome = .ready(detail: "2.51.0"),
         claude: SetupOutcome = .ready(detail: "you@example.com"),
         codex: SetupOutcome = .ready(detail: "you@example.com"),
+        grok: SetupOutcome = .missing,
         gitHub: SetupOutcome = .ready(detail: "Signed in")
     ) -> SetupReport {
+        // Every row the probe has, Grok included. It was written before Grok joined, and a row
+        // the rehearsal did not name stayed pending, so no rehearsal ever settled.
         SetupReport(checks: [
             SetupCheck(tool: .git, outcome: git),
             SetupCheck(tool: .claudeCode, outcome: claude),
             SetupCheck(tool: .codex, outcome: codex),
+            SetupCheck(tool: .grok, outcome: grok),
             SetupCheck(tool: .gitHub, outcome: gitHub),
         ])
     }

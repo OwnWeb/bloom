@@ -60,7 +60,7 @@ final class WelcomeHostingController: NSHostingController<AnyView> {
         let oldFrame = window.frame
         let fitted = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
         let visible = window.screen?.visibleFrame ?? oldFrame
-        let newFrame = CentredWindowPlacement.frame(size: fitted.size, around: oldFrame, visible: visible)
+        let newFrame = CentredWindowPlacement.frame(size: fitted.size, keepingTopOf: oldFrame, visible: visible)
         window.setFrame(newFrame, display: true)
     }
 
