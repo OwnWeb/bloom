@@ -204,12 +204,47 @@ struct ProjectAddToolTests {
 struct ProjectListToolTests {
     private let request = MCPRequest(id: .number(1), method: "project_list", params: nil)
 
-    @Test("only the owner sees it, because it names every repository the owner works on")
+    /// A workspace agent may name another project to `workspace_start`, and this is how it finds
+    /// out what it may name.
+    @Test("the owner and every workspace agent see it")
     func roleGate() {
         let toolbox = BridgeToolbox(handlers: [ProjectListTool()])
 
-        #expect(toolbox.tools(for: .workspace).isEmpty)
+        #expect(toolbox.tools(for: .workspace).map(\.name) == ["project_list"])
         #expect(toolbox.tools(for: .owner).map(\.name) == ["project_list"])
+    }
+
+    /// A read a workspace agent makes before handing work on, while nobody may be watching.
+    @Test("Bloom answers its permission question, and still asks about the project tools that change things")
+    func selfApproved() {
+        #expect(BridgeToolApproval.isSelfApproved(toolName: BridgeToolApproval.toolPrefix + "project_list"))
+        #expect(!BridgeToolApproval.selfApproved.contains("project_add"))
+        #expect(!BridgeToolApproval.selfApproved.contains("project_hide"))
+    }
+
+    @Test("a workspace agent is listed the projects, and is not told to call a tool it lacks")
+    func listsToAWorkspace() async throws {
+        let store = try makeTestStore("list-workspace")
+        let repo = try await store.upsert(Repo(name: "flare", path: "/tmp/flare", defaultBranch: "main"))
+        var hidden = try await store.upsert(Repo(name: "bloom", path: "/tmp/bloom", defaultBranch: "main"))
+        hidden.hidden = true
+        _ = try await store.upsert(hidden)
+        let workspace = try await store.upsert(Workspace(
+            repoID: repo.id, name: "w", branch: "b", path: "/tmp/w", baseBranch: "main"
+        ))
+        let session = try await store.upsert(Session(workspaceID: workspace.id, title: "chat"))
+
+        let result = await ProjectListTool().call(
+            request,
+            as: BridgeIdentity(sessionID: session.id, workspaceID: workspace.id, role: .workspace),
+            store: store
+        )
+
+        #expect(!result.isError)
+        #expect(result.text.contains("\"name\" : \"flare\""))
+        #expect(result.text.contains("\"name\" : \"bloom\""))
+        #expect(result.text.contains("\"hidden_projects\" : 1"))
+        #expect(!result.text.contains("project_unhide"))
     }
 
     @Test("an empty Bloom says what to do rather than answering with nothing")
@@ -401,29 +436,6 @@ struct OwnerWorkspaceStartTests {
         #expect(result.text.contains("no project called"))
         #expect(recorder.projects.isEmpty)
         #expect(try await store.repos().count == 1)
-    }
-
-    /// A workspace agent's project is decided for it. A call that named another one and quietly
-    /// got its own would look like it worked.
-    @Test("a caller inside a workspace may not name a project")
-    func aWorkspaceMayNotNameOne() async throws {
-        let store = try makeTestStore("owner-parent-names")
-        let repo = try await store.upsert(Repo(name: "flare", path: "/tmp/flare", defaultBranch: "main"))
-        let workspace = try await store.upsert(Workspace(
-            repoID: repo.id, name: "w", branch: "b", path: "/tmp/w", baseBranch: "main"
-        ))
-        let session = try await store.upsert(Session(workspaceID: workspace.id, title: "chat"))
-        let recorder = Recorder()
-
-        let result = await recorder.tool().call(
-            request(["prompt": .string("do a thing"), "project": .string("flare")]),
-            as: BridgeIdentity(sessionID: session.id, workspaceID: workspace.id, role: .workspace),
-            store: store
-        )
-
-        #expect(result.isError)
-        #expect(result.text.contains("does not take a project here"))
-        #expect(recorder.projects.isEmpty)
     }
 
     /// The eight is a cap on how many children one agent may have RUNNING, and it is the wrong

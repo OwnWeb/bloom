@@ -404,6 +404,167 @@ struct WorkspaceStartToolTests {
         #expect(result.text.contains("no longer in Bloom's database"))
     }
 
+    // MARK: Another project
+
+    /// The call this was written for: an agent in the site's project handing work to a new
+    /// workspace in the app's. The workspace goes where it was sent, and it is still the caller's
+    /// child in every way the brakes read.
+    @Test("a named project from inside a workspace starts it there, and it is still the caller's child")
+    func startsInAnotherProject() async throws {
+        let fixture = try await fixture(label: "start-elsewhere")
+        let other = try await fixture.store.upsert(
+            Repo(name: "bloom", path: "/tmp/bloom", defaultBranch: "main")
+        )
+        let recorder = Recorder()
+
+        let result = await recorder.tool().call(
+            request(["prompt": .string("Fix the importer"), "project": .string("bloom")]),
+            as: fixture.identity,
+            store: fixture.store
+        )
+
+        #expect(!result.isError)
+        #expect(recorder.projects.map(\.id) == [other.id])
+        #expect(recorder.origins.first?.parentWorkspaceID == fixture.workspace.id)
+        #expect(recorder.origins.first?.isAgentSpawned == true)
+        #expect(
+            recorder.spawnIDs
+                == [
+                    AgentWorkspaceOrder(prompt: "Fix the importer")
+                        .spawnID(parentWorkspaceID: fixture.workspace.id, otherProject: other.id),
+                ]
+        )
+    }
+
+    /// Resolved the owner's client's way, so the refusal is the same sentence too, and a name
+    /// that matches nothing is never read as "here".
+    @Test("a project Bloom does not have is refused from inside a workspace, and nothing starts")
+    func refusesAnUnknownProject() async throws {
+        let fixture = try await fixture(label: "start-elsewhere-unknown")
+        let recorder = Recorder()
+
+        let result = await recorder.tool().call(
+            request(["prompt": .string("Fix the importer"), "project": .string("nowhere")]),
+            as: fixture.identity,
+            store: fixture.store
+        )
+
+        #expect(result.isError)
+        #expect(result.text.contains("no project called 'nowhere'"))
+        #expect(result.text.contains("'flare'"))
+        #expect(recorder.orders.isEmpty)
+    }
+
+    @Test("two projects answering to one name are refused with their paths")
+    func refusesAnAmbiguousProject() async throws {
+        let fixture = try await fixture(label: "start-elsewhere-ambiguous")
+        _ = try await fixture.store.upsert(Repo(name: "bloom", path: "/tmp/one/bloom", defaultBranch: "main"))
+        _ = try await fixture.store.upsert(Repo(name: "bloom", path: "/tmp/two/bloom", defaultBranch: "main"))
+        let recorder = Recorder()
+
+        let result = await recorder.tool().call(
+            request(["prompt": .string("Fix the importer"), "project": .string("bloom")]),
+            as: fixture.identity,
+            store: fixture.store
+        )
+
+        #expect(result.isError)
+        #expect(result.text.contains("/tmp/one/bloom"))
+        #expect(recorder.orders.isEmpty)
+    }
+
+    /// Leaving it out is what every call made before this could, and its key must not move, or a
+    /// retry that straddles an upgrade would cut a second worktree.
+    @Test("leaving the project out still starts in the caller's own, under the same key as before")
+    func omittedProjectIsUnchanged() async throws {
+        let fixture = try await fixture(label: "start-elsewhere-omitted")
+        _ = try await fixture.store.upsert(Repo(name: "bloom", path: "/tmp/bloom", defaultBranch: "main"))
+        let recorder = Recorder()
+
+        let result = await recorder.tool().call(
+            request(["prompt": .string("Fix the importer")]),
+            as: fixture.identity,
+            store: fixture.store
+        )
+
+        #expect(!result.isError)
+        #expect(recorder.projects.map(\.id) == [fixture.workspace.repoID])
+        #expect(
+            recorder.spawnIDs
+                == [AgentWorkspaceOrder(prompt: "Fix the importer").spawnID(parentWorkspaceID: fixture.workspace.id)]
+        )
+    }
+
+    /// Naming the project the caller is already in is the same ask as naming none, so a retry
+    /// that adds or drops the argument is still recognised as the same call.
+    @Test("naming the caller's own project is the same call as naming none")
+    func namingItsOwnProjectIsTheSameCall() async throws {
+        let fixture = try await fixture(label: "start-elsewhere-own")
+        let recorder = Recorder()
+
+        _ = await recorder.tool().call(
+            request(["prompt": .string("Fix the importer")]), as: fixture.identity, store: fixture.store
+        )
+        _ = await recorder.tool().call(
+            request(["prompt": .string("Fix the importer"), "project": .string("flare")]),
+            as: fixture.identity,
+            store: fixture.store
+        )
+
+        #expect(recorder.projects.map(\.id) == [fixture.workspace.repoID, fixture.workspace.repoID])
+        #expect(recorder.spawnIDs.count == 2)
+        #expect(Set(recorder.spawnIDs).count == 1)
+    }
+
+    /// Sending the work elsewhere is not a way round the nesting limit.
+    @Test("a workspace an agent started is refused even when it names another project")
+    func noGrandchildrenElsewhere() async throws {
+        let fixture = try await self.fixture(
+            origin: .agent(parentWorkspaceID: WorkspaceID(rawValue: "w-parent"), spawnToolUseID: "t1"),
+            label: "start-elsewhere-child"
+        )
+        _ = try await fixture.store.upsert(Repo(name: "bloom", path: "/tmp/bloom", defaultBranch: "main"))
+        let recorder = Recorder()
+
+        let result = await recorder.tool().call(
+            request(["prompt": .string("do a thing"), "project": .string("bloom")]),
+            as: fixture.identity,
+            store: fixture.store
+        )
+
+        #expect(result.isError)
+        #expect(result.text.contains("itself started by an agent"))
+        #expect(recorder.orders.isEmpty)
+    }
+
+    /// The ceiling is on the parent, not on a project, so children it started elsewhere count.
+    @Test("children running in another project count against the caller's ceiling")
+    func childrenElsewhereCount() async throws {
+        let fixture = try await fixture(label: "start-elsewhere-limit")
+        let other = try await fixture.store.upsert(
+            Repo(name: "bloom", path: "/tmp/bloom", defaultBranch: "main")
+        )
+        for index in 0..<WorkspaceStartAllowance.maximumChildren {
+            _ = try await fixture.store.upsert(Workspace(
+                repoID: other.id,
+                name: "child \(index)",
+                branch: "claude/child-\(index)",
+                path: "/tmp/elsewhere-\(index)",
+                baseBranch: "main",
+                origin: .agent(parentWorkspaceID: fixture.workspace.id, spawnToolUseID: "t\(index)")
+            ))
+        }
+        let recorder = Recorder()
+
+        let result = await recorder.tool().call(
+            request(["prompt": .string("one more")]), as: fixture.identity, store: fixture.store
+        )
+
+        #expect(result.isError)
+        #expect(result.text.contains("limit"))
+        #expect(recorder.orders.isEmpty)
+    }
+
     /// An agent that misreads its own instructions can ask in a loop, and each one is a real
     /// worktree, a real process and real spend.
     @Test("a caller that already has the limit running is refused")
@@ -625,10 +786,25 @@ struct WorkspaceStartDedupTests {
         #expect(order(prompt: "Something else").spawnID(parentWorkspaceID: parent) != base)
         #expect(order(name: "Named").spawnID(parentWorkspaceID: parent) != base)
         #expect(order().spawnID(parentWorkspaceID: WorkspaceID(rawValue: "w-other")) != base)
+        #expect(order().spawnID(parentWorkspaceID: parent, otherProject: RepoID("r-bloom")) != base)
         #expect(
             AgentWorkspaceOrder(prompt: "Import the webhooks", model: "gpt-5.6-sol")
                 .spawnID(parentWorkspaceID: parent) != base
         )
+    }
+
+    /// The same order from the same parent sent to two projects is two asks. Without the project
+    /// in the key, the second would be answered with the first one's workspace.
+    @Test("the same call to two other projects is two spawns, and naming none keeps the old key")
+    func theProjectIsInTheKey() {
+        let bloom = order().spawnID(parentWorkspaceID: parent, otherProject: RepoID("r-bloom"))
+        let site = order().spawnID(parentWorkspaceID: parent, otherProject: RepoID("r-site"))
+
+        #expect(bloom != site)
+        #expect(bloom == order().spawnID(parentWorkspaceID: parent, otherProject: RepoID("r-bloom")))
+        #expect(order().spawnID(parentWorkspaceID: parent, otherProject: nil) == order().spawnID(parentWorkspaceID: parent))
+        // Nor can a parent's key for a project collide with the owner's key for the same one.
+        #expect(bloom != order().spawnID(ownerProject: RepoID("r-bloom")))
     }
 
     @Test("it is short enough to read in a log")

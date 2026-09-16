@@ -84,10 +84,18 @@ extension AgentWorkspaceOrder {
     /// the column was added for. The parent is in the digest so two workspaces asking for the same
     /// thing are two spawns, which they are.
     ///
+    /// The project is in it only when the parent named one other than its own. The same prompt
+    /// sent to two projects is two asks, and a key that ignored the project would answer the
+    /// second with the first one's workspace. Left out otherwise, for two reasons: every key
+    /// recorded before a parent could name a project stays the key a retry of that call produces,
+    /// and naming the project the parent is already in is the same ask as naming none, so it
+    /// should be the same key.
+    ///
     /// Truncated to sixteen hex characters. It is a dedup key inside one database, not a
     /// cryptographic commitment, and sixty-four characters of hex in a debug print helps nobody.
-    func spawnID(parentWorkspaceID: WorkspaceID) -> String {
-        spawnID(scope: parentWorkspaceID.rawValue)
+    func spawnID(parentWorkspaceID: WorkspaceID, otherProject: RepoID? = nil) -> String {
+        guard let otherProject else { return spawnID(scope: parentWorkspaceID.rawValue) }
+        return spawnID(scope: parentWorkspaceID.rawValue + "\u{0}project\u{0}" + otherProject.rawValue)
     }
 
     /// The same name, for the owner's own client, which has no workspace to scope it by.
@@ -140,7 +148,7 @@ public typealias WorkspaceStarting =
 public typealias PullRequestCheckoutResolving =
     @Sendable (_ reference: String, _ repoPath: String) async -> WorkspaceCheckoutResolution
 
-/// `workspace_start`: an agent asking Bloom for another workspace in the same project.
+/// `workspace_start`: an agent asking Bloom for another workspace, in its own project or another.
 ///
 /// **Not `workspace_spawn`, and nothing here says "subagent".** A workspace an agent asked for is
 /// an ordinary Bloom workspace with an ordinary agent in it, which is what `WorkspaceOrigin` says
@@ -170,9 +178,17 @@ public typealias PullRequestCheckoutResolving =
 /// was that only a workspace agent's calls were deduplicated, and that one was a gap rather than a
 /// distinction.
 ///
-/// A workspace agent cannot name a project, because its own is the only one it may act in, and
-/// `project` is refused rather than ignored if it names one. The owner's client must name a
-/// project, because nothing else says which, and it may only name one Bloom already has.
+/// A workspace agent may leave the project out, and then the new workspace goes in the project it
+/// is already in. It may also name one, which is how work is handed from one repository to
+/// another: an agent in the site's project that finds the fix belongs in the app starts it there.
+/// The owner's client must name a project, because nothing else says which. Either way the name is
+/// resolved by `BridgeProjectLookup`, so both may only name a project Bloom already has and both
+/// are refused in the same words when the name matches nothing or matches too much.
+///
+/// Naming another project changes nothing else about the call. The workspace is still `.agent`
+/// origin with the caller as its parent, so the running ceiling counts it, the parent may rename
+/// and archive it, and it may not start more. Every one of those is keyed on the parent's
+/// workspace id and none on its repository, which is what lets the child live somewhere else.
 ///
 /// A workspace agent's workspaces are `.agent` origin and carry its id; the owner's are `.ownerClient`
 /// origin and carry no parent. How many either may start is not decided here: `WorkspaceOrigin`
@@ -208,9 +224,11 @@ public struct WorkspaceStartTool: BridgeToolHandling {
 
             Name the project to start it in with 'project', giving the name or the path that \
             project_list reports. Bloom only starts workspaces in repositories it already has, so \
-            register one with project_add first if it is not on that list. If you are yourself \
-            running inside a Bloom workspace, leave 'project' out: you can only start work in the \
-            project you are already in.
+            a project that is not on that list has to be registered with project_add first, which \
+            only the owner can do. If you are \
+            yourself running inside a Bloom workspace, leave 'project' out to start it in the \
+            project you are already in, or name another project to hand the work to that \
+            repository instead. The new workspace is still counted as one you started.
 
             Use it when a task splits into parts that do not need to see each other's edits, and \
             you want them worked on at the same time rather than one after another.
@@ -260,7 +278,8 @@ public struct WorkspaceStartTool: BridgeToolHandling {
                     "type": .string("string"),
                     "description": .string(
                         "Which project to start it in, by the name or the path project_list "
-                            + "reports. Leave it out if you are running inside a Bloom workspace."
+                            + "reports. Inside a Bloom workspace, leave it out for the project you "
+                            + "are in, or name another to start the work there."
                     ),
                 ]),
                 "prompt": .object([
@@ -359,7 +378,7 @@ public struct WorkspaceStartTool: BridgeToolHandling {
         // the branch below is looked for in, and what the spawn key of a caller with no workspace
         // is scoped by, so it is settled before either.
         let project: Repo
-        let parent: WorkspaceID?
+        let parent: Caller?
         switch await resolve(request, as: identity, store: store) {
         case .refused(let sentence): return .failure(sentence)
         case let .resolved(repo, caller):
@@ -490,9 +509,10 @@ public struct WorkspaceStartTool: BridgeToolHandling {
     /// Which project this workspace goes in and which workspace, if any, is asking, or the
     /// sentence saying why neither can be answered.
     ///
-    /// One function for both roles, because the two answers have to stay opposite: a caller with a
-    /// workspace may not name a project and a caller without one must. Split across two call sites
-    /// that would eventually become one that does neither.
+    /// One function for both roles, because the two answers differ in one place only: a caller
+    /// with a workspace may leave the project out and a caller without one may not. A project that
+    /// is named is looked up the same way whoever named it, so the two cannot drift into two sets
+    /// of refusals.
     ///
     /// It answers with the caller rather than with a `WorkspaceOrigin`, because the origin carries
     /// the spawn key and the spawn key is a digest of the whole order, branch included, which is
@@ -501,8 +521,16 @@ public struct WorkspaceStartTool: BridgeToolHandling {
     enum Resolution {
         /// The project, and the workspace that asked. Nil is the owner's own client, which is
         /// sitting in none.
-        case resolved(Repo, WorkspaceID?)
+        case resolved(Repo, Caller?)
         case refused(String)
+    }
+
+    /// The workspace that asked, and the project it is sitting in. The project is carried because
+    /// the spawn key has to know whether the new workspace goes somewhere else. See
+    /// `AgentWorkspaceOrder.spawnID(parentWorkspaceID:otherProject:)`.
+    struct Caller {
+        let workspaceID: WorkspaceID
+        let repoID: RepoID
     }
 
     func resolve(
@@ -523,31 +551,13 @@ public struct WorkspaceStartTool: BridgeToolHandling {
                             + "should go. Call project_list to see what Bloom has."
                     )
                 }
-                let projects = try await store.repos()
-                let outcome = BridgeProjectLookup.find(named, in: projects)
-                if let refusal = BridgeProjectLookup.refusal(
-                    for: named, outcome: outcome, projects: projects
-                ) {
-                    return .refused(refusal)
-                }
-                guard case .found(let project) = outcome else {
-                    return .refused("Bloom has no project called '\(named)'.")
-                }
                 // The rate is not checked here. A retry of a call that already cut a worktree is
                 // not another start, and `call` answers that before it counts anything, or a
                 // duplicate would come back looking like a limit.
-                return .resolved(project, nil)
-            }
-
-            // A caller that is a workspace. Its project is decided for it, so naming one is a
-            // misunderstanding worth correcting rather than an argument to drop on the floor: a
-            // call that named another project and quietly got this one would look like it worked.
-            if let named {
-                return .refused(
-                    "workspace_start does not take a project here. You are running inside a Bloom "
-                        + "workspace, so the new one goes in the project you are already in, and "
-                        + "'\(named)' is not something this call can change. Ask again without it."
-                )
+                switch try await lookUp(named, store: store) {
+                case .refused(let sentence): return .refused(sentence)
+                case .resolved(let project, _): return .resolved(project, nil)
+                }
             }
 
             guard let caller = try await store.workspace(id: workspaceID) else {
@@ -566,27 +576,56 @@ public struct WorkspaceStartTool: BridgeToolHandling {
                 )
             }
 
-            return .resolved(project, workspaceID)
+            let asking = Caller(workspaceID: workspaceID, repoID: caller.repoID)
+
+            // A caller that is a workspace and named nothing gets its own project. One that named
+            // a project gets that one, found exactly the way the owner's client finds it, so a
+            // name that is not there is refused rather than quietly read as "here": a call that
+            // named another project and got this one would look like it worked.
+            guard let named else { return .resolved(project, asking) }
+            switch try await lookUp(named, store: store) {
+            case .refused(let sentence): return .refused(sentence)
+            case .resolved(let named, _): return .resolved(named, asking)
+            }
         } catch {
             return .refused("Bloom could not read its projects: \(error.readableMessage)")
         }
+    }
+
+    /// A project named out loud, found among the ones Bloom has, or the sentence saying why it
+    /// cannot be. Answers with `Resolution` so both callers above can pass a refusal straight on;
+    /// the caller half is always nil here and each fills in its own.
+    private func lookUp(_ named: String, store: Store) async throws -> Resolution {
+        let projects = try await store.repos()
+        let outcome = BridgeProjectLookup.find(named, in: projects)
+        if let refusal = BridgeProjectLookup.refusal(for: named, outcome: outcome, projects: projects) {
+            return .refused(refusal)
+        }
+        guard case .found(let project) = outcome else {
+            return .refused("Bloom has no project called '\(named)'.")
+        }
+        return .resolved(project, nil)
     }
 
     /// Who is recorded as having asked for this workspace, and the key that makes a retry of the
     /// call the same call rather than a second worktree.
     ///
     /// One function for both callers, because the difference between them is one thing: what the
-    /// digest is scoped by. A parent scopes it by itself, and the owner's client, which is not a
-    /// workspace, scopes it by the project it named out loud. See `AgentWorkspaceOrder.spawnID`.
+    /// digest is scoped by. A parent scopes it by itself, and by the project as well when that is
+    /// not its own, and the owner's client, which is not a workspace, scopes it by the project it
+    /// named out loud. See `AgentWorkspaceOrder.spawnID`.
     private func origin(
-        of order: AgentWorkspaceOrder, project: Repo, parent: WorkspaceID?
+        of order: AgentWorkspaceOrder, project: Repo, parent: Caller?
     ) -> WorkspaceOrigin {
         guard let parent else {
             return .ownerClient(spawnToolUseID: order.spawnID(ownerProject: project.id))
         }
         return .agent(
-            parentWorkspaceID: parent,
-            spawnToolUseID: order.spawnID(parentWorkspaceID: parent)
+            parentWorkspaceID: parent.workspaceID,
+            spawnToolUseID: order.spawnID(
+                parentWorkspaceID: parent.workspaceID,
+                otherProject: project.id == parent.repoID ? nil : project.id
+            )
         )
     }
 
