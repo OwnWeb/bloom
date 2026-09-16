@@ -67,6 +67,11 @@ final class BloomAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     /// to the window already on screen.
     func applicationWillFinishLaunching(_ notification: Notification) {
         Log.launchStep("will finish launching")
+        // Here, at the earliest point there is, because everything that pays for it pays only for
+        // what is left of it. A GUI app inherits a PATH with no homebrew and no version manager in
+        // it, and the login shell is the only thing that knows what the user's real one is. It
+        // runs in the background under a timeout and blocks nothing. See `LoginShellPath`.
+        LoginShellPath.begin()
         NSAppleEventManager.shared().setEventHandler(
             self,
             andSelector: #selector(handleURLEvent(_:withReply:)),

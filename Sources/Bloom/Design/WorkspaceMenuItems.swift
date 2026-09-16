@@ -22,8 +22,9 @@ import BloomCore
 ///
 /// ## Three groups, and the rule is what each one acts on
 ///
-/// The first group is about the CHECKOUT ON DISK: it opens the worktree, shows it, puts its branch
-/// on the clipboard, and runs the repository's setup script in it. The next four are about the ROW
+/// The first group is about the CHECKOUT ON DISK: it opens the worktree, in the editor and in
+/// anything else that can take it, shows it, puts its branch on the clipboard, and runs the
+/// repository's setup script in it. The next four are about the ROW
 /// and change nothing outside Bloom: whether it floats, whether it is shouting at you, what colour
 /// it is, what it is called. The last destroys it, behind a rule of its own, which is the grouping
 /// this menu already had and the same rhythm a project header's menu is built on. See
@@ -110,6 +111,7 @@ struct WorkspaceMenuItems: View {
     @ViewBuilder
     private var rowItems: some View {
         openInEditorItem
+        openWorktreeInItem
         revealInFinderItem
         copyBranchItem
         setupItem
@@ -155,6 +157,28 @@ struct WorkspaceMenuItems: View {
 
     private var openInEditorItem: some View {
         Button("Open in Editor") { Reveal.inEditor(workspace.path, repo: workspace.repoID) }
+    }
+
+    /// Everything else that can open this worktree, under the item that opens it in the editor.
+    ///
+    /// **It was reachable from one place in the app, and that place was an overflow button in the
+    /// inspector's toolbar.** Settings promises that an application you add "joins every Open in
+    /// menu, including Open Worktree in", and a user who added iTerm and PHPStorm wrote in to say
+    /// he could not find that menu anywhere, having looked where anybody would look: the right
+    /// click menu on the workspace. He was right. `Open in Editor` above goes through
+    /// `Reveal.inEditor`, which asks for the preferred editor and never offers a terminal, a git
+    /// client or anything else the user added, so on this menu there was no route to them at all.
+    ///
+    /// Both, rather than the submenu replacing the item. `OpenInMenu` explains why the parent row
+    /// of a submenu cannot carry an action of its own: AppKit never delivers it. Opening the
+    /// worktree in the editor you always use is the common case and it stays one click.
+    ///
+    /// The repository is put in the environment here because the sidebar has none to inherit. It
+    /// is what makes the submenu remember a choice per project rather than globally, which is the
+    /// whole point of `EnvironmentValues.openInRepoID`.
+    private var openWorktreeInItem: some View {
+        OpenInMenu(target: .folder(workspace.path), noun: "Worktree")
+            .environment(\.openInRepoID, workspace.repoID)
     }
 
     private var revealInFinderItem: some View {

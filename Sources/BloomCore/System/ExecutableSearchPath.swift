@@ -7,6 +7,11 @@ import Foundation
 /// the selected release to PATH from shell startup files that Finder never reads. Walking those
 /// version directories lets Bloom find a CLI installed under any of them without running a login
 /// shell, whose startup files are arbitrary user code and may prompt, print or never return.
+///
+/// **This is the fallback now, not the whole answer.** `LoginShellPath` asks the login shell
+/// itself, once at launch and under a timeout, because no list written here knows about the line
+/// somebody put in their own `.zshrc`. What stays here is what rescues a machine that probe could
+/// not read, and it is still the only thing a subprocess started before the answer lands has.
 public enum ExecutableSearchPath {
     public static func additionalDirectories(
         home: String = FileManager.default.homeDirectoryForCurrentUser.path

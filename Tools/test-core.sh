@@ -109,6 +109,12 @@ extra=(${=BLOOM_TEST_SWIFT_ARGS:-})
 
 cd "$WORK"
 
+# No login shell probe in the suite. `WorkspaceManager.runSetup` waits for `LoginShellPath`, and
+# several tests call it, so without this every one of them would start the author's `.zshrc` and
+# wait on whatever it does. The guessed PATH is what the suite has always run on. See
+# `LoginShellPath`.
+export BLOOM_LOGIN_SHELL_PATH=0
+
 # The shim, built once and named in the environment, because `BridgeRegistration.shimPath` looks
 # beside the running executable and the running executable here is the test bundle's. Failing to
 # build it is not fatal: `BridgeShimTests` is skipped when the variable names nothing, exactly as

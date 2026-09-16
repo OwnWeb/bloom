@@ -33,7 +33,8 @@ public struct ShellError: Error, CustomStringConvertible {
 ///
 /// Nothing uses a login shell: commands are exec'd directly so an argument containing a space
 /// or a quote can never be reinterpreted. `Shell.script` is the deliberate exception, used for
-/// user-authored setup and run scripts.
+/// user-authored setup and run scripts, and `LoginShellPath` is the other, which starts one for
+/// the single purpose of asking it what its PATH is.
 public enum Shell {
     /// Directories added to PATH for spawned processes, because GUI apps launched from Finder
     /// inherit a minimal PATH that lacks Homebrew, mise, fnm, and friends.
@@ -66,20 +67,42 @@ public enum Shell {
     ///
     /// It used to be rebuilt per spawn: the whole process environment copied, PATH split, about 45
     /// entries deduped through a `Set`, and `which` asks for it before every subprocess as well.
-    /// Nothing in Bloom calls `setenv`, so the base cannot move under this, and the two callers
-    /// that pass an overlay get a copy-on-write copy of it rather than a rebuild.
-    private static let base: [String: String] = {
+    /// Nothing in Bloom calls `setenv`, so the process environment cannot move under this, and the
+    /// callers that pass an overlay get a copy-on-write copy of this rather than a rebuild.
+    ///
+    /// **It is behind a `Mutex` rather than a `let` because one thing does move it, exactly once.**
+    /// `LoginShellPath` asks the user's login shell what its PATH is, in the background at launch,
+    /// and that answer arrives after the first subprocess has already been spawned. Rebuilding
+    /// here when it lands keeps the per spawn cost at a lock and a copy, which is what the
+    /// paragraph above was protecting.
+    private static let base = Mutex<[String: String]>(merged(discovered: []))
+
+    private static func merged(discovered: [String]) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
-        let existing = env["PATH"]?.components(separatedBy: ":") ?? []
-        var seen = Set<String>()
-        let merged = (existing + extraPaths).filter { seen.insert($0).inserted }
-        env["PATH"] = merged.joined(separator: ":")
+        let inherited = env["PATH"]?.components(separatedBy: ":") ?? []
+        env["PATH"] = LoginShellPath
+            .merge(discovered: discovered, inherited: inherited, guessed: extraPaths)
+            .joined(separator: ":")
         return env
-    }()
+    }
+
+    /// Take the login shell's own PATH, for every subprocess started from now on.
+    ///
+    /// The `which` table is cleared with it. Its entries are all hits, and a hit found on the old
+    /// PATH may not be the binary the new one names first: a user whose shell puts a version
+    /// manager's shim ahead of `/opt/homebrew/bin` would otherwise keep the homebrew `node` this
+    /// process happened to resolve before the answer arrived, for the rest of the launch.
+    ///
+    /// An empty answer is not an answer and changes nothing. See `LoginShellPath`.
+    public static func adoptLoginShellPath(_ discovered: [String]) {
+        guard !discovered.isEmpty else { return }
+        base.withLock { $0 = merged(discovered: discovered) }
+        found.withLock { $0 = [:] }
+    }
 
     public static func environment(extra: [String: String] = [:]) -> [String: String] {
-        guard !extra.isEmpty else { return base }
-        var env = base
+        var env = base.withLock { $0 }
+        guard !extra.isEmpty else { return env }
         for (key, value) in extra { env[key] = value }
         return env
     }

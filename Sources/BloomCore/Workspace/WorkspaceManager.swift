@@ -582,6 +582,11 @@ public struct WorkspaceManager: Sendable {
 
         _ = try? await store.update(workspaceID: workspace.id) { $0.apply(.runStarted) }
 
+        // A setup script is the one place where a PATH that arrives a moment late is a failed
+        // `composer install` rather than a lookup that was slightly worse. Usually free: the probe
+        // was started at launch and finished long before anyone created a workspace. See
+        // `LoginShellPath`.
+        await LoginShellPath.ready()
         let env = environment(for: workspace, repo: repo, port: port)
         let runner = StreamingProcess(
             executable: launch.executable,
@@ -813,6 +818,9 @@ public struct WorkspaceManager: Sendable {
             // the row rather than from the value passed in, which the caller may have been
             // holding since before the block was allocated.
             let stored = try? await store.workspace(id: workspace.id)
+            // The same reason the setup run waits for it: a teardown that cannot find `docker`
+            // leaves the containers the setup started behind. See `LoginShellPath`.
+            await LoginShellPath.ready()
             let env = environment(for: workspace, repo: repo, port: stored?.port ?? workspace.port)
             let result: ShellResult
             do {
