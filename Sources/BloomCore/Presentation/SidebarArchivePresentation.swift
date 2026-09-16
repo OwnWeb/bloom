@@ -2,7 +2,7 @@ import Foundation
 
 /// Owned by the sidebar so an optimistic archive can remove and restore its source row.
 public struct SidebarArchivePresentation: Sendable {
-    public enum Source: Sendable { case button, menu, row }
+    public enum Source: Sendable { case button, row }
 
     public private(set) var workspaceID: WorkspaceID?
     public private(set) var source = Source.row

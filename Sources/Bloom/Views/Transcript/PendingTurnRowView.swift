@@ -297,9 +297,9 @@ struct PendingTurnRowView: View {
     /// bubble they are three targets and three decisions on a row whose whole job is to say that
     /// a message is waiting. Reported as visually heavy, and it was.
     ///
-    /// One circled ellipsis instead, which is the mark this app already uses for "more about this
-    /// row": `WorkspaceRow.moreMenu` in the sidebar. Read its notes before changing the styling
-    /// here, because both lines below were measured rather than chosen. `.menuStyle(.button)`
+    /// One circled ellipsis instead, the mark the sidebar's workspace rows wore for "more about
+    /// this row" until that menu went to the right click alone. Both styling lines below were
+    /// measured on that row rather than chosen. `.menuStyle(.button)`
     /// with `.buttonStyle(.plain)` is what makes a menu take the ink it is given; `.borderlessButton`
     /// paints its own and ignores the colour wherever it is stated.
     ///
