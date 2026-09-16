@@ -16,6 +16,13 @@ import SwiftUI
 /// insists nothing about the folding moved either. The hand opened case itself is
 /// `ReviewCollapseTests`, over the rule this view calls.
 ///
+/// **What is measured and what is asked.** The first tick is measured, because taking six hundred
+/// points out of the document is the thing the reader sees and every machine agrees about it. The
+/// second tick and the resize are asked of the view through `ReviewFoldReport`, because the review
+/// is a lazy stack: its document height is an estimate over the sections nothing has laid out, and
+/// on the CI runner a resize re-estimated it from 2,760 points to 300 with no tick having moved.
+/// This probe passed here and failed there twice before that was believed.
+///
 /// The last capture is taken with every file ticked, so all four header rows stack and the row
 /// controls can be read down one column: the preview button is drawn for the two Markdown files
 /// and for neither of the others, and it leads the cluster so the tick and the overflow menu are
@@ -75,18 +82,27 @@ enum ReviewFoldProbe {
               "ticking a file left the document at \(folded), from \(expanded): the diff did not fold")
 
         // A neighbour's tick folds its own file and leaves the one already folded alone.
+        //
+        // **Asked of the view rather than measured off it, unlike the check above.** The first tick
+        // takes six hundred points out of the document and every machine agrees about that. The
+        // second takes out a section that a lazy stack may never have laid out, so what the height
+        // does depends on what has been materialised: on the CI runner it did not move at all. What
+        // the check is actually about is which files are folded, and the view says so.
         await model.setViewed(true, file: checkout)
         await settle(window)
-        let both = documentHeight(in: host)
-        check(both < folded, "ticking a second file did not fold it as well")
+        check(ReviewFoldReport.collapsed.contains(checkout.path),
+              "ticking a second file did not fold it as well: \(ReviewFoldReport.collapsed)")
+        check(ReviewFoldReport.collapsed.contains(readme.path),
+              "ticking a second file unfolded the first: \(ReviewFoldReport.collapsed)")
 
         // The re-render case: nothing about the ticks moves, so nothing about the folding may.
+        let foldedPaths = ReviewFoldReport.collapsed
         window.setContentSize(NSSize(width: 980, height: 760))
         await settle(window)
         window.setContentSize(NSSize(width: 1120, height: 760))
         await settle(window)
-        check(abs(documentHeight(in: host) - both) < 1,
-              "a resize moved a folded file: \(documentHeight(in: host)), from \(both)")
+        check(ReviewFoldReport.collapsed == foldedPaths,
+              "a resize moved the folding: \(ReviewFoldReport.collapsed), from \(foldedPaths)")
 
         for file in model.reviewFiles { await model.setViewed(true, file: file) }
         await settle(window)

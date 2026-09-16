@@ -63,6 +63,7 @@ struct AllFilesReviewView: View {
                                         if !collapsedPaths.insert(file.id).inserted {
                                             collapsedPaths.remove(file.id)
                                         }
+                                        reportFold()
                                     }
                                 )
                                 .id(file.id)
@@ -129,10 +130,20 @@ struct AllFilesReviewView: View {
                             collapsedPaths, viewed: viewed, wasViewed: lastViewed
                         )
                         lastViewed = viewed
+                        reportFold()
                     }
                 }
             }
         }
+    }
+
+    /// Says what is folded, for the probe that checks a tick folds a file and that a re-render
+    /// leaves the folding alone. Compiled out of a release build, and nothing in the app reads it:
+    /// see `ReviewFoldReport` for why the probe asks rather than measuring the pane's height.
+    private func reportFold() {
+        #if DEBUG
+        ReviewFoldReport.report(collapsed: collapsedPaths)
+        #endif
     }
 
     /// Which files are ticked as read, or nil while the marks are still being read out of the
