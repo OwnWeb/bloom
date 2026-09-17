@@ -383,16 +383,19 @@ def main():
                              lambda: json.loads(https(url, path="/_bloom/health")[2])["version"] == updated
                              and run_on(name, "readlink /opt/bloom/current").strip().endswith(updated), 420, interval=5)
                 except RuntimeError:
-                    print(run_on(name, "readlink /opt/bloom/current; cat /var/tmp/bloom-update.log; "
+                    print(run_on(name, "readlink /opt/bloom/current; cat /var/tmp/bloom-update.log 2>/dev/null; "
                                        "cat /var/tmp/bloom-update-pending 2>/dev/null; sprite-env services list; "
-                                       "sprite-env services logs bloom 2>/dev/null | tail -n 30", timeout=60)[-6000:],
+                                       "tail -n 30 /.sprite/logs/services/bloom.log 2>/dev/null", timeout=60)[-6000:],
                           file=sys.stderr)
                     raise
                 healed_in = time.time() - asked_at
                 # What the machine itself says about the failure: how many times the supervisor
                 # brought the dead release back, and what the wrapper wrote on its way past.
+                # The service's own log is a file; there is no `services logs` subcommand, which is
+                # what made this look silent the first time it was asked for.
                 evidence = run_on(name, "sprite-env services list; echo ---; "
-                                        "sprite-env services logs bloom 2>/dev/null | grep -c 'did not come up' || true; echo ---; "
+                                        "grep -h 'going back to' /.sprite/logs/services/bloom.log /var/tmp/bloom-update.log "
+                                        "2>/dev/null | tail -n 2; echo ---; "
                                         "ls /var/tmp/bloom-update-pending 2>/dev/null || echo 'marker gone'", timeout=60)
                 step(f"healed in {healed_in:.0f} s, back on {updated}")
                 step("what the machine says: " + " ".join(evidence.split())[:400])

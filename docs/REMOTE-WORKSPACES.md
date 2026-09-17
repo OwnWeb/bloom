@@ -1046,6 +1046,12 @@ deletes it, so its absence is the normal case. Nothing read from it decides whet
 is the account of a machine that is failing, evidence for a person rather than an input. Change the
 shape and two readers change with it.
 
+**A rollback says so twice:** to the service's log, which the provider keeps at
+`/.sprite/logs/services/bloom.log` with a timestamp per line, and by appending to
+`/var/tmp/bloom-update.log`, which outlives the marker and any rotation. The marker only ever
+describes the attempt in hand, so the second one is what lets a machine say it has rolled back twice
+this week. (There is no `sprite-env services logs` subcommand; the log is a file.)
+
 **Telling a provider outage from a Bloom Runner problem.** They look different from the app:
 
 - The machine's URL not answering at all, or answering a provider error page, is the provider or a

@@ -38,8 +38,12 @@ marker="${BLOOM_UPDATE_MARKER:-/var/tmp/bloom-update-pending}"
 here="$(dirname "$0")"
 runner="$here/bloom-runner-exec"
 
+# To stderr, which the provider's service log keeps with a timestamp, and to the update log beside
+# the marker, which outlives both the marker and any log rotation. A machine that has rolled back
+# twice in a week should be able to say so; the marker only ever describes the attempt in hand.
 note() {
     echo "bloom-runner: $*" >&2
+    printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "${BLOOM_UPDATE_LOG:-/var/tmp/bloom-update.log}" 2>/dev/null || true
 }
 
 # Only a serve is a start worth deciding about. `version`, `git-credential` and `gh-token` are

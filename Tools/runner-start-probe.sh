@@ -28,7 +28,8 @@ point_at() {
 }
 
 start() {
-  BLOOM_PREFIX="$prefix" BLOOM_UPDATE_MARKER="$marker" "$prefix/current/bin/bloom-runner" "$@" 2>>"$root/stderr.log" || true
+  BLOOM_PREFIX="$prefix" BLOOM_UPDATE_MARKER="$marker" BLOOM_UPDATE_LOG="$root/update.log" \
+    "$prefix/current/bin/bloom-runner" "$@" 2>>"$root/stderr.log" || true
 }
 
 check() {
@@ -133,9 +134,15 @@ start serve
 check "a marker written the old way still rolls back" "$prefix/1.0.0" "$(readlink "$prefix/current")"
 
 # And the wrapper, handed that marker, is what actually goes back.
-BLOOM_PREFIX="$bootstrap_prefix" BLOOM_UPDATE_MARKER="$root/bootstrap-marker" "$bootstrap_prefix/current/bin/bloom-runner" serve 2>/dev/null || true
-BLOOM_PREFIX="$bootstrap_prefix" BLOOM_UPDATE_MARKER="$root/bootstrap-marker" "$bootstrap_prefix/current/bin/bloom-runner" serve 2>/dev/null || true
+for _ in 1 2; do
+  BLOOM_PREFIX="$bootstrap_prefix" BLOOM_UPDATE_MARKER="$root/bootstrap-marker" BLOOM_UPDATE_LOG="$root/update.log" \
+    "$bootstrap_prefix/current/bin/bloom-runner" serve 2>/dev/null || true
+done
 check "the wrapper goes back to the release that worked" "$bootstrap_prefix/2.0.0" "$(readlink "$bootstrap_prefix/current")"
+# Three by now: the two rollbacks earlier in this probe and this one. What matters is that the file
+# keeps them all, so a machine carries its history of rollbacks rather than only its last attempt.
+check "and says so where a person will find it afterwards" "3" \
+  "$(grep -c 'going back to' "$root/update.log" 2>/dev/null || echo 0)"
 
 if (( ${#failures} )); then
   print -r -- "runner-start probe failed:"
