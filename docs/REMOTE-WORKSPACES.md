@@ -1,6 +1,6 @@
 # Cloud workspaces on Sprites
 
-Status: design, September 2026. Nothing here is built yet. This document is what the next pull
+Status: design, agreed with the runbloom.app side (its pull request #23), September 2026. Nothing here is built yet. This document is what the next pull
 request builds, and the order it builds it in. The control server half lives in the runbloom.app
 repository and is designed there; the contract between the two is written down here as well,
 because both sides have to read the same one.
@@ -111,7 +111,7 @@ app. runbloom.app's own API uses those access tokens.
 ### Workspace tokens
 
 A client exchanges its runbloom.app access token for a workspace token:
-`POST /api/workspaces/{id}/session-token`. The reply is an EdDSA JWT, five minutes long:
+`POST /api/v1/workspaces/{id}/session-token`. The reply is an EdDSA JWT, five minutes long:
 
 | Claim | Value |
 | --- | --- |
@@ -187,7 +187,7 @@ Sprite:
 
 1. **Registering.** A client sends a prompt with a workspace token carrying `prompt`, fresh at the
    moment of sending. bloom-server passes that token on at once to `POST
-   /api/sprite/workspaces/{id}/turns`, and gets back a turn id in state `queued`, stored on the
+   /api/machine/workspaces/{id}/turns`, and gets back a turn id in state `queued`, stored on the
    delivery. The workspace secret alone cannot get a key: every key is tied to a turn a person
    asked for while their token was valid. Removing a member cancels their queued turns, and a turn
    registered more than 12 hours before it starts is refused.
@@ -209,7 +209,8 @@ Sprite:
 
 A running process keeps the key it was launched with for as long as consecutive turns resolve to
 the same identity. Personal environment applies only to that turn's processes; it is not given to
-project services. A terminal session registers the same way with the `terminal` ability, and its
+project services. A terminal session registers the same way, `POST .../turns` with `kind:
+"terminal"` and a token carrying the `terminal` ability, and its
 shell gets that person's key, personal environment and GitHub token.
 
 The key is never written to disk, never in argv, and never in the transcript. A cold wake kills
@@ -296,7 +297,7 @@ starts again as `bloom-workspace` version 1. What changes:
 | `GET /_bloom/v1/events` | SSE read with `fetch`, bearer token |
 | `GET /_bloom/v1/terminal?name=` | WebSocket, `auth` first frame, binary frames, resize and `reauth` text frames |
 | `GET /_bloom/preview/enter?t=` | preview cookie exchange |
-| `POST /_bloom/v1/control/revoke`, `update`, `environment` | runbloom.app only, `admin` token |
+| `POST /_bloom/v1/control/revoke`, `update`, `environment`, `limits-cleared`, `stop` | runbloom.app only, `admin` token |
 | `GET /_bloom/health` | unauthenticated, version only |
 | everything else | the preview |
 
@@ -426,10 +427,9 @@ is out of scope for phase 1.
 ## Usage
 
 runbloom.app meters usage per team and enforces per-team limits, so bloom-server reports what the
-provider bills for, in provider-neutral terms. **These fields are proposed and still being agreed
-with the runbloom.app side.**
+provider bills for, in provider-neutral terms. The fields are agreed with runbloom.app pull request #23.
 
-`POST /api/sprite/workspaces/{id}/usage` with the workspace secret, separate from the summary
+`POST /api/machine/workspaces/{id}/usage` with the workspace secret, separate from the summary
 because it is append-only where the summary is replace-latest:
 
 ```json
@@ -466,13 +466,52 @@ because it is append-only where the summary is replace-latest:
   because storage bills whether awake or not.
 - **Turns** carry the user, so limits can be per person as well as per team.
 
-Sent at every `released`, every 5 minutes while awake, and on shutdown. When runbloom.app refuses a
-turn start because a limit is reached, bloom-server pauses the queue with that reason, the way the
-#163 runtime already pauses for a missing sign-in, and the prompt stays queued.
+Sent at every `released`, every 5 minutes while awake, and on shutdown. runbloom.app adds 30 s
+after each `released` for the pause it cannot see, carries storage forward from the last disk
+report until the machine is deleted, and checks machine state against the provider's API on its
+own, because anyone with root on the machine could stop or falsify these reports. The reports are
+for showing usage and enforcing limits early, not the only source of truth.
+
+## Limits
+
+runbloom.app enforces per-team limits at three points: creating a workspace, issuing a workspace
+token (which is what wakes a sleeping machine), and starting a turn. Archive is never refused. A
+refusal is:
+
+```json
+{"code": "limit_reached", "limit": "concurrent_machines", "message": "…", "retry_after": 60}
+```
+
+`limit` is `monthly_usage`, `concurrent_machines`, `total_machines` or `kill_switch`. Only
+`concurrent_machines` is HTTP 429 and carries `retry_after`, because only it clears by itself when
+another machine in the team goes to sleep; the others are 403 and need a person or a new month.
+
+**A refused turn start.** runbloom.app marks the turn blocked. bloom-server keeps the prompt
+queued, shows it as blocked with the reason on the event stream and in the summary (`state:
+"blocked"`, `blocked: {limit, message}`), and releases the machine so it can sleep. It does **not**
+poll to find out when the limit lifts, because polling keeps the machine awake and billing, which is
+the thing the limit is for. Instead runbloom.app calls `POST /_bloom/v1/control/limits-cleared`
+(control token for that workspace) when a limit lifts: a machine in the team released (oldest
+blocked turn first), an administrator raised a limit, the kill switch went off, a month began. That
+call wakes the machine, and bloom-server retries the start. As a fallback it also retries whenever
+it wakes for any other reason.
+
+**Kill switch or overage while awake.** runbloom.app first calls `POST /_bloom/v1/control/stop`
+with the limit. bloom-server stops a running turn the way Stop does, marks queued prompts blocked,
+posts its summary and usage, and releases. After a grace of 30 s a scheduled job stops the
+machine's services through the provider regardless, and bloom-server treats the `SIGTERM` that
+brings the same way: stop the turn, flush the reports it can, exit. A turn cut off like that is
+recorded in the transcript as stopped by a limit, not as a failure.
+
+**In the Mac app** the message is shown as runbloom.app wrote it, in Cloud workspace wording, and
+the two kinds look different: `concurrent_machines` says it will carry on by itself once another
+Cloud workspace in the team goes to sleep, and the queued prompt shows as waiting; the others say
+what has to happen and who can make it happen, and the prompt shows as blocked. A refused create or
+wake shows the same message where the create or the open was attempted.
 
 ## Summaries
 
-bloom-server posts `POST /api/sprite/workspaces/{id}/summary` with the workspace secret. A
+bloom-server posts `POST /api/machine/workspaces/{id}/summary` with the workspace secret. A
 monotonic `revision` means a late post never overwrites a newer one.
 
 ```json
@@ -497,8 +536,8 @@ monotonic `revision` means a late post never overwrites a newer one.
 }
 ```
 
-`state` is one of `setting_up`, `setup_failed`, `idle`, `running`, `waiting_for_input`, `stopping`,
-`error`. `waiting` is `{kind: permission | question | plan, chat_id, since}` when set.
+`state` is one of `setting_up`, `setup_failed`, `idle`, `running`, `waiting_for_input`, `blocked`,
+`stopping`, `error`. `waiting` is `{kind: permission | question | plan, chat_id, since}` when set.
 
 `last_message` changes only when a message completes, never per streamed chunk, so a running turn
 does not post every two seconds.
@@ -540,12 +579,32 @@ Deleting the Sprite deletes the transcript, so archive is a sequence, driven by 
 confirmed the way #163 confirms it (a preview with hazards, then a confirmation id):
 
 1. The preview reports unpushed commits and uncommitted changes, as today.
-2. bloom-server uploads an export to runbloom.app: the transcript, and the agents' own session files
+2. bloom-server uploads an export to runbloom.app (`POST /api/machine/workspaces/{id}/export`): the transcript, and the agents' own session files
    (`~/.claude/projects/...`, Codex rollouts) so a restore can resume the conversation.
 3. runbloom.app deletes the Sprite and revokes the secret.
 
 Restore is a cold create on the same branch, with the export written back before the agent
 starts. Uncommitted work that was not pushed is lost, which the preview said.
+
+## The machine-facing endpoints on runbloom.app
+
+No provider name in any path. All take the workspace secret except where noted.
+
+| Endpoint | Used for |
+| --- | --- |
+| `POST /api/machine/workspaces/{id}/summary` | summaries |
+| `POST /api/machine/workspaces/{id}/usage` | usage reports |
+| `GET /api/machine/workspaces/{id}/environment` | team and project environment, at setup and resume |
+| `POST /api/machine/workspaces/{id}/turns` | registering a turn or terminal session, with the user's workspace token as well |
+| `POST /api/machine/workspaces/{id}/turns/{turn}/start` | the key and personal environment, or a limit refusal |
+| `DELETE /api/machine/workspaces/{id}/turns/{turn}` | ending a turn or terminal session |
+| `POST /api/machine/workspaces/{id}/git-credentials` | a short-lived GitHub token for the current turn, or read-only outside one |
+| `POST /api/machine/workspaces/{id}/export` | the archive export |
+| `GET /api/machine/workspaces/{id}/export` | the export written back on restore |
+| `GET /.well-known/jwks.json` | public, the key set for workspace and control tokens |
+
+Clients use `POST /api/v1/workspaces/{id}/session-token` and the rest of `/api/v1`, which accepts a
+Passport token or, for the web interface, the browser session.
 
 ## Where the code goes
 
@@ -712,4 +771,4 @@ written into a fixture. Like `BLOOM_LIVE=1` today, it costs money and is off unl
 
 ## Still open
 
-- The usage fields above, being agreed with the runbloom.app side.
+- Nothing on this side. The contract matches runbloom.app pull request #23.
