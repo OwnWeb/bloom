@@ -64,8 +64,16 @@ enum SetupTestSupport {
         return await condition()
     }
 
+    /// A zombie counts as dead. In CI's container the process that inherits an orphan is one that
+    /// never reaps, so a killed child stays in the table as `Z` and `kill(pid, 0)` still succeeds.
     static func isAlive(_ pid: Int32) -> Bool {
-        kill(pid, 0) == 0
+        guard kill(pid, 0) == 0 else { return false }
+        if let stat = try? String(contentsOfFile: "/proc/\(pid)/stat", encoding: .utf8),
+           let close = stat.lastIndex(of: ")") {
+            let state = stat[stat.index(after: close)...].trimmingCharacters(in: .whitespaces).first
+            return state != "Z"
+        }
+        return true
     }
 }
 
