@@ -738,9 +738,10 @@ steps, summaries and usage, preview exchange with Caddy, `control/*`. References
 ### After these two
 
 Later pull requests, roughly in this order: the iOS app over HTTPS (#163's UIKit app is SSH first,
-so it is reworked rather than ported), agent UI tools on remote clients, personal subscriptions
-signed in on the machine, the warm pool, the archive export, browser and pane tools, agent bridge tools across workspaces through runbloom.app,
-per-project egress allowlists, Reverb, a read-only viewer, other providers. The web interface is
+so it is reworked rather than ported), browser and pane tools for agents on remote clients,
+personal subscriptions signed in on the machine, the warm pool, the archive export, agent bridge
+tools across workspaces through runbloom.app, per-project egress allowlists, Reverb, a read-only
+viewer, other providers. The web interface is
 built in runbloom.app against the same contract.
 
 ### Testing turns during development
