@@ -336,14 +336,7 @@ struct DiffView<Model: WorkspaceReviewSurface>: View {
                             .overlay(alignment: .bottom) { Hairline() }
                     }
                 } header: {
-                    fileHeader
-                        .onGeometryChange(for: Bool.self) { proxy in
-                            let frame = proxy.frame(in: .scrollView(axis: .vertical))
-                            return isCollapsed && frame.minY <= 0 && frame.maxY > 0
-                        } action: { active in
-                            if active { onScrollFocus?() }
-                        }
-                        .overlay(alignment: .bottom) { Hairline() }
+                    pinnedHeader
                 }
             } else {
                 VStack(spacing: 0) {
@@ -402,6 +395,23 @@ struct DiffView<Model: WorkspaceReviewSurface>: View {
                 closeEdit(of: id)
             }
         }
+    }
+
+    /// The header while the section is pinned to the top of the all-files review, which is the
+    /// one place it reports where it is.
+    ///
+    /// `isCollapsed` is read into a local first, because the closure `onGeometryChange` takes is
+    /// sendable and reading the property inside it captures this view, whose `Model` is not.
+    private var pinnedHeader: some View {
+        let collapsed = isCollapsed
+        return fileHeader
+            .onGeometryChange(for: Bool.self) { proxy in
+                let frame = proxy.frame(in: .scrollView(axis: .vertical))
+                return collapsed && frame.minY <= 0 && frame.maxY > 0
+            } action: { active in
+                if active { onScrollFocus?() }
+            }
+            .overlay(alignment: .bottom) { Hairline() }
     }
 
     private var fileHeader: some View {
@@ -690,7 +700,6 @@ struct DiffView<Model: WorkspaceReviewSurface>: View {
     /// re-key this view's task on its own.
     private func discard(_ hunk: DiffHunk) {
         guard hunkDiscard == .enabled else { return }
-        let scope = model.diffScope
         Task {
             // A box open on the lines being put back could only refuse to save from here on.
             edits.close(path: fileKey)
