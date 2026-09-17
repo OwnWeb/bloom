@@ -18,8 +18,15 @@ struct NewMenuItems: View {
     var onStartProject: () -> Void
     var onCreateWorkspace: (Repo) -> Void
 
+    @Environment(AppModel.self) private var app
+
     var body: some View {
         Button("New workspace…", action: onNewWorkspace)
+        // Only while signed in to a Bloom account: a Mac that has never used one is not offered
+        // something it would first have to go and find out about.
+        if app.cloud.isSignedIn {
+            Button("New Cloud workspace…") { app.cloud.isCreating = true }
+        }
         Button("New project…", action: onStartProject)
 
         if !recent.isEmpty {

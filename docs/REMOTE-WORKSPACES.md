@@ -883,6 +883,68 @@ and its builder confirmed them.
 - **Linux runs the core tests the server needs, by name.** `Package.swift` lists them, so a test
   written on a Mac about the window cannot fail a Linux job its author never thought about.
 
+### For the Mac client pull request
+
+Taken while building the Mac client. The runbloom.app shapes were agreed with its builder through
+the coordinator.
+
+- **runbloom.app answers Laravel resources:** `{"data": ...}`, lists as `{"data": [...]}` with no
+  pagination, `/me` as `{"data": {...}}`, refusals as `{"code", "message"}` plus `limit` and
+  `retry_after` where they apply.
+- **Sharing.** `GET /api/v1/cloud-workspaces/{id}/members` answers `{"data": {"shared_with_team",
+  "members": [{"user": {"id", "name", "avatar_url"}, "role"}]}}`; `POST` the same path with
+  `{"user_id"}` or `{"shared_with_team": bool}` answers the same body; `DELETE .../members/{user}`
+  answers 204 and cancels that person's queued turns, ends their running ones and closes their
+  streams, which the confirmation says. Owner only; 403 `no_team_agent_key` when a team key is
+  missing. Collaborators are chosen from `GET /api/v1/teams/{team}/members`, `{"data": [{"id",
+  "name", "email", "avatar_url", "role"}]}`.
+- **Preview links.** `GET .../shares` lists live ones as `{"id", "url", "created_at", "expires_at",
+  "created_by"}`; `POST {}` (or `{"expires_at"}`, a week by default and a month at most) answers 201;
+  `DELETE .../shares/{share}` revokes. Owner only.
+- **The opening prompt is the Mac's.** Create takes none. The Mac keeps it in its own defaults,
+  survives a relaunch, shows it as waiting, and sends it on the first live connection as `new_chat`
+  then `send`, each under a command id kept with the prompt so a retry cannot open two chats or
+  queue it twice. A prompt still held after a day is dropped.
+- **Where the code is.** `Packages/BloomClient` is Foundation and `BloomProtocol` only: runbloom.app's
+  API, `WorkspaceConnection` (tokens, commands with kept ids, the event stream, reconnecting, not
+  reconnecting after `sleeping`), `CloudWorkspaceState` (merging pages and events), the terminal
+  socket, the review cache and every decision the window draws. Its tests run in the macOS `test`
+  job, because the event stream is read with URLSession byte streams Linux Foundation lacks.
+  `Packages/BloomAuthentication` is #163's, on AppAuth 3.0.0 with the custom scheme; the tokens are
+  one keychain item per runbloom.app origin. `BLOOM_RUNBLOOM_URL`, or the
+  `cloudWorkspaces.runbloomOrigin` default, points a build at a development runbloom.app.
+- **A Cloud chat is a `TranscriptModel` with no store.** Its rows, queue and questions arrive from the
+  machine through `receiveCloud`, and send, stop, answer, the composer's pickers, removing a queued
+  prompt and marking read go to the machine through a `CloudChatLink`. So a Cloud conversation is
+  drawn by the app's own transcript and composer, and nothing from a machine is written to this
+  Mac's database. Its rows get negative ids, one per workspace and cursor, so no cache can confuse
+  one with a local row.
+- **A Cloud workspace is its own selection and its own column.** `SidebarSelection.cloud` answers
+  `workspaceID` with nil, so the inspector, the Workspace menu, the terminal pane and session restore
+  (all about a worktree on this Mac) leave it alone, and `CloudWorkspaceColumn` draws its chats,
+  terminal, changes and setup output as panes of its own.
+- **Signed out, nothing asks.** The sidebar has no Cloud section and the New menu no Cloud item until
+  a Bloom account is signed in; Settings has a Bloom Account pane that says what an account is for.
+- **The list is read every 20 seconds while Bloom is active and whenever it becomes active,** never
+  in the background. Notifications are derived from consecutive readings: into `waiting_for_input`,
+  `running` to `idle`, into `setup_failed`; not on the first reading, not for a workspace the reader
+  has no role in, and not for the one on screen while Bloom is in front.
+- **Waking.** The first request after a machine was last seen asleep gets 45 seconds before it counts
+  as no answer, later ones 25; a request with no answer is retried twice under its command id. The
+  column says the workspace is waking once half a second has passed.
+- **The review is read when its pane is shown and on `review` events,** not by a `wait: true` long
+  poll, which would hold a request open on a machine that is trying to sleep.
+- **Each person gets a terminal of their own,** named `shell-<user id>`, because a terminal is a
+  turn with its opener's keys and GitHub identity. A keystroke into a closed terminal reconnects it.
+- **Left out of the first Cloud release on the Mac:** attaching files to a Cloud chat (the composer
+  says so), Steer (a shared queue is first come, first served), and handing the queue back to the
+  composer on Stop, since it may hold other people's messages. Edit on a queued prompt takes back
+  only the reader's own. A Cloud chat's composer never applies this Mac's defaults over the
+  machine's controls.
+- **Archiving always asks,** whatever the local confirmation setting: the machine's own
+  `archive_preview` when it can answer, runbloom.app's last summary when it cannot, and the sentence
+  that the conversation is deleted first in both.
+
 ## Still open
 
 - Nothing. The contract matches runbloom.app pull request #23.
