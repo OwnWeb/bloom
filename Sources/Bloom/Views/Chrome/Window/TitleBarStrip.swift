@@ -132,18 +132,27 @@ struct TitleBarStrip: View {
     /// transition was holding has to be held here instead. The same shape as
     /// `InspectorGeometry.bandWidth` and for the same reason: a band on its way out is still a band.
     @State private var shown: WorkspaceModel?
+    /// The same, for a workspace on a machine. One of the two is nil: which of them the band is
+    /// drawn over is the selection resolving, and everything the band itself does is the same for
+    /// both, because it is written against `WorkspaceReviewSurface`.
+    @State private var shownCloud: CloudWorkspaceSession?
 
     private var inspector: InspectorGeometry { .shared }
 
     var body: some View {
         HStack(spacing: 0) {
-            if let model = shown, inspector.isVisible {
+            if let cloud = shownCloud, shown == nil, inspector.isVisible {
+                PullRequestBar(model: cloud)
+                    .frame(width: inspector.bandWidth, height: height)
+                    .background { ground(pullRequest: cloud.pullRequest, localWork: nil) }
+                    .overlay(alignment: .leading) { Hairline(axis: .vertical) }
+            } else if let model = shown, inspector.isVisible {
                 PullRequestBar(model: model)
                     // As wide as the pane below it, so the band ends where the pane does and the
                     // split divider runs out of the bottom of it. `bandWidth` rather than `width`
                     // because a band on its way out is still a band: see `InspectorGeometry`.
                     .frame(width: inspector.bandWidth, height: height)
-                    .background { ground(for: model) }
+                    .background { ground(pullRequest: model.pullRequest, localWork: model.localWork) }
                     .overlay(alignment: .leading) { Hairline(axis: .vertical) }
                     // The whole band is the target, button included, and that is a decision rather
                     // than the easy way to write it. The band is one subject: the branch, where it
@@ -197,7 +206,17 @@ struct TitleBarStrip: View {
         // by the diff stat refresh, and the only thing this needs to hear about is the band being
         // for a different workspace. `initial` seeds it for a window that comes up on one.
         .onChange(of: app.selectedModel.map { ObjectIdentifier($0) }, initial: true) { _, _ in
-            if let model = app.selectedModel { shown = model }
+            if let model = app.selectedModel {
+                shown = model
+                shownCloud = nil
+            }
+        }
+        // The same for a Cloud workspace, which the window selects the same way and which the
+        // band is drawn over on the same terms.
+        .onChange(of: app.selection.cloudWorkspaceID, initial: true) { _, id in
+            guard let id else { return }
+            shownCloud = app.cloud.session(for: id)
+            shown = nil
         }
         // The end of a slide out is the moment the departing band can be let go of. Taken from the
         // selection rather than set to nil, because the inspector can also be closed with a
@@ -238,12 +257,12 @@ struct TitleBarStrip: View {
     /// rather than the strip: the same tone off `PullRequestStatus`, the same two opacities out of
     /// `InspectorLayout`. A tint that changes there changes here.
     @ViewBuilder
-    private func ground(for model: WorkspaceModel) -> some View {
+    private func ground(pullRequest: PullRequest?, localWork: LocalWork?) -> some View {
         ZStack {
             Palette.surface
-            if let tint = model.pullRequest?.status(local: model.localWork).tone.color {
+            if let tint = pullRequest?.status(local: localWork).tone.color {
                 tint.opacity(
-                    model.pullRequest?.isOpen == false
+                    pullRequest?.isOpen == false
                         ? InspectorLayout.bandOpacityQuiet
                         : InspectorLayout.bandOpacity
                 )

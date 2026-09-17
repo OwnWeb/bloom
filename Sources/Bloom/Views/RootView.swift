@@ -26,6 +26,9 @@ struct RootView: View {
     @Bindable private var feedback = FeedbackPresenter.shared
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    /// Whether the Cloud workspace's share popover is open. Held by the window rather than by the
+    /// toolbar item, because `ToolbarContent` is a value the window rebuilds under the popover.
+    @State private var isSharingCloudWorkspace = false
 
     private var sidebarTintOpacity: Double {
         let preference = ColourThemePreference.shared
@@ -95,7 +98,8 @@ struct RootView: View {
                     .toolbar {
                         BloomWindowToolbar(
                             app: app,
-                            isSidebarFolded: columnVisibility == .detailOnly
+                            isSidebarFolded: columnVisibility == .detailOnly,
+                            isSharingCloudWorkspace: $isSharingCloudWorkspace
                         )
                     }
                     // Said here as well as under `navigationTitle` below, and deliberately.

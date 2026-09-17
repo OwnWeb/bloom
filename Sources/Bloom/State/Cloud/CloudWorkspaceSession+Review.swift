@@ -247,10 +247,35 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
 
     // MARK: What GitHub thinks of it
 
-    /// Nothing yet: runbloom.app is building the pull request state for the list and on demand,
-    /// with its merge blockers. Until it lands the header says what it knows, which is nothing,
-    /// and `capabilities` keeps the buttons that would act on it greyed with a sentence.
-    var pullRequest: PullRequest? { nil }
+    /// What the machine last told this Mac about the branch's pull request, which is what its own
+    /// `gh` saw. Four fields: the number, the title, where it is and whether it is open. The rest
+    /// of what the strip can show, the checks and the merge blockers, is runbloom.app's and is
+    /// being built; until then the controls that would act on it are greyed with their sentence.
+    var pullRequest: PullRequest? {
+        state.workspace?.pullRequest.map { PullRequest(cloudRecord: $0, branch: surfaceBranch) }
+    }
+
+    var hasKnownChanges: Bool { !changedFiles.isEmpty }
+
+    /// Never in the dark: the machine asks GitHub with the workspace's own credentials, so what
+    /// this Mac's `gh` is doing has no bearing on what the strip may say.
+    var gitHubReadiness: GitHubAvailability.State { .ready }
+
+    var continueBlocker: String? {
+        "Carrying on in a new branch is not built for a Cloud workspace yet. Make another Cloud workspace from the same project."
+    }
+
+    func continueAfterMerge(_ pullRequest: PullRequest) async -> AppModel.ContinuationOutcome {
+        .failed(continueBlocker ?? "")
+    }
+
+    /// The Cloud archive, which asks the machine what is about to be lost and says that the
+    /// conversation is deleted. See `CloudArchiveSheet`.
+    func requestArchive(presenting: @escaping (ArchiveRequest) -> Void) async {
+        cloud.archiving = id
+    }
+
+    func confirmArchive(_ request: ArchiveRequest, presenting: @escaping (ArchiveRequest) -> Void) async {}
     var isLoadingPullRequest: Bool { false }
     var pullRequestNotice: PullRequestNotice? {
         get { nil }

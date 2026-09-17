@@ -25,6 +25,12 @@ struct PullRequestSummary: View {
     /// What this worktree is holding that GitHub has not got. Nil while the first refresh is
     /// still running, which is not the same as "nothing", and is drawn as nothing extra.
     var localWork: LocalWork?
+    /// Why Continue cannot be pressed on this workspace, or nil when it can. The control stays and
+    /// says the sentence, because one that vanishes teaches nobody anything.
+    var continueBlocker: String?
+    /// The same for the two controls that act on GitHub as the signed-in person, Merge and Mark
+    /// ready for review.
+    var managementBlocker: String?
     var isWorking: Bool
     /// Message requests stay available during a turn. Continue and Archive act immediately
     /// and still require an idle workspace. `PullRequestCreator` shares the same decision.
@@ -336,8 +342,10 @@ struct PullRequestSummary: View {
         Button("Continue", systemImage: "chevron.forward.2", action: onContinue)
             .buttonStyle(.bordered)
             .controlSize(.regular)
+            .disabled(continueBlocker != nil)
             .help(
-                branchActions.reason
+                continueBlocker
+                    ?? branchActions.reason
                     ?? "Cut a new branch from \(baseBranch) in this worktree and carry on, "
                         + "keeping this workspace's session, its setup and anything uncommitted."
             )
@@ -434,8 +442,10 @@ struct PullRequestSummary: View {
             .tint(status.tone.fill)
             .controlSize(.regular)
             .fixedSize()
+            .disabled(managementBlocker != nil)
             .help(
-                branchActions.reason
+                managementBlocker
+                    ?? branchActions.reason
                     ?? "Mark #\(pullRequest.number) ready for review on GitHub."
             )
     }
@@ -523,8 +533,9 @@ struct PullRequestSummary: View {
         MergeSplitButton(
             method: mergeMethod,
             fill: status.tone.fill,
-            // Queueing a request does not bypass GitHub's merge restrictions.
-            canMerge: status.canMerge,
+            // Queueing a request does not bypass GitHub's merge restrictions, and neither does a
+            // workspace that cannot act on the pull request at all.
+            canMerge: status.canMerge && managementBlocker == nil,
             help: blockedReason,
             choose: onChooseMergeMethod,
             merge: { propose(mergeMethod) }
@@ -544,7 +555,7 @@ struct PullRequestSummary: View {
 
     /// What the Merge button has to say for itself, or nil when there is nothing.
     private var blockedReason: String? {
-        branchActions.reason ?? status.blockedReason
+        managementBlocker ?? branchActions.reason ?? status.blockedReason
     }
 
     /// The title belongs somewhere, and a tooltip on the state is where: it answers "which pull

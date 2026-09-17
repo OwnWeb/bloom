@@ -39,7 +39,6 @@ struct CloudWorkspaceColumn: View {
     @ViewBuilder
     private func workspace(_ session: CloudWorkspaceSession, item: CloudWorkspaceItem?) -> some View {
         VStack(spacing: 0) {
-            CloudWorkspaceHeader(session: session, item: item)
             if TabStripVisibility.isShown(tabCount: session.entries.count, isRenaming: renamingID != nil) {
                 CloudTabStripView(session: session, renamingID: $renamingID)
             }

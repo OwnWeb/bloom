@@ -16,7 +16,9 @@ struct GitFailure: Error, Sendable {
 @Observable
 final class WorkspaceModel {
     var workspace: Workspace
-    private unowned let app: AppModel
+    /// The window this workspace belongs to. `fileprivate` rather than `private` so the surface
+    /// conformance beside it can reach the archive and the continuation, which are the app's.
+    unowned let app: AppModel
 
     var sessions: [Session] = []
     var sideConversations: [SessionID: SideConversationState] = [:]

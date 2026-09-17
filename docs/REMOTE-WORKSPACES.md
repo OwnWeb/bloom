@@ -1120,6 +1120,20 @@ is built by the workspace rather than by the diff, which is the one place a view
 from a model: `WorkspaceModel.editorPane(path:session:)` answers with the editor and a Cloud
 workspace answers with the sentence saying why there is none.
 
+**A Cloud workspace has no header bar of its own.** Its name is the window's title, its branch and
+its pull request are the title bar's band (`PullRequestBar`, over the protocol), and its `+` is the
+toolbar's, exactly as a local workspace's are. A bar above the tabs saying all three again was the
+largest thing that made a Cloud workspace feel like a different app. What is left is what a local
+workspace has no answer to, and it sits in the toolbar: who else has the workspace open, the
+preview, and sharing.
+
+The band draws what the machine knows, which is the pull request its own `gh` reported: the number,
+the title, where it is and whether it is open. Merge and Mark ready for review are greyed with the
+sentence saying they are not built yet, because they are runbloom.app's to do as the signed-in
+person; Open a pull request, Commit and push and Fix conflicts compose a turn for the agent and
+work as they do locally. The checks, the merge blockers and the stale state fill in the day
+runbloom.app's endpoints land, without a view changing.
+
 **History is the machine's own `git log`.** `history` pages the branch's commits and `commit_files`
 answers the files of the row somebody opened, so the History tab draws the rows it has always drawn.
 Two differences from a local workspace, both said where they matter: Load earlier commits pages from

@@ -44,6 +44,25 @@ extension WorkspaceModel: WorkspaceReviewSurface {
         await FileRevert.discard(hunk: hunk, of: file, in: workspace, scope: diffScope)
     }
 
+    var hasKnownChanges: Bool { !changedFiles.isEmpty || workspace.hasDiff }
+
+    var gitHubReadiness: GitHubAvailability.State { GitHubAvailability.shared.state }
+
+    /// Nothing in the way: a worktree on this Mac is what Continue cuts the new branch in.
+    var continueBlocker: String? { nil }
+
+    func continueAfterMerge(_ pullRequest: PullRequest) async -> AppModel.ContinuationOutcome {
+        await app.continueAfterMerge(workspace, pullRequest: pullRequest)
+    }
+
+    func requestArchive(presenting: @escaping (ArchiveRequest) -> Void) async {
+        await app.archive(workspace, presentConfirmation: presenting)
+    }
+
+    func confirmArchive(_ request: ArchiveRequest, presenting: @escaping (ArchiveRequest) -> Void) async {
+        await app.confirmArchive(request, presentConfirmation: presenting)
+    }
+
     func reviewContents(for file: ChangedFile) async -> String? {
         await Self.reviewContents(worktree: workspace.path, file: file, scope: diffScope)
     }

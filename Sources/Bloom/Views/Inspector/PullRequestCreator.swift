@@ -31,8 +31,18 @@ struct PullRequestCreator: View {
     var isWorking: Bool
     /// Creating a pull request submits a message, so a busy agent can still accept the request.
     var branchActions: BranchActionAvailability
-    /// Where a sign in would run, if the quiet line below the branch is pressed.
+    /// Where a sign in would run, if the quiet line below the branch is pressed. Empty for a
+    /// workspace with no worktree on this Mac, which is also one that is never in the dark.
     var worktree: String
+    /// Whether GitHub can be asked anything at all. It has no bearing on the button, which goes to
+    /// the agent, and every bearing on whether this strip can be trusted when it says there is no
+    /// pull request: signed out, Bloom simply never found out.
+    ///
+    /// Handed in rather than read off the shared observable, because the answer is the workspace's
+    /// own: a local one asks this Mac's `gh`, and a Cloud workspace's machine asks GitHub itself,
+    /// so it is never signed out on this Mac's behalf. A local caller passes the shared state
+    /// straight through, so signing in through the sheet still takes the line below away at once.
+    var github: GitHubAvailability.State
     /// Whether this branch has anything on it at all. A worktree identical to its base has nothing
     /// to open a pull request for, and Bloom knows that for free, so it says so here rather than
     /// spending a whole agent turn on the agent finding out.
@@ -46,15 +56,6 @@ struct PullRequestCreator: View {
     /// on, which read identically until `ContinuedBranch` gave the first of them a sentence.
     var continued: ContinuedBranch?
     var action: () -> Void
-
-    /// Whether Bloom itself can talk to GitHub. It has no bearing on the button, which goes to the
-    /// agent, and every bearing on whether this strip can be trusted when it says there is no pull
-    /// request: signed out, Bloom simply never found out.
-    ///
-    /// Read straight off the shared observable rather than copied into state, so signing in
-    /// through the sheet takes the line below away at once instead of at the next redraw that
-    /// happens to rebuild this view.
-    private var github: GitHubAvailability.State { GitHubAvailability.shared.state }
 
     var body: some View {
         HStack(spacing: InspectorLayout.gap) {

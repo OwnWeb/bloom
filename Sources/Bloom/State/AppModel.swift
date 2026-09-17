@@ -1,4 +1,5 @@
 import AppKit
+import BloomClient
 import Observation
 import SwiftUI
 import BloomCore
@@ -1156,6 +1157,14 @@ final class AppModel {
         // and its inspector alive until that succeeds, including across concurrent reloads.
         return workspaces.first { $0.id == id }
             ?? (archivingWorkspaceIDs.contains(id) ? workspaceModels[id]?.workspace : nil)
+    }
+
+    /// The Cloud workspace the window is on, as the list has it. The window's title, its toolbar
+    /// and its inspector ask this the way they ask `selectedWorkspace`, so a Cloud workspace is
+    /// named and acted on where a local one is rather than in a bar of its own.
+    var selectedCloudWorkspace: CloudWorkspaceItem? {
+        guard let id = selection.cloudWorkspaceID else { return nil }
+        return cloud.item(id)
     }
 
     /// Whether the inspector is actually on screen, rather than merely switched on.

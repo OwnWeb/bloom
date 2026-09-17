@@ -190,6 +190,20 @@ protocol WorkspaceReviewSurface: AnyObject, Observable {
     func requestMerge(_ pullRequest: PullRequest, method: GitHub.MergeMethod, overrides: PromptOverrides) async -> String?
     func requestFixConflicts(_ pullRequest: PullRequest, overrides: PromptOverrides) async -> String?
     func markReadyForReview(_ pullRequest: PullRequest) async throws
+    /// Whether the branch has anything on it at all, for the strip that offers to open a pull
+    /// request: the changed files first, and whatever the workspace already knew behind them.
+    var hasKnownChanges: Bool { get }
+    /// What this Mac knows about GitHub, which is what decides whether the strip may say there is
+    /// no pull request. A workspace whose machine asks GitHub itself is never in the dark.
+    var gitHubReadiness: GitHubAvailability.State { get }
+    /// Whether this workspace can be carried on to a fresh branch where it stands. Nil when it
+    /// can; the sentence when it cannot, for the control that stays and says so.
+    var continueBlocker: String? { get }
+    func continueAfterMerge(_ pullRequest: PullRequest) async -> AppModel.ContinuationOutcome
+    /// Archiving from the strip. Each kind raises its own confirmation, because what is lost and
+    /// how it is checked are different questions; a local one comes back through `presenting`.
+    func requestArchive(presenting: @escaping (ArchiveRequest) -> Void) async
+    func confirmArchive(_ request: ArchiveRequest, presenting: @escaping (ArchiveRequest) -> Void) async
     /// The project a row's Open in menu belongs to, for the applications this Mac has.
     var openInRepoID: RepoID? { get }
 
@@ -205,6 +219,12 @@ extension WorkspaceReviewSurface {
     func refreshPullRequest() async { await refreshPullRequest(maxAge: .zero) }
     func requestPullRequest() async -> String? { await requestPullRequest(overrides: PromptOverrides()) }
     func requestPush() async -> String? { await requestPush(overrides: PromptOverrides()) }
+    func requestMerge(_ pullRequest: PullRequest, method: GitHub.MergeMethod) async -> String? {
+        await requestMerge(pullRequest, method: method, overrides: PromptOverrides())
+    }
+    func requestFixConflicts(_ pullRequest: PullRequest) async -> String? {
+        await requestFixConflicts(pullRequest, overrides: PromptOverrides())
+    }
 
     /// The reader asked, which is what nearly every call site means.
     func refreshChanges() async { await refreshChanges(.requested) }
