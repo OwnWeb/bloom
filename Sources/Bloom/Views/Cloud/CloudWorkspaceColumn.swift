@@ -17,6 +17,9 @@ import SwiftUI
 struct CloudWorkspaceColumn: View {
     var id: CloudWorkspaceID
     @Environment(AppModel.self) private var app
+    /// The tab whose name field is open, owned here for the reason `CenterColumnView` owns the
+    /// local one: Rename Tab has to open a field on a strip that is not drawn yet.
+    @State private var renamingID: String?
 
     var body: some View {
         let item = app.cloud.item(id)
@@ -37,20 +40,23 @@ struct CloudWorkspaceColumn: View {
     private func workspace(_ session: CloudWorkspaceSession, item: CloudWorkspaceItem?) -> some View {
         VStack(spacing: 0) {
             CloudWorkspaceHeader(session: session, item: item)
+            if TabStripVisibility.isShown(tabCount: session.entries.count, isRenaming: renamingID != nil) {
+                CloudTabStripView(session: session, renamingID: $renamingID)
+            }
             if let banner = CloudConnectionBanner.of(session.phase) {
                 CloudBannerView(banner: banner) { take($0, on: session) }
             }
             // What setup is doing, which is the only account of a machine's first few minutes and
             // the only way back from a setup that failed.
             if let banner = CloudConnectionBanner.ofSetup(
-                session.state.setup, isWatching: session.pane == .setup, canRunSetup: session.allows("files")
+                session.state.setup, isWatching: session.isShowingSetup, canRunSetup: session.allows("files")
             ) {
                 CloudBannerView(banner: banner) { take($0, on: session) }
             }
             if let notice = session.notice {
                 CloudNoticeStrip(notice: notice, onOpenRunbloom: { openRunbloom(for: session) }) { session.notice = nil }
             }
-            if let change = session.composerChange, change.chatID == session.selectedChatID?.rawValue, session.pane == .chat {
+            if let change = session.composerChange, change.chatID == session.selectedChatID?.rawValue {
                 CloudNoticeStrip(text: "\(change.name) changed this chat's settings.") { session.acknowledgeComposerChange() }
             }
             content(session)
@@ -73,9 +79,9 @@ struct CloudWorkspaceColumn: View {
         switch action {
         case .wake, .retry: session.wake()
         case .runbloom: openRunbloom(for: session)
-        case .watchSetup: session.pane = .setup
+        case .watchSetup: session.open(.setup)
         case .runSetupAgain:
-            session.pane = .setup
+            session.open(.setup)
             Task { await session.run(.runSetup) }
         }
     }
@@ -88,15 +94,16 @@ struct CloudWorkspaceColumn: View {
 
     @ViewBuilder
     private func content(_ session: CloudWorkspaceSession) -> some View {
-        switch session.pane {
-        case .chat:
+        switch session.selectedTab {
+        case .chat, .none:
             CloudChatArea(session: session)
-        case .terminal:
-            CloudTerminalPane(session: session)
-        case .changes:
-            CloudChangesPane(session: session)
-        case .setup:
-            CloudSetupLogView(session: session)
+        case .tool(let id):
+            switch session.tabs.tools.first(where: { $0.id == id })?.kind {
+            case .terminal: CloudTerminalPane(session: session)
+            case .changes: CloudChangesPane(session: session)
+            case .setup: CloudSetupLogView(session: session)
+            case .notes, .none: CloudChatArea(session: session)
+            }
         }
     }
 }

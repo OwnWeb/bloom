@@ -12,14 +12,6 @@ import Observation
 /// the window's half: folding updates into observable state, handing each chat's slice to its
 /// transcript model, reading history for the chats somebody looks at, and sending the opening
 /// prompt a create left behind.
-/// Which of a Cloud workspace's panes fills its column.
-enum CloudPane: Hashable {
-    case chat
-    case terminal
-    case changes
-    case setup
-}
-
 @MainActor
 @Observable
 final class CloudWorkspaceSession {
@@ -29,9 +21,11 @@ final class CloudWorkspaceSession {
     private(set) var state = CloudWorkspaceState()
     private(set) var phase: WorkspaceConnection.Phase = .closed
     private(set) var abilities: [String] = []
-    /// The chat the column shows. Nil until the workspace has a chat.
-    var selectedChatID: SessionID?
-    var pane: CloudPane = .chat
+    /// This workspace's strip: its chats, the tool tabs opened beside them, their order and which
+    /// one is in front. The rules are `CloudTabs`, which are the local column's own.
+    var tabs = CloudTabs() {
+        didSet { if tabs != oldValue { saveTabs() } }
+    }
     /// The last command that failed where no dialog belongs, said once in a strip over the column,
     /// in runbloom.app's or the machine's own words and with the way back where there is one.
     var notice: CloudRefusalNotice?
@@ -58,9 +52,84 @@ final class CloudWorkspaceSession {
     init(id: CloudWorkspaceID, cloud: CloudWorkspaces) {
         self.id = id
         self.cloud = cloud
+        loadTabs()
     }
 
     var readerID: String? { cloud.account?.id }
+
+    // MARK: The strip
+
+    /// The machine's chats, in the order it lists them, which is what the strip is built from.
+    var chatIDs: [SessionID] { state.topLevelChats.map { SessionID($0.id) } }
+
+    var entries: [PaneContent] { tabs.entries(chats: chatIDs) }
+
+    var selectedTab: PaneContent? { tabs.selection(chats: chatIDs) }
+
+    /// The chat in front, when the tab in front is one.
+    var selectedChatID: SessionID? {
+        if case .chat(let id) = selectedTab { return id }
+        return nil
+    }
+
+    /// Whether the setup output is the tab in front, which is what stops the setup banner offering
+    /// to show something already on screen.
+    var isShowingSetup: Bool {
+        guard case .tool(let id) = selectedTab else { return false }
+        return tabs.tools.first { $0.id == id }?.kind == .setup
+    }
+
+    func title(of content: PaneContent) -> String {
+        tabs.title(of: content, chats: state.topLevelChats.map { CloudTabs.ChatTitle(id: SessionID($0.id), title: $0.title) })
+    }
+
+    /// Opens a tool tab of this kind, or reveals the one this workspace already has.
+    @discardableResult
+    func open(_ kind: CloudTabs.Tool.Kind, name: String? = nil, terminalName: String? = nil, scriptID: String? = nil) -> PaneContent {
+        tabs.open(
+            CloudTabs.Tool(kind: kind, name: name, terminalName: terminalName, scriptID: scriptID), chats: chatIDs
+        )
+    }
+
+    func select(_ content: PaneContent) {
+        tabs.select(content)
+        if case .tool(let id) = content, tabs.tools.first(where: { $0.id == id })?.kind == .changes {
+            Task { await changes.refresh() }
+        }
+    }
+
+    /// Closes a tab. A chat is closed on the machine as well, because it is the machine's.
+    func close(_ content: PaneContent) {
+        if let chatID = tabs.close(content, chats: chatIDs) {
+            Task { await closeChat(chatID) }
+        }
+    }
+
+    func rename(_ content: PaneContent, to name: String) {
+        switch content {
+        case .chat(let id):
+            Task { await run(.renameChat(chatID: id.rawValue, title: name), reporting: true) }
+        case .tool:
+            tabs.rename(content, to: name)
+        }
+    }
+
+    func reorder(_ drawn: [PaneContent]) {
+        tabs.reorder(drawn, chats: chatIDs)
+    }
+
+    private var tabsKey: String { "cloud.tabs.\(id.rawValue)" }
+
+    private func saveTabs() {
+        guard let data = try? JSONEncoder().encode(tabs) else { return }
+        UserDefaults.standard.set(data, forKey: tabsKey)
+    }
+
+    private func loadTabs() {
+        guard let data = UserDefaults.standard.data(forKey: tabsKey),
+              let stored = try? JSONDecoder().decode(CloudTabs.self, from: data) else { return }
+        tabs = stored
+    }
 
     func allows(_ ability: String) -> Bool { abilities.contains(ability) }
 
@@ -124,9 +193,8 @@ final class CloudWorkspaceSession {
             }
         case .snapshot(let snapshot):
             state.absorb(snapshot)
-            if selectedChatID.map({ state.chats[$0.rawValue] == nil }) ?? true {
-                selectedChatID = state.topLevelChats.last.map { SessionID($0.id) }
-            }
+            tabs.noteChats(chatIDs)
+            tabs.revealSetupIfNeeded(state: state.setup?.state, chats: chatIDs)
             for chat in state.chatOrder { forward(chat) }
         case .event(.stream(let chatID, let text, let snapshot)):
             let next = snapshot ? text : (streaming[chatID] ?? "") + text
@@ -137,13 +205,15 @@ final class CloudWorkspaceSession {
                 streaming[message.chatID] = ""
             }
             let consequence = state.apply(event)
+            if case .setup = event { tabs.revealSetupIfNeeded(state: state.setup?.state, chats: chatIDs) }
             switch consequence {
             case .newChat(let chatID):
-                if selectedChatID == nil { selectedChatID = SessionID(chatID) }
+                tabs.noteChats(chatIDs)
+                if selectedTab == nil { tabs.select(.chat(SessionID(chatID))) }
             case .composerChanged(let chatID, let author):
                 if let author, author.userID != readerID { composerChange = (chatID, author.name) }
             case .reviewMoved:
-                if pane == .changes { Task { await changes.refresh() } }
+                if tabs.tool(kind: .changes) != nil { Task { await changes.refresh() } }
             default:
                 break
             }
@@ -234,12 +304,12 @@ final class CloudWorkspaceSession {
         }
         guard let result = await runForResult(.newChat(controls: controls)), case .chat(let chat) = result else { return }
         state.apply(.chat(chat))
-        selectedChatID = SessionID(chat.id)
+        tabs.noteChats(chatIDs)
+        tabs.select(.chat(SessionID(chat.id)))
     }
 
     func closeChat(_ id: SessionID) async {
-        guard await run(.closeChat(chatID: id.rawValue)) == nil else { return }
-        if selectedChatID == id { selectedChatID = state.topLevelChats.last { $0.id != id.rawValue }.map { SessionID($0.id) } }
+        await run(.closeChat(chatID: id.rawValue))
     }
 
     func acknowledgeComposerChange() { composerChange = nil }
@@ -343,7 +413,8 @@ final class CloudWorkspaceSession {
             switch result {
             case .chat(let chat):
                 state.apply(.chat(chat))
-                selectedChatID = SessionID(chat.id)
+                tabs.noteChats(chatIDs)
+                tabs.select(.chat(SessionID(chat.id)))
                 prompt.chatID = chat.id
                 cloud.hold(prompt)
             case .queued:

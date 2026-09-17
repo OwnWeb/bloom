@@ -41,7 +41,7 @@ struct CloudChatArea: View {
                 message: session.heldPrompt.map { "Your first message goes as soon as it is ready: “\($0.text)”" }
                     ?? "It is cloning the repository and running the project's setup. This takes a few minutes the first time.",
                 actionTitle: "Watch Setup",
-                action: { session.pane = .setup }
+                action: { session.open(.setup) }
             )
         } else if let held = session.heldPrompt {
             EmptyStateView(
