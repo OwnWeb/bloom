@@ -399,7 +399,9 @@ final class BloomTerminalView: LocalProcessTerminalView {
     /// keyboard protocol, which Claude Code does, wants `CSI 118;5u`. SwiftTerm's `keyDown` already
     /// knows which, so the event goes through it the way a real keypress would.
     override func paste(_ sender: Any) {
-        switch TerminalPaste.action(for: NSPasteboard.general.attachmentPlan) {
+        let board = NSPasteboard.general
+        let offers = board.attachmentOffers(for: board.pasteboardItems ?? [])
+        switch TerminalPaste.action(items: offers, hasText: board.hasPlainText) {
         case .text:
             super.paste(sender)
         case .imageKey:
@@ -408,11 +410,13 @@ final class BloomTerminalView: LocalProcessTerminalView {
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window?.windowNumber ?? 0, context: nil,
                 characters: "\u{16}", charactersIgnoringModifiers: "v",
-                isARepeat: false, keyCode: 9
-            ) else { return }
+                isARepeat: false, keyCode: Self.vKeyCode
+            ) else { return super.paste(sender) }
             keyDown(with: event)
         }
     }
+
+    private static let vKeyCode: UInt16 = 9
 
     /// Screen and scrollback both go, then a form feed nudges the shell into redrawing its prompt
     /// so the user is not left staring at an empty rectangle.

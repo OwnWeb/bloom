@@ -1,7 +1,7 @@
 import AppKit
 import BloomCore
 
-/// Putting text on the pasteboard, and reading what is on it, in one place.
+/// Putting text on the pasteboard, in one place.
 ///
 /// Two lines, written out nine times: a branch name, a file path in three different rows, a pull
 /// request link, a code block, a raw event, a workspace name in a menu. Two lines are not much,
@@ -23,21 +23,30 @@ enum Clipboard {
 extension NSPasteboard {
     /// What this board is offering, reduced to the facts `PastedAttachment.plan` decides from.
     ///
-    /// Read here rather than in the composer because the terminal asks the same question: a
+    /// Read here rather than in the composer because the terminal asks after the same board: a
     /// screenshot that the composer attaches is the one a terminal pane has to hand its CLI, and
     /// two readings of the board would be two answers to what a clipboard holds. Nothing here
     /// touches the bytes of a picture; the plan says which item to read and the caller pays for it.
     var attachmentPlan: PastedAttachment.Plan {
-        let offers = (pasteboardItems ?? []).map { item in
-            PastedAttachment.Offer(
-                filePath: item.fileURL()?.path,
-                types: item.types.map(\.rawValue)
-            )
+        attachmentPlan(for: pasteboardItems ?? [])
+    }
+
+    /// The plan for items already read off this board. A caller that goes on to read bytes out of
+    /// `items` uses this form, so the indices in the plan are indices into that same array.
+    func attachmentPlan(for items: [NSPasteboardItem]) -> PastedAttachment.Plan {
+        PastedAttachment.plan(items: attachmentOffers(for: items), hasText: hasPlainText)
+    }
+
+    func attachmentOffers(for items: [NSPasteboardItem]) -> [PastedAttachment.Offer] {
+        items.map { item in
+            PastedAttachment.Offer(filePath: item.fileURL()?.path, types: item.types.map(\.rawValue))
         }
-        // Whether there is text, never the text itself. A clipboard is the user's own business and
-        // nothing here has any reason to read what is on it.
-        let hasText = (string(forType: .string)?.isEmpty == false)
-        return PastedAttachment.plan(items: offers, hasText: hasText)
+    }
+
+    /// Whether there is text, never the text itself. A clipboard is the user's own business and
+    /// nothing here has any reason to read what is on it.
+    var hasPlainText: Bool {
+        string(forType: .string)?.isEmpty == false
     }
 }
 

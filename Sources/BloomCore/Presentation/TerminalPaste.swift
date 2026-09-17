@@ -12,19 +12,23 @@
 /// becomes the Control+V the application in the pane can, and the picture arrives the way that
 /// application already knows how to take it.
 ///
-/// Text still wins whenever there is any, for the reason `PastedAttachment.plan` gives: a board
-/// carrying words and a picture was filled by copying a passage. A file copied in Finder pastes as
-/// it always has too, because a path typed into a shell is already what dragging the file in does.
+/// This is not `PastedAttachment.plan`, whose "files win" rule is about which name a chip gets.
+/// The only question here is whether the CLI's own read of the clipboard will find a picture, and
+/// it will exactly when picture bytes are on the board. A CleanShot capture saved to disk arrives
+/// as a file URL and as PNG, so it is handed over; a file copied in Finder carries no picture bytes
+/// and pastes as it always has. Text still wins whenever there is any, for the reason the composer
+/// gives, and it is read only once a picture has been found, because reading it copies the whole
+/// clipboard and a plain paste is about to copy it again.
 public enum TerminalPaste: Equatable, Sendable {
     /// The terminal's own paste: the string on the board, sent to the shell.
     case text
     /// Control+V, so the application in the pane reads the picture off the clipboard itself.
     case imageKey
 
-    public static func action(for plan: PastedAttachment.Plan) -> TerminalPaste {
-        switch plan {
-        case .images: .imageKey
-        case .text, .files: .text
-        }
+    public static func action(
+        items: [PastedAttachment.Offer], hasText: @autoclosure () -> Bool
+    ) -> TerminalPaste {
+        guard items.contains(where: { $0.imageFormat != nil }) else { return .text }
+        return hasText() ? .text : .imageKey
     }
 }

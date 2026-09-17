@@ -8,26 +8,30 @@ import Testing
 /// Control+V it reads the clipboard on, and only then.
 @Suite("Terminal paste")
 struct TerminalPasteTests {
-    private func image(_ formats: PastedImageFormat...) -> PastedAttachment.Offer {
-        PastedAttachment.Offer(types: formats.map(\.uti))
-    }
-
     @Test("a screenshot copied rather than saved becomes the CLI's own paste-image key")
     func screenshot() {
-        let plan = PastedAttachment.plan(items: [image(.png, .tiff)], hasText: false)
-        #expect(TerminalPaste.action(for: plan) == .imageKey)
+        let board = [PastedAttachment.Offer(types: ["public.png", "public.tiff"])]
+        #expect(TerminalPaste.action(items: board, hasText: false) == .imageKey)
+    }
+
+    @Test("a capture saved to disk still carries the picture the CLI reads")
+    func savedCapture() {
+        let board = [PastedAttachment.Offer(filePath: "/tmp/shot.png", types: ["public.file-url", "public.png"])]
+        #expect(TerminalPaste.action(items: board, hasText: false) == .imageKey)
     }
 
     @Test("text is pasted as text, even beside a picture")
     func textWins() {
-        let plan = PastedAttachment.plan(items: [image(.png)], hasText: true)
-        #expect(TerminalPaste.action(for: plan) == .text)
+        let board = [PastedAttachment.Offer(types: ["public.utf8-plain-text", "public.png"])]
+        #expect(TerminalPaste.action(items: board, hasText: true) == .text)
     }
 
-    @Test("a file copied in Finder pastes as the terminal always has")
+    @Test("a file with no picture bytes pastes as the terminal always has, without reading the text")
     func fileStaysText() {
-        let file = PastedAttachment.Offer(filePath: "/tmp/shot.png", types: ["public.file-url", "public.png"])
-        let plan = PastedAttachment.plan(items: [file], hasText: false)
-        #expect(TerminalPaste.action(for: plan) == .text)
+        let board = [PastedAttachment.Offer(filePath: "/tmp/notes.md", types: ["public.file-url"])]
+        var readText = false
+        let action = TerminalPaste.action(items: board, hasText: { readText = true; return false }())
+        #expect(action == .text)
+        #expect(!readText)
     }
 }

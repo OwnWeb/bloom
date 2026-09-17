@@ -228,7 +228,7 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
     /// and the only caller that pays for it is a paste or a drop that has already landed.
     static func attachables(on pasteboard: NSPasteboard) -> [AttachmentSource] {
         let items = pasteboard.pasteboardItems ?? []
-        switch pasteboard.attachmentPlan {
+        switch pasteboard.attachmentPlan(for: items) {
         case .text:
             return []
         case .files(let paths):
