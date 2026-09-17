@@ -1195,9 +1195,15 @@ After that, in the order they are worth doing: the sidebar's Cloud column (its r
 the column's own mark), the create and archive sheets and the empty state. The menus and the tab
 commands are done: New Chat, New Terminal Tab, Show Changes, Rename Tab and Close Tab act on a
 Cloud workspace on the same keys, and what a machine has no answer to is left out rather than
-faked. Two things are deliberately not on that list: the terminal pane and the share popover. A
-terminal over a network and a public preview link have no local equivalent to converge on, and
-inventing one would be a merge nobody asked for.
+faked. **Two things are deliberately not on that list, and this is why rather than an oversight.** The
+terminal pane and the share popover stay their own views. A local terminal is a process on this Mac
+that SwiftTerm drives directly; a Cloud one is a byte stream over a WebSocket that reconnects and
+redraws, with its own attach frame and its own name per person, so there is no local behaviour for
+it to converge on, only a shared look it already has. A share popover is a public link to a preview
+running on a machine, with people from a team on it: a local workspace has no such object at all,
+so a merged view would be one kind's view with the other kind's half greyed out for ever. If a
+later reader finds these two inconsistent with everything above, this paragraph is the answer:
+they were looked at and left alone on purpose.
 
 The slices, in the order they are being built: the review surface (this one), then the tab strip,
 header and banners, then the composer and transcript behind a chat backend, then the terminal and
