@@ -69,7 +69,13 @@ public struct RemoteUsageMeter: Codable, Sendable, Hashable {
         if events.count > 2_000 { events.removeFirst(events.count - 2_000) }
     }
 
-    /// The next report, which takes the events recorded since the last one. Disk goes in hourly
+    /// The most events runbloom.app stores from one report; it refuses a longer report whole.
+    public static let eventsPerReport = 1_000
+
+    public var hasUnreportedEvents: Bool { !events.isEmpty }
+
+    /// The next report, which takes the oldest events recorded since the last one, up to
+    /// `eventsPerReport`; the caller asks again while `hasUnreportedEvents`. Disk goes in hourly
     /// and whenever `includingDisk` says so, which the caller does at every release.
     public mutating func report(at date: Date, includingDisk: Bool) -> UsageReport {
         sequence += 1
@@ -79,10 +85,10 @@ public struct RemoteUsageMeter: Codable, Sendable, Hashable {
             lastDiskAt = date
         }
         let report = UsageReport(
-            machineBootID: bootID, sequence: sequence, events: events,
+            machineBootID: bootID, sequence: sequence, events: Array(events.prefix(Self.eventsPerReport)),
             counters: .init(cpuSeconds: cpuSeconds, memoryGBSeconds: memoryGBSeconds, awakeSeconds: awakeSeconds), disk: disk
         )
-        events.removeAll()
+        events.removeFirst(min(events.count, Self.eventsPerReport))
         return report
     }
 }

@@ -24,6 +24,7 @@ let linuxTests: [String] = [
     "ProcessLaunchTests.swift",
     "ProcessPipeLifetimeTests.swift",
     "RemoteAwakePolicyTests.swift",
+    "RemoteUsageMeterTests.swift",
     "RemoteBridgeTests.swift",
     "RemoteProjectSettingsTests.swift",
     "RemoteReviewCacheTests.swift",

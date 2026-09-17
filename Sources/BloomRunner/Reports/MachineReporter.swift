@@ -151,8 +151,16 @@ public actor MachineReporter {
 
     public func sendUsage(includingDisk: Bool) async {
         await loadMeterOnce()
-        guard let report = meter?.report(at: now(), includingDisk: includingDisk) else { return }
-        if let data = try? WireJSON.encode(report) { await delivery.submitUsage(data) }
+        // Several reports in a row when more events are waiting than one report may carry, taken
+        // with no suspension between, so a record cannot land between two of them out of order.
+        var reports: [UsageReport] = []
+        repeat {
+            guard let report = meter?.report(at: now(), includingDisk: includingDisk && reports.isEmpty) else { break }
+            reports.append(report)
+        } while meter?.hasUnreportedEvents == true
+        for report in reports {
+            if let data = try? WireJSON.encode(report) { await delivery.submitUsage(data) }
+        }
         await persistMeter()
     }
 

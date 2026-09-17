@@ -30,6 +30,7 @@ Environment:
 """
 
 import argparse
+import hashlib
 import http.client
 import json
 import os
@@ -304,9 +305,34 @@ def main():
                 chat = rpc(url, session(), {"kind": "new_chat", "controls": controls})["chat"]
                 rpc(url, session(), {"kind": "send", "chat_id": chat["id"],
                                      "text": "Reply with exactly the single word pineapple, and nothing else."})
-                answer = wait_for("the agent answers", lambda: reader.find(
-                    lambda e: e["kind"] == "message" and e["message"]["kind"] == "assistantText"
-                    and "pineapple" in json.dumps(e["message"]["payload"]).lower()), 300, interval=3)
+                try:
+                    answer = wait_for("the agent answers", lambda: reader.find(
+                        lambda e: e["kind"] == "message" and e["message"]["kind"] == "assistantText"
+                        and "pineapple" in json.dumps(e["message"]["payload"]).lower()), 300, interval=3)
+                except RuntimeError:
+                    # What the chat and its queue say, and whether the CLI is there, with the credential
+                    # taken out of anything printed in case an error echoed its environment.
+                    secret_values = [value for value in grant.get("environment", {}).values()] + [grant.get("key", "")]
+                    def redacted(text):
+                        for value in secret_values:
+                            if value:
+                                text = text.replace(value, "[redacted]")
+                        return text
+                    transcript = rpc(url, session(), {"kind": "transcript", "chat_id": chat["id"], "after_seq": -1})
+                    rows = [row for row in transcript["transcript"]["messages"] if row["kind"] not in ("system", "user")]
+                    print(redacted(json.dumps({"chat": transcript["transcript"]["chat"]["state"], "queue": transcript["transcript"].get("queue"),
+                                               "rows": rows})[:8000]), file=sys.stderr)
+                    # Whether the credential reached the agent unchanged, as a yes or no: the hash of the
+                    # value in the running process's environment against the hash of the one sent.
+                    for key, value in grant.get("environment", {}).items():
+                        expected = hashlib.sha256(value.encode()).hexdigest()
+                        found = run_on(name, "for p in $(pgrep -u sprite -f 'claude.*stream-json'); do "
+                                             f"tr '\\0' '\\n' < /proc/$p/environ | grep '^{key}=' | cut -d= -f2- | tr -d '\\n' | sha256sum | cut -d' ' -f1; done",
+                                       timeout=60).split()
+                        print(f"{key} in the agent's environment matches what was sent: {expected in found} ({len(found)} processes)", file=sys.stderr)
+                    print(redacted(run_on(name, "command -v claude; ls -la ~/.local/bin 2>/dev/null | head; "
+                                                "sprite-env services logs bloom 2>/dev/null | tail -n 60", timeout=60))[-6000:], file=sys.stderr)
+                    raise
                 step(f"the agent answered in chat {answer[0]['message']['chat_id']}")
                 recorded = requests()
                 assert any(r["path"].endswith("/start") for r in recorded), "no turn start"
