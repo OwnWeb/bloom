@@ -594,6 +594,27 @@ public enum Feedback {
         defaults.set(value, forKey: includesLogsKey)
     }
 
+    // MARK: - Who is sending
+
+    /// The name and address both sheets were last sent with, kept between launches.
+    ///
+    /// They used to live on `FeedbackPresenter` alone, which lasts as long as the app does, so
+    /// somebody who had submitted a prompt was asked who they were again after every restart.
+    /// Written only after a send the server took, never per keystroke, so what comes back is
+    /// something that was actually accepted rather than an address abandoned halfway through.
+    /// An empty field is written too: clearing the address and sending is asking to be forgotten.
+    public static let senderNameKey = "feedback.senderName"
+    public static let senderEmailKey = "feedback.senderEmail"
+
+    public static func rememberedSender(_ defaults: UserDefaults = .standard) -> (name: String, email: String) {
+        (defaults.string(forKey: senderNameKey) ?? "", defaults.string(forKey: senderEmailKey) ?? "")
+    }
+
+    public static func rememberSender(name: String, email: String, in defaults: UserDefaults = .standard) {
+        defaults.set(name, forKey: senderNameKey)
+        defaults.set(email, forKey: senderEmailKey)
+    }
+
     // MARK: - What is sent
 
     /// One picture attached to a submission.
