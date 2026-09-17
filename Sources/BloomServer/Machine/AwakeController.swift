@@ -36,12 +36,22 @@ public actor AwakeController {
     private var openStreams = 0
     private var loop: Task<Void, Never>?
     private var releasing = false
+    /// Whether `released` has been reported since the last hold, because runbloom.app adds its
+    /// margin once per `released` and a second one for the same pause would bill it twice.
+    private var releaseReported = true
+    private var onWake: @Sendable () async -> Void = {}
 
     public init(host: any MachineHost, runtime: WorkspaceRuntime, reporter: MachineReporter, now: @escaping @Sendable () -> Date = Date.init) {
         self.host = host
         self.runtime = runtime
         self.reporter = reporter
         self.now = now
+    }
+
+    /// What else a wake should do. runbloom.app sends changed environment only to awake machines, so
+    /// a machine that slept through a change fetches it again here.
+    public func whenWaking(_ action: @escaping @Sendable () async -> Void) {
+        onWake = action
     }
 
     public func start() {
@@ -72,6 +82,9 @@ public actor AwakeController {
     }
 
     func tick() async {
+        // A tick that was already running when shutdown began must not send a report after the
+        // final one, which would leave runbloom.app's last word from this boot without `released`.
+        guard loop != nil, !releasing else { return }
         let date = now()
         if lastSample.map({ date.timeIntervalSince($0) >= RemoteUsageMeter.sampleInterval }) ?? true {
             lastSample = date
@@ -79,8 +92,10 @@ public actor AwakeController {
                 // The machine slept since the last reading. Whatever was refused for a limit gets
                 // another chance now that something woke it.
                 await runtime.limitsCleared()
+                await onWake()
             }
         }
+        guard loop != nil else { return }
         if holding, lastUsageReport.map({ date.timeIntervalSince($0) >= Self.usageReportInterval }) ?? true {
             lastUsageReport = date
             await reporter.sendUsage(includingDisk: false)
@@ -113,6 +128,7 @@ public actor AwakeController {
                 return
             }
             holding = true
+            releaseReported = false
             lastRenewal = date
             lastUsageReport = date
             await reporter.record(.awake(reason, at: date))
@@ -130,7 +146,10 @@ public actor AwakeController {
         releasing = true
         defer { releasing = false }
         let date = now()
-        await reporter.record(.released(at: date))
+        if !releaseReported {
+            releaseReported = true
+            await reporter.record(.released(at: date))
+        }
         await reporter.setAwake(false, leaseUntil: nil)
         await reporter.postSummaryNow()
         await reporter.sendUsage(includingDisk: true)
@@ -145,7 +164,11 @@ public actor AwakeController {
     /// Shutting down: the same order as a release, whether or not anything was held.
     public func shutdown() async {
         stop()
-        await reporter.record(.released(at: now()))
+        releasing = true
+        if !releaseReported {
+            releaseReported = true
+            await reporter.record(.released(at: now()))
+        }
         await reporter.setAwake(false, leaseUntil: nil)
         await reporter.postSummaryNow()
         await reporter.sendUsage(includingDisk: true)

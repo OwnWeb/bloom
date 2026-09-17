@@ -10,7 +10,7 @@ It checks that the server posts its first summary before anything else, answers 
 token, refuses a command without one and with a forged one, answers a command and opens an event
 stream with a token runbloom.app would have signed, refuses a control call made with a session
 token, and on SIGTERM posts a final summary saying it is not awake and a usage report ending in
-`released`. Setup is expected to fail here (there is no GitHub token to clone with) and is not
+`released` exactly once per hold. Setup is expected to fail here (there is no GitHub token to clone with) and is not
 what this checks.
 """
 
@@ -127,7 +127,11 @@ def main():
             summaries = fake.recorded("/summary")
             assert summaries[-1]["awake"] is False, summaries[-1]
             usage = fake.recorded("/usage")
-            assert usage and usage[-1]["events"][-1]["kind"] == "released", usage
+            events = [event for report in usage for event in report["events"]]
+            # Every hold ends in exactly one `released`, the last word about being awake, because
+            # runbloom.app adds its margin once per `released`.
+            holds = [event["kind"] for event in events if event["kind"] in ("awake", "released")]
+            assert holds and holds[-1] == "released" and holds.count("awake") == holds.count("released"), usage
         except BaseException:
             log.flush()
             print((scratch / "server.log").read_text()[-4000:], file=sys.stderr)

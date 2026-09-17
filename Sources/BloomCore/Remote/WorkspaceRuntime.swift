@@ -295,8 +295,8 @@ public actor WorkspaceRuntime {
             await self?.queueChanged(id)
         }, started: { [weak self] id, delivery in
             await self?.turnStarted(id, delivery: delivery)
-        }, settled: { [weak self] id, ending in
-            await self?.turnSettled(id, ending: ending)
+        }, settled: { [weak self] id, ending, turnID in
+            await self?.turnSettled(id, ending: ending, turnID: turnID)
         })
         promptQueue = queue
         return queue
@@ -337,9 +337,9 @@ public actor WorkspaceRuntime {
     }
 
     /// Called when a turn comes to rest, after the queue has ended runbloom.app's turn.
-    func turnSettled(_ id: SessionID, ending: RemoteTurnEnd) async {
+    func turnSettled(_ id: SessionID, ending: RemoteTurnEnd, turnID: String?) async {
         await reportToParent(id, ending: ending)
-        await report(.turnFinished(chat: id))
+        await report(.turnFinished(chat: id, turnID: turnID))
     }
 
     func turnStarted(_ id: SessionID, delivery: Delivery) async {

@@ -877,6 +877,11 @@ and its builder confirmed them.
   release must publish the archive and a `.sha256` beside it in `sha256sum` format, or machine
   creation fails. Control calls time out after 15 seconds on runbloom.app's side, so each answers
   before doing slow work.
+- **runbloom.app's refusals, as the machine treats them.** 401 `invalid_workspace_secret` is
+  terminal: the machine stops reporting. 429 and 5xx (including 503 `unavailable` from
+  git-credentials while GitHub is down) are retried with backoff; any other 4xx drops that report.
+  A turn start refused for anything but a limit pauses the chat's queue with runbloom.app's
+  sentence rather than marking the prompt blocked, since that turn can never run as it is.
 - **For the Mac client:** a session token answers `{data: {token, expires_at, machine_url, awake,
   abilities}}`, a preview token `{data: {token, expires_at, enter_url}}`; 409 `machine_not_ready`
   also covers a failed or not yet created machine, and 409 `workspace_archived` an archived one.

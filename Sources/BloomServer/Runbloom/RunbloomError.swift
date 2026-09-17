@@ -27,6 +27,13 @@ public enum RunbloomError: Error, LocalizedError, Sendable, Hashable, CustomStri
 
     /// Whether sending the same request again later could succeed. A 4xx is runbloom.app's
     /// considered answer about this request, except 408 and 429, which are about timing.
+    /// runbloom.app no longer recognises this machine: a wrong secret, or a workspace that is gone
+    /// or archived. Nothing sent afterwards can succeed.
+    public var isTerminal: Bool {
+        if case .refused(401, "invalid_workspace_secret", _, _, _) = self { return true }
+        return false
+    }
+
     public var isWorthRetrying: Bool {
         switch self {
         case .unreachable: true
