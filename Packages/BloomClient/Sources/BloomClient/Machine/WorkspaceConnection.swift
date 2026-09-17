@@ -416,7 +416,7 @@ public actor WorkspaceConnection {
     }
 
     private func outcome(for refusal: RunbloomRefusal) -> Outcome {
-        if refusal.isMachineNotReady {
+        if refusal.isMachineNotReady || refusal.isSharingInProgress {
             let wait = max(2, refusal.retryAfter ?? 5)
             set(.notReady(message: refusal.message, retryAfter: wait))
             return .retry(after: Double(wait))

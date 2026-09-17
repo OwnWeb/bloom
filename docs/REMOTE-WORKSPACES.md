@@ -913,6 +913,9 @@ the coordinator.
   streams, which the confirmation says. Owner only; 403 `no_team_agent_key` when a team key is
   missing. Collaborators are chosen from `GET /api/v1/teams/{team}/members`, `{"data": [{"id",
   "name", "email", "avatar_url", "role"}]}`.
+- **`sharing_in_progress`** (409, `retry_after`) on a session or preview token, for anybody but the
+  owner while runbloom.app tells the machine the workspace became shared, is waited out like
+  `machine_not_ready`: a short starting state, then asked again.
 - **Refusals while sharing** are shown as runbloom.app words them: 422 `already_owner`, 403
   `owner_cannot_be_removed`, 404 for removing somebody who is not a member, 409 `workspace_archived`
   for any change to an archived workspace. A collaborator who left the team is still listed, so the

@@ -353,6 +353,10 @@ final class CloudWorkspaceSession {
             }
             NSWorkspace.shared.open(preview.enterURL)
         } catch let refusal as RunbloomRefusal {
+            if refusal.isSharingInProgress || refusal.isMachineNotReady {
+                notice = "\(refusal.message) Try the preview again in a few seconds."
+                return
+            }
             notice = LimitNotice(refusal: refusal).map { "\($0.message) \($0.detail)" } ?? refusal.message
         } catch {
             notice = "The preview could not be opened. \(error.localizedDescription)"

@@ -75,6 +75,10 @@ public struct RunbloomRefusal: Error, Sendable, Hashable, Codable {
     /// again after `retry_after` is the whole of what a client does.
     public var isMachineNotReady: Bool { code == "machine_not_ready" }
 
+    /// runbloom.app is telling the machine the workspace became shared, which takes a moment and is
+    /// refused to everybody but the owner meanwhile. Waited out like a machine that is not ready.
+    public var isSharingInProgress: Bool { code == "sharing_in_progress" }
+
     public var isArchived: Bool { code == "workspace_archived" }
 
     /// A team limit. See `LimitNotice` for how it reads.

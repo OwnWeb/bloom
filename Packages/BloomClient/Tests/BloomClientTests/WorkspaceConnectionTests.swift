@@ -115,6 +115,21 @@ import Testing
         await connection.close()
     }
 
+    @Test func sharingInProgressIsWaitedOutLikeAMachineThatIsNotReady() async throws {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(#"{"code": "sharing_in_progress", "message": "Sharing is being set up.", "retry_after": 5}"#, status: 409))
+        let connection = connection(transport)
+        await connection.open()
+        for await update in connection.updates {
+            if case .phase(.notReady(let message, let retry)) = update {
+                #expect(message == "Sharing is being set up.")
+                #expect(retry == 5)
+                break
+            }
+        }
+        await connection.close()
+    }
+
     @Test func anArchivedWorkspaceStops() async throws {
         let transport = FakeTransport()
         transport.on("POST", "/session-token", .json(#"{"code": "workspace_archived", "message": "Archived."}"#, status: 409))
