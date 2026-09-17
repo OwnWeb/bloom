@@ -73,6 +73,18 @@ def sprite(name, *arguments, stdin=None, check=True, timeout=300):
     return result.stdout
 
 
+def push(name, source, destination, timeout=300):
+    # A machine a few seconds old has answered "directory does not exist" for its own home
+    # directory, and a moment later accepted the same upload.
+    for attempt in range(5):
+        try:
+            return push(name, source, destination, timeout=timeout)
+        except RuntimeError:
+            if attempt == 4:
+                raise
+            time.sleep(5)
+
+
 def run_on(name, script, stdin=None, timeout=300):
     return sprite(name, "exec", "--", "bash", "-lc", script, stdin=stdin, timeout=timeout)
 
@@ -181,6 +193,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--package", type=pathlib.Path, required=True)
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--update", action="store_true",
+                        help="also move the machine to another release through control/update, and back from a broken one")
     parser.add_argument("--keep", action="store_true", help="do not delete the machine, for looking at it afterwards")
     arguments = parser.parse_args()
     package = arguments.package.resolve()
@@ -215,15 +229,15 @@ def main():
             for index in range(0, len(data), size):
                 piece = pieces / f"part-{index // size:04d}"
                 piece.write_bytes(data[index:index + size])
-                sprite(name, "file", "push", str(piece), f"/home/sprite/bloom-piece-{piece.name}", timeout=300)
+                push(name, str(piece), f"/home/sprite/bloom-piece-{piece.name}", timeout=300)
             run_on(name, "cat /home/sprite/bloom-piece-part-* > /home/sprite/bloom-runner.tar.gz && rm -f /home/sprite/bloom-piece-part-*")
-            sprite(name, "file", "push", str(HERE / "bloom_fake_runbloom.py"), "/home/sprite/bloom_fake_runbloom.py")
+            push(name, str(HERE / "bloom_fake_runbloom.py"), "/home/sprite/bloom_fake_runbloom.py")
             run_on(name, f"sudo mkdir -p /opt/bloom/{version} && sudo tar -xzf /home/sprite/bloom-runner.tar.gz -C /opt/bloom/{version} "
                          f"&& sudo ln -sfn /opt/bloom/{version} /opt/bloom/current && /opt/bloom/current/bin/bloom-runner version")
 
             issuer = Issuer(scratch / "issuer", f"http://127.0.0.1:{FAKE_PORT}", workspace)
             (scratch / "jwks.json").write_bytes(issuer.jwks)
-            sprite(name, "file", "push", str(scratch / "jwks.json"), "/home/sprite/jwks.json")
+            push(name, str(scratch / "jwks.json"), "/home/sprite/jwks.json")
             configuration = {
                 "workspace_id": workspace, "issuer": issuer.issuer, "jwks_url": f"{issuer.issuer}/.well-known/jwks.json",
                 "base_url": issuer.issuer, "workspace_secret": secret, "allowed_origins": ["https://runbloom.app"],
@@ -297,6 +311,39 @@ def main():
             status, _, body = https(url, path="/", headers={"Cookie": cookie})
             step(f"preview with the cookie reaches Caddy's app route: {status} {body[:60]!r}")
             assert status == 502, status
+
+            if arguments.update:
+                # The release is laid out under /opt/bloom beforehand, which the bootstrap script takes
+                # as already downloaded: what this checks is the restart, the new process saying it
+                # came up, and the rollback, which no other test reaches.
+                digest = hashlib.sha256(data).hexdigest()
+                updated = f"{version}-update"
+                run_on(name, f"sudo mkdir -p /opt/bloom/{updated} && sudo tar -xzf /home/sprite/bloom-runner.tar.gz -C /opt/bloom/{updated}")
+                step(f"asking for an update to {updated}")
+                status, _, body = https(url, "POST", "/_bloom/v1/control/update", token=issuer.token("control", "control", ["admin"]),
+                                        body={"version": updated, "sha256": digest})
+                assert status == 202, (status, body)
+                wait_for(f"health answers with {updated}", lambda: json.loads(https(url, path="/_bloom/health")[2])["version"] == updated,
+                         180, interval=3)
+                step(f"updated: health answers with {updated}, current is {run_on(name, 'readlink /opt/bloom/current').strip()}")
+
+                broken = f"{version}-broken"
+                run_on(name, f"sudo mkdir -p /opt/bloom/{broken}/bin && printf '#!/bin/sh\\nexit 1\\n' | sudo tee /opt/bloom/{broken}/bin/bloom-runner >/dev/null "
+                             f"&& sudo chmod +x /opt/bloom/{broken}/bin/bloom-runner")
+                step(f"asking for an update to {broken}, which never starts")
+                status, _, body = https(url, "POST", "/_bloom/v1/control/update", token=issuer.token("control", "control", ["admin"]),
+                                        body={"version": broken, "sha256": digest})
+                assert status == 202, (status, body)
+                time.sleep(10)
+                try:
+                    wait_for(f"the machine is back on {updated}", lambda: json.loads(https(url, path="/_bloom/health")[2])["version"] == updated
+                             and run_on(name, "readlink /opt/bloom/current").strip().endswith(updated), 240, interval=5)
+                except RuntimeError:
+                    print(run_on(name, "readlink /opt/bloom/current; cat /var/tmp/bloom-update.log; ls -la /var/tmp; "
+                                       "sprite-env services list; ps -eo pid,etimes,args | grep -i bloom | head", timeout=60)[-6000:],
+                          file=sys.stderr)
+                    raise
+                step(f"rolled back to {updated}; the script said: {run_on(name, 'tail -n 3 /var/tmp/bloom-update.log').strip()[-300:]}")
 
             if grant:
                 step("live turn")
