@@ -187,7 +187,7 @@ struct CenterPaneView: View {
             split: { axis, kind in split(axis, opening: kind) },
             close: {
                 guard let tab else { return }
-                tabs.close(pane: pane, in: tab, of: model.workspace.id)
+                tabs.close(pane: pane, in: tab, of: model.surfaceID)
             }
         )
     }

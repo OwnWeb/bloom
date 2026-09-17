@@ -48,6 +48,34 @@ extension CloudWorkspaceSession: WorkspaceSurface {
         state.chats.values.contains { $0.isRunning }
     }
 
+    // MARK: Its conversations
+
+    /// The machine's chats, in the order it keeps them, as the app's own `Session`. Crew members an
+    /// agent started are left out the same way a local workspace leaves them out of its strip:
+    /// `topLevelChats` is the machine's own answer to that question.
+    var chats: [Session] {
+        state.topLevelChats.map(Session.init(cloudChat:))
+    }
+
+    /// The workspace snapshot carries every chat, so there is no moment where the list is empty
+    /// because nobody has asked: either this workspace has been read or it has not.
+    var hasReadChats: Bool { state.workspace != nil }
+
+    var activeChat: Session? {
+        guard let id = selectedChatID else { return nil }
+        return chats.first { $0.id == id }
+    }
+
+    /// Selecting a tab adopts the chat in it, which for a Cloud workspace is the tab strip's own
+    /// selection: there is no second place that remembers which conversation is in front.
+    var activeChatID: SessionID? {
+        get { selectedChatID }
+        set {
+            guard let newValue else { return }
+            select(.chat(newValue))
+        }
+    }
+
     // MARK: A conversation in it
 
     /// The machine's setup, which is what a new Cloud workspace spends its first minutes doing.

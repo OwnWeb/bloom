@@ -44,6 +44,14 @@ extension WorkspaceModel: WorkspaceSurface {
         await FileRevert.discard(hunk: hunk, of: file, in: workspace, scope: diffScope)
     }
 
+    var chats: [Session] { sessions }
+    var hasReadChats: Bool { hasReadSessions }
+    var activeChat: Session? { activeSession }
+    var activeChatID: SessionID? {
+        get { activeSessionID }
+        set { activeSessionID = newValue }
+    }
+
     var composerWorkspace: WorkspaceModel? { self }
 
     func transcriptMemory(pane: String) -> TranscriptPaneMemory {

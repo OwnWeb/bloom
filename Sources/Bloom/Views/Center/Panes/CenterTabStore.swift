@@ -21,7 +21,7 @@ import BloomCore
 final class CenterTabStore {
     static let shared = CenterTabStore()
 
-    private(set) var tabsByWorkspace: [WorkspaceID: [CenterTab]] = [:]
+    private(set) var tabsByWorkspace: [WorkspaceSurfaceID: [CenterTab]] = [:]
 
     /// Workspaces whose stored list is there and would not decode.
     ///
@@ -31,7 +31,7 @@ final class CenterTabStore {
     /// arrangement of exactly the workspace whose record is already damaged. Ignored by
     /// observation because nothing draws from it: see `TerminalPaneCensus`, which keeps the same
     /// distinction for the orphan sweep, where getting it wrong costs a shell instead.
-    @ObservationIgnored private var unreadable: Set<WorkspaceID> = []
+    @ObservationIgnored private var unreadable: Set<WorkspaceSurfaceID> = []
 
     /// Live web views, keyed by tab. Ignored by observation on purpose: no view reads this map, it
     /// is only ever asked for one session at a time, and having it invalidate the column every
@@ -42,14 +42,14 @@ final class CenterTabStore {
 
     // MARK: - Reading
 
-    func tabs(for workspaceID: WorkspaceID) -> [CenterTab] {
+    func tabs(for workspaceID: WorkspaceSurfaceID) -> [CenterTab] {
         tabsByWorkspace[workspaceID] ?? []
     }
 
     /// Whether `tabs(for:)` is an answer rather than a placeholder: the list has been read back
     /// this launch, and it read cleanly. False is doubt, and the only caller that has to care is
     /// the one that deletes what it cannot account for.
-    func hasReadTabs(for workspaceID: WorkspaceID) -> Bool {
+    func hasReadTabs(for workspaceID: WorkspaceSurfaceID) -> Bool {
         tabsByWorkspace[workspaceID] != nil && !unreadable.contains(workspaceID)
     }
 
@@ -57,13 +57,13 @@ final class CenterTabStore {
     /// note on `CenterTab`.
     /// The workspace's shared review tab, which is the one a clicked filename repoints. A tab
     /// pinned to its own file is deliberately not it: see `CenterTab.isPinnedToPath`.
-    func review(for workspaceID: WorkspaceID) -> CenterTab? {
+    func review(for workspaceID: WorkspaceSurfaceID) -> CenterTab? {
         tabs(for: workspaceID).first { $0.kind == .review && !$0.isPinnedToPath }
     }
 
     /// The workspace's one notes tab, if it has been opened. As with the review there is never a
     /// second: one workspace, one note.
-    func notes(for workspaceID: WorkspaceID) -> CenterTab? {
+    func notes(for workspaceID: WorkspaceSurfaceID) -> CenterTab? {
         tabs(for: workspaceID).first { $0.kind == .notes }
     }
 
@@ -115,7 +115,7 @@ final class CenterTabStore {
     /// Reads the workspace's tabs back from user defaults, once per launch. Called from a task
     /// rather than from a getter, because filling the map is a mutation and a view body may not
     /// cause one.
-    func load(workspaceID: WorkspaceID) {
+    func load(workspaceID: WorkspaceSurfaceID) {
         guard tabsByWorkspace[workspaceID] == nil else { return }
         guard let restored = Self.restore(workspaceID: workspaceID) else {
             // The strip has to draw something, and there is nothing to draw, so the map still gets
@@ -142,7 +142,7 @@ final class CenterTabStore {
     /// find it. See `CenterTab.runScriptID`.
     @discardableResult
     func add(
-        kind: CenterTab.Kind, workspaceID: WorkspaceID, url: String = "", title: String? = nil,
+        kind: CenterTab.Kind, workspaceID: WorkspaceSurfaceID, url: String = "", title: String? = nil,
         directory: String = "", agentSessionID: SessionID? = nil, runScriptID: String? = nil
     ) -> CenterTab {
         var tabs = tabs(for: workspaceID)
@@ -161,7 +161,7 @@ final class CenterTabStore {
         return tab
     }
 
-    func terminal(for sessionID: SessionID, in workspaceID: WorkspaceID) -> CenterTab? {
+    func terminal(for sessionID: SessionID, in workspaceID: WorkspaceSurfaceID) -> CenterTab? {
         tabs(for: workspaceID).first { $0.kind == .terminal && $0.agentSessionID == sessionID }
     }
 
@@ -170,7 +170,7 @@ final class CenterTabStore {
     /// The launch sweep asks this about workspaces nobody has opened, and it has to be told about
     /// their panes anyway: a tmux session whose tab is only on disk is still one Bloom can reach,
     /// and a sweep that could not see it would kill the shell the user left running in it.
-    func terminalTabIDs(for workspaceID: WorkspaceID) -> [String] {
+    func terminalTabIDs(for workspaceID: WorkspaceSurfaceID) -> [String] {
         let tabs = tabsByWorkspace[workspaceID] ?? Self.restore(workspaceID: workspaceID) ?? []
         return tabs.filter { $0.kind == .terminal }.map(\.id)
     }
@@ -218,12 +218,14 @@ final class CenterTabStore {
         // failing to answer rather than answering with none, and it keeps every tab.
         let live = await TerminalSessionStore.shared.liveSessions(store: store).map(Set.init)
 
-        for (workspaceID, rows) in rowsByWorkspace {
+        for (localID, rows) in rowsByWorkspace {
+            // Every row of the old bottom panel belonged to a worktree on this Mac.
+            let workspaceID = WorkspaceSurfaceID.local(localID)
             var tabs = tabsByWorkspace[workspaceID] ?? Self.restore(workspaceID: workspaceID) ?? []
             let known = Set(tabs.map(\.id))
 
             for row in rows where !known.contains(row.id.rawValue) {
-                guard Self.isWorthKeeping(row, in: workspaceID, live: live) else { continue }
+                guard Self.isWorthKeeping(row, in: localID, live: live) else { continue }
                 tabs.append(CenterTab(
                     id: row.id.rawValue, workspaceID: workspaceID, kind: .terminal, title: row.title
                 ))
@@ -273,7 +275,7 @@ final class CenterTabStore {
     /// page absorbed into a pane of another tab keeps its place in this list while having dropped
     /// out of the strip, so an offset read off the strip lands somewhere else here. Taking one
     /// anyway is what made a drag do nothing at all, and it is written down on `TabReorder`.
-    func reorder(_ ids: [String], in workspaceID: WorkspaceID) {
+    func reorder(_ ids: [String], in workspaceID: WorkspaceSurfaceID) {
         let open = tabs(for: workspaceID)
         let byID = Dictionary(open.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let ordered = ids.compactMap { byID[$0] }
@@ -301,7 +303,7 @@ final class CenterTabStore {
     /// that itself: a review already open in one half of a split column must not be dragged into
     /// the half the reader is typing in just because they clicked a filename.
     @discardableResult
-    func showReview(path: String, workspaceID: WorkspaceID) -> CenterTab {
+    func showReview(path: String, workspaceID: WorkspaceSurfaceID) -> CenterTab {
         if let existing = review(for: workspaceID) {
             if existing.path != path || existing.showsAllFiles {
                 update(existing) {
@@ -335,7 +337,7 @@ final class CenterTabStore {
     /// `showReview`, which is the shared tab and would have thrown the reader out of whatever it
     /// was already on.
     @discardableResult
-    func openPinnedReview(path: String, workspaceID: WorkspaceID) -> CenterTab {
+    func openPinnedReview(path: String, workspaceID: WorkspaceSurfaceID) -> CenterTab {
         if let existing = tabs(for: workspaceID).first(
             where: { $0.kind == .review && $0.isPinnedToPath && $0.path == path }
         ) {
@@ -360,7 +362,7 @@ final class CenterTabStore {
     /// itself is never in user defaults. What is remembered here is only that the pane was open,
     /// which is the same thing this store remembers about every other kind of tab.
     @discardableResult
-    func showNotes(workspaceID: WorkspaceID) -> CenterTab {
+    func showNotes(workspaceID: WorkspaceSurfaceID) -> CenterTab {
         if let existing = notes(for: workspaceID) { return existing }
         var tabs = tabs(for: workspaceID)
         let tab = CenterTab(workspaceID: workspaceID, kind: .notes, title: CenterTab.notesTitle)
@@ -472,7 +474,7 @@ final class CenterTabStore {
         apply(tabs, to: tab.workspaceID)
     }
 
-    private func apply(_ tabs: [CenterTab], to workspaceID: WorkspaceID) {
+    private func apply(_ tabs: [CenterTab], to workspaceID: WorkspaceSurfaceID) {
         // Whatever could not be read is about to be overwritten by this, so the doubt goes with
         // it: from here the list in hand is the list on disk.
         unreadable.remove(workspaceID)
@@ -484,9 +486,9 @@ final class CenterTabStore {
     /// `TabDefaults` rather than a literal here, because `TerminalPaneCensus` reads the same key
     /// to decide which tmux sessions the orphan sweep may kill. The two used to state the prefix
     /// separately, with nothing pinning them together.
-    private static func key(_ workspaceID: WorkspaceID) -> String { TabDefaults.tabListKey(workspaceID) }
+    private static func key(_ workspaceID: WorkspaceSurfaceID) -> String { TabDefaults.tabListKey(workspaceID) }
 
-    private static func persist(_ tabs: [CenterTab], workspaceID: WorkspaceID) {
+    private static func persist(_ tabs: [CenterTab], workspaceID: WorkspaceSurfaceID) {
         let defaults = UserDefaults.standard
         guard !tabs.isEmpty else {
             defaults.removeObject(forKey: key(workspaceID))
@@ -498,7 +500,7 @@ final class CenterTabStore {
 
     /// Nil when a list is stored and will not decode, which is doubt. No key at all is a fact and
     /// answers with none: most workspaces have never opened a terminal or a browser.
-    private static func restore(workspaceID: WorkspaceID) -> [CenterTab]? {
+    private static func restore(workspaceID: WorkspaceSurfaceID) -> [CenterTab]? {
         guard let data = UserDefaults.standard.data(forKey: key(workspaceID)) else { return [] }
         return try? JSONDecoder().decode([CenterTab].self, from: data)
     }
@@ -518,4 +520,49 @@ final class CenterTabStore {
         }
         return PaneNaming.nextTitle(base: base, taken: tabs.filter { $0.kind == kind }.map(\.title))
     }
+
+    // MARK: - A workspace on this Mac
+    //
+    // The store is keyed by `WorkspaceSurfaceID` so a Cloud workspace's tabs are ordinary rows in
+    // it, and these are the same calls for a caller holding a local workspace's id. They exist so
+    // that keying the store by a surface changed no call site that was already right: a local
+    // workspace's key is its own id, so nothing here is a translation, only a spelling.
+
+    func tabs(for workspaceID: WorkspaceID) -> [CenterTab] { tabs(for: .local(workspaceID)) }
+
+    func hasReadTabs(for workspaceID: WorkspaceID) -> Bool { hasReadTabs(for: .local(workspaceID)) }
+
+    func review(for workspaceID: WorkspaceID) -> CenterTab? { review(for: .local(workspaceID)) }
+
+    func notes(for workspaceID: WorkspaceID) -> CenterTab? { notes(for: .local(workspaceID)) }
+
+    func load(workspaceID: WorkspaceID) { load(workspaceID: .local(workspaceID)) }
+
+    func add(
+        kind: CenterTab.Kind, workspaceID: WorkspaceID, url: String = "", title: String? = nil,
+        directory: String = "", agentSessionID: SessionID? = nil, runScriptID: String? = nil
+    ) -> CenterTab {
+        add(
+            kind: kind, workspaceID: .local(workspaceID), url: url, title: title,
+            directory: directory, agentSessionID: agentSessionID, runScriptID: runScriptID
+        )
+    }
+
+    func terminal(for sessionID: SessionID, in workspaceID: WorkspaceID) -> CenterTab? {
+        terminal(for: sessionID, in: .local(workspaceID))
+    }
+
+    func terminalTabIDs(for workspaceID: WorkspaceID) -> [String] { terminalTabIDs(for: .local(workspaceID)) }
+
+    func reorder(_ ids: [String], in workspaceID: WorkspaceID) { reorder(ids, in: .local(workspaceID)) }
+
+    func showReview(path: String, workspaceID: WorkspaceID) -> CenterTab {
+        showReview(path: path, workspaceID: .local(workspaceID))
+    }
+
+    func openPinnedReview(path: String, workspaceID: WorkspaceID) -> CenterTab {
+        openPinnedReview(path: path, workspaceID: .local(workspaceID))
+    }
+
+    func showNotes(workspaceID: WorkspaceID) -> CenterTab { showNotes(workspaceID: .local(workspaceID)) }
 }

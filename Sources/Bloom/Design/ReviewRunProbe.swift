@@ -160,9 +160,9 @@ enum ReviewRunProbe {
             await model.refreshChanges()
             check(model.changedFiles.count == 6, "review fixture did not load its six changed files")
             check(model.reviewFiles.last?.path == "README.md", "review order did not put root files after folders")
-            let fresh = CenterTab(workspaceID: model.workspace.id, kind: .review, title: CenterTab.reviewTitle)
+            let fresh = CenterTab(workspaceID: model.surfaceID, kind: .review, title: CenterTab.reviewTitle)
             check(fresh.showsAllFiles, "a new review did not default to all files")
-            let pinned = CenterTab(workspaceID: model.workspace.id, kind: .review, title: "Pinned", isPinnedToPath: true)
+            let pinned = CenterTab(workspaceID: model.surfaceID, kind: .review, title: "Pinned", isPinnedToPath: true)
             check(!pinned.showsAllFiles, "a pinned review defaulted to all files")
             do {
                 var selected = fresh

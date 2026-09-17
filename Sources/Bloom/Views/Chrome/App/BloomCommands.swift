@@ -1011,7 +1011,7 @@ struct BloomCommands: Commands {
         let tabs = WorkspaceTabsStore.shared
         guard let tab = tabs.selectedTab(in: workspace) else { return }
         tabs.close(
-            pane: tabs.focusedPane(of: tab), in: tab, of: workspace.workspace.id
+            pane: tabs.focusedPane(of: tab), in: tab, of: workspace.surfaceID
         )
     }
 

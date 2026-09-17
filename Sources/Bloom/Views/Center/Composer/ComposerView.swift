@@ -618,7 +618,7 @@ struct ComposerView: View {
                     if let owner, let pane {
                         tabs.replace(pane: pane, of: owner, with: .chat(next.id), in: model)
                     }
-                    tabs.forget(.chat(previous.session.id), workspaceID: model.workspace.id)
+                    tabs.forget(.chat(previous.session.id), workspaceID: model.surfaceID)
                     tabs.reorder(order.map { entry in
                         entry == .chat(previous.session.id) ? .chat(next.id) : entry
                     }, in: model)

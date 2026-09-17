@@ -288,7 +288,7 @@ enum ComposerProbe {
         for _ in 0..<16 {
             let layout = tabs.layout(of: chat)
             guard layout.paneCount > 1, let pane = layout.panes.last else { break }
-            guard tabs.close(pane: pane, in: chat, of: workspace.workspace.id) else { break }
+            guard tabs.close(pane: pane, in: chat, of: workspace.surfaceID) else { break }
         }
         try? await Task.sleep(for: .seconds(2))
 

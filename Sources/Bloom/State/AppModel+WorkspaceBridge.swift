@@ -497,7 +497,7 @@ extension AppModel {
             )
         }
 
-        guard tabs.close(pane: pane, in: tab, of: model.workspace.id) else {
+        guard tabs.close(pane: pane, in: tab, of: model.surfaceID) else {
             return .refused("Bloom could not close that pane.")
         }
         return .opened(kind.map { "Closed the \($0.title.lowercased())." } ?? "Closed that pane.")

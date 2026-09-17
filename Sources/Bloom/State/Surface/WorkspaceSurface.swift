@@ -53,6 +53,19 @@ protocol WorkspaceSurface: AnyObject, Observable {
     /// Whether an agent is working in it, which the list uses to decide how hard to poll.
     var isRunning: Bool { get }
 
+    // MARK: Its conversations
+
+    /// The chats the strip may draw a tab for, in the order the workspace keeps them. A local
+    /// workspace's are rows in this Mac's database; a Cloud workspace's are its machine's.
+    var chats: [Session] { get }
+    /// Whether that list is an answer rather than a list nobody has read yet. An empty list is
+    /// also what a workspace with no chats looks like, and the reconciliation that deletes panes
+    /// nothing answers for has to tell the two apart.
+    var hasReadChats: Bool { get }
+    /// Which chat the rest of the window is talking about, which selecting a tab adopts.
+    var activeChat: Session? { get }
+    var activeChatID: SessionID? { get set }
+
     // MARK: A conversation in it
 
     /// Whether the workspace's own setup is running, which the transcript draws a row for.
@@ -264,27 +277,4 @@ extension WorkspaceSurface {
 
     /// Read it if it has not been read, which is what opening the tab means.
     func refreshFileTree() async { await refreshFileTree(force: false) }
-}
-
-/// Which workspace a surface is, for the stores that are keyed by one.
-///
-/// Two cases rather than one string, for `SidebarSelection`'s reason: a Cloud id and a local id are
-/// drawn from different places and a lookup that took either would find nothing and say nothing.
-enum WorkspaceSurfaceID: Hashable, Sendable {
-    case local(WorkspaceID)
-    case cloud(CloudWorkspaceID)
-
-    /// The key a per-workspace store files this under. Namespaced, so a Cloud workspace whose id
-    /// happened to match a local one cannot read its tabs, its viewed marks or its drafts.
-    var storageKey: String {
-        switch self {
-        case .local(let id): id.rawValue
-        case .cloud(let id): "cloud:" + id.rawValue
-        }
-    }
-
-    var local: WorkspaceID? {
-        if case .local(let id) = self { return id }
-        return nil
-    }
 }
