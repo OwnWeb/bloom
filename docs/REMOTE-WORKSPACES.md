@@ -1180,6 +1180,22 @@ refuses it as an invalid request, and that one refusal becomes the sentence sayi
 has to be updated; every other refusal is the machine's own words, because "this file did not
 change in that commit" is something a reader can act on.
 
+**What is still a Cloud view of its own, and what each one is waiting for.** The tab strip is the
+next and the largest: `SessionTabsView` is written against `WorkspaceTabsStore` and `CenterTabStore`
+for its splits, its drag between panes and its ordering, and a Cloud workspace has none of those
+stores. Two ways out were weighed. Making the strip generic over `WorkspaceSurface` means another
+fifteen members on the protocol, several of them meaningless in the cloud (absorbing a tab,
+duplicating a pane). Keying the two stores by `WorkspaceSurfaceID` instead, so a Cloud workspace's
+tabs are ordinary rows in them, would give the strip, the panes, the splits and the `+` menu to
+both with no view changing at all, and would retire `CloudTabs`. The second is the better shape and
+the riskier change, and the risk is all on the local side, which is the side that must not regress.
+Take it with the stores' own tests in front of you rather than in passing.
+
+After that, in the order they are worth doing: the sidebar's Cloud row and column, the create and
+archive sheets and the empty state, then the menus and commands. Two are deliberately not on that
+list: the terminal pane and the share popover. A terminal over a network and a public preview link
+have no local equivalent to converge on, and inventing one would be a merge nobody asked for.
+
 The slices, in the order they are being built: the review surface (this one), then the tab strip,
 header and banners, then the composer and transcript behind a chat backend, then the terminal and
 the browser tab, then the sidebar rows, menus and archiving. Each one leaves the app working, and
