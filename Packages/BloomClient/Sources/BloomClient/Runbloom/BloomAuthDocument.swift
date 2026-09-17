@@ -86,8 +86,9 @@ public struct BloomAuthDocument: Codable, Sendable, Hashable {
 /// Where this build of Bloom finds runbloom.app, and the redirect it signs in with.
 public struct RunbloomEnvironment: Sendable, Hashable {
     public var origin: URL
-    /// `bloom` for the installed app and `bloomdev` for Bloom Dev, which is what keeps the two from
-    /// catching each other's sign in.
+    /// `bloom` for the installed app, `bloomdev` for Bloom Dev and `bloomcloud` for Bloom Cloud, the
+    /// copy Cloud workspaces are tried out in, which is what keeps them from catching each other's
+    /// sign in.
     public var urlScheme: String
 
     public init(origin: URL, urlScheme: String) {
@@ -103,7 +104,7 @@ public struct RunbloomEnvironment: Sendable, Hashable {
     /// setting, which wins over production. An address that is not an origin is ignored rather
     /// than trusted, because sign in sends credentials wherever this points.
     public static func resolve(environment: [String: String], setting: String?, urlSchemes: [String]) -> RunbloomEnvironment {
-        let scheme = urlSchemes.first { $0 == "bloomdev" } ?? urlSchemes.first { $0 == "bloom" } ?? "bloom"
+        let scheme = ["bloomcloud", "bloomdev", "bloom"].first(where: urlSchemes.contains) ?? "bloom"
         for candidate in [environment["BLOOM_RUNBLOOM_URL"], setting] {
             if let candidate, let origin = origin(candidate) {
                 return RunbloomEnvironment(origin: origin, urlScheme: scheme)

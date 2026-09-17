@@ -40,6 +40,8 @@ public actor Store {
     /// `Tools/guard.sh` names the directory that goes with it.
     public static let primaryBundleIdentifier = "be.spatie.bloom"
     public static let devBundleIdentifier = "be.spatie.bloom.dev"
+    /// Bloom Cloud, the copy Cloud workspaces are tried out in. See `Tools/cloud-build.sh`.
+    public static let cloudBundleIdentifier = "be.spatie.bloom.cloud"
 
     /// Which Application Support directory a binary with this bundle identifier may use.
     ///
@@ -69,6 +71,7 @@ public actor Store {
         switch identifier {
         case primaryBundleIdentifier: "Bloom"
         case devBundleIdentifier: "Bloom Dev"
+        case cloudBundleIdentifier: "Bloom Cloud"
         case .some(let other) where !other.isEmpty: "Bloom (\(other))"
         // An executable that is not inside a bundle at all: `swift run`, `.build/debug/Bloom`, or
         // a test host. Nil and empty are the same claim and are treated the same way.

@@ -65,6 +65,15 @@ BLOOM_SUB_DB_DIR="$HOME/Library/Application Support/Bloom Subagents"
 BLOOM_SUB_DB="$BLOOM_SUB_DB_DIR/bloom.sqlite"
 BLOOM_SUB_BUNDLE_ID="be.spatie.bloom.subagents"
 
+# The fourth identity, Bloom Cloud, for trying Cloud workspaces against production
+# runbloom.app without touching the published Bloom or its appcast. Its own
+# container, preferences domain, tmux socket and URL scheme (bloomcloud:, so its
+# sign in redirect is bloomcloud://oauth/callback), and it never updates itself.
+BLOOM_CLOUD_APP="$HOME/Applications/Bloom Cloud.app"
+BLOOM_CLOUD_DB_DIR="$HOME/Library/Application Support/Bloom Cloud"
+BLOOM_CLOUD_DB="$BLOOM_CLOUD_DB_DIR/bloom.sqlite"
+BLOOM_CLOUD_BUNDLE_ID="be.spatie.bloom.cloud"
+
 # Where a detached dev copy's worktrees are said to be. See Tools/dev-db.sh for
 # why the copied rows are pointed here rather than left on the real ones.
 #

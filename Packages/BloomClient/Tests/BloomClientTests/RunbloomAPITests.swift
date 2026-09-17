@@ -208,6 +208,9 @@ import Testing
         #expect(dev.origin == RunbloomEnvironment.productionOrigin)
         let installed = RunbloomEnvironment.resolve(environment: [:], setting: nil, urlSchemes: ["bloom"])
         #expect(installed.redirect == "bloom://oauth/callback")
+        let cloud = RunbloomEnvironment.resolve(environment: [:], setting: nil, urlSchemes: ["bloomcloud"])
+        #expect(cloud.redirect == "bloomcloud://oauth/callback")
+        #expect(cloud.origin == RunbloomEnvironment.productionOrigin)
     }
 
     @Test func aDevelopmentServerIsTakenOnlyAsAnOrigin() {
