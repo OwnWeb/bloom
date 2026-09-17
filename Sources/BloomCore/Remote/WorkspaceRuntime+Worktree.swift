@@ -53,7 +53,7 @@ extension WorkspaceRuntime {
         case .archive(let confirmationID):
             return try await archive(confirmationID: confirmationID)
         case .files, .file, .download, .reviewSnapshot, .reviewPatch, .writeFile, .uploadFile, .runScript, .closeTerminal,
-             .history, .commitFiles, .revertFile, .discardHunk:
+             .history, .commitFiles, .commitPatch, .revertFile, .discardHunk:
             return try await performOnFiles(operation, as: caller)
         default:
             throw RemoteFailure(.internal, "This operation is not a worktree operation.")
@@ -157,6 +157,8 @@ extension WorkspaceRuntime {
             return .accepted
         case .commitFiles(let sha):
             return .commitFiles(files: try await RemoteHistory.files(workspace: workspace, sha: sha))
+        case .commitPatch(let sha, let path):
+            return .reviewPatch(try await RemoteHistory.patch(workspace: workspace, sha: sha, path: path))
         case .file(let path):
             return .file(try RemoteReview.file(workspace: workspace, path: path))
         case .download(let path):

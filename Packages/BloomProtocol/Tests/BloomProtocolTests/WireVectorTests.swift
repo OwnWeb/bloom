@@ -120,6 +120,7 @@ enum WireExamples {
         ("discard_hunk", .discardHunk(path: "app/Queue.php", scope: .uncommitted,
                                       patch: "@@ -1,3 +1,4 @@\n context\n+added\n context\n context\n")),
         ("commit_files", .commitFiles(sha: "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234")),
+        ("commit_patch", .commitPatch(sha: "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234", path: "app/Queue.php")),
         ("file", .file(path: "README.md")),
         ("download", .download(path: "storage/logs/laravel.log")),
         ("review_snapshot", .reviewSnapshot(scope: .branch, knownRevision: nil, wait: true)),

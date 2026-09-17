@@ -1184,6 +1184,26 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "commit_patch"
+            },
+            "sha": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "sha"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "transcript_search"
             },
             "query": {

@@ -68,6 +68,29 @@ struct RemoteHistoryTests {
         }
     }
 
+    @Test("a commit's own diff of one file reads like every other diff, and an unknown one is refused")
+    func commitPatch() async throws {
+        let (repo, workspace) = try await fixture()
+        defer { repo.cleanUp() }
+        let page = try await RemoteHistory.page(workspace: workspace, limit: nil, before: nil)
+        let newest = try #require(page.commits.first)
+
+        let patch = try await RemoteHistory.patch(workspace: workspace, sha: newest.sha, path: "second.txt")
+        #expect(patch.revision == newest.sha)
+        let text = try #require(patch.patch)
+        #expect(text.contains("+two"))
+        #expect(DiffParser.parse(text).flatMap(\.hunks).count == 1, "The same patch text the other scopes answer with")
+
+        // A file that commit did not touch, and a commit that is not here, are both refusals: an
+        // empty patch would read as a commit that changed nothing.
+        await #expect(throws: RemoteFailure.self) {
+            try await RemoteHistory.patch(workspace: workspace, sha: newest.sha, path: "first.txt")
+        }
+        await #expect(throws: RemoteFailure.self) {
+            try await RemoteHistory.patch(workspace: workspace, sha: String(repeating: "c", count: 40), path: "second.txt")
+        }
+    }
+
     @Test("commits the remote already has are marked pushed, and the rest are not")
     func pushedIsKnownWhenThereIsARemote() async throws {
         let (repo, workspace) = try await fixture()

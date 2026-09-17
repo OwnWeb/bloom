@@ -749,6 +749,16 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "commit_patch" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "commit_patch",
+        "path" : "app/Queue.php",
+        "sha" : "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "composer" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
