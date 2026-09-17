@@ -233,7 +233,7 @@ public actor WorkspaceRuntime {
         case .answer(let chatID, let requestID, let answer): try await answerQuestion(chatID, requestID: requestID, answer: answer); return .accepted
         case .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch, .runScripts, .notes, .pullRequest,
              .archivePreview, .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace,
-             .runSetup, .runScript, .closeTerminal, .archive:
+             .runSetup, .runScript, .closeTerminal, .archive, .history, .commitFiles:
             return try await performOnWorktree(operation, as: caller)
         }
     }

@@ -236,6 +236,22 @@
       },
       "version" : 1
     },
+    "commit_files" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "files" : [
+          {
+            "additions" : 12,
+            "change" : "modified",
+            "deletions" : 3,
+            "is_binary" : false,
+            "path" : "app/Queue.php"
+          }
+        ],
+        "kind" : "commit_files"
+      },
+      "version" : 1
+    },
     "composer" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "result" : {
@@ -315,6 +331,30 @@
           "README.md",
           "app/Queue.php"
         ]
+      },
+      "version" : 1
+    },
+    "history" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "history" : {
+          "commits" : [
+            {
+              "author_email" : "freek@spatie.be",
+              "author_name" : "Freek",
+              "body" : "Twice, with a wait.",
+              "date" : "2026-09-17T09:40:00.000Z",
+              "parents" : [
+                "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"
+              ],
+              "pushed" : true,
+              "sha" : "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234",
+              "subject" : "Retry the queue"
+            }
+          ],
+          "has_more" : false
+        },
+        "kind" : "history"
       },
       "version" : 1
     },
@@ -665,6 +705,15 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "commit_files" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "commit_files",
+        "sha" : "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "composer" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
@@ -707,6 +756,15 @@
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
         "kind" : "files"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "history" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "history",
+        "limit" : 50
       },
       "protocol" : "bloom-workspace",
       "version" : 1

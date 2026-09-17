@@ -21,6 +21,10 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case reviewSnapshot(scope: DiffScope, knownRevision: String?, wait: Bool)
     case reviewPatch(path: String, scope: DiffScope, knownRevision: String?)
     case runScripts
+    /// The branch's commits, newest first. `before` is a sha to page from, exclusive.
+    case history(limit: Int?, before: String?)
+    /// One commit's changed files, for a History row somebody opened.
+    case commitFiles(sha: String)
     case notes
     case pullRequest
     case archivePreview
@@ -53,7 +57,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     public var mutates: Bool {
         switch self {
         case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
-             .runScripts, .notes, .pullRequest, .archivePreview: false
+             .runScripts, .history, .commitFiles, .notes, .pullRequest, .archivePreview: false
         default: true
         }
     }
@@ -83,6 +87,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .composer: "composer"
         case .setupOutput: "setup_output"
         case .files: "files"
+        case .history: "history"
+        case .commitFiles: "commit_files"
         case .file: "file"
         case .download: "download"
         case .reviewSnapshot: "review_snapshot"
@@ -116,7 +122,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
 
     enum Keys: String, CodingKey {
         case chatID = "chat_id", afterSeq = "after_seq", limit, path, scope, knownRevision = "known_revision", wait
-        case controls, title, seq, text, promptID = "prompt_id", requestID = "request_id", answer
+        case controls, title, seq, text, promptID = "prompt_id", requestID = "request_id", answer, before, sha
         case revision, name, data, message, body, draft, id, confirmationID = "confirmation_id"
     }
 
@@ -131,6 +137,9 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case "composer": self = .composer(chatID: try c.decode(String.self, forKey: .chatID))
         case "setup_output": self = .setupOutput
         case "files": self = .files
+        case "history":
+            self = .history(limit: try c.decodeIfPresent(Int.self, forKey: .limit), before: try c.decodeIfPresent(String.self, forKey: .before))
+        case "commit_files": self = .commitFiles(sha: try c.decode(String.self, forKey: .sha))
         case "file": self = .file(path: try c.decode(String.self, forKey: .path))
         case "download": self = .download(path: try c.decode(String.self, forKey: .path))
         case "review_snapshot":
@@ -183,6 +192,9 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
             try c.encode(chatID, forKey: .chatID); try c.encode(afterSeq, forKey: .afterSeq); try c.encodeIfPresent(limit, forKey: .limit)
         case .composer(let chatID), .closeChat(let chatID), .stop(let chatID): try c.encode(chatID, forKey: .chatID)
         case .file(let path), .download(let path): try c.encode(path, forKey: .path)
+        case .history(let limit, let before):
+            try c.encodeIfPresent(limit, forKey: .limit); try c.encodeIfPresent(before, forKey: .before)
+        case .commitFiles(let sha): try c.encode(sha, forKey: .sha)
         case .reviewSnapshot(let scope, let knownRevision, let wait):
             try c.encode(scope, forKey: .scope); try c.encodeIfPresent(knownRevision, forKey: .knownRevision); try c.encode(wait, forKey: .wait)
         case .reviewPatch(let path, let scope, let knownRevision):

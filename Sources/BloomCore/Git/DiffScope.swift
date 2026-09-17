@@ -8,6 +8,8 @@ public struct BranchCommit: Sendable, Hashable, Identifiable {
     public let sha: String
     public let subject: String
     public let author: String
+    /// Empty when the commit was read somewhere that did not ask git for it.
+    public let authorEmail: String
     public let date: Date
     public let body: String
     public let parents: [String]
@@ -17,10 +19,12 @@ public struct BranchCommit: Sendable, Hashable, Identifiable {
     /// Seven, which is what git itself shows by default and what a person recognises a commit by.
     public var abbreviated: String { String(sha.prefix(7)) }
 
-    public init(sha: String, subject: String, author: String, date: Date, body: String = "", parents: [String] = []) {
+    public init(sha: String, subject: String, author: String, date: Date, body: String = "", parents: [String] = [],
+                authorEmail: String = "") {
         self.sha = sha
         self.subject = subject
         self.author = author
+        self.authorEmail = authorEmail
         self.date = date
         self.body = body
         self.parents = parents

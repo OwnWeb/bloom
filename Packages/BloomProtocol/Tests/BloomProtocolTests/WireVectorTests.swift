@@ -114,6 +114,8 @@ enum WireExamples {
         ("composer", .composer(chatID: "chat-1")),
         ("setup_output", .setupOutput),
         ("files", .files),
+        ("history", .history(limit: 50, before: nil)),
+        ("commit_files", .commitFiles(sha: "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234")),
         ("file", .file(path: "README.md")),
         ("download", .download(path: "storage/logs/laravel.log")),
         ("review_snapshot", .reviewSnapshot(scope: .branch, knownRevision: nil, wait: true)),
@@ -158,6 +160,14 @@ enum WireExamples {
             commands: [SlashCommandRecord(name: "review", description: "Review the branch")], outputStyles: ["default", "Explanatory"]))),
         ("setup_output", .setupOutput(SetupOutputRecord(setup: SetupRecord(state: "running", step: "setup", startedAt: date), log: "Installing\n"))),
         ("files", .files(paths: ["README.md", "app/Queue.php"])),
+        ("history", .history(HistoryRecord(commits: [
+            CommitRecord(sha: "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234", subject: "Retry the queue", authorName: "Freek",
+                         authorEmail: "freek@spatie.be", date: Date(timeIntervalSince1970: 1_789_638_000),
+                         body: "Twice, with a wait.", parents: ["0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"], pushed: true),
+        ], hasMore: false))),
+        ("commit_files", .commitFiles(files: [
+            ChangedFileRecord(path: "app/Queue.php", change: "modified", additions: 12, deletions: 3, isBinary: false),
+        ])),
         ("file", .file(TextFileRecord(path: "README.md", text: "# Bloom\n", revision: "revision-1"))),
         ("download", .download(DownloadRecord(path: "logo.png", data: Data([0x89, 0x50])))),
         ("review_snapshot", .reviewSnapshot(ReviewSnapshotRecord(revision: "revision-2", files: [
