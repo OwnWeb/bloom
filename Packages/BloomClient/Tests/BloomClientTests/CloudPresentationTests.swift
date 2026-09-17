@@ -141,7 +141,7 @@ import Testing
             .limited(LimitNotice(limit: "concurrent_machines", message: "Twenty running.")),
         ]
         for phase in phases {
-            let banner = try? #require(CloudConnectionBanner.of(phase))
+            let banner = CloudConnectionBanner.of(phase)
             #expect(banner?.title.isEmpty == false, "\(phase) has no title")
             #expect(banner?.message?.isEmpty == false, "\(phase) has no sentence")
         }
