@@ -9,6 +9,13 @@ A remote workspace is a Bloom workspace whose worktree, agents, terminals and tr
 Fly.io Sprite instead of this Mac. One Sprite per workspace, and the Sprite is the isolation
 boundary. Several people can work in the same one.
 
+**Nobody using Bloom sees Fly or a Sprite.** runbloom.app runs every remote workspace in one Fly
+organisation with one token, for every team; nobody connects a Fly account. In the app, on
+runbloom.app and in any message a person can read, it is a remote workspace, and the computer it
+runs on is its machine. "Sprite" appears in this document, in the provider implementation and in
+logs, and nowhere else. The provider stays behind the interface described under "Where the code
+goes", so a second provider changes no user-facing word.
+
 What this replaces: the self-provisioned SSH server of pull request #163 (install scripts, SSH
 wizard, rootless Docker, swap, storage cleanup, server updates) is dropped entirely. #163 stays open
 as a quarry; the last section says what is taken from it and what is not.
@@ -66,8 +73,8 @@ flowchart LR
 ```
 
 **runbloom.app** owns accounts, teams and membership, authorisation, the workspace registry with a
-summary per workspace, Sprite lifecycle (create, bootstrap, update, delete, orphan sweep, the warm
-pool), provider credentials, agent and environment secrets, the GitHub App, and push notifications.
+summary per workspace, Sprite lifecycle (create, bootstrap, update, delete, orphan sweep),
+provider credentials, agent and environment secrets, the GitHub App, and push notifications.
 It never carries transcript, terminal or preview bytes: it is a single core Forge box running
 PHP-FPM, and a long-lived stream is the one thing it is bad at.
 
@@ -132,19 +139,15 @@ runbloom.app stores only a hash of the workspace secret, so it cannot use that s
 Sprite. It signs its own token instead, verified against the same pinned key set: `aud`
 `bloom-workspace:<id>` for that one workspace, `sub` `control`, the `admin` ability that no user
 token carries, and a 60 s lifetime. The Sprite remembers each `jti` until it expires and refuses a
-replay. That covers every call from runbloom.app to a Sprite: revoke, update, claim, pushing changed
+replay. That covers every call from runbloom.app to a Sprite: revoke, update, pushing changed
 environment.
 
 ### The workspace secret
 
 Generated at create, stored hashed on runbloom.app, written to the Sprite at
-`/etc/bloom/workspace.json` (mode 600), rotated when a pool Sprite is claimed and revoked on
-archive. It authorises the Sprite towards runbloom.app and nothing wider than its own workspace:
+`/etc/bloom/workspace.json` (mode 600) at bootstrap, and revoked on archive. It authorises the Sprite towards runbloom.app and nothing wider than its own workspace:
 posting its own summary, fetching git tokens for its own repository, fetching team and project
 environment, and starting a turn a user has already registered (below).
-
-Before it is claimed, a pool Sprite holds a **machine secret** instead, which can do two things:
-report prepare progress, and get a read-only installation token for its repository.
 
 An agent in the Sprite has passwordless sudo and can read that file, and it can read the
 environment of its own process. That is accepted: the Sprite is the isolation boundary, everything
@@ -242,9 +245,14 @@ It holds a Tasks API task, renewed by heartbeat, while any of these is true:
 - setup or resume is running;
 - an agent turn is running, including one waiting on a question (bounded, see below);
 - a run script the user started is running;
-- the **human presence lease** is live: 15 minutes (provisional, Amp uses 20) after the last human
-  input from any client. Input is a prompt, an answer, a keystroke in the terminal, a file save, a
-  navigation in the preview. An open stream, a visible window or a poll is not input.
+- the **human presence lease** is live: 15 minutes after the last human input from any client.
+  Input is a prompt, an answer, a keystroke in the terminal, a file save, a navigation in the
+  preview. An open stream, a visible window or a poll is not input.
+
+The lease is cut short in one case, because it costs one counter the server already has: when the
+last client stream closes (the app quit, the workspace closed, the laptop slept), the lease ends two
+minutes later if nothing else renewed it. A client that is open but idle is not detected; that would
+need every client to report its own visibility, which is more state than the minutes it saves.
 
 When none is true it posts a final summary with `awake: false`, sends `sleeping` on every stream
 and closes them. Clients show the runbloom.app summary and reconnect on the next interaction; a
@@ -273,17 +281,51 @@ starts again as `bloom-workspace` version 1. What changes:
   transcript `seq` it already has, so reconnecting after a pause costs nothing new. Paged
   `transcript` stays for catching up history.
 - **Authors** as above.
+- **Named fields, not Swift's encoding.** #163's envelope is Swift's synthesised `Codable`, so an
+  enum case with an unnamed value is `{"text":{"_0":"..."}}`, dates count from 2001 and failures
+  are prose. Version 1 is written for a reader in another language: named fields throughout, ISO
+  8601 dates, and failures as `{code, message}` with stable codes. The Swift types encode to that
+  shape by hand where synthesis would not.
 - **Endpoints**, all on the Sprite URL:
 
 | Path | What |
 | --- | --- |
 | `POST /_bloom/v1/rpc` | the envelope, bearer token |
-| `GET /_bloom/v1/events` | SSE, bearer token |
-| `GET /_bloom/v1/terminal?name=` | WebSocket, binary frames, resize and `reauth` text frames |
+| `GET /_bloom/v1/events` | SSE read with `fetch`, bearer token |
+| `GET /_bloom/v1/terminal?name=` | WebSocket, `auth` first frame, binary frames, resize and `reauth` text frames |
 | `GET /_bloom/preview/enter?t=` | preview cookie exchange |
-| `POST /_bloom/v1/control/revoke`, `claim`, `update`, `environment` | runbloom.app only, `admin` token |
+| `POST /_bloom/v1/control/revoke`, `update`, `environment` | runbloom.app only, `admin` token |
 | `GET /_bloom/health` | unauthenticated, version only |
 | everything else | the preview |
+
+## Clients other than the Mac
+
+iOS comes later and a web interface may come after it, so the contract is checked against a
+browser now rather than discovered to be native-only then.
+
+- **Streams without headers.** A browser's `EventSource` cannot send `Authorization`. The event
+  stream is ordinary SSE framing, read with `fetch` and a `ReadableStream`, which can send the
+  header, and which is also how the native clients read it. No token goes in a URL, where it would
+  land in logs and history. A browser `WebSocket` cannot send a header either, so the terminal
+  WebSocket takes its token as the first text frame, `{"kind":"auth","token":"..."}`, and closes
+  unauthenticated connections after five seconds. Every client does the same, so there is one path
+  to test. Cookies are not used for control: a cookie would put CSRF on the table and share
+  authority with the preview on the same origin.
+- **CORS.** `/_bloom/v1/*` answers preflight for the origins pinned in `workspace.json` at bootstrap
+  (`https://runbloom.app` to start with), allows `Authorization` and `Content-Type`, never allows
+  credentials, and caches preflight for ten minutes. The preview paths send no CORS headers of their
+  own; what the app sends is the app's business.
+- **The preview in a browser** opens top level through the same exchange. Embedding it in a
+  runbloom.app page would need the preview cookie as `SameSite=None; Partitioned`, and that decision
+  waits for a web client that wants it.
+- **The behaviour a client has to get right is written down, not left in Swift.** The protocol
+  document that ships with version 1 has a client chapter covering what #163 kept in
+  `BloomClient`: merging transcript pages and events by `seq`, applying streaming deltas over the
+  snapshot, keeping and retrying a mutation under its original command id, refreshing a workspace
+  token before a stream's expires, reconnecting after `sleeping` and waking the machine, review
+  revisions and the patch cache, queue and question state, and presence. It ships with a JSON
+  Schema and test vectors generated from the Swift types, as #163 did, so a TypeScript client is
+  checked against the same examples as the Swift one.
 
 ## Preview
 
@@ -303,29 +345,23 @@ link is `https://runbloom.app/share/<id>`: runbloom.app checks the share is live
 preview token for `sub: "share:<id>"` and redirects to the exchange, which sets a cookie lasting
 one hour rather than eight. There is no long-lived share token.
 
-## Setup without snapshots
+## Setup
 
-Every Sprite starts from nothing, and 149 s is too long to wait for a workspace. runbloom.app keeps
-a **warm pool** per project (provisional on cost): one or two Sprites that have run the project's
-`scripts.prepare` and checked out the default branch, then paused. Paused, a pool Sprite costs its
-storage and nothing else. A pool Sprite is rebuilt when the hash of the prepare script changes, or
-after 72 hours, and runbloom.app sweeps any Sprite it does not own (below).
+Every create is cold. A Sprite cannot start from another's checkpoint, and phase 1 has no pool of
+prepared machines, so bloom-server runs the whole of it in one go after bootstrap: clone with a
+read-only installation token, create the branch, `scripts.prepare`, `scripts.setup`,
+`scripts.resume`, then the services, reporting each step in the summary. For There There that is
+about two and a half minutes, most of it apt. The opening prompt queues behind setup, as it does
+locally.
 
-runbloom.app owns the pool through a Machine record per Sprite, named `bloom-<machine id>`. The
-Sprites HTTP API cannot set labels, so the mapping from Sprite to workspace lives in its database,
-and the orphan sweep deletes any `bloom-` Sprite no Machine owns.
+runbloom.app keeps a Machine record per Sprite, named `bloom-<machine id>`. The Sprites HTTP API
+cannot set labels, so the mapping from Sprite to workspace lives in its database, and the orphan
+sweep deletes any `bloom-` Sprite no Machine owns.
 
-bloom-server therefore has two modes:
-
-- **Prepare.** After bootstrap, with a machine secret: fetch the default branch with a read-only
-  installation token, run `scripts.prepare`, report `prepared`, release every task so the Sprite
-  pauses.
-- **Workspace.** After a claim. runbloom.app writes `/etc/bloom/workspace.json` with a new workspace
-  secret and calls `POST /_bloom/v1/control/claim`. bloom-server rereads its configuration, drops
-  the machine secret, creates the branch, runs `scripts.setup`, runs `scripts.resume` and starts the
-  services.
-
-With no prepared Machine free, a create runs bootstrap, prepare and the claim in one go.
+**Later, a warm pool.** Because `prepare` is already its own script with no secrets, a pool of
+machines that ran it and paused is an addition on runbloom.app's side plus a claim step in
+bloom-server (reread configuration, rotate the secret, create the branch, carry on from `setup`).
+Nothing in phase 1 has to change for it.
 
 The repository side, in `.bloom/settings.toml`, alongside the setup scripts that exist today:
 
@@ -374,6 +410,53 @@ for the person who started it. Outside one (prepare, setup, resume) it is an ins
 that one repository with read-only contents. There is no fallback to the owner's token. Nothing is
 written to disk. Pushes and pull requests are made as the person who asked for them. Commit signing
 is out of scope for phase 1.
+
+## Usage
+
+runbloom.app meters usage per team and enforces per-team limits, so bloom-server reports what the
+provider bills for, in provider-neutral terms. **These fields are proposed and still being agreed
+with the runbloom.app side.**
+
+`POST /api/sprite/workspaces/{id}/usage` with the workspace secret, separate from the summary
+because it is append-only where the summary is replace-latest:
+
+```json
+{
+  "machine_boot_id": "…",
+  "sequence": 118,
+  "events": [
+    {"kind": "awake", "at": "2026-09-17T09:40:02Z", "reason": "human_input"},
+    {"kind": "setup_started", "at": "…"},
+    {"kind": "setup_finished", "at": "…", "outcome": "succeeded"},
+    {"kind": "turn_started", "at": "…", "turn_id": "…", "user_id": "…", "agent": "claudeCode"},
+    {"kind": "turn_finished", "at": "…", "turn_id": "…"},
+    {"kind": "released", "at": "2026-09-17T10:15:00Z"}
+  ],
+  "counters": {
+    "cpu_seconds": 5310.4,
+    "memory_gb_seconds": 21044.0,
+    "awake_seconds": 2098.0
+  },
+  "disk": {"used_bytes": 7340032000, "at": "…"}
+}
+```
+
+- **Awake and released.** `awake` is when bloom-server takes its first hold, with the reason (setup,
+  turn, script, human input); `released` is when it lets go of the last one. The provider pauses
+  about 30 s after `released`, which bloom-server cannot observe, so runbloom.app adds that margin
+  or reconciles against the provider's own billing where its API offers it. A wake after a pause
+  is detected as a wall clock gap and reported as `awake`.
+- **Counters are cumulative** since boot, so a lost or repeated report changes nothing: runbloom.app
+  takes differences between sequences within one `machine_boot_id`. `cpu_seconds` is non-idle time
+  from `/proc/stat`; `memory_gb_seconds` integrates `MemTotal - MemAvailable` sampled every 15 s
+  while awake. Both are what the provider bills for, measured from inside.
+- **Disk** is used bytes on the machine's filesystem, hourly while awake and at every release,
+  because storage bills whether awake or not.
+- **Turns** carry the user, so limits can be per person as well as per team.
+
+Sent at every `released`, every 5 minutes while awake, and on shutdown. When runbloom.app refuses a
+turn start because a limit is reached, bloom-server pauses the queue with that reason, the way the
+#163 runtime already pauses for a missing sign-in, and the prompt stays queued.
 
 ## Summaries
 
@@ -426,8 +509,8 @@ rpath, as #163's `Tools/package-linux-server.py` already builds them.
 
 runbloom.app bootstraps a new Sprite with one exec: download the version it chose, verify the
 checksum, unpack into `/opt/bloom/<version>`, point `/opt/bloom/current` at it, write
-`/etc/bloom/machine.json` with the issuer, the JWKS URL and the machine secret, and create the
-service once:
+`/etc/bloom/workspace.json` with the workspace id, the issuer, the JWKS URL, the allowed web
+origins and the workspace secret, and create the service once:
 
 ```sh
 sprite-env services create bloom --http-port 8080 -- /opt/bloom/current/bin/bloom-server serve
@@ -449,15 +532,15 @@ confirmed the way #163 confirms it (a preview with hazards, then a confirmation 
    (`~/.claude/projects/...`, Codex rollouts) so a restore can resume the conversation.
 3. runbloom.app deletes the Sprite and revokes the secret.
 
-Restore is a create from the pool on the same branch, with the export written back before the agent
+Restore is a cold create on the same branch, with the export written back before the agent
 starts. Uncommitted work that was not pushed is lost, which the preview said.
 
 ## Where the code goes
 
 - `Sources/BloomCore` stays free of networking servers. The wire types, the single-workspace runtime,
   the prompt queue with authors, presence, the awake policy as a pure state machine, the summary
-  builder and coalescing, and the settings for `prepare`, `resume` and `[[services]]` go here, grouped
-  under a new `Remote/` subject, testable with no Sprite.
+  builder and coalescing, usage counters, and the settings for `prepare`, `resume` and
+  `[[services]]` go here, grouped under a new `Remote/` subject, testable with no Sprite.
 - `Sources/BloomServer` is a new library target, Linux and macOS, owning the HTTP front
   (Hummingbird 2 on SwiftNIO), token verification, the SSE and WebSocket endpoints, the Sprites Tasks
   API client, the Caddy and service supervisor, and the runbloom.app client. The Mac app does not link
@@ -465,9 +548,10 @@ starts. Uncommitted work that was not pushed is lost, which the preview said.
 - `Sources/bloom-server` is its `main.swift`.
 - `Packages/BloomClient` is the client half, shared later with iOS; `Packages/BloomAuthentication`
   the sign-in.
-- The provider-specific surface inside the Sprite is two protocols, keeping awake and knowing its own
-  URL, so Daytona or E2B later is an implementation of each. Create, wake, exec, filesystem, delete and
-  URL are runbloom.app's.
+- The provider-specific surface inside the machine is one protocol, `MachineHost`: hold awake and
+  release, the public URL, and where usage is read from. Sprites are its first implementation;
+  Daytona or E2B later is another. Create, wake, exec, filesystem, delete and URL are runbloom.app's,
+  behind its own provider interface. No type outside that implementation is named after Sprites.
 
 `make lint` gains a rule that `BloomCore` imports no NIO, and CI gains a Linux job that builds
 `bloom-server` and runs `BloomCoreTests` and `BloomServerTests` in `swift:6.3-noble`.
@@ -488,39 +572,49 @@ this order, and every step leaves `make build`, `make lint` and CI green:
    recovery, maintenance, skills, storage, removal, SSH setup, credential import, the UI broker.
 3. **bloom-server on a Sprite.** `BloomServer`: HTTP front, tokens, events, terminal WebSocket, the
    awake policy and Tasks API, credentials per turn, the git credential helper and `gh` wrapper,
-   services, `prepare`, `setup` and `resume`, summaries, preview exchange with Caddy. Tested against a
-   real Sprite with a small command line client, before any UI.
+   services, `prepare`, `setup` and `resume`, summaries, usage, CORS, preview exchange with Caddy,
+   and the protocol document with its client chapter, schema and vectors. Tested against a real
+   Sprite with a small command line client, before any UI.
 4. **Packaging.** `package-linux-server.py` with Caddy, a release asset, the bootstrap script
    runbloom.app runs. Not ported: `install-bloom-server.py`, the maintenance supervisor, the Go
    gateway, BloomSSH.
 5. **Mac client.** BloomAuthentication and account sign-in in Settings; BloomClient's wire session,
    HTTPS connection (moved from polling to events), transcript projection, review store, composer
    store and outbox; remote workspaces in the main sidebar under their project, listed from
-   runbloom.app; the transcript, composer, terminal and preview for a remote workspace; "Remote" as a
-   destination in the create sheet; presence on the workspace. Not ported: `ServerWindowModel` and
+   runbloom.app; the transcript, composer, terminal and preview for a remote workspace; a remote
+   machine as a destination in the create sheet; presence on the workspace. Not ported: `ServerWindowModel` and
    the server settings window, which are tied to SSH setup.
 
-Later pull requests: the iOS app over HTTPS (#163's UIKit app is SSH first), personal subscriptions
-signed in on the Sprite, agent bridge tools across workspaces through runbloom.app, per-project
-egress allowlists, Reverb, a read-only viewer, other providers.
+Later pull requests: the iOS app over HTTPS (#163's UIKit app is SSH first), a web interface,
+personal subscriptions signed in on the machine, the warm pool, agent bridge tools across
+workspaces through runbloom.app, per-project egress allowlists, Reverb, a read-only viewer, other
+providers.
 
 Steps 1 to 4 are server side and can be reviewed and run against a Sprite before any Mac code
 exists. Step 5 is the larger half. Splitting at that line into two pull requests is recommended.
 
 ## Still to verify on a real Sprite
 
-- SSE and WebSocket through the public Sprite URL, not only `sprite proxy`, for longer than a turn.
+- SSE and WebSocket through the public Sprite URL, not only `sprite proxy`, for longer than a turn,
+  and CORS preflight reaching bloom-server unaltered.
 - The Tasks API reachable from a Sprite Service's process, and released cleanly when that process dies.
 - Which user a Sprite runs processes as, since parts of the #163 runtime refuse root.
 - Setting a Sprite's URL public through the API at create.
 - Whether a cold wake really drops process memory, since one measurement kept a process alive.
 
-## Open questions for the owner
+## Decided by the owner
 
-- API billing: does Spatie have Anthropic Console and OpenAI API billing, and are API rates for
-  remote turns acceptable? Phase 1 depends on it.
-- Team key as the default with personal keys overriding it, or personal keys only.
-- The presence lease: 15 minutes, or Amp's 20.
-- The warm pool's idle storage cost, one or two Sprites per project.
-- A read-only viewer role in phase 1 (recommended: no, abilities make it cheap later).
-- iOS outside the first pull request (recommended), and splitting server and Mac client into two.
+- The person who prompts supplies the credential. A team key is the default and a personal key
+  overrides it for that person's turns.
+- A person can belong to several teams, and signs in to runbloom.app with Google or GitHub.
+- The presence lease is 15 minutes.
+- No warm pool in phase 1; every create is cold.
+- No viewer role in phase 1.
+- iOS later, with the contract kept usable by iOS and a web interface.
+- Fly and Sprites are invisible to users: one organisation and one token, owned by runbloom.app.
+
+## Still open
+
+- Splitting the build into a server-side pull request (steps 1 to 4) and a Mac client pull request
+  (step 5). Recommended.
+- The usage fields above, being agreed with the runbloom.app side.
