@@ -73,6 +73,7 @@ public struct ArchiveRequest: Identifiable, Sendable {
     public let id = UUID()
     public var workspace: Workspace
     public var report: WorkspaceSafetyReport
+    public var isChecking = false
     public var deleteBranch: Bool?
     /// Set when git could not be asked at all, so the report is empty for want of an answer rather
     /// than because there is nothing at stake. Shown alongside the losses, never instead of them.
@@ -118,7 +119,7 @@ public struct ArchiveRequest: Identifiable, Sendable {
     /// an empty report with a problem beside it means "unknown", and unknown must never be shown
     /// as "nothing at stake".
     public var severity: Severity {
-        if problem != nil { return .destructive }
+        if isChecking || problem != nil { return .destructive }
         if !losses.isEmpty { return .destructive }
         return notes.isEmpty ? .routine : .worthMentioning
     }
@@ -132,7 +133,8 @@ public struct ArchiveRequest: Identifiable, Sendable {
     /// "lose that work" when the only thing going is a generated types folder is the fastest way
     /// to teach them that this dialogue exaggerates.
     public var confirmLabel: String {
-        isDestructive ? "Archive and lose that work" : "Archive"
+        if isChecking { return "Archive anyway" }
+        return isDestructive ? "Archive and lose that work" : "Archive"
     }
 
     public var cancelLabel: String { "Keep the workspace" }
@@ -176,6 +178,10 @@ public struct ArchiveRequest: Identifiable, Sendable {
         if !notes.isEmpty {
             text += "\n\nAlso in the worktree, ignored by git and so in no commit by design:\n"
             text += notes.map { "\u{2022} \($0)" }.joined(separator: "\n")
+        }
+
+        if isChecking {
+            text += "\n\nThe check is still running. Archiving now may lose unsaved files and unpushed commits."
         }
 
         if let problem {

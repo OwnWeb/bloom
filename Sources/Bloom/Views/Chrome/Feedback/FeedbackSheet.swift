@@ -57,14 +57,7 @@ struct FeedbackSheet: View {
 
             editor
 
-            if !presenter.images.isEmpty { images }
-
-            if let attachmentProblem {
-                Label(attachmentProblem, systemImage: "exclamationmark.triangle.fill")
-                    .font(Typo.caption)
-                    .foregroundStyle(Palette.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            FeedbackImageList(images: $presenter.images, problem: $attachmentProblem)
 
             logsRow
 
@@ -135,16 +128,6 @@ struct FeedbackSheet: View {
         return min(max(contentHeight, line * Self.minimumEditorLines), line * Self.maximumEditorLines)
     }
 
-    // MARK: - Pictures
-
-    private var images: some View {
-        ChipFlow(spacing: Metrics.spacing, lineSpacing: Metrics.spacing) {
-            ForEach(presenter.images) { image in
-                FeedbackImageChip(image: image) { remove(image) }
-            }
-        }
-    }
-
     // MARK: - The log
 
     private var logsRow: some View {
@@ -188,9 +171,7 @@ struct FeedbackSheet: View {
 
     private var footer: some View {
         HStack(spacing: Metrics.gutter) {
-            Button(Feedback.Copy.attachImages, systemImage: "photo.on.rectangle") { pickImages() }
-                .disabled(presenter.images.count >= Feedback.maxImages || phase.isSending)
-                .help("Up to \(Feedback.maxImages) pictures. You can also paste or drop one on the box above.")
+            FeedbackAttachButton(count: presenter.images.count, isSending: phase.isSending) { pickImages() }
 
             Spacer(minLength: Metrics.gutter)
 
@@ -278,40 +259,16 @@ struct FeedbackSheet: View {
 
     private func pickImages() {
         Task {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = true
-            panel.canChooseDirectories = false
-            panel.allowsMultipleSelection = true
-            panel.allowedContentTypes = [.image]
-            panel.prompt = "Attach"
-
-            // A sheet rather than `runModal()`, which stops the run loop and with it every
-            // transcript streaming in the window behind this one. See `PanelPresentation`.
-            guard await panel.present() == .OK else { return }
-            add(panel.urls.map { .file($0) })
+            guard let sources = await FeedbackImages.pick() else { return }
+            add(sources)
         }
     }
 
     private func add(_ sources: [AttachmentSource]) {
-        let existing = presenter.images
         Task {
-            do {
-                // Off the main actor: this reads files and can re-encode a picture.
-                let read = try await Task.detached(priority: .userInitiated) {
-                    try FeedbackImages.read(sources, existing: existing)
-                }.value
-                presenter.images += read
-                attachmentProblem = nil
-            } catch {
-                attachmentProblem = error.localizedDescription
-            }
+            attachmentProblem = await FeedbackImages.add(sources, to: $presenter.images)
             isFocused = true
         }
-    }
-
-    private func remove(_ image: FeedbackImage) {
-        presenter.images.removeAll { $0.id == image.id }
-        attachmentProblem = nil
     }
 
     // MARK: - Sending
@@ -390,50 +347,5 @@ struct FeedbackSheet: View {
             // `FeedbackSentCard` for why it is the same sheet rather than a second one.
             presenter.open(.reportSent)
         }
-    }
-}
-
-/// One attached picture: what it is called and how big it is, with a way to take it off again.
-///
-/// A chip rather than a thumbnail. The composer says an attachment with an icon and a name, so
-/// this says it the same way, and it costs nothing per keystroke: decoding a two megabyte PNG to
-/// draw a forty point square would be paid for on every redraw of a sheet somebody is typing into.
-private struct FeedbackImageChip: View {
-    var image: FeedbackImage
-    var onRemove: @MainActor () -> Void
-
-    var body: some View {
-        HStack(spacing: Metrics.spacingSmall) {
-            Image(systemName: "photo")
-                .font(.system(size: Metrics.glyph - 2))
-                .foregroundStyle(Palette.textSecondary)
-
-            Text(image.filename)
-                .font(Typo.caption)
-                .foregroundStyle(Palette.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-
-            Text(ByteCountFormatter.string(fromByteCount: Int64(image.byteCount), countStyle: .file))
-                .font(Typo.micro)
-                .foregroundStyle(Palette.textTertiary)
-
-            Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: Metrics.glyph - 4, weight: .semibold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Palette.textTertiary)
-            .help("Take this image off")
-            .accessibilityLabel("Remove \(image.filename)")
-        }
-        .padding(.horizontal, Metrics.spacing)
-        .padding(.vertical, Metrics.spacingSmall)
-        .background(Palette.surfaceSunken, in: RoundedRectangle(cornerRadius: Metrics.cornerSmall))
-        .overlay(
-            RoundedRectangle(cornerRadius: Metrics.cornerSmall)
-                .strokeBorder(Palette.border, lineWidth: Metrics.outline)
-        )
-        .frame(maxWidth: 260, alignment: .leading)
     }
 }

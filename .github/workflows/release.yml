@@ -109,7 +109,8 @@ jobs:
   release:
     # A `runner-v` tag publishes only Bloom Runner, the Cloud workspace server, for runbloom.app to
     # install machines from while it is tested. It must never build the app, touch the bucket or
-    # write either appcast, and a release event runs this file as it is at the tagged commit.
+    # write either appcast, and a release event runs this file as it is at the tagged commit, so
+    # the guard has to be here before any such tag exists.
     if: ${{ !startsWith(github.event.release.tag_name, 'runner-v') && !startsWith(inputs.tag, 'runner-v') }}
     runs-on: macos-26
     timeout-minutes: 90

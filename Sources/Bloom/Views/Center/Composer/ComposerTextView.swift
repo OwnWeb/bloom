@@ -94,11 +94,35 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
             let range = dropRange(for: sender)
             return AttachmentDrop.receive(
                 sender.draggingPasteboard,
-                onReceive: { [weak self] sources in self?.onAttach?(sources, range) ?? false },
+                onReceive: { [weak self] sources in self?.receiveDrop(sources, at: range) ?? false },
                 onFailure: onAttachmentFailure
             )
         }
         return super.performDragOperation(sender)
+    }
+
+    private func receiveDrop(_ sources: [AttachmentSource], at range: NSRange) -> Bool {
+        var directories: [String] = []
+        let attachments = sources.filter { source in
+            guard case .file(let url) = source else { return true }
+            let path = url.standardizedFileURL.path
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else { return true }
+            directories.append(path)
+            return false
+        }
+
+        var attachmentRange = range
+        if !directories.isEmpty {
+            let paths = directories.joined(separator: " ") + " "
+            breakUndoCoalescing()
+            insertText(paths, replacementRange: range)
+            breakUndoCoalescing()
+            attachmentRange = selectedRange()
+        }
+        guard !attachments.isEmpty else { return !directories.isEmpty }
+        return onAttach?(attachments, attachmentRange) == true || !directories.isEmpty
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
