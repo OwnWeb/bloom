@@ -51,10 +51,15 @@ if [ "${1:-}" = "serve" ] && [ -f "$marker" ]; then
         starts=$((starts + 1))
         if [ "$starts" -ge 2 ] && [ -n "$previous" ] && [ -x "$prefix/$previous/bin/bloom-runner" ]; then
             note "$asked did not come up on two starts; going back to $previous"
-            # `ln -sfn` rather than the bootstrap's `mv -T`, which is GNU only: this script is
-            # also run by a probe on a Mac, and a rollback that quietly does nothing there would
-            # be a rollback nobody tests.
-            if ln -sfn "$prefix/$previous" "$prefix/current" 2>/dev/null; then
+            # One rename, asked for three ways: `-T` is GNU's `mv`, `-h` is BSD's, and
+            # `os.replace` is the rename itself. A plain `mv` would move the new link into the
+            # directory the old one points at, and `ln -sfn` would leave a moment with no
+            # `current` at all, which is the moment this is about to exec through.
+            if ln -sfn "$prefix/$previous" "$prefix/current.next" 2>/dev/null &&
+                { mv -T "$prefix/current.next" "$prefix/current" 2>/dev/null ||
+                    mv -h "$prefix/current.next" "$prefix/current" 2>/dev/null ||
+                    python3 -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' \
+                        "$prefix/current.next" "$prefix/current" 2>/dev/null; }; then
                 rm -f "$marker"
                 exec "$prefix/current/bin/bloom-runner" "$@"
             fi

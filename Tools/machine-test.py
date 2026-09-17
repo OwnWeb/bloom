@@ -87,6 +87,12 @@ def push(name, source, destination, timeout=300):
             time.sleep(5)
 
 
+def write_on(name, path, text):
+    """A file on the machine, written through a shell rather than the provider's file API, which
+    has hung for tens of minutes on a 120 MB upload and on a 2 KB one alike."""
+    run_on(name, f"cat > {path}", stdin=text)
+
+
 def run_on(name, script, stdin=None, timeout=300):
     return sprite(name, "exec", "--", "bash", "-lc", script, stdin=stdin, timeout=timeout)
 
@@ -259,16 +265,18 @@ def main():
                 checksum = urllib.request.urlopen(
                     f"https://github.com/{REPOSITORY_FOR_RELEASES}/releases/download/{arguments.from_release}/"
                     f"bloom-runner-linux-x86_64-{version}.tar.gz.sha256", timeout=60).read().decode().split()[0]
-                push(name, str(HERE / "bootstrap-machine.sh"), "/home/sprite/bootstrap-machine.sh")
-                run_on(name, f"chmod +x /home/sprite/bootstrap-machine.sh && /home/sprite/bootstrap-machine.sh install "
-                             f"{version} {checksum} {arguments.from_release} 2>&1 | tail -n 5", timeout=600)
+                # Through stdin, the way runbloom.app runs it (`bash -s -- install …`), rather than
+                # through the provider's file API, which has hung for tens of minutes on files of
+                # any size. Nothing here needs that API, so nothing here uses it.
+                run_on(name, f"bash -s -- install {version} {checksum} {arguments.from_release} 2>&1 | tail -n 5",
+                       stdin=(HERE / "bootstrap-machine.sh").read_text(), timeout=900)
             else:
                 step("installing the package as runbloom.app does")
                 install_by_upload(name, scratch, package, version)
-            push(name, str(HERE / "bloom_fake_runbloom.py"), "/home/sprite/bloom_fake_runbloom.py")
+            write_on(name, "/home/sprite/bloom_fake_runbloom.py", (HERE / "bloom_fake_runbloom.py").read_text())
             issuer = Issuer(scratch / "issuer", f"http://127.0.0.1:{FAKE_PORT}", workspace)
             (scratch / "jwks.json").write_bytes(issuer.jwks)
-            push(name, str(scratch / "jwks.json"), "/home/sprite/jwks.json")
+            write_on(name, "/home/sprite/jwks.json", (scratch / "jwks.json").read_text())
             configuration = {
                 "workspace_id": workspace, "issuer": issuer.issuer, "jwks_url": f"{issuer.issuer}/.well-known/jwks.json",
                 "base_url": issuer.issuer, "workspace_secret": secret, "allowed_origins": ["https://runbloom.app"],

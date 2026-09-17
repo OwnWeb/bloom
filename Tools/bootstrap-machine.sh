@@ -87,8 +87,26 @@ previous=""
 [[ -L "$prefix/current" ]] && previous="$(readlink "$prefix/current")"
 
 # A new symlink moved over the old one with rename, so there is never a moment with none.
-sudo_if_needed ln -sfn "$target" "$prefix/current.next"
-sudo_if_needed mv -T "$prefix/current.next" "$prefix/current"
+#
+# Three ways to ask for that one rename, because the flag that spells it is not the same everywhere
+# and `mv` without it moves the new link *into* the directory the old one points at: `-T` is GNU's,
+# `-h` is BSD's, and `os.replace` is the rename itself, from a python3 the machine already has. Only
+# if all three are missing does it fall back to `ln -sfn`, which unlinks and re-creates and so has a
+# moment with no `current` at all. Nothing we ship to reaches that line; it is there so an image
+# none of us has tried still ends up pointing somewhere.
+point_current_at() {
+  sudo_if_needed ln -sfn "$1" "$prefix/current.next"
+  if sudo_if_needed mv -T "$prefix/current.next" "$prefix/current" 2>/dev/null ||
+    sudo_if_needed mv -h "$prefix/current.next" "$prefix/current" 2>/dev/null ||
+    sudo_if_needed python3 -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' \
+      "$prefix/current.next" "$prefix/current" 2>/dev/null; then
+    return 0
+  fi
+  sudo_if_needed rm -f "$prefix/current.next"
+  sudo_if_needed ln -sfn "$1" "$prefix/current"
+}
+
+point_current_at "$target"
 
 if [[ "$action" == "install" ]]; then
   # The whole name, so a service called bloom-something does not count as this one.
@@ -128,8 +146,7 @@ done
 
 rm -f "$marker"
 if [[ -n "$previous" ]]; then
-  sudo_if_needed ln -sfn "$previous" "$prefix/current.next"
-  sudo_if_needed mv -T "$prefix/current.next" "$prefix/current"
+  point_current_at "$previous"
   "$service_tool" services restart bloom
   fail "$version did not answer $health_url within 20 seconds; went back to $previous"
 fi
