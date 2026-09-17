@@ -24,14 +24,14 @@ struct MachineSetupTests {
         let orderFile: String
         let gitConfig: String
 
-        func setup(timeouts: MachineSetup.Timeouts = .standard) throws -> MachineSetup {
+        func setup(timeouts: MachineSetup.Timeouts = .standard, origin: String? = nil) throws -> MachineSetup {
             let configuration = try JSONDecoder().decode(MachineConfiguration.self, from: Data("""
             {"workspace_id": "01k5bx7j9d3v2r8q6m4n0p1s2w", "issuer": "https://runbloom.test", "jwks_url": "https://runbloom.test/jwks",
              "base_url": "https://runbloom.test", "workspace_secret": "secret", "allowed_origins": [],
              "public_url": "https://bloom-test.sprites.app", "repository": "spatie/example", "branch": "feature/queue",
              "base_branch": "main", "name": "Queue"}
             """.utf8))
-            let origin = origin
+            let origin = origin ?? self.origin
             return MachineSetup(
                 runtime: runtime, store: store, configuration: configuration, layout: layout,
                 environment: MachineEnvironment { ["ORDER_FILE": orderFile, "TEAM_VALUE": "from the team"] },
@@ -179,6 +179,41 @@ struct MachineSetupTests {
         #expect(try await fixture.store.setting(MachineSetup.completedSetting) == nil)
         #expect(await fixture.services.status.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.orderFile + ".service"))
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a run the machine was stopped in the middle of is added to, not started over")
+    func aSecondRunKeepsTheFirstOutput() async throws {
+        let settings = """
+        [scripts]
+        setup = "echo second attempt"
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        // What a machine stopped mid setup leaves behind: the row still running, with its output.
+        _ = try await fixture.store.update(workspaceID: fixture.runtime.workspaceID) { workspace in
+            workspace.apply(.runStarted)
+            workspace.apply(.runProgressed(log: "[bloom] Cloning the repository.\nfirst attempt"))
+        }
+        try await fixture.setup().run()
+
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupState == .succeeded)
+        #expect(workspace.setupLog.contains("first attempt"), "The interrupted run's output is kept")
+        #expect(workspace.setupLog.contains("second attempt"))
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a clone that fails says what to check, and the next start clones again")
+    func cloneFailureExplainsItself() async throws {
+        let fixture = try await fixture(files: ["README.md": "example"])
+        let setup = try fixture.setup(origin: "/nowhere/not-a-repository.git")
+        await setup.runWholeSequence()
+
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupState == .failed)
+        #expect(workspace.setupLog.contains("spatie/example could not be cloned"))
+        #expect(workspace.setupLog.contains("GitHub App is installed for it"))
+        #expect(try await fixture.store.setting(MachineSetup.clonedSetting) == nil, "A half-made clone is not taken for a whole one")
         await fixture.runtime.shutdown()
     }
 

@@ -136,7 +136,10 @@ public actor MachineSetup {
         let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
         await configureGit(environment: environment, log: log)
 
-        var succeeded = await cloneIfNeeded(environment: environment, log: log)
+        // A run the machine was stopped in the middle of left its output in the row; a person
+        // watching setup should see this run added to it rather than the first attempt vanishing.
+        let interrupted = (try? await store.workspace(id: runtime.workspaceID))?.setupState == .running
+        var succeeded = await cloneIfNeeded(environment: environment, log: log, continuing: interrupted)
         let scripts = MachineScripts.load(repo: layout.worktree)
         if succeeded {
             for problem in scripts.problems { await log.note(problem) }
@@ -146,7 +149,7 @@ public actor MachineSetup {
                 ("resume", scripts.resume, timeouts.resume),
             ]
             for (name, launch, timeout) in steps where succeeded {
-                succeeded = await runScript(name, launch, timeout: timeout, environment: environment, log: log, continuing: false)
+                succeeded = await runScript(name, launch, timeout: timeout, environment: environment, log: log, continuing: interrupted)
             }
         }
         if await interruptedByShutdown(log: log) { return false }
@@ -254,13 +257,13 @@ public actor MachineSetup {
     /// start would otherwise run the scripts on the default branch of a half-made repository.
     static let clonedSetting = "remote.setup.cloned"
 
-    private func cloneIfNeeded(environment: [String: String], log: SetupLog) async -> Bool {
+    private func cloneIfNeeded(environment: [String: String], log: SetupLog, continuing: Bool = false) async -> Bool {
         let worktree = layout.worktree
         let cloned = (try? await store.setting(Self.clonedSetting)) == "1"
         // A setup that once completed had a whole clone, whatever the marker says.
         let completed = (try? await store.setting(Self.completedSetting)) == "1"
         if FileManager.default.fileExists(atPath: worktree + "/.git") && (cloned || completed) { return true }
-        await begin("clone", log: log, continuing: false)
+        await begin("clone", log: log, continuing: continuing)
         // Only an earlier attempt of this step has written here. Prompts wait for setup, so before
         // the clone is marked finished there is no work of anybody's in it to lose.
         try? FileManager.default.removeItem(atPath: worktree)
@@ -282,7 +285,14 @@ public actor MachineSetup {
                 : ["checkout", "--no-track", "-B", branch, "origin/\(configuration.baseBranch)"]
             succeeded = await runProcess("git", arguments, directory: worktree, timeout: .seconds(5 * 60), environment: environment, log: log)
         }
-        if succeeded, !Task.isCancelled { try? await store.setSetting(Self.clonedSetting, "1") }
+        if succeeded, !Task.isCancelled {
+            try? await store.setSetting(Self.clonedSetting, "1")
+        } else if !Task.isCancelled {
+            // git's own message says what went wrong to somebody who knows git; this says what to
+            // do about the two that a person can act on.
+            await log.note("\(configuration.repository) could not be cloned. Check that the repository still exists and that "
+                + "Bloom's GitHub App is installed for it, then run setup again.")
+        }
         await log.endStep()
         return succeeded
     }

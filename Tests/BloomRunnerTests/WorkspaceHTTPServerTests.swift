@@ -218,6 +218,33 @@ struct WorkspaceHTTPServerTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("the page behind a preview that shows nothing names the services, and only to somebody let in")
+    func previewUnavailable() async throws {
+        let fixture = try await fixture()
+        let verifier = TokenVerifier(issuer: fixture.issuer.issuer, workspaceID: fixture.issuer.workspaceID, keys: fixture.issuer.keySet())
+        let server = WorkspaceHTTPServer(dependencies: .init(
+            runtime: fixture.runtime, verifier: verifier, gate: UngatedTurns(), control: fixture.control, store: fixture.store,
+            allowedOrigins: [], version: "1.2.3",
+            services: { [.init(name: "vite", state: .crashed, restarts: 3, message: "Exited with status 1. Starting again in 5 s.")] }
+        ))
+        try await server.application(port: 0).test(.router) { client in
+            let cookie = try await client.execute(uri: "/_bloom/preview/enter?token=\(fixture.issuer.preview())", method: .get) { response -> String in
+                String((response.headers[.setCookie] ?? "").split(separator: ";")[0])
+            }
+            try await client.execute(uri: "/_bloom/preview/unavailable", method: .get, headers: [.cookie: cookie]) { response in
+                let text = String(buffer: response.body)
+                #expect(response.status == .badGateway)
+                #expect(text.contains("vite: crashed after 3 restarts. Exited with status 1."))
+            }
+            try await client.execute(uri: "/_bloom/preview/unavailable", method: .get) { response in
+                let text = String(buffer: response.body)
+                #expect(response.status == .badGateway)
+                #expect(!text.contains("vite"), "Without the cookie it names nothing of the project")
+            }
+        }
+        await fixture.runtime.shutdown()
+    }
+
     @Test("the event stream sends SSE frames with the stream's id in a header, and ends when the machine sleeps")
     func eventStream() async throws {
         let fixture = try await fixture()

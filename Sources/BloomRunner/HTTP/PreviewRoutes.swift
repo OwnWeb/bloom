@@ -15,7 +15,34 @@ import Hummingbird
 enum PreviewRoutes {
     static let cookieName = "__Host-bloom-preview"
 
-    static func register(on router: Router<WorkspaceRequestContext>, verifier: TokenVerifier, sessions: PreviewSessions, runtime: WorkspaceRuntime) {
+    static func register(on router: Router<WorkspaceRequestContext>, verifier: TokenVerifier, sessions: PreviewSessions,
+                         runtime: WorkspaceRuntime, services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] }) {
+        // What Caddy shows instead of its own 502 when the project's app is not listening. A person
+        // who opens the preview and sees a bare gateway error has no way to find out that the app
+        // crashed at boot; the supervisor knows, so it says so. Only somebody who got past the
+        // preview check reaches it, and it names nothing but the services from the project's own
+        // settings file and how they ended.
+        router.get("/_bloom/preview/unavailable") { request, _ -> Response in
+            var lines = ["The app in this Cloud workspace is not answering yet."]
+            // The services are named only to somebody the preview let in. Caddy reaches this with
+            // the original request, but a request straight to this path has no cookie and is told
+            // nothing about the project.
+            guard let cookie = Self.cookie(in: request), await sessions.subject(for: cookie) != nil else {
+                return Self.plain(lines.joined(separator: "\n") + "\n")
+            }
+            let statuses = await services()
+            if statuses.isEmpty {
+                lines.append("No services are configured in .bloom/settings.toml, so nothing was started for it.")
+            } else {
+                lines.append("")
+                for status in statuses {
+                    let restarts = status.restarts > 0 ? " after \(status.restarts) restart\(status.restarts == 1 ? "" : "s")" : ""
+                    lines.append("\(status.name): \(status.state.rawValue)\(restarts). \(status.message ?? "")".trimmingCharacters(in: .whitespaces))
+                }
+            }
+            return Self.plain(lines.joined(separator: "\n") + "\n")
+        }
+
         router.get("/_bloom/preview/enter") { request, _ -> Response in
             guard let raw = request.uri.queryParameters.get("token") else { return notAllowed() }
             let token: WorkspaceToken
@@ -67,5 +94,12 @@ enum PreviewRoutes {
         headers[.cacheControl] = "no-store"
         let text = "This preview has to be opened from Bloom.\n"
         return Response(status: .unauthorized, headers: headers, body: .init(byteBuffer: ByteBuffer(string: text)))
+    }
+
+    private static func plain(_ text: String) -> Response {
+        var headers = HTTPFields()
+        headers[.contentType] = "text/plain; charset=utf-8"
+        headers[.cacheControl] = "no-store"
+        return Response(status: .badGateway, headers: headers, body: .init(byteBuffer: ByteBuffer(string: text)))
     }
 }

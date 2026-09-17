@@ -210,8 +210,16 @@ def main():
         scratch = pathlib.Path(scratch)
         try:
             step(f"creating {name} in {ORGANISATION}")
-            subprocess.run([SPRITE, "create", "-o", ORGANISATION, "--skip-console", name], check=True, capture_output=True, timeout=120)
-            created = True
+            # The provider's API has refused a create and timed out on a delete for minutes at a
+            # time; a test that gives up on the first of those tells you nothing about the runner.
+            for attempt in range(5):
+                created = subprocess.run([SPRITE, "create", "-o", ORGANISATION, "--skip-console", name],
+                                         capture_output=True, timeout=180).returncode == 0
+                if created:
+                    break
+                if attempt == 4:
+                    raise RuntimeError(f"the provider would not create {name}")
+                time.sleep(15)
             sprite(name, "url", "update", "--auth", "public")
             url = wait_for("the machine has a URL", lambda: next(
                 (word for word in sprite(name, "url").split() if word.startswith("https://")), None), 60)
