@@ -576,3 +576,47 @@ import Testing
         #expect(CloudChecksWording.freshness(fetchedAt: nil, isStale: false, now: now) == nil)
     }
 }
+
+@Suite struct CloudRunnerNoticeTests {
+    private let at = Date(timeIntervalSince1970: 1_700_000_000)
+
+    @Test func aRollbackUnderwayCannotBePutAway() {
+        let banner = CloudConnectionBanner.ofRunner(CloudRunnerNotice(
+            kind: CloudRunnerNotice.beingRolledBack,
+            message: "Version 0.2.0 did not start, so Bloom is putting this Cloud workspace back on 0.1.9.", at: at
+        ))
+        #expect(banner?.tone == .progress)
+        #expect(banner?.dismissalKey == nil)
+        #expect(banner?.message?.contains("0.1.9") == true)
+    }
+
+    @Test func anOutcomeRestsAndCanBePutAway() {
+        let back = CloudConnectionBanner.ofRunner(CloudRunnerNotice(
+            kind: CloudRunnerNotice.rolledBack, message: "This Cloud workspace is running 0.1.9 again.", at: at
+        ))
+        #expect(back?.tone == .caution)
+        #expect(back?.dismissalKey != nil)
+
+        let failed = CloudConnectionBanner.ofRunner(CloudRunnerNotice(
+            kind: CloudRunnerNotice.failed, message: "The update failed and could not be undone.", at: at
+        ))
+        #expect(failed?.tone == .failure)
+        #expect(failed?.dismissalKey != nil)
+        #expect(failed?.dismissalKey != back?.dismissalKey, "two different outcomes are two different banners")
+    }
+
+    /// The sentence is runbloom.app's, so nothing here writes one of its own, and a notice with
+    /// nothing in it is no banner rather than an empty one.
+    @Test func theSentenceIsShownAsItStands() {
+        let notice = CloudRunnerNotice(kind: CloudRunnerNotice.failed, message: "Anything at all.", at: at)
+        #expect(CloudConnectionBanner.ofRunner(notice)?.message == "Anything at all.")
+        #expect(CloudConnectionBanner.ofRunner(CloudRunnerNotice(kind: CloudRunnerNotice.failed, message: "")) == nil)
+        #expect(CloudConnectionBanner.ofRunner(nil) == nil)
+    }
+
+    @Test func aKindThisVersionDoesNotKnowIsStillSaid() {
+        let banner = CloudConnectionBanner.ofRunner(CloudRunnerNotice(kind: "update_paused", message: "Something new.", at: at))
+        #expect(banner?.message == "Something new.")
+        #expect(banner?.dismissalKey != nil)
+    }
+}

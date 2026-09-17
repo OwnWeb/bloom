@@ -27,6 +27,9 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
     public var summary: CloudWorkspaceSummary?
     public var createdAt: Date?
     public var archivedAt: Date?
+    /// What happened when the machine last tried to update itself, when that is worth saying. Nil
+    /// almost always. See `CloudRunnerNotice`.
+    public var runnerNotice: CloudRunnerNotice?
 
     public init(
         id: String, teamID: String, name: String, project: ProjectReference? = nil, branch: String, baseBranch: String = "main",
@@ -70,6 +73,7 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         case canArchive = "can_archive"
         case createdAt = "created_at"
         case archivedAt = "archived_at"
+        case runnerNotice = "runner_notice"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -92,6 +96,9 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         summary = try? c.decodeIfPresent(CloudWorkspaceSummary.self, forKey: .summary)
         createdAt = try c.decodeIfPresent(RunbloomDate.self, forKey: .createdAt)?.date
         archivedAt = try c.decodeIfPresent(RunbloomDate.self, forKey: .archivedAt)?.date
+        // Read tolerantly, for the reason the summary is: a notice this version cannot read must
+        // not cost the whole list.
+        runnerNotice = try? c.decodeIfPresent(CloudRunnerNotice.self, forKey: .runnerNotice)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -112,6 +119,7 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(summary, forKey: .summary)
         try c.encodeIfPresent(createdAt.map(RunbloomDate.init), forKey: .createdAt)
         try c.encodeIfPresent(archivedAt.map(RunbloomDate.init), forKey: .archivedAt)
+        try c.encodeIfPresent(runnerNotice, forKey: .runnerNotice)
     }
 
     /// The name to draw: the summary's title once the machine has named the workspace, which is

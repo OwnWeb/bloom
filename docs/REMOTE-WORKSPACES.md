@@ -1145,6 +1145,15 @@ because GitHub answers null while it is still working it out, and null is "not k
 than "no"; and the same count is `passed` in the pull request body and `succeeded` in the checks
 body, which is a wart of runbloom.app's and is read in one place here rather than papered over.
 
+**A machine that put itself back says so.** A Cloud workspace's machine updates itself, and when a
+new version will not start it restores the previous one. runbloom.app reports that as
+`runner_notice` on the workspace, in three kinds: being rolled back, rolled back, and the update
+failed. The first is drawn as progress and cannot be put away, because it ends by itself and is
+replaced by its outcome; the other two rest, and are dismissed on the same rule as a failed setup.
+The sentence is runbloom.app's own and is drawn as it stands, because it names versions this Mac
+does not know. A workspace quietly running an older version than anybody thinks is what produces a
+bug report nobody can reproduce.
+
 **History is the machine's own `git log`.** `history` pages the branch's commits and `commit_files`
 answers the files of the row somebody opened, so the History tab draws the rows it has always drawn.
 Two differences from a local workspace, both said where they matter: Load earlier commits pages from

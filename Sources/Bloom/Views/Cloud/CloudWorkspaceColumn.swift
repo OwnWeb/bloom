@@ -49,6 +49,14 @@ struct CloudWorkspaceColumn: View {
             }
             // What setup is doing, which is the only account of a machine's first few minutes and
             // the only way back from a setup that failed.
+            // What the machine's last update attempt did, when that is worth saying. Above setup
+            // because a workspace put back on an older version explains a setup that then behaved
+            // oddly, and below the connection because nothing can be read at all until that is up.
+            if let banner = shown(CloudConnectionBanner.ofRunner(item?.runnerNotice), on: session) {
+                CloudBannerView(banner: banner, onDismiss: { app.cloud.dismiss(banner, for: session.id) }) {
+                    take($0, on: session)
+                }
+            }
             if let banner = shown(CloudConnectionBanner.ofSetup(
                 session.state.setup, isWatching: session.isShowingSetup, canRunSetup: session.allows("files")
             ), on: session) {

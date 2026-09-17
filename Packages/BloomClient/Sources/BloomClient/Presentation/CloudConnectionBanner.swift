@@ -144,6 +144,27 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         }
     }
 
+    /// What the machine's last update attempt is worth saying, or nil when there is nothing to
+    /// say. The sentence is runbloom.app's own; what is decided here is how loudly it is drawn and
+    /// whether it can be put away.
+    ///
+    /// A rollback in progress cannot be dismissed, because it ends by itself and is replaced by its
+    /// outcome. The two outcomes can, on the same rule as a failed setup: they do not end by
+    /// themselves and they do not stop the workspace working.
+    public static func ofRunner(_ notice: CloudRunnerNotice?) -> CloudConnectionBanner? {
+        guard let notice, !notice.message.isEmpty else { return nil }
+        if notice.isUnderway {
+            return CloudConnectionBanner(tone: .progress, title: "Putting this Cloud workspace back…", message: notice.message)
+        }
+        let isFailure = notice.kind == CloudRunnerNotice.failed
+        return CloudConnectionBanner(
+            tone: isFailure ? .failure : .caution,
+            title: isFailure ? "This Cloud workspace could not be updated" : "This Cloud workspace was put back on an older version",
+            message: notice.message,
+            dismissalKey: "runner:\(notice.kind):\(notice.at?.timeIntervalSince1970.rounded() ?? 0)"
+        )
+    }
+
     private static let stepNames = [
         "clone": "cloning the repository", "prepare": "preparing the machine", "setup": "running the project's setup",
         "resume": "resuming", "services": "starting the project's services",
