@@ -55,6 +55,24 @@ struct KeySetTests {
         #expect(await keys.key(for: old.keyID) != nil)
     }
 
+    @Test func aWithdrawnKeyStopsBeingHonouredWithinTheHour() async {
+        let old = TestTokenIssuer()
+        let rotated = TestTokenIssuer()
+        let server = FakeJWKS(.keys(TestTokenIssuer.jwks([old, rotated])))
+        let keys = server.keySet(clock: clock)
+        #expect(await keys.key(for: old.keyID) != nil)
+
+        server.answer(.keys(rotated.jwks))
+        clock.advance(by: 30 * 60)
+        #expect(await keys.key(for: old.keyID) != nil, "Within the hour the cached key still answers")
+        #expect(server.fetches == 1)
+
+        clock.advance(by: 30 * 60)
+        #expect(await keys.key(for: old.keyID) == nil)
+        #expect(await keys.key(for: rotated.keyID) != nil)
+        #expect(server.fetches == 2)
+    }
+
     @Test func aNotFoundKeySetRefusesEverythingAndIsNotRefetchedWithinTheMinute() async {
         let issuer = TestTokenIssuer()
         let server = FakeJWKS(.notFound)

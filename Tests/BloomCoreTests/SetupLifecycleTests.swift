@@ -64,6 +64,18 @@ struct SetupLifecycleTests {
         #expect(SetupState.skipped.transition(on: .runSkipped(note: nil)) == .unchanged)
     }
 
+    @Test("output lands on a run that is going, and never on one that has been filed")
+    func progressDuringARun() {
+        var running = workspace(.running, log: "")
+        #expect(running.apply(.runProgressed(log: "Reading package lists")) == .unchanged)
+        #expect(running.setupState == .running)
+        #expect(running.setupLog == "Reading package lists")
+
+        var finished = workspace(.succeeded, log: "done")
+        #expect(finished.apply(.runProgressed(log: "a late batch")) == .refused)
+        #expect(finished.setupLog == "done")
+    }
+
     // MARK: - Recovery, which is in the table rather than around it
 
     /// Commit 89e8d35. A setup script is a child of this process, so a row still `running` at

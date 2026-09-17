@@ -28,7 +28,7 @@ struct WorkspaceHTTPServerTests {
                                                                  repository: "spatie/bloom", path: path, branch: "queue-retries", baseBranch: "main")
         let session = try await store.upsert(Session(workspaceID: workspace.id, title: "Chat"))
         let runtime = WorkspaceRuntime(store: store, workspaceID: workspace.id, gate: UngatedTurns(),
-                                       makeRunner: { _, _, _, _ in NeverRunner() }, installedAgents: { [.claudeCode] }, models: { _ in [] })
+                                       makeRunner: { _, _, _, _, _ in NeverRunner() }, installedAgents: { [.claudeCode] }, models: { _ in [] })
         try await runtime.start()
         let control = RecordingControl()
         let verifier = TokenVerifier(issuer: issuer.issuer, workspaceID: issuer.workspaceID, keys: issuer.keySet())
@@ -88,14 +88,17 @@ struct WorkspaceHTTPServerTests {
         let fixture = try await fixture()
         let token = fixture.issuer.session(userID: "01k5a7c2b0z9y8x7w6v5t4s3rz", name: "Seb")
         let request = try Self.body(CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Hello")))
-        try await fixture.server.application(port: 0).test(.router) { client in
-            try await client.execute(uri: "/_bloom/v1/rpc", method: .post, headers: Self.bearer(token), body: request) { response in
+        let promptID = try await fixture.server.application(port: 0).test(.router) { client in
+            try await client.execute(uri: "/_bloom/v1/rpc", method: .post, headers: Self.bearer(token), body: request) { response -> String? in
                 let reply = try WireJSON.decode(CommandReply.self, from: Data(buffer: response.body))
-                guard case .queued = reply.result else { Issue.record("Not queued: \(String(buffer: response.body))"); return }
+                guard case .queued(let id) = reply.result else { Issue.record("Not queued: \(String(buffer: response.body))"); return nil }
+                return id
             }
         }
-        let queued = try await fixture.store.pendingDeliveries(sessionID: fixture.session.id)
-        #expect(queued.first?.author == MessageAuthor(userID: "01k5a7c2b0z9y8x7w6v5t4s3rz", name: "Seb"))
+        // Looked up by the id the reply gave rather than read off the queue, which the drain may
+        // already have emptied.
+        let delivery = try await fixture.store.delivery(id: DeliveryID(try #require(promptID)))
+        #expect(delivery?.author == MessageAuthor(userID: "01k5a7c2b0z9y8x7w6v5t4s3rz", name: "Seb"))
         await fixture.runtime.shutdown()
     }
 

@@ -23,7 +23,7 @@ struct AwakeControllerTests {
         try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         let workspace = try await RemoteMachineWorkspace.ensure(store: store, id: "01k5a7d3v1x0m8n2q4r6s9t0wy", name: "Queue retries",
                                                                  repository: "spatie/bloom", path: path, branch: "queue-retries", baseBranch: "main")
-        let runtime = WorkspaceRuntime(store: store, workspaceID: workspace.id, makeRunner: { _, _, _, _ in NeverRunner() },
+        let runtime = WorkspaceRuntime(store: store, workspaceID: workspace.id, makeRunner: { _, _, _, _, _ in NeverRunner() },
                                        installedAgents: { [.claudeCode] }, models: { _ in [] })
         try await runtime.start()
         let host = RecordingHost()

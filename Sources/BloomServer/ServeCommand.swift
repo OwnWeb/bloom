@@ -31,7 +31,7 @@ public enum ServeCommand {
         let binDirectory = layout.dataDirectory + "/bin"
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id, gate: gate,
-            makeRunner: { session, path, store, environment in
+            makeRunner: { session, path, store, environment, bridge in
                 // Every agent process can find the gh wrapper first and says which chat it is, which
                 // is how its git credentials are asked for as whoever's turn it is running.
                 var extra = environment
@@ -40,8 +40,14 @@ public enum ServeCommand {
                 extra["BLOOM_DATA_DIR"] = layout.dataDirectory
                 extra["BLOOM_SERVER_PORT"] = String(layout.serverPort)
                 extra["PATH"] = binDirectory + ":" + (environment["PATH"] ?? Shell.environment()["PATH"] ?? "/usr/bin:/bin")
-                return RemoteRunnerFactory.live(session, path, store, extra)
-            }
+                return RemoteRunnerFactory.live(session, path, store, extra, bridge)
+            },
+            publishing: RemotePublishing { turnID in
+                try await client.gitCredentials(repository: configuration.repository, operation: .write, turnID: turnID).token
+            },
+            // Short and under the data directory, because a Unix socket path has a length limit and
+            // only the machine's own user should reach it. The shim is bloom-bridge beside this binary.
+            bridgeSocketPath: layout.dataDirectory + "/bridge.sock"
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()
         let delivery = ReportDelivery(sender: .init(client: client))
@@ -94,12 +100,37 @@ public enum ServeCommand {
             }
         ))
 
+        let services = ServiceSupervisor(layout: layout)
+        let caddy = CaddySupervisor(layout: layout, publicURL: configuration.publicURL)
+        let setup = MachineSetup(runtime: runtime, store: store, configuration: configuration, layout: layout,
+                                 environment: machineEnvironment, services: services)
+        await machineEnvironment.observe { _ in await setup.restartServices() }
+        // Caddy first, so the machine's URL answers while setup runs; a machine without it still
+        // serves bloom-server on its own port, which is what development on a Mac does.
+        do {
+            try await caddy.start()
+        } catch {
+            FileHandle.standardError.write(Data("bloom-server: \(error)\n".utf8))
+        }
+
+        let measurements = WorktreeMeasurements(runtime: runtime, reporter: reporter)
         await awake.start()
-        let application = server.application(port: layout.serverPort)
+        await measurements.start()
+        // After the first summary and with the server about to listen, so setup can be watched live.
+        let setupRun = Task { await setup.run() }
+        // An update waits for this file to go: deleting it once listening is how a new release says
+        // it came up, which works whether or not the script that restarted the service survived it.
+        let application = server.application(port: layout.serverPort) { _ in
+            try? FileManager.default.removeItem(atPath: environment["BLOOM_UPDATE_MARKER"] ?? "/var/tmp/bloom-update-pending")
+        }
         try await application.runService()
 
         // SIGTERM: a limit's grace ran out, an update is restarting the service, or the machine is
         // being deleted. Stop turns, report what can be reported, and go.
+        setupRun.cancel()
+        await measurements.stop()
+        await services.stopAll()
+        await caddy.stop()
         await awake.shutdown()
         await runtime.shutdown()
         await delivery.shutdown()

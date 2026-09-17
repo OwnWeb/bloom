@@ -32,6 +32,11 @@ extension WorkspaceRuntime {
         return await promptQueue?.runningTurn(SessionID(chat))
     }
 
+    /// The workspace row as it stands, for measurements the machine's server makes of it.
+    public func currentWorkspace() async throws -> Workspace {
+        try await workspace()
+    }
+
     public func observeActivity(_ observer: @escaping @Sendable (RemoteActivityEvent) async -> Void) {
         activityObserver = observer
     }

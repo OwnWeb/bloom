@@ -33,6 +33,10 @@ public enum SetupEvent: Sendable, Hashable {
     /// reports an outcome without one, which is the half-written failure this design exists to
     /// stop: `.failed` with nothing to read is a state the next reader treats as whole.
     case runFinished(succeeded: Bool, log: String)
+    /// More output from the run in progress. Only a Cloud workspace's machine sends this: its
+    /// clients watch setup through an event stream fed by the row's log growing, where the Mac
+    /// holds a running setup's output in its window and writes the row once, at the end.
+    case runProgressed(log: String)
     /// There was nothing to run: no setup script in the settings file, or a settings file naming a
     /// script that is not there. The note is that second case, and it is what the workspace's setup
     /// log says instead of the output it never got.
@@ -53,7 +57,7 @@ public enum SetupEvent: Sendable, Hashable {
         switch self {
         case .runStarted:
             nil
-        case .runFinished:
+        case .runFinished, .runProgressed:
             nil
         case .runSkipped(let note):
             note
@@ -112,6 +116,11 @@ public extension SetupState {
             guard self == .running else { return .refused }
             return .moves(to: succeeded ? .succeeded : .failed)
 
+        // Output belongs to a run that is going. Anything else is a late batch from a run that has
+        // already been filed, and writing it would put one run's output under another's outcome.
+        case .runProgressed:
+            return self == .running ? .unchanged : .refused
+
         case .runSkipped:
             if self == .running { return .refused }
             return self == .skipped ? .unchanged : .moves(to: .skipped)
@@ -157,6 +166,7 @@ public extension Workspace {
             return outcome
 
         case .unchanged:
+            if case .runProgressed(let log) = event { setupLog = Self.capped(log) }
             return outcome
 
         case .moves(let next):
@@ -199,6 +209,7 @@ extension SetupEvent {
         switch self {
         case .runStarted: "runStarted"
         case .runFinished(let succeeded, _): succeeded ? "runFinished(succeeded)" : "runFinished(failed)"
+        case .runProgressed: "runProgressed"
         case .runSkipped: "runSkipped"
         case .runInterrupted: "runInterrupted"
         case .worktreeRebuilt(let hasSetupScript): "worktreeRebuilt(hasSetupScript: \(hasSetupScript))"

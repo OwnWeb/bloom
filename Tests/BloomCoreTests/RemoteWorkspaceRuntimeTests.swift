@@ -27,7 +27,7 @@ struct RemoteWorkspaceRuntimeTests {
         let runners = RemoteTestRunners()
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id, gate: gate,
-            makeRunner: { session, _, store, environment in runners.make(session: session, store: store, environment: environment) },
+            makeRunner: { session, _, store, environment, _ in runners.make(session: session, store: store, environment: environment) },
             installedAgents: { [.claudeCode, .codex] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50)
         )
         try await runtime.start()

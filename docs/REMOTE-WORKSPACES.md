@@ -379,9 +379,12 @@ cannot set labels, so the mapping from Sprite to workspace lives in its database
 sweep deletes a Sprite no Machine owns only when its whole name matches
 `^bloom-[0-9a-hjkmnp-tv-z]{26}$`, never on the prefix alone.
 
-Production, development and tests share the one Fly organisation, and there is no staging
-environment: end-to-end testing runs against runbloom.app itself behind its access and
-configuration switches. So the names keep them apart. Machines created by local development are
+Production Cloud workspaces run in a Fly organisation of their own, `spatie`, created and billed
+separately. Development and tests run in another, `freek-van-der-herten`, which is the one the
+Sprites CLI on the owner's Mac is signed in to. There is no staging environment: end-to-end testing
+runs against runbloom.app itself behind its access and configuration switches. The names keep
+machines apart as well, so a mistake in which organisation a tool points at still cannot touch the
+wrong machine. Machines created by local development are
 named `bloomdev-<...>` and by automated tests `bloomtest-<...>`; neither starts with `bloom-`, so
 the production sweep cannot match them however it is written, and nothing that creates or sweeps
 development or test machines can match a production one. A test deletes what it created in its
@@ -807,8 +810,9 @@ Measured on real Sprites before implementation started, as the owner asked.
 - Fly and Sprites are invisible to users: one organisation and one token, owned by runbloom.app.
 - Two pull requests, server then Mac client, each from main, porting from #163 selectively.
 - The user-facing name is Cloud workspace.
-- One Fly organisation for production, development and tests, kept apart by machine name prefixes.
-  No staging environment.
+- Production runs in its own Fly organisation, `spatie`; development and tests run in
+  `freek-van-der-herten`, and machine name prefixes keep them apart as well. No staging environment.
+  Nothing on the machine depends on which organisation it is in.
 - A web interface, when it comes, lives in runbloom.app on the same accounts and this contract.
 
 ## Decided while building
@@ -863,6 +867,19 @@ and its builder confirmed them.
   home directory, which belongs to the machine rather than to anybody's preferences.
 - **The protocol schema is checked without a JSON Schema package.** `Protocol/v1/schema.py`
   validates the subset the schema uses, so the check runs in CI's lint job with nothing installed.
+- **runbloom.app installs, the machine updates.** runbloom.app's bootstrap execs
+  `bash -s -- <version> <sha256>` with its own script, unpacks
+  `bloom-server-linux-x86_64-<version>.tar.gz` from the `v<version>` release (its `bin/` at the
+  archive's root) into `/opt/bloom/<version>`, links `/opt/bloom/current`, and creates the `bloom`
+  service running `/opt/bloom/current/bin/bloom-server serve` with no arguments, which reads
+  `/etc/bloom/workspace.json`. `control/update` does not run that again: the machine installs the
+  release with `bin/bootstrap-machine.sh update`, restarts its service and rolls back itself. A
+  release must publish the archive and a `.sha256` beside it in `sha256sum` format, or machine
+  creation fails. Control calls time out after 15 seconds on runbloom.app's side, so each answers
+  before doing slow work.
+- **For the Mac client:** a session token answers `{data: {token, expires_at, machine_url, awake,
+  abilities}}`, a preview token `{data: {token, expires_at, enter_url}}`; 409 `machine_not_ready`
+  also covers a failed or not yet created machine, and 409 `workspace_archived` an archived one.
 - **Linux runs the core tests the server needs, by name.** `Package.swift` lists them, so a test
   written on a Mac about the window cannot fail a Linux job its author never thought about.
 

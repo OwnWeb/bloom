@@ -99,6 +99,7 @@ extension WorkspaceRuntime {
         let session = try await storedSession(id)
         guard session.archivedAt == nil else { return }
         try await stop(id)
+        await crewChatClosing(session, notifyingParent: notifyingParent)
         await sessions[id]?.shutdown()
         sessions.removeValue(forKey: id)
         _ = try await store.update(sessionID: id) { $0.archivedAt = Date() }

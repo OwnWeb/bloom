@@ -29,6 +29,7 @@ public actor WorkspaceRuntime {
     let installedAgents: AgentDiscovery
     let models: ModelDiscovery
     let runnerExitGrace: Duration
+    let publishing: RemotePublishing?
     public nonisolated let events: RemoteEventHub
     let admissions = RemoteAdmissions()
     let reviewCache = RemoteReviewCache()
@@ -61,6 +62,12 @@ public actor WorkspaceRuntime {
     /// `WorkspaceRuntime+Reporting`.
     var activityObserver: (@Sendable (RemoteActivityEvent) async -> Void)?
     var lastSetupSucceeded: Bool?
+    /// Where the agent bridge listens, or nil for no bridge tools at all, which is what tests and
+    /// anything but a machine want. See `WorkspaceRuntime+Bridge`.
+    let bridgeSocketPath: String?
+    /// The `bloom-bridge` binary each agent's MCP configuration names. Nil also means no bridge.
+    let bridgeShimPath: String?
+    var bridge: BridgeServer?
 
     public init(
         store: Store,
@@ -69,8 +76,14 @@ public actor WorkspaceRuntime {
         makeRunner: @escaping RemoteRunnerFactory.Make = RemoteRunnerFactory.live,
         installedAgents: @escaping AgentDiscovery = WorkspaceRuntime.installedAgents,
         models: @escaping ModelDiscovery = WorkspaceRuntime.liveModels,
-        runnerExitGrace: Duration = .seconds(6)
+        publishing: RemotePublishing? = nil,
+        runnerExitGrace: Duration = .seconds(6),
+        bridgeSocketPath: String? = nil,
+        bridgeShimPath: String? = BridgeRegistration.shimPath()
     ) {
+        self.bridgeSocketPath = bridgeSocketPath
+        self.bridgeShimPath = bridgeShimPath
+        self.publishing = publishing
         self.store = store
         self.workspaceID = workspaceID
         self.gate = gate
@@ -88,6 +101,7 @@ public actor WorkspaceRuntime {
     /// Picks up where a previous run of the server left off and starts publishing events.
     public func start() async throws {
         guard observation == nil else { return }
+        try startBridge()
         publishedCursor = try await store.latestMessageID(workspaceID: workspaceID)
         try await refreshPublishedState(publishing: false)
         try await queue().restore(sessions: chatIDs())
@@ -231,6 +245,7 @@ public actor WorkspaceRuntime {
         let running = Array(commands.values)
         for command in running { command.cancel() }
         await promptQueue?.shutdown()
+        stopBridge()
         await reviewCache.shutdown()
         await terminalService?.shutdown()
         let live = Array(sessions.values)
@@ -297,10 +312,15 @@ public actor WorkspaceRuntime {
             let session = try await self.storedSession(id)
             guard session.archivedAt == nil else { throw RemoteFailure(.unavailable, "This conversation is closed.") }
             let workspace = try await self.workspace()
-            let store = self.store, make = self.makeRunner
+            let store = self.store, make = self.makeRunner, bridge = self.bridge, shimPath = self.bridgeShimPath
             return RemoteSession(
                 runnerExitGrace: self.runnerExitGrace,
-                make: { environment in make(session, workspace.path, store, environment) },
+                make: { environment in
+                    // Per process rather than per chat, because a relaunch on another key is a new
+                    // process and registering is what revokes the token the old one held.
+                    let handle = bridge.flatMap { Self.registerBridge($0, shimPath: shimPath, session: session, workspace: workspace) }
+                    return make(session, workspace.path, store, environment, handle)
+                },
                 onStream: { [weak self] text, reset in await self?.streamed(id, text: text, reset: reset) },
                 onTurnEnded: { [weak self] ending in await self?.queue().turnEnded(id, ending: ending) }
             )
@@ -318,6 +338,7 @@ public actor WorkspaceRuntime {
 
     /// Called when a turn comes to rest, after the queue has ended runbloom.app's turn.
     func turnSettled(_ id: SessionID, ending: RemoteTurnEnd) async {
+        await reportToParent(id, ending: ending)
         await report(.turnFinished(chat: id))
     }
 

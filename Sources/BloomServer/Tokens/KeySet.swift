@@ -27,6 +27,11 @@ public struct KeySetFetchFailure: Error, Sendable, Hashable {
 /// random `kid`s would become a stream of requests to runbloom.app. Every attempt counts toward
 /// it, a 404 or a failure as much as a success.
 ///
+/// A known key is also checked again once `maximumAge` has passed since the last successful fetch,
+/// so a key runbloom.app withdrew stops being honoured within the hour on a machine that stays up
+/// for days, rather than at its next restart. runbloom.app keeps a retired key published for a day
+/// after it stops signing, so this never refuses a token that was fine.
+///
 /// A 404 empties the set, because it means runbloom.app has switched the feature off and nothing it
 /// signed should be honoured. A network failure or a body that does not parse keeps the set there
 /// was, because a blip at runbloom.app should not lock every person out of a running workspace.
@@ -34,9 +39,11 @@ public actor KeySet {
     private let fetch: @Sendable () async throws -> KeySetFetch
     private let now: @Sendable () -> Date
     private let minimumRefetchInterval: TimeInterval
+    private let maximumAge: TimeInterval
 
     private var keys: [String: Curve25519.Signing.PublicKey] = [:]
     private var lastAttempt: Date?
+    private var lastLoaded: Date?
     /// Callers who miss the cache while a fetch is under way wait for that one rather than
     /// starting their own, or skipping it because the limit has just been used.
     private var inFlight: Task<Void, Never>?
@@ -44,15 +51,18 @@ public actor KeySet {
     public init(
         fetch: @escaping @Sendable () async throws -> KeySetFetch,
         now: @escaping @Sendable () -> Date = Date.init,
-        minimumRefetchInterval: Duration = .seconds(60)
+        minimumRefetchInterval: Duration = .seconds(60),
+        maximumAge: Duration = .seconds(3_600)
     ) {
         self.fetch = fetch
         self.now = now
         let parts = minimumRefetchInterval.components
         self.minimumRefetchInterval = TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
+        self.maximumAge = TimeInterval(maximumAge.components.seconds)
     }
 
     public func key(for kid: String) async -> Curve25519.Signing.PublicKey? {
+        if let loaded = lastLoaded, now().timeIntervalSince(loaded) >= maximumAge { await refreshIfAllowed() }
         if let key = keys[kid] { return key }
         await refreshIfAllowed()
         return keys[kid]
@@ -82,8 +92,12 @@ public actor KeySet {
         switch outcome {
         case .notFound:
             keys = [:]
+            lastLoaded = now()
         case .keys(let body):
-            if let parsed = Self.parse(body) { keys = parsed }
+            if let parsed = Self.parse(body) {
+                keys = parsed
+                lastLoaded = now()
+            }
         }
     }
 

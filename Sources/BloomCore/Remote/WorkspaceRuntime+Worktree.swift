@@ -37,14 +37,15 @@ extension WorkspaceRuntime {
             return .accepted
         case .push:
             let workspace = try await workspace()
-            try await GitHub.push(worktree: workspace.path, branch: workspace.branch, setUpstream: true)
+            try await asPerson(caller) { environment in try await self.push(workspace, environment: environment) }
             return .accepted
         case .createPullRequest(let title, let body, let draft):
             guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RemoteFailure.invalid("Enter a pull request title.") }
             let workspace = try await workspace()
-            try await GitHub.push(worktree: workspace.path, branch: workspace.branch, setUpstream: true)
-            let pull = try await GitHub.createPullRequest(worktree: workspace.path, base: workspace.baseBranch, title: title, body: body, draft: draft)
-            return .text(pull.url)
+            let url = try await asPerson(caller) { environment in
+                try await self.createPullRequest(workspace, title: title, body: body, draft: draft, environment: environment)
+            }
+            return .text(url)
         case .runSetup:
             return try await runSetupAgain()
         case .archivePreview:
