@@ -42,7 +42,7 @@ public struct CloudConnectionBanner: Sendable, Hashable {
                 message: "It went to sleep because nobody was using it. It wakes as soon as you do something in it.", action: "Wake"
             )
         case .notReady(let message, _):
-            return CloudConnectionBanner(tone: .progress, title: "Starting this Cloud workspace…", message: message)
+            return CloudConnectionBanner(tone: .progress, title: "Getting this Cloud workspace ready…", message: message)
         case .limited(let notice):
             return CloudConnectionBanner(
                 tone: notice.kind == .waiting ? .caution : .failure, title: notice.message, message: notice.detail,
