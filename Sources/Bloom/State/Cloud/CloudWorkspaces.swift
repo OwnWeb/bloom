@@ -237,6 +237,13 @@ final class CloudWorkspaces {
         items.first { $0.id == id.rawValue }
     }
 
+    /// The page on runbloom.app closest to a Cloud workspace's cause: its team's own setup page
+    /// when the account named one, and the account page otherwise.
+    func runbloomPage(forWorkspace id: CloudWorkspaceID) -> URL {
+        let team = item(id).flatMap { team($0.teamID) }
+        return team?.setup?.setupPage(on: environment) ?? environment.origin.appending(path: "account")
+    }
+
     func team(_ id: String) -> RunbloomTeam? {
         account?.teams.first { $0.id == id }
     }

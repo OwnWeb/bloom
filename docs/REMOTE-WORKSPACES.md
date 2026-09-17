@@ -949,6 +949,15 @@ the coordinator.
   be null. A workspace the reader cannot open is listed with only `id`, `team_id`, `name`, `state`,
   `owner`, `role` (null), `can_open`, `can_archive`, `created_at` and `archived_at`, and is drawn as
   not openable, archivable when `can_archive` says so.
+- **Every state a first Cloud workspace passes through says what it is and what to do.**
+  `CloudConnectionBanner` is the one place that decides it, and its tests name the states that must
+  offer something: setting up (watch the output), setup failed (read it, run it again), asleep
+  (wake), waking and getting ready (nothing, they finish by themselves), a limit that clears by
+  itself (nothing) against one that does not (runbloom.app, try again), no access and reconnecting
+  after a dropped network (try again). What a person is missing before they can prompt at all, a
+  GitHub connection or an agent key, is said over the composer before anything is typed
+  (`CloudPromptReadiness`), and a refusal from runbloom.app or a machine is shown in its own words
+  with the way back to where it is settled (`CloudRefusalNotice`).
 - **A team that is not ready says what is missing.** Each team may carry its setup state
   (`enabled`, `github_connected`, `github_app_installed`, `has_project`, `has_agent_key`,
   `setup_url`; names provisional, read nested under `setup` or beside the team's own fields). The

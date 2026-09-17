@@ -32,8 +32,9 @@ final class CloudWorkspaceSession {
     /// The chat the column shows. Nil until the workspace has a chat.
     var selectedChatID: SessionID?
     var pane: CloudPane = .chat
-    /// The last command that failed where no dialog belongs, said once in a strip over the column.
-    var notice: String?
+    /// The last command that failed where no dialog belongs, said once in a strip over the column,
+    /// in runbloom.app's or the machine's own words and with the way back where there is one.
+    var notice: CloudRefusalNotice?
     /// Who last changed a chat's composer, when it was not the reader. Cleared when read.
     private(set) var composerChange: (chatID: String, name: String)?
     /// A new chat being opened.
@@ -261,16 +262,26 @@ final class CloudWorkspaceSession {
             _ = try await perform(operation)
             return nil
         } catch {
-            if reporting { notice = error.message }
+            if reporting { report(error) }
             return error
         }
+    }
+
+    /// Says what failed in the words whoever refused it used, and offers runbloom.app when that is
+    /// where the cause is settled: a missing key, GitHub, push access, a limit.
+    func report(_ failure: WorkspaceConnection.CommandFailure) {
+        if case .runbloom(let refusal) = failure {
+            notice = CloudRefusalNotice(refusal: refusal)
+            return
+        }
+        notice = CloudRefusalNotice(message: failure.message, code: failure.code?.rawValue)
     }
 
     private func runForResult(_ operation: WorkspaceOperation) async -> OperationResult? {
         do {
             return try await perform(operation)
         } catch {
-            notice = error.message
+            report(error)
             return nil
         }
     }
@@ -314,7 +325,10 @@ final class CloudWorkspaceSession {
                 if case .refused(let wire) = error {
                     // Refused outright. Said once, with the words, so nothing typed is lost, and
                     // not tried again.
-                    notice = "Your first message could not be sent (\(wire.message)). It was: \(prompt.text)"
+                    notice = CloudRefusalNotice(
+                        message: "Your first message could not be sent (\(wire.message)). It was: \(prompt.text)",
+                        code: wire.knownCode.rawValue
+                    )
                     cloud.release(promptFor: id.rawValue)
                     return
                 }
@@ -348,18 +362,24 @@ final class CloudWorkspaceSession {
         do {
             let preview = try await cloud.api.previewToken(for: id.rawValue)
             guard preview.isSafe(forMachine: await connection?.machineURL) else {
-                notice = "runbloom.app gave a preview address that is not this Cloud workspace's, so Bloom did not open it."
+                notice = CloudRefusalNotice(
+                    message: "runbloom.app gave a preview address that is not this Cloud workspace's, so Bloom did not open it.", code: nil
+                )
                 return
             }
             NSWorkspace.shared.open(preview.enterURL)
         } catch let refusal as RunbloomRefusal {
             if refusal.isSharingInProgress || refusal.isMachineNotReady {
-                notice = "\(refusal.message) Try the preview again in a few seconds."
+                notice = CloudRefusalNotice(message: "\(refusal.message) Try the preview again in a few seconds.", code: nil)
                 return
             }
-            notice = LimitNotice(refusal: refusal).map { "\($0.message) \($0.detail)" } ?? refusal.message
+            if let limit = LimitNotice(refusal: refusal) {
+                notice = CloudRefusalNotice(message: "\(limit.message) \(limit.detail)", code: refusal.code)
+                return
+            }
+            notice = CloudRefusalNotice(refusal: refusal)
         } catch {
-            notice = "The preview could not be opened. \(error.localizedDescription)"
+            notice = CloudRefusalNotice(message: "The preview could not be opened. \(error.localizedDescription)", code: nil)
         }
     }
 }

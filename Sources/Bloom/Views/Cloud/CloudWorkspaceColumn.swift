@@ -1,3 +1,4 @@
+import AppKit
 import BloomClient
 import BloomCore
 import SwiftUI
@@ -22,10 +23,17 @@ struct CloudWorkspaceColumn: View {
         VStack(spacing: 0) {
             CloudWorkspaceHeader(session: session, item: app.cloud.item(id))
             if let banner = CloudConnectionBanner.of(session.phase) {
-                CloudBannerView(banner: banner) { session.wake() }
+                CloudBannerView(banner: banner) { take($0, on: session) }
+            }
+            // What setup is doing, which is the only account of a machine's first few minutes and
+            // the only way back from a setup that failed.
+            if let banner = CloudConnectionBanner.ofSetup(
+                session.state.setup, isWatching: session.pane == .setup, canRunSetup: session.allows("files")
+            ) {
+                CloudBannerView(banner: banner) { take($0, on: session) }
             }
             if let notice = session.notice {
-                CloudNoticeStrip(text: notice) { session.notice = nil }
+                CloudNoticeStrip(notice: notice, onOpenRunbloom: { openRunbloom(for: session) }) { session.notice = nil }
             }
             if let change = session.composerChange, change.chatID == session.selectedChatID?.rawValue, session.pane == .chat {
                 CloudNoticeStrip(text: "\(change.name) changed this chat's settings.") { session.acknowledgeComposerChange() }
@@ -42,6 +50,25 @@ struct CloudWorkspaceColumn: View {
         // would otherwise reconnect by itself after a dropped network and wake its machine.
         .onChange(of: id) { previous, _ in app.cloud.existingSession(for: previous)?.suspend() }
         .onDisappear { app.cloud.existingSession(for: id)?.suspend() }
+    }
+
+    /// What a banner's button does. Every one of them is a way forward rather than a repeat of what
+    /// the app is already doing by itself.
+    private func take(_ action: CloudConnectionBanner.Action, on session: CloudWorkspaceSession) {
+        switch action {
+        case .wake, .retry: session.wake()
+        case .runbloom: openRunbloom(for: session)
+        case .watchSetup: session.pane = .setup
+        case .runSetupAgain:
+            session.pane = .setup
+            Task { await session.run(.runSetup) }
+        }
+    }
+
+    /// runbloom.app, as close to the cause as the app can get: the team's own page when the account
+    /// named one, and the account page otherwise.
+    private func openRunbloom(for session: CloudWorkspaceSession) {
+        NSWorkspace.shared.open(app.cloud.runbloomPage(forWorkspace: session.id))
     }
 
     @ViewBuilder
@@ -62,7 +89,7 @@ struct CloudWorkspaceColumn: View {
 /// A connection banner: a line and, where the banner offers one, its button.
 struct CloudBannerView: View {
     var banner: CloudConnectionBanner
-    var onAction: () -> Void
+    var onAction: (CloudConnectionBanner.Action) -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Metrics.gutter) {
@@ -80,8 +107,8 @@ struct CloudBannerView: View {
                 }
             }
             Spacer(minLength: Metrics.gutter)
-            if let action = banner.action {
-                Button(action, action: onAction)
+            ForEach(banner.actions, id: \.self) { action in
+                Button(action.title) { onAction(action) }
             }
         }
         .padding(.horizontal, Metrics.gutter)
@@ -92,17 +119,33 @@ struct CloudBannerView: View {
     }
 }
 
-/// A command that failed where no dialog belongs, said once over the column until dismissed.
+/// A command that failed where no dialog belongs, said once over the column until dismissed, in the
+/// words of whoever refused it and with the way back to where the cause is settled.
 struct CloudNoticeStrip: View {
-    var text: String
+    var notice: CloudRefusalNotice
+    var onOpenRunbloom: (() -> Void)?
     var onDismiss: () -> Void
+
+    init(notice: CloudRefusalNotice, onOpenRunbloom: (() -> Void)? = nil, onDismiss: @escaping () -> Void) {
+        self.notice = notice
+        self.onOpenRunbloom = onOpenRunbloom
+        self.onDismiss = onDismiss
+    }
+
+    init(text: String, onDismiss: @escaping () -> Void) {
+        self.init(notice: CloudRefusalNotice(message: text, code: nil), onDismiss: onDismiss)
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Metrics.spacingWide) {
             Image(systemName: "exclamationmark.circle").foregroundStyle(Palette.warning)
-            Text(text)
+            Text(notice.sentence)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: Metrics.gutter)
+            if notice.opensRunbloom, let onOpenRunbloom {
+                Button("Open runbloom.app", action: onOpenRunbloom)
+                    .buttonStyle(.borderless)
+            }
             Button("Dismiss", action: onDismiss)
                 .buttonStyle(.borderless)
         }

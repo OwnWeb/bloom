@@ -110,12 +110,32 @@ import Testing
     @Test func aLimitThatClearsByItselfOffersNoButton() {
         let waiting = CloudConnectionBanner.of(.limited(LimitNotice(limit: "concurrent_machines", message: "Twenty running.")))
         #expect(waiting?.tone == .caution)
-        #expect(waiting?.action == nil)
+        #expect(waiting?.actions.isEmpty == true)
         let blocked = CloudConnectionBanner.of(.limited(LimitNotice(limit: "kill_switch", message: "Paused.")))
         #expect(blocked?.tone == .failure)
         #expect(blocked?.title == "Paused.")
-        #expect(blocked?.action != nil)
+        #expect(blocked?.actions == [.runbloom, .retry])
     }
+
+    /// Every state a first Cloud workspace passes through offers something, or is a state that
+    /// finishes by itself.
+    @Test func everyStateThatNeedsSomebodyOffersAWayForward() {
+        let needSomebody: [WorkspaceConnection.Phase] = [
+            .asleep, .noAccess("Removed."), .retrying("This Mac is offline."),
+            .limited(LimitNotice(limit: "monthly_usage", message: "Over budget.")),
+        ]
+        for phase in needSomebody {
+            #expect(CloudConnectionBanner.of(phase)?.actions.isEmpty == false, "\(phase) offers nothing")
+        }
+        // These carry on by themselves, and say so rather than offering a button that repeats them.
+        #expect(CloudConnectionBanner.of(.connecting(waking: true))?.actions.isEmpty == true)
+        #expect(CloudConnectionBanner.of(.limited(LimitNotice(limit: "concurrent_machines", message: "Wait.")))?.actions.isEmpty == true)
+    }
+
+    @Test func aMachineThatIsNotReadyOffersTheSetupOutput() {
+        #expect(CloudConnectionBanner.of(.notReady(message: "Still starting.", retryAfter: 5))?.actions == [.watchSetup])
+    }
+
 
     @Test func noUserFacingWordNamesTheProvider() {
         let phases: [WorkspaceConnection.Phase] = [
@@ -124,7 +144,8 @@ import Testing
         ]
         for phase in phases {
             let banner = CloudConnectionBanner.of(phase)
-            let words = [banner?.title, banner?.message, banner?.action].compactMap { $0 }.joined(separator: " ").lowercased()
+            let words = ([banner?.title, banner?.message].compactMap { $0 } + (banner?.actions ?? []).map(\.title))
+                .joined(separator: " ").lowercased()
             #expect(!words.contains("sprite") && !words.contains("fly") && !words.contains("remote") && !words.contains("machine") && !words.contains("runner"))
         }
     }
@@ -277,5 +298,82 @@ import Testing
     @Test func aSetupPageElsewhereIsNotOffered() throws {
         let team = try team(#"{"id": "t", "name": "X", "cloud_workspaces_enabled": true, "setup": {"has_project": false, "setup_url": "https://evil.test/setup"}}"#)
         #expect(TeamSetupNotice(team: team, environment: environment)?.setupPage == nil)
+    }
+}
+
+@Suite struct CloudSetupBannerTests {
+    private func banner(_ state: String, step: String? = nil, isWatching: Bool = false, canRunSetup: Bool = true) -> CloudConnectionBanner? {
+        CloudConnectionBanner.ofSetup(SetupRecord(state: state, step: step), isWatching: isWatching, canRunSetup: canRunSetup)
+    }
+
+    @Test func setupRunningSaysWhichStepAndOffersToWatch() {
+        let running = banner("running", step: "prepare")
+        #expect(running?.tone == .progress)
+        #expect(running?.title == "Setting up this Cloud workspace: preparing the machine")
+        #expect(running?.actions == [.watchSetup])
+    }
+
+    @Test func aStepThisVersionDoesNotKnowIsStillNamed() {
+        #expect(banner("running", step: "seeding")?.title == "Setting up this Cloud workspace: seeding")
+        #expect(banner("running")?.title == "Setting up this Cloud workspace…")
+    }
+
+    @Test func setupFailedOffersTheOutputAndRunningItAgain() {
+        #expect(banner("failed")?.actions == [.watchSetup, .runSetupAgain])
+        #expect(banner("failed", canRunSetup: false)?.actions == [.watchSetup])
+        #expect(banner("failed", isWatching: true, canRunSetup: false)?.actions.isEmpty == true)
+        #expect(banner("failed")?.tone == .failure)
+    }
+
+    @Test func nothingIsSaidOnceSetupIsDoneOrWasNeverRun() {
+        #expect(banner("succeeded") == nil)
+        #expect(banner("skipped") == nil)
+        #expect(CloudConnectionBanner.ofSetup(nil, isWatching: false, canRunSetup: true) == nil)
+    }
+
+    @Test func watchingItAlreadyOffersNoButtonToWatchIt() {
+        #expect(banner("running", isWatching: true)?.actions.isEmpty == true)
+    }
+
+    @Test func noUserFacingWordNamesTheProvider() {
+        for state in ["pending", "running", "failed"] {
+            let banner = CloudConnectionBanner.ofSetup(SetupRecord(state: state), isWatching: false, canRunSetup: true)
+            let words = ([banner?.title, banner?.message].compactMap { $0 } + (banner?.actions ?? []).map(\.title))
+                .joined(separator: " ").lowercased()
+            #expect(!words.contains("sprite") && !words.contains("fly") && !words.contains("machine") && !words.contains("runner"))
+        }
+    }
+}
+
+@Suite struct CloudPromptReadinessTests {
+    private func account(github: Bool, keys: [AgentKeyStatus]) -> RunbloomAccount {
+        RunbloomAccount(id: "u", name: "Freek", email: "f@s.be", githubConnected: github, agentKeys: keys, teams: [])
+    }
+
+    @Test func githubComesFirst() {
+        let notice = CloudPromptReadiness(account: account(github: false, keys: []), teamID: "t", agent: "claude")
+        #expect(notice?.sentence.contains("Connect GitHub") == true)
+        #expect(notice?.opensRunbloom == true)
+    }
+
+    @Test func aMissingKeyForThisAgentIsSaidByName() {
+        let keys = [AgentKeyStatus(teamID: "t", agent: "claude", teamKey: true, personalKey: false),
+                    AgentKeyStatus(teamID: "t", agent: "codex", teamKey: false, personalKey: false)]
+        let ready = account(github: true, keys: keys)
+        #expect(CloudPromptReadiness(account: ready, teamID: "t", agent: "claude") == nil)
+        #expect(CloudPromptReadiness(account: ready, teamID: "t", agent: "codex")?.sentence.contains("Codex") == true)
+    }
+
+    @Test func anAccountThatSaysNothingAboutKeysIsNotAccused() {
+        #expect(CloudPromptReadiness(account: account(github: true, keys: []), teamID: "t", agent: "claude") == nil)
+        #expect(CloudPromptReadiness(account: nil, teamID: "t", agent: "claude") == nil)
+    }
+
+    @Test func aRefusalKeepsRunbloomsWordsAndOffersTheWayBack() {
+        let refusal = RunbloomRefusal(status: 403, code: "no_push_access", message: "You cannot push to spatie/bloom.")
+        let notice = CloudRefusalNotice(refusal: refusal)
+        #expect(notice.sentence == "You cannot push to spatie/bloom.")
+        #expect(notice.opensRunbloom)
+        #expect(!CloudRefusalNotice(message: "The connection dropped.", code: "internal").opensRunbloom)
     }
 }
