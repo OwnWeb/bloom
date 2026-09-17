@@ -56,6 +56,9 @@ final class CloudChanges {
     /// time. Held because `contents(of:)` is what the local model answers from disk without an
     /// await, and a pane asking for a file it already has must not blink.
     @ObservationIgnored private var contentsByPath: [String: String] = [:]
+    /// One commit's file, and the patch it was read as. A commit is immutable, so this never
+    /// goes stale; it is thrown away with the workspace.
+    @ObservationIgnored private var commitPatches: [CommitFile: String] = [:]
     @ObservationIgnored private var contentsBeingRead: Set<String> = []
     /// Which files this reader has ticked, and what the file's diff looked like when they did.
     /// Kept on this Mac under the workspace's own key, because a read mark is one person's note to
@@ -82,14 +85,24 @@ final class CloudChanges {
         return nil
     }
 
-    /// A commit's files come over whole; its patches do not, so the diff pane says so rather than
-    /// showing an empty one. The machine's `review_patch` measures the branch and the worktree,
-    /// and a commit patch is the next thing to ask its builder for.
-    static let noCommitPatch = "A commit's files are here. Its diff cannot be read from a Cloud"
-        + " workspace yet."
+    /// What a machine that is too old to answer `commit_patch` gets said about it. Guarded on
+    /// what the machine answers rather than on a version: an older one refuses the operation as
+    /// an invalid request, and the day it is updated this sentence stops appearing by itself.
+    static let noCommitPatch = "This Cloud workspace is running a version that cannot read the"
+        + " diff of one commit. It can once the workspace has been updated."
+
+    /// Nothing here throws away a commit, on either kind of workspace. The review's own controls
+    /// are already hidden in a historical scope; this is what a caller that got past them is told.
+    static let commitIsMade = "This change is already committed. Discarding is for the work in"
+        + " front of the last commit."
+
+    /// Set the first time a machine refuses `commit_patch` as an operation it does not know, which
+    /// is what one running a version from before it existed answers. Nothing else sets it, so the
+    /// sentence stops appearing the moment the workspace is updated.
+    private(set) var cannotReadCommitPatches = false
 
     var scopeNote: String? {
-        commit == nil ? nil : Self.noCommitPatch
+        commit != nil && cannotReadCommitPatches ? Self.noCommitPatch : nil
     }
 
     func setScope(_ scope: BloomCore.DiffScope) {
@@ -158,7 +171,7 @@ final class CloudChanges {
     /// local read does with git's own message.
     func patch(for path: String) async throws -> String {
         guard let session else { throw CloudReviewFailure(message: "This Cloud workspace is closed.") }
-        guard commit == nil else { throw CloudReviewFailure(message: Self.noCommitPatch) }
+        if let commit { return try await patch(for: path, in: commit) }
         let scope = wireScope
         var cache = caches[scope] ?? CloudReviewCache()
         if let held = cache.patch(for: path) { return held }
@@ -170,6 +183,30 @@ final class CloudChanges {
             return patch ?? ""
         } catch {
             throw CloudReviewFailure(message: error.message)
+        }
+    }
+
+    /// One file's diff inside one commit, which is its own operation: a commit is two immutable
+    /// trees and nothing the review measures continuously.
+    ///
+    /// Cached per commit for the life of this workspace, because a commit cannot change. The
+    /// refusal a machine without the operation gives is turned into the sentence that says so;
+    /// every other refusal is the machine's own words, since "this file did not change in that
+    /// commit" is something a reader can act on and this Mac could not have worked out.
+    private func patch(for path: String, in commit: BranchCommit) async throws -> String {
+        guard let session else { throw CloudReviewFailure(message: "This Cloud workspace is closed.") }
+        if let held = commitPatches[CommitFile(sha: commit.sha, path: path)] { return held }
+        do {
+            let result = try await session.perform(.commitPatch(sha: commit.sha, path: path))
+            // No revision is ever sent for a commit, so the machine always sends the text back;
+            // nil would mean "you already have this", which is not a thing this call can be told.
+            guard case .reviewPatch(let record) = result, let patch = record.patch else { return "" }
+            commitPatches[CommitFile(sha: commit.sha, path: path)] = patch
+            return patch
+        } catch {
+            guard error.code == .invalidRequest else { throw CloudReviewFailure(message: error.message) }
+            cannotReadCommitPatches = true
+            throw CloudReviewFailure(message: Self.noCommitPatch)
         }
     }
 
@@ -206,7 +243,7 @@ final class CloudChanges {
     /// success, or what the machine said. The machine does the git: it has the worktree.
     func revert(file: ChangedFile) async -> String? {
         guard let session else { return "This Cloud workspace is closed." }
-        guard commit == nil else { return Self.noCommitPatch }
+        guard commit == nil else { return Self.commitIsMade }
         do {
             _ = try await session.perform(.revertFile(path: file.path, scope: wireScope))
         } catch {
@@ -221,7 +258,7 @@ final class CloudChanges {
     /// that has moved or changed since this diff was read is refused there rather than guessed at.
     func discard(hunk: DiffHunk, of file: ChangedFile) async -> String? {
         guard let session else { return "This Cloud workspace is closed." }
-        guard commit == nil else { return Self.noCommitPatch }
+        guard commit == nil else { return Self.commitIsMade }
         let whole: String
         do {
             whole = try await patch(for: file.path)
@@ -317,6 +354,12 @@ final class CloudChanges {
         guard let session else { return }
         UserDefaults.standard.set(viewed, forKey: Self.viewedKey(session.id))
     }
+}
+
+/// One file inside one commit, which is what a commit patch is keyed by.
+private struct CommitFile: Hashable {
+    var sha: String
+    var path: String
 }
 
 /// What a review read failed with, in the machine's own words.

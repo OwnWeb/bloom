@@ -1110,12 +1110,26 @@ there; it never asks which kind of workspace it has. An action that cannot work 
 greyed, with that sentence, and with the honest equivalent beside it: GitHub where a local
 workspace offers the Finder, the workspace's own terminal where it offers a shell in a folder.
 
+**The diff is `DiffView` on both sides.** The hunks, the expanders, the whitespace fold, the find
+bar, Viewed and Discard are one view over the protocol. Three things are asked for only where they
+can work, and each says so where the control would be rather than disappearing: the in-place editor
+and the whole-file editor (`.editFiles`), which need the bytes on this Mac and the language servers
+rooted in the worktree; notes on a diff (`.reviewComments`), which are worth sending the day the
+composer slice lands; and go to definition, which needs the same language server. The editor pane
+is built by the workspace rather than by the diff, which is the one place a view is handed back
+from a model: `WorkspaceModel.editorPane(path:session:)` answers with the editor and a Cloud
+workspace answers with the sentence saying why there is none.
+
 **History is the machine's own `git log`.** `history` pages the branch's commits and `commit_files`
 answers the files of the row somebody opened, so the History tab draws the rows it has always drawn.
 Two differences from a local workspace, both said where they matter: Load earlier commits pages from
 the oldest row rather than asking again with a larger limit, because a machine is across a network
-and may be asleep; and a commit's patch cannot be read yet, so the pane says so under the file list
-rather than showing an empty diff. A commit patch is the next thing to ask Bloom Runner for.
+and may be asleep; and a commit's diff is `commit_patch`, its own operation rather than a third scope, because a sha
+in a scope would have to mean something for `review_snapshot` too. It is cached per commit for the
+life of the workspace, since a commit cannot change. A machine too old to know the operation
+refuses it as an invalid request, and that one refusal becomes the sentence saying the workspace
+has to be updated; every other refusal is the machine's own words, because "this file did not
+change in that commit" is something a reader can act on.
 
 The slices, in the order they are being built: the review surface (this one), then the tab strip,
 header and banners, then the composer and transcript behind a chat backend, then the terminal and
