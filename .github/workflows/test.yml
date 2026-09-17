@@ -408,6 +408,10 @@ jobs:
     runs-on: ubuntu-latest
     container: swift:6.3.3-noble
     timeout-minutes: 30
+    # A container step runs under dash by default, which has no pipefail.
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v7
