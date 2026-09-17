@@ -18,7 +18,22 @@ extension WorkspaceRuntime {
     }
 
     func setupRecord(_ workspace: Workspace) -> SetupRecord {
-        SetupRecord(state: workspace.setupState.rawValue, step: setupStep, startedAt: setupStartedAt, finishedAt: setupFinishedAt)
+        SetupRecord(state: workspace.setupState.rawValue, step: setupStep, startedAt: setupStartedAt,
+                    finishedAt: setupFinishedAt, note: Self.failureNote(workspace))
+    }
+
+    /// The tail of a failed run's log: enough for a client to say what went wrong in the sidebar
+    /// without opening the setup output, and short enough to travel in every workspace record.
+    static func failureNote(_ workspace: Workspace, limit: Int = 600) -> String? {
+        guard workspace.setupState == .failed else { return nil }
+        let text = workspace.setupLog.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        var lines: [String] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false).reversed() {
+            lines.insert(String(line), at: 0)
+            if lines.joined(separator: "\n").utf8.count > limit || lines.count >= 8 { break }
+        }
+        return lines.joined(separator: "\n")
     }
 
     func transcript(_ chatID: String, afterSeq: Int, limit: Int?) async throws -> TranscriptRecord {

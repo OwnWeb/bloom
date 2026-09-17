@@ -79,6 +79,16 @@
               "type": "null"
             }
           ]
+        },
+        "note": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

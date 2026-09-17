@@ -143,6 +143,7 @@ public actor MachineSetup {
         let scripts = MachineScripts.load(repo: layout.worktree)
         if succeeded {
             for problem in scripts.problems { await log.note(problem) }
+            if !scripts.hasCloudSetup { await log.note(Self.noCloudSetupNote(hasSetupScript: scripts.setup != nil)) }
             let steps: [(String, ScriptLaunch?, Duration)] = [
                 ("prepare", scripts.prepare, timeouts.prepare),
                 ("setup", scripts.setup, timeouts.setup),
@@ -190,6 +191,23 @@ public actor MachineSetup {
     public func scriptEnvironment() async -> [String: String] {
         var environment = Shell.environment()
         for (key, value) in await machineEnvironment.values { environment[key] = value }
+        // The same names the Mac hands a setup script, because repositories in the wild already
+        // read them: a script that starts with `set -u` and `cd "$BLOOM_ROOT_PATH"` fails on an
+        // unbound variable before it reaches anything a machine could not do. On a machine the
+        // clone is both the worktree and the repository root, and there is one workspace, so the
+        // pair carry the same path.
+        for (key, value) in [
+            ("IS_LOCAL", "0"),
+            ("WORKSPACE_NAME", configuration.branch.replacingOccurrences(of: "/", with: "-")),
+            ("WORKSPACE_ID", configuration.workspaceID),
+            ("WORKSPACE_PATH", layout.worktree),
+            ("ROOT_PATH", layout.worktree),
+            ("PROJECT_NAME", Self.projectName(repository: configuration.repository)),
+            ("DEFAULT_BRANCH", configuration.baseBranch),
+            ("PORT", String(layout.appPort)),
+        ] {
+            for prefix in WorkspaceManager.environmentPrefixes { environment["\(prefix)_\(key)"] = value }
+        }
         environment["BLOOM_PUBLIC_URL"] = configuration.publicURL
         environment["BLOOM_PUBLIC_HOST"] = configuration.publicHost
         environment["BLOOM_APP_PORT"] = String(layout.appPort)
@@ -204,6 +222,23 @@ public actor MachineSetup {
         environment["GIT_TERMINAL_PROMPT"] = "0"
         if let gitGlobalConfig { environment["GIT_CONFIG_GLOBAL"] = gitGlobalConfig }
         return environment
+    }
+
+    /// A project name a script can paste into a database or container name, from `owner/name`.
+    static func projectName(repository: String) -> String {
+        let name = repository.split(separator: "/").last.map(String.init) ?? repository
+        return String(name.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "_" })
+    }
+
+    /// What somebody is told before a repository with no Cloud workspace setup is set up anyway.
+    static func noCloudSetupNote(hasSetupScript: Bool) -> String {
+        let start = "This project has no Cloud workspace setup yet. Add .bloom/settings.toml with a "
+            + "[scripts] prepare (what the machine needs installed), setup (this workspace's own "
+            + "setup) and [[services]] (what to run and how to know it is up)."
+        return hasSetupScript
+            ? start + " Until then the project's existing setup script runs as it is, and a script "
+                + "written for a Mac may not work on a machine."
+            : start + " Nothing is set up for now, so the worktree is the repository as it was cloned."
     }
 
     // MARK: - Steps
@@ -311,13 +346,15 @@ public actor MachineSetup {
             return true
         }
         await begin(step, log: log, continuing: continuing)
-        let succeeded = await runProcess(command.executable, command.arguments, directory: layout.worktree, timeout: timeout, environment: environment, log: log)
+        let succeeded = await runProcess(command.executable, command.arguments, directory: layout.worktree, timeout: timeout,
+                                         environment: environment, log: log, step: step)
         await log.endStep()
         return succeeded
     }
 
     private func runProcess(
-        _ executable: String, _ arguments: [String], directory: String?, timeout: Duration, environment: [String: String], log: SetupLog
+        _ executable: String, _ arguments: [String], directory: String?, timeout: Duration, environment: [String: String],
+        log: SetupLog, step: String? = nil
     ) async -> Bool {
         let process = StreamingProcess(executable: executable, arguments: arguments, cwd: directory, environment: environment)
         let lines = process.lines
@@ -356,7 +393,11 @@ public actor MachineSetup {
             await log.note("This step took longer than \(Self.minutes(timeout)) and was stopped.")
             return false
         }
-        if status != 0 { await log.note("Exited with status \(status).") }
+        if status != 0 {
+            // Named, because a workspace's own summary shows the last lines of this and "exited
+            // with status 1" alone does not say which of three scripts it was.
+            await log.note(step.map { "The \($0) script exited with status \(status)." } ?? "Exited with status \(status).")
+        }
         return status == 0
     }
 

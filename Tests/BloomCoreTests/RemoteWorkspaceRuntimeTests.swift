@@ -196,6 +196,22 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("a failed setup's last lines travel with the workspace, and only a failed one's")
+    func setupFailureNote() async throws {
+        let fixture = try await fixture()
+        var workspace = try #require(try await fixture.store.workspace(id: fixture.runtime.workspaceID))
+        workspace.setupState = .failed
+        workspace.setupLog = (1...20).map { "line \($0)" }.joined(separator: "\n") + "\nThe setup script exited with status 4."
+        let note = try #require(WorkspaceRuntime.failureNote(workspace))
+        #expect(note.hasSuffix("The setup script exited with status 4."))
+        #expect(note.contains("line 20"))
+        #expect(!note.contains("line 1\n"), "Only the tail, so it can travel in every workspace record")
+
+        workspace.setupState = .succeeded
+        #expect(WorkspaceRuntime.failureNote(workspace) == nil)
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a grant supersedes personal credentials only where it shows the workspace is shared")
     func supersedingIsPerAgent() {
         let team = RemoteTurnGrant(agentKeys: [.codex: RemoteAgentKey(key: "k", identity: "i", source: "team")], environment: ["A": "b"])

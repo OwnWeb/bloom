@@ -943,12 +943,30 @@ and nothing has happened since, and `idle` otherwise. A chat carries the same wo
 workspace that says `running` long after the agent went quiet is a bug worth reporting: the machine
 sends a fresh summary a moment after a chat goes idle.
 
+**A project with no Cloud workspace setup is told so before anything runs.** A repository with no
+`.bloom` settings file and no `prepare`, `resume` or `[[services]]` has nothing written for a
+machine, so the setup log opens with what to add and a warning that the project's existing setup
+script, which may have been written for a Mac, runs as it is. Setup is still attempted: refusing
+would leave somebody with a workspace that does nothing.
+
+**Every script gets the same variables as on a Mac**, under both the `BLOOM_` and `CONDUCTOR_`
+prefixes: `IS_LOCAL` (`0` here), `WORKSPACE_NAME`, `WORKSPACE_ID`, `WORKSPACE_PATH`, `ROOT_PATH`,
+`PROJECT_NAME`, `DEFAULT_BRANCH` and `PORT`, beside the machine's own `BLOOM_PUBLIC_URL`,
+`BLOOM_PUBLIC_HOST`, `BLOOM_APP_PORT`, `BLOOM_BRANCH`, `BLOOM_REPOSITORY`, `BLOOM_DATA_DIR` and
+`BLOOM_RUNNER_PORT`. `WORKSPACE_PATH` and `ROOT_PATH` are the same path, because the clone is both.
+This is not tidiness: scripts in the wild start with `set -u` and read `$BLOOM_ROOT_PATH`, and an
+unbound variable ends them on their first line with nothing a person can act on.
+
 **Setup output** goes to two places, and the row is the one a person reads. Every step appends to
 the workspace's setup log, a few writes a second, which clients watch through the event stream; the
 log is capped, so a very long `apt` or `composer install` keeps its tail rather than its head. The
 whole of each step is also kept on the machine under `~/.bloom/setup/<step>.log`, up to 20 MB, which
 is where to look when the row has been trimmed. A run the machine was stopped in the middle of is
 added to rather than started over, so an interrupted first attempt stays visible above the second.
+
+**A failed step names itself**: "The setup script exited with status 4.", and the last lines of a
+failed run travel with the workspace record (`setup.note`), so a client can say what went wrong
+without asking for the whole log.
 
 **A failed setup does not cost the workspace.** Prompts go once setup ends, however it ended, so a
 failed `setup` script leaves a workspace somebody can still work in; the log says what failed, and

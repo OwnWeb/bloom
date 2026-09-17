@@ -167,7 +167,7 @@ RECORDS = {
     "Error": obj({"code": S, "message": S}),
     "Author": obj({"user_id": S, "name": S}),
     "Setup": obj({"state": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]}},
-                 {"step": S, "started_at": DATE, "finished_at": DATE}),
+                 {"step": S, "started_at": DATE, "finished_at": DATE, "note": S}),
     "SetupOutput": obj({"setup": ref("Setup"), "log": S}),
     "PullRequest": obj({"number": I, "url": S, "title": S, "state": S}),
     "Workspace": obj({"id": S, "name": S, "branch": S, "base_branch": S, "setup": ref("Setup")}, {"pull_request": ref("PullRequest")}),

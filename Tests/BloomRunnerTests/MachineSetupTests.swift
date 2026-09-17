@@ -175,7 +175,7 @@ struct MachineSetupTests {
         let workspace = try await fixture.workspace()
         #expect(workspace.setupState == .failed)
         #expect(workspace.setupLog.contains("broken on purpose"))
-        #expect(workspace.setupLog.contains("Exited with status 3."))
+        #expect(workspace.setupLog.contains("The setup script exited with status 3."))
         #expect(try await fixture.store.setting(MachineSetup.completedSetting) == nil)
         #expect(await fixture.services.status.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.orderFile + ".service"))
@@ -214,6 +214,50 @@ struct MachineSetupTests {
         #expect(workspace.setupLog.contains("spatie/example could not be cloned"))
         #expect(workspace.setupLog.contains("GitHub App is installed for it"))
         #expect(try await fixture.store.setting(MachineSetup.clonedSetting) == nil, "A half-made clone is not taken for a whole one")
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a project with no Cloud setup is told so, in words, and its Mac setup script still runs")
+    func noCloudSetupIsExplained() async throws {
+        // What a repository looks like before its Cloud workspace pull request lands: a Conductor
+        // settings file with a setup script written for a Mac, and nothing else.
+        let settings = """
+        [scripts]
+        setup = "set -u; echo \\"root is $BLOOM_ROOT_PATH\\"; echo \\"project is $BLOOM_PROJECT_NAME\\""
+        """
+        let fixture = try await fixture(files: [".conductor/settings.toml": settings])
+        try await fixture.setup().run()
+
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupLog.contains("This project has no Cloud workspace setup yet"))
+        #expect(workspace.setupLog.contains(".bloom/settings.toml"))
+        #expect(workspace.setupLog.contains("may not work on a machine"))
+        // The variables a Mac script reads are set, so `set -u` does not end it on the first line.
+        #expect(workspace.setupState == .succeeded)
+        #expect(workspace.setupLog.contains("root is \(fixture.worktree)"))
+        #expect(workspace.setupLog.contains("project is example"))
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a project with a .bloom settings file is not told anything about setting one up")
+    func cloudSetupIsNotExplained() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        try await fixture.setup().run()
+        #expect(try await !fixture.workspace().setupLog.contains("no Cloud workspace setup"))
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a failed step says which script it was")
+    func failureNamesTheScript() async throws {
+        let settings = """
+        [scripts]
+        setup = "echo about to fail; exit 4"
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        try await fixture.setup().run()
+        let log = try await fixture.workspace().setupLog
+        #expect(log.contains("about to fail"))
+        #expect(log.contains("The setup script exited with status 4."))
         await fixture.runtime.shutdown()
     }
 
