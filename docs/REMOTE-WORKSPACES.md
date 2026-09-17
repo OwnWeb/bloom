@@ -592,8 +592,14 @@ sprite-env services create bloom --cmd /opt/bloom/current/bin/bloom-runner --arg
 The command never changes, because creating a service under an existing name keeps the old
 definition. Updating is therefore the same exec for a newer version, which moves the symlink and
 restarts the service, run by runbloom.app only when the summary says the workspace is idle and the
-reported version differs. If the new version does not answer `/_bloom/health` within 20 s the
-symlink goes back.
+reported version differs. The script does not put the symlink back itself: the restart it asks for
+kills it. Two things undo a release that will not start, and both write the same symlink, so
+running both is harmless. The machine's own half is the start wrapper (below). runbloom.app's half
+is polling `/_bloom/health` and reaching in through the provider when the machine has not healed
+itself, which is the case the machine cannot see about itself. **Never delete
+`/opt/bloom/<previous version>`:** both reverts point the symlink at a directory that is already
+there and download nothing, which is what makes them work when the network or the disk is the
+problem.
 
 ## Archive and restore
 
@@ -874,7 +880,8 @@ and its builder confirmed them.
   archive's root) into `/opt/bloom/<version>`, links `/opt/bloom/current`, and creates the `bloom`
   service running `/opt/bloom/current/bin/bloom-runner serve` with no arguments, which reads
   `/etc/bloom/workspace.json`. `control/update` does not run that again: the machine installs the
-  release with `bin/bootstrap-machine.sh update`, restarts its service and rolls back itself. A
+  release with `bin/bootstrap-machine.sh update` and restarts its service; the start wrapper and
+  runbloom.app are what undo a release that will not come up. A
   release must publish the archive and a `.sha256` beside it in `sha256sum` format, or machine
   creation fails. Control calls time out after 15 seconds on runbloom.app's side, so each answers
   before doing slow work.

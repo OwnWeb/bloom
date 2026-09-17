@@ -114,12 +114,20 @@ check "install creates the service once" "1" "$(grep -c 'services create bloom' 
 run_bootstrap install 9.9.9 "$(printf '%064d' 0)"
 check "a release with the wrong sha256 is not installed" "no" "$([[ -d "$bootstrap_prefix/9.9.9" ]] && echo yes || echo no)"
 
-# The update's own rollback: 2.1.0 never answers the health check, so current goes back to 2.0.0.
+# An update to a release that never answers: the script moves the symlink and leaves the marker for
+# the start wrapper, because the restart it asks for is what kills this script. The revert is the
+# wrapper's, and the checks above already cover it.
 run_bootstrap update 2.1.0 "$sum_210"
-check "a release that never answers is rolled back" "$bootstrap_prefix/2.0.0" "$(readlink "$bootstrap_prefix/current")"
+check "the update moved current to the new version" "$bootstrap_prefix/2.1.0" "$(readlink "$bootstrap_prefix/current")"
 check "current is still a symlink, not a directory" "yes" "$([[ -L "$bootstrap_prefix/current" ]] && echo yes || echo no)"
 check "nothing was left beside it" "no" "$([[ -e "$bootstrap_prefix/current.next" ]] && echo yes || echo no)"
-check "the marker is cleared" "no" "$([[ -f "$root/bootstrap-marker" ]] && echo yes || echo no)"
+check "the marker is left for the wrapper" "2.1.0" "$(sed -n 1p "$root/bootstrap-marker" 2>/dev/null || true)"
+check "with the version to go back to" "$bootstrap_prefix/2.0.0" "$(sed -n 2p "$root/bootstrap-marker" 2>/dev/null || true)"
+
+# And the wrapper, handed that marker, is what actually goes back.
+BLOOM_PREFIX="$bootstrap_prefix" BLOOM_UPDATE_MARKER="$root/bootstrap-marker" "$bootstrap_prefix/current/bin/bloom-runner" serve 2>/dev/null || true
+BLOOM_PREFIX="$bootstrap_prefix" BLOOM_UPDATE_MARKER="$root/bootstrap-marker" "$bootstrap_prefix/current/bin/bloom-runner" serve 2>/dev/null || true
+check "the wrapper goes back to the release that worked" "$bootstrap_prefix/2.0.0" "$(readlink "$bootstrap_prefix/current")"
 
 if (( ${#failures} )); then
   print -r -- "runner-start probe failed:"

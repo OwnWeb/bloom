@@ -352,12 +352,13 @@ def main():
             assert status == 502, status
 
             if arguments.update:
-                # The release is laid out under /opt/bloom beforehand, which the bootstrap script takes
-                # as already downloaded: what this checks is the restart, the new process saying it
-                # came up, and the rollback, which no other test reaches.
-                digest = hashlib.sha256(data).hexdigest()
+                # Releases are laid out under /opt/bloom beforehand, so the bootstrap takes them as
+                # already downloaded: what this measures is the restart, the new process saying it
+                # came up, and the rollback, which nothing else reaches.
+                digest = hashlib.sha256(data).hexdigest() if package else "0" * 64
+                installed = run_on(name, "readlink /opt/bloom/current").strip().rsplit("/", 1)[-1]
                 updated = f"{version}-update"
-                run_on(name, f"sudo mkdir -p /opt/bloom/{updated} && sudo tar -xzf /home/sprite/bloom-runner.tar.gz -C /opt/bloom/{updated}")
+                run_on(name, f"sudo cp -a /opt/bloom/{installed} /opt/bloom/{updated}")
                 step(f"asking for an update to {updated}")
                 status, _, body = https(url, "POST", "/_bloom/v1/control/update", token=issuer.token("control", "control", ["admin"]),
                                         body={"version": updated, "sha256": digest, "tag": f"runner-v{updated}"})
@@ -366,23 +367,35 @@ def main():
                          180, interval=3)
                 step(f"updated: health answers with {updated}, current is {run_on(name, 'readlink /opt/bloom/current').strip()}")
 
+                # The failure worth staging is the real one: the wrapper is intact and the binary
+                # behind it will not start, which is what a bad release looks like from outside.
                 broken = f"{version}-broken"
-                run_on(name, f"sudo mkdir -p /opt/bloom/{broken}/bin && printf '#!/bin/sh\\nexit 1\\n' | sudo tee /opt/bloom/{broken}/bin/bloom-runner >/dev/null "
-                             f"&& sudo chmod +x /opt/bloom/{broken}/bin/bloom-runner")
-                step(f"asking for an update to {broken}, which never starts")
+                run_on(name, f"sudo cp -a /opt/bloom/{updated} /opt/bloom/{broken} && "
+                             f"printf '#!/bin/sh\\nexit 1\\n' | sudo tee /opt/bloom/{broken}/bin/bloom-runner-exec >/dev/null && "
+                             f"sudo chmod +x /opt/bloom/{broken}/bin/bloom-runner-exec")
+                step(f"asking for an update to {broken}, whose binary exits at once")
+                asked_at = time.time()
                 status, _, body = https(url, "POST", "/_bloom/v1/control/update", token=issuer.token("control", "control", ["admin"]),
                                         body={"version": broken, "sha256": digest, "tag": f"v{broken}"})
                 assert status == 202, (status, body)
-                time.sleep(10)
                 try:
-                    wait_for(f"the machine is back on {updated}", lambda: json.loads(https(url, path="/_bloom/health")[2])["version"] == updated
-                             and run_on(name, "readlink /opt/bloom/current").strip().endswith(updated), 240, interval=5)
+                    wait_for(f"the machine is back on {updated} and answering",
+                             lambda: json.loads(https(url, path="/_bloom/health")[2])["version"] == updated
+                             and run_on(name, "readlink /opt/bloom/current").strip().endswith(updated), 420, interval=5)
                 except RuntimeError:
-                    print(run_on(name, "readlink /opt/bloom/current; cat /var/tmp/bloom-update.log; ls -la /var/tmp; "
-                                       "sprite-env services list; ps -eo pid,etimes,args | grep -i bloom | head", timeout=60)[-6000:],
+                    print(run_on(name, "readlink /opt/bloom/current; cat /var/tmp/bloom-update.log; "
+                                       "cat /var/tmp/bloom-update-pending 2>/dev/null; sprite-env services list; "
+                                       "sprite-env services logs bloom 2>/dev/null | tail -n 30", timeout=60)[-6000:],
                           file=sys.stderr)
                     raise
-                step(f"rolled back to {updated}; the script said: {run_on(name, 'tail -n 3 /var/tmp/bloom-update.log').strip()[-300:]}")
+                healed_in = time.time() - asked_at
+                # What the machine itself says about the failure: how many times the supervisor
+                # brought the dead release back, and what the wrapper wrote on its way past.
+                evidence = run_on(name, "sprite-env services list; echo ---; "
+                                        "sprite-env services logs bloom 2>/dev/null | grep -c 'did not come up' || true; echo ---; "
+                                        "ls /var/tmp/bloom-update-pending 2>/dev/null || echo 'marker gone'", timeout=60)
+                step(f"healed in {healed_in:.0f} s, back on {updated}")
+                step("what the machine says: " + " ".join(evidence.split())[:400])
 
             if grant:
                 step("live turn")

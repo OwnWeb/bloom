@@ -47,15 +47,23 @@ if [ "${1:-}" = "serve" ] && [ -f "$marker" ]; then
     esac
     current="$(basename "$(readlink "$prefix/current" 2>/dev/null || echo "")" 2>/dev/null || true)"
 
+    # The bootstrap writes what `readlink current` gave it, which is an absolute path, while the
+    # probe's fixtures and a hand written marker use a bare version. Take either.
+    case "$previous" in
+    /*) previous_path="$previous" ;;
+    "") previous_path="" ;;
+    *) previous_path="$prefix/$previous" ;;
+    esac
+
     if [ -n "$asked" ] && [ "$asked" = "$current" ]; then
         starts=$((starts + 1))
-        if [ "$starts" -ge 2 ] && [ -n "$previous" ] && [ -x "$prefix/$previous/bin/bloom-runner" ]; then
+        if [ "$starts" -ge 2 ] && [ -n "$previous_path" ] && [ -x "$previous_path/bin/bloom-runner" ]; then
             note "$asked did not come up on two starts; going back to $previous"
             # One rename, asked for three ways: `-T` is GNU's `mv`, `-h` is BSD's, and
             # `os.replace` is the rename itself. A plain `mv` would move the new link into the
             # directory the old one points at, and `ln -sfn` would leave a moment with no
             # `current` at all, which is the moment this is about to exec through.
-            if ln -sfn "$prefix/$previous" "$prefix/current.next" 2>/dev/null &&
+            if ln -sfn "$previous_path" "$prefix/current.next" 2>/dev/null &&
                 { mv -T "$prefix/current.next" "$prefix/current" 2>/dev/null ||
                     mv -h "$prefix/current.next" "$prefix/current" 2>/dev/null ||
                     python3 -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' \

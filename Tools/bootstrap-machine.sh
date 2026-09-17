@@ -19,12 +19,25 @@
 #    the one given. The tag is v<version> or runner-v<version> (a runner-only test release) and
 #    nothing else, so it can only ever name this version in this repository.
 # 2. Unpack it into /opt/bloom/<version>, and point /opt/bloom/current at that.
-# 3. On install, create the `bloom` service once. On update, restart it, and if the new version
-#    does not answer /_bloom/health within 20 seconds, point the symlink back and restart again.
+# 3. On install, create the `bloom` service once. On update, restart it and wait to see the new
+#    version answer /_bloom/health. It does not put the symlink back itself: the restart it asks
+#    for kills this script, so a revert written here would be a revert nobody runs.
+#
+# **Two things undo a release that will not start, and this is neither of them.** The machine's own
+# half is the start wrapper in bin/bloom-runner, which the supervisor re-runs about once a minute
+# and which goes back to the previous version on the second start that still finds the new one
+# current (Tools/runner-start.sh). The control plane's half is runbloom.app, which polls health and
+# reaches in through the provider when the machine has not healed itself. Both write the same
+# symlink and both are safe to run twice. If a third ever arrives, say so here.
 #
 # **The service's command never changes**, because creating a service under a name that exists
 # silently keeps the old definition (measured on a Sprite). It always runs
 # /opt/bloom/current/bin/bloom-runner, and an update moves the symlink underneath it.
+#
+# **Never delete /opt/bloom/<previous version>.** Both reverts above put the symlink back to a
+# directory that is already on the machine, downloading nothing, which is what makes them work when
+# the network or the disk is what went wrong. Anything added here that prunes old versions has to
+# keep at least the one `current` pointed at before the last update.
 #
 # Environment, for development and tests only:
 #   BLOOM_RELEASE_BASE  where releases are downloaded from (default the bloom repository on GitHub)
@@ -144,10 +157,7 @@ for _ in $(seq 1 20); do
   sleep 1
 done
 
-rm -f "$marker"
-if [[ -n "$previous" ]]; then
-  point_current_at "$previous"
-  "$service_tool" services restart bloom
-  fail "$version did not answer $health_url within 20 seconds; went back to $previous"
-fi
-fail "$version did not answer $health_url within 20 seconds, and there was nothing to go back to"
+# Not seen to come up. The marker stays: it is what the start wrapper counts, and deleting it here
+# would take away the machine's own way back. See the note at the head of this file about who
+# reverts.
+fail "$version did not answer $health_url within 20 seconds; the machine goes back to $previous at its next start"
