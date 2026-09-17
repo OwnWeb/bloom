@@ -66,7 +66,13 @@ final class CloudPullRequestReader {
     /// second: the band polls every twenty seconds and the Checks tab does too, over an answer
     /// that only changes once a minute.
     func refresh(maxAge: Duration) async {
-        if let readAt, Date().timeIntervalSince(readAt) < maxAge.seconds { return }
+        // Never harder than the state changes. The band polls every twenty seconds, which is right
+        // for a local workspace asking `gh` itself; runbloom.app rewrites this on a schedule once a
+        // minute, so asking three times inside one of its refreshes is three times the requests for
+        // the same answer. The floor is under a minute so the first ask after a change is not a
+        // whole cycle late.
+        let floor = max(maxAge, .seconds(45))
+        if let readAt, Date().timeIntervalSince(readAt) < floor.seconds { return }
         if let reading {
             await reading.value
             return
