@@ -452,7 +452,9 @@ jobs:
           RUN: ${{ github.run_number }}
         run: |
           set -euo pipefail
-          python3 Tools/package-linux-server.py "$(swift build --show-bin-path)" .build/server-package --version "0.0.0-ci.$RUN"
+          # As the user that built it, because SwiftPM's lock on the build directory is that user's.
+          runuser -u bloom-ci -- python3 Tools/package-linux-server.py "$(runuser -u bloom-ci -- swift build --show-bin-path)" \
+            .build/server-package --version "0.0.0-ci.$RUN"
 
       - uses: actions/upload-artifact@v7
         with:
