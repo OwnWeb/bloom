@@ -764,4 +764,27 @@ struct FeedbackEmailTests {
         Feedback.rememberIncludesLogs(true, in: defaults)
         #expect(Feedback.includesLogs(defaults))
     }
+
+    // MARK: - Who is sending
+
+    @Test("the sender's name and address start empty and come back as they were last sent")
+    func senderMemory() throws {
+        let suite = "be.spatie.bloom.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let untouched = Feedback.rememberedSender(defaults)
+        #expect(untouched.name.isEmpty)
+        #expect(untouched.email.isEmpty)
+
+        Feedback.rememberSender(name: "Seb", email: "seb@example.com", in: defaults)
+        let sent = Feedback.rememberedSender(defaults)
+        #expect(sent.name == "Seb")
+        #expect(sent.email == "seb@example.com")
+
+        Feedback.rememberSender(name: "Seb", email: "", in: defaults)
+        let cleared = Feedback.rememberedSender(defaults)
+        #expect(cleared.name == "Seb")
+        #expect(cleared.email.isEmpty)
+    }
 }

@@ -53,16 +53,17 @@ final class FeedbackPresenter {
     /// Its own list rather than the report's, because they are two drafts: a screenshot attached
     /// to a half written bug report has no business turning up under a prompt.
     var promptImages: [FeedbackImage] = []
-    /// Kept after a submission goes, unlike everything else: it is the same person next time, and
-    /// typing your own name again to be credited again is a silly thing to ask of anybody.
-    var name = ""
+    /// Kept after a submission goes, unlike everything else, and across launches through
+    /// `Feedback.rememberSender`: it is the same person next time, and typing your own name again
+    /// to be credited again is a silly thing to ask of anybody.
+    var name = Feedback.rememberedSender().name
 
     // MARK: - The address, which both sheets share
 
     /// Kept for the same reason the name is, and shared between the two sheets because it is one
     /// person with one address: somebody who left it on a report should not have to type it again
     /// to hear about a prompt. Optional on both, and empty until somebody types it.
-    var email = ""
+    var email = Feedback.rememberedSender().email
 
     private init() {}
 
@@ -136,11 +137,20 @@ final class FeedbackPresenter {
         message = ""
         logs = ""
         images = []
+        rememberSender()
     }
 
     /// Called only after a prompt the server took.
     func clearPrompt() {
         prompt = ""
         promptImages = []
+        rememberSender()
+    }
+
+    /// Only after a send the server took, so a relaunch brings back what was accepted rather than
+    /// whatever was left half typed. The report sheet has no name field, so it writes back the
+    /// name it was handed unchanged.
+    private func rememberSender() {
+        Feedback.rememberSender(name: name, email: email)
     }
 }
