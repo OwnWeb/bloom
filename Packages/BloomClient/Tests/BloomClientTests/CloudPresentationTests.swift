@@ -174,3 +174,29 @@ import Testing
         #expect(TerminalSocket.name(for: "a/b c") == "shell-abc")
     }
 }
+
+@Suite struct CloudReviewCacheTests {
+    private func file(_ path: String, revision: String) -> ChangedFileRecord {
+        ChangedFileRecord(path: path, change: "modified", additions: 1, deletions: 0, isBinary: false, contentRevision: revision)
+    }
+
+    @Test func aSnapshotWithoutFilesKeepsWhatWasHeld() {
+        var cache = CloudReviewCache()
+        cache.absorb(ReviewSnapshotRecord(revision: "r1", files: [file("a", revision: "1")]))
+        cache.absorb(ReviewSnapshotRecord(revision: "r1", files: nil))
+        #expect(cache.files.map(\.path) == ["a"])
+        #expect(cache.revision == "r1")
+    }
+
+    @Test func aPatchIsKeptUntilItsFileMoves() {
+        var cache = CloudReviewCache()
+        cache.absorb(ReviewSnapshotRecord(revision: "r1", files: [file("a", revision: "1")]))
+        #expect(cache.knownRevision(for: "a") == nil)
+        cache.absorb(PatchSnapshotRecord(revision: "1", patch: "+x"), for: "a")
+        #expect(cache.knownRevision(for: "a") == "1")
+        #expect(cache.absorb(PatchSnapshotRecord(revision: "1", patch: nil), for: "a") == "+x")
+        cache.absorb(ReviewSnapshotRecord(revision: "r2", files: [file("a", revision: "2")]))
+        #expect(cache.knownRevision(for: "a") == nil)
+        #expect(cache.patch(for: "a") == nil)
+    }
+}

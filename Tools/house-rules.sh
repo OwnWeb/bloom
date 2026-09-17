@@ -351,6 +351,7 @@ id_type_allowed_properties=(
   'Sources/BloomCore/Agent/Delivery.swift:providerTurnID'             # the provider's accepted turn, used for recovery
   'Sources/BloomCore/Agent/PlanArtefact.swift:sourceID'               # the provider's plan item or tool-use token
   'Sources/BloomCore/Agent/Delivery.swift:remoteTurnID'               # runbloom.app's turn, a ULID it assigns
+  'Sources/Bloom/State/Cloud/CloudSharing.swift:teamID'               # runbloom.app's team, a ULID it assigns
   'Sources/BloomCore/Model/MessageAuthor.swift:userID'                # runbloom.app's user, the token's sub
   'Sources/BloomCore/Remote/RemoteEventHub.swift:userID'              # the same user, holding an event stream open
   'Sources/BloomServer/HTTP/EventStreams.swift:userID'                # the same user, on the server's side of the stream

@@ -270,6 +270,11 @@ struct PendingTurnRowView: View {
     @ViewBuilder
     private var caption: some View {
         HStack(spacing: Metrics.gutter) {
+            // Somebody else's message waiting in a shared Cloud workspace's queue.
+            if let author = delivery.author {
+                Text(author.name)
+                    .foregroundStyle(Palette.textSecondary)
+            }
             if let sentence = holdSentence {
                 Text(sentence)
                     .foregroundStyle(Palette.textTertiary)

@@ -109,7 +109,8 @@ struct TranscriptRowView: View, Equatable {
                 UserTurnRowView(
                     text: review.message,
                     reviewChips: review.chips,
-                    home: home
+                    home: home,
+                    authorName: row.authorName
                 )
             } else {
                 // Attachments reach the agent as paths in the prompt text, which is the only
@@ -122,7 +123,8 @@ struct TranscriptRowView: View, Equatable {
                 UserTurnRowView(
                     text: turn.body,
                     attachments: turn.paths,
-                    home: home
+                    home: home,
+                    authorName: row.authorName
                 )
             }
 

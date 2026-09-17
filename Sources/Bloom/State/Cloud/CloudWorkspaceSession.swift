@@ -47,6 +47,8 @@ final class CloudWorkspaceSession {
     /// The reader's own terminal, made the first time the pane is shown and kept, with its
     /// scrollback, for as long as the workspace is open.
     @ObservationIgnored private(set) lazy var terminal = CloudTerminal(session: self)
+    /// The Changes pane's files and patches, read when the pane is looked at.
+    @ObservationIgnored private(set) lazy var changes = CloudChanges(session: self)
 
     init(id: CloudWorkspaceID, cloud: CloudWorkspaces) {
         self.id = id
@@ -116,6 +118,8 @@ final class CloudWorkspaceSession {
                 if selectedChatID == nil { selectedChatID = SessionID(chatID) }
             case .composerChanged(let chatID, let author):
                 if let author, author.userID != readerID { composerChange = (chatID, author.name) }
+            case .reviewMoved:
+                if pane == .changes { Task { await changes.refresh() } }
             default:
                 break
             }

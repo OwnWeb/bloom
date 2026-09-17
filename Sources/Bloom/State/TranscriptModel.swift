@@ -2397,7 +2397,11 @@ final class TranscriptModel {
         setAwaitingPermission(!chat.questions.isEmpty)
         if !chat.isRunning, statusLabel != nil { statusLabel = nil }
 
-        let queue = chat.queue.prompts.map { Delivery(cloudPrompt: $0, chatID: chat.id) }
+        let queue = chat.queue.prompts.map { prompt in
+            var delivery = Delivery(cloudPrompt: prompt, chatID: chat.id)
+            if delivery.author?.userID == readerID { delivery.author = nil }
+            return delivery
+        }
         if queue != pendingDeliveries { pendingDeliveries = queue }
         if cloudQueueError != chat.queue.error { cloudQueueError = chat.queue.error }
         if let echo = sending, queue.contains(where: { $0.body == echo.body }) || rows.last?.kind == .user {
