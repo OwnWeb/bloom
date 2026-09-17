@@ -19,9 +19,24 @@ struct CloudWorkspaceColumn: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        let session = app.cloud.session(for: id)
+        let item = app.cloud.item(id)
+        if app.cloud.isSignedIn, item == nil, !app.cloud.items.isEmpty {
+            // Archived from another Mac, or no longer shared with this account. The list is the
+            // truth, and it no longer holds this one.
+            CloudEmptyStateView(state: .missingWorkspace)
+        } else if let item, !item.canOpen {
+            CloudEmptyStateView(state: .privateWorkspace(ownerName: item.owner?.name))
+        } else if app.cloud.isSignedIn, item != nil {
+            workspace(app.cloud.session(for: id), item: item)
+        } else {
+            CloudEmptyStateView(state: app.cloud.nothingOpenState)
+        }
+    }
+
+    @ViewBuilder
+    private func workspace(_ session: CloudWorkspaceSession, item: CloudWorkspaceItem?) -> some View {
         VStack(spacing: 0) {
-            CloudWorkspaceHeader(session: session, item: app.cloud.item(id))
+            CloudWorkspaceHeader(session: session, item: item)
             if let banner = CloudConnectionBanner.of(session.phase) {
                 CloudBannerView(banner: banner) { take($0, on: session) }
             }

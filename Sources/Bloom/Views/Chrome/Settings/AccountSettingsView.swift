@@ -116,7 +116,7 @@ struct AccountSettingsView: View {
         ForEach(account.teams) { team in
             Section {
                 if let notice = TeamSetupNotice(team: team, environment: cloud.environment) {
-                    TeamSetupNoticeView(notice: notice)
+                    TeamSetupNoticeView(notice: notice, environment: cloud.environment)
                 }
                 if team.cloudWorkspacesEnabled {
                     ForEach(["claude", "codex"], id: \.self) { agent in

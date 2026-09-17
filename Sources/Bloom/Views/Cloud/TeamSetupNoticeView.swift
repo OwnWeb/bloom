@@ -6,6 +6,8 @@ import SwiftUI
 /// way in the create sheet and in Settings rather than ending at "not turned on".
 struct TeamSetupNoticeView: View {
     var notice: TeamSetupNotice
+    /// Where runbloom.app is, for the fallback page when the notice named none.
+    var environment: RunbloomEnvironment
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.spacingWide) {
@@ -23,8 +25,10 @@ struct TeamSetupNoticeView: View {
                     }
                 }
             }
-            if let page = notice.setupPage {
-                Button(TeamSetupNotice.buttonTitle) { NSWorkspace.shared.open(page) }
+            // The button names the first step still to take rather than "finish setting up", which
+            // over four different steps says nothing about which one this is.
+            Button(notice.buttonTitle) {
+                NSWorkspace.shared.open(notice.page ?? environment.origin.appending(path: "account"))
             }
         }
     }

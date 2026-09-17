@@ -67,6 +67,7 @@ final class CloudWorkspaces {
     static let pollInterval: Duration = .seconds(20)
     static let backgroundPollInterval: Duration = .seconds(60)
     private static let promptsKey = "cloudWorkspaces.pendingOpeningPrompts"
+    private static let hasEverSignedInKey = "cloudWorkspaces.hasEverSignedIn"
     private static let originKey = "cloudWorkspaces.runbloomOrigin"
 
     init() {
@@ -90,6 +91,15 @@ final class CloudWorkspaces {
         }
     }
 
+    /// Whether this Mac has ever been signed in to a Bloom account.
+    ///
+    /// **What decides whether the sidebar has a Cloud section at all when nobody is signed in.** A
+    /// Mac that has never used Cloud workspaces is not asked to: Bloom needs no account, and a
+    /// section inviting one is a standing advertisement in the one pane somebody looks at all day.
+    /// A Mac that has used them keeps the section, with the way back into the account, because
+    /// there the missing thing is a sign in rather than an offer.
+    private(set) var hasEverSignedIn = UserDefaults.standard.bool(forKey: hasEverSignedInKey)
+
     var isSignedIn: Bool {
         switch accountState {
         case .signedOut, .signingIn: false
@@ -102,6 +112,10 @@ final class CloudWorkspaces {
     func attach(_ app: AppModel) {
         self.app = app
         guard signIn.isSignedIn else { return }
+        if !hasEverSignedIn {
+            hasEverSignedIn = true
+            UserDefaults.standard.set(true, forKey: Self.hasEverSignedInKey)
+        }
         accountState = .loading
         startPolling()
         Task { await refresh() }
@@ -127,6 +141,8 @@ final class CloudWorkspaces {
         generation += 1
         do {
             try await signIn.signIn(presenting: window)
+            hasEverSignedIn = true
+            UserDefaults.standard.set(true, forKey: Self.hasEverSignedInKey)
             accountState = .loading
             startPolling()
             await refresh()
@@ -235,6 +251,23 @@ final class CloudWorkspaces {
 
     func item(_ id: CloudWorkspaceID) -> CloudWorkspaceItem? {
         items.first { $0.id == id.rawValue }
+    }
+
+    /// Whether this team has a key for either agent, which is what a first turn needs. Personal
+    /// keys count: runbloom.app uses one in a workspace that is not shared.
+    func hasAnyAgentKey(team: String) -> Bool {
+        guard let account, !account.agentKeys.isEmpty else { return true }
+        return account.hasAgentKey(team: team, agent: "claude") || account.hasAgentKey(team: team, agent: "codex")
+    }
+
+    /// What to say where a Cloud workspace list is empty, and what to offer. See `CloudEmptyState`.
+    var emptyState: CloudEmptyState {
+        CloudEmptyState.noWorkspaces(isSignedIn: isSignedIn, account: account, environment: environment)
+    }
+
+    /// The same, for the centre column, which can also say "choose one".
+    var nothingOpenState: CloudEmptyState {
+        CloudEmptyState.nothingOpen(hasWorkspaces: !items.isEmpty, isSignedIn: isSignedIn, account: account, environment: environment)
     }
 
     /// The page on runbloom.app closest to a Cloud workspace's cause: its team's own setup page

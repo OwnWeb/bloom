@@ -132,6 +132,26 @@ import Testing
         #expect(CloudConnectionBanner.of(.limited(LimitNotice(limit: "concurrent_machines", message: "Wait.")))?.actions.isEmpty == true)
     }
 
+    /// The same shape as an empty state: a title, a sentence that says what is true, and something
+    /// to press wherever a person can do anything about it.
+    @Test func everyBannerSaysATitleAndASentence() {
+        let phases: [WorkspaceConnection.Phase] = [
+            .connecting(waking: true), .asleep, .notReady(message: "Still starting.", retryAfter: 5), .archived,
+            .noAccess("Removed."), .retrying("Offline."), .limited(LimitNotice(limit: "monthly_usage", message: "Over budget.")),
+            .limited(LimitNotice(limit: "concurrent_machines", message: "Twenty running.")),
+        ]
+        for phase in phases {
+            let banner = try? #require(CloudConnectionBanner.of(phase))
+            #expect(banner?.title.isEmpty == false, "\(phase) has no title")
+            #expect(banner?.message?.isEmpty == false, "\(phase) has no sentence")
+        }
+        for state in ["pending", "running", "failed"] {
+            let banner = CloudConnectionBanner.ofSetup(SetupRecord(state: state), isWatching: false, canRunSetup: true)
+            #expect(banner?.title.isEmpty == false)
+            #expect(banner?.message?.isEmpty == false)
+        }
+    }
+
     @Test func aMachineThatIsNotReadyOffersTheSetupOutput() {
         #expect(CloudConnectionBanner.of(.notReady(message: "Still starting.", retryAfter: 5))?.actions == [.watchSetup])
     }
@@ -270,7 +290,10 @@ import Testing
         #expect(!team.isReadyForCloudWorkspaces)
         let notice = try #require(TeamSetupNotice(team: team, environment: environment))
         #expect(notice.steps == ["Install the Bloom GitHub App for the team.", "Add a repository as a project."])
-        #expect(notice.setupPage?.absoluteString == "https://runbloom.app/account/spatie")
+        // The first step still to take is the one the button goes to, and installing the GitHub App
+        // is taken on the team's own page rather than a page under it.
+        #expect(notice.buttonTitle == "Install the GitHub App on runbloom.app")
+        #expect(notice.page?.absoluteString == "https://runbloom.app/account/spatie")
     }
 
     @Test func aTeamNotInEarlyAccessSaysSo() throws {
@@ -306,7 +329,7 @@ import Testing
 
     @Test func aSetupPageElsewhereIsNotOffered() throws {
         let team = try team(#"{"id": "t", "name": "X", "cloud_workspaces_enabled": true, "cloud_workspaces": {"has_project": false, "setup_url": "https://evil.test/setup"}}"#)
-        #expect(TeamSetupNotice(team: team, environment: environment)?.setupPage == nil)
+        #expect(TeamSetupNotice(team: team, environment: environment)?.page == nil)
     }
 }
 
@@ -384,5 +407,89 @@ import Testing
         #expect(notice.sentence == "You cannot push to spatie/bloom.")
         #expect(notice.opensRunbloom)
         #expect(!CloudRefusalNotice(message: "The connection dropped.", code: "internal").opensRunbloom)
+    }
+}
+
+@Suite struct CloudEmptyStateTests {
+    private let environment = RunbloomEnvironment(origin: RunbloomEnvironment.productionOrigin, urlScheme: "bloomcloud")
+
+    private func account(_ teams: [RunbloomTeam]) -> RunbloomAccount {
+        RunbloomAccount(id: "u", name: "Freek", email: "f@s.be", githubConnected: true, teams: teams)
+    }
+
+    private func team(enabled: Bool, setup: TeamSetup?) -> RunbloomTeam {
+        RunbloomTeam(id: "t", name: "Spatie", cloudWorkspacesEnabled: enabled, setup: setup)
+    }
+
+    private var complete: TeamSetup {
+        TeamSetup(enabled: true, setupComplete: true, githubConnected: true, githubAppInstalled: true, hasProject: true, hasAgentKey: true,
+                  setupURL: URL(string: "https://runbloom.app/account/spatie"))
+    }
+
+    @Test func signedOutSaysWhatACloudWorkspaceIsAndOffersSigningIn() {
+        let state = CloudEmptyState.noWorkspaces(isSignedIn: false, account: nil, environment: environment)
+        #expect(state.action == .signIn)
+        #expect(state.action?.title == "Sign in to your Bloom account")
+        #expect(!state.sentence.isEmpty)
+    }
+
+    @Test func aReadyTeamWithNoWorkspacesOffersCreatingOne() {
+        let state = CloudEmptyState.noWorkspaces(isSignedIn: true, account: account([team(enabled: true, setup: complete)]), environment: environment)
+        #expect(state.title == "No Cloud workspaces yet")
+        #expect(state.action == .createWorkspace)
+        #expect(state.steps.isEmpty)
+    }
+
+    @Test func aTeamMissingAStepOffersThatStepsOwnPage() {
+        var setup = complete
+        setup.setupComplete = false
+        setup.hasProject = false
+        let state = CloudEmptyState.noWorkspaces(isSignedIn: true, account: account([team(enabled: true, setup: setup)]), environment: environment)
+        #expect(state.title == "One more step first")
+        #expect(state.steps == ["Add a repository as a project."])
+        #expect(state.action == .open(URL(string: "https://runbloom.app/account/spatie/projects"), title: "Add a project on runbloom.app"))
+    }
+
+    @Test func aMissingKeyGetsTheKeysPage() {
+        var setup = complete
+        setup.setupComplete = false
+        setup.hasAgentKey = false
+        let state = CloudEmptyState.noWorkspaces(isSignedIn: true, account: account([team(enabled: true, setup: setup)]), environment: environment)
+        #expect(state.action == .open(URL(string: "https://runbloom.app/account/spatie/agent-keys"), title: "Add an API key on runbloom.app"))
+    }
+
+    @Test func earlyAccessSaysSoAndStillOffersTheWayThere() {
+        let state = CloudEmptyState.noWorkspaces(
+            isSignedIn: true, account: account([team(enabled: false, setup: TeamSetup(enabled: false, setupURL: URL(string: "https://runbloom.app/account/spatie")))]),
+            environment: environment
+        )
+        #expect(state.title == "Cloud workspaces are in early access")
+        #expect(state.action?.title == TeamSetupNotice.genericButtonTitle)
+    }
+
+    @Test func everyEmptyStateHasATitleASentenceAndSomethingToPressWhereThereIsAnything() {
+        let states = [
+            CloudEmptyState.noWorkspaces(isSignedIn: false, account: nil, environment: environment),
+            CloudEmptyState.noWorkspaces(isSignedIn: true, account: account([team(enabled: true, setup: complete)]), environment: environment),
+            CloudEmptyState.nothingOpen(hasWorkspaces: true, isSignedIn: true, account: nil, environment: environment),
+            CloudEmptyState.missingWorkspace,
+            CloudEmptyState.privateWorkspace(ownerName: "Alex"),
+        ]
+        for state in states {
+            #expect(!state.title.isEmpty)
+            #expect(state.sentence.hasSuffix(".") || state.sentence.hasSuffix("…"))
+            let words = ([state.title, state.sentence] + state.steps + [state.action?.title ?? ""]).joined(separator: " ").lowercased()
+            #expect(!words.contains("sprite") && !words.contains("fly.io") && !words.contains("runner"))
+        }
+        // The one state with nothing to press says why rather than offering a button that lies.
+        #expect(CloudEmptyState.privateWorkspace(ownerName: nil).action == nil)
+    }
+
+    @Test func theCentreColumnAsksForAChoiceOnlyWhenThereIsOne() {
+        let none = CloudEmptyState.nothingOpen(hasWorkspaces: false, isSignedIn: false, account: nil, environment: environment)
+        #expect(none.action == .signIn)
+        let some = CloudEmptyState.nothingOpen(hasWorkspaces: true, isSignedIn: true, account: nil, environment: environment)
+        #expect(some.title == "No Cloud workspace open")
+        #expect(some.action == .createWorkspace)
     }
 }

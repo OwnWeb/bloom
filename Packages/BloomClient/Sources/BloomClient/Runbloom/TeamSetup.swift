@@ -60,25 +60,66 @@ public struct TeamSetup: Codable, Sendable, Hashable {
     /// steps this version may not have heard of; otherwise the four this version knows.
     public var isComplete: Bool { setupComplete ?? missing.isEmpty }
 
-    /// The steps still to take, in the order the account page lists them, as sentences.
+    /// The steps still to take, in the order the account page lists them.
     ///
     /// `github_connected` is about the signed in person; the other three are the team's. Only a
     /// step runbloom.app said false is listed: not said is not the same as not done.
-    public var missing: [String] {
-        var steps: [String] = []
-        if githubConnected == false { steps.append("Connect your GitHub account.") }
-        if githubAppInstalled == false { steps.append("Install the Bloom GitHub App for the team.") }
-        if hasProject == false { steps.append("Add a repository as a project.") }
-        if hasAgentKey == false { steps.append("Add a Claude Code or Codex API key.") }
+    public var missingSteps: [TeamSetupStep] {
+        var steps: [TeamSetupStep] = []
+        if githubConnected == false { steps.append(.connectGitHub) }
+        if githubAppInstalled == false { steps.append(.installGitHubApp) }
+        if hasProject == false { steps.append(.addProject) }
+        if hasAgentKey == false { steps.append(.addAgentKey) }
         return steps
     }
 
-    /// The page to send somebody to (`https://runbloom.app/account/<team>`), and only when it is
-    /// runbloom.app's own: the address came from an answer, and a button that opens it should not
-    /// open anywhere else.
-    public func setupPage(on environment: RunbloomEnvironment) -> URL? {
+    /// The same steps as sentences.
+    public var missing: [String] { missingSteps.map(\.sentence) }
+
+    /// The page to send somebody to (`https://runbloom.app/account/<team>`, sometimes a page under
+    /// it), and only when it is runbloom.app's own: the address came from an answer, and a button
+    /// that opens it should not open anywhere else.
+    public func setupPage(on environment: RunbloomEnvironment, for step: TeamSetupStep? = nil) -> URL? {
         guard let setupURL, BloomAuthDocument.sameOrigin(setupURL, environment.origin) else { return nil }
-        return setupURL
+        guard let page = step?.page else { return setupURL }
+        return setupURL.appending(path: page)
+    }
+}
+
+/// One thing a team needs before Cloud workspaces work in it, and the button that goes to it.
+public enum TeamSetupStep: String, Sendable, Hashable, CaseIterable {
+    case connectGitHub
+    case installGitHubApp
+    case addProject
+    case addAgentKey
+
+    public var sentence: String {
+        switch self {
+        case .connectGitHub: "Connect your GitHub account."
+        case .installGitHubApp: "Install the Bloom GitHub App for the team."
+        case .addProject: "Add a repository as a project."
+        case .addAgentKey: "Add a Claude Code or Codex API key."
+        }
+    }
+
+    /// What the button says. Each names the step rather than the page, because "Finish setting up"
+    /// over four different steps tells a reader nothing about which of them they are about to do.
+    public var buttonTitle: String {
+        switch self {
+        case .connectGitHub: "Connect GitHub on runbloom.app"
+        case .installGitHubApp: "Install the GitHub App on runbloom.app"
+        case .addProject: "Add a project on runbloom.app"
+        case .addAgentKey: "Add an API key on runbloom.app"
+        }
+    }
+
+    /// The page under the team's own, when the step has one of its own.
+    var page: String? {
+        switch self {
+        case .connectGitHub, .installGitHubApp: nil
+        case .addProject: "projects"
+        case .addAgentKey: "agent-keys"
+        }
     }
 }
 
@@ -87,26 +128,25 @@ public struct TeamSetup: Codable, Sendable, Hashable {
 public struct TeamSetupNotice: Sendable, Hashable {
     public var sentence: String
     public var steps: [String]
-    /// The Dashboard checklist, when there is somewhere to finish.
-    public var setupPage: URL?
+    /// What the one button says and where it goes: the first step still to take, because a reader
+    /// with four things to do starts with the first. Nil when runbloom.app named no page.
+    public var buttonTitle: String
+    public var page: URL?
 
-    public static let buttonTitle = "Finish setting up on runbloom.app"
+    public static let genericButtonTitle = "Finish setting up on runbloom.app"
 
     /// Nil for a team that is ready, as far as runbloom.app said.
     public init?(team: RunbloomTeam, environment: RunbloomEnvironment) {
-        let page = team.setup?.setupPage(on: environment)
+        let steps = team.setup?.missingSteps ?? []
+        let first = steps.first
+        buttonTitle = first?.buttonTitle ?? Self.genericButtonTitle
+        page = team.setup?.setupPage(on: environment, for: first)
+        self.steps = steps.map(\.sentence)
         guard team.cloudWorkspacesEnabled else {
             sentence = "Cloud workspaces are in early access, and \(team.name.isEmpty ? "this team" : team.name) is not in it yet."
-            // The steps are still listed: runbloom.app reports them whether or not the team is in
-            // early access yet, and they are worth doing before it is.
-            steps = team.setup?.missing ?? []
-            setupPage = page
             return
         }
-        let missing = team.setup?.missing ?? []
-        guard !missing.isEmpty || team.setup?.isComplete == false else { return nil }
+        guard !steps.isEmpty || team.setup?.isComplete == false else { return nil }
         sentence = "\(team.name.isEmpty ? "This team" : team.name) needs a few things before it can create Cloud workspaces."
-        steps = missing
-        setupPage = page
     }
 }

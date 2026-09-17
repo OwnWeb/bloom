@@ -168,7 +168,7 @@ struct SidebarView: View {
             } else {
                 Section { paneRowsList }
             }
-            if app.cloud.isSignedIn { cloudSection }
+            if app.cloud.isSignedIn || app.cloud.hasEverSignedIn { cloudSection }
         }
         // The native list owns row height, keyboard navigation and which row is selected. How the
         // selected row is drawn is `SidebarSelectionFill`'s, on each row, for the reason given there.
@@ -899,11 +899,13 @@ struct SidebarView: View {
                     .foregroundStyle(Palette.textTertiary)
                     .lineLimit(3)
                     .selectionDisabled()
-            } else if app.cloud.items.isEmpty, app.cloud.accountState == .signedIn {
-                Text("No Cloud workspaces yet")
-                    .font(.caption)
-                    .foregroundStyle(Palette.textTertiary)
+            } else if app.cloud.items.isEmpty {
+                // Not a line of grey text. A first run lands here with nothing to click, so the
+                // section says what is true and carries the one thing to do next. See
+                // `CloudEmptyState`.
+                CloudEmptyStateView(state: app.cloud.emptyState, isCompact: true)
                     .selectionDisabled()
+                    .moveDisabled(true)
             }
         } header: {
             HStack {

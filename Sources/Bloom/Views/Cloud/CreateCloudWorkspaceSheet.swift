@@ -1,3 +1,4 @@
+import AppKit
 import BloomClient
 import BloomCore
 import SwiftUI
@@ -43,7 +44,9 @@ struct CreateCloudWorkspaceSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
-                if teams.isEmpty {
+                if !cloud.isSignedIn {
+                    Section { CloudEmptyStateView(state: cloud.emptyState) }
+                } else if teams.isEmpty {
                     // No team in early access. Each team says why, and where to go next, rather
                     // than the sheet ending at a sentence with nothing to press.
                     let notices = (cloud.account?.teams ?? []).compactMap { TeamSetupNotice(team: $0, environment: cloud.environment) }
@@ -52,7 +55,7 @@ struct CreateCloudWorkspaceSheet: View {
                             Text("Cloud workspaces are in early access, and none of your teams is in it yet.")
                                 .foregroundStyle(Palette.textSecondary)
                         }
-                        ForEach(notices, id: \.self) { TeamSetupNoticeView(notice: $0) }
+                        ForEach(notices, id: \.self) { TeamSetupNoticeView(notice: $0, environment: cloud.environment) }
                     }
                 } else {
                     Section {
@@ -67,18 +70,22 @@ struct CreateCloudWorkspaceSheet: View {
                         }
                         .disabled(projects.isEmpty)
                         if let teamNotice {
-                            TeamSetupNoticeView(notice: teamNotice)
+                            TeamSetupNoticeView(notice: teamNotice, environment: cloud.environment)
                         } else if let projectsProblem {
                             Text(projectsProblem).foregroundStyle(Palette.negative)
-                        }
-                    } footer: {
-                        if teamNotice == nil, !isLoadingProjects, projects.isEmpty, projectsProblem == nil {
-                            Text("Add a GitHub repository to the team on runbloom.app to create Cloud workspaces for it.")
+                        } else if !isLoadingProjects, projects.isEmpty {
+                            // A button rather than a sentence in grey. This is where a first run
+                            // stops, and it stopped with nothing to press.
+                            VStack(alignment: .leading, spacing: Metrics.spacingWide) {
+                                Text("This team has no projects yet. A project is a GitHub repository a Cloud workspace can be created for.")
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button(TeamSetupStep.addProject.buttonTitle) { open(.addProject) }
+                            }
                         }
                     }
                     Section {
                         TextField("Name", text: $name, prompt: Text("Queue retries"))
-                        TextField("Branch", text: $branch, prompt: Text("freek/queue-retries"))
+                        TextField("Branch", text: $branch, prompt: Text(branchPlaceholder))
                             .font(.body.monospaced())
                             .onChange(of: branch) { _, new in
                                 if new != suggestedBranch { branchWasEdited = true }
@@ -100,8 +107,20 @@ struct CreateCloudWorkspaceSheet: View {
                     }
                     if cloud.account?.githubConnected == false {
                         Section {
-                            Label("Connect GitHub on runbloom.app first. Cloud workspaces push as you.", systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(Palette.warning)
+                            VStack(alignment: .leading, spacing: Metrics.spacingWide) {
+                                Text("Connect GitHub before creating one. A Cloud workspace clones the repository and pushes as you.")
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button(TeamSetupStep.connectGitHub.buttonTitle) { open(.connectGitHub) }
+                            }
+                        }
+                    }
+                    if let team, !cloud.hasAnyAgentKey(team: team.id) {
+                        Section {
+                            VStack(alignment: .leading, spacing: Metrics.spacingWide) {
+                                Text("This team has no Claude Code or Codex API key yet, so a turn in a new Cloud workspace could not start.")
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button(TeamSetupStep.addAgentKey.buttonTitle) { open(.addAgentKey) }
+                            }
                         }
                     }
                 }
@@ -112,6 +131,12 @@ struct CreateCloudWorkspaceSheet: View {
                 if let failure {
                     Text(failure)
                         .foregroundStyle(Palette.negative)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let blocker {
+                    // One line saying what would make the button work, beside the button that does
+                    // not, rather than a disabled control with no explanation.
+                    Text(blocker)
+                        .foregroundStyle(Palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
@@ -135,6 +160,29 @@ struct CreateCloudWorkspaceSheet: View {
                 branchWasEdited = false
             }
         }
+    }
+
+    /// What stops Create, in one line, or nil when nothing does.
+    private var blocker: String? {
+        if teams.isEmpty { return nil }
+        if team == nil { return "Choose a team." }
+        if teamNotice != nil { return "This team is not ready for Cloud workspaces yet." }
+        if project == nil { return "Choose a project." }
+        if name.trimmingCharacters(in: .whitespaces).isEmpty { return "Give it a name." }
+        if branchProblem != nil || branch.isEmpty { return "Give it a branch name." }
+        return nil
+    }
+
+    /// runbloom.app's page for one step of a team's setup.
+    private func open(_ step: TeamSetupStep) {
+        let page = team?.setup?.setupPage(on: cloud.environment, for: step)
+        NSWorkspace.shared.open(page ?? cloud.environment.origin.appending(path: "account"))
+    }
+
+    /// An example that reads like this person's own branch, rather than somebody else's name.
+    private var branchPlaceholder: String {
+        let example = CloudBranchName.suggestion(for: "queue retries", prefix: cloud.account?.name.split(separator: " ").first.map { $0.lowercased() })
+        return example.isEmpty ? "queue-retries" : example
     }
 
     private var suggestedBranch: String {

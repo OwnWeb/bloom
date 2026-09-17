@@ -949,6 +949,17 @@ the coordinator.
   be null. A workspace the reader cannot open is listed with only `id`, `team_id`, `name`, `state`,
   `owner`, `role` (null), `can_open`, `can_archive`, `created_at` and `archived_at`, and is drawn as
   not openable, archivable when `can_archive` says so.
+- **Every empty state is a title, a sentence and one button**, decided by `CloudEmptyState` and
+  drawn the same way in the sidebar's section (compact), the centre column and the create sheet: a
+  Mac that is not signed in says what a Cloud workspace is and offers signing in, a team in early
+  access says so, a team with steps left names the first one and goes to its own page on
+  runbloom.app (`setup_url`, plus `projects` or `agent-keys`), and a ready team with nothing created
+  offers creating the first one. The create sheet offers the same buttons rather than grey text, and
+  says in one line what is stopping Create.
+- **The sidebar's Cloud section is hidden until this Mac has signed in once**, and stays after
+  signing out, with the way back. Bloom needs no account, so a Mac that has never used a Cloud
+  workspace is not asked to in the pane somebody looks at all day; a Mac that has is missing a sign
+  in rather than being offered one.
 - **Every state a first Cloud workspace passes through says what it is and what to do.**
   `CloudConnectionBanner` is the one place that decides it, and its tests name the states that must
   offer something: setting up (watch the output), setup failed (read it, run it again), asleep
