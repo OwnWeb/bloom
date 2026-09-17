@@ -270,7 +270,7 @@ struct MachineSetupTests {
         let midway = try await fixture.workspace()
         #expect(midway.setupState == .running)
         #expect(!midway.setupLog.contains("second line"))
-        FileManager.default.createFile(atPath: release, contents: nil)
+        _ = FileManager.default.createFile(atPath: release, contents: nil)
         defer { try? FileManager.default.removeItem(atPath: release) }
         await run.value
         #expect(try await fixture.workspace().setupLog.contains("second line"))
