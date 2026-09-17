@@ -68,17 +68,23 @@ public struct RunbloomTeam: Codable, Sendable, Hashable, Identifiable {
     public var slug: String
     public var role: String
     public var cloudWorkspacesEnabled: Bool
+    /// What this team still needs before Cloud workspaces can be created in it, when runbloom.app
+    /// said. Nil from a runbloom.app that does not say, which the app treats as nothing known.
+    public var setup: TeamSetup?
 
-    public init(id: String, name: String, slug: String = "", role: String = "member", cloudWorkspacesEnabled: Bool = true) {
+    public init(
+        id: String, name: String, slug: String = "", role: String = "member", cloudWorkspacesEnabled: Bool = true, setup: TeamSetup? = nil
+    ) {
         self.id = id
         self.name = name
         self.slug = slug
         self.role = role
         self.cloudWorkspacesEnabled = cloudWorkspacesEnabled
+        self.setup = setup
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, slug, role
+        case id, name, slug, role, setup
         case cloudWorkspacesEnabled = "cloud_workspaces_enabled"
     }
 
@@ -88,7 +94,27 @@ public struct RunbloomTeam: Codable, Sendable, Hashable, Identifiable {
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         slug = try c.decodeIfPresent(String.self, forKey: .slug) ?? ""
         role = try c.decodeIfPresent(String.self, forKey: .role) ?? "member"
-        cloudWorkspacesEnabled = try c.decodeIfPresent(Bool.self, forKey: .cloudWorkspacesEnabled) ?? false
+        // Nested under `setup` or laid out beside the team's own fields: which of the two
+        // runbloom.app settles on is not final yet, and a setup this client cannot read is none.
+        let nested = try? c.decodeIfPresent(TeamSetup.self, forKey: .setup)
+        let flat = try? TeamSetup(from: decoder)
+        setup = nested ?? (flat?.saysAnything == true ? flat : nil)
+        cloudWorkspacesEnabled = try c.decodeIfPresent(Bool.self, forKey: .cloudWorkspacesEnabled) ?? setup?.enabled ?? false
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(slug, forKey: .slug)
+        try c.encode(role, forKey: .role)
+        try c.encode(cloudWorkspacesEnabled, forKey: .cloudWorkspacesEnabled)
+        try c.encodeIfPresent(setup, forKey: .setup)
+    }
+
+    /// Whether a Cloud workspace can be created in this team now, as far as runbloom.app said.
+    public var isReadyForCloudWorkspaces: Bool {
+        cloudWorkspacesEnabled && (setup?.missing.isEmpty ?? true)
     }
 }
 

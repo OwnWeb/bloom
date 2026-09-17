@@ -115,6 +115,9 @@ struct AccountSettingsView: View {
 
         ForEach(account.teams) { team in
             Section {
+                if let notice = TeamSetupNotice(team: team, environment: cloud.environment) {
+                    TeamSetupNoticeView(notice: notice)
+                }
                 if team.cloudWorkspacesEnabled {
                     ForEach(["claude", "codex"], id: \.self) { agent in
                         SettingsRow {
@@ -124,9 +127,6 @@ struct AccountSettingsView: View {
                             Text(agent == "claude" ? "Claude Code key" : "Codex key")
                         }
                     }
-                } else {
-                    Text("Cloud workspaces are not turned on for this team yet.")
-                        .foregroundStyle(.secondary)
                 }
             } header: {
                 Text(team.name)

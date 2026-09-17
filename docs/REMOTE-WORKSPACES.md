@@ -949,6 +949,12 @@ the coordinator.
   be null. A workspace the reader cannot open is listed with only `id`, `team_id`, `name`, `state`,
   `owner`, `role` (null), `can_open`, `can_archive`, `created_at` and `archived_at`, and is drawn as
   not openable, archivable when `can_archive` says so.
+- **A team that is not ready says what is missing.** Each team may carry its setup state
+  (`enabled`, `github_connected`, `github_app_installed`, `has_project`, `has_agent_key`,
+  `setup_url`; names provisional, read nested under `setup` or beside the team's own fields). The
+  create sheet and the Bloom Account pane list the steps still to take and offer "Finish setting up
+  on runbloom.app", which opens `setup_url` only when it is on runbloom.app's own origin; a team not
+  in early access says so. A runbloom.app that sends none of it changes nothing.
 - **`sharing_in_progress`** (409, `retry_after`) on a session or preview token, for anybody but the
   owner while runbloom.app tells the machine the workspace became shared, is waited out like
   `machine_not_ready`: a short starting state, then asked again.

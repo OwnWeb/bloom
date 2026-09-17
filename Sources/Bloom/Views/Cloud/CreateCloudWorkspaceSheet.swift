@@ -30,8 +30,13 @@ struct CreateCloudWorkspaceSheet: View {
     private var project: RunbloomProject? { projects.first { $0.id == projectID } }
     private var branchProblem: String? { branch.isEmpty ? nil : CloudBranchName.problem(branch) }
 
+    /// What the chosen team still needs, when it cannot create a Cloud workspace yet.
+    private var teamNotice: TeamSetupNotice? {
+        team.flatMap { TeamSetupNotice(team: $0, environment: cloud.environment) }
+    }
+
     private var canCreate: Bool {
-        team != nil && project != nil && !name.trimmingCharacters(in: .whitespaces).isEmpty
+        team != nil && teamNotice == nil && project != nil && !name.trimmingCharacters(in: .whitespaces).isEmpty
             && CloudBranchName.problem(branch) == nil && !isCreating
     }
 
@@ -39,9 +44,15 @@ struct CreateCloudWorkspaceSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
                 if teams.isEmpty {
+                    // No team in early access. Each team says why, and where to go next, rather
+                    // than the sheet ending at a sentence with nothing to press.
+                    let notices = (cloud.account?.teams ?? []).compactMap { TeamSetupNotice(team: $0, environment: cloud.environment) }
                     Section {
-                        Text("None of your teams has Cloud workspaces turned on yet.")
-                            .foregroundStyle(Palette.textSecondary)
+                        if notices.isEmpty {
+                            Text("Cloud workspaces are in early access, and none of your teams is in it yet.")
+                                .foregroundStyle(Palette.textSecondary)
+                        }
+                        ForEach(notices, id: \.self) { TeamSetupNoticeView(notice: $0) }
                     }
                 } else {
                     Section {
@@ -55,11 +66,13 @@ struct CreateCloudWorkspaceSheet: View {
                             ForEach(projects) { Text($0.repository).tag(Optional($0.id)) }
                         }
                         .disabled(projects.isEmpty)
-                        if let projectsProblem {
+                        if let teamNotice {
+                            TeamSetupNoticeView(notice: teamNotice)
+                        } else if let projectsProblem {
                             Text(projectsProblem).foregroundStyle(Palette.negative)
                         }
                     } footer: {
-                        if !isLoadingProjects, projects.isEmpty, projectsProblem == nil {
+                        if teamNotice == nil, !isLoadingProjects, projects.isEmpty, projectsProblem == nil {
                             Text("Add a GitHub repository to the team on runbloom.app to create Cloud workspaces for it.")
                         }
                     }
