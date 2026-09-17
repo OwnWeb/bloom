@@ -930,6 +930,43 @@ and its builder confirmed them.
 - **Linux runs the core tests the server needs, by name.** `Package.swift` lists them, so a test
   written on a Mac about the window cannot fail a Linux job its author never thought about.
 
+### The preview inside Bloom
+
+The preview opens in a Browser tab in Bloom, as a local workspace's does, and not only in the
+default browser. **The cookie stays, and no per-request token replaces it.** A token on every
+request would have to live in the web view's address bar or in every link the project's app writes,
+where a page could read it, copy it and use it later; the cookie is the thing a browser is built to
+keep out of a page's hands.
+
+How it works: the Mac asks runbloom.app for a preview token, navigates the web view once to
+`https://<machine>/_bloom/preview/enter?token=…`, and the redirect sets `__Host-bloom-preview` in
+that web view's own store. Everything that made this safe from a browser still holds: the cookie is
+`__Host-`, `HttpOnly`, `Secure`, `SameSite=Lax`, Caddy strips it from `Cookie` before the request
+reaches the project's app, blanks a `Set-Cookie` that tries to plant one, and answers `/_bloom/*`
+from Bloom Runner rather than from the app. So the preview cannot reach the control API, and the
+app's own JavaScript cannot read the credential that let the tab in.
+
+The Mac's half, agreed with its builder and written here because the safety depends on it:
+
+- A **non-persistent `WKWebsiteDataStore` per Cloud workspace**, made when that workspace's Browser
+  tab first opens and dropped when the workspace is closed or archived or the account signs out.
+  Never the app's shared store, and never shared between workspaces: one store per origin means one
+  workspace's preview cookie can never travel to another machine's origin, and nothing survives a
+  relaunch, so the cookie's real life is the shorter of its eight hours and the window staying open.
+- The web view is **navigated only to the enter URL runbloom.app has just issued**, with the token in
+  that one navigation. No token is injected into a page the app did not navigate to, the address bar
+  cannot be used to enter with a token, and a page that navigates off the machine's origin carries no
+  Bloom token with it.
+
+**What an attacker gets.** Somebody who reads that web view's store, which means code already
+running as the person on their Mac, gets the preview of one workspace for up to eight hours: the
+project's app as that person sees it, and nothing else. That is what a share link already hands out
+deliberately. They do not get the control API (a preview token grants `preview` and nothing more,
+and the RPC, event stream and terminal routes all refuse anything but a session token), they do not
+get another workspace (the cookie is `__Host-`, bound to that machine's host, in a store that holds
+only that machine), and they do not get the agent's keys or a GitHub token, which never leave the
+machine.
+
 ## When a Cloud workspace misbehaves
 
 The first people to use this will be reading a workspace that is stuck without knowing which half
