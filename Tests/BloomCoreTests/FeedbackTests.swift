@@ -261,6 +261,53 @@ struct FeedbackTests {
         #expect(written.hasSuffix("--TESTBOUNDARY--\r\n"))
     }
 
+    /// A multipart body is built field by field rather than encoded, so a field added to the JSON
+    /// and not to the form is dropped the moment somebody attaches a picture. The address was.
+    @Test("a report with pictures still carries the address it was given")
+    func multipartReportKeepsEmail() throws {
+        let written = text(of: try Feedback.body(for: report(email: "freek@spatie.be", images: [image()]), boundary: "B"))
+
+        #expect(written.contains("name=\"email\"\r\n\r\nfreek@spatie.be\r\n"))
+    }
+
+    @Test("a prompt with pictures goes as multipart, with every field its JSON body has")
+    func multipartPrompt() throws {
+        let submission = Feedback.PromptSubmission(
+            prompt: "make this row narrower", name: "Seb", email: "seb@example.com",
+            images: [image()], token: token, environment: environment()
+        )
+        let body = try Feedback.body(for: submission, boundary: "TESTBOUNDARY")
+        let written = text(of: body)
+
+        #expect(body.contentType == "multipart/form-data; boundary=TESTBOUNDARY")
+        for key in try object(submission).keys where key != "environment" {
+            #expect(written.contains("name=\"\(key)\"\r\n\r\n"))
+        }
+        #expect(written.contains("name=\"attachments[]\"; filename=\"attachment.png\""))
+        #expect(written.contains("name=\"environment[app_version]\""))
+        #expect(written.hasSuffix("--TESTBOUNDARY--\r\n"))
+    }
+
+    @Test("a prompt with no pictures still goes as JSON, and carries no images key")
+    func promptWithoutPicturesIsJSON() throws {
+        let submission = Feedback.PromptSubmission(
+            prompt: "make it narrower", name: nil, email: nil, token: nil, environment: environment()
+        )
+
+        #expect(try Feedback.body(for: submission).contentType == "application/json")
+        #expect(try object(submission).keys.sorted() == ["environment", "prompt"])
+    }
+
+    @Test("a prompt carries no more pictures than a report does")
+    func promptImageCountCap() {
+        let submission = Feedback.PromptSubmission(
+            prompt: "make it narrower", name: nil, email: nil,
+            images: (0..<8).map { _ in image() }, token: nil, environment: environment()
+        )
+
+        #expect(submission.images.count == Feedback.maxImages)
+    }
+
     @Test("the multipart body carries the same environment fields the JSON body does")
     func multipartAndJSONAgree() throws {
         let written = text(of: try Feedback.body(for: report(images: [image()]), boundary: "B"))

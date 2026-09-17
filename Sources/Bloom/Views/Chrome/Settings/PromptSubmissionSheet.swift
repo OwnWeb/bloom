@@ -4,8 +4,9 @@ import BloomCore
 /// Help ▸ Submit a Prompt. Say what Bloom should do next, in the words you would say it to an
 /// agent, because that is what will be done with it.
 ///
-/// The same box as the feedback sheet and for the same reason, minus the attachments: a prompt is
-/// words. What it has instead is a name, which is a credit line rather than an identity, and which
+/// The same box as the feedback sheet and for the same reason, pictures included: a prompt that
+/// says "this row, but narrower" needs the screenshot it was written next to. What it has on top
+/// is a name, which is a credit line rather than an identity, and which
 /// the endpoint validates narrowly enough that an email address is refused. So the field says that
 /// before anybody types one, and a name that would be refused stops the send here with a sentence
 /// rather than there with a 422.
@@ -21,6 +22,7 @@ struct PromptSubmissionSheet: View {
     @State private var isFocused = false
     @State private var contentHeight = ComposerTextEditor.lineHeight
     @State private var phase: FeedbackPhase = .idle
+    @State private var attachmentProblem: String?
     @State private var facts: Task<Feedback.Environment, Never>?
     /// Whether Submit has been pressed on this opening of the sheet. All this view owns of the
     /// validation story; what it means is `Feedback.sheetProblems`' business.
@@ -37,6 +39,8 @@ struct PromptSubmissionSheet: View {
             FeedbackHeader(title: Feedback.Copy.promptTitle, blurb: Feedback.Copy.promptBlurb)
 
             editor
+
+            FeedbackImageList(images: $presenter.promptImages, problem: $attachmentProblem)
 
             nameField
 
@@ -84,11 +88,7 @@ struct PromptSubmissionSheet: View {
             height: editorHeight,
             onContentHeightChange: { contentHeight = $0 },
             onKey: handle(key:),
-            // A prompt is words, so a file dropped here is taken and dropped on the floor. It is
-            // deliberately not refused either, because refusing hands it back to the text system,
-            // which writes the file's own path into the prompt: the one field on this sheet that
-            // goes out as free text is the last place a path should be able to arrive by accident.
-            onAttach: { _, _ in true },
+            onAttach: attach(sources:replacing:),
             placeholder: Feedback.Copy.promptPlaceholder
         )
         .composerBox(isFocused: $isFocused)
@@ -130,6 +130,8 @@ struct PromptSubmissionSheet: View {
 
     private var footer: some View {
         HStack(spacing: Metrics.gutter) {
+            FeedbackAttachButton(count: presenter.promptImages.count, isSending: phase.isSending) { pickImages() }
+
             if let remaining = Feedback.remainingMessage(
                 count: presenter.prompt.count, limit: Feedback.maxPromptCharacters
             ) {
@@ -173,6 +175,32 @@ struct PromptSubmissionSheet: View {
             return true
         case .up, .down, .returnKey, .tab:
             return false
+        }
+    }
+
+    // MARK: - Pictures
+
+    /// A drop or a paste on the text. Taken even when nothing in it is a picture, because handing
+    /// it back to the text system writes the file's own path into the prompt, and the one field on
+    /// this sheet that goes out as free text is the last place a path should arrive by accident.
+    /// What cannot go is said under the box instead.
+    private func attach(sources: [AttachmentSource], replacing range: NSRange) -> Bool {
+        guard !sources.isEmpty else { return true }
+        add(sources)
+        return true
+    }
+
+    private func pickImages() {
+        Task {
+            guard let sources = await FeedbackImages.pick() else { return }
+            add(sources)
+        }
+    }
+
+    private func add(_ sources: [AttachmentSource]) {
+        Task {
+            attachmentProblem = await FeedbackImages.add(sources, to: $presenter.promptImages)
+            isFocused = true
         }
     }
 
@@ -222,6 +250,7 @@ struct PromptSubmissionSheet: View {
                 prompt: presenter.prompt,
                 name: presenter.name,
                 email: presenter.email,
+                images: presenter.promptImages.map(\.wire),
                 token: FeedbackEnvironment.token(),
                 environment: environment
             )

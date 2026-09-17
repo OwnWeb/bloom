@@ -50,6 +50,9 @@ final class FeedbackPresenter {
     // MARK: - The prompt draft
 
     var prompt = ""
+    /// Its own list rather than the report's, because they are two drafts: a screenshot attached
+    /// to a half written bug report has no business turning up under a prompt.
+    var promptImages: [FeedbackImage] = []
     /// Kept after a submission goes, unlike everything else, and across launches through
     /// `Feedback.rememberSender`: it is the same person next time, and typing your own name again
     /// to be credited again is a silly thing to ask of anybody.
@@ -140,6 +143,7 @@ final class FeedbackPresenter {
     /// Called only after a prompt the server took.
     func clearPrompt() {
         prompt = ""
+        promptImages = []
         rememberSender()
     }
 

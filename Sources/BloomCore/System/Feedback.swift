@@ -143,12 +143,12 @@ public enum Feedback {
     }
 
     public static func tooManyMessage() -> String {
-        "That is more than \(maxImages) images, which is as many as one report carries."
+        "That is more than \(maxImages) images, which is as many as one submission carries."
     }
 
     public static func tooMuchMessage() -> String {
         "That is more than \(size(maxTotalImageBytes)) of images all together, which is as much "
-            + "as one report carries. Take one off, or send a smaller one."
+            + "as one submission carries. Take one off, or send a smaller one."
     }
 
     public static func notAnImageMessage(name: String) -> String {
@@ -749,7 +749,12 @@ public enum Feedback {
         }
     }
 
-    /// A prompt somebody wants run against Bloom itself, and the name to credit it to.
+    /// A prompt somebody wants run against Bloom itself, the name to credit it to, and any pictures
+    /// of what they mean.
+    ///
+    /// The pictures are under the same rules and limits as a report's, because they go to the same
+    /// application and are read the same way: a prompt that says "this row, but narrower" is a
+    /// sentence nobody can act on without the screenshot it was written next to.
     public struct PromptSubmission: Sendable, Equatable, Encodable {
         public let prompt: String
         /// Nil when nobody typed one, which is allowed: a prompt is worth having anonymously.
@@ -757,10 +762,18 @@ public enum Feedback {
         /// Nil unless somebody wants to hear when their prompt ships. Separate from the name
         /// because the name is published and this is not.
         public let email: String?
+        public let images: [Image]
         public let token: String?
         public let environment: Environment
 
-        public init(prompt: String, name: String?, email: String?, token: String?, environment: Environment) {
+        public init(
+            prompt: String,
+            name: String?,
+            email: String?,
+            images: [Image] = [],
+            token: String?,
+            environment: Environment
+        ) {
             self.prompt = Feedback.trimmed(prompt, to: Feedback.maxPromptCharacters)
             let cleaned = name.map(Feedback.normalisedName) ?? ""
             // A name the endpoint would refuse is left out rather than sent to be rejected: the
@@ -768,6 +781,7 @@ public enum Feedback {
             // than losing the prompt.
             self.name = cleaned.isEmpty || !InstallPing.matches(cleaned, Feedback.namePattern) ? nil : cleaned
             self.email = Feedback.sendableEmail(email)
+            self.images = Array(images.prefix(Feedback.maxImages))
             self.token = token.flatMap { InstallPing.matches($0, InstallPing.tokenPattern) ? $0 : nil }
             self.environment = environment
         }
@@ -817,21 +831,41 @@ public enum Feedback {
         }
 
         var parts: [MultipartPart] = [.text(name: "message", value: report.message)]
+        if let email = report.email { parts.append(.text(name: "email", value: email)) }
         if let logs = report.logs { parts.append(.text(name: "logs", value: logs)) }
         if let token = report.token { parts.append(.text(name: "token", value: token)) }
         parts += environmentParts(report.environment)
-        parts += report.images.map {
-            .file(name: "attachments[]", filename: $0.filename, contentType: $0.contentType, data: $0.data)
+        parts += imageParts(report.images)
+
+        return multipartBody(parts, boundary: boundary)
+    }
+
+    public static func body(for submission: PromptSubmission, boundary: String = newBoundary()) throws -> Body {
+        guard !submission.images.isEmpty else {
+            return Body(contentType: "application/json", data: try json(submission))
         }
 
-        return Body(
+        var parts: [MultipartPart] = [.text(name: "prompt", value: submission.prompt)]
+        if let name = submission.name { parts.append(.text(name: "name", value: name)) }
+        if let email = submission.email { parts.append(.text(name: "email", value: email)) }
+        if let token = submission.token { parts.append(.text(name: "token", value: token)) }
+        parts += environmentParts(submission.environment)
+        parts += imageParts(submission.images)
+
+        return multipartBody(parts, boundary: boundary)
+    }
+
+    static func imageParts(_ images: [Image]) -> [MultipartPart] {
+        images.map {
+            .file(name: "attachments[]", filename: $0.filename, contentType: $0.contentType, data: $0.data)
+        }
+    }
+
+    static func multipartBody(_ parts: [MultipartPart], boundary: String) -> Body {
+        Body(
             contentType: "multipart/form-data; boundary=\(boundary)",
             data: multipart(parts, boundary: boundary)
         )
-    }
-
-    public static func body(for submission: PromptSubmission) throws -> Body {
-        Body(contentType: "application/json", data: try json(submission))
     }
 
     /// Sorted keys so the same facts always produce the same bytes, which is what makes a body
