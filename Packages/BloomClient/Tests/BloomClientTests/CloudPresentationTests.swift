@@ -50,7 +50,7 @@ import Testing
     @Test func setupSaysWhichStep() {
         let item = CloudWorkspaceItem(id: "a", teamID: "t", name: "n", branch: "b", state: "setting_up",
                                       summary: CloudWorkspaceSummary(setup: .init(state: "running", step: "prepare")))
-        #expect(CloudWorkspaceStatus(item: item).phrase == "Setting up: preparing the machine")
+        #expect(CloudWorkspaceStatus(item: item).phrase == "Setting up: preparing")
     }
 }
 
@@ -125,7 +125,7 @@ import Testing
         for phase in phases {
             let banner = CloudConnectionBanner.of(phase)
             let words = [banner?.title, banner?.message, banner?.action].compactMap { $0 }.joined(separator: " ").lowercased()
-            #expect(!words.contains("sprite") && !words.contains("fly") && !words.contains("remote"))
+            #expect(!words.contains("sprite") && !words.contains("fly") && !words.contains("remote") && !words.contains("machine") && !words.contains("runner"))
         }
     }
 }

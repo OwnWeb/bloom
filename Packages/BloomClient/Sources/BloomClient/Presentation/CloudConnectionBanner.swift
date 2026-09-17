@@ -49,7 +49,7 @@ public struct CloudConnectionBanner: Sendable, Hashable {
                 action: notice.kind == .waiting ? nil : "Try Again"
             )
         case .archived:
-            return CloudConnectionBanner(tone: .failure, title: "This Cloud workspace was archived", message: "Its machine and its conversation were deleted.")
+            return CloudConnectionBanner(tone: .failure, title: "This Cloud workspace was archived", message: "It was deleted, with its conversation.")
         case .noAccess(let message):
             return CloudConnectionBanner(tone: .failure, title: "You cannot open this Cloud workspace", message: message, action: "Try Again")
         case .retrying(let message):

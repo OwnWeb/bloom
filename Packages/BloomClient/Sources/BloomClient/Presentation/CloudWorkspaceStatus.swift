@@ -71,7 +71,7 @@ public enum CloudWorkspaceStatus: Sendable, Hashable {
     }
 
     private static let stepNames = [
-        "clone": "cloning", "prepare": "preparing the machine", "setup": "running setup",
+        "clone": "cloning", "prepare": "preparing", "setup": "running setup",
         "resume": "resuming", "services": "starting services",
     ]
 }

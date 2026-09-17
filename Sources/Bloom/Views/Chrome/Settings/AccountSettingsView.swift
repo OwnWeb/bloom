@@ -41,7 +41,7 @@ struct AccountSettingsView: View {
     private var signedOut: some View {
         Section {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Cloud workspaces run on a machine in the cloud instead of this Mac. They keep working while your Mac sleeps, and your team can open them too.")
+                Text("Cloud workspaces run in the cloud instead of on this Mac. They keep working while your Mac sleeps, and your team can open them too.")
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Sign in with your Bloom account to create and open them. Everything else in Bloom works without an account.")
                     .foregroundStyle(.secondary)
