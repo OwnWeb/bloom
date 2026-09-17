@@ -1961,6 +1961,19 @@ final class TranscriptModel {
             // arrived. See `BackgroundWake`.
             if case .reported = signal, !isRunning { await appendLatestMessages() }
 
+        case .contextCompacted:
+            // **Read in now rather than on the next row.** The runner has already stored the
+            // boundary, and the next thing that would bring it in is the model's answer, which is
+            // a whole request away: the line saying what happened would appear a minute after it
+            // happened. Same argument, and the same one line, as the background wake above.
+            await appendLatestMessages()
+            // The word in the status row is stale the moment the boundary lands. The CLI does
+            // send `requesting` next, but not immediately, and "Compacting" left standing after
+            // the compaction has finished is the row lying about what it is waiting for.
+            if isRunning, ContextCompaction.isCompacting(status: statusLabel ?? "") {
+                statusLabel = "Working"
+            }
+
         case .hook, .unknown:
             break
         }

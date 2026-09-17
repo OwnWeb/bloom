@@ -562,6 +562,10 @@ public enum AgentEvent: Sendable {
     case streamDelta(StreamDelta)
     case status(String)
     case thinkingTokens(Int)
+    /// The history summarised away and the conversation started again from the summary. A row
+    /// rather than a live signal: it is a boundary in the transcript, and everything above it has
+    /// left the model's head, which is a fact worth having tomorrow. See `ContextCompaction`.
+    case contextCompacted(ContextCompaction)
     case hook(AgentHook)
     /// The agent asking to run something, with its turn held open until Bloom answers. Only ever
     /// emitted when the CLI was launched with `--permission-prompt-tool stdio`.
@@ -592,6 +596,7 @@ public enum AgentEvent: Sendable {
         case .toolUse(let value): value.raw
         case .toolResult(let value): value.raw
         case .hook(let value): value.raw
+        case .contextCompacted(let value): value.raw
         case .permissionAsk(let value): value.raw
         case .permissionDecided: Data()
         case .result(let value): value.raw
@@ -620,6 +625,7 @@ public enum AgentEvent: Sendable {
         case .toolUse(let value): value.sessionID
         case .toolResult(let value): value.sessionID
         case .hook(let value): value.sessionID
+        case .contextCompacted(let value): value.sessionID
         case .result(let value): value.sessionID
         case .retrying(let value): value.sessionID
         default: nil
@@ -633,6 +639,7 @@ public enum AgentEvent: Sendable {
         case .toolUse(let value): value.uuid
         case .toolResult(let value): value.uuid
         case .hook(let value): value.uuid
+        case .contextCompacted(let value): value.uuid
         case .result(let value): value.uuid
         case .retrying(let value): value.uuid
         default: nil
@@ -651,7 +658,7 @@ public enum AgentEvent: Sendable {
         case .error: .error
         case .rateLimit: .notice
         case .initialized, .streamDelta, .status, .thinkingTokens, .hook, .permissionDecided,
-             .retrying, .subagent, .unknown:
+             .retrying, .subagent, .contextCompacted, .unknown:
             .system
         }
     }
@@ -749,6 +756,15 @@ public enum AgentEvent: Sendable {
 
         case "status":
             return .status(json["status"]?.stringValue ?? "")
+
+        // The line that closes a compaction. Anything that carries no metadata object falls
+        // through to `.unknown` with its bytes intact, which is what the CLI's own adapter does
+        // with the same frame: see `ContextCompaction.decode`.
+        case "compact_boundary":
+            guard let compaction = ContextCompaction.decode(json, raw: raw) else {
+                return .unknown(raw)
+            }
+            return .contextCompacted(compaction)
 
         case "thinking_tokens":
             return .thinkingTokens(json["estimated_tokens"]?.intValue ?? 0)
