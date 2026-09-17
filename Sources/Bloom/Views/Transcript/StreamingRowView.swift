@@ -92,7 +92,16 @@ struct StreamingRowView: View {
                 RetryRowView(run: run)
                     .transaction { $0.animation = nil }
             } else if let tool = transcript.streamingToolName {
-                StreamingStatusView(mark: .tool("gearshape"), text: "Running \(tool)")
+                // The name the CLI streams is the wire name, and for an MCP call that is
+                // `mcp__bloom-workspace-bridge__workspace_say`: four underscores, the transport
+                // named instead of the thing happening, and the widest line in the transcript for
+                // as long as the call runs. The saved row that replaces it a second later has
+                // always said "Bloom: workspace say". Same answer, asked in the core, so the tail
+                // and the row it turns into cannot disagree. See `MCPToolName.readable`.
+                StreamingStatusView(
+                    mark: .tool("gearshape"),
+                    text: "Running \(MCPToolName.readable(tool))"
+                )
                     .transaction { $0.animation = nil }
             } else if transcript.isRunning || transcript.sending != nil, !hasVisibleStream {
                 // Reserve the activity line with the instant echo so starting the agent does

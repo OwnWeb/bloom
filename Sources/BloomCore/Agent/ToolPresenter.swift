@@ -499,41 +499,23 @@ public enum ToolPresenter {
 
     // MARK: Unknown shapes
 
-    /// `mcp__linear__create_issue` reads as "linear: create issue". The double underscore is the
-    /// separator the CLI uses, and single underscores inside the tool name are word breaks.
+    /// `mcp__linear__create_issue` reads as "linear: create issue", and the puzzle piece says
+    /// "some extension" about a server that is not Bloom's own.
+    ///
+    /// The name itself is taken apart by `MCPToolName`, which is where the reasoning about the
+    /// wire name and about saying the bridge as "Bloom" now lives. It is a type of its own because
+    /// the streaming tail needs the same answer and cannot reach a private function in here: see
+    /// `MCPToolName.readable`.
     private static func mcp(name: String, input: JSONValue) -> ToolPresentation {
-        let parts = name.dropFirst("mcp__".count).components(separatedBy: "__")
-        let server = parts.first ?? name
-        // Two spellings of the same tail. `bare` is the name the server registered, which is what
-        // a lookup has to match; `tool` is that name read as English. They are separate because
-        // the double underscore is a separator here and a word break inside a segment, and one
-        // string cannot be both.
-        let bare = parts.dropFirst().joined(separator: "__")
-        let tool = parts.dropFirst().joined(separator: " ").replacing("_", with: " ")
-        // Bloom's own bridge, said as Bloom.
-        //
-        // The wire name is `bloom-workspace-bridge` and it has to stay that, which is not a
-        // convention: `BridgeRegistration.serverName` records the measurement behind it, that a
-        // Codex `-c` override deep-merges a colliding entry leaf by leaf rather than replacing
-        // it, so a server the owner had called `bloom` produced Bloom's binary running under the
-        // owner's arguments and reported itself healthy. The defence is a name nobody would type.
-        //
-        // None of which the reader should have to look at. A row reading
-        // "bloom-workspace-bridge: pane open" names the transport where every other row names the
-        // thing that happened, and the puzzle piece says "some extension" about the app the
-        // reader is already in. Both are a presentation problem and this is the presentation, so
-        // this is where it is answered rather than by moving the name the wire depends on.
-        let isBloom = server == BridgeRegistration.serverName
+        guard let parsed = MCPToolName(name) else { return fallback(name: name, input: input) }
 
         // The four crew tools are named for what happened rather than for the app they went
         // through, so they leave here before the generic row is built. See `crew`, which sits with
         // the other subagent rows because that is what it is about.
-        if isBloom, let row = crew(tool: bare, input: input) { return row }
+        if parsed.isBloom, let row = crew(tool: parsed.bare, input: input) { return row }
 
-        let label = tool.isEmpty
-            ? (isBloom ? "Bloom" : server)
-            : "\(isBloom ? "Bloom" : server): \(tool)"
-        let glyph = isBloom ? "square.stack.3d.up" : "puzzlepiece.extension"
+        let label = parsed.label
+        let glyph = parsed.isBloom ? "square.stack.3d.up" : "puzzlepiece.extension"
 
         // An MCP server can name a file as plainly as a built in tool does, and one that does gets
         // the same chip. Nothing here knows the server's schema, so the value has to survive the
