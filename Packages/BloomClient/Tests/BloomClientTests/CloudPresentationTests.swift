@@ -544,3 +544,35 @@ import Testing
         #expect(some.action == .createWorkspace)
     }
 }
+
+@Suite struct CloudChecksWordingTests {
+    @Test func theRollupIsSaidTheWayGhSaysIt() {
+        #expect(CloudChecksWording.summary(CloudChecksRollup(total: 3, passed: 3, failed: 0, pending: 0)) == "3 checks passed")
+        #expect(CloudChecksWording.summary(CloudChecksRollup(total: 1, passed: 1, failed: 0, pending: 0)) == "1 check passed")
+        #expect(CloudChecksWording.summary(CloudChecksRollup(total: 4, passed: 2, failed: 1, pending: 1)) == "1 of 4 failing")
+        #expect(CloudChecksWording.summary(CloudChecksRollup(total: 2, passed: 0, failed: 0, pending: 2)) == "2 queued")
+        #expect(CloudChecksWording.summary(CloudChecksRollup(total: 0, passed: 0, failed: 0, pending: 0)).isEmpty)
+        #expect(CloudChecksWording.summary(nil).isEmpty)
+    }
+
+    /// The same idea arrives spelled two ways, `passed` in the pull request and `succeeded` in the
+    /// checks body. Both have to come out as one sentence.
+    @Test func theChecksSummarySaysTheSameAsTheRollup() {
+        let summary = CloudChecksSummary(state: "success", total: 3, succeeded: 3, failed: 0, pending: 0, skipped: 0)
+        #expect(CloudChecksWording.summary(summary) == "3 checks passed")
+    }
+
+    @Test func freshnessIsSaidOnlyWhenItIsWorthSaying() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        #expect(CloudChecksWording.freshness(fetchedAt: now.addingTimeInterval(-30), isStale: false, now: now) == nil)
+        #expect(CloudChecksWording.freshness(fetchedAt: now.addingTimeInterval(-60), isStale: true, now: now)
+            == "Last checked with GitHub a minute ago.")
+        #expect(CloudChecksWording.freshness(fetchedAt: now.addingTimeInterval(-600), isStale: false, now: now)
+            == "Last checked with GitHub 10 minutes ago.")
+        #expect(CloudChecksWording.freshness(fetchedAt: now.addingTimeInterval(-7_200), isStale: false, now: now)
+            == "Last checked with GitHub 2 hours ago.")
+        #expect(CloudChecksWording.freshness(fetchedAt: nil, isStale: true, now: now)
+            == "GitHub has not been asked about this branch yet.")
+        #expect(CloudChecksWording.freshness(fetchedAt: nil, isStale: false, now: now) == nil)
+    }
+}

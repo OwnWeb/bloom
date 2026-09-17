@@ -1127,12 +1127,23 @@ largest thing that made a Cloud workspace feel like a different app. What is lef
 workspace has no answer to, and it sits in the toolbar: who else has the workspace open, the
 preview, and sharing.
 
-The band draws what the machine knows, which is the pull request its own `gh` reported: the number,
-the title, where it is and whether it is open. Merge and Mark ready for review are greyed with the
-sentence saying they are not built yet, because they are runbloom.app's to do as the signed-in
-person; Open a pull request, Commit and push and Fix conflicts compose a turn for the agent and
-work as they do locally. The checks, the merge blockers and the stale state fill in the day
-runbloom.app's endpoints land, without a view changing.
+The band draws what runbloom.app read from GitHub with its own App: the state, the checks rollup,
+the merge blockers, the review decision and whether this person may merge. The machine's own `gh`
+answer is the fallback for the moment before runbloom.app has replied, because it arrives with the
+workspace rather than on a request of its own. Merge and Mark ready for review go to runbloom.app
+and happen as the signed-in person, with the head commit sent so a branch that moved under the
+reader is refused rather than merged on trust; `can_merge` is what greys the control, so somebody
+without push access sees why rather than a failure after pressing. Open a pull request, Commit and
+push and Fix conflicts compose a turn for the agent and work as they do locally. The Checks tab is
+the local one, over the same list.
+
+**That state is cached and up to a minute old, and the app says so rather than implying it is
+live.** runbloom.app refreshes on a schedule, every body carries `fetched_at` and `stale`, and
+`CloudChecksWording.freshness` turns those into the line under the checks. Nothing polls harder in
+the hope of something fresher. Two shapes to know about: `mergeable` is genuinely three-valued,
+because GitHub answers null while it is still working it out, and null is "not known yet" rather
+than "no"; and the same count is `passed` in the pull request body and `succeeded` in the checks
+body, which is a wart of runbloom.app's and is read in one place here rather than papered over.
 
 **History is the machine's own `git log`.** `history` pages the branch's commits and `commit_files`
 answers the files of the row somebody opened, so the History tab draws the rows it has always drawn.

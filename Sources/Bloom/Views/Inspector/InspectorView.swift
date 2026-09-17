@@ -154,12 +154,8 @@ struct InspectorView<Model: WorkspaceReviewSurface>: View {
             ChangesBrowser(model: model)
         case .checks:
             // Checks are GitHub's, read through whatever the workspace can reach: `gh` in a
-            // worktree here, runbloom.app's GitHub App for a workspace in the cloud, which is
-            // being built. A workspace that can reach neither has no Checks tab at all, by
-            // `availableInspectorTabs`.
-            if let local = model as? WorkspaceModel {
-                ChecksView(model: local)
-            }
+            // worktree here, runbloom.app's own GitHub App for a workspace on a machine.
+            ChecksView(model: model)
         }
     }
 }

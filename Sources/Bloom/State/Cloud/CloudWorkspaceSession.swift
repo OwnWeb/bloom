@@ -50,6 +50,8 @@ final class CloudWorkspaceSession {
     @ObservationIgnored private(set) lazy var changes = CloudChanges(session: self)
     /// The branch's commits, read when the History tab is opened and a page at a time after that.
     @ObservationIgnored private(set) lazy var history = CloudHistory(session: self)
+    /// What GitHub says about the branch, read from runbloom.app rather than from this Mac's gh.
+    @ObservationIgnored private(set) lazy var github = CloudPullRequestReader(session: self)
 
     init(id: CloudWorkspaceID, cloud: CloudWorkspaces) {
         self.id = id

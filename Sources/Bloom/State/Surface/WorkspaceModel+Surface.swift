@@ -46,6 +46,21 @@ extension WorkspaceModel: WorkspaceReviewSurface {
 
     var hasKnownChanges: Bool { !changedFiles.isEmpty || workspace.hasDiff }
 
+    /// Through `gh`, which is what this Mac has. Nil when GitHub refused this token the runs: an
+    /// empty list there would say "no checks", which is the one thing that is not known.
+    func readChecks() async -> [CheckRun]? {
+        await GitHubBridge.checks(for: workspace)
+    }
+
+    /// Nil: `gh` is asked when the pane asks, so the answer is as fresh as the question.
+    var checksNote: String? { nil }
+
+    var canSendCheckFailure: Bool { activeSession != nil }
+
+    func sendCheckFailure(_ run: CheckRun) async -> String? {
+        await checkFailures.send(run, in: self)
+    }
+
     var gitHubReadiness: GitHubAvailability.State { GitHubAvailability.shared.state }
 
     /// Nothing in the way: a worktree on this Mac is what Continue cuts the new branch in.

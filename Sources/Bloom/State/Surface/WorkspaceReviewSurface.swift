@@ -190,6 +190,16 @@ protocol WorkspaceReviewSurface: AnyObject, Observable {
     func requestMerge(_ pullRequest: PullRequest, method: GitHub.MergeMethod, overrides: PromptOverrides) async -> String?
     func requestFixConflicts(_ pullRequest: PullRequest, overrides: PromptOverrides) async -> String?
     func markReadyForReview(_ pullRequest: PullRequest) async throws
+    /// The checks on the branch's head commit, or nil when they could not be read at all, which
+    /// is a different thing from a branch with no checks on it and is drawn differently.
+    func readChecks() async -> [CheckRun]?
+    /// How old the checks are, for a workspace whose answer is cached rather than asked for on the
+    /// spot. Nil where the answer is as fresh as the question.
+    var checksNote: String? { get }
+    /// Whether a failed check can be handed to an agent from here, and doing it. Answers what went
+    /// wrong, or nil.
+    var canSendCheckFailure: Bool { get }
+    func sendCheckFailure(_ run: CheckRun) async -> String?
     /// Whether the branch has anything on it at all, for the strip that offers to open a pull
     /// request: the changed files first, and whatever the workspace already knew behind them.
     var hasKnownChanges: Bool { get }

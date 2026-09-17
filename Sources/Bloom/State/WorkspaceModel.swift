@@ -80,6 +80,11 @@ final class WorkspaceModel {
             ?? changedFiles.first { $0.path == path }
     }
 
+    /// The hand-off of a failed check to the agent, which runs `gh` and writes an attachment. On
+    /// the model rather than in the pane, so the "one at a time" guard survives the pane being
+    /// scrolled away, and so the pane can be written against the protocol.
+    @ObservationIgnored private(set) lazy var checkFailures = CheckFailureSender()
+
     func loadMoreCommits() {
         historyLimit += BranchCommitList.limit
         Task { await refreshChanges(.requested) }

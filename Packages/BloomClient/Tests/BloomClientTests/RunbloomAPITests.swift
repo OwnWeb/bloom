@@ -248,4 +248,94 @@ import Testing
         #expect(LimitNotice(limit: "concurrent_machines", message: "  Wait.  ").message == "Wait.")
         #expect(!LimitNotice(limit: "monthly_usage", message: "").message.isEmpty)
     }
+    // MARK: The pull request and its checks
+
+    @Test func readsAPullRequestWithEverythingTheBandDraws() async throws {
+        let transport = FakeTransport()
+        transport.on("GET", "/cloud-workspaces/01k5ws/pull-request", .json("""
+        {"data": {"has_pull_request": true, "number": 298, "url": "https://github.com/spatie/bloom/pull/298",
+          "title": "Cloud workspaces: the Mac client", "state": "open", "is_draft": false, "mergeable": null,
+          "mergeable_state": "blocked", "conflicts": false, "review_decision": "REVIEW_REQUIRED",
+          "merge_blockers": ["Waiting for a review."], "base_branch": "main", "head_branch": "freek/cloud",
+          "head_sha": "0123456789abcdef", "merge_methods": ["squash", "rebase"],
+          "checks": {"total": 4, "passed": 3, "failed": 0, "pending": 1, "conclusion": null},
+          "additions": 900, "deletions": 40, "changed_files": 21, "commits": 9,
+          "updated_at": "2026-09-18T00:10:00.000000Z", "fetched_at": "2026-09-18T00:11:00.000000Z",
+          "stale": false, "can_merge": false}}
+        """))
+        let state = try await Fixtures.api(transport).pullRequest(for: "01k5ws")
+        #expect(state.hasPullRequest)
+        #expect(state.number == 298)
+        #expect(state.mergeable == nil, "null is not known yet, and must not read as false")
+        #expect(state.conflicts == false)
+        #expect(state.mergeBlockers == ["Waiting for a review."])
+        #expect(state.mergeMethods == ["squash", "rebase"])
+        #expect(state.checks?.pending == 1)
+        #expect(state.canMerge == false)
+        #expect(state.fetchedAt != nil)
+        #expect(state.headSHA == "0123456789abcdef")
+    }
+
+    @Test func aBranchWithNoPullRequestIsThreeFieldsAndNotAFailure() async throws {
+        let transport = FakeTransport()
+        transport.on("GET", "/cloud-workspaces/01k5ws/pull-request", .json("""
+        {"data": {"has_pull_request": false, "head_branch": "freek/cloud", "base_branch": "main",
+          "fetched_at": "2026-09-18T00:11:00.000000Z", "stale": true}}
+        """))
+        let state = try await Fixtures.api(transport).pullRequest(for: "01k5ws")
+        #expect(!state.hasPullRequest)
+        #expect(state.headBranch == "freek/cloud")
+        #expect(state.stale)
+        #expect(state.number == nil)
+    }
+
+    @Test func readsTheChecksAndTellsNoneApartFromUnreadable() async throws {
+        let transport = FakeTransport()
+        transport.on("GET", "/cloud-workspaces/01k5ws/checks", .json("""
+        {"data": {"head_sha": "0123456", "summary": {"state": "failure", "total": 2, "succeeded": 1, "failed": 1, "pending": 0, "skipped": 0},
+          "checks": [{"id": "1", "name": "tests", "status": "completed", "conclusion": "failure",
+            "details_url": "https://github.com/spatie/bloom/runs/1", "started_at": "2026-09-18T00:00:00Z",
+            "completed_at": "2026-09-18T00:05:00Z", "summary": "2 tests failed"}],
+          "fetched_at": "2026-09-18T00:11:00.000000Z", "stale": false}}
+        """))
+        let checks = try await Fixtures.api(transport).checks(for: "01k5ws")
+        #expect(!checks.isEmpty)
+        #expect(checks.summary.succeeded == 1)
+        #expect(checks.checks.first?.conclusion == "failure")
+        #expect(checks.checks.first?.completedAt != nil)
+
+        let empty = FakeTransport()
+        empty.on("GET", "/cloud-workspaces/01k5ws/checks", .json("""
+        {"data": {"head_sha": "0123456", "summary": {"state": "none", "total": 0, "succeeded": 0, "failed": 0, "pending": 0, "skipped": 0},
+          "checks": [], "fetched_at": "2026-09-18T00:11:00.000000Z", "stale": false}}
+        """))
+        #expect(try await Fixtures.api(empty).checks(for: "01k5ws").isEmpty)
+    }
+
+    @Test func mergingSendsTheMethodAndTheHeadCommit() async throws {
+        let transport = FakeTransport()
+        transport.on("POST", "/cloud-workspaces/01k5ws/pull-request/merge", .json("""
+        {"data": {"has_pull_request": true, "number": 298, "state": "merged", "head_branch": "freek/cloud",
+          "base_branch": "main", "stale": false}}
+        """))
+        let state = try await Fixtures.api(transport).mergePullRequest(
+            "01k5ws", request: CloudMergeRequest(method: "squash", headSHA: "0123456")
+        )
+        #expect(state.state == "merged")
+        let request = try #require(transport.requests.first)
+        let body = try #require(request.httpBody.flatMap { String(data: $0, encoding: .utf8) })
+        #expect(body.contains("\"method\":\"squash\""))
+        #expect(body.contains("\"head_sha\":\"0123456\""))
+    }
+
+    @Test func aRefusalToMergeKeepsRunbloomsOwnSentence() async throws {
+        let transport = FakeTransport()
+        transport.on("POST", "/cloud-workspaces/01k5ws/pull-request/merge", .json("""
+        {"code": "not_mergeable", "message": "GitHub will not merge this yet. A review is required.", "merge_blockers": ["Waiting for a review."]}
+        """, status: 409))
+        await #expect(throws: RunbloomRefusal.self) {
+            _ = try await Fixtures.api(transport).mergePullRequest("01k5ws", request: CloudMergeRequest(method: "merge"))
+        }
+    }
+
 }

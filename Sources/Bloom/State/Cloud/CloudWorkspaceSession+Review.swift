@@ -37,7 +37,9 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
             searchTranscripts: false,
             preview: allows("preview"),
             terminal: allows("terminal"),
-            managePullRequest: false
+            // runbloom.app answers whether this person may merge, as GitHub sees them, so the
+            // control is greyed for somebody without push access rather than failing when pressed.
+            managePullRequest: github.state?.canMerge == true
         )
     }
 
@@ -127,10 +129,9 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
         }
     }
 
+    /// The same rule a local workspace follows: Checks appears when there is something to report.
     var availableInspectorTabs: [InspectorTab] {
-        // No pull request to report on yet, so no Checks tab. It appears the day runbloom.app can
-        // answer for one, by the same rule a local workspace's does.
-        InspectorTab.available(for: nil)
+        InspectorTab.available(for: pullRequest)
     }
 
     var showsAllFiles: Bool { changes.showsAllFiles }
@@ -247,15 +248,38 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
 
     // MARK: What GitHub thinks of it
 
-    /// What the machine last told this Mac about the branch's pull request, which is what its own
-    /// `gh` saw. Four fields: the number, the title, where it is and whether it is open. The rest
-    /// of what the strip can show, the checks and the merge blockers, is runbloom.app's and is
-    /// being built; until then the controls that would act on it are greyed with their sentence.
+    /// What GitHub says about the branch, as runbloom.app last read it: the whole of what the band
+    /// draws, checks and merge blockers included. The machine's own `gh` reports a pull request
+    /// too, and it is the fallback for the moment before runbloom.app has answered, because it
+    /// arrives with the workspace rather than on a request of its own.
     var pullRequest: PullRequest? {
-        state.workspace?.pullRequest.map { PullRequest(cloudRecord: $0, branch: surfaceBranch) }
+        if let read = github.state { return PullRequest(cloudState: read) }
+        return state.workspace?.pullRequest.map { PullRequest(cloudRecord: $0, branch: surfaceBranch) }
     }
 
     var hasKnownChanges: Bool { !changedFiles.isEmpty }
+
+    /// From runbloom.app, which asks GitHub with its own App rather than with this Mac's `gh`.
+    /// Nil when it could not be asked at all.
+    func readChecks() async -> [CheckRun]? {
+        guard let read = await github.readChecks() else { return nil }
+        return read.checks.map(CheckRun.init(cloudCheck:))
+    }
+
+    /// runbloom.app refreshes on a schedule, so the answer is up to a minute old and says so.
+    var checksNote: String? {
+        CloudChecksWording.freshness(fetchedAt: github.checks?.fetchedAt, isStale: github.checks?.stale ?? false)
+    }
+
+    var canSendCheckFailure: Bool { selectedChatID != nil || !chatIDs.isEmpty }
+
+    /// The sentence goes to the chat in front. The log itself is not fetched here: `gh` on this Mac
+    /// has no access to the repository a Cloud workspace's branch is in, and the agent on the
+    /// machine does, so it is better placed to read the run than this Mac is.
+    func sendCheckFailure(_ run: CheckRun) async -> String? {
+        let where_ = run.detailsURL.map { " Its run is at \($0)." } ?? ""
+        return await ask("The check \(run.name) failed on this branch.\(where_) Find out why and fix it.")
+    }
 
     /// Never in the dark: the machine asks GitHub with the workspace's own credentials, so what
     /// this Mac's `gh` is doing has no bearing on what the strip may say.
@@ -276,20 +300,25 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
     }
 
     func confirmArchive(_ request: ArchiveRequest, presenting: @escaping (ArchiveRequest) -> Void) async {}
-    var isLoadingPullRequest: Bool { false }
+    var isLoadingPullRequest: Bool { github.isLoading }
     var pullRequestNotice: PullRequestNotice? {
         get { nil }
         // Nothing here raises one yet, so there is nothing for a dismissal to clear either.
         set { _ = newValue }
     }
-    var pullRequestRefreshFailure: GitHubReadFailure? { nil }
-    func dismissPullRequestRefreshFailure() {}
-    func refreshPullRequest(maxAge: Duration) async {}
+    var pullRequestRefreshFailure: GitHubReadFailure? { github.visibleFailure }
+    func dismissPullRequestRefreshFailure() { github.dismissFailure() }
+
+    func refreshPullRequest(maxAge: Duration) async {
+        await github.refresh(maxAge: maxAge)
+    }
     var localWork: LocalWork? { nil }
     var continued: ContinuedBranch? { nil }
-    var mergeMethod: GitHub.MergeMethod { MergeMethodChoice.fallback }
+    var mergeMethod: GitHub.MergeMethod { github.method }
+    /// Nothing to read: the choice is remembered on this Mac and the methods the repository allows
+    /// come with the pull request itself.
     func loadMergeMethod() async {}
-    func chooseMergeMethod(_ method: GitHub.MergeMethod) async {}
+    func chooseMergeMethod(_ method: GitHub.MergeMethod) async { github.choose(method) }
 
     /// Composing a turn for the agent is the same act in both kinds of workspace, and the machine
     /// can push and open a pull request itself, so these send the prompt to the chat in front.
@@ -301,8 +330,11 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
         await ask("Push this branch.")
     }
 
+    /// Merged by runbloom.app as the signed-in person rather than by the agent, which is the one
+    /// place a Cloud workspace acts on GitHub itself: the merge is this person's, made with their
+    /// access, and the head commit goes with the request so a branch that moved is refused.
     func requestMerge(_ pullRequest: PullRequest, method: GitHub.MergeMethod, overrides: PromptOverrides) async -> String? {
-        WorkspaceCapabilities.Capability.managePullRequest.cloudSentence
+        await github.merge(method)
     }
 
     func requestFixConflicts(_ pullRequest: PullRequest, overrides: PromptOverrides) async -> String? {
@@ -310,7 +342,7 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
     }
 
     func markReadyForReview(_ pullRequest: PullRequest) async throws {
-        throw CloudReviewFailure(message: WorkspaceCapabilities.Capability.managePullRequest.cloudSentence)
+        if let refusal = await github.markReady() { throw CloudReviewFailure(message: refusal) }
     }
 
     var openInRepoID: RepoID? { nil }

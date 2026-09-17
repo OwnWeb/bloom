@@ -71,6 +71,29 @@ public struct RunbloomAPI: Sendable {
         try await send("POST", "cloud-workspaces/\(id)/preview-token", body: Empty())
     }
 
+    // MARK: The pull request and its checks
+
+    /// What GitHub last told runbloom.app about this workspace's branch. Cached on its side and
+    /// refreshed on a schedule, so the answer carries when it was fetched and whether it is stale.
+    public func pullRequest(for id: String) async throws -> CloudPullRequestState {
+        try await get("cloud-workspaces/\(id)/pull-request")
+    }
+
+    public func checks(for id: String) async throws -> CloudChecks {
+        try await get("cloud-workspaces/\(id)/checks")
+    }
+
+    /// Takes the pull request out of draft, as the signed-in person rather than as the agent.
+    public func markPullRequestReady(_ id: String) async throws -> CloudPullRequestState {
+        try await send("POST", "cloud-workspaces/\(id)/pull-request/ready", body: Empty())
+    }
+
+    /// Merges it, as the signed-in person. Both of these answer the same body the read does, so a
+    /// caller shows the outcome without asking again.
+    public func mergePullRequest(_ id: String, request: CloudMergeRequest) async throws -> CloudPullRequestState {
+        try await send("POST", "cloud-workspaces/\(id)/pull-request/merge", body: request)
+    }
+
     // MARK: Sharing
 
     public func members(of id: String) async throws -> CloudWorkspaceMembers {
