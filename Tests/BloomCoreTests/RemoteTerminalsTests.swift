@@ -151,6 +151,32 @@ struct RemoteTerminalsTests {
         #expect(RemoteTerminalDaemon.panesBlockMaintenance("garbage", children: { _ in "" }))
     }
 
+    @Test func sharingEndsOnlyTheShellsHoldingPersonalCredentials() async throws {
+        guard Shell.which("tmux") != nil else { return }
+        let repo = try await TempRepo()
+        let databasePath = TestScratch.unique("terminal-shared") + "/bloom.sqlite"
+        try FileManager.default.createDirectory(atPath: (databasePath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let terminals = RemoteTerminals(workspaceID: WorkspaceID("fixture"), worktree: repo.path, databasePath: databasePath)
+        do {
+            try await terminals.ensureSession(name: "personal", environment: ["ANTHROPIC_API_KEY": "mine"], owner: "freek", personal: ["claude"])
+            try await terminals.ensureSession(name: "team", environment: ["ANTHROPIC_API_KEY": "team"], owner: "seb")
+            try await terminals.closeAll { !$0.isEmpty }
+            let tmux = try #require(Shell.which("tmux"))
+            let socket = TmuxSessions.socketName(databasePath: databasePath)
+            func exists(_ name: String) async throws -> Bool {
+                let session = TmuxSessions.sessionName(workspaceID: WorkspaceID("fixture"), paneID: name)
+                return try await Shell.run(tmux, ["-L", socket, "has-session", "-t", "=" + session]).ok
+            }
+            #expect(try await !exists("personal"))
+            #expect(try await exists("team"), "A shell on the team key stays")
+        } catch {
+            await terminals.shutdown()
+            throw error
+        }
+        try? await terminals.closeAll()
+        await terminals.shutdown()
+    }
+
     @Test func disconnectReattachesTheSameShellWithoutReplayingInput() async throws {
         guard Shell.which("tmux") != nil else { return }
         let repo = try await TempRepo()

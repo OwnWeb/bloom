@@ -154,6 +154,39 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("sharing stops a turn on a personal key with a row saying why, and the queue carries on on the team key")
+    func sharingRetiresPersonalKeys() async throws {
+        let gate = RemoteTestGate()
+        let fixture = try await fixture(gate: gate)
+        let chat = fixture.session.id.rawValue
+        gate.keys.withLock { $0 = [Self.freek.userID: "freek-personal-key", Self.seb.userID: "team-key"] }
+
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Mine")), as: Self.caller(Self.freek))
+        await waitUntil("the personal turn is running") { fixture.runners.sent.withLock { $0 }.count == 1 }
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Theirs")), as: Self.caller(Self.seb))
+
+        await fixture.runtime.becameShared()
+        await fixture.runtime.becameShared()
+        await waitUntil("the queued prompt went on the team key") { fixture.runners.sent.withLock { $0 } == ["Mine", "Theirs"] }
+        let launches = fixture.runners.launches.withLock { $0 }
+        #expect(launches.map { $0["ANTHROPIC_API_KEY"] } == ["freek-personal-key", "team-key"])
+        let rows = try await fixture.store.messages(sessionID: fixture.session.id).filter { $0.kind == .error }
+        #expect(rows.count == 1, "Sharing twice stops once")
+        let payload = rows.first.map { String(decoding: $0.payload, as: UTF8.self) } ?? ""
+        #expect(payload.contains("stoppedForSharing"))
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a grant supersedes personal credentials only where it shows the workspace is shared")
+    func supersedingIsPerAgent() {
+        let team = RemoteTurnGrant(agentKeys: [.codex: RemoteAgentKey(key: "k", identity: "i", source: "team")], environment: ["A": "b"])
+        #expect(team.supersedes(["codex"]))
+        #expect(!team.supersedes(["claude"]), "A team key for Codex says nothing about a personal Claude key")
+        #expect(!team.supersedes(["environment"]), "Personal environment still arrives, so the workspace is not shared")
+        #expect(RemoteTurnGrant().supersedes(["environment"]))
+        #expect(team.personalMarks(for: [.codex]) == ["environment"])
+    }
+
     @Test("prompts from two people queue behind a running turn in the order they arrived")
     func promptsQueueInArrivalOrder() async throws {
         let fixture = try await fixture()
@@ -284,7 +317,8 @@ final class RemoteTestGate: RemoteTurnGate {
         if let refusal = refusal.withLock({ $0 }) { throw refusal }
         let author = registered.withLock { $0.first { $0.turnID == turnID }?.author } ?? ""
         guard let key = keys.withLock({ $0[author] }) else { return RemoteTurnGrant() }
-        return RemoteTurnGrant(agentKeys: [.claudeCode: RemoteAgentKey(key: key, identity: "identity-of-\(key)", source: "team")])
+        let source = key.contains("personal") ? "personal" : "team"
+        return RemoteTurnGrant(agentKeys: [.claudeCode: RemoteAgentKey(key: key, identity: "identity-of-\(key)", source: source)])
     }
 
     func end(turnID: String) async {

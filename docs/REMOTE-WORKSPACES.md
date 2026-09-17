@@ -314,7 +314,7 @@ starts again as `bloom-workspace` version 1. What changes:
 | `GET /_bloom/v1/events` | SSE read with `fetch`, bearer token |
 | `GET /_bloom/v1/terminal?name=` | WebSocket, `auth` first frame, binary frames, resize and `reauth` text frames |
 | `GET /_bloom/preview/enter?token=` | preview cookie exchange |
-| `POST /_bloom/v1/control/revoke`, `update`, `environment`, `limits-cleared`, `stop`, `secret-rotated` | runbloom.app only, `admin` token |
+| `POST /_bloom/v1/control/revoke`, `update`, `environment`, `limits-cleared`, `stop`, `secret-rotated`, `shared` | runbloom.app only, `admin` token |
 | `GET /_bloom/health` | unauthenticated, version only |
 | everything else | the preview |
 
@@ -887,6 +887,31 @@ and its builder confirmed them.
   prompter's**: runbloom.app answers an installation token scoped to the repository, and refuses
   turns from anybody without push access with 403 `no_push_access`, which the machine handles like
   any other non-limit refusal.
+- **Becoming shared retires personal credentials.** runbloom.app calls `control/shared` before
+  anybody new gets access. The machine answers at once, then stops every agent process and ends
+  every terminal launched with a personal key or personal environment; a turn running on one ends
+  with "This Cloud workspace was shared, so the turn stopped; the next turn uses the team key", and
+  queued prompts stay queued. It is idempotent, and it also happens when a turn or terminal start
+  answers a team key for an agent something holds a personal key for, or no personal environment
+  where something holds some, in case the call was missed.
+- **Revoking takes effect at once, not when tokens run out.** Tokens and preview cookies issued
+  before a revoke (plus the thirty seconds of clock skew) are refused, and the list is kept in the
+  database for eight hours, the longest preview cookie. The person's queued prompts are removed
+  rather than left to pause the chat for everybody, their running turn stops, and the shells they
+  opened end.
+- **A terminal belongs to whoever opened it.** Its shell holds that person's key, personal
+  environment and turn, so nobody else attaches to it or closes it by name. Keys reach tmux through
+  the creating client's environment (`update-environment`), never its arguments. A renewal of a
+  terminal or an event stream checks abilities again, and the command journal is kept per person.
+- **What the review accepted rather than changed.** Every terminal gets the agent keys runbloom.app
+  resolves for its person, as designed; with sudo on the machine that makes a team key readable
+  by anybody with the `terminal` ability. Agent to agent messages inside a workspace run on the key
+  their chat already has and are not registered as turns. Setup output reaches everybody who can
+  view, so a script that prints its environment prints it to them. A hard link in the worktree is
+  not refused on download, because pnpm fills `node_modules` with them and planting one needs code
+  execution on the machine already. The verifier refuses `crit` headers and abilities named twice;
+  runbloom.app's check of `iat` against a key's activation time does not apply on the machine,
+  because the published key set carries no activation time.
 - **runbloom.app's refusals, as the machine treats them.** 401 `invalid_workspace_secret`, once
   the file holds no other secret, is terminal: the machine stops reporting. 429 and 5xx (including 503 `unavailable` from
   git-credentials while GitHub is down) are retried with backoff; any other 4xx drops that report.

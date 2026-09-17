@@ -30,6 +30,9 @@ actor RemotePromptQueue {
     private let changed: @Sendable (SessionID) async -> Void
     private let settled: @Sendable (SessionID, RemoteTurnEnd, String?) async -> Void
     private let started: @Sendable (SessionID, Delivery) async -> Void
+    /// Handed every grant before its chat's process is prepared, so a team key arriving while
+    /// other processes hold personal ones retires those.
+    private let granted: @Sendable (RemoteTurnGrant) async -> Void
 
     private var tasks: [SessionID: Task<Void, Never>] = [:]
     private var errors: [SessionID: String] = [:]
@@ -48,8 +51,10 @@ actor RemotePromptQueue {
         held: @escaping @Sendable (SessionID) async -> Bool = { _ in false },
         changed: @escaping @Sendable (SessionID) async -> Void = { _ in },
         started: @escaping @Sendable (SessionID, Delivery) async -> Void = { _, _ in },
-        settled: @escaping @Sendable (SessionID, RemoteTurnEnd, String?) async -> Void = { _, _, _ in }
+        settled: @escaping @Sendable (SessionID, RemoteTurnEnd, String?) async -> Void = { _, _, _ in },
+        granted: @escaping @Sendable (RemoteTurnGrant) async -> Void = { _ in }
     ) {
+        self.granted = granted
         self.store = store
         self.gate = gate
         self.load = load
@@ -271,7 +276,9 @@ actor RemotePromptQueue {
                         return
                     }
                     if delivery.block != nil { try await store.setDeliveryBlock(id: delivery.id, nil) }
-                    try await live.prepare(identity: grant.launchIdentity(for: agent), environment: grant.environment(for: agent))
+                    await granted(grant)
+                    try await live.prepare(identity: grant.launchIdentity(for: agent), environment: grant.environment(for: agent),
+                                           personal: grant.personalMarks(for: [agent]))
                 } else {
                     // Not a person's turn, such as a subagent's report reaching its parent: it
                     // runs on whatever key the chat's process already has.

@@ -83,6 +83,11 @@ public actor TokenVerifier {
         guard claims.tokenUse == use.rawValue else {
             throw Self.refusal("This workspace token cannot be used for this.")
         }
+        // A list naming an ability twice is not one runbloom.app writes, and refusing it keeps two
+        // readers of the same token from ever disagreeing about what it grants.
+        if let listed = claims.abilities, Set(listed).count != listed.count {
+            throw Self.refusal("This workspace token's claims are not readable.")
+        }
         let abilities = Set(claims.abilities ?? [])
         if abilities.contains("admin"), use != .control {
             throw Self.refusal("This workspace token claims an ability it cannot hold.")

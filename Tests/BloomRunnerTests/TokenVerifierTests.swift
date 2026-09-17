@@ -205,6 +205,11 @@ struct TokenVerifierTests {
 
     // MARK: Replay
 
+    @Test func abilitiesNamedTwiceAreRefused() async {
+        let raw = issuer.session(abilities: ["view", "view"], issuedAt: clock.now)
+        await #expect(throws: RemoteFailure.self) { try await issuer.verifier(clock: clock).verify(raw, as: .session) }
+    }
+
     @Test func aTokenIssuedBeforeItsSubjectWasRevokedIsRefusedAndOneIssuedLaterIsNot() async throws {
         let verifier = issuer.verifier(clock: clock)
         let before = issuer.session(issuedAt: clock.now)

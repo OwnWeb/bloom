@@ -303,6 +303,8 @@ public actor WorkspaceRuntime {
             await self?.turnStarted(id, delivery: delivery)
         }, settled: { [weak self] id, ending, turnID in
             await self?.turnSettled(id, ending: ending, turnID: turnID)
+        }, granted: { [weak self] grant in
+            await self?.retirePersonalCredentials(where: grant.supersedes)
         })
         promptQueue = queue
         return queue
@@ -343,6 +345,25 @@ public actor WorkspaceRuntime {
     }
 
     /// Called when a turn comes to rest, after the queue has ended runbloom.app's turn.
+    /// runbloom.app says the workspace became shared: everything holding one person's credentials
+    /// goes. Safe to repeat, since a second call finds nothing personal left.
+    public func becameShared() async {
+        await retirePersonalCredentials { !$0.isEmpty }
+    }
+
+    /// Stops every agent process and ends every shell holding personal credentials `superseded`
+    /// picks out. A turn running on them ends with a row saying why, and queued prompts stay
+    /// queued, to start on the team key.
+    public func retirePersonalCredentials(where superseded: @escaping @Sendable (Set<String>) -> Bool) async {
+        guard !isClosed else { return }
+        for (id, session) in sessions {
+            guard await session.retirePersonal(reason: PersonalCredentials.sharedSentence, where: superseded) else { continue }
+            let row = AgentError.stoppedForSharing(message: PersonalCredentials.sharedSentence)
+            _ = try? await store.appendNext(sessionID: id, kind: .error, payload: row.raw)
+        }
+        try? await terminalService?.closeAll(where: superseded)
+    }
+
     func turnSettled(_ id: SessionID, ending: RemoteTurnEnd, turnID: String?) async {
         await reportToParent(id, ending: ending)
         await report(.turnFinished(chat: id, turnID: turnID))

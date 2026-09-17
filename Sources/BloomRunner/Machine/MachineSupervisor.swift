@@ -55,6 +55,10 @@ public actor MachineSupervisor: MachineControl {
         await terminals.revoke(userID: userID)
     }
 
+    public func shared() async {
+        await runtime.becameShared()
+    }
+
     public func secretRotated() async {
         secret.reload()
     }

@@ -265,6 +265,7 @@ final class RecordingControl: MachineControl {
     func update(version: String, sha256: String) async throws { calls.withLock { $0.append("update \(version) \(sha256)") } }
     func environmentChanged() async { calls.withLock { $0.append("environment") } }
     func secretRotated() async { calls.withLock { $0.append("secret-rotated") } }
+    func shared() async { calls.withLock { $0.append("shared") } }
 }
 
 /// A runner for tests that never get as far as a turn.

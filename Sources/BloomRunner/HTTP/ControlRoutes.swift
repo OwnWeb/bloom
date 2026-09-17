@@ -14,13 +14,15 @@ public protocol MachineControl: Sendable {
     func revoke(userID: String) async
     /// runbloom.app wrote a new workspace secret into workspace.json: use it from now on.
     func secretRotated() async
+    /// The workspace became shared: stop everything holding personal credentials.
+    func shared() async
     /// Move to another Bloom Runner release.
     func update(version: String, sha256: String) async throws
     /// Team or project environment changed: fetch it again.
     func environmentChanged() async
 }
 
-/// `POST /_bloom/v1/control/{stop, limits-cleared, revoke, update, environment, secret-rotated}`.
+/// `POST /_bloom/v1/control/{stop, limits-cleared, revoke, update, environment, secret-rotated, shared}`.
 ///
 /// **Only a control token reaches these, and only these take one.** runbloom.app keeps the workspace
 /// secret hashed and so cannot use it here; it signs a token instead, sixty seconds long, for this
@@ -72,6 +74,10 @@ enum ControlRoutes {
                     try await control.update(version: update.version, sha256: update.sha256)
                 case "environment":
                     Task { await control.environmentChanged() }
+                case "shared":
+                    // Answered at once; stopping processes takes seconds and runbloom.app waits on
+                    // nothing here. Idempotent, so a repeat costs nothing.
+                    Task { await control.shared() }
                 case "secret-rotated":
                     // Before answering, so a report runbloom.app sees after this 202 already
                     // carries the new secret.

@@ -59,6 +59,7 @@ enum TerminalRoute {
         let token: WorkspaceToken
         let turnID: String
         let environment: [String: String]
+        let personal: Set<String>
         var registered: String?
         do {
             token = try await dependencies.verifier.verify(raw, as: .session)
@@ -68,7 +69,7 @@ enum TerminalRoute {
             let caller = token.caller(token: raw)
             turnID = try await dependencies.gate.register(.terminal, chat: nil, agent: nil, caller: caller)
             registered = turnID
-            environment = try await shellEnvironment(turnID: turnID, gate: dependencies.gate)
+            (environment, personal) = try await shellEnvironment(turnID: turnID, gate: dependencies.gate, runtime: dependencies.runtime)
         } catch {
             // Registered but refused at start: runbloom.app counts a registered turn until it ends.
             if let registered, !registered.isEmpty { Task { await dependencies.gate.end(turnID: registered) } }
@@ -79,7 +80,7 @@ enum TerminalRoute {
 
         let attachment: RemoteTerminalAttachment
         do {
-            attachment = try await dependencies.runtime.terminals().attach(name: name, environment: environment, owner: token.author?.userID)
+            attachment = try await dependencies.runtime.terminals().attach(name: name, environment: environment, owner: token.author?.userID, personal: personal)
         } catch {
             try await outbound.close(.unexpectedServerError, reason: RemoteFailure.wire(error).message)
             return
@@ -150,16 +151,21 @@ enum TerminalRoute {
 
     /// The shell's environment: every key runbloom.app resolved for this person, under the names
     /// each CLI reads, their personal environment, and the turn git credentials are asked for.
-    static func shellEnvironment(turnID: String, gate: any RemoteTurnGate) async throws -> [String: String] {
+    /// Also answers what of it is one person's own, which the shell is tagged with, and retires
+    /// whatever this grant shows can no longer hold personal credentials.
+    static func shellEnvironment(
+        turnID: String, gate: any RemoteTurnGate, runtime: WorkspaceRuntime
+    ) async throws -> (environment: [String: String], personal: Set<String>) {
         var environment: [String: String] = [:]
-        guard !turnID.isEmpty else { return environment }
+        guard !turnID.isEmpty else { return (environment, []) }
         let grant = try await gate.start(turnID: turnID)
+        await runtime.retirePersonalCredentials(where: grant.supersedes)
         for agent in grant.agentKeys.keys {
             environment.merge(grant.environment(for: agent)) { _, new in new }
         }
         environment.merge(grant.environment) { current, _ in current }
         environment["BLOOM_TURN_ID"] = turnID
-        return environment
+        return (environment, grant.personalMarks(for: Array(grant.agentKeys.keys)))
     }
 }
 
