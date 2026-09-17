@@ -11,17 +11,20 @@ import Testing
 /// config file can say whether the flags are right. That is `LiveBridgeTests`.
 @Suite("BridgeServer", .tags(.subprocess, .persistence), .scratchDirectory)
 struct BridgeServerTests {
-    @Test("Preparing CLI resume keeps its live bridge and replaces retired registrations")
-    func reuseCLIRegistration() async throws {
-        let (server, _, workspace, session) = try await makeBridge()
+    @Test("Preparing CLI resume keeps its live bridge and replaces retired registrations", arguments: [AgentKind.claudeCode, .codex])
+    func reuseCLIRegistration(agent: AgentKind) async throws {
+        let (server, _, workspace, session) = try await makeBridge(agent: agent)
         defer { server.stop() }
-        let initial = try #require(server.register(session: session, workspace: workspace))
-        let resumed = try #require(server.register(session: session, workspace: workspace, reusing: initial))
+        let initial = try #require(server.register(session: session, workspace: workspace, reconnectable: true))
+        let resumed = try #require(server.register(session: session, workspace: workspace, reusing: initial, reconnectable: true))
+        let configPath = try #require(initial.mcpConfigPath)
+        let config = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: URL(fileURLWithPath: configPath)))
+        #expect(config["mcpServers"]?[BridgeRegistration.serverName]?["env"]?[BridgeProtocol.configurationVariable] == .string(configPath))
         #expect(resumed == initial)
         #expect(server.registry.identity(forToken: initial.attachment.token)?.sessionID == session.id)
 
         server.retire(sessionID: session.id)
-        let renewed = try #require(server.register(session: session, workspace: workspace, reusing: resumed))
+        let renewed = try #require(server.register(session: session, workspace: workspace, reusing: resumed, reconnectable: true))
         #expect(renewed.attachment.token != initial.attachment.token)
         #expect(server.registry.identity(forToken: renewed.attachment.token)?.workspaceID == workspace.id)
     }
@@ -48,7 +51,7 @@ struct BridgeServerTests {
 
     /// A store holding one project, one workspace and one chat, and a server listening for it.
     private func makeBridge(
-        origin: WorkspaceOrigin = .user
+        origin: WorkspaceOrigin = .user, agent: AgentKind = .claudeCode
     ) async throws -> (server: BridgeServer, token: String, workspace: Workspace, session: Session) {
         let store = try makeTestStore("bridge")
         let repo = try await store.upsert(Repo(name: "billing", path: "/tmp/billing", defaultBranch: "main"))
@@ -60,7 +63,9 @@ struct BridgeServerTests {
             baseBranch: "main",
             origin: origin
         ))
-        let session = try await store.upsert(Session(workspaceID: workspace.id, title: "First chat"))
+        var initialSession = Session(workspaceID: workspace.id, title: "First chat")
+        initialSession.agentKind = agent
+        let session = try await store.upsert(initialSession)
 
         // The real derivation, against a database path unique to this test, so two tests running
         // at once cannot land on one socket. Which is also the property the derivation exists for.

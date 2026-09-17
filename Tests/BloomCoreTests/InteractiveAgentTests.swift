@@ -192,7 +192,8 @@ struct InteractiveAgentTests {
         let attachment = BridgeAttachment(
             shimPath: root.appendingPathComponent("Bloom Dev/bloom-bridge").path,
             socketPath: root.appendingPathComponent("bridge.sock").path,
-            token: "test-token", role: .workspace
+            token: "test-token", role: .workspace,
+            configurationPath: root.appendingPathComponent("\(id).mcp.json").path
         )
         let config = try BridgeRegistration.writeClaudeConfig(attachment, sessionID: id, directory: root.path)
         let bridge = BridgeHandle(attachment: attachment, mcpConfigPath: config)

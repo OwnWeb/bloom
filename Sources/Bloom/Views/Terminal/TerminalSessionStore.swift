@@ -20,6 +20,7 @@ final class TerminalSessionStore {
     private var terminals: [String: BloomTerminalView] = [:]
     @ObservationIgnored private var bridge: BridgeServer?
     @ObservationIgnored private var cliBridges: [SessionID: BridgeHandle] = [:]
+    @ObservationIgnored private var startingPanes: Set<String> = []
 
     func useBridge(_ bridge: BridgeServer?) {
         self.bridge = bridge
@@ -29,15 +30,20 @@ final class TerminalSessionStore {
     func prepareCLICommand(
         for session: Session, workspace: Workspace, prompt: String, resuming: String? = nil
     ) throws -> String? {
-        let handle = bridge?.register(
-            session: session, workspace: workspace, reusing: cliBridges[session.id]
-        )
-        cliBridges[session.id] = handle
+        let handle = cliBridge(for: session, workspace: workspace)
         return try session.agentKind.prepareInteractiveCommand(
             directory: workspace.path, prompt: prompt, sessionID: session.id,
             model: session.model, effort: session.effort, permissionMode: session.permissionMode,
             resuming: resuming, bridge: handle
         )
+    }
+
+    private func cliBridge(for session: Session, workspace: Workspace) -> BridgeHandle? {
+        let handle = bridge?.register(
+            session: session, workspace: workspace, reusing: cliBridges[session.id], reconnectable: true
+        )
+        cliBridges[session.id] = handle
+        return handle
     }
 
     /// A command waiting for its pane's shell to exist, which is how a run script opens: a terminal
@@ -282,8 +288,20 @@ final class TerminalSessionStore {
     /// the startup beat `type` waits out, because a person has read a strip and pressed a button
     /// since it was forked.
     func startRemembered(_ command: String, inPane pane: String) {
-        guard write(command, submit: true, paneID: pane) else { return }
-        recall.accepted(command, inPane: pane)
+        guard startingPanes.insert(pane).inserted else { return }
+        Task {
+            defer { startingPanes.remove(pane) }
+            if let tab = CenterTabStore.shared.tabsByWorkspace.values.joined().first(where: { $0.id == pane }),
+               let sessionID = tab.agentSessionID {
+                guard let store = repoStore,
+                      let session = try? await store.session(id: sessionID), session.archivedAt == nil,
+                      let workspace = try? await store.workspace(id: tab.workspaceID),
+                      CenterTabStore.shared.terminal(for: sessionID, in: tab.workspaceID)?.id == pane else { return }
+                _ = cliBridge(for: session, workspace: workspace)
+            }
+            guard write(command, submit: true, paneID: pane) else { return }
+            recall.accepted(command, inPane: pane)
+        }
     }
 
     /// The cross beside it, which is the only way a remembered command is deliberately forgotten.
@@ -494,14 +512,17 @@ final class TerminalSessionStore {
                     }
                 }
             }
-            if let externalSession = externalSession ?? session.agentSessionID,
-               let workspace = try? await store.workspace(id: tab.workspaceID),
+            if let workspace = try? await store.workspace(id: tab.workspaceID),
                CenterTabStore.shared.terminal(for: sessionID, in: tab.workspaceID)?.id == tab.id,
-               !Task.isCancelled,
-               let resume = try? prepareCLICommand(
-                   for: session, workspace: workspace, prompt: "", resuming: externalSession
-               ) {
-                if isPresent { await recall.rememberResume(resume, inPane: tab.id, store: store) }
+               !Task.isCancelled {
+                if let externalSession = externalSession ?? session.agentSessionID,
+                   let resume = try? prepareCLICommand(
+                       for: session, workspace: workspace, prompt: "", resuming: externalSession
+                   ) {
+                    if isPresent { await recall.rememberResume(resume, inPane: tab.id, store: store) }
+                } else {
+                    _ = cliBridge(for: session, workspace: workspace)
+                }
             }
             if isPresent { runningPanes.remove(tab.id) }
             turns[sessionID] = AgentTurns.Live(
