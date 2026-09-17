@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Run a packaged bloom-server on a real, throwaway test machine and exercise it through its URL.
+"""Run a packaged bloom-runner on a real, throwaway test machine and exercise it through its URL.
 
-    python3 Tools/machine-test.py --package bloom-server-linux-x86_64-<version>.tar.gz [--live]
+    python3 Tools/machine-test.py --package bloom-runner-linux-x86_64-<version>.tar.gz [--live]
 
 **This creates a real machine and costs a little.** It is off unless run by hand, it names the
 machine `bloomtest-<random>`, and it deletes the machine at the end whatever happened, so a crashed
@@ -183,7 +183,7 @@ def main():
     parser.add_argument("--keep", action="store_true", help="do not delete the machine, for looking at it afterwards")
     arguments = parser.parse_args()
     package = arguments.package.resolve()
-    version = package.name.removeprefix("bloom-server-linux-x86_64-").removesuffix(".tar.gz")
+    version = package.name.removeprefix("bloom-runner-linux-x86_64-").removesuffix(".tar.gz")
     grant = credential_for_live_turn() if arguments.live else None
 
     name = "bloomtest-" + secrets.token_hex(4)
@@ -215,10 +215,10 @@ def main():
                 piece = pieces / f"part-{index // size:04d}"
                 piece.write_bytes(data[index:index + size])
                 sprite(name, "file", "push", str(piece), f"/home/sprite/bloom-piece-{piece.name}", timeout=300)
-            run_on(name, "cat /home/sprite/bloom-piece-part-* > /home/sprite/bloom-server.tar.gz && rm -f /home/sprite/bloom-piece-part-*")
+            run_on(name, "cat /home/sprite/bloom-piece-part-* > /home/sprite/bloom-runner.tar.gz && rm -f /home/sprite/bloom-piece-part-*")
             sprite(name, "file", "push", str(HERE / "bloom_fake_runbloom.py"), "/home/sprite/bloom_fake_runbloom.py")
-            run_on(name, f"sudo mkdir -p /opt/bloom/{version} && sudo tar -xzf /home/sprite/bloom-server.tar.gz -C /opt/bloom/{version} "
-                         f"&& sudo ln -sfn /opt/bloom/{version} /opt/bloom/current && /opt/bloom/current/bin/bloom-server version")
+            run_on(name, f"sudo mkdir -p /opt/bloom/{version} && sudo tar -xzf /home/sprite/bloom-runner.tar.gz -C /opt/bloom/{version} "
+                         f"&& sudo ln -sfn /opt/bloom/{version} /opt/bloom/current && /opt/bloom/current/bin/bloom-runner version")
 
             issuer = Issuer(scratch / "issuer", f"http://127.0.0.1:{FAKE_PORT}", workspace)
             (scratch / "jwks.json").write_bytes(issuer.jwks)
@@ -252,7 +252,7 @@ def main():
                 assert status == 204, status
 
             step("creating the bloom service")
-            run_on(name, "sprite-env services create bloom --cmd /opt/bloom/current/bin/bloom-server --args serve --http-port 8080 --no-stream")
+            run_on(name, "sprite-env services create bloom --cmd /opt/bloom/current/bin/bloom-runner --args serve --http-port 8080 --no-stream")
             wait_for("health answers through the machine's URL", lambda: https(url, path="/_bloom/health")[0] == 200, 120)
             status, _, body = https(url, path="/_bloom/health")
             assert json.loads(body)["version"] == version, body
@@ -281,7 +281,7 @@ def main():
 
             # Reading is not human input; a rename is, so it starts the presence lease and the hold.
             rpc(url, session(), {"kind": "rename_workspace", "name": "Machine test, renamed"})
-            tasks = wait_for("the machine holds itself awake", lambda: (lambda text: text if "bloom-server" in text else None)(
+            tasks = wait_for("the machine holds itself awake", lambda: (lambda text: text if "bloom-runner" in text else None)(
                 run_on(name, "sprite-env curl /v1/tasks")), 60, interval=3)
             step(f"held awake through the Tasks API: {tasks.strip()[:160]}")
             renamed = wait_for("a summary carries the rename", lambda: [r for r in requests() if r["path"].endswith("/summary")

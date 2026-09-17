@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs or updates bloom-server on a Cloud workspace's machine.
+# Installs or updates bloom-runner on a Cloud workspace's machine.
 #
 # runbloom.app does the first install itself, with a script of its own that unpacks the same
 # archive into the same place and creates the `bloom` service; `update` here is what the machine
@@ -14,7 +14,7 @@
 # provider's filesystem API. Nothing secret is passed here: the version and the checksum of the
 # release asset are the whole of what it is told.
 #
-# 1. Download bloom-server-linux-x86_64-<version>.tar.gz from the bloom repository's GitHub
+# 1. Download bloom-runner-linux-x86_64-<version>.tar.gz from the bloom repository's GitHub
 #    release, and refuse it unless its sha256 is the one given.
 # 2. Unpack it into /opt/bloom/<version>, and point /opt/bloom/current at that.
 # 3. On install, create the `bloom` service once. On update, restart it, and if the new version
@@ -22,7 +22,7 @@
 #
 # **The service's command never changes**, because creating a service under a name that exists
 # silently keeps the old definition (measured on a Sprite). It always runs
-# /opt/bloom/current/bin/bloom-server, and an update moves the symlink underneath it.
+# /opt/bloom/current/bin/bloom-runner, and an update moves the symlink underneath it.
 #
 # Environment, for development and tests only:
 #   BLOOM_RELEASE_BASE  where releases are downloaded from (default the bloom repository on GitHub)
@@ -58,12 +58,12 @@ sudo_if_needed() {
   if [[ -w "$(dirname "$prefix")" || -w "$prefix" ]]; then "$@"; else sudo "$@"; fi
 }
 
-asset="bloom-server-linux-x86_64-${version}.tar.gz"
+asset="bloom-runner-linux-x86_64-${version}.tar.gz"
 target="$prefix/$version"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-if [[ ! -x "$target/bin/bloom-server" ]]; then
+if [[ ! -x "$target/bin/bloom-runner" ]]; then
   curl --fail --silent --show-error --location --retry 3 --output "$work/$asset" "$release_base/v$version/$asset"
   actual="$(sha256sum "$work/$asset" | cut -d' ' -f1)"
   [[ "$actual" == "$checksum" ]] || fail "$asset has sha256 $actual, not $checksum"
@@ -72,7 +72,7 @@ if [[ ! -x "$target/bin/bloom-server" ]]; then
   # bin/, lib/ and licences/ sit at the root of the archive, which is the layout runbloom.app's own
   # first install unpacks too.
   unpacked="$work/unpacked"
-  [[ -x "$unpacked/bin/bloom-server" ]] || fail "$asset has no bin/bloom-server"
+  [[ -x "$unpacked/bin/bloom-runner" ]] || fail "$asset has no bin/bloom-runner"
   sudo_if_needed mkdir -p "$prefix"
   sudo_if_needed rm -rf "$target.partial"
   sudo_if_needed cp -a "$unpacked" "$target.partial"
@@ -88,15 +88,15 @@ sudo_if_needed mv -T "$prefix/current.next" "$prefix/current"
 
 if [[ "$action" == "install" ]]; then
   if ! "$service_tool" services list 2>/dev/null | grep -qw bloom; then
-    "$service_tool" services create bloom --cmd "$prefix/current/bin/bloom-server" --args serve --http-port 8080 --no-stream
+    "$service_tool" services create bloom --cmd "$prefix/current/bin/bloom-runner" --args serve --http-port 8080 --no-stream
   else
     "$service_tool" services restart bloom
   fi
-  echo "bloom-server $version installed"
+  echo "bloom-runner $version installed"
   exit 0
 fi
 
-# The restart ends the server that started this script. bloom-server launches it with setsid, and
+# The restart ends the server that started this script. bloom-runner launches it with setsid, and
 # writes nothing here; the marker below is how the new server says it came up, by deleting it once
 # it is listening, so the rollback does not depend on this script outliving the restart. Whether a
 # setsid child does outlive a Sprite service restart is checked on a bloomdev machine.
@@ -107,12 +107,12 @@ printf '%s\n%s\n' "$version" "$previous" > "$marker"
 "$service_tool" services restart bloom >/dev/null 2>&1 &
 for _ in $(seq 1 20); do
   if [[ ! -e "$marker" ]]; then
-    echo "bloom-server updated to $version"
+    echo "bloom-runner updated to $version"
     exit 0
   fi
   if curl --fail --silent --max-time 2 "$health_url" | grep -q "\"$version\""; then
     rm -f "$marker"
-    echo "bloom-server updated to $version"
+    echo "bloom-runner updated to $version"
     exit 0
   fi
   sleep 1

@@ -12,3 +12,6 @@ dist/
 
 # Scratch. Reports and captures an agent made, which belong to a run rather than to the repository.
 output/
+
+# Python bytecode from running the Tools scripts.
+__pycache__/

@@ -97,7 +97,7 @@ extension WorkspaceRuntime {
         }
         let last = try await store.lastMessage(workspaceID: workspaceID, kinds: [.assistantText, .user, .crew])
         return RemoteSummary(
-            revision: revision, observedAt: observedAt, bloomServerVersion: version, title: workspace.name,
+            revision: revision, observedAt: observedAt, bloomRunnerVersion: version, title: workspace.name,
             branch: workspace.branch, baseBranch: workspace.baseBranch,
             state: RemoteSummary.state(setup: workspace.setupState, chats: activities), awake: awake,
             presenceLeaseUntil: leaseUntil,

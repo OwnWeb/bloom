@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""A fake runbloom.app for bloom-server's smoke and machine tests, and the token signing they share.
+"""A fake runbloom.app for bloom-runner's smoke and machine tests, and the token signing they share.
 
-Standard library and `openssl` only. Imported by Tools/server-smoke.py, and run on its own on a test
+Standard library and `openssl` only. Imported by Tools/runner-smoke.py, and run on its own on a test
 machine by Tools/machine-test.py:
 
     python3 bloom_fake_runbloom.py --port 9000 --workspace <id> --secret-stdin --jwks-file jwks.json
@@ -109,7 +109,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path.startswith("/test/"):
             return self.test_api(method, body)
         if self.headers.get("Authorization") != f"Bearer {server.secret}":
-            return self.answer(401, b'{"code":"unauthenticated","message":"no"}')
+            return self.answer(401, b'{"code":"invalid_workspace_secret","message":"no"}')
         parsed = json.loads(body) if body else None
         with server.lock:
             # Never the grant's contents: the recording is what a test reads back and prints.

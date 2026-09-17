@@ -3,7 +3,7 @@ import Foundation
 /// Whether a Cloud workspace's machine has a reason to stay awake, and until when.
 ///
 /// **An open connection is not a reason.** A machine stays up while anything is connected to it,
-/// so a Mac left open on a workspace over a weekend would bill for the weekend. bloom-server holds
+/// so a Mac left open on a workspace over a weekend would bill for the weekend. Bloom Runner holds
 /// the machine awake with a task of its own instead, and only for these:
 ///
 /// - setup or resume is running;

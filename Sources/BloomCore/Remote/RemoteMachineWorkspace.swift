@@ -1,6 +1,6 @@
 import Foundation
 
-/// The one workspace row a machine's database holds, made the first time bloom-server starts.
+/// The one workspace row a machine's database holds, made the first time Bloom Runner starts.
 ///
 /// **Its id is runbloom.app's.** The workspace has one identity everywhere: the id in the token's
 /// audience, in every summary and in this row are the same lowercase ULID, so nothing on the

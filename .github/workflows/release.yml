@@ -38,11 +38,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # bloom-server for Cloud workspaces, published beside the app on the same release. runbloom.app
+  # bloom-runner for Cloud workspaces, published beside the app on the same release. runbloom.app
   # installs a machine from exactly these two names, so a release without them is a release no new
   # Cloud workspace can be created from. Separate from the Mac job because it needs nothing of it:
   # a Linux runner, the Swift image the server is tested on, and its own packaging.
-  server:
+  runner:
     runs-on: ubuntu-latest
     container: swift:6.3.3-noble
     timeout-minutes: 60
@@ -79,10 +79,10 @@ jobs:
           apt-get install -y -qq gh
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Build bloom-server in release configuration
+      - name: Build bloom-runner in release configuration
         run: |
           set -euo pipefail
-          swift build -c release --product bloom-server -j 4 -Xswiftc -warnings-as-errors
+          swift build -c release --product bloom-runner -j 4 -Xswiftc -warnings-as-errors
           swift build -c release --product bloom-bridge -j 4 -Xswiftc -warnings-as-errors
 
       - name: Package it
@@ -90,8 +90,8 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          python3 Tools/package-linux-server.py "$(swift build -c release --show-bin-path)" .build/server-release --version "$VERSION"
-          (cd .build/server-release && sha256sum -c "bloom-server-linux-x86_64-$VERSION.tar.gz.sha256")
+          python3 Tools/package-linux-runner.py "$(swift build -c release --show-bin-path)" .build/runner-release --version "$VERSION"
+          (cd .build/runner-release && sha256sum -c "bloom-runner-linux-x86_64-$VERSION.tar.gz.sha256")
 
       - name: Attach it to the release
         env:
@@ -101,8 +101,8 @@ jobs:
         run: |
           set -euo pipefail
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
-            ".build/server-release/bloom-server-linux-x86_64-$VERSION.tar.gz" \
-            ".build/server-release/bloom-server-linux-x86_64-$VERSION.tar.gz.sha256"
+            ".build/runner-release/bloom-runner-linux-x86_64-$VERSION.tar.gz" \
+            ".build/runner-release/bloom-runner-linux-x86_64-$VERSION.tar.gz.sha256"
 
   release:
     runs-on: macos-26

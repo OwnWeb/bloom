@@ -57,7 +57,7 @@ let serverDependencies: [Target.Dependency] = [
 let package = Package(
     name: "Bloom",
     products: [
-        .executable(name: "bloom-server", targets: ["bloom-server"]),
+        .executable(name: "bloom-runner", targets: ["bloom-runner"]),
         .executable(name: "bloom-bridge", targets: ["bloom-bridge"]),
         .library(name: "BloomCore", targets: ["BloomCore"]),
     ],
@@ -94,15 +94,15 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
-            name: "BloomServer",
+            name: "BloomRunner",
             dependencies: serverDependencies + [.product(name: "Crypto", package: "swift-crypto")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
-        .executableTarget(name: "bloom-server", dependencies: ["BloomServer"], swiftSettings: [.swiftLanguageMode(.v6)]),
+        .executableTarget(name: "bloom-runner", dependencies: ["BloomRunner"], swiftSettings: [.swiftLanguageMode(.v6)]),
         .testTarget(
-            name: "BloomServerTests",
+            name: "BloomRunnerTests",
             dependencies: [
-                "BloomServer", "BloomCore", .product(name: "BloomProtocol", package: "BloomProtocol"),
+                "BloomRunner", "BloomCore", .product(name: "BloomProtocol", package: "BloomProtocol"),
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
@@ -126,14 +126,14 @@ let package = Package(
         .executable(name: "Bloom", targets: ["Bloom"]),
         .executable(name: "bloom-bridge", targets: ["bloom-bridge"]),
         .executable(name: "bloom-sleep-helper", targets: ["bloom-sleep-helper"]),
-        .executable(name: "bloom-server", targets: ["bloom-server"]),
+        .executable(name: "bloom-runner", targets: ["bloom-runner"]),
         .library(name: "BloomCore", targets: ["BloomCore"]),
     ],
     dependencies: [
         // The Cloud workspace wire shapes, shared by the server and every Swift client.
         .package(path: "Packages/BloomProtocol"),
-        // bloom-server's HTTP front, its terminal WebSocket and its client for runbloom.app. The
-        // app never links them: only BloomServer names them, and the app does not depend on it.
+        // Bloom Runner's HTTP front, its terminal WebSocket and its client for runbloom.app. The
+        // app never links them: only BloomRunner names them, and the app does not depend on it.
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.26.0"),
         .package(url: "https://github.com/hummingbird-project/hummingbird-websocket.git", from: "2.7.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.36.0"),
@@ -182,7 +182,7 @@ let package = Package(
         // The server a Cloud workspace's machine runs, built here as well as on Linux so it can be
         // developed and tested on a Mac. See docs/REMOTE-WORKSPACES.md.
         .target(
-            name: "BloomServer",
+            name: "BloomRunner",
             dependencies: [
                 "BloomCore",
                 .product(name: "BloomProtocol", package: "BloomProtocol"),
@@ -193,11 +193,11 @@ let package = Package(
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
-        .executableTarget(name: "bloom-server", dependencies: ["BloomServer"], swiftSettings: [.swiftLanguageMode(.v6)]),
+        .executableTarget(name: "bloom-runner", dependencies: ["BloomRunner"], swiftSettings: [.swiftLanguageMode(.v6)]),
         .testTarget(
-            name: "BloomServerTests",
+            name: "BloomRunnerTests",
             dependencies: [
-                "BloomServer", "BloomCore", .product(name: "BloomProtocol", package: "BloomProtocol"),
+                "BloomRunner", "BloomCore", .product(name: "BloomProtocol", package: "BloomProtocol"),
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
