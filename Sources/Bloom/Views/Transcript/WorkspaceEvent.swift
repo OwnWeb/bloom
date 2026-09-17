@@ -38,6 +38,8 @@ struct WorkspaceEvent: Identifiable, Equatable {
         case failed
         /// Nothing ran, and why is worth a line: a settings file naming a script that is not there.
         case skipped
+        /// It failed and the reader chose to carry on without it.
+        case ignored
     }
 
     var id = UUID().uuidString
@@ -112,7 +114,7 @@ struct WorkspaceEvent: Identifiable, Equatable {
         switch (kind, outcome) {
         case (.setup, .running): "gearshape.2"
         case (.setup, .succeeded): "checkmark.seal"
-        case (.setup, .skipped): "gearshape.2"
+        case (.setup, .skipped), (.setup, .ignored): "gearshape.2"
         case (.setup, _): "exclamationmark.triangle"
         }
     }
@@ -122,7 +124,7 @@ struct WorkspaceEvent: Identifiable, Equatable {
         case .running: .accent
         case .succeeded: .positive
         case .failed: .negative
-        case .skipped: .neutral
+        case .skipped, .ignored: .neutral
         }
     }
 
@@ -185,6 +187,17 @@ struct WorkspaceEvent: Identifiable, Equatable {
                     .filter { !$0.isEmpty }
                     .joined(separator: " "),
                 log: log, failureSummary: diagnosis.summary, durationMS: durationMS
+            )
+
+        case .ignored:
+            // Neutral rather than red, because somebody has already read it and decided. The log
+            // stays a disclosure away, and "Run setup again" stays on the row for when they change
+            // their mind.
+            let diagnosis = SetupDiagnosis.read(log: log, status: status)
+            return WorkspaceEvent(
+                id: "setup", kind: .setup, outcome: .ignored,
+                title: "Setup failure ignored", detail: diagnosis.summary,
+                log: log, durationMS: durationMS
             )
 
         case .skipped:
