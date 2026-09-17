@@ -119,6 +119,17 @@ final class SupervisedProcess: Sendable {
                 log.append("[bloom] \(error)")
             }
             let status = await process.exitStatus
+            // The shell is gone but a child it started (a dev server forked into the background)
+            // can still hold the port, and would make every restart fail on it. The group stays
+            // recorded until that is dealt with, so a stop arriving meanwhile signals it too.
+            if group > 0, Self.isAlive(group: group) {
+                Self.signal(group: group, SIGTERM)
+                let deadline = ContinuousClock.now + stopGrace
+                while Self.isAlive(group: group), ContinuousClock.now < deadline {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                if Self.isAlive(group: group) { Self.signal(group: group, SIGKILL) }
+            }
             state.withLock { $0.group = 0 }
             guard !isStopping else { break }
             let delay = backoff.delay(afterRunningFor: ContinuousClock.now - began)

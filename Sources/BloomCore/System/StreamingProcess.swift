@@ -59,6 +59,10 @@ public final class StreamingProcess: Sendable {
     /// assistant events it closes. Serialising the yields is what makes the stream ordered, and
     /// putting `finish` on the same queue is what stops the stream ending before the lines it owes.
     private let drainQueue = DispatchQueue(label: "be.spatie.bloom.StreamingProcess.drain")
+    #if os(Linux)
+    /// The reader threads' descriptors, which is where pending output is looked for on Linux.
+    private let pipeReaders = Mutex<(stdout: ProcessPipeReader?, stderr: ProcessPipeReader?)>((nil, nil))
+    #endif
 
     /// Both streams are built here rather than in a `lazy var`.
     ///
@@ -238,6 +242,9 @@ public final class StreamingProcess: Sendable {
     /// those sources. The thread does not retain this process while it waits for another byte.
     private func startPipeReader(_ handle: FileHandle, stdout: Bool) throws {
         let pipe = try ProcessPipeReader(handle)
+        pipeReaders.withLock { readers in
+            if stdout { readers.stdout = pipe } else { readers.stderr = pipe }
+        }
         let reader = Thread { [weak self] in
             defer { pipe.close() }
             do {
@@ -430,8 +437,14 @@ public final class StreamingProcess: Sendable {
             )
         }
 
+        #if os(Linux)
+        let readers = pipeReaders.withLock { $0 }
+        let pending = (stdoutLive && readers.stdout?.hasPendingBytes == true)
+            || (stderrLive && readers.stderr?.hasPendingBytes == true)
+        #else
         let pending = (stdoutLive && Self.hasPendingBytes(stdoutPipe.fileHandleForReading))
             || (stderrLive && Self.hasPendingBytes(stderrPipe.fileHandleForReading))
+        #endif
         let quiet = now > since + Self.eofQuietPeriod && !pending
         guard sawEOF || quiet || now > limit else {
             DispatchQueue.global().asyncAfter(deadline: now + Self.eofPollInterval) { [weak self] in

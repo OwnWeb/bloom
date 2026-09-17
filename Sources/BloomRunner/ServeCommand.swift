@@ -2,6 +2,7 @@ import AsyncHTTPClient
 import BloomCore
 import Foundation
 import Hummingbird
+import ServiceLifecycle
 
 /// `bloom-runner serve`: everything a machine runs, put together once.
 ///
@@ -138,20 +139,32 @@ public enum ServeCommand {
         let application = server.application(port: layout.serverPort) { _ in
             try? FileManager.default.removeItem(atPath: environment["BLOOM_UPDATE_MARKER"] ?? "/var/tmp/bloom-update-pending")
         }
-        try await application.runService()
 
         // SIGTERM: a limit's grace ran out, an update is restarting the service, or the machine is
-        // being deleted. Stop turns, report what can be reported, and go.
-        note("stopping: reporting to runbloom.app and closing streams")
-        // Setup stopped and filed first, so the last report says `released` rather than a setup
-        // that ended a moment after it.
-        setupRun.cancel()
-        await setupRun.value
-        await measurements.stop()
-        await services.stopAll()
-        await caddy.stop()
-        await awake.shutdown()
-        await runtime.shutdown()
+        // being deleted. The wind down runs before the HTTP server stops, not after: the server's
+        // graceful shutdown waits for every request to finish, and an event stream or a terminal
+        // never does, so a machine with one client connected never got as far as reporting.
+        let windDown = WindDown {
+            note("stopping: stopping turns, reporting to runbloom.app and closing streams")
+            // Setup first, filed as interrupted, so nothing it would start begins now.
+            setupRun.cancel()
+            await setupRun.value
+            await measurements.stop()
+            // Turns before the report, so the last usage report has every turn finishing in it.
+            // This also closes every event stream.
+            await runtime.shutdown()
+            await terminals.closeAll()
+            await services.stopAll()
+            await caddy.stop()
+            await awake.shutdown()
+        }
+        // A service group shuts its services down in reverse order, so the wind down goes first.
+        let group = ServiceGroup(configuration: .init(
+            services: [.init(service: application), .init(service: windDown, successTerminationBehavior: .gracefullyShutdownGroup)],
+            gracefulShutdownSignals: [.sigterm, .sigint],
+            logger: application.logger
+        ))
+        try await group.run()
         await delivery.shutdown()
         try await http.shutdown()
         note("stopped")
@@ -172,5 +185,16 @@ public enum ServeCommand {
             throw MachineConfigurationError("Cannot write \(path).")
         }
         return secret
+    }
+}
+
+/// Waits for the service group to begin shutting down, then does the machine's own shutdown.
+struct WindDown: Service {
+    let work: @Sendable () async -> Void
+
+    func run() async throws {
+        // Throws only when the group is cancelled, which is a shutdown too.
+        try? await gracefulShutdown()
+        await work()
     }
 }

@@ -59,6 +59,7 @@ enum TerminalRoute {
         let token: WorkspaceToken
         let turnID: String
         let environment: [String: String]
+        var registered: String?
         do {
             token = try await dependencies.verifier.verify(raw, as: .session)
             guard token.abilities.contains("view"), token.abilities.contains("terminal") else {
@@ -66,8 +67,11 @@ enum TerminalRoute {
             }
             let caller = token.caller(token: raw)
             turnID = try await dependencies.gate.register(.terminal, chat: nil, agent: nil, caller: caller)
+            registered = turnID
             environment = try await shellEnvironment(turnID: turnID, gate: dependencies.gate)
         } catch {
+            // Registered but refused at start: runbloom.app counts a registered turn until it ends.
+            if let registered, !registered.isEmpty { Task { await dependencies.gate.end(turnID: registered) } }
             try await outbound.close(.policyViolation, reason: RemoteFailure.wire(error).message)
             return
         }
@@ -181,6 +185,14 @@ public actor TerminalConnections {
             entries.removeValue(forKey: id)
             await entry.close()
         }
+    }
+
+    /// Every terminal socket, at shutdown. An open WebSocket is a request that never finishes, and
+    /// the HTTP server's graceful shutdown waits for those.
+    func closeAll() async {
+        let closing = entries
+        entries.removeAll()
+        for entry in closing.values { await entry.close() }
     }
 
     var count: Int { entries.count }

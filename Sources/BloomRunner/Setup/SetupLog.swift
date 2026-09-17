@@ -22,6 +22,9 @@ actor SetupLog {
     private var stepFile: CappedLogFile?
     private var dirty = false
     private var scheduledFlush: Task<Void, Never>?
+    /// Set once the run is filed. A flush that had already woken when `finish` ran would otherwise
+    /// apply `runStarted` again and reopen a finished run.
+    private var finished = false
 
     /// The row's own cap, `Workspace.setupLogLimit`, which is internal to the core. Held here too
     /// so the text kept in memory cannot grow without bound during a long run.
@@ -78,14 +81,30 @@ actor SetupLog {
     }
 
     func finish(succeeded: Bool) async {
-        scheduledFlush?.cancel()
-        scheduledFlush = nil
-        stepFile?.close()
-        stepFile = nil
+        close()
         let text = log
         _ = try? await store.update(workspaceID: workspaceID) { row in
             row.apply(.runFinished(succeeded: succeeded, log: text))
         }
+    }
+
+    /// The machine is shutting down while a step runs. Filed as interrupted rather than failed:
+    /// the step was stopped, it did not fail, and the next start runs it again.
+    func interrupt() async {
+        close()
+        let text = log
+        _ = try? await store.update(workspaceID: workspaceID) { row in
+            row.apply(.runProgressed(log: text))
+            row.apply(.runInterrupted)
+        }
+    }
+
+    private func close() {
+        finished = true
+        scheduledFlush?.cancel()
+        scheduledFlush = nil
+        stepFile?.close()
+        stepFile = nil
     }
 
     private func add(_ line: String) {
@@ -110,6 +129,7 @@ actor SetupLog {
     }
 
     private func write() async {
+        guard !finished else { return }
         dirty = false
         let text = log
         _ = try? await store.update(workspaceID: workspaceID) { row in

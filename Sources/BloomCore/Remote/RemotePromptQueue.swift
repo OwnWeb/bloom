@@ -180,14 +180,22 @@ actor RemotePromptQueue {
         start(id)
     }
 
+    static let shutdownSentence = "The Cloud workspace stopped while this turn was running."
+
     func shutdown() async {
         closed = true
         let pending = Array(tasks.values)
         tasks.removeAll()
         for task in pending { task.cancel() }
         for task in pending { await task.value }
-        for turnID in running.values { await gate.end(turnID: turnID) }
+        // A turn still running is ended here, and settled too: its usage has to say it finished
+        // before the machine's last report, or runbloom.app keeps it open against the team.
+        let stillRunning = running
         running.removeAll()
+        for (id, turnID) in stillRunning {
+            await gate.end(turnID: turnID)
+            await settled(id, .stopped(Self.shutdownSentence), turnID)
+        }
     }
 
     // MARK: - Draining

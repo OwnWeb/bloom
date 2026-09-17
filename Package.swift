@@ -52,6 +52,7 @@ let serverDependencies: [Target.Dependency] = [
     .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
     .product(name: "AsyncHTTPClient", package: "async-http-client"),
     .product(name: "HTTPTypes", package: "swift-http-types"),
+    .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
 ]
 
 let package = Package(
@@ -67,6 +68,7 @@ let package = Package(
         .package(url: "https://github.com/hummingbird-project/hummingbird-websocket.git", from: "2.7.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.36.0"),
         .package(url: "https://github.com/apple/swift-http-types.git", from: "1.4.0"),
+        .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.8.0"),
         // CryptoKit's API for Linux, where CryptoKit does not exist. The Mac build imports
         // CryptoKit itself and never resolves this.
         .package(url: "https://github.com/apple/swift-crypto.git", from: "4.5.2"),
@@ -138,6 +140,7 @@ let package = Package(
         .package(url: "https://github.com/hummingbird-project/hummingbird-websocket.git", from: "2.7.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.36.0"),
         .package(url: "https://github.com/apple/swift-http-types.git", from: "1.4.0"),
+        .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.8.0"),
         // Native live Markdown editing for workspace notes. Pin the pre-1.0 API we integrate.
         .package(url: "https://github.com/nodes-app/swift-markdown-engine", exact: "0.12.0"),
         // The terminal panes. The upper bound is not tidiness: SwiftTerm tags 1.20.0 as a
@@ -190,6 +193,7 @@ let package = Package(
                 .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),
+                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
