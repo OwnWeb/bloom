@@ -1,3 +1,4 @@
+import AppKit
 import BloomClient
 import Foundation
 import SwiftUI
@@ -11,7 +12,7 @@ import BloomProtocol
 /// snapshot and the patch cache so nothing is read twice), plus the whole file list, which is the
 /// `files` operation. What is not here is what a Cloud workspace cannot do yet; those are
 /// `capabilities`, and the views ask before they offer.
-extension CloudWorkspaceSession: WorkspaceReviewSurface {
+extension CloudWorkspaceSession: WorkspaceSurface {
     var surfaceID: WorkspaceSurfaceID { .cloud(id) }
 
     var surfaceName: String {
@@ -46,6 +47,47 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
     var isRunning: Bool {
         state.chats.values.contains { $0.isRunning }
     }
+
+    // MARK: A conversation in it
+
+    /// The machine's setup, which is what a new Cloud workspace spends its first minutes doing.
+    var isRunningSetup: Bool {
+        ["pending", "running"].contains(state.setup?.state ?? "")
+    }
+
+    /// Kept on the session, so where somebody had got to in a conversation survives switching tab
+    /// and switching workspace, exactly as it does for a local one.
+    func transcriptMemory(pane: String) -> TranscriptPaneMemory {
+        TranscriptPaneMemory(
+            pane: pane,
+            read: { [weak self] session in self?.panePositions[TranscriptPaneState.Key(pane: pane, session: session)] },
+            write: { [weak self] state, session in
+                self?.panePositions[TranscriptPaneState.Key(pane: pane, session: session)] = state
+            }
+        )
+    }
+
+    /// No worktree on this Mac, so the composer offers what it offers Ask Bloom.
+    var composerWorkspace: WorkspaceModel? { nil }
+
+    /// What runbloom.app would refuse a turn for, said before anything is typed rather than a
+    /// minute later with the same sentence and nothing to press.
+    func composerNotice(for transcript: TranscriptModel) -> ChatComposerNotice? {
+        guard let teamID = cloud.item(id)?.teamID,
+              let readiness = CloudPromptReadiness(
+                  account: cloud.account, teamID: teamID, agent: transcript.session.agentKind.wireName
+              )
+        else { return nil }
+        return ChatComposerNotice(
+            sentence: readiness.sentence,
+            actionTitle: readiness.opensRunbloom ? "Open runbloom.app" : nil,
+            action: readiness.opensRunbloom ? { [cloud, id] in NSWorkspace.shared.open(cloud.runbloomPage(forWorkspace: id)) } : nil
+        )
+    }
+
+    /// Nothing hangs over a Cloud conversation: side conversations are a second agent in the same
+    /// worktree, and there is no worktree here to hold one.
+    func chatLayer(for transcript: TranscriptModel) -> EmptyView { EmptyView() }
 
     // MARK: What changed
 

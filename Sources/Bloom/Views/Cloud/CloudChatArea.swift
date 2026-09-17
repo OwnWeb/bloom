@@ -1,4 +1,3 @@
-import AppKit
 import BloomClient
 import BloomCore
 import SwiftUI
@@ -26,10 +25,11 @@ struct CloudChatArea: View {
     private var content: some View {
         if let id = session.selectedChatID, prepared == id || session.existingTranscript(for: id) != nil,
            let transcript = session.existingTranscript(for: id) {
-            CloudChatView(transcript: transcript, readiness: readiness(for: transcript)) {
-                NSWorkspace.shared.open(app.cloud.runbloomPage(forWorkspace: session.id))
-            }
-            .id(id)
+            // The app's own chat pane, the one a local workspace is drawn with. What differs is
+            // the workspace under it: no side conversations, no worktree behind the composer, and
+            // a sentence above it when runbloom.app would refuse the turn. See `WorkspaceSurface`.
+            ChatPaneView(transcript: transcript, model: session, pane: id.rawValue)
+                .id(id)
         } else if session.selectedChatID != nil {
             Palette.windowBackground
         } else if isSettingUp {
@@ -64,58 +64,7 @@ struct CloudChatArea: View {
 
     /// Whether the machine is still setting itself up, which is what a brand new workspace is doing
     /// for its first few minutes.
-    private var isSettingUp: Bool {
-        ["pending", "running"].contains(session.state.setup?.state ?? "")
-    }
-
-    /// What this person is missing before a turn in this chat could start, from the account alone.
-    private func readiness(for transcript: TranscriptModel) -> CloudPromptReadiness? {
-        guard let teamID = app.cloud.item(session.id)?.teamID else { return nil }
-        return CloudPromptReadiness(account: app.cloud.account, teamID: teamID, agent: transcript.session.agentKind.wireName)
-    }
-}
-
-/// One Cloud chat: the app's own transcript and composer over a Cloud `TranscriptModel`, laid out
-/// the way Ask Bloom lays out a chat with no worktree.
-private struct CloudChatView: View {
-    let transcript: TranscriptModel
-    /// What is missing before a prompt here could start a turn, or nil when nothing is.
-    var readiness: CloudPromptReadiness?
-    var onOpenRunbloom: () -> Void
-    @State private var isScrolledUp = false
-    @State private var room = ComposerRoom()
-
-    var body: some View {
-        TranscriptView(transcript: transcript) { isScrolledUp = $0 }
-            .environment(\.composerRoom, room)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .bottom) {
-                ComposerDock(showsJumpToNewest: isScrolledUp, onJumpToNewest: transcript.jumpToLiveEnd) {
-                    VStack(spacing: Metrics.spacingWide) {
-                        // Said before anything is typed, because runbloom.app would otherwise refuse
-                        // the turn a minute later with the same sentence and nothing to press.
-                        if let readiness {
-                            HStack(alignment: .firstTextBaseline, spacing: Metrics.spacingWide) {
-                                Image(systemName: "exclamationmark.circle").foregroundStyle(Palette.warning)
-                                Text(readiness.sentence)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Spacer(minLength: Metrics.spacingWide)
-                                if readiness.opensRunbloom {
-                                    Button("Open runbloom.app", action: onOpenRunbloom)
-                                        .buttonStyle(.borderless)
-                                }
-                            }
-                            .font(Typo.caption)
-                            .padding(.horizontal, Metrics.gutter)
-                        }
-                        ComposerView(transcript: transcript, model: nil, room: room, placeholder: "Message the agent in this Cloud workspace")
-                    }
-                }
-            }
-            .onGeometryChange(for: CGFloat.self) { PaneMeasure.room($0.size.height) } action: {
-                room.height = $0
-            }
-    }
+    private var isSettingUp: Bool { session.isRunningSetup }
 }
 
 /// Setup's output so far: what the machine ran after it was created, and after every wake.

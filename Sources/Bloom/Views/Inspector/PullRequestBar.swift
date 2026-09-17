@@ -29,7 +29,7 @@ private enum PullRequestPolling {
     static let arrivalMaxAge = Duration.seconds(30)
 }
 
-struct PullRequestBar<Model: WorkspaceReviewSurface>: View {
+struct PullRequestBar<Model: WorkspaceSurface>: View {
     let model: Model
 
     @State private var isWorking = false

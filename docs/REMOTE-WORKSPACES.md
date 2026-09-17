@@ -1120,6 +1120,21 @@ is built by the workspace rather than by the diff, which is the one place a view
 from a model: `WorkspaceModel.editorPane(path:session:)` answers with the editor and a Cloud
 workspace answers with the sentence saying why there is none.
 
+**The chat is `ChatPaneView`, the same view a local conversation is drawn with.** The transcript,
+the composer, the jump pill, the dock, the text size, the font and the line height are one view
+over `WorkspaceSurface`. Three things differ and each is asked of the workspace rather than
+branched on: where the reader had got to in a conversation (a local one keeps it on the model, a
+Cloud one on its session, so both survive switching tab); what the composer needs a worktree for,
+which is attaching a file, the project's quick prompts and its run scripts, and which a Cloud chat
+offers the way Ask Bloom does, having no worktree either; and what hangs over the conversation,
+which for a local workspace is the side conversation card and the pill back to the chat it was
+opened from, and for a Cloud workspace is nothing, because a side conversation is a second agent in
+the same worktree. A sentence above the composer says what runbloom.app would refuse a turn for
+before anybody types it.
+
+The protocol is `WorkspaceSurface` now rather than `WorkspaceReviewSurface`: it stopped being about
+the review the moment the band, the checks and the chat were written against it.
+
 **A Cloud workspace has no header bar of its own.** Its name is the window's title, its branch and
 its pull request are the title bar's band (`PullRequestBar`, over the protocol), and its `+` is the
 toolbar's, exactly as a local workspace's are. A bar above the tabs saying all three again was the

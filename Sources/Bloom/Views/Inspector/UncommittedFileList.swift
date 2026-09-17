@@ -3,7 +3,7 @@ import BloomCore
 
 /// Selection includes the staging layer: clicking the second row for a partially staged file
 /// must not jump back to the first row's patch just because the paths match.
-struct UncommittedFileList<Model: WorkspaceReviewSurface>: View {
+struct UncommittedFileList<Model: WorkspaceSurface>: View {
     let model: Model
     @State private var query = ""
     @State private var keyboard = ListKeyboard()

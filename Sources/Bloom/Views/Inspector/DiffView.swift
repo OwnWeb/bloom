@@ -30,7 +30,7 @@ private enum DiffMeasure {
     static let leadingCentre = UnitPoint(x: 0, y: 0.5)
 }
 
-struct DiffView<Model: WorkspaceReviewSurface>: View {
+struct DiffView<Model: WorkspaceSurface>: View {
     let model: Model
     let file: ChangedFile
     /// Non-nil when the all-files review owns vertical scrolling.

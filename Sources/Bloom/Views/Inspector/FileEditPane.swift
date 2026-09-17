@@ -245,7 +245,7 @@ extension WorkspaceModel {
     /// The file itself, editable, which is what Edit mode in a diff shows.
     ///
     /// A view built by the workspace rather than by `DiffView`, because this is the one part of a
-    /// diff that cannot be written against `WorkspaceReviewSurface`: an editor needs the bytes on
+    /// diff that cannot be written against `WorkspaceSurface`: an editor needs the bytes on
     /// this Mac, the language servers rooted in the worktree and the chat to ask about a symbol in.
     /// A Cloud workspace answers the same call with the sentence saying so, and `.editFiles` keeps
     /// the mode off its bar in the first place.

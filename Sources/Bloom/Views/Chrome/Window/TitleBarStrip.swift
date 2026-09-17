@@ -134,7 +134,7 @@ struct TitleBarStrip: View {
     @State private var shown: WorkspaceModel?
     /// The same, for a workspace on a machine. One of the two is nil: which of them the band is
     /// drawn over is the selection resolving, and everything the band itself does is the same for
-    /// both, because it is written against `WorkspaceReviewSurface`.
+    /// both, because it is written against `WorkspaceSurface`.
     @State private var shownCloud: CloudWorkspaceSession?
 
     private var inspector: InspectorGeometry { .shared }

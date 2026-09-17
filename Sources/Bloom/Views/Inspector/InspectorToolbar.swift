@@ -9,7 +9,7 @@ import BloomCore
 /// Only the controls that mean something for the pane below are drawn. A row of four trailing
 /// buttons pushed the picker into its narrow form at the DEFAULT inspector width, and two of them
 /// did nothing at all on the checks tab.
-struct InspectorToolbar<Model: WorkspaceReviewSurface>: View {
+struct InspectorToolbar<Model: WorkspaceSurface>: View {
     @Bindable var model: Model
 
     /// Shared with `ChangedFileList` through the same defaults key, and outliving the launch

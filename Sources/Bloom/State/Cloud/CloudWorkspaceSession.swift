@@ -52,6 +52,10 @@ final class CloudWorkspaceSession {
     @ObservationIgnored private(set) lazy var history = CloudHistory(session: self)
     /// What GitHub says about the branch, read from runbloom.app rather than from this Mac's gh.
     @ObservationIgnored private(set) lazy var github = CloudPullRequestReader(session: self)
+    /// Where the reader had got to in each conversation, per pane, which is what a local workspace
+    /// keeps in `WorkspaceModel.panePositions` and for the same reason: the pane and the list that
+    /// draw it are both destroyed by switching tab.
+    @ObservationIgnored var panePositions: [TranscriptPaneState.Key: TranscriptPaneState] = [:]
 
     init(id: CloudWorkspaceID, cloud: CloudWorkspaces) {
         self.id = id

@@ -2,7 +2,7 @@ import SwiftUI
 import BloomCore
 
 /// Changes keeps its full file-list height; only the History tab shares that space with commits.
-struct ChangesBrowser<Model: WorkspaceReviewSurface>: View {
+struct ChangesBrowser<Model: WorkspaceSurface>: View {
     let model: Model
 
     var body: some View {
@@ -26,7 +26,7 @@ struct ChangesBrowser<Model: WorkspaceReviewSurface>: View {
     }
 }
 
-struct ChangesHistoryList<Model: WorkspaceReviewSurface>: View {
+struct ChangesHistoryList<Model: WorkspaceSurface>: View {
     let model: Model
     @State private var keyboard = ListKeyboard()
     @State private var hasKeyboard = false

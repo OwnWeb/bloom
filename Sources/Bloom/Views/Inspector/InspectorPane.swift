@@ -18,7 +18,7 @@ struct InspectorPane: View {
     let model: WorkspaceModel?
     /// The Cloud workspace on screen, when that is what the window is showing. One of the two is
     /// nil: the column draws the same `InspectorView` over whichever it was handed, because that
-    /// view is generic over `WorkspaceReviewSurface` rather than over a kind of workspace.
+    /// view is generic over `WorkspaceSurface` rather than over a kind of workspace.
     var cloud: CloudWorkspaceSession?
     @Environment(AppModel.self) private var app
 

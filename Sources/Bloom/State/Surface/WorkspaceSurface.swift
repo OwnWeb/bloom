@@ -24,7 +24,7 @@ enum ChangesRefresh {
 /// protocol from the machine. The views are generic over this, so a reader cannot tell which they
 /// are looking at, and neither can the code they are drawn by.
 ///
-/// **Generic rather than `any WorkspaceReviewSurface`, and that is not a preference.** SwiftUI's
+/// **Generic rather than `any WorkspaceSurface`, and that is not a preference.** SwiftUI's
 /// `@Bindable` refuses an existential ("the wrapped value must be an object that conforms to
 /// Observable"), and the inspector binds a selection and a scope. Generic views keep the binding
 /// and keep every type static, so the redraw behaviour the centre and right columns were tuned for
@@ -33,7 +33,7 @@ enum ChangesRefresh {
 /// What is deliberately not here: anything that needs a path on this Mac. A reveal, an editor, a
 /// revert and a local shell are `WorkspaceCapabilities`, asked before they are offered.
 @MainActor
-protocol WorkspaceReviewSurface: AnyObject, Observable {
+protocol WorkspaceSurface: AnyObject, Observable {
     /// What Edit mode in a diff shows. See `WorkspaceModel.editorPane(path:session:)` for why
     /// the workspace builds this view and the diff does not.
     associatedtype EditorPane: View
@@ -52,6 +52,27 @@ protocol WorkspaceReviewSurface: AnyObject, Observable {
 
     /// Whether an agent is working in it, which the list uses to decide how hard to poll.
     var isRunning: Bool { get }
+
+    // MARK: A conversation in it
+
+    /// Whether the workspace's own setup is running, which the transcript draws a row for.
+    var isRunningSetup: Bool { get }
+    /// Where the reader had got to in each conversation, per pane. Kept by the workspace, because
+    /// the pane and the list that draw it are both destroyed by switching tab.
+    func transcriptMemory(pane: String) -> TranscriptPaneMemory
+    /// The worktree behind the composer, for the parts of it that are about files on this Mac:
+    /// attaching one, the project's quick prompts, its run scripts. Nil where there is no worktree,
+    /// and the composer offers those the way it does for Ask Bloom, which has none either.
+    var composerWorkspace: WorkspaceModel? { get }
+    /// What is missing before a turn in this chat could start, said before anything is typed
+    /// rather than as a refusal a minute later. Nil when nothing is.
+    func composerNotice(for transcript: TranscriptModel) -> ChatComposerNotice?
+    /// What this workspace hangs over a conversation of its own accord: a local one its side
+    /// conversations and the pill back to the chat a side conversation was opened from, a Cloud
+    /// one nothing at all. A view rather than a flag, because what is drawn is a whole layer with
+    /// its own placement, and a capability cannot carry that.
+    associatedtype ChatLayer: View
+    @MainActor func chatLayer(for transcript: TranscriptModel) -> ChatLayer
 
     // MARK: What changed
 
@@ -225,7 +246,7 @@ protocol WorkspaceReviewSurface: AnyObject, Observable {
     func contents(of relativePath: String) -> String?
 }
 
-extension WorkspaceReviewSurface {
+extension WorkspaceSurface {
     func refreshPullRequest() async { await refreshPullRequest(maxAge: .zero) }
     func requestPullRequest() async -> String? { await requestPullRequest(overrides: PromptOverrides()) }
     func requestPush() async -> String? { await requestPush(overrides: PromptOverrides()) }

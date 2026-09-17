@@ -7,7 +7,7 @@ import Observation
 /// What a Cloud workspace's review reads from its machine: the changed files, the patches, the
 /// whole file list and the contents of a file, plus the read marks, which are this reader's own.
 ///
-/// It is the Cloud half of `WorkspaceReviewSurface`, kept apart from the session for the reason
+/// It is the Cloud half of `WorkspaceSurface`, kept apart from the session for the reason
 /// `WorkspaceModel` keeps its own review together: this is the only part of a workspace that is
 /// read again and again while somebody scrolls, and it has caches (`CloudReviewCache`) that nothing
 /// else should be able to reach into.

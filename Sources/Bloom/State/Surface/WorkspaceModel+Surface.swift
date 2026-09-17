@@ -7,7 +7,7 @@ import BloomCore
 /// Every member but these five already existed with the right name and signature, which is the
 /// point: the protocol was written from what the inspector already asks a workspace for, so the
 /// local path keeps every line of its behaviour and gains an interface.
-extension WorkspaceModel: WorkspaceReviewSurface {
+extension WorkspaceModel: WorkspaceSurface {
     var surfaceID: WorkspaceSurfaceID { .local(workspace.id) }
     var surfaceName: String { workspace.name }
     var surfaceBranch: String { workspace.branch }
@@ -42,6 +42,23 @@ extension WorkspaceModel: WorkspaceReviewSurface {
 
     func discard(hunk: DiffHunk, of file: ChangedFile) async -> String? {
         await FileRevert.discard(hunk: hunk, of: file, in: workspace, scope: diffScope)
+    }
+
+    var composerWorkspace: WorkspaceModel? { self }
+
+    func transcriptMemory(pane: String) -> TranscriptPaneMemory {
+        TranscriptPaneMemory(
+            pane: pane,
+            read: { [weak self] session in self?.panePosition(pane: pane, session: session) },
+            write: { [weak self] state, session in self?.rememberPanePosition(state, pane: pane, session: session) }
+        )
+    }
+
+    /// Nothing: a local workspace has no state that would refuse a turn before it is typed.
+    func composerNotice(for transcript: TranscriptModel) -> ChatComposerNotice? { nil }
+
+    func chatLayer(for transcript: TranscriptModel) -> WorkspaceChatLayer {
+        WorkspaceChatLayer(transcript: transcript, model: self)
     }
 
     var hasKnownChanges: Bool { !changedFiles.isEmpty || workspace.hasDiff }

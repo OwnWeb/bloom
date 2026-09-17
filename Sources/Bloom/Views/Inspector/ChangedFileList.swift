@@ -11,7 +11,7 @@ import BloomCore
 ///
 /// Selection, hover, the revert dialog and the empty states live here rather than in either shape,
 /// which is what keeps picking a file identical in both.
-struct ChangedFileList<Model: WorkspaceReviewSurface>: View {
+struct ChangedFileList<Model: WorkspaceSurface>: View {
     let model: Model
 
     @State private var pendingRevert: ChangedFile?

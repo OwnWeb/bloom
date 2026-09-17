@@ -6,7 +6,7 @@ import BloomCore
 /// `git ls-files` is asked once and turned into a directory index. Rows are then produced only
 /// for directories the user actually opened, so a repository with fifty thousand files costs one
 /// subprocess and a handful of views rather than a tree of fifty thousand nodes.
-struct FileTreeView<Model: WorkspaceReviewSurface>: View {
+struct FileTreeView<Model: WorkspaceSurface>: View {
     let model: Model
 
     /// Which folders this reader has opened. The listing itself is the model's: see

@@ -5,7 +5,7 @@ import SwiftUI
 /// them.
 ///
 /// **Both halves are the app's own.** `ChangedFileList` and `DiffView` are generic over
-/// `WorkspaceReviewSurface`, so the rows, the counts, the filter, the read ticks, the context
+/// `WorkspaceSurface`, so the rows, the counts, the filter, the read ticks, the context
 /// menus, the hunks, the expanders, Discard and the whole diff toolbar are the ones a local
 /// workspace has. What a Cloud workspace cannot do is a capability rather than a branch: the
 /// gutter `+` and the in-place editor are not drawn, and the header bar says why.

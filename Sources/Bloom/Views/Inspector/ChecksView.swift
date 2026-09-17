@@ -11,7 +11,7 @@ private enum ChecksPolling {
     static let interval = Duration.seconds(20)
 }
 
-struct ChecksView<Model: WorkspaceReviewSurface>: View {
+struct ChecksView<Model: WorkspaceSurface>: View {
     let model: Model
 
     @State private var runs: [CheckRun] = []

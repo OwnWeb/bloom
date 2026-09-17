@@ -33,7 +33,7 @@ import BloomCore
 /// The control cluster collapses into a menu when the pane is too narrow for it. A segmented
 /// control and a row of toggle buttons do not truncate: they overflow and get clipped, which is
 /// how a control ends up half visible at the edge of a narrow inspector.
-struct FileHeaderBar<Model: WorkspaceReviewSurface>: View {
+struct FileHeaderBar<Model: WorkspaceSurface>: View {
     let model: Model
     let file: ChangedFile
     let session: FileEditSession
@@ -80,7 +80,7 @@ struct FileHeaderBar<Model: WorkspaceReviewSurface>: View {
     }
 
     /// What the editor files this file under: its path on this Mac, or a key naming the Cloud
-    /// workspace and the file. See `WorkspaceReviewSurface.editorKey(for:)`.
+    /// workspace and the file. See `WorkspaceSurface.editorKey(for:)`.
     private var fileKey: String {
         model.editorKey(for: file.path)
     }
