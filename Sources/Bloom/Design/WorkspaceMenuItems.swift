@@ -127,6 +127,7 @@ struct WorkspaceMenuItems: View {
         openInEditorItem
         openWorktreeInItem
         revealInFinderItem
+        openInDefaultBrowserItem
         copyBranchItem
         setupItem
         Divider()
@@ -194,6 +195,26 @@ struct WorkspaceMenuItems: View {
 
     private var revealInFinderItem: some View {
         Button("Reveal in Finder") { Reveal.inFinder(workspace.path) }
+    }
+
+    /// The workspace's own address, the one the tab strip's `+` opens a Bloom browser on, handed to
+    /// whatever the Mac says opens web pages.
+    ///
+    /// Greyed rather than absent, so the items under it do not move between one row and the next.
+    /// Whether to grey it is `WorkspaceBrowserURL.mayResolve`, which is a guess from the port and
+    /// the settings a live model has already read, because the real answer is async and can
+    /// allocate a port. The press asks for the real answer, and `BrowserAddress.external` has the
+    /// last word on whether it may leave Bloom. A press in the gap between the two does nothing.
+    private var openInDefaultBrowserItem: some View {
+        let stated = app.existingModel(for: workspace.id)?.settings.browserURL
+        return Button(BrowserToolbar().openInDefaultBrowser.name) {
+            let model = app.model(for: workspace)
+            Task {
+                let address = await model.browserAddress()
+                if let url = BrowserAddress.external(from: address) { NSWorkspace.shared.open(url) }
+            }
+        }
+        .disabled(!WorkspaceBrowserURL.mayResolve(port: workspace.port, stated: stated))
     }
 
     /// The project's settings window, for the project this workspace is in. See the type's note

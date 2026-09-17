@@ -52,6 +52,21 @@ public enum WorkspaceBrowserURL {
         return port > 0 ? "http://localhost:\(port)" : ""
     }
 
+    /// Whether a workspace's menu may offer to open its address in the default browser.
+    ///
+    /// A guess, and a cheap one on purpose, because it is asked while a context menu is being
+    /// drawn. A port is the last-resort answer of `resolve`, and a stated `browser.url` is the
+    /// other; the script's file is not read, because that is disk work in a menu body, and a
+    /// setup script that writes it has been handed a port already. **It says nothing about whether
+    /// a server is listening.** Nothing in Bloom knows that, and the built-in browser opens the
+    /// same address on the same terms.
+    ///
+    /// - Parameter port: the workspace's own port, or 0 while it holds none.
+    /// - Parameter stated: `browser.url` as the settings file states it, when it has been read.
+    public static func mayResolve(port: Int, stated: String?) -> Bool {
+        port > 0 || address(stated) != nil
+    }
+
     /// The same answer, having read the file the scripts write.
     ///
     /// - Parameter worktree: the workspace's own folder.
