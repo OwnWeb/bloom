@@ -8,7 +8,10 @@ struct CloudWorkspaceRow: View {
     var item: CloudWorkspaceItem
     var isSelected: Bool
 
+    /// What the machine is doing, for the sentence under the row and its tooltip.
     private var status: CloudWorkspaceStatus { CloudWorkspaceStatus(item: item) }
+    /// The same fact in the sidebar's own vocabulary, for the mark. See `WorkspaceStatus`.
+    private var mark: WorkspaceStatus { WorkspaceStatus(cloudItem: item) }
 
     var body: some View {
         Label {
@@ -46,28 +49,10 @@ struct CloudWorkspaceRow: View {
         .accessibilityValue(status.phrase + (item.unread ? ", unread" : ""))
     }
 
-    @ViewBuilder
+    /// The column's own mark, the one a local workspace wears, rather than a cloud of its own.
+    /// Which section the row is in already says it runs in the cloud; the mark is for whether an
+    /// agent is working, whether it wants a person, and what GitHub thinks of the branch.
     private var glyph: some View {
-        switch status {
-        case .running, .settingUp, .stopping:
-            Image(systemName: "cloud.fill")
-                .foregroundStyle(isSelected ? Palette.textInverted : Palette.running)
-                .symbolEffect(.pulse, options: .repeating)
-        case .waiting:
-            Image(systemName: "questionmark.bubble.fill")
-                .foregroundStyle(isSelected ? Palette.textInverted : Palette.accent)
-        case .setupFailed, .error:
-            Image(systemName: "exclamationmark.icloud")
-                .foregroundStyle(isSelected ? Palette.textInverted : Palette.negative)
-        case .blocked:
-            Image(systemName: "pause.circle")
-                .foregroundStyle(isSelected ? Palette.textInverted : Palette.warning)
-        case .asleep, .archiving:
-            Image(systemName: "cloud")
-                .foregroundStyle(isSelected ? Palette.textInverted : Palette.textTertiary)
-        case .idle:
-            Image(systemName: "cloud")
-                .foregroundStyle(isSelected ? Palette.textInverted : Palette.textSecondary)
-        }
+        WorkspaceStatusGlyph(status: mark, isOnSelection: isSelected)
     }
 }
