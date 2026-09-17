@@ -66,7 +66,7 @@ struct SearchPanelScopes: View {
 }
 
 /// One chip. A view of its own because hover is per chip state and the row above has nowhere to
-/// keep four of them.
+/// keep four of them. `hoverPlate` holds that state now, inside each chip, for the same reason.
 private struct ScopeChip: View {
     var label: String
     var count: Int
@@ -74,7 +74,6 @@ private struct ScopeChip: View {
     var pick: @MainActor () -> Void
 
     @Environment(\.controlActiveState) private var activeState
-    @State private var isHovered = false
 
     var body: some View {
         Button(action: pick) {
@@ -92,11 +91,10 @@ private struct ScopeChip: View {
             // finished Button is padding nothing can be pressed on.
             .padding(.horizontal, Metrics.gutter)
             .frame(height: Metrics.controlHeight)
-            .background(fill, in: Capsule())
             .contentShape(Capsule())
+            .hoverPlate(in: Capsule(), isActive: isOn, activeFill: selectionFill)
         }
         .buttonStyle(.plain)
-        .onHoverChange { isHovered = $0 }
         .accessibilityLabel("\(label), \(count)")
         .accessibilityAddTraits(isOn ? [.isSelected] : [])
     }
@@ -107,9 +105,7 @@ private struct ScopeChip: View {
         isOn && activeState != .inactive
     }
 
-    private var fill: Color {
-        if isEmphasized { return Palette.selectedEmphasized }
-        if isOn { return Palette.selected }
-        return isHovered ? Palette.hover : .clear
+    private var selectionFill: Color {
+        isEmphasized ? Palette.selectedEmphasized : Palette.selected
     }
 }

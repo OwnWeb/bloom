@@ -99,11 +99,9 @@ struct QuickPromptRow: View {
         //
         // It is the treatment Spotlight, Raycast and Alfred all use for a resting first hit. Xcode's
         // Open Quickly is the one that fills it solid, and it is the outlier.
-        .rowBackground(isSelected: isSelected, isHovered: isHovered, isFocused: false)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { onHover() }
-        }
+        .pickerRowHover(
+            isSelected: isSelected, plate: .list(isFocused: false), isHovered: $isHovered, onEnter: onHover
+        )
         // A free accelerator for anybody who tries it. Nothing depends on it being discovered: the
         // button in the trailing slot is the affordance, and the form the pencil opens owns Delete.
         .contextMenu {

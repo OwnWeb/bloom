@@ -515,6 +515,16 @@ enum Palette {
     /// The fill itself is too light to be ink on white, at 2 to 1, so the ink is the same hue taken
     /// down until it clears the text floor. `PaletteContrastTests` holds both.
     static let workspaceMessage = dynamic(PaletteInk.workspaceMessage)
+
+    /// An agent stopped on a question or a permission, in the sidebar's status column.
+    ///
+    /// **Magenta, and it was the red of a failing check.** The argument for sharing was that the
+    /// shape keeps states apart and the colour says how bad the news is. At eleven points down a
+    /// column the shapes did not hold: a red question mark, a red cross and a red octagon read as
+    /// one red dot three times, and the one state that halts work until the owner acts was the
+    /// hardest of the three to pick out. Magenta is the one hue the column had left: red, amber,
+    /// teal, blue and purple are all taken by a meaning of their own.
+    static let waiting = dynamic(PaletteInk.waiting)
     /// The ground of a message from another workspace, on either side of the transcript.
     static let workspaceMessageFill = dynamic(PaletteInk.workspaceMessageFill)
     /// The words on that ground. One value in both appearances, because the fill barely moves
@@ -1002,7 +1012,7 @@ enum Motion {
     /// Not an animation, which is why it stands slightly apart from the rest of this file, and
     /// here anyway because it is the same kind of decision: how the window responds to a pointer.
     /// It was a private constant inside `ComposerTextView` and a second one would have been the
-    /// first thing `WorkspaceHoverCardPresenter` wrote, which is how two surfaces end up
+    /// first thing the workspace hover card wrote, which is how two surfaces end up
     /// answering one question differently.
     ///
     /// The question is whether the pointer is RESTING on something or crossing it. A sidebar row
@@ -1012,6 +1022,11 @@ enum Motion {
     /// deliberate pause somewhere in the middle of a sweep does not open a card either. Longer
     /// than this and resting on a row starts to feel like nothing is going to happen.
     static let hoverCardDelay: Duration = .milliseconds(350)
+
+    /// The sidebar's workspace card waits 300ms longer than that. The owner found it opening while
+    /// moving down the list to pick a row, where it is in the way of the rows below, so the pane
+    /// asks for a longer rest there than the composer's chips and the pull request band do.
+    static let sidebarHoverCardDelay: Duration = hoverCardDelay + .milliseconds(300)
 }
 
 // MARK: - Materials

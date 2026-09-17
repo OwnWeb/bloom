@@ -42,15 +42,7 @@ struct ReviewCommentChip: View {
         .padding(.horizontal, Metrics.spacing)
         .frame(height: AttachmentChip.height)
         .fixedSize(horizontal: true, vertical: false)
-        .background {
-            RoundedRectangle(cornerRadius: Metrics.cornerSmall)
-                .fill(isHovered ? Palette.hover : Palette.surfaceRaised)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: Metrics.cornerSmall)
-                .strokeBorder(Palette.border, lineWidth: Metrics.outline)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: Metrics.cornerSmall))
+        .chipPlate(in: RoundedRectangle(cornerRadius: Metrics.cornerSmall), isHovered: isHovered)
         .onTapGesture(perform: onOpen)
         .onHover { isHovered = $0 }
         // The body is the part the chip has no room for, so it is the hover card's whole job.

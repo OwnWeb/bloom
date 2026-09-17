@@ -123,12 +123,6 @@ struct TitleBarStrip: View {
     /// The title bar's own height, measured off the window before this view was put in it.
     let height: CGFloat
 
-    /// Where the band is on screen, for the card that hangs under it. Held rather than reported,
-    /// for the reason on `HoverCardAnchor`, and needed here for a second reason besides: a title
-    /// bar accessory is its own SwiftUI root, so a `GeometryReader` in it measures a space whose
-    /// origin is the accessory's rather than the window's.
-    @State private var anchor = HoverCardAnchor()
-
     /// The workspace the band is drawn for, which outlives the selection by one slide.
     ///
     /// `app.selectedModel` is nil the instant the window moves to Home, and the band has a quarter
@@ -151,7 +145,6 @@ struct TitleBarStrip: View {
                     .frame(width: inspector.bandWidth, height: height)
                     .background { ground(for: model) }
                     .overlay(alignment: .leading) { Hairline(axis: .vertical) }
-                    .background { HoverCardAnchorReader(anchor: anchor) }
                     // The whole band is the target, button included, and that is a decision rather
                     // than the easy way to write it. The band is one subject: the branch, where it
                     // is going, and what GitHub says about it, with a button that acts on exactly
@@ -161,8 +154,7 @@ struct TitleBarStrip: View {
                     // `Motion.hoverCardDelay` and is the same 350ms the sidebar rests for.
                     //
                     // The card hangs BELOW, so it never covers the thing it was opened from, and
-                    // it takes no clicks, so it cannot come between the pointer and the button.
-                    // Both of those are the panel's, not this view's: see the presenter.
+                    // it closes when the pointer leaves the band. See `hoverPopover`.
                     //
                     // Whether hover works at all in a title bar accessory is the one thing here
                     // that was reasoned rather than measured, and it is written down as reasoning
@@ -174,26 +166,14 @@ struct TitleBarStrip: View {
                     // a control here reaches the control and a drag on the band's background still
                     // moves the window. If the card never opens, this is the line to doubt first,
                     // and an `NSTrackingArea` on the hosting view is the way out.
-                    .onHoverChange { inside in
-                        let source = WorkspaceHoverCardPresenter.Source
-                            .pullRequestBand(model.workspace.id)
-                        if inside {
-                            WorkspaceHoverCardPresenter.shared.pointerEntered(
-                                source,
-                                card: { bandCard(for: model) },
-                                anchor: { anchor.screenFrame },
-                                side: .below
-                            )
-                        } else {
-                            WorkspaceHoverCardPresenter.shared.pointerExited(source)
-                        }
-                    }
-                    // The band leaves under a stationary pointer whenever the inspector is
-                    // collapsed or the selection moves to Home, and neither of those sends an
-                    // exit. The sidebar row keeps this for the same reason.
-                    .onDisappear {
-                        WorkspaceHoverCardPresenter.shared
-                            .pointerExited(.pullRequestBand(model.workspace.id))
+                    // A band that leaves under a stationary pointer, when the inspector collapses
+                    // or the selection moves to Home, closes its card: `hoverPopover` does that
+                    // on disappear, for the reason the sidebar row needs it too.
+                    .hoverPopover(
+                        id: WorkspaceHoverSource.pullRequestBand(model.workspace.id),
+                        arrowEdge: .bottom
+                    ) {
+                        WorkspaceHoverCardView(card: bandCard(for: model), isInPopover: true)
                     }
             }
         }

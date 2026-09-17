@@ -15,12 +15,10 @@ import SwiftUI
 /// lands on the pasteboard is `Postcard.address`, which is the four lines with their line breaks
 /// intact rather than the one line form, because a line broken address is what an address is for.
 ///
-/// The flash follows the pattern the other three copy buttons in this app agreed on: the label
-/// becomes "Copied" for `Clipboard.flashDuration` and the button is dead while it says so, which
-/// is what keeps a second press from restarting a timer under the first one's label.
+/// The flash is `CopyTextButton`'s, shared with `CommandLineOffer`: the label becomes "Copied" for
+/// `Clipboard.flashDuration` and the button is dead while it says so. `Postcard.address` goes
+/// through `Clipboard`, the one place in this app that clears the pasteboard before writing to it.
 struct PostcardOffer: View {
-    @State private var didCopy = false
-
     var body: some View {
         HStack(spacing: Metrics.gutter) {
             // The address is on the card above, in the app's mono face, so this is not a second
@@ -33,19 +31,7 @@ struct PostcardOffer: View {
 
             Spacer(minLength: Metrics.spacing)
 
-            Button(didCopy ? "Copied" : "Copy address") { copy() }
-                .disabled(didCopy)
-        }
-    }
-
-    /// The pasteboard work, out of the `body` and out of the button's own closure body, through
-    /// the one place in this app that clears the pasteboard before writing to it.
-    private func copy() {
-        Clipboard.copy(Postcard.address)
-        didCopy = true
-        Task {
-            try? await Task.sleep(for: Clipboard.flashDuration)
-            didCopy = false
+            CopyTextButton(title: "Copy address", text: Postcard.address)
         }
     }
 }

@@ -32,7 +32,8 @@ struct WelcomeView: View {
     /// The row whose fix is open. One at a time: two open commands is a wall of code where there
     /// should be a next step.
     @State private var expanded: SetupTool?
-    @State private var copied: SetupTool?
+    /// Which row's command was copied, while its "Copied" is showing. See `CopyFlash`.
+    @State private var copied = CopyFlash()
     /// The login running inside this window, and which row asked for it.
     @State private var login: (tool: SetupTool, session: LoginTerminalSession)?
 
@@ -113,6 +114,7 @@ struct WelcomeView: View {
             login?.session.stop()
             inspection.cancel()
             registration.cancel()
+            copied.cancel()
         }
     }
 
@@ -563,13 +565,8 @@ struct WelcomeView: View {
 
             Spacer(minLength: Metrics.spacing)
 
-            Button(copied == check.tool ? "Copied" : "Copy") {
-                Clipboard.copy(command)
-                copied = check.tool
-                Task {
-                    try? await Task.sleep(for: Clipboard.flashDuration)
-                    if copied == check.tool { copied = nil }
-                }
+            Button(copied.isShowing(check.tool) ? "Copied" : "Copy") {
+                copied.copy(command, for: check.tool)
             }
             .buttonStyle(.plain)
             .font(Typo.label)

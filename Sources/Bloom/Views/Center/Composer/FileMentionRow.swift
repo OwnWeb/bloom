@@ -11,8 +11,6 @@ struct FileMentionRow: View {
 
     @Environment(\.controlActiveState) private var activeState
 
-    @State private var isHovered = false
-
     var body: some View {
         Button(action: onPick) {
             HStack(spacing: Metrics.spacing) {
@@ -40,11 +38,7 @@ struct FileMentionRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel(match.path)
         // Focused, for the reason spelled out on `SlashCommandRow`.
-        .rowBackground(isSelected: isSelected, isHovered: isHovered, isFocused: true)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { onHover() }
-        }
+        .pickerRowHover(isSelected: isSelected, plate: .list(isFocused: true), onEnter: onHover)
     }
 
     /// Whether the row is about to be painted with the accent colour. Both labels set their own

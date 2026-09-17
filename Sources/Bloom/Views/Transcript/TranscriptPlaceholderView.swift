@@ -73,8 +73,6 @@ private struct SuggestionChip: View {
     var prompt: String
     var action: () -> Void
 
-    @State private var isHovered = false
-
     var body: some View {
         Button(action: action) {
             Text(prompt)
@@ -83,12 +81,9 @@ private struct SuggestionChip: View {
                 .lineLimit(1)
                 .padding(.horizontal, Metrics.gutter)
                 .padding(.vertical, Metrics.spacing)
-                .background(isHovered ? Palette.hover : Palette.surface, in: Capsule())
-                .overlay { Capsule().strokeBorder(Palette.border, lineWidth: Metrics.outline) }
-                .contentShape(Capsule())
+                .chipPlate(in: Capsule(), rest: Palette.surface)
         }
         .buttonStyle(.plain)
-        .onHoverChange { isHovered = $0 }
         .help("Ask this")
     }
 }

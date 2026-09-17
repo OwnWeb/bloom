@@ -142,17 +142,9 @@ struct AttachmentChip: View {
         }
         .padding(.horizontal, Metrics.spacing)
         .frame(height: Self.height)
-        .background {
-            RoundedRectangle(cornerRadius: Metrics.cornerSmall)
-                .fill(plate)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: Metrics.cornerSmall)
-                .strokeBorder(stroke, lineWidth: Metrics.outline)
-        }
+        .chipPlate(in: RoundedRectangle(cornerRadius: Metrics.cornerSmall), fill: plate, stroke: stroke)
         .background { probe }
         .background(HoverQuickLook(url: url))
-        .contentShape(RoundedRectangle(cornerRadius: Metrics.cornerSmall))
         // The double click is declared FIRST, which is what makes both gestures possible on one
         // chip: SwiftUI matches the higher count before it falls back to the single tap, and
         // declared the other way round the single one swallows every click and the second never

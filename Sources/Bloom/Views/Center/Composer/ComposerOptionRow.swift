@@ -24,8 +24,6 @@ struct ComposerOptionRow: View {
     var onPick: @MainActor () -> Void
     var onHover: @MainActor () -> Void
 
-    @State private var isHovered = false
-
     var body: some View {
         Button(action: onPick) {
             HStack(alignment: .firstTextBaseline, spacing: Metrics.spacing) {
@@ -88,10 +86,6 @@ struct ComposerOptionRow: View {
         // makes and for the same reason: the row in force is highlighted the instant the panel
         // opens, before anybody has done anything, and at full accent that reads as a choice
         // already made rather than as the place Return will go.
-        .rowBackground(isSelected: isHighlighted, isHovered: isHovered, isFocused: false)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { onHover() }
-        }
+        .pickerRowHover(isSelected: isHighlighted, plate: .list(isFocused: false), onEnter: onHover)
     }
 }

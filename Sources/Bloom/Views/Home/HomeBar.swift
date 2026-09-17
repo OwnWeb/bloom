@@ -51,10 +51,7 @@ struct HomeBar: View {
                             .accessibilityLabel(accessibilityLabel(for: scope))
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .fixedSize()
+                .compactSegmented()
                 .help("Choose which work Home lists")
 
                 queryChip
@@ -156,10 +153,7 @@ struct HomeBar: View {
                     Text(order.label).tag(order)
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .fixedSize()
+            .compactSegmented()
             .help("Order the archived work by when it finished, or by what it still holds")
         }
     }

@@ -34,9 +34,6 @@ struct SidebarWorkspaceRow: View {
     @Environment(AppModel.self) private var app
     @Environment(\.sidebarRowIndent) private var rowIndent
 
-    /// Where this row is on screen, for the card that opens beside it. Held rather than reported:
-    /// see `HoverCardAnchor`.
-    @State private var anchor = HoverCardAnchor()
     private typealias ArchiveSource = SidebarArchivePresentation.Source
 
     private var isArchiveActive: Bool {
@@ -78,7 +75,7 @@ struct SidebarWorkspaceRow: View {
         // nesting left in it is unreadable without knowing which project each row belongs to, and
         // content that has to be asked for is content most people never hear.
         .accessibilityCustomContent(Text("Project"), Text(projectName), importance: .high)
-        // The card that opens beside the row, and the handle that says where the row is.
+        // The card that opens beside the row.
         //
         // Here rather than in `WorkspaceRow`, and this is the same line the type's own note draws:
         // `WorkspaceRow` is the drawing and stays a pure function of what it is handed, while what
@@ -90,16 +87,14 @@ struct SidebarWorkspaceRow: View {
         // Its own `.onHover`, not the one inside `WorkspaceRow`. Two hover trackers on nested
         // views both fire, and joining them would mean handing the drawing a callback it has no
         // use for. Nothing is drawn from this one, so nothing redraws when it changes.
-        .background { HoverCardAnchorReader(anchor: anchor) }
-        .onHoverChange { inside in
-            if inside {
-                WorkspaceHoverCardPresenter.shared.pointerEntered(
-                    .workspaceRow(workspace.id),
-                    card: hoverCard,
-                    anchor: { anchor.screenFrame }
-                )
-            } else {
-                WorkspaceHoverCardPresenter.shared.pointerExited(.workspaceRow(workspace.id))
+        .hoverPopover(
+            id: WorkspaceHoverSource.workspaceRow(workspace.id),
+            arrowEdge: .trailing,
+            delay: Motion.sidebarHoverCardDelay,
+            isEnabled: { hoverCard() != nil }
+        ) {
+            if let card = hoverCard() {
+                WorkspaceHoverCardView(card: card, isInPopover: true)
             }
         }
         // A row that leaves the pane while its card is up: archived from the menu bar, filtered
@@ -107,7 +102,6 @@ struct SidebarWorkspaceRow: View {
         .onAppear { archivePresentation.rowAppeared(workspace.id) }
         .onDisappear {
             archivePresentation.rowDisappeared(workspace.id, isArchiving: app.isArchiving(workspace.id))
-            WorkspaceHoverCardPresenter.shared.pointerExited(.workspaceRow(workspace.id))
         }
         // Every item in it is `WorkspaceMenuItems`, which Home's rows draw from as well. It used
         // to be a copy of the same six buttons written out here, with a note on the other copy
@@ -177,7 +171,7 @@ struct SidebarWorkspaceRow: View {
     }
 
     private func beginArchive(from source: ArchiveSource) -> UUID {
-        WorkspaceHoverCardPresenter.shared.pointerExited(.workspaceRow(workspace.id))
+        HoverPopoverPresenter.shared.pointerExited(WorkspaceHoverSource.workspaceRow(workspace.id))
         return archivePresentation.begin(workspaceID: workspace.id, source: source)
     }
 

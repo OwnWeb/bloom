@@ -46,10 +46,28 @@ public struct FileBarControl: Equatable, Sendable {
 public enum FileBarControls {
     /// Throwing away the changes to this file, which is the only control in the bar that destroys
     /// anything and is drawn as such.
-    public static func revert(filename: String) -> FileBarControl {
+    ///
+    /// "Discard" rather than the "Revert file" it was, because a hunk's band carries the same
+    /// action on a smaller piece and the two have to be recognisably one thing. "Revert" is also
+    /// the word git uses for a new commit that undoes an old one, which is not what either does.
+    public static func discard(filename: String) -> FileBarControl {
         FileBarControl(
-            title: "Revert file",
-            hint: "Throw away the changes to \(filename) and put it back the way git has it"
+            title: "Discard",
+            hint: "Throw away every change to \(filename) and put it back the way git has it"
+        )
+    }
+
+    /// The confirmation over that, naming the whole path, because two files called `index.ts` are
+    /// the ordinary case in a repository and the question is the last look before the loss.
+    public static func discardQuestion(path: String) -> String {
+        "Discard all changes in \(path)?"
+    }
+
+    /// The same action on one hunk, from the band above it.
+    public static func discardHunk(filename: String) -> FileBarControl {
+        FileBarControl(
+            title: "Discard",
+            hint: "Throw away this hunk of \(filename) and leave the rest of the file as it is"
         )
     }
 

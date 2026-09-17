@@ -820,7 +820,7 @@ struct SidebarView: View {
     }
 
     private func archiveFromKeyboard(_ workspace: Workspace) {
-        WorkspaceHoverCardPresenter.shared.pointerExited(.workspaceRow(workspace.id))
+        HoverPopoverPresenter.shared.pointerExited(WorkspaceHoverSource.workspaceRow(workspace.id))
         let generation = archivePresentation.begin(workspaceID: workspace.id, source: .row)
         Task {
             defer { archivePresentation.finish(generation: generation) }

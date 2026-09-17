@@ -71,6 +71,7 @@ struct PaletteContrastTests {
             ("running", PaletteInk.running),
             ("merged", PaletteInk.merged),
             ("workspaceMessage", PaletteInk.workspaceMessage),
+            ("waiting", PaletteInk.waiting),
         ]
 
         for (inkName, ink) in inks {

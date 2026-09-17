@@ -69,24 +69,13 @@ struct ChangedFolderRow: View, Equatable {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("Reveal in Finder") { Reveal.inFinder(fullPath) }
-            OpenInItems(target: .folder(fullPath))
-            // With the two above rather than beside Copy path, and worded exactly as the worktree
-            // tree words it: the two trees share a pane and must not name one action two ways.
-            // Absent when the folder is not on disk, which here is a directory git reports out of
-            // a diff after the agent deleted it.
-            if FolderTerminal.canOpen(folder: fullPath) {
-                Button(FolderTerminal.menuTitle, action: onOpenTerminal)
-            }
-            Button("Copy path", action: copyPath)
+            FileLocationMenuItems(
+                path: fullPath, relativePath: path, isDirectory: true, onOpenTerminal: onOpenTerminal
+            )
         }
         .help(path)
         .accessibilityLabel(name)
         .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
         .accessibilityInputLabels([name])
-    }
-
-    private func copyPath() {
-        Clipboard.copy(path)
     }
 }

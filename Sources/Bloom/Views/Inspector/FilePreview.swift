@@ -51,7 +51,7 @@ struct FilePreview: View {
                         ForEach(modes, id: \.self) { mode in
                             Text(mode.title(hasPreview: hasPreview)).tag(mode)
                         }
-                    }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                    }.compactSegmented()
                 }
             }
             .controlSize(.small)

@@ -24,8 +24,6 @@ struct ComposerControlLabel<Icon: View>: View {
     var showsDot: Bool = false
     @ViewBuilder var icon: Icon
 
-    @State private var isHovered = false
-
     var body: some View {
         HStack(spacing: Metrics.spacingSmall) {
             icon
@@ -53,12 +51,8 @@ struct ComposerControlLabel<Icon: View>: View {
         .padding(.horizontal, text == nil ? 0 : Metrics.spacing)
         .frame(minWidth: Metrics.rowHeight, minHeight: Metrics.rowHeight)
         .frame(height: Metrics.rowHeight)
-        .background {
-            RoundedRectangle(cornerRadius: Metrics.cornerSmall)
-                .fill(isActive ? Palette.selected : (isHovered ? Palette.hover : .clear))
-        }
         .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
+        .hoverPlate(cornerRadius: Metrics.cornerSmall, isActive: isActive)
     }
 }
 

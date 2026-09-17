@@ -69,22 +69,14 @@ struct FileTreeRow: View, Equatable {
         // and the provider carries whichever of the two this row is.
         .fileDrag(path: fullPath)
         .contextMenu {
-            // The one place a row is either kind, so the target is decided per row rather than
-            // per view: a folder is not offered to something that only opens files, and a file is
-            // not handed to a terminal.
-            OpenInItems(target: item.node.isDirectory ? .folder(fullPath) : .file(fullPath))
-            Button("Reveal in Finder") { Reveal.inFinder(fullPath) }
-            // With the two above rather than beside Copy path: all three hand this row to
-            // something that opens it, and only the last is about the clipboard. `canOpen` is
-            // what keeps it off a file row, where the submenu above turns into Open File in, and
-            // off a folder that is not on disk.
-            if FolderTerminal.canOpen(folder: fullPath) {
-                Button(FolderTerminal.menuTitle, action: onOpenTerminal)
-            }
-            // The other half of that pair, and the same argument for where it sits. The two are
-            // never both drawn: a shell wants a folder and a page is a file.
-            LocalPageItems(path: fullPath, open: onOpenPage, split: onSplitPage)
-            Button("Copy path", action: copyPath)
+            FileLocationMenuItems(
+                path: fullPath,
+                relativePath: item.node.path,
+                isDirectory: item.node.isDirectory,
+                onOpenTerminal: onOpenTerminal,
+                onOpenPage: onOpenPage,
+                onSplitPage: onSplitPage
+            )
         }
         .help(item.node.path)
         .accessibilityValue(disclosureState)
@@ -96,9 +88,5 @@ struct FileTreeRow: View, Equatable {
         guard item.node.isDirectory else { return "" }
         let state = isExpanded ? "Expanded" : "Collapsed"
         return containsChanges ? "\(state), contains changed files" : state
-    }
-
-    private func copyPath() {
-        Clipboard.copy(item.node.path)
     }
 }

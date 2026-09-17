@@ -15,8 +15,8 @@ import SwiftUI
 /// one wearing a different style, and pretending otherwise would put a mode in here for one call
 /// site.
 ///
-/// The flash task is cancelled and restarted rather than left to run, so a second copy inside the
-/// window does not have the first one's timer clear the label out from under it a moment later.
+/// The flash, and the timer that takes it down, are `CopyFlash`, which is where the reason the
+/// timer is restarted rather than left to run is written down.
 ///
 /// `isVisible` fades rather than removes. A control that appears on hover must not be able to move
 /// what is under it: at opacity zero it still holds its place in the layout, so the text beside it
@@ -33,12 +33,13 @@ struct CopyButton: View {
     /// revealed by the pointer inside a block of text wants.
     var size: CGFloat?
 
-    @State private var copied = false
-    @State private var reset: Task<Void, Never>?
+    @State private var flash = CopyFlash()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var copied: Bool { flash.isShowing }
+
     var body: some View {
-        Button(action: copy) {
+        Button { flash.copy(text) } label: {
             ZStack {
                 Image(systemName: "doc.on.doc")
                     .opacity(copied ? 0 : 1)
@@ -66,17 +67,6 @@ struct CopyButton: View {
         // answer to somebody who cannot see it.
         .help(copied ? "Copied" : title)
         .accessibilityLabel(copied ? "Copied" : title)
-        .onDisappear { reset?.cancel() }
-    }
-
-    private func copy() {
-        Clipboard.copy(text)
-        copied = true
-        reset?.cancel()
-        reset = Task {
-            try? await Task.sleep(for: Clipboard.flashDuration)
-            guard !Task.isCancelled else { return }
-            copied = false
-        }
+        .onDisappear { flash.cancel() }
     }
 }

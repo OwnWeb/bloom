@@ -59,8 +59,6 @@ private struct AskConversationRailRow: View {
     var onSelect: () -> Void
     var onClose: () -> Void
 
-    @State private var isHovered = false
-
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: Metrics.spacing) {
@@ -79,13 +77,9 @@ private struct AskConversationRailRow: View {
             .padding(.horizontal, Metrics.spacingWide)
             .frame(height: Metrics.rowHeight)
             .contentShape(Rectangle())
-            .background(
-                isSelected ? Palette.selected : (isHovered ? Palette.hover : .clear),
-                in: RoundedRectangle(cornerRadius: Metrics.corner)
-            )
+            .hoverPlate(cornerRadius: Metrics.corner, isActive: isSelected)
         }
         .buttonStyle(.plain)
-        .onHoverChange { isHovered = $0 }
         .contextMenu {
             Button("Close Conversation", action: onClose)
         }

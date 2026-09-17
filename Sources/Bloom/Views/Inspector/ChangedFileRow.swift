@@ -107,18 +107,17 @@ struct ChangedFileRow: View, Equatable {
             // this menu is most often opened for during a review.
             Button(ReviewedMarkAction(isViewed: isViewed).title) { onSetViewed(!isViewed) }
             Divider()
-            if allowsWorktreeActions {
-                OpenInItems(target: .file(fullPath))
-                Button("Reveal in Finder") { Reveal.inFinder(fullPath) }
-                // With the two above rather than beside Copy path: all of them hand this row to
-                // something that opens it, and only the last is about the clipboard. The same grouping
-                // `FileTreeRow` puts `Open Terminal Tab Here` in.
-                LocalPageItems(path: fullPath, open: onOpenPage, split: onSplitPage)
-            }
-            Button("Copy path", action: copyPath)
+            FileLocationMenuItems(
+                path: fullPath,
+                relativePath: file.path,
+                isDirectory: false,
+                allowsWorktreeActions: allowsWorktreeActions,
+                onOpenPage: onOpenPage,
+                onSplitPage: onSplitPage
+            )
             Divider()
             if allowsWorktreeActions {
-                Button("Revert this file", role: .destructive, action: onRevert)
+                Button("Discard changes", role: .destructive, action: onRevert)
             }
         }
         .help(file.path)
@@ -165,9 +164,5 @@ struct ChangedFileRow: View, Equatable {
         case .renamed: "Renamed"
         case .copied: "Copied"
         }
-    }
-
-    private func copyPath() {
-        Clipboard.copy(file.path)
     }
 }

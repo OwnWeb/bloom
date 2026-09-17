@@ -27,8 +27,16 @@ public enum DiffHunkHeading {
     /// for. Both layouts go through this one call rather than deciding for themselves, because a
     /// unified pane and a split pane disagreeing about which bands exist is a difference nobody
     /// could read as anything but a bug.
-    public static func text(for hunks: [DiffHunk], at index: Int, revealed: Int) -> String? {
+    ///
+    /// **`carriesActions` puts a band over every hunk**, because the band is then also where that
+    /// hunk's Discard is, and a hunk with no band would be a hunk with no control. The argument
+    /// above is against a row that says nothing; a row holding the one way to throw away that hunk
+    /// says something whether or not the eye jumped. Only the text falls back to the coordinates.
+    public static func text(
+        for hunks: [DiffHunk], at index: Int, revealed: Int, carriesActions: Bool = false
+    ) -> String? {
         guard hunks.indices.contains(index) else { return nil }
+        if carriesActions { return text(of: hunks[index]) }
         guard let gap = DiffGap.between(hunks: hunks, at: index) else { return nil }
         guard DiffGap.hidden(revealed, in: gap) > 0 else { return nil }
         return text(of: hunks[index])

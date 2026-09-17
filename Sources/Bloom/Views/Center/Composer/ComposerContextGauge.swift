@@ -20,8 +20,6 @@ struct ComposerContextGauge: View {
     /// reason.
     @Binding var isShowingDetail: Bool
 
-    @State private var isHovered = false
-
     var body: some View {
         Button {
             isShowingDetail = true
@@ -32,14 +30,10 @@ struct ComposerContextGauge: View {
                 .foregroundStyle(Palette.textSecondary)
                 .padding(.horizontal, Metrics.spacing)
                 .frame(height: Metrics.rowHeight)
-                .background {
-                    RoundedRectangle(cornerRadius: Metrics.cornerSmall)
-                        .fill(isHovered ? Palette.hover : .clear)
-                }
                 .contentShape(Rectangle())
+                .hoverPlate(cornerRadius: Metrics.cornerSmall)
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
         .fixedSize()
         .help("Context window")
         .accessibilityLabel("Context window")

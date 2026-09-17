@@ -155,7 +155,9 @@ struct CrewMarkGlyph: View {
         // `WorkspaceStatusGlyph.tint(for:)`: an agent stopped on a question is the one state in
         // this column where work has halted until the owner acts, and it was quieter than the
         // states that are merely bad news.
-        case .waiting: Palette.negative
+        // The workspace column's colour for the same state, so a waiting subagent and a waiting
+        // workspace read as one thing. See `Palette.waiting`.
+        case .waiting: Palette.waiting
         case .failed: Palette.negative
         case .running, .cancelled, .idle: Palette.textTertiary
         }

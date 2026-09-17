@@ -12,6 +12,7 @@ struct AskConversationContent: View {
     private var lineHeight: ChatLineHeight { ColourThemePreference.shared.chatLineHeight }
 
     var body: some View {
+        @Bindable var ask = app.ask
         Group {
             if let trouble = app.ask.trouble {
                 EmptyStateView(
@@ -36,16 +37,25 @@ struct AskConversationContent: View {
         .environment(\.chatLineHeight, lineHeight)
         // Not in a body: `open()` writes observed state and can create a session row.
         .task { await app.ask.open() }
-        .confirmationDialog("Stop and close this conversation?", isPresented: Binding(
-            get: { app.ask.closingID != nil }, set: { if !$0 { app.ask.closingID = nil } }
-        ), titleVisibility: .visible) {
-            Button("Stop and Close", role: .destructive) {
-                if let id = app.ask.closingID { Task { await app.ask.close(id) } }
-                app.ask.closingID = nil
+        // A popover rather than a sheet over the window, like the app's other destructive
+        // questions. It hangs off the conversation rather than a control, because it is raised
+        // both from a tab's close button in the rail and from Cmd+W in the menu bar, and neither
+        // of those is a view this one can reach.
+        .popover(isPresented: $ask.closingID.isPresent(), arrowEdge: .top) {
+            ConfirmationPopover(
+                title: "Stop and close this conversation?",
+                confirmLabel: "Stop and Close",
+                tint: Palette.negative,
+                onConfirm: {
+                    // Read before clearing: clearing is what dismisses the popover.
+                    if let id = ask.closingID { Task { await ask.close(id) } }
+                    ask.closingID = nil
+                },
+                onCancel: { ask.closingID = nil }
+            ) {
+                Text("The agent will stop. The conversation will be archived.")
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Button("Cancel", role: .cancel) { app.ask.closingID = nil }
-        } message: {
-            Text("The agent will stop. The conversation will be archived.")
         }
     }
 }

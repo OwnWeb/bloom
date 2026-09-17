@@ -107,17 +107,16 @@ struct SidebarStatusBar: View {
     }
 
     // The native accessory style did not show a hover fill here. Both labels own the square
-    // target so the menu and button draw and respond over the same area.
+    // target so the menu and button draw and respond over the same area. The plate is handed its
+    // flag rather than tracking the pointer, because hover is read off the `Menu` and the legend
+    // stays lit while its popover is open.
     private func controlLabel(_ title: String, systemImage: String, isHovered: Bool) -> some View {
         Label(title, systemImage: systemImage)
             .labelStyle(.iconOnly)
             .font(Typo.label)
             .frame(width: Metrics.rowHeight, height: Metrics.rowHeight)
             .contentShape(Rectangle())
-            .background(
-                isHovered ? Palette.hover : .clear,
-                in: RoundedRectangle(cornerRadius: Metrics.cornerSmall)
-            )
+            .hoverPlate(cornerRadius: Metrics.cornerSmall, isHovered: isHovered)
     }
 
     /// Whether the pane is showing what it shows when nothing has been asked of it.

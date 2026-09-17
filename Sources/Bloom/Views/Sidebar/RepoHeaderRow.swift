@@ -43,8 +43,8 @@ struct RepoHeaderRow: View {
     @State private var repoDraft = ""
     @FocusState private var repoFieldFocused: Bool
 
-    @State private var isConfirmingRemove = false
-    /// What the dialog says, from the moment the menu item was pressed. See `askAboutRemoving`.
+    /// What the confirmation says, from the moment the menu item was pressed, and whether it is
+    /// showing at all. See `askAboutRemoving`.
     @State private var removal: Confirmation?
     /// Lights the `+` and swaps the project's mark for its settings gear. It belongs to this row
     /// rather than to a hover id shared across the whole list, so crossing the pane lights one
@@ -75,7 +75,7 @@ struct RepoHeaderRow: View {
 
     // MARK: - Header
 
-    /// The confirmations hang off the header rather than off the `Section`, because a section is
+    /// The confirmation hangs off the header rather than off the `Section`, because a section is
     /// a layout instruction to the list rather than a view that can present anything. That also
     /// keeps them anchored to the project they are about, which is where the menus that trigger
     /// them live.
@@ -141,17 +141,9 @@ struct RepoHeaderRow: View {
                 onRemove: askAboutRemoving
             )
         }
-        .confirmationDialog(
-            removal?.title ?? "",
-            isPresented: $isConfirmingRemove,
-            titleVisibility: .visible,
-            presenting: removal
-        ) { removal in
-            Button(removal.confirmLabel, role: .destructive, action: removeRepo)
-            Button(removal.cancelLabel, role: .cancel) {}
-        } message: { removal in
-            Text(removal.message)
-        }
+        // On the header, because the question is raised from its context menu and a menu item
+        // leaves nothing behind to anchor to. Leading, as a workspace row's archive question is.
+        .projectRemovalConfirmation($removal, arrowEdge: .leading, onConfirm: removeRepo)
     }
 
     /// The project's name, one weight heavier while something inside it is waiting to be read.
@@ -383,15 +375,14 @@ struct RepoHeaderRow: View {
     /// The one question, asked here and in both settings panes. See `ProjectRemoval`.
     ///
     /// Built when the menu item is pressed and held, rather than computed in `body`. It used to be
-    /// a computed property read as `confirmationDialog`'s positional title, which is a plain
-    /// argument rather than one of the lazy `@ViewBuilder` closures under it, so it was evaluated
-    /// on every pass whether or not the dialog was open. `AppModel.projectRemoval` filters the
+    /// a computed property read as the old `confirmationDialog`'s positional title, which is a
+    /// plain argument rather than one of the lazy `@ViewBuilder` closures under it, so it was
+    /// evaluated on every pass whether or not the dialog was open. `AppModel.projectRemoval` filters the
     /// whole workspace list, which made every project header depend on that list, and `reload()`
     /// reassigns it whenever any diff stat moves: the same observation edge `DetailColumn` names
     /// in its own doc, one pane over.
     private func askAboutRemoving() {
         removal = app.projectRemoval(repo)
-        isConfirmingRemove = true
     }
 
     private func removeRepo() {

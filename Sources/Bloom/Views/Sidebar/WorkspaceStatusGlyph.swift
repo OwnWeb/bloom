@@ -115,14 +115,12 @@ struct WorkspaceStatusGlyph: View {
     static func tint(for status: WorkspaceStatus) -> AnyShapeStyle {
         switch status {
         case .setupFailed, .checksRunning: AnyShapeStyle(Palette.warning)
-        // **Red, and it used to be the caution colour on the argument that nothing has gone
-        // wrong here, something is being asked.** That is true and it was the wrong ranking. An
-        // agent stopped on a question is the only state in this column where work has halted and
-        // will not move again until the owner acts: a failing check keeps its branch, a conflict
-        // waits patiently, and both of those were louder than the one thing that is actually
-        // blocked. It shares the red with them rather than inventing a fourth meaning colour, and
-        // the shape is what keeps the three apart, which is the rule this column is drawn to.
-        case .awaitingPermission: AnyShapeStyle(Palette.negative)
+        // **A colour of its own, after caution and then red.** Caution ranked it below a failing
+        // check, when an agent stopped on a question is the only state here where work has halted
+        // until the owner acts. Red fixed the ranking and lost the state among the conflict and
+        // the failing check beside it, whose shapes are too alike at this size to carry the
+        // difference alone. `Palette.waiting` has the rest.
+        case .awaitingPermission: AnyShapeStyle(Palette.waiting)
         // The same red as a failing check, and it shares it for the same reason the three warning
         // states share amber: the colour says how bad the news is and the shape says what the news
         // is. A fourth meaning colour invented for one state would say neither.

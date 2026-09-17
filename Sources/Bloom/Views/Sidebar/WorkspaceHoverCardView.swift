@@ -13,8 +13,8 @@ import BloomCore
 /// surfaces cannot drift into two card designs, and the width below arrived for the band and the
 /// row got it for nothing.
 ///
-/// **It takes no clicks, and that is the design rather than a limitation of it.** The panel it is
-/// drawn in ignores the mouse entirely (see `WorkspaceHoverCardPresenter`), so nothing here is a
+/// **It takes no clicks, and that is the design rather than a limitation of it.** The popover it is
+/// drawn in closes as the pointer leaves the row (see `hoverPopover`), so nothing here is a
 /// button, the pull request number is a fact rather than a link, and the pointer never has to
 /// travel off the row and across a gap to reach anything. `AttachmentCard` over the composer made
 /// the same call for the same reason, and it is the reason the sidebar row keeps its own hover
@@ -25,8 +25,20 @@ import BloomCore
 /// what the pane has no room for at all; the name in full, because the pane truncates it; the
 /// state in words beside the pull request, because the mark alone cannot say "1 of 12 checks
 /// failed"; and the age, which is what says whether any of the rest is still true.
+/// Which surface a workspace's card hangs off. The pull request band opens the same card about the
+/// same workspace as its sidebar row, and with the workspace id alone, crossing from one to the
+/// other would read as the pointer never having moved. See `hoverPopover`.
+enum WorkspaceHoverSource: Hashable {
+    case workspaceRow(WorkspaceID)
+    /// The pull request band at the trailing end of the title bar. See `TitleBarStrip`.
+    case pullRequestBand(WorkspaceID)
+}
+
 struct WorkspaceHoverCardView: View {
     var card: WorkspaceHoverCard
+    /// In a popover, which brings its own material, rim and arrow, so the card draws none of its
+    /// own. The gallery draws it without one, and needs the plate to be seen at all.
+    var isInPopover = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.spacingWide) {
@@ -57,9 +69,9 @@ struct WorkspaceHoverCardView: View {
         // Vertically it is what it always was: a one line name draws a shorter card than a three
         // line one. The panel asks the hosting view for both. See the presenter.
         .fixedSize()
-        .background(cardBackground)
-        // The card is drawn in a window of its own, which cannot be reached by the pointer or by
-        // VoiceOver. Everything on it is on the row as well, in the row's own accessibility value
+        .background { if !isInPopover { cardBackground } }
+        // The card is drawn in a popover that opens on hover and closes when the pointer leaves,
+        // which VoiceOver cannot reach in any useful way. Everything on it is on the row as well, in the row's own accessibility value
         // and its tooltip, so there is nothing here for a screen reader to lose. See the
         // presenter for what a keyboard user gets instead.
         .accessibilityHidden(true)
@@ -200,11 +212,7 @@ struct WorkspaceHoverCardView: View {
 
     // MARK: - The plate
 
-    /// The card's own ground.
-    ///
-    /// The shadow is still AppKit's, because this card IS a window and a SwiftUI shadow inside a
-    /// transparent one is clipped by the window's bounds into a hard edge on two sides. See
-    /// `WorkspaceHoverCardPresenter`, which has to invalidate it by hand.
+    /// The card's own ground, drawn only where no popover brings one: the gallery.
     ///
     /// The material is glass, which is a correction. This was `NSVisualEffectView(.menu)` blended
     /// `.behindWindow`, on the argument that a card which is its own window should sample the

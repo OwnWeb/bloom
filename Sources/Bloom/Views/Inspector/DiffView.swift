@@ -124,6 +124,11 @@ struct DiffView: View {
     /// reload may keep what the reader is looking at. See `load`.
     @State private var presented: String?
     @State private var revertProblem: String?
+    /// The hunk whose Discard is waiting on an answer. The popover hangs off the band, but the
+    /// question is held here, for the reason `discarding` gives: the band is a row in a lazy stack.
+    @State private var pendingHunk: DiffHunk?
+    /// Why the last hunk discard wrote nothing. Usually the file having moved under the diff.
+    @State private var hunkProblem: String?
     /// Editing buffers outlive this view, so flipping back to the diff, walking to the next file
     /// or switching workspace cannot discard what the user typed.
     private let session = FileEditSession.shared
@@ -355,14 +360,8 @@ struct DiffView: View {
             if !editable { mode = .diff }
         }
         .onDisappear { priming?.cancel() }
-        .alert(
-            "Could not revert \(file.filename)",
-            isPresented: $revertProblem.isPresent(),
-            presenting: revertProblem
-        ) { _ in
-        } message: { problem in
-            Text(problem)
-        }
+        .errorAlert("Could not discard \(file.filename)", item: $revertProblem) { $0 }
+        .errorAlert("Could not discard the hunk", item: $hunkProblem) { $0 }
         // Cancel and Escape ask before they throw typed text away. On this view rather than on the
         // band, for the reason `discarding` gives.
         .confirmation($discarding) { pending in
@@ -436,14 +435,7 @@ struct DiffView: View {
                 // discard sheet own the outer view; these two are about the diff and live on
                 // it. Not on the band either, which is a row in a lazy stack: scrolled away,
                 // it would take its own sheet with it.
-                .alert(
-                    "Cannot edit these lines",
-                    isPresented: $editProblem.isPresent(),
-                    presenting: editProblem
-                ) { _ in
-                } message: { problem in
-                    Text(problem)
-                }
+                .errorAlert("Cannot edit these lines", item: $editProblem) { $0 }
                 .confirmation($discardingEdit) { _ in
                     Confirmation(
                         title: DiffEdit.Discard.title,
@@ -638,7 +630,7 @@ struct DiffView: View {
     /// Throw the file's changes away. Only ever reached through the confirmation in the header
     /// bar, which names what is about to go.
     private func revert() {
-        guard allowsWorktreeActions else { return }
+        guard allowsWorktreeActions, !model.isRunning else { return }
         Task {
             session.discard(path: absolutePath)
             // The file is about to be replaced or deleted outright, so a box open on the lines it
@@ -650,6 +642,30 @@ struct DiffView: View {
             // for even one frame. See `WorkspaceModel.forgetHeldDiff`.
             model.forgetHeldDiff(for: file.path)
             await model.refreshChanges()
+        }
+    }
+
+    /// Whether this file's hunk bands carry a Discard, and whether it can be pressed now.
+    private var hunkDiscard: HunkDiscard.Availability {
+        HunkDiscard.availability(
+            file: file, scope: model.diffScope,
+            ignoringWhitespace: ignoresWhitespace, agentIsRunning: model.isRunning
+        )
+    }
+
+    /// Reverse one hunk and redraw from what git says afterwards. The same refreshes as `saveEdit`,
+    /// for the reason given there: a discard that leaves the counts where they were would not
+    /// re-key this view's task on its own.
+    private func discard(_ hunk: DiffHunk) {
+        guard hunkDiscard == .enabled else { return }
+        let scope = model.diffScope
+        Task {
+            // A box open on the lines being put back could only refuse to save from here on.
+            edits.close(path: absolutePath)
+            hunkProblem = await FileRevert.discard(hunk: hunk, of: file, in: model.workspace, scope: scope)
+            model.forgetHeldDiff(for: file.path)
+            await model.refreshChanges()
+            await load()
         }
     }
 
@@ -968,8 +984,16 @@ struct DiffView: View {
             wrappedRow(row, document: document, width: width, heights: wrappedHeights)
         } else {
             switch row {
-            case let .header(_, text):
-                DiffHunkHeaderView(text: text, width: width)
+            case let .header(hunkIndex, text):
+                let hunk = document.file.hunks.indices.contains(hunkIndex) ? document.file.hunks[hunkIndex] : nil
+                DiffHunkHeaderView(
+                    text: text, width: width, path: file.path, discard: hunkDiscard, hunk: hunk,
+                    isConfirming: Binding(
+                        get: { hunk != nil && pendingHunk?.id == hunk?.id },
+                        set: { if !$0 { pendingHunk = nil } else { pendingHunk = hunk } }
+                    ),
+                    onDiscard: { if let hunk { discard(hunk) } }
+                )
 
             case let .runExpander(runID, hidden):
                 DiffExpanderView(title: "Expand \(Counted.of(hidden, "line"))", width: width) {
@@ -1730,7 +1754,8 @@ struct DiffView: View {
         hunkIndex: Int
     ) {
         guard let text = DiffHunkHeading.text(
-            for: document.file.hunks, at: hunkIndex, revealed: revealedGaps[hunkIndex] ?? 0
+            for: document.file.hunks, at: hunkIndex, revealed: revealedGaps[hunkIndex] ?? 0,
+            carriesActions: hunkDiscard != .hidden
         ) else { return }
         rows.append(.header(hunk: hunkIndex, text: text))
     }

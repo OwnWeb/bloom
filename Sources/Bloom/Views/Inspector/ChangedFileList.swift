@@ -149,36 +149,7 @@ struct ChangedFileList: View {
             if !focused { keyboard.forgetTyping() }
         }
         .onChange(of: isTree) { _, _ in rebuild() }
-        // Attached to the list the rows live in, so the dialog animates out of the file it is
-        // about rather than out of the window.
-        .confirmationDialog(
-            "Revert \(pendingRevert?.filename ?? "this file")?",
-            isPresented: $pendingRevert.isPresent(),
-            titleVisibility: .visible,
-            presenting: pendingRevert
-        ) { file in
-            Button("Revert and lose those changes", role: .destructive) { revert(file) }
-            // Escape keeps the changes. See the archive confirmation in `RootView` for why no
-            // cancel button in this app carries `.keyboardShortcut(.defaultAction)`.
-            Button("Keep the changes", role: .cancel) {}
-        } message: { file in
-            // The same sentence the header bar's Revert shows, from the same place, because it is
-            // the same command on the same file and two wordings would eventually describe two
-            // different operations.
-            Text(FileRevert.losses(
-                for: file,
-                in: model.workspace,
-                hasDraft: FileEditSession.shared.isDirty(fullPath(file.path))
-            ))
-        }
-        .alert(
-            "Could not revert \(revertProblem?.filename ?? "the file")",
-            isPresented: $revertProblem.isPresent(),
-            presenting: revertProblem
-        ) { _ in
-        } message: { problem in
-            Text(problem.message)
-        }
+        .errorAlert(item: $revertProblem) { "Could not discard \($0.filename)" } message: { $0.message }
     }
 
     private var followsReviewScroll: Bool {
@@ -323,7 +294,15 @@ struct ChangedFileList: View {
                 // deselected would now close nothing while making the row you just aimed at go
                 // quiet.
                 onSelect: { move(to: file.path) },
-                onRevert: { pendingRevert = file },
+                // Refused before the question rather than after it: a confirmation somebody has
+                // read and accepted, answered with "not now", is a question wasted.
+                onRevert: {
+                    if model.isRunning {
+                        revertProblem = RevertProblem(filename: file.filename, message: HunkDiscard.agentIsWorking)
+                    } else {
+                        pendingRevert = file
+                    }
+                },
                 onOpenPage: { BrowserTab.openFile(fullPath(file.path), in: model) },
                 onSplitPage: { BrowserTab.splitFile(fullPath(file.path), in: model, axis: $0) },
                 onSetViewed: { setViewed($0, file: file) }
@@ -331,6 +310,25 @@ struct ChangedFileList: View {
             .equatable()
         }
         .padding(.horizontal, Metrics.spacingSmall)
+        // On the row it is about, as the header bar's and the hunk band's are. Outside the
+        // equatable row, so the question opening does not have to break that comparison.
+        .discardConfirmation(
+            isPresented: Binding(
+                get: { pendingRevert?.id == file.id },
+                set: { if !$0 { pendingRevert = nil } }
+            ),
+            title: FileBarControls.discardQuestion(path: file.path),
+            // The same sentence the header bar's Discard shows, from the same place, because it is
+            // the same command on the same file and two wordings would eventually describe two
+            // different operations.
+            message: {
+                FileRevert.losses(
+                    for: file, in: model.workspace,
+                    hasDraft: FileEditSession.shared.isDirty(fullPath(file.path))
+                )
+            },
+            onConfirm: { revert(file) }
+        )
     }
 
     /// The count, and the one control that undoes the whole of it.

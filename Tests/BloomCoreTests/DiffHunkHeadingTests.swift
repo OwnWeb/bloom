@@ -88,3 +88,15 @@ struct DiffHunkHeadingTests {
             == "class A {")
     }
 }
+
+/// A band that holds a hunk's Discard is the only place that control is, so every hunk gets one.
+@Suite("Hunk headings that carry an action")
+struct DiffHunkHeadingActionTests {
+    @Test("every hunk gets a band when the band carries its Discard")
+    func actionsPutABandOnEveryHunk() {
+        let top = DiffHunk(oldStart: 1, oldCount: 3, newStart: 1, newCount: 3)
+        #expect(DiffHunkHeading.text(for: [top], at: 0, revealed: 0) == nil)
+        #expect(DiffHunkHeading.text(for: [top], at: 0, revealed: 0, carriesActions: true)
+            == "@@ -1,3 +1,3 @@")
+    }
+}

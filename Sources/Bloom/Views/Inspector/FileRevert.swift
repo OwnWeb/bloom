@@ -15,12 +15,12 @@ enum FileRevert {
 
         switch file.change {
         case .untracked:
-            text = "\(file.path) is not tracked by git, so there is no version to go back to. "
-                + "Reverting moves it to the Trash."
+            text = "\(file.path) is not tracked by git, so git has no copy of it. Discarding "
+                + "moves it to the Trash, and the Trash is the only place it can be recovered from."
         case .added:
-            text = "\(file.path) did not exist on \(workspace.baseBranch). Reverting deletes it."
+            text = "\(file.path) did not exist on \(workspace.baseBranch). Discarding deletes it."
         default:
-            text = "Reverting restores \(file.path) to the version on \(workspace.baseBranch)."
+            text = "Discarding restores \(file.path) to the version on \(workspace.baseBranch)."
         }
 
         let changed = file.additions + file.deletions
@@ -59,9 +59,26 @@ enum FileRevert {
             try await Git.revertTrackedFile(file, worktree: worktree, base: workspace.baseBranch)
             return nil
         } catch let error as ShellError {
-            return "Could not revert \(file.filename): \(error.stderr)"
+            return "Could not discard \(file.filename): \(error.stderr)"
         } catch {
-            return "Could not revert \(file.filename): \(error.localizedDescription)"
+            return "Could not discard \(file.filename): \(error.localizedDescription)"
+        }
+    }
+
+    /// One hunk rather than the whole file, through `Git.discardHunk`, which reads the patch again
+    /// and writes nothing unless the hunk is still there and still applies. Nil on success.
+    static func discard(
+        hunk: DiffHunk, of file: ChangedFile, in workspace: Workspace, scope: DiffScope
+    ) async -> String? {
+        do {
+            try await Git.discardHunk(
+                hunk, of: file, worktree: workspace.path, base: workspace.baseBranch, scope: scope
+            )
+            return nil
+        } catch let error as ShellError {
+            return error.stderr
+        } catch {
+            return error.localizedDescription
         }
     }
 

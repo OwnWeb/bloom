@@ -16,7 +16,6 @@ struct SearchPanelWorkspaceRow: View {
     var onHover: @MainActor () -> Void
 
     @Environment(\.controlActiveState) private var activeState
-    @State private var isHovered = false
 
     var body: some View {
         Button(action: onPick) {
@@ -41,11 +40,7 @@ struct SearchPanelWorkspaceRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
         // Inset from the card's edges rather than run to them. See `SearchPanelRowPlate`.
-        .searchPanelRowPlate(isSelected: isSelected, isHovered: isHovered)
-        .onHoverChange { hovering in
-            isHovered = hovering
-            if hovering { onHover() }
-        }
+        .pickerRowHover(isSelected: isSelected, plate: .searchPanel, onEnter: onHover)
     }
 
     private var name: Text {

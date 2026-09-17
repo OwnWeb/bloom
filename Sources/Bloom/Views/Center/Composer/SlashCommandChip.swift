@@ -61,15 +61,10 @@ struct SlashCommandChip: View {
         // Hugs its name rather than reserving the cap. The cap is a limit on a long name, not a
         // width for every chip, and a chip padded out to it reads as an empty field.
         .fixedSize(horizontal: true, vertical: false)
-        .background {
-            RoundedRectangle(cornerRadius: ComposerInlineChipLayout.cornerRadius)
-                .fill(isHovered ? Palette.hover : Palette.surfaceRaised)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: ComposerInlineChipLayout.cornerRadius)
-                .strokeBorder(Palette.border, lineWidth: Metrics.outline)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: ComposerInlineChipLayout.cornerRadius))
+        .chipPlate(
+            in: RoundedRectangle(cornerRadius: ComposerInlineChipLayout.cornerRadius),
+            isHovered: isHovered
+        )
         .background {
             if let path { HoverQuickLook(url: URL(fileURLWithPath: path)) }
         }

@@ -52,8 +52,8 @@ struct FileHeaderBar: View {
     @AppStorage(DiffWhitespaceSetting.storageKey) private var ignoresWhitespace = false
 
     @State private var isConfirmingRevert = false
-    @State private var didCopy = false
-    @State private var copyReset: Task<Void, Never>?
+    /// The tick on the copy button. See `copyButton` for why only the glyph and the hint change.
+    @State private var copyFlash = CopyFlash()
     /// The sentence for whichever control the pointer is over, or nil for none of them. Written by
     /// `fileBarHint` and read only here. See `FileBarHint` for why this is not a tooltip.
     @State private var hint: String?
@@ -67,6 +67,11 @@ struct FileHeaderBar: View {
     private var allowsWorktreeActions: Bool { model.diffScope.allowsWorktreeActions(for: file) }
 
     private var isDirty: Bool { session.isDirty(absolutePath) }
+
+    /// Why Discard cannot be pressed right now, or nil when it can. An agent mid turn is writing
+    /// this worktree, and a discard landing between two of its writes throws away half of an edit
+    /// it is about to build on.
+    private var discardBlocker: String? { model.isRunning ? HunkDiscard.agentIsWorking : nil }
 
     private var absolutePath: String {
         (model.workspace.path as NSString).appendingPathComponent(file.path)
@@ -132,22 +137,7 @@ struct FileHeaderBar: View {
         .frame(height: onToggleCollapsed == nil ? InspectorLayout.barHeight : InspectorLayout.reviewHeaderHeight)
         .background(Palette.surfaceSunken)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-        .confirmationDialog(
-            "Revert \(file.filename)?",
-            isPresented: $isConfirmingRevert,
-            titleVisibility: .visible
-        ) {
-            Button("Revert and lose those changes", role: .destructive, action: onRevert)
-            // Escape keeps the changes. See the archive confirmation in `RootView` for why the
-            // destructive answer is never the default one and why the cancel button carries no
-            // shortcut of its own.
-            Button("Keep the changes", role: .cancel) {}
-        } message: {
-            // Naming what disappears, rather than asking "are you sure?", the way archiving a
-            // workspace does.
-            Text(FileRevert.losses(for: file, in: model.workspace, hasDraft: isDirty))
-        }
-        .onDisappear { copyReset?.cancel() }
+        .onDisappear { copyFlash.cancel() }
     }
 
     // MARK: - Control clusters
@@ -194,8 +184,14 @@ struct FileHeaderBar: View {
                 .accessibilityLabel("\(file.additions) additions, \(file.deletions) deletions")
             }
             ViewThatFits(in: .horizontal) {
-                viewedToggle(labelled: true)
-                viewedToggle(labelled: false)
+                HStack(spacing: InspectorLayout.gap) {
+                    viewedToggle(labelled: true)
+                    if allowsWorktreeActions { revertButton(labelled: true) }
+                }
+                HStack(spacing: InspectorLayout.gap) {
+                    viewedToggle(labelled: false)
+                    if allowsWorktreeActions { revertButton(labelled: false) }
+                }
             }
             Menu {
                 if isEditable {
@@ -205,12 +201,6 @@ struct FileHeaderBar: View {
                     }
                 }
                 Button(FileBarControls.copy(mode: mode).title, action: copy)
-                Divider()
-                if allowsWorktreeActions {
-                    Button(FileBarControls.revert(filename: file.filename).title, role: .destructive) {
-                        isConfirmingRevert = true
-                    }
-                }
             } label: {
                 Label("File actions", systemImage: "ellipsis.circle")
             }
@@ -268,9 +258,10 @@ struct FileHeaderBar: View {
             Divider()
             Button(FileBarControls.copy(mode: mode).title, action: copy)
             if allowsWorktreeActions {
-                Button(FileBarControls.revert(filename: file.filename).title, role: .destructive) {
+                Button(FileBarControls.discard(filename: file.filename).title, role: .destructive) {
                     isConfirmingRevert = true
                 }
+                .disabled(discardBlocker != nil)
             }
         } label: {
             Label(FileBarControls.more.title, systemImage: "ellipsis.circle")
@@ -281,6 +272,7 @@ struct FileHeaderBar: View {
         .controlSize(.small)
         .fixedSize()
         .fileBarHint(FileBarControls.more, into: $hint)
+        .modifier(confirmation)
     }
 
     /// Absent unless this file has something to preview, which is what puts it at the left of the
@@ -300,23 +292,35 @@ struct FileHeaderBar: View {
             ), into: $hint)
     }
 
-    /// Destructive, the way the collapsed arrangement already draws it.
+    /// Right after Viewed, in both bars, so a row reads `+N −N · Viewed · Discard`.
     ///
-    /// It was a plain `.accessoryBar` glyph, identical in weight to Copy beside it, so the one
-    /// control in this bar that throws work away looked exactly like the one that puts it on the
-    /// pasteboard. The overflow menu at `collapsed` marks the same action `role: .destructive` and
-    /// always has; a bar and its own overflow saying two different things about one action is the
-    /// disagreement, not the styling.
+    /// It was a `role: .destructive` button, red at rest, to stop the one control that throws work
+    /// away from looking like Copy beside it. Red at rest in the review, where every file has a
+    /// header, is a column of red words down the whole pane. `DiscardButton` goes red on hover
+    /// instead, which still tells it apart at the moment it matters, and the overflow menu at
+    /// `collapsed` keeps `role: .destructive`, where the menu draws it red only when highlighted.
     private func revertButton(labelled: Bool) -> some View {
-        let control = FileBarControls.revert(filename: file.filename)
-        return Button(role: .destructive) {
+        let control = FileBarControls.discard(filename: file.filename)
+        return DiscardButton(title: control.title, help: control.hint, disabledReason: discardBlocker) {
             isConfirmingRevert = true
-        } label: {
-            Label(control.title, systemImage: "arrow.uturn.backward")
         }
         .fileBarLabelStyle(labelled: labelled)
-        .inspectorBarControl()
-        .fileBarHint(control, into: $hint)
+        .fileBarHint(FileBarControl(title: control.title, hint: discardBlocker ?? control.hint), into: $hint)
+        .modifier(confirmation)
+    }
+
+    /// On the control that asked. Only one arrangement of `ViewThatFits` is ever drawn, so the
+    /// popover has one anchor whichever of them the bar's width chose. The collapsed one has no
+    /// Discard button, so its popover hangs off the overflow menu the item was chosen from.
+    private var confirmation: DiscardConfirmationModifier {
+        DiscardConfirmationModifier(
+            isPresented: $isConfirmingRevert,
+            title: FileBarControls.discardQuestion(path: file.path),
+            // Naming what disappears, rather than asking "are you sure?", the way archiving a
+            // workspace does.
+            message: { FileRevert.losses(for: file, in: model.workspace, hasDraft: isDirty) },
+            onConfirm: onRevert
+        )
     }
 
     /// Unified or side by side, which is one choice between two values and is therefore a
@@ -354,10 +358,7 @@ struct FileHeaderBar: View {
                 }
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.small)
-        .fixedSize()
+        .compactSegmented()
         .disabled(mode == .edit)
         .fileBarHint(FileBarControls.layout, into: $hint)
     }
@@ -382,9 +383,9 @@ struct FileHeaderBar: View {
     /// button at the moment of the press, so the sentence beside the controls turns into "The diff
     /// is on the clipboard" as the tick appears.
     private func copyButton(labelled: Bool) -> some View {
-        let control = FileBarControls.copy(mode: mode, didCopy: didCopy)
+        let control = FileBarControls.copy(mode: mode, didCopy: copyFlash.isShowing)
         return Button(action: copy) {
-            Label(control.title, systemImage: didCopy ? "checkmark" : "doc.on.doc")
+            Label(control.title, systemImage: copyFlash.isShowing ? "checkmark" : "doc.on.doc")
         }
         .fileBarLabelStyle(labelled: labelled)
         .inspectorBarControl()
@@ -398,10 +399,7 @@ struct FileHeaderBar: View {
                 Text(value.rawValue).tag(value)
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.small)
-        .fixedSize()
+        .compactSegmented()
         .disabled(!isEditable && mode == .diff)
         .fileBarHint(
             FileBarControls.mode(filename: file.filename, isEditable: isEditable), into: $hint
@@ -410,22 +408,12 @@ struct FileHeaderBar: View {
 
     // MARK: - Actions
 
+    /// The draft while editing, because that is what the pane is showing, and the patch otherwise.
     private func copy() {
-        Task {
-            let text: String? = mode == .edit
+        copyFlash.copy {
+            mode == .edit
                 ? session.draft(for: absolutePath)?.text
                 : await model.patch(for: file)
-            guard let text, !text.isEmpty else { return }
-
-            Clipboard.copy(text)
-
-            didCopy = true
-            copyReset?.cancel()
-            copyReset = Task {
-                try? await Task.sleep(for: Clipboard.flashDuration)
-                guard !Task.isCancelled else { return }
-                didCopy = false
-            }
         }
     }
 }

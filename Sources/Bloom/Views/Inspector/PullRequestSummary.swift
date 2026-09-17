@@ -215,10 +215,7 @@ struct PullRequestSummary: View {
         // agent in the workspace is running.
         trailingControls
             .disabled(!branchActions.isAllowed)
-            .popover(isPresented: Binding(
-                get: { pendingMerge != nil },
-                set: { if !$0 { pendingMerge = nil } }
-            ), arrowEdge: .top) {
+            .popover(isPresented: $pendingMerge.isPresent(), arrowEdge: .top) {
                 if let method = pendingMerge {
                     MergeConfirmationPopover(
                         pullRequest: pullRequest,

@@ -73,7 +73,7 @@ struct ModelPresetSettingsView: View {
                 editing = nil
             }
         }
-        .alert("Rename preset", isPresented: isRenaming) {
+        .alert("Rename preset", isPresented: $renaming.isPresent()) {
             TextField("Name", text: $renameText)
             Button("Rename") {
                 if let renaming { library.rename(id: renaming.id, to: renameText, in: app.store) }
@@ -177,9 +177,5 @@ struct ModelPresetSettingsView: View {
             get: { library.list.defaultID },
             set: { id in MainActor.assumeIsolated { library.setDefault(id, in: app.store) } }
         )
-    }
-
-    private var isRenaming: Binding<Bool> {
-        Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
     }
 }

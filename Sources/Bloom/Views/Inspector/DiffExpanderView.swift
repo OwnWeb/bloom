@@ -32,8 +32,9 @@ struct DiffExpanderView: View {
             .frame(width: width, height: CodeMetrics.rowHeight, alignment: .leading)
             // The hover tint is a translucent wash, so it goes OVER the band's own fill. Swapped
             // for it, hovering made the strip lighter than its resting state instead of darker.
-            .background(isHovered ? Palette.hover : .clear)
-            .background(Palette.codeBackground)
+            // `HoverPlate` layers it that way for every caller now. Handed the flag rather than
+            // tracking it, because the words take the accent under the pointer as well.
+            .hoverPlate(in: Rectangle(), isHovered: isHovered, rest: Palette.codeBackground)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

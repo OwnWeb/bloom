@@ -44,7 +44,9 @@ struct RepoSettingsView: View {
     /// Which pane the window is showing. What a capture run can ask for, and why, is on
     /// `RepoSettingsPane.requested`.
     @State private var pane: RepoSettingsPane = RepoSettingsPane.requested ?? .project
-    @State private var isConfirmingRemove = false
+    /// The remove question while it is being asked. Built when Remove Project is pressed rather
+    /// than computed in `body`, for the reason `RepoHeaderRow.askAboutRemoving` gives.
+    @State private var removal: Confirmation?
     /// What the last thing the Mark row did came to, when it came to nothing. Cleared as soon as
     /// something else is pressed, because it is about that press and not about the project.
     @State private var iconNotice: String?
@@ -128,16 +130,6 @@ struct RepoSettingsView: View {
         // terminal beside it, and coming back to the window is when that becomes visible.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.refresh() }
-        }
-        .confirmationDialog(
-            removal.title,
-            isPresented: $isConfirmingRemove,
-            titleVisibility: .visible
-        ) {
-            Button(removal.confirmLabel, role: .destructive, action: removeProject)
-            Button(removal.cancelLabel, role: .cancel) {}
-        } message: {
-            Text(removal.message)
         }
     }
 
@@ -540,11 +532,14 @@ struct RepoSettingsView: View {
     private var removeSection: some View {
         Section {
             Button(role: .destructive) {
-                isConfirmingRemove = true
+                askAboutRemoving()
             } label: {
                 Label("Remove Project", systemImage: "trash")
                     .foregroundStyle(Palette.negative)
             }
+            // On the button that asked. It is the last control in the pane, so the question opens
+            // above it rather than off the foot of the window.
+            .projectRemovalConfirmation($removal, arrowEdge: .bottom, onConfirm: removeProject)
         } footer: {
             Text("Bloom forgets the project. Nothing on disk is deleted.")
                 .font(Typo.caption)
@@ -553,8 +548,8 @@ struct RepoSettingsView: View {
     }
 
     /// The one question, asked here and in the sidebar and in Settings. See `ProjectRemoval`.
-    private var removal: Confirmation {
-        app.projectRemoval(repo)
+    private func askAboutRemoving() {
+        removal = app.projectRemoval(repo)
     }
 
     private func removeProject() {

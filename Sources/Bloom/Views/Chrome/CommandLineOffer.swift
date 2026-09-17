@@ -26,8 +26,6 @@ struct CommandLineOffer: View {
     /// would be nothing but its own border.
     var fill: Color = Palette.surface
 
-    @State private var didCopy = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
             // Selectable as well as copyable. The button is how anybody sane moves it, and the
@@ -59,20 +57,10 @@ struct CommandLineOffer: View {
 
                 Spacer()
 
-                Button(didCopy ? "Copied" : "Copy command") { copy() }
-                    .disabled(didCopy)
+                CopyTextButton(title: "Copy command", text: command)
             }
         }
         .padding(.vertical, Metrics.spacingSmall)
-    }
-
-    private func copy() {
-        Clipboard.copy(command)
-        didCopy = true
-        Task {
-            try? await Task.sleep(for: Clipboard.flashDuration)
-            didCopy = false
-        }
     }
 }
 

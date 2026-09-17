@@ -11,7 +11,8 @@ struct FileBarControlsTests {
     /// Every control the bar can draw, for the sweeps below.
     private var all: [FileBarControl] {
         [
-            FileBarControls.revert(filename: "Handler.php"),
+            FileBarControls.discard(filename: "Handler.php"),
+            FileBarControls.discardHunk(filename: "Handler.php"),
             FileBarControls.layout,
             FileBarControls.whitespace(ignoring: false),
             FileBarControls.whitespace(ignoring: true),
@@ -56,11 +57,11 @@ struct FileBarControlsTests {
 
     // MARK: - What each of them says
 
-    @Test("revert names the file it would throw away")
-    func revertNamesTheFile() {
-        let control = FileBarControls.revert(filename: "Handler.php")
+    @Test("discard names the file it would throw away")
+    func discardNamesTheFile() {
+        let control = FileBarControls.discard(filename: "Handler.php")
 
-        #expect(control.title == "Revert file")
+        #expect(control.title == "Discard")
         #expect(control.hint.contains("Handler.php"))
     }
 

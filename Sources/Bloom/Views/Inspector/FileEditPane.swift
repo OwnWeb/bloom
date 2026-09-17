@@ -22,7 +22,14 @@ struct FileEditPane: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
+    /// The Discard button's question.
     @State private var isConfirmingReload = false
+    /// The same question, asked after the comparison sheet's "Use disk version". The sheet's own
+    /// button is gone by then, so the question hangs off Compare, the control that opened it.
+    @State private var isConfirmingDiskVersion = false
+    /// Set by "Use disk version" and read once the sheet has finished closing. A popover asked for
+    /// while its window still has a sheet going away is a presentation fighting a dismissal.
+    @State private var wantsDiskVersion = false
 
     private var absolutePath: String {
         absolutePathOverride ?? (model.workspace.path as NSString).appendingPathComponent(path)
@@ -55,20 +62,6 @@ struct FileEditPane: View {
         .focusedValue(\.saveAction, isEditable ? SaveAction(subject: absolutePath, isEnabled: isDirty && !session.saving.contains(absolutePath), perform: save) : nil)
         .focusedValue(\.isTypingProse, isEditable)
         .onDisappear { state.navigationTask?.cancel() }
-        .confirmationDialog(
-            "Discard your edits to \(filename)?",
-            isPresented: $isConfirmingReload,
-            titleVisibility: .visible
-        ) {
-            Button("Discard and reload", role: .destructive) {
-                Task { await session.reload(path: absolutePath) }
-            }
-            // Escape keeps the edits. See the archive confirmation in `RootView` for why no
-            // cancel button in this app carries `.keyboardShortcut(.defaultAction)`.
-            Button("Keep editing", role: .cancel) {}
-        } message: {
-            Text("The file on disk replaces what you typed. There is no undo for this.")
-        }
         .task(id: absolutePath) {
             await session.load(path: absolutePath)
             while !Task.isCancelled {
@@ -76,7 +69,11 @@ struct FileEditPane: View {
                 await session.refresh(path: absolutePath)
             }
         }
-        .sheet(isPresented: $comparing) { comparison }
+        .sheet(isPresented: $comparing, onDismiss: {
+            guard wantsDiskVersion else { return }
+            wantsDiskVersion = false
+            isConfirmingDiskVersion = true
+        }, content: { comparison })
     }
 
     @ViewBuilder
@@ -112,6 +109,7 @@ struct FileEditPane: View {
                         Text("Changed on disk. Your edits are safe.").font(Typo.caption)
                         Spacer()
                         Button("Compare") { comparing = true }
+                            .modifier(reloadConfirmation($isConfirmingDiskVersion))
                     }.padding(InspectorLayout.inset)
                 }
                 if isEditable { footer } else if case let .failed(reason) = session.status(for: absolutePath) {
@@ -136,6 +134,7 @@ struct FileEditPane: View {
                     .buttonStyle(.borderless)
                     .controlSize(.small)
                     .help("Throw away your unsaved edits and read the file again")
+                    .modifier(reloadConfirmation($isConfirmingReload))
             }
 
             Button("Save", action: save)
@@ -169,8 +168,8 @@ struct FileEditPane: View {
                 Button("Keep editing") { comparing = false }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Use disk version") {
+                    wantsDiskVersion = true
                     comparing = false
-                    isConfirmingReload = true
                 }
                 Button("Save my version over disk") {
                     Task {
@@ -189,6 +188,22 @@ struct FileEditPane: View {
                 Text(reason).foregroundStyle(Palette.negative).font(Typo.caption)
             }
         }.padding(Metrics.inset).frame(width: 950, height: 580)
+    }
+
+    /// Asks before the file on disk replaces the draft, as a popover on the control that asked.
+    ///
+    /// Escape keeps the edits and Return does nothing, which `ConfirmationPopover` holds for every
+    /// confirmation built on it. See the archive confirmation in `RootView` for why no cancel
+    /// button in this app carries `.keyboardShortcut(.defaultAction)`.
+    private func reloadConfirmation(_ isPresented: Binding<Bool>) -> DiscardConfirmationModifier {
+        let path = absolutePath
+        let session = session
+        return DiscardConfirmationModifier(
+            isPresented: isPresented,
+            title: "Discard your edits to \(filename)?",
+            message: { "The file on disk replaces what you typed. There is no undo for this." },
+            onConfirm: { Task { await session.reload(path: path) } }
+        )
     }
 
     /// A save changes the worktree, so the file list's counts and the diff behind this pane are

@@ -12,8 +12,6 @@ struct SlashCommandRow: View {
 
     @Environment(\.controlActiveState) private var activeState
 
-    @State private var isHovered = false
-
     private var command: SlashCommand { match.command }
 
     var body: some View {
@@ -50,11 +48,7 @@ struct SlashCommandRow: View {
         .accessibilityLabel("/\(command.name)")
         // Focused, because this menu really is driven by the arrow keys while the composer
         // holds the keyboard, which is the one case AppKit paints in the accent.
-        .rowBackground(isSelected: isSelected, isHovered: isHovered, isFocused: true)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { onHover() }
-        }
+        .pickerRowHover(isSelected: isSelected, plate: .list(isFocused: true), onEnter: onHover)
     }
 
     /// The name, with the characters the query actually matched carried at full weight and colour

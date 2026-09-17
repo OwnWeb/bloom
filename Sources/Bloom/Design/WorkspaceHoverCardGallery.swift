@@ -3,11 +3,11 @@ import BloomCore
 
 /// The card that opens beside a hovered workspace row, in every state that has an edge on it.
 ///
-/// The card is drawn in a panel of its own, which no probe in this folder can photograph and which
-/// no pointer a capture run has can raise. What CAN be photographed is the card itself, and that
-/// is what is worth looking at: the states are all differences of content, so a page of them side
-/// by side answers every question except where the panel lands, and where the panel lands is
-/// `HoverCardPlacement`, which the suite holds.
+/// The card is drawn in a popover (see `hoverPopover`), which no probe in this folder can
+/// photograph and which no pointer a capture run has can raise. What CAN be photographed is the
+/// card itself, and that is what is worth looking at: the states are all differences of content,
+/// so a page of them side by side answers every question except where the popover lands, and that
+/// is AppKit's.
 ///
 /// Each pane is the card at the width it comes out at, over the sidebar's own ground, so a card
 /// and the pane it opens out of can be judged against each other. The width is the second thing

@@ -20,7 +20,6 @@ struct SearchPanelCommandRow: View {
     var onHover: @MainActor () -> Void
 
     @Environment(\.controlActiveState) private var activeState
-    @State private var isHovered = false
 
     var body: some View {
         Button(action: onPick) {
@@ -43,11 +42,7 @@ struct SearchPanelCommandRow: View {
         .disabled(!isEnabled)
         .accessibilityLabel(hit.item.title)
         .accessibilityValue(hit.item.key == nil ? SearchPanelCommands.noKey : hit.item.keyText)
-        .searchPanelRowPlate(isSelected: isSelected, isHovered: isHovered)
-        .onHoverChange { hovering in
-            isHovered = hovering
-            if hovering { onHover() }
-        }
+        .pickerRowHover(isSelected: isSelected, plate: .searchPanel, onEnter: onHover)
     }
 
     private var title: Text {

@@ -287,16 +287,9 @@ struct RootView: View {
             } onConfirm: { request in
                 request.model.runSetupAgain()
             }
-            // A single OK that does nothing but dismiss is the system default, so the actions builder
-            // is deliberately empty rather than spelling one out.
-            .alert(
-                app.alert?.title ?? "",
-                isPresented: $app.alert.isPresent(),
-                presenting: app.alert
-            ) { _ in
-            } message: { alert in
-                Text(alert.message)
-            }
+            // A single OK that does nothing but dismiss, which `errorAlert` says why it leaves to
+            // the system rather than spelling out.
+            .errorAlert(item: $app.alert) { $0.title } message: { $0.message }
             .onReceive(OpenWorkspaceNotification.publisher()) { id in
                 // Through `open(workspaceID:)` rather than straight into the selection, so an id that
                 // has since been archived opens its transcript instead of landing on Home with no

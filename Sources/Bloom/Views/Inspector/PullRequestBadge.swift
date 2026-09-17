@@ -27,8 +27,6 @@ struct PullRequestBadge: View {
     /// The state's colour, or nil for the states that carry none.
     var tint: Color?
 
-    @State private var isHovering = false
-
     private var ink: Color { tint ?? Palette.textSecondary }
 
     var body: some View {
@@ -51,12 +49,6 @@ struct PullRequestBadge: View {
             .padding(.horizontal, InspectorLayout.badgeInset)
             .foregroundStyle(ink)
             .frame(height: InspectorLayout.badgeHeight)
-            .background {
-                // Only on hover, and only the window's own hover tint. The rim is what says this
-                // is pressable at rest; a fill at rest would make it a filled badge again.
-                RoundedRectangle(cornerRadius: Metrics.corner)
-                    .fill(isHovering ? Palette.hover : .clear)
-            }
             .overlay {
                 RoundedRectangle(cornerRadius: Metrics.corner)
                     .strokeBorder(
@@ -65,9 +57,12 @@ struct PullRequestBadge: View {
                     )
             }
             .contentShape(RoundedRectangle(cornerRadius: Metrics.corner))
+            // Only on hover, and only the window's own hover tint. The rim is what says this is
+            // pressable at rest; a fill at rest would make it a filled badge again. After the
+            // content shape, so the pointer is tracked over the rounded outline it always was.
+            .hoverPlate(cornerRadius: Metrics.corner)
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
         // One control, so one label and one action. It was two buttons, one of them unlabelled
         // and neither of them saying where it went.
         // `children: .ignore` is what collapses the two halves into one element, and it takes the
