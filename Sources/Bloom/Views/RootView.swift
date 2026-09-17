@@ -179,6 +179,8 @@ struct RootView: View {
             // Debug builds only, and only when asked for on the command line: raises one of the two
             // Help menu sheets so a capture run can look at it. See `FeedbackPresenter`.
             .task { FeedbackPresenter.shared.presentIfRequested() }
+            // Creating and archiving a Cloud workspace, raised from the sidebar and the column.
+            .modifier(CloudWorkspaceSheets())
             // The same, for the search panel, which is otherwise reachable only by a key
             // equivalent and a glyph. See `SearchPanelModel.presentIfRequested`.
             .task { presentSearchPanelIfRequested() }

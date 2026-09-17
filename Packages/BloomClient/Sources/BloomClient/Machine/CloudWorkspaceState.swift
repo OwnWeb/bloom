@@ -137,6 +137,13 @@ public struct CloudWorkspaceState: Sendable, Hashable {
         if let cursor { advance(to: cursor) }
     }
 
+    /// The whole log as `setup_output` read it, which replaces what the stream had appended.
+    public mutating func replaceSetupLog(_ log: String, setup record: SetupRecord) {
+        setupLog = log.utf8.count > Self.setupLogLimit ? String(log.suffix(Self.setupLogLimit / 2)) : log
+        setup = record
+        workspace?.setup = record
+    }
+
     static let setupLogLimit = 1_000_000
 
     private mutating func upsert(_ record: ChatRecord) {

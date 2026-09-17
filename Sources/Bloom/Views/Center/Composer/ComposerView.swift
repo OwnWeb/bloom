@@ -148,7 +148,13 @@ struct ComposerView: View {
                 queues: transcript.queuesNextMessage,
                 canSend: canSend,
                 project: transcript.cwd,
-                onAttach: actions.attach,
+                // A file on this Mac means nothing to an agent on a machine, and uploading one is
+                // not in the first Cloud release, so a Cloud chat says so rather than attaching a
+                // path the agent cannot open.
+                onAttach: {
+                    guard transcript.cloud != nil else { return actions.attach() }
+                    app.notice = BloomNotice(message: "Attaching files to a Cloud workspace chat is not available yet. Paste the text instead.")
+                },
                 onQuickPrompt: { fire($0, insert: actions.insert) },
                 // Read off the workspace model, which is where the Workspace menu reads its run
                 // scripts from: one parse of the settings file serves both. Nil model, no project.
@@ -728,6 +734,11 @@ struct ComposerView: View {
         }
         isFocused = true
         caret = (transcript.draft as NSString).length
+
+        // A Cloud chat's controls are its machine's, set by whoever wrote last. Nothing on this Mac
+        // (its defaults, its model list, the settings kept per session in its database) may write
+        // over them just because this reader opened the chat.
+        guard transcript.cloud == nil else { return }
 
         repairModel()
 

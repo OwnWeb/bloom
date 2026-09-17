@@ -94,3 +94,65 @@ import Testing
         #expect(CloudBranchName.suggestion(for: "   ", prefix: "freek") == "")
     }
 }
+
+@Suite struct CloudConnectionBannerTests {
+    @Test func nothingIsSaidWhileAConnectionIsQuickOrLive() {
+        #expect(CloudConnectionBanner.of(.connecting(waking: false)) == nil)
+        #expect(CloudConnectionBanner.of(.live) == nil)
+    }
+
+    @Test func wakingIsSaidInWords() {
+        let banner = CloudConnectionBanner.of(.connecting(waking: true))
+        #expect(banner?.tone == .progress)
+        #expect(banner?.title.contains("Waking") == true)
+    }
+
+    @Test func aLimitThatClearsByItselfOffersNoButton() {
+        let waiting = CloudConnectionBanner.of(.limited(LimitNotice(limit: "concurrent_machines", message: "Twenty running.")))
+        #expect(waiting?.tone == .caution)
+        #expect(waiting?.action == nil)
+        let blocked = CloudConnectionBanner.of(.limited(LimitNotice(limit: "kill_switch", message: "Paused.")))
+        #expect(blocked?.tone == .failure)
+        #expect(blocked?.title == "Paused.")
+        #expect(blocked?.action != nil)
+    }
+
+    @Test func noUserFacingWordNamesTheProvider() {
+        let phases: [WorkspaceConnection.Phase] = [
+            .connecting(waking: true), .asleep, .notReady(message: "x", retryAfter: 1), .archived, .noAccess("x"), .retrying("x"),
+            .limited(LimitNotice(limit: "monthly_usage", message: "x")),
+        ]
+        for phase in phases {
+            let banner = CloudConnectionBanner.of(phase)
+            let words = [banner?.title, banner?.message, banner?.action].compactMap { $0 }.joined(separator: " ").lowercased()
+            #expect(!words.contains("sprite") && !words.contains("fly") && !words.contains("remote"))
+        }
+    }
+}
+
+@Suite struct CloudArchiveConfirmationTests {
+    @Test func theConversationIsAlwaysSaidFirst() {
+        let clean = ArchivePreviewRecord(confirmationID: "c", hasUncommittedChanges: false, untrackedFiles: [], unpushedCommits: 0, detachedCommits: 0,
+                                         isAgentRunning: false, isPullRequestMerged: true, createdAt: Date())
+        let confirmation = CloudArchiveConfirmation(preview: clean)
+        #expect(confirmation.losses == [CloudArchiveConfirmation.conversationSentence])
+        #expect(!confirmation.isDestructive)
+        #expect(confirmation.confirmationID == "c")
+    }
+
+    @Test func everyHazardIsNamed() {
+        let risky = ArchivePreviewRecord(confirmationID: "c", hasUncommittedChanges: true, untrackedFiles: ["a.txt"], unpushedCommits: 2, detachedCommits: 1,
+                                         isAgentRunning: true, isPullRequestMerged: false, createdAt: Date())
+        let confirmation = CloudArchiveConfirmation(preview: risky)
+        #expect(confirmation.losses.count == 6)
+        #expect(confirmation.isDestructive)
+        #expect(confirmation.losses.contains("2 commits have not been pushed."))
+    }
+
+    @Test func withoutTheMachineTheSummarySpeaks() {
+        let confirmation = CloudArchiveConfirmation(summary: CloudWorkspaceSummary(diff: .init(files: 3, additions: 1, deletions: 1)))
+        #expect(confirmation.confirmationID == nil)
+        #expect(confirmation.losses.first == CloudArchiveConfirmation.conversationSentence)
+        #expect(confirmation.losses.last?.contains("3 files") == true)
+    }
+}

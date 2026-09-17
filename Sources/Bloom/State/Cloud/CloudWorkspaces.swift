@@ -272,6 +272,10 @@ final class CloudWorkspaces {
         return item
     }
 
+    func projects(team: String) async throws -> [RunbloomProject] {
+        try await api.projects(team: team)
+    }
+
     /// What a new chat on a machine starts with: this Mac's own defaults for a new chat, when they
     /// name an agent a Cloud workspace runs, and Claude Code otherwise.
     func openingControls() async -> ComposerControls {
@@ -291,6 +295,52 @@ final class CloudWorkspaces {
     }
 
     // MARK: Archiving
+
+    enum ArchiveStep {
+        case archived
+        /// The machine's answer moved since the confirmation was read, so it is shown again.
+        case moved(CloudArchiveConfirmation)
+        case failed(String)
+    }
+
+    /// What archiving would lose. The machine is asked when it can be, which wakes it; runbloom.app's
+    /// last summary speaks for a machine that cannot answer or a reader who cannot open it.
+    func archiveConfirmation(_ id: CloudWorkspaceID) async -> CloudArchiveConfirmation {
+        let summary = item(id)?.summary
+        guard let item = item(id), item.canOpen, !["setting_up", "setup_failed", "error"].contains(item.state) else {
+            return CloudArchiveConfirmation(summary: summary)
+        }
+        guard let result = try? await session(for: id).perform(.archivePreview), case .archivePreview(let preview) = result else {
+            return CloudArchiveConfirmation(summary: summary)
+        }
+        return CloudArchiveConfirmation(preview: preview)
+    }
+
+    /// Archives with a confirmation the person accepted: on the machine first when it was asked,
+    /// which checks its answer again and winds the workspace down, then on runbloom.app, which
+    /// deletes the machine.
+    func archive(_ id: CloudWorkspaceID, confirmed confirmation: CloudArchiveConfirmation) async -> ArchiveStep {
+        if let confirmationID = confirmation.confirmationID {
+            do {
+                let result = try await session(for: id).perform(.archive(confirmationID: confirmationID))
+                if case .archivePreview(let moved) = result { return .moved(CloudArchiveConfirmation(preview: moved)) }
+            } catch {
+                // A machine that went away between the question and the answer is archived on
+                // runbloom.app all the same: the person has already agreed to lose what it held.
+                if case .refused(let wire) = error, wire.knownCode != .unavailable, wire.knownCode != .workspaceChanging {
+                    return .failed(wire.message)
+                }
+            }
+        }
+        do {
+            try await archiveOnRunbloom(id)
+            return .archived
+        } catch let refusal as RunbloomRefusal {
+            return .failed(refusal.message)
+        } catch {
+            return .failed("runbloom.app could not be reached. \(error.localizedDescription)")
+        }
+    }
 
     /// Tells runbloom.app to archive, which deletes the machine. The machine's own confirmation, when
     /// there is a machine to ask, is `CloudWorkspaceSession.archive`.

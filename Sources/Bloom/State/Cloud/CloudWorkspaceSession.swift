@@ -12,6 +12,14 @@ import Observation
 /// the window's half: folding updates into observable state, handing each chat's slice to its
 /// transcript model, reading history for the chats somebody looks at, and sending the opening
 /// prompt a create left behind.
+/// Which of a Cloud workspace's panes fills its column.
+enum CloudPane: Hashable {
+    case chat
+    case terminal
+    case changes
+    case setup
+}
+
 @MainActor
 @Observable
 final class CloudWorkspaceSession {
@@ -23,6 +31,7 @@ final class CloudWorkspaceSession {
     private(set) var abilities: [String] = []
     /// The chat the column shows. Nil until the workspace has a chat.
     var selectedChatID: SessionID?
+    var pane: CloudPane = .chat
     /// The last command that failed where no dialog belongs, said once in a strip over the column.
     var notice: String?
     /// Who last changed a chat's composer, when it was not the reader. Cleared when read.
@@ -227,6 +236,14 @@ final class CloudWorkspaceSession {
         } catch {
             return error.message
         }
+    }
+
+    /// Reads setup's whole log so far, which the stream only appends to from the moment it opened.
+    /// Answers whether it was read.
+    func readSetupOutput() async -> Bool {
+        guard let result = try? await perform(.setupOutput), case .setupOutput(let record) = result else { return false }
+        state.replaceSetupLog(record.log, setup: record.setup)
+        return true
     }
 
     // MARK: The opening prompt
