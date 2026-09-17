@@ -1,0 +1,261 @@
+import Foundation
+
+/// Everything a client can ask of the one workspace this server holds.
+///
+/// **No workspace id anywhere,** because a machine holds exactly one workspace and the token
+/// already names it. What #163 needed for a server with many projects on it (the catalogue,
+/// project settings, creating a workspace, storage, skills, diagnostics, Docker) is not here:
+/// creation is the machine's bootstrap, and the rest has no meaning on a machine of its own.
+///
+/// Encoded as one object with a `kind` and the operation's own fields beside it. An operation's
+/// fields are named here and none is called `kind`, so nothing can collide with the tag.
+public enum WorkspaceOperation: Codable, Sendable, Hashable {
+    // Reading the workspace
+    case workspace
+    case transcript(chatID: String, afterSeq: Int, limit: Int?)
+    case composer(chatID: String)
+    case setupOutput
+    case files
+    case file(path: String)
+    case download(path: String)
+    case reviewSnapshot(scope: DiffScope, knownRevision: String?, wait: Bool)
+    case reviewPatch(path: String, scope: DiffScope, knownRevision: String?)
+    case runScripts
+    case notes
+    case pullRequest
+    case archivePreview
+
+    // Conversations
+    case newChat(controls: ComposerControlsRecord)
+    case renameChat(chatID: String, title: String)
+    case closeChat(chatID: String)
+    case markRead(chatID: String, seq: Int)
+    case setComposer(chatID: String, controls: ComposerControlsRecord)
+    case send(chatID: String, text: String)
+    case cancelQueued(chatID: String, promptID: String)
+    case stop(chatID: String)
+    case answer(chatID: String, requestID: String, answer: Answer)
+
+    // The worktree
+    case writeFile(path: String, text: String, revision: String)
+    case uploadFile(name: String, data: Data)
+    case commit(message: String)
+    case push
+    case createPullRequest(title: String, body: String, draft: Bool)
+    case saveNotes(text: String)
+    case renameWorkspace(name: String)
+    case runSetup
+    case runScript(id: String)
+    case closeTerminal(name: String)
+    case archive(confirmationID: String)
+
+    /// Whether the server journals this command so a retry is answered from its record.
+    public var mutates: Bool {
+        switch self {
+        case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
+             .runScripts, .notes, .pullRequest, .archivePreview: false
+        default: true
+        }
+    }
+
+    /// The token ability this operation needs. Every operation needs `view` as well.
+    public var ability: String {
+        switch self {
+        case .send, .cancelQueued, .stop, .answer, .newChat, .closeChat, .renameChat, .setComposer: "prompt"
+        case .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup: "files"
+        case .runScript, .closeTerminal: "terminal"
+        case .archive, .archivePreview: "share"
+        default: "view"
+        }
+    }
+
+    /// Whether this operation is human input for the presence lease. Reading is not.
+    public var isHumanInput: Bool { mutates && !isMarkRead }
+
+    private var isMarkRead: Bool {
+        if case .markRead = self { true } else { false }
+    }
+
+    public var kind: String {
+        switch self {
+        case .workspace: "workspace"
+        case .transcript: "transcript"
+        case .composer: "composer"
+        case .setupOutput: "setup_output"
+        case .files: "files"
+        case .file: "file"
+        case .download: "download"
+        case .reviewSnapshot: "review_snapshot"
+        case .reviewPatch: "review_patch"
+        case .runScripts: "run_scripts"
+        case .notes: "notes"
+        case .pullRequest: "pull_request"
+        case .archivePreview: "archive_preview"
+        case .newChat: "new_chat"
+        case .renameChat: "rename_chat"
+        case .closeChat: "close_chat"
+        case .markRead: "mark_read"
+        case .setComposer: "set_composer"
+        case .send: "send"
+        case .cancelQueued: "cancel_queued"
+        case .stop: "stop"
+        case .answer: "answer"
+        case .writeFile: "write_file"
+        case .uploadFile: "upload_file"
+        case .commit: "commit"
+        case .push: "push"
+        case .createPullRequest: "create_pull_request"
+        case .saveNotes: "save_notes"
+        case .renameWorkspace: "rename_workspace"
+        case .runSetup: "run_setup"
+        case .runScript: "run_script"
+        case .closeTerminal: "close_terminal"
+        case .archive: "archive"
+        }
+    }
+
+    enum Keys: String, CodingKey {
+        case chatID = "chat_id", afterSeq = "after_seq", limit, path, scope, knownRevision = "known_revision", wait
+        case controls, title, seq, text, promptID = "prompt_id", requestID = "request_id", answer
+        case revision, name, data, message, body, draft, id, confirmationID = "confirmation_id"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let kind = try Tagged.kind(from: decoder)
+        let c = try decoder.container(keyedBy: Keys.self)
+        switch kind {
+        case "workspace": self = .workspace
+        case "transcript":
+            self = .transcript(chatID: try c.decode(String.self, forKey: .chatID), afterSeq: try c.decodeIfPresent(Int.self, forKey: .afterSeq) ?? -1,
+                               limit: try c.decodeIfPresent(Int.self, forKey: .limit))
+        case "composer": self = .composer(chatID: try c.decode(String.self, forKey: .chatID))
+        case "setup_output": self = .setupOutput
+        case "files": self = .files
+        case "file": self = .file(path: try c.decode(String.self, forKey: .path))
+        case "download": self = .download(path: try c.decode(String.self, forKey: .path))
+        case "review_snapshot":
+            self = .reviewSnapshot(scope: try c.decode(DiffScope.self, forKey: .scope), knownRevision: try c.decodeIfPresent(String.self, forKey: .knownRevision),
+                                   wait: try c.decodeIfPresent(Bool.self, forKey: .wait) ?? false)
+        case "review_patch":
+            self = .reviewPatch(path: try c.decode(String.self, forKey: .path), scope: try c.decode(DiffScope.self, forKey: .scope),
+                                knownRevision: try c.decodeIfPresent(String.self, forKey: .knownRevision))
+        case "run_scripts": self = .runScripts
+        case "notes": self = .notes
+        case "pull_request": self = .pullRequest
+        case "archive_preview": self = .archivePreview
+        case "new_chat": self = .newChat(controls: try c.decode(ComposerControlsRecord.self, forKey: .controls))
+        case "rename_chat": self = .renameChat(chatID: try c.decode(String.self, forKey: .chatID), title: try c.decode(String.self, forKey: .title))
+        case "close_chat": self = .closeChat(chatID: try c.decode(String.self, forKey: .chatID))
+        case "mark_read": self = .markRead(chatID: try c.decode(String.self, forKey: .chatID), seq: try c.decode(Int.self, forKey: .seq))
+        case "set_composer":
+            self = .setComposer(chatID: try c.decode(String.self, forKey: .chatID), controls: try c.decode(ComposerControlsRecord.self, forKey: .controls))
+        case "send": self = .send(chatID: try c.decode(String.self, forKey: .chatID), text: try c.decode(String.self, forKey: .text))
+        case "cancel_queued": self = .cancelQueued(chatID: try c.decode(String.self, forKey: .chatID), promptID: try c.decode(String.self, forKey: .promptID))
+        case "stop": self = .stop(chatID: try c.decode(String.self, forKey: .chatID))
+        case "answer":
+            self = .answer(chatID: try c.decode(String.self, forKey: .chatID), requestID: try c.decode(String.self, forKey: .requestID),
+                           answer: try c.decode(Answer.self, forKey: .answer))
+        case "write_file":
+            self = .writeFile(path: try c.decode(String.self, forKey: .path), text: try c.decode(String.self, forKey: .text),
+                              revision: try c.decode(String.self, forKey: .revision))
+        case "upload_file": self = .uploadFile(name: try c.decode(String.self, forKey: .name), data: try c.decode(Data.self, forKey: .data))
+        case "commit": self = .commit(message: try c.decode(String.self, forKey: .message))
+        case "push": self = .push
+        case "create_pull_request":
+            self = .createPullRequest(title: try c.decode(String.self, forKey: .title), body: try c.decodeIfPresent(String.self, forKey: .body) ?? "",
+                                      draft: try c.decodeIfPresent(Bool.self, forKey: .draft) ?? false)
+        case "save_notes": self = .saveNotes(text: try c.decode(String.self, forKey: .text))
+        case "rename_workspace": self = .renameWorkspace(name: try c.decode(String.self, forKey: .name))
+        case "run_setup": self = .runSetup
+        case "run_script": self = .runScript(id: try c.decode(String.self, forKey: .id))
+        case "close_terminal": self = .closeTerminal(name: try c.decode(String.self, forKey: .name))
+        case "archive": self = .archive(confirmationID: try c.decode(String.self, forKey: .confirmationID))
+        default: throw Tagged.unknown(kind, in: decoder)
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        try Tagged.encode(kind: kind, to: encoder)
+        var c = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case .workspace, .setupOutput, .files, .runScripts, .notes, .pullRequest, .archivePreview, .push, .runSetup: break
+        case .transcript(let chatID, let afterSeq, let limit):
+            try c.encode(chatID, forKey: .chatID); try c.encode(afterSeq, forKey: .afterSeq); try c.encodeIfPresent(limit, forKey: .limit)
+        case .composer(let chatID), .closeChat(let chatID), .stop(let chatID): try c.encode(chatID, forKey: .chatID)
+        case .file(let path), .download(let path): try c.encode(path, forKey: .path)
+        case .reviewSnapshot(let scope, let knownRevision, let wait):
+            try c.encode(scope, forKey: .scope); try c.encodeIfPresent(knownRevision, forKey: .knownRevision); try c.encode(wait, forKey: .wait)
+        case .reviewPatch(let path, let scope, let knownRevision):
+            try c.encode(path, forKey: .path); try c.encode(scope, forKey: .scope); try c.encodeIfPresent(knownRevision, forKey: .knownRevision)
+        case .newChat(let controls): try c.encode(controls, forKey: .controls)
+        case .renameChat(let chatID, let title): try c.encode(chatID, forKey: .chatID); try c.encode(title, forKey: .title)
+        case .markRead(let chatID, let seq): try c.encode(chatID, forKey: .chatID); try c.encode(seq, forKey: .seq)
+        case .setComposer(let chatID, let controls): try c.encode(chatID, forKey: .chatID); try c.encode(controls, forKey: .controls)
+        case .send(let chatID, let text): try c.encode(chatID, forKey: .chatID); try c.encode(text, forKey: .text)
+        case .cancelQueued(let chatID, let promptID): try c.encode(chatID, forKey: .chatID); try c.encode(promptID, forKey: .promptID)
+        case .answer(let chatID, let requestID, let answer):
+            try c.encode(chatID, forKey: .chatID); try c.encode(requestID, forKey: .requestID); try c.encode(answer, forKey: .answer)
+        case .writeFile(let path, let text, let revision):
+            try c.encode(path, forKey: .path); try c.encode(text, forKey: .text); try c.encode(revision, forKey: .revision)
+        case .uploadFile(let name, let data): try c.encode(name, forKey: .name); try c.encode(data, forKey: .data)
+        case .commit(let message): try c.encode(message, forKey: .message)
+        case .createPullRequest(let title, let body, let draft):
+            try c.encode(title, forKey: .title); try c.encode(body, forKey: .body); try c.encode(draft, forKey: .draft)
+        case .saveNotes(let text): try c.encode(text, forKey: .text)
+        case .renameWorkspace(let name), .closeTerminal(let name): try c.encode(name, forKey: .name)
+        case .runScript(let id): try c.encode(id, forKey: .id)
+        case .archive(let confirmationID): try c.encode(confirmationID, forKey: .confirmationID)
+        }
+    }
+}
+
+/// Which changes a review shows: everything on the branch since it left its base, or only what
+/// has not been committed.
+public enum DiffScope: String, Codable, Sendable, Hashable, CaseIterable {
+    case branch
+    case uncommitted
+}
+
+/// An answer to a permission prompt, a question or a plan.
+public enum Answer: Codable, Sendable, Hashable {
+    case allowOnce
+    case allowSession
+    case allowProject
+    case deny(message: String?, endsTurn: Bool)
+    case approvePlan(permissionMode: String)
+    case question(input: WireValue)
+
+    enum Keys: String, CodingKey { case message, endsTurn = "ends_turn", permissionMode = "permission_mode", input }
+
+    public init(from decoder: any Decoder) throws {
+        let kind = try Tagged.kind(from: decoder)
+        let c = try decoder.container(keyedBy: Keys.self)
+        switch kind {
+        case "allow_once": self = .allowOnce
+        case "allow_session": self = .allowSession
+        case "allow_project": self = .allowProject
+        case "deny": self = .deny(message: try c.decodeIfPresent(String.self, forKey: .message), endsTurn: try c.decodeIfPresent(Bool.self, forKey: .endsTurn) ?? false)
+        case "approve_plan": self = .approvePlan(permissionMode: try c.decode(String.self, forKey: .permissionMode))
+        case "question": self = .question(input: try c.decode(WireValue.self, forKey: .input))
+        default: throw Tagged.unknown(kind, in: decoder)
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case .allowOnce: try Tagged.encode(kind: "allow_once", to: encoder)
+        case .allowSession: try Tagged.encode(kind: "allow_session", to: encoder)
+        case .allowProject: try Tagged.encode(kind: "allow_project", to: encoder)
+        case .deny(let message, let endsTurn):
+            try Tagged.encode(kind: "deny", to: encoder)
+            try c.encodeIfPresent(message, forKey: .message); try c.encode(endsTurn, forKey: .endsTurn)
+        case .approvePlan(let mode):
+            try Tagged.encode(kind: "approve_plan", to: encoder)
+            try c.encode(mode, forKey: .permissionMode)
+        case .question(let input):
+            try Tagged.encode(kind: "question", to: encoder)
+            try c.encode(input, forKey: .input)
+        }
+    }
+}

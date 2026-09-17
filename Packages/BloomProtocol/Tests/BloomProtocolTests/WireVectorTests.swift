@@ -1,0 +1,206 @@
+import BloomProtocol
+import Foundation
+import Testing
+
+/// The checked-in examples in `Protocol/v1/vectors.json` are what these types encode to, and they
+/// decode back to the same values.
+///
+/// The file is what a client in another language is tested against, so a change to a Swift type
+/// that moves the JSON has to move the file in the same commit, and this test is what says so.
+/// Regenerate with `BLOOM_WRITE_VECTORS=1 swift test` inside this package, then read the diff.
+struct WireVectorTests {
+    static let vectorsURL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Protocol/v1/vectors.json")
+
+    @Test func theCheckedInVectorsAreWhatTheTypesEncodeTo() throws {
+        let encoded = try Self.encodedVectors()
+        if ProcessInfo.processInfo.environment["BLOOM_WRITE_VECTORS"] == "1" {
+            try FileManager.default.createDirectory(at: Self.vectorsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try encoded.write(to: Self.vectorsURL)
+            return
+        }
+        let stored = try Data(contentsOf: Self.vectorsURL)
+        #expect(String(decoding: stored, as: UTF8.self) == String(decoding: encoded, as: UTF8.self))
+    }
+
+    @Test func everyVectorDecodesBackToItsValue() throws {
+        let decoder = WireJSON.decoder()
+        let encoder = WireJSON.encoder()
+        for (name, operation) in WireExamples.operations {
+            let request = CommandRequest(operation, commandID: WireExamples.commandID)
+            let back = try decoder.decode(CommandRequest.self, from: encoder.encode(request))
+            #expect(back == request, "operation \(name)")
+        }
+        for (name, result) in WireExamples.results {
+            let reply = CommandReply(commandID: WireExamples.commandID, result: result)
+            let back = try decoder.decode(CommandReply.self, from: encoder.encode(reply))
+            #expect(back == reply, "result \(name)")
+        }
+        for (name, event) in WireExamples.events {
+            #expect(try decoder.decode(WorkspaceEvent.self, from: encoder.encode(event)) == event, "event \(name)")
+        }
+        for (name, frame) in WireExamples.terminalFrames {
+            #expect(try decoder.decode(TerminalControlFrame.self, from: encoder.encode(frame)) == frame, "frame \(name)")
+        }
+    }
+
+    @Test func anOperationIsOneFlatObjectWithItsKind() throws {
+        let data = try WireJSON.encode(CommandRequest(.send(chatID: "chat", text: "Run the tests"), commandID: "c1"))
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(text == #"{"command_id":"c1","operation":{"chat_id":"chat","kind":"send","text":"Run the tests"},"protocol":"bloom-workspace","version":1}"#)
+    }
+
+    @Test func datesAreISO8601InUTC() throws {
+        let data = try WireJSON.encode(SetupRecord(state: "running", startedAt: WireExamples.date))
+        #expect(String(decoding: data, as: UTF8.self).contains(#""started_at":"2026-09-17T09:40:02.500Z""#))
+        #expect(WireDate.date(from: "2026-09-17T09:40:02Z") == Date(timeIntervalSince1970: 1_789_638_002))
+    }
+
+    @Test func anUnknownKindIsRefusedRatherThanGuessed() {
+        let data = Data(#"{"command_id":"c1","operation":{"kind":"catalogue"},"protocol":"bloom-workspace","version":1}"#.utf8)
+        #expect(throws: DecodingError.self) { try WireJSON.decode(CommandRequest.self, from: data) }
+    }
+
+    static func encodedVectors() throws -> Data {
+        var vectors: [String: WireValue] = [:]
+        let encoder = WireJSON.encoder()
+        func value(_ encodable: some Encodable) throws -> WireValue {
+            try JSONDecoder().decode(WireValue.self, from: encoder.encode(encodable))
+        }
+        vectors["requests"] = .object(try WireExamples.operations.reduce(into: [:]) { result, pair in
+            result[pair.0] = try value(CommandRequest(pair.1, commandID: WireExamples.commandID))
+        })
+        vectors["replies"] = .object(try WireExamples.results.reduce(into: [:]) { result, pair in
+            result[pair.0] = try value(CommandReply(commandID: WireExamples.commandID, result: pair.1))
+        })
+        vectors["errors"] = .object(try WireExamples.errors.reduce(into: [:]) { result, pair in
+            result[pair.0] = try value(CommandReply(commandID: WireExamples.commandID, error: pair.1))
+        })
+        vectors["events"] = .object(try WireExamples.events.reduce(into: [:]) { result, pair in
+            result[pair.0] = try value(pair.1)
+        })
+        vectors["terminal_frames"] = .object(try WireExamples.terminalFrames.reduce(into: [:]) { result, pair in
+            result[pair.0] = try value(pair.1)
+        })
+        let pretty = JSONEncoder()
+        pretty.outputFormatting = [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
+        return try pretty.encode(vectors) + Data("\n".utf8)
+    }
+}
+
+enum WireExamples {
+    static let commandID = "00000000-0000-4000-8000-000000000001"
+    static let date = Date(timeIntervalSince1970: 1_789_638_002.5)
+    static let author = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2t", name: "Freek")
+    static let controls = ComposerControlsRecord(agent: "claude", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits", interactionMode: "build")
+    static let setup = SetupRecord(state: "succeeded", step: nil, startedAt: date, finishedAt: date)
+    static let chat = ChatRecord(id: "chat-1", title: "Chat", agent: "claude", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits",
+                                 interactionMode: "build", state: "running", lastSeq: 4, createdAt: date, updatedAt: date)
+    static let message = MessageRecord(cursor: 118, chatID: "chat-1", seq: 4, kind: "user",
+                                       payload: .object(["type": .string("user"), "message": .object(["role": .string("user")])]), author: author, createdAt: date)
+    static let queue = QueueRecord(chatID: "chat-1", prompts: [
+        QueuedPromptRecord(id: "delivery-1", text: "And the docs", author: author, state: "queued", createdAt: date),
+        QueuedPromptRecord(id: "delivery-2", text: "Then push", author: author, state: "blocked",
+                           blocked: BlockedRecord(limit: "concurrent_machines", message: "Your team already has 20 Cloud workspaces running."), createdAt: date),
+    ])
+    static let question = QuestionRecord(requestID: "ask-1", chatID: "chat-1", ask: .object(["tool_name": .string("Bash")]), askedAt: date)
+    static let workspace = WorkspaceRecord(id: "01k5bx7j9d3v2r8q6m4n0p1s2w", name: "Queue retries", branch: "freek/queue-retries", baseBranch: "main", setup: setup)
+
+    static let operations: [(String, WorkspaceOperation)] = [
+        ("workspace", .workspace),
+        ("transcript", .transcript(chatID: "chat-1", afterSeq: 3, limit: 200)),
+        ("composer", .composer(chatID: "chat-1")),
+        ("setup_output", .setupOutput),
+        ("files", .files),
+        ("file", .file(path: "README.md")),
+        ("download", .download(path: "storage/logs/laravel.log")),
+        ("review_snapshot", .reviewSnapshot(scope: .branch, knownRevision: nil, wait: true)),
+        ("review_patch", .reviewPatch(path: "README.md", scope: .uncommitted, knownRevision: "revision-1")),
+        ("run_scripts", .runScripts),
+        ("notes", .notes),
+        ("pull_request", .pullRequest),
+        ("archive_preview", .archivePreview),
+        ("new_chat", .newChat(controls: controls)),
+        ("rename_chat", .renameChat(chatID: "chat-1", title: "Review")),
+        ("close_chat", .closeChat(chatID: "chat-1")),
+        ("mark_read", .markRead(chatID: "chat-1", seq: 4)),
+        ("set_composer", .setComposer(chatID: "chat-1", controls: controls)),
+        ("send", .send(chatID: "chat-1", text: "Run the tests")),
+        ("cancel_queued", .cancelQueued(chatID: "chat-1", promptID: "delivery-1")),
+        ("stop", .stop(chatID: "chat-1")),
+        ("answer_allow_once", .answer(chatID: "chat-1", requestID: "ask-1", answer: .allowOnce)),
+        ("answer_deny", .answer(chatID: "chat-1", requestID: "ask-1", answer: .deny(message: "Not that file", endsTurn: true))),
+        ("answer_plan", .answer(chatID: "chat-1", requestID: "ask-1", answer: .approvePlan(permissionMode: "acceptEdits"))),
+        ("answer_question", .answer(chatID: "chat-1", requestID: "ask-1", answer: .question(input: .object(["answers": .object(["Which?": .string("Both")])])))),
+        ("write_file", .writeFile(path: "README.md", text: "# Bloom\n", revision: "revision-1")),
+        ("upload_file", .uploadFile(name: "screenshot.png", data: Data([0x89, 0x50, 0x4E, 0x47]))),
+        ("commit", .commit(message: "Retry the queue")),
+        ("push", .push),
+        ("create_pull_request", .createPullRequest(title: "Retry the queue", body: "", draft: true)),
+        ("save_notes", .saveNotes(text: "Check the retry limit")),
+        ("rename_workspace", .renameWorkspace(name: "Queue retries")),
+        ("run_setup", .runSetup),
+        ("run_script", .runScript(id: "tests")),
+        ("close_terminal", .closeTerminal(name: "terminal-1")),
+        ("archive", .archive(confirmationID: "00000000-0000-4000-8000-000000000002")),
+    ]
+
+    static let results: [(String, OperationResult)] = [
+        ("accepted", .accepted),
+        ("workspace", .workspace(WorkspaceSnapshotRecord(workspace: workspace, chats: [chat],
+                                                          presence: [PresenceRecord(userID: author.userID, name: author.name, lastInputAt: date)], cursor: 118))),
+        ("transcript", .transcript(TranscriptRecord(chat: chat, messages: [message], hasMore: false, questions: [question], busy: true,
+                                                    streamingText: "Running", queue: queue))),
+        ("composer", .composer(ComposerRecord(chatID: "chat-1", controls: controls, availableAgents: ["claude", "codex"],
+            models: [ModelRecord(agent: "codex", id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium", isDefault: true)],
+            commands: [SlashCommandRecord(name: "review", description: "Review the branch")], outputStyles: ["default", "Explanatory"]))),
+        ("setup_output", .setupOutput(SetupOutputRecord(setup: SetupRecord(state: "running", step: "setup", startedAt: date), log: "Installing\n"))),
+        ("files", .files(paths: ["README.md", "app/Queue.php"])),
+        ("file", .file(TextFileRecord(path: "README.md", text: "# Bloom\n", revision: "revision-1"))),
+        ("download", .download(DownloadRecord(path: "logo.png", data: Data([0x89, 0x50])))),
+        ("review_snapshot", .reviewSnapshot(ReviewSnapshotRecord(revision: "revision-2", files: [
+            ChangedFileRecord(path: "app/Queue.php", change: "modified", additions: 12, deletions: 3, isBinary: false, contentRevision: "file-revision"),
+            ChangedFileRecord(path: "app/Retry.php", oldPath: "app/Retries.php", change: "renamed", additions: 0, deletions: 0, isBinary: false),
+        ]))),
+        ("review_snapshot_unchanged", .reviewSnapshot(ReviewSnapshotRecord(revision: "revision-2", files: nil))),
+        ("review_patch", .reviewPatch(PatchSnapshotRecord(revision: "file-revision", patch: "diff --git a/README.md b/README.md\n"))),
+        ("run_scripts", .runScripts(scripts: [RunScriptRecord(id: "tests", name: "Tests", command: "composer test")])),
+        ("text", .text("https://github.com/spatie/example/pull/12")),
+        ("chat", .chat(chat)),
+        ("queued", .queued(promptID: "delivery-1")),
+        ("archive_preview", .archivePreview(ArchivePreviewRecord(confirmationID: "00000000-0000-4000-8000-000000000002", hasUncommittedChanges: true,
+            untrackedFiles: ["notes.txt"], unpushedCommits: 2, detachedCommits: 0, isAgentRunning: false, isPullRequestMerged: false, createdAt: date))),
+        ("terminal", .terminal(TerminalRecord(name: "run-tests", title: "Tests"))),
+    ]
+
+    static let errors: [(String, WireError)] = [
+        ("busy", WireError(.busy, "Stop the current turn before changing its settings.")),
+        ("conflict", WireError(.conflict, "This file changed since it was opened. Reload it before saving.")),
+        ("outcome_unknown", WireError(.outcomeUnknown, "The server stopped while handling this command. Check the workspace before sending it again.")),
+    ]
+
+    static let events: [(String, WorkspaceEvent)] = [
+        ("message", .message(message)),
+        ("stream_snapshot", .stream(chatID: "chat-1", text: "Reading the queue", snapshot: true)),
+        ("stream_delta", .stream(chatID: "chat-1", text: " worker", snapshot: false)),
+        ("chat", .chat(chat)),
+        ("queue", .queue(queue)),
+        ("questions", .questions(chatID: "chat-1", questions: [question])),
+        ("composer", .composer(chatID: "chat-1", controls: controls, changedBy: author)),
+        ("setup", .setup(SetupRecord(state: "running", step: "prepare", startedAt: date))),
+        ("setup_output", .setupOutput(text: "Reading package lists...\n")),
+        ("review", .review(revision: 7)),
+        ("presence", .presence([PresenceRecord(userID: author.userID, name: author.name, lastInputAt: nil)])),
+        ("workspace", .workspace(workspace)),
+        ("sleeping", .sleeping),
+        ("closing", .closing(WireError(.tokenExpired, "The session token expired."))),
+    ]
+
+    static let terminalFrames: [(String, TerminalControlFrame)] = [
+        ("auth", .auth(token: "eyJhbGciOiJFZERTQSJ9.example.signature")),
+        ("reauth", .reauth(token: "eyJhbGciOiJFZERTQSJ9.example.signature")),
+        ("resize", .resize(columns: 120, rows: 40)),
+    ]
+}

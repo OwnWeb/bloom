@@ -432,3 +432,8 @@ jobs:
 
       - name: Run the Linux tests
         run: runuser -u bloom-ci -- swift test --skip-build
+
+      # The wire shapes are their own package, so their vectors are checked on their own. On
+      # Linux, because a client in another language is most likely to be reading them there.
+      - name: Check the protocol vectors
+        run: runuser -u bloom-ci -- swift test --package-path Packages/BloomProtocol -Xswiftc -warnings-as-errors

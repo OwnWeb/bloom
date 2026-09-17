@@ -342,6 +342,8 @@ id_type_allowed_lines=(
 id_type_allowed_properties=(
   'Sources/BloomCore/Agent/Delivery.swift:providerTurnID'             # the provider's accepted turn, used for recovery
   'Sources/BloomCore/Agent/PlanArtefact.swift:sourceID'               # the provider's plan item or tool-use token
+  'Sources/BloomCore/Agent/Delivery.swift:remoteTurnID'               # runbloom.app's turn, a ULID it assigns
+  'Sources/BloomCore/Model/MessageAuthor.swift:userID'                # runbloom.app's user, the token's sub
 )
 # A stored property whose name ends in ID or Ids and whose type is a bare
 # String. Trailing `{` is excluded by the `$` anchor, which is what leaves

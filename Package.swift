@@ -42,6 +42,7 @@ let package = Package(
         .library(name: "BloomCore", targets: ["BloomCore"]),
     ],
     dependencies: [
+        .package(path: "Packages/BloomProtocol"),
         // CryptoKit's API for Linux, where CryptoKit does not exist. The Mac build imports
         // CryptoKit itself and never resolves this.
         .package(url: "https://github.com/apple/swift-crypto.git", from: "4.5.2"),
@@ -56,7 +57,11 @@ let package = Package(
         ),
         .target(
             name: "BloomCore",
-            dependencies: ["SQLite3", .product(name: "Crypto", package: "swift-crypto")],
+            dependencies: [
+                "SQLite3",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "BloomProtocol", package: "BloomProtocol"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(
@@ -86,6 +91,8 @@ let package = Package(
         .library(name: "BloomCore", targets: ["BloomCore"]),
     ],
     dependencies: [
+        // The Cloud workspace wire shapes, shared by the server and every Swift client.
+        .package(path: "Packages/BloomProtocol"),
         // Native live Markdown editing for workspace notes. Pin the pre-1.0 API we integrate.
         .package(url: "https://github.com/nodes-app/swift-markdown-engine", exact: "0.12.0"),
         // The terminal panes. The upper bound is not tidiness: SwiftTerm tags 1.20.0 as a
@@ -103,6 +110,7 @@ let package = Package(
     targets: [
         .target(
             name: "BloomCore",
+            dependencies: [.product(name: "BloomProtocol", package: "BloomProtocol")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(

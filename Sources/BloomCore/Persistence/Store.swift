@@ -1168,6 +1168,27 @@ public actor Store {
                     ON workspace_done_watches(target_workspace_id, notified_at);
                 """)
             },
+
+            // Who asked, for a Cloud workspace, where several people prompt in one chat. On the
+            // delivery, because that is what the queue shows, and on the message, because that is
+            // what the transcript shows and a claimed delivery is not read again to draw it. The
+            // turn id and the refusal are the queue's side of runbloom.app's turns: see
+            // `DeliveryBlock`. All nullable, and nil on everything a Mac writes for its own owner.
+            //
+            // Added only when missing, for the reason the step above gives.
+            { db in
+                let deliveries = Set(try db.query("PRAGMA table_info(deliveries);").compactMap { $0.string("name") })
+                for (column, type) in [
+                    ("author_user_id", "TEXT"), ("author_name", "TEXT"), ("remote_turn_id", "TEXT"),
+                    ("blocked_limit", "TEXT"), ("blocked_message", "TEXT"),
+                ] where !deliveries.contains(column) {
+                    try db.execute("ALTER TABLE deliveries ADD COLUMN \(column) \(type);")
+                }
+                let messages = Set(try db.query("PRAGMA table_info(messages);").compactMap { $0.string("name") })
+                for column in ["author_user_id", "author_name"] where !messages.contains(column) {
+                    try db.execute("ALTER TABLE messages ADD COLUMN \(column) TEXT;")
+                }
+            },
         ]
 
         let current = Int(try db.readUserVersion())
@@ -2387,14 +2408,16 @@ public actor Store {
     private func insert(_ message: Message) throws -> Int64 {
         let id = try db.run(
             """
-            INSERT INTO messages (session_id, seq, kind, payload, created_at, duration_ms, ref_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (session_id, seq, kind, payload, created_at, duration_ms, ref_id, author_user_id, author_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(message.sessionID), .int(Int64(message.seq)), .text(message.kind.rawValue),
                 .blob(message.payload), .double(message.createdAt.timeIntervalSince1970),
                 message.durationMS.map { .int(Int64($0)) } ?? .null,
                 message.refID.map { .text($0) } ?? .null,
+                message.author.map { .text($0.userID) } ?? .null,
+                message.author.map { .text($0.name) } ?? .null,
             ]
         )
         // Here rather than in a trigger, and here rather than in a task afterwards: this is the
@@ -2815,8 +2838,9 @@ public actor Store {
             """
             INSERT INTO deliveries
                 (id, target_session_id, source_workspace_id, kind, verdict, body, crew_payload,
-                 created_at, delivered_at, delivered_seq, delivery_state, interaction_mode, provider_turn_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 created_at, delivered_at, delivered_seq, delivery_state, interaction_mode, provider_turn_id,
+                 author_user_id, author_name, remote_turn_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(delivery.id),
@@ -2832,6 +2856,9 @@ public actor Store {
                 .text(delivery.state.rawValue),
                 delivery.interactionMode.map { .text($0.rawValue) } ?? .null,
                 delivery.providerTurnID.map { .text($0) } ?? .null,
+                delivery.author.map { .text($0.userID) } ?? .null,
+                delivery.author.map { .text($0.name) } ?? .null,
+                delivery.remoteTurnID.map { .text($0) } ?? .null,
             ]
         )
         return delivery
@@ -2855,7 +2882,7 @@ public actor Store {
                 let next = try nextSeqLocked(sessionID: delivery.targetSessionID)
                 _ = try insert(Message(sessionID: delivery.targetSessionID, seq: next,
                     kind: delivery.crewPayload == nil ? .user : .crew, payload: payload,
-                    createdAt: delivery.createdAt))
+                    createdAt: delivery.createdAt, author: delivery.author))
                 seq = next
             }
             try db.run("UPDATE deliveries SET delivery_state = 'claimed', delivered_seq = ? WHERE id = ?", [
@@ -2973,6 +3000,48 @@ public actor Store {
             "UPDATE workspace_messages SET state = 'queued', delivered_at = NULL WHERE delivery_id = ? AND state = 'delivered'",
             [.text(id)]
         )
+    }
+
+    /// Records the turn runbloom.app registered for a Cloud workspace prompt. Named columns, like
+    /// every other delivery write here, because the drain and the queue's readers are not ordered.
+    public func recordRemoteTurn(deliveryID: DeliveryID, turnID: String) throws {
+        try db.run("UPDATE deliveries SET remote_turn_id = ? WHERE id = ?", [.text(turnID), .text(deliveryID)])
+    }
+
+    /// Marks a waiting prompt as refused by a limit, or clears the mark with nil.
+    public func setDeliveryBlock(id: DeliveryID, _ block: DeliveryBlock?) throws {
+        try db.run(
+            "UPDATE deliveries SET blocked_limit = ?, blocked_message = ? WHERE id = ?",
+            [block.map { .text($0.limit) } ?? .null, block.map { .text($0.message) } ?? .null, .text(id)]
+        )
+    }
+
+    /// Transcript rows across every chat in a workspace, after a row id, oldest first.
+    ///
+    /// The row id rather than `seq`, because `seq` counts within one chat and a Cloud workspace's
+    /// event stream resumes all of them from one number. The table's id is `AUTOINCREMENT`, so
+    /// SQLite hands ids out in increasing order and never reuses one, even after a delete, which
+    /// is what makes the id a cursor. See `MessageRecord.cursor`.
+    public func messages(workspaceID: WorkspaceID, afterID: Int64, limit: Int = 500) throws -> [Message] {
+        try db.query(
+            """
+            SELECT messages.* FROM messages JOIN sessions ON sessions.id = messages.session_id
+            WHERE sessions.workspace_id = ? AND messages.id > ?
+            ORDER BY messages.id LIMIT ?
+            """,
+            [.text(workspaceID), .int(afterID), .int(Int64(limit))]
+        ).map(Self.message(from:))
+    }
+
+    /// The newest transcript row id in a workspace, or 0 when it has none.
+    public func latestMessageID(workspaceID: WorkspaceID) throws -> Int64 {
+        try db.query(
+            """
+            SELECT COALESCE(MAX(messages.id), 0) AS m FROM messages JOIN sessions ON sessions.id = messages.session_id
+            WHERE sessions.workspace_id = ?
+            """,
+            [.text(workspaceID)]
+        ).first?.int("m") ?? 0
     }
 
     // MARK: - Workspace messages
@@ -3862,7 +3931,10 @@ public actor Store {
             deliveredSeq: row.int("delivered_seq").map(Int.init),
             state: Delivery.State(rawValue: row.string("delivery_state") ?? ""),
             interactionMode: row.string("interaction_mode").flatMap(InteractionMode.init(rawValue:)),
-            providerTurnID: row.string("provider_turn_id")
+            providerTurnID: row.string("provider_turn_id"),
+            author: author(from: row),
+            remoteTurnID: row.string("remote_turn_id"),
+            block: row.string("blocked_limit").map { DeliveryBlock(limit: $0, message: row.string("blocked_message") ?? "") }
         )
     }
 
@@ -4054,8 +4126,14 @@ public actor Store {
             payload: row.data("payload") ?? Data(),
             createdAt: row.date("created_at") ?? Date(),
             durationMS: row.int("duration_ms").map(Int.init),
-            refID: row.string("ref_id")
+            refID: row.string("ref_id"),
+            author: Self.author(from: row)
         )
+    }
+
+    private static func author(from row: Row) -> MessageAuthor? {
+        guard let id = row.string("author_user_id") else { return nil }
+        return MessageAuthor(userID: id, name: row.string("author_name") ?? "")
     }
 
     private static func ocean(from row: Row) -> Ocean {

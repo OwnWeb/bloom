@@ -592,6 +592,8 @@ public struct Message: Identifiable, Sendable, Hashable, Codable {
     public var durationMS: Int?
     /// For toolUse rows: the tool_use id, so a tool_result can find its parent.
     public var refID: String?
+    /// Who wrote a user row in a Cloud workspace. See `MessageAuthor`.
+    public var author: MessageAuthor?
 
     public init(
         id: Int64 = 0,
@@ -601,8 +603,10 @@ public struct Message: Identifiable, Sendable, Hashable, Codable {
         payload: Data,
         createdAt: Date = Date(),
         durationMS: Int? = nil,
-        refID: String? = nil
+        refID: String? = nil,
+        author: MessageAuthor? = nil
     ) {
+        self.author = author
         self.id = id
         self.sessionID = sessionID
         self.seq = seq

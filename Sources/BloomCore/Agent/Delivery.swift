@@ -82,6 +82,14 @@ public struct Delivery: Identifiable, Sendable, Hashable {
     /// the call that sends. The MCP half writes its own row through `Store.appendNext` and has
     /// the number in its hand.
     public var deliveredSeq: Int?
+    /// Who asked, in a Cloud workspace. Copied onto the user row when the delivery is claimed, so
+    /// the transcript names the person without looking the queue up again. See `MessageAuthor`.
+    public var author: MessageAuthor?
+    /// The turn runbloom.app registered for this prompt, which is what starting it asks a key for.
+    /// Nil outside a Cloud workspace.
+    public var remoteTurnID: String?
+    /// Why runbloom.app refused to start it, while it is refused. See `DeliveryBlock`.
+    public var block: DeliveryBlock?
 
     public init(
         id: DeliveryID = .new(),
@@ -96,8 +104,14 @@ public struct Delivery: Identifiable, Sendable, Hashable {
         deliveredSeq: Int? = nil,
         state: State? = nil,
         interactionMode: InteractionMode? = nil,
-        providerTurnID: String? = nil
+        providerTurnID: String? = nil,
+        author: MessageAuthor? = nil,
+        remoteTurnID: String? = nil,
+        block: DeliveryBlock? = nil
     ) {
+        self.author = author
+        self.remoteTurnID = remoteTurnID
+        self.block = block
         self.state = state ?? (deliveredAt == nil ? .pending : .accepted)
         self.interactionMode = interactionMode
         self.providerTurnID = providerTurnID

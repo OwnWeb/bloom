@@ -74,6 +74,9 @@ ln -sfn "$ROOT/Tests/BloomCoreTests" "$WORK/Tests/BloomCoreTests"
 # The tests find a fixture by walking up from their own file, so it has to be reachable
 # from the mirrored Tests directory as well as from the real one.
 ln -sfn "$ROOT/Tests/fixtures" "$WORK/Tests/fixtures"
+# BloomCore's one dependency, the Cloud workspace wire shapes, which is plain Foundation and a
+# package of its own, so the mirror can name it by the same relative path the real manifest does.
+ln -sfn "$ROOT/Packages" "$WORK/Packages"
 
 cat > "$WORK/Package.swift" <<'EOF'
 // swift-tools-version: 6.2
@@ -82,8 +85,13 @@ import PackageDescription
 let package = Package(
     name: "BloomCoreOnly",
     platforms: [.macOS(.v26)],
+    dependencies: [.package(path: "Packages/BloomProtocol")],
     targets: [
-        .target(name: "BloomCore", swiftSettings: [.swiftLanguageMode(.v6)]),
+        .target(
+            name: "BloomCore",
+            dependencies: [.product(name: "BloomProtocol", package: "BloomProtocol")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .executableTarget(
             name: "bloom-bridge",
             dependencies: ["BloomCore"],

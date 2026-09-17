@@ -1,0 +1,942 @@
+{
+  "errors" : {
+    "busy" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "error" : {
+        "code" : "busy",
+        "message" : "Stop the current turn before changing its settings."
+      },
+      "version" : 1
+    },
+    "conflict" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "error" : {
+        "code" : "conflict",
+        "message" : "This file changed since it was opened. Reload it before saving."
+      },
+      "version" : 1
+    },
+    "outcome_unknown" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "error" : {
+        "code" : "outcome_unknown",
+        "message" : "The server stopped while handling this command. Check the workspace before sending it again."
+      },
+      "version" : 1
+    }
+  },
+  "events" : {
+    "chat" : {
+      "chat" : {
+        "agent" : "claude",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "effort" : "high",
+        "id" : "chat-1",
+        "interaction_mode" : "build",
+        "last_seq" : 4,
+        "model" : "claude-opus-5",
+        "permission_mode" : "acceptEdits",
+        "state" : "running",
+        "title" : "Chat",
+        "updated_at" : "2026-09-17T09:40:02.500Z"
+      },
+      "kind" : "chat"
+    },
+    "closing" : {
+      "error" : {
+        "code" : "token_expired",
+        "message" : "The session token expired."
+      },
+      "kind" : "closing"
+    },
+    "composer" : {
+      "changed_by" : {
+        "name" : "Freek",
+        "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+      },
+      "chat_id" : "chat-1",
+      "controls" : {
+        "agent" : "claude",
+        "codex_context_window" : 0,
+        "effort" : "high",
+        "fast_mode" : false,
+        "interaction_mode" : "build",
+        "model" : "claude-opus-5",
+        "output_style" : "default",
+        "permission_mode" : "acceptEdits"
+      },
+      "kind" : "composer"
+    },
+    "message" : {
+      "kind" : "message",
+      "message" : {
+        "author" : {
+          "name" : "Freek",
+          "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+        },
+        "chat_id" : "chat-1",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "cursor" : 118,
+        "kind" : "user",
+        "payload" : {
+          "message" : {
+            "role" : "user"
+          },
+          "type" : "user"
+        },
+        "seq" : 4
+      }
+    },
+    "presence" : {
+      "kind" : "presence",
+      "users" : [
+        {
+          "name" : "Freek",
+          "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+        }
+      ]
+    },
+    "questions" : {
+      "chat_id" : "chat-1",
+      "kind" : "questions",
+      "questions" : [
+        {
+          "ask" : {
+            "tool_name" : "Bash"
+          },
+          "asked_at" : "2026-09-17T09:40:02.500Z",
+          "chat_id" : "chat-1",
+          "request_id" : "ask-1"
+        }
+      ]
+    },
+    "queue" : {
+      "kind" : "queue",
+      "queue" : {
+        "chat_id" : "chat-1",
+        "prompts" : [
+          {
+            "author" : {
+              "name" : "Freek",
+              "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+            },
+            "created_at" : "2026-09-17T09:40:02.500Z",
+            "id" : "delivery-1",
+            "state" : "queued",
+            "text" : "And the docs"
+          },
+          {
+            "author" : {
+              "name" : "Freek",
+              "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+            },
+            "blocked" : {
+              "limit" : "concurrent_machines",
+              "message" : "Your team already has 20 Cloud workspaces running."
+            },
+            "created_at" : "2026-09-17T09:40:02.500Z",
+            "id" : "delivery-2",
+            "state" : "blocked",
+            "text" : "Then push"
+          }
+        ]
+      }
+    },
+    "review" : {
+      "kind" : "review",
+      "revision" : 7
+    },
+    "setup" : {
+      "kind" : "setup",
+      "setup" : {
+        "started_at" : "2026-09-17T09:40:02.500Z",
+        "state" : "running",
+        "step" : "prepare"
+      }
+    },
+    "setup_output" : {
+      "kind" : "setup_output",
+      "text" : "Reading package lists...\n"
+    },
+    "sleeping" : {
+      "kind" : "sleeping"
+    },
+    "stream_delta" : {
+      "chat_id" : "chat-1",
+      "kind" : "stream",
+      "snapshot" : false,
+      "text" : " worker"
+    },
+    "stream_snapshot" : {
+      "chat_id" : "chat-1",
+      "kind" : "stream",
+      "snapshot" : true,
+      "text" : "Reading the queue"
+    },
+    "workspace" : {
+      "kind" : "workspace",
+      "workspace" : {
+        "base_branch" : "main",
+        "branch" : "freek/queue-retries",
+        "id" : "01k5bx7j9d3v2r8q6m4n0p1s2w",
+        "name" : "Queue retries",
+        "setup" : {
+          "finished_at" : "2026-09-17T09:40:02.500Z",
+          "started_at" : "2026-09-17T09:40:02.500Z",
+          "state" : "succeeded"
+        }
+      }
+    }
+  },
+  "replies" : {
+    "accepted" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "accepted"
+      },
+      "version" : 1
+    },
+    "archive_preview" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "archive_preview" : {
+          "confirmation_id" : "00000000-0000-4000-8000-000000000002",
+          "created_at" : "2026-09-17T09:40:02.500Z",
+          "deletes_conversation" : true,
+          "detached_commits" : 0,
+          "has_uncommitted_changes" : true,
+          "is_agent_running" : false,
+          "is_pull_request_merged" : false,
+          "unpushed_commits" : 2,
+          "untracked_files" : [
+            "notes.txt"
+          ]
+        },
+        "kind" : "archive_preview"
+      },
+      "version" : 1
+    },
+    "chat" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "chat" : {
+          "agent" : "claude",
+          "created_at" : "2026-09-17T09:40:02.500Z",
+          "effort" : "high",
+          "id" : "chat-1",
+          "interaction_mode" : "build",
+          "last_seq" : 4,
+          "model" : "claude-opus-5",
+          "permission_mode" : "acceptEdits",
+          "state" : "running",
+          "title" : "Chat",
+          "updated_at" : "2026-09-17T09:40:02.500Z"
+        },
+        "kind" : "chat"
+      },
+      "version" : 1
+    },
+    "composer" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "composer" : {
+          "available_agents" : [
+            "claude",
+            "codex"
+          ],
+          "chat_id" : "chat-1",
+          "commands" : [
+            {
+              "description" : "Review the branch",
+              "name" : "review"
+            }
+          ],
+          "controls" : {
+            "agent" : "claude",
+            "codex_context_window" : 0,
+            "effort" : "high",
+            "fast_mode" : false,
+            "interaction_mode" : "build",
+            "model" : "claude-opus-5",
+            "output_style" : "default",
+            "permission_mode" : "acceptEdits"
+          },
+          "models" : [
+            {
+              "agent" : "codex",
+              "default_effort" : "medium",
+              "efforts" : [
+                "low",
+                "medium",
+                "high"
+              ],
+              "id" : "gpt-5.5",
+              "is_default" : true,
+              "label" : "GPT-5.5"
+            }
+          ],
+          "output_styles" : [
+            "default",
+            "Explanatory"
+          ]
+        },
+        "kind" : "composer"
+      },
+      "version" : 1
+    },
+    "download" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "download" : {
+          "data" : "iVA=",
+          "path" : "logo.png"
+        },
+        "kind" : "download"
+      },
+      "version" : 1
+    },
+    "file" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "file" : {
+          "path" : "README.md",
+          "revision" : "revision-1",
+          "text" : "# Bloom\n"
+        },
+        "kind" : "file"
+      },
+      "version" : 1
+    },
+    "files" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "files",
+        "paths" : [
+          "README.md",
+          "app/Queue.php"
+        ]
+      },
+      "version" : 1
+    },
+    "queued" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "queued",
+        "prompt_id" : "delivery-1"
+      },
+      "version" : 1
+    },
+    "review_patch" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "review_patch",
+        "review_patch" : {
+          "patch" : "diff --git a/README.md b/README.md\n",
+          "revision" : "file-revision"
+        }
+      },
+      "version" : 1
+    },
+    "review_snapshot" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "review_snapshot",
+        "review_snapshot" : {
+          "files" : [
+            {
+              "additions" : 12,
+              "change" : "modified",
+              "content_revision" : "file-revision",
+              "deletions" : 3,
+              "is_binary" : false,
+              "path" : "app/Queue.php"
+            },
+            {
+              "additions" : 0,
+              "change" : "renamed",
+              "deletions" : 0,
+              "is_binary" : false,
+              "old_path" : "app/Retries.php",
+              "path" : "app/Retry.php"
+            }
+          ],
+          "revision" : "revision-2"
+        }
+      },
+      "version" : 1
+    },
+    "review_snapshot_unchanged" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "review_snapshot",
+        "review_snapshot" : {
+          "revision" : "revision-2"
+        }
+      },
+      "version" : 1
+    },
+    "run_scripts" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "run_scripts",
+        "scripts" : [
+          {
+            "command" : "composer test",
+            "id" : "tests",
+            "name" : "Tests"
+          }
+        ]
+      },
+      "version" : 1
+    },
+    "setup_output" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "setup_output",
+        "setup_output" : {
+          "log" : "Installing\n",
+          "setup" : {
+            "started_at" : "2026-09-17T09:40:02.500Z",
+            "state" : "running",
+            "step" : "setup"
+          }
+        }
+      },
+      "version" : 1
+    },
+    "terminal" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "terminal",
+        "terminal" : {
+          "name" : "run-tests",
+          "title" : "Tests"
+        }
+      },
+      "version" : 1
+    },
+    "text" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "text",
+        "value" : "https://github.com/spatie/example/pull/12"
+      },
+      "version" : 1
+    },
+    "transcript" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "transcript",
+        "transcript" : {
+          "busy" : true,
+          "chat" : {
+            "agent" : "claude",
+            "created_at" : "2026-09-17T09:40:02.500Z",
+            "effort" : "high",
+            "id" : "chat-1",
+            "interaction_mode" : "build",
+            "last_seq" : 4,
+            "model" : "claude-opus-5",
+            "permission_mode" : "acceptEdits",
+            "state" : "running",
+            "title" : "Chat",
+            "updated_at" : "2026-09-17T09:40:02.500Z"
+          },
+          "has_more" : false,
+          "messages" : [
+            {
+              "author" : {
+                "name" : "Freek",
+                "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+              },
+              "chat_id" : "chat-1",
+              "created_at" : "2026-09-17T09:40:02.500Z",
+              "cursor" : 118,
+              "kind" : "user",
+              "payload" : {
+                "message" : {
+                  "role" : "user"
+                },
+                "type" : "user"
+              },
+              "seq" : 4
+            }
+          ],
+          "questions" : [
+            {
+              "ask" : {
+                "tool_name" : "Bash"
+              },
+              "asked_at" : "2026-09-17T09:40:02.500Z",
+              "chat_id" : "chat-1",
+              "request_id" : "ask-1"
+            }
+          ],
+          "queue" : {
+            "chat_id" : "chat-1",
+            "prompts" : [
+              {
+                "author" : {
+                  "name" : "Freek",
+                  "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+                },
+                "created_at" : "2026-09-17T09:40:02.500Z",
+                "id" : "delivery-1",
+                "state" : "queued",
+                "text" : "And the docs"
+              },
+              {
+                "author" : {
+                  "name" : "Freek",
+                  "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+                },
+                "blocked" : {
+                  "limit" : "concurrent_machines",
+                  "message" : "Your team already has 20 Cloud workspaces running."
+                },
+                "created_at" : "2026-09-17T09:40:02.500Z",
+                "id" : "delivery-2",
+                "state" : "blocked",
+                "text" : "Then push"
+              }
+            ]
+          },
+          "streaming_text" : "Running"
+        }
+      },
+      "version" : 1
+    },
+    "workspace" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "workspace",
+        "workspace" : {
+          "chats" : [
+            {
+              "agent" : "claude",
+              "created_at" : "2026-09-17T09:40:02.500Z",
+              "effort" : "high",
+              "id" : "chat-1",
+              "interaction_mode" : "build",
+              "last_seq" : 4,
+              "model" : "claude-opus-5",
+              "permission_mode" : "acceptEdits",
+              "state" : "running",
+              "title" : "Chat",
+              "updated_at" : "2026-09-17T09:40:02.500Z"
+            }
+          ],
+          "cursor" : 118,
+          "presence" : [
+            {
+              "last_input_at" : "2026-09-17T09:40:02.500Z",
+              "name" : "Freek",
+              "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+            }
+          ],
+          "workspace" : {
+            "base_branch" : "main",
+            "branch" : "freek/queue-retries",
+            "id" : "01k5bx7j9d3v2r8q6m4n0p1s2w",
+            "name" : "Queue retries",
+            "setup" : {
+              "finished_at" : "2026-09-17T09:40:02.500Z",
+              "started_at" : "2026-09-17T09:40:02.500Z",
+              "state" : "succeeded"
+            }
+          }
+        }
+      },
+      "version" : 1
+    }
+  },
+  "requests" : {
+    "answer_allow_once" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "answer" : {
+          "kind" : "allow_once"
+        },
+        "chat_id" : "chat-1",
+        "kind" : "answer",
+        "request_id" : "ask-1"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "answer_deny" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "answer" : {
+          "ends_turn" : true,
+          "kind" : "deny",
+          "message" : "Not that file"
+        },
+        "chat_id" : "chat-1",
+        "kind" : "answer",
+        "request_id" : "ask-1"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "answer_plan" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "answer" : {
+          "kind" : "approve_plan",
+          "permission_mode" : "acceptEdits"
+        },
+        "chat_id" : "chat-1",
+        "kind" : "answer",
+        "request_id" : "ask-1"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "answer_question" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "answer" : {
+          "input" : {
+            "answers" : {
+              "Which?" : "Both"
+            }
+          },
+          "kind" : "question"
+        },
+        "chat_id" : "chat-1",
+        "kind" : "answer",
+        "request_id" : "ask-1"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "archive" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "confirmation_id" : "00000000-0000-4000-8000-000000000002",
+        "kind" : "archive"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "archive_preview" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "archive_preview"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "cancel_queued" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "kind" : "cancel_queued",
+        "prompt_id" : "delivery-1"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "close_chat" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "kind" : "close_chat"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "close_terminal" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "close_terminal",
+        "name" : "terminal-1"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "commit" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "commit",
+        "message" : "Retry the queue"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "composer" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "kind" : "composer"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "create_pull_request" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "body" : "",
+        "draft" : true,
+        "kind" : "create_pull_request",
+        "title" : "Retry the queue"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "download" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "download",
+        "path" : "storage/logs/laravel.log"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "file" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "file",
+        "path" : "README.md"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "files" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "files"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "mark_read" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "kind" : "mark_read",
+        "seq" : 4
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "new_chat" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "controls" : {
+          "agent" : "claude",
+          "codex_context_window" : 0,
+          "effort" : "high",
+          "fast_mode" : false,
+          "interaction_mode" : "build",
+          "model" : "claude-opus-5",
+          "output_style" : "default",
+          "permission_mode" : "acceptEdits"
+        },
+        "kind" : "new_chat"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "notes" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "notes"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "pull_request" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "pull_request"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "push" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "push"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "rename_chat" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "kind" : "rename_chat",
+        "title" : "Review"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "rename_workspace" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "rename_workspace",
+        "name" : "Queue retries"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "review_patch" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "review_patch",
+        "known_revision" : "revision-1",
+        "path" : "README.md",
+        "scope" : "uncommitted"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "review_snapshot" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "review_snapshot",
+        "scope" : "branch",
+        "wait" : true
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "run_script" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "id" : "tests",
+        "kind" : "run_script"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "run_scripts" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "run_scripts"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "run_setup" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "run_setup"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "save_notes" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "save_notes",
+        "text" : "Check the retry limit"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "send" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "kind" : "send",
+        "text" : "Run the tests"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "set_composer" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "controls" : {
+          "agent" : "claude",
+          "codex_context_window" : 0,
+          "effort" : "high",
+          "fast_mode" : false,
+          "interaction_mode" : "build",
+          "model" : "claude-opus-5",
+          "output_style" : "default",
+          "permission_mode" : "acceptEdits"
+        },
+        "kind" : "set_composer"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "setup_output" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "setup_output"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "stop" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "kind" : "stop"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "transcript" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "after_seq" : 3,
+        "chat_id" : "chat-1",
+        "kind" : "transcript",
+        "limit" : 200
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "upload_file" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "data" : "iVBORw==",
+        "kind" : "upload_file",
+        "name" : "screenshot.png"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "workspace" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "workspace"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "write_file" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "write_file",
+        "path" : "README.md",
+        "revision" : "revision-1",
+        "text" : "# Bloom\n"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    }
+  },
+  "terminal_frames" : {
+    "auth" : {
+      "kind" : "auth",
+      "token" : "eyJhbGciOiJFZERTQSJ9.example.signature"
+    },
+    "reauth" : {
+      "kind" : "reauth",
+      "token" : "eyJhbGciOiJFZERTQSJ9.example.signature"
+    },
+    "resize" : {
+      "columns" : 120,
+      "kind" : "resize",
+      "rows" : 40
+    }
+  }
+}
