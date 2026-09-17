@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Written out rather than borrowed from `EventSource`, which cannot send an `Authorization`
 /// header and so cannot be used at all: see "Clients other than the Mac" in
-/// docs/REMOTE-WORKSPACES.md. The rules are the specification's, cut to what bloom-server sends:
+/// docs/REMOTE-WORKSPACES.md. The rules are the specification's, cut to what Bloom Runner sends:
 /// `event:`, `id:` and `data:` fields, an empty line ending an event, and `:` comments, which are
 /// its keep-alives and mean nothing.
 public struct ServerSentEvents: Sendable {
