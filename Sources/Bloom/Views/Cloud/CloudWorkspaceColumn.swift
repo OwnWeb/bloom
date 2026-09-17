@@ -42,15 +42,19 @@ struct CloudWorkspaceColumn: View {
             if TabStripVisibility.isShown(tabCount: session.entries.count, isRenaming: renamingID != nil) {
                 CloudTabStripView(session: session, renamingID: $renamingID)
             }
-            if let banner = CloudConnectionBanner.of(session.phase) {
-                CloudBannerView(banner: banner) { take($0, on: session) }
+            if let banner = shown(CloudConnectionBanner.of(session.phase), on: session) {
+                CloudBannerView(banner: banner, onDismiss: { app.cloud.dismiss(banner, for: session.id) }) {
+                    take($0, on: session)
+                }
             }
             // What setup is doing, which is the only account of a machine's first few minutes and
             // the only way back from a setup that failed.
-            if let banner = CloudConnectionBanner.ofSetup(
+            if let banner = shown(CloudConnectionBanner.ofSetup(
                 session.state.setup, isWatching: session.isShowingSetup, canRunSetup: session.allows("files")
-            ) {
-                CloudBannerView(banner: banner) { take($0, on: session) }
+            ), on: session) {
+                CloudBannerView(banner: banner, onDismiss: { app.cloud.dismiss(banner, for: session.id) }) {
+                    take($0, on: session)
+                }
             }
             if let notice = session.notice {
                 CloudNoticeStrip(notice: notice, onOpenRunbloom: { openRunbloom(for: session) }) { session.notice = nil }
@@ -70,6 +74,13 @@ struct CloudWorkspaceColumn: View {
         // would otherwise reconnect by itself after a dropped network and wake its machine.
         .onChange(of: id) { previous, _ in app.cloud.existingSession(for: previous)?.suspend() }
         .onDisappear { app.cloud.existingSession(for: id)?.suspend() }
+    }
+
+    /// The banner, unless this reader has put this one away. Only a banner that is a state rather
+    /// than a blocker can be put away at all: see `CloudConnectionBanner.dismissalKey`.
+    private func shown(_ banner: CloudConnectionBanner?, on session: CloudWorkspaceSession) -> CloudConnectionBanner? {
+        guard let banner, !app.cloud.dismissedBanners.isDismissed(banner, workspaceID: session.id.rawValue) else { return nil }
+        return banner
     }
 
     /// What a banner's button does. Every one of them is a way forward rather than a repeat of what
@@ -113,6 +124,10 @@ struct CloudWorkspaceColumn: View {
 /// A connection banner: a line and, where the banner offers one, its button.
 struct CloudBannerView: View {
     var banner: CloudConnectionBanner
+    /// Closes this banner for this workspace, and is drawn only where closing it means something.
+    /// A banner that is a state can be put away; one that is a blocker cannot. See
+    /// `CloudConnectionBanner.dismissalKey`.
+    var onDismiss: () -> Void = {}
     var onAction: (CloudConnectionBanner.Action) -> Void
 
     var body: some View {
@@ -133,6 +148,14 @@ struct CloudBannerView: View {
             Spacer(minLength: Metrics.gutter)
             ForEach(banner.actions, id: \.self) { action in
                 Button(action.title) { onAction(action) }
+            }
+            if banner.dismissalKey != nil {
+                Button("Dismiss", systemImage: "xmark", action: onDismiss)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .foregroundStyle(Palette.textTertiary)
+                    .help("Hide this until it happens again. The Setup tab keeps the whole of it.")
             }
         }
         .padding(.horizontal, Metrics.gutter)

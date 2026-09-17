@@ -53,12 +53,25 @@ public struct CloudConnectionBanner: Sendable, Hashable {
     public var title: String
     public var message: String?
     public var actions: [Action]
+    /// What a dismissal is remembered against, or nil for a banner that cannot be dismissed.
+    ///
+    /// **A banner that is a state can be put away; one that is a blocker cannot.** Waking,
+    /// reconnecting and setting up all end by themselves, so a close button on them would only be
+    /// a way to hide something about to go anyway. Archived and no access are the opposite: the
+    /// workspace does nothing until they are dealt with, and a hidden one reads as an app that
+    /// silently stopped working. What is left is a setup that failed, which is a state somebody
+    /// can live with while they fix the script, and it is the one this exists for.
+    ///
+    /// The key carries when the state was reached, so the NEXT failure is a different banner and
+    /// comes back rather than staying hidden behind a dismissal of the last one.
+    public var dismissalKey: String?
 
-    public init(tone: Tone, title: String, message: String? = nil, actions: [Action] = []) {
+    public init(tone: Tone, title: String, message: String? = nil, actions: [Action] = [], dismissalKey: String? = nil) {
         self.tone = tone
         self.title = title
         self.message = message
         self.actions = actions
+        self.dismissalKey = dismissalKey
     }
 
     public static func of(_ phase: WorkspaceConnection.Phase) -> CloudConnectionBanner? {
@@ -122,8 +135,9 @@ public struct CloudConnectionBanner: Sendable, Hashable {
             if canRunSetup { actions.append(.runSetupAgain) }
             return CloudConnectionBanner(
                 tone: .failure, title: "Setting up this Cloud workspace failed",
-                message: "The setup output says what went wrong. Fix it in the project's setup script, then run setup again, or archive this workspace and make another.",
-                actions: actions
+                message: "The setup output says what went wrong. Fix it in the project's setup script, then run setup again, or archive this workspace and make another. The Setup tab keeps the whole of it.",
+                actions: actions,
+                dismissalKey: "setup-failed:\(setup.finishedAt?.timeIntervalSince1970.rounded() ?? 0)"
             )
         default:
             return nil

@@ -363,6 +363,49 @@ import Testing
         #expect(CloudConnectionBanner.ofSetup(nil, isWatching: false, canRunSetup: true) == nil)
     }
 
+    /// A setup that failed stays failed until somebody fixes the script, so its banner is the one
+    /// that can be put away. Nothing that ends by itself, and nothing that blocks the workspace, is.
+    @Test func onlyAFailedSetupCanBePutAway() {
+        #expect(banner("failed")?.dismissalKey != nil)
+        #expect(banner("running")?.dismissalKey == nil)
+        #expect(banner("pending")?.dismissalKey == nil)
+        #expect(CloudConnectionBanner.of(.archived)?.dismissalKey == nil)
+        #expect(CloudConnectionBanner.of(.asleep)?.dismissalKey == nil)
+    }
+
+    /// Dismissing one failure does not hide the next one, which is what the time in the key is for.
+    @Test func aLaterFailureComesBackAfterTheEarlierOneWasPutAway() throws {
+        let first = try #require(CloudConnectionBanner.ofSetup(
+            SetupRecord(state: "failed", finishedAt: Date(timeIntervalSince1970: 1_000)), isWatching: true, canRunSetup: false
+        ))
+        let second = try #require(CloudConnectionBanner.ofSetup(
+            SetupRecord(state: "failed", finishedAt: Date(timeIntervalSince1970: 2_000)), isWatching: true, canRunSetup: false
+        ))
+        var dismissals = CloudBannerDismissals()
+        dismissals.dismiss(first, workspaceID: "w1")
+        let hidesTheFirst = dismissals.isDismissed(first, workspaceID: "w1")
+        let hidesTheSecond = dismissals.isDismissed(second, workspaceID: "w1")
+        // Another workspace failing is another problem, and is said.
+        let hidesAnotherWorkspace = dismissals.isDismissed(first, workspaceID: "w2")
+        #expect(hidesTheFirst)
+        #expect(!hidesTheSecond)
+        #expect(!hidesAnotherWorkspace)
+    }
+
+    /// What is remembered survives a relaunch, and goes when the workspace does.
+    @Test func dismissalsAreStoredAndForgotten() {
+        var dismissals = CloudBannerDismissals()
+        let banner = CloudConnectionBanner(tone: .failure, title: "x", dismissalKey: "k")
+        dismissals.dismiss(banner, workspaceID: "w1")
+        let read = CloudBannerDismissals(stored: dismissals.stored)
+        let survivedStorage = read.isDismissed(banner, workspaceID: "w1")
+        var forgetting = read
+        forgetting.forget(workspaceID: "w1")
+        let forgotten = !forgetting.isDismissed(banner, workspaceID: "w1")
+        #expect(survivedStorage)
+        #expect(forgotten)
+    }
+
     @Test func watchingItAlreadyOffersNoButtonToWatchIt() {
         #expect(banner("running", isWatching: true)?.actions.isEmpty == true)
     }

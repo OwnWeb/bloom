@@ -68,6 +68,7 @@ final class CloudWorkspaces {
     static let backgroundPollInterval: Duration = .seconds(60)
     private static let promptsKey = "cloudWorkspaces.pendingOpeningPrompts"
     private static let hasEverSignedInKey = "cloudWorkspaces.hasEverSignedIn"
+    private static let dismissedBannersKey = "cloudWorkspaces.dismissedBanners"
     private static let originKey = "cloudWorkspaces.runbloomOrigin"
 
     init() {
@@ -80,6 +81,22 @@ final class CloudWorkspaces {
         )
         signIn = BloomAccountSignIn(environment: environment)
         pendingPrompts = PendingOpeningPrompts.decode(UserDefaults.standard.data(forKey: Self.promptsKey), now: Date())
+        let stored = UserDefaults.standard.dictionary(forKey: Self.dismissedBannersKey) as? [String: [String]] ?? [:]
+        dismissedBanners = CloudBannerDismissals(stored: stored)
+    }
+
+    /// Which banners have been put away, per workspace. A setup that failed stays failed until
+    /// somebody fixes the project's script, so its banner would otherwise sit over every visit for
+    /// the life of the workspace; the state itself is still in the Setup tab, which the banner says.
+    private(set) var dismissedBanners = CloudBannerDismissals()
+
+    func dismiss(_ banner: CloudConnectionBanner, for id: CloudWorkspaceID) {
+        dismissedBanners.dismiss(banner, workspaceID: id.rawValue)
+        saveDismissedBanners()
+    }
+
+    private func saveDismissedBanners() {
+        UserDefaults.standard.set(dismissedBanners.stored, forKey: Self.dismissedBannersKey)
     }
 
     /// The API for the kept sign in. Its base comes from the discovery document the sign in was
@@ -434,6 +451,10 @@ final class CloudWorkspaces {
     func archiveOnRunbloom(_ id: CloudWorkspaceID) async throws {
         try await api.archiveCloudWorkspace(id.rawValue)
         release(promptFor: id.rawValue)
+        // Nothing to remember about a workspace that no longer exists, and a new one could be
+        // given the same id by nothing more than bad luck.
+        dismissedBanners.forget(workspaceID: id.rawValue)
+        saveDismissedBanners()
         close(id)
         items.removeAll { $0.id == id.rawValue }
         if app?.selection == .cloud(id) { app?.selection = .home }
