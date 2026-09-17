@@ -70,6 +70,26 @@ def copy_notice(source, destination):
     shutil.copy2(source, destination)
 
 
+def linux_dependencies(root):
+    """The checkouts the Linux build actually depends on, by lower case name.
+
+    `.build/checkouts` can hold packages only the Mac app uses, resolved from the shared
+    Package.resolved, and their notices do not belong in a package that does not contain them.
+    """
+    graph = json.loads(run("swift", "package", "--package-path", str(root), "show-dependencies", "--format", "json"))
+    names = set()
+
+    def walk(node):
+        for dependency in node.get("dependencies", []):
+            path = pathlib.Path(dependency.get("path", ""))
+            names.add(path.name.lower())
+            names.add(dependency.get("identity", "").lower())
+            walk(dependency)
+
+    walk(graph)
+    return names
+
+
 def fetch_caddy(machine, destination, notices):
     """Downloads Caddy's release archive, checks it, and takes the binary and its licence."""
     name = f"caddy_{CADDY_VERSION}_linux_{CADDY_ARCHITECTURE[machine]}.tar.gz"
@@ -131,7 +151,8 @@ def package(bin_directory, output_directory, version):
         # AsyncHTTPClient and their own dependencies, and a list kept by hand here would be the
         # first thing to go stale when one of them adds another.
         checkouts = root / ".build/checkouts"
-        for checkout in sorted(path for path in checkouts.iterdir() if path.is_dir()):
+        linked = linux_dependencies(root)
+        for checkout in sorted(path for path in checkouts.iterdir() if path.is_dir() and path.name.lower() in linked):
             found = False
             for notice in checkout.rglob("*"):
                 relative = notice.relative_to(checkout)
