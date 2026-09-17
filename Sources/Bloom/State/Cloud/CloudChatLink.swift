@@ -51,9 +51,10 @@ final class CloudChatLink {
         return await session.run(.setComposer(chatID: chatID.rawValue, controls: controls.cloudRecord), reporting: false)?.message
     }
 
-    func markRead(seq: Int) async {
-        guard let session, session.phase == .live else { return }
-        await session.run(.markRead(chatID: chatID.rawValue, seq: seq), reporting: false)
+    /// Whether the machine recorded it.
+    func markRead(seq: Int) async -> Bool {
+        guard let session, session.phase == .live else { return false }
+        return await session.run(.markRead(chatID: chatID.rawValue, seq: seq), reporting: false) == nil
     }
 
     private static let closed = "This Cloud workspace is closed. Open it again to carry on."

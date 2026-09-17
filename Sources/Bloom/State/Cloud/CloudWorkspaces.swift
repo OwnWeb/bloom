@@ -14,10 +14,9 @@ import Observation
 ///
 /// **The list is polled, and polling never wakes a machine.** runbloom.app answers from the last
 /// summary each machine posted, so the sidebar can say a workspace is waiting for an answer while
-/// its machine sleeps. It is read when the app becomes active and every twenty seconds while it is
-/// (the design's fifteen to thirty), and never while Bloom is in the background, which is also
-/// when the notifications derived from it are the ones worth having; the first poll on coming back
-/// reports what changed while away.
+/// its machine sleeps. It is read when the app becomes active, every twenty seconds while it is (the
+/// design's fifteen to thirty), and every minute while Bloom is in the background, which is when
+/// the notifications derived from it are the ones worth having.
 @MainActor
 @Observable
 final class CloudWorkspaces {
@@ -60,8 +59,13 @@ final class CloudWorkspaces {
     /// Moved by every sign in and sign out, and checked after every await in `refresh`, so an
     /// answer for an account that has since signed out is dropped rather than drawn.
     @ObservationIgnored private var generation = 0
+    /// Workspaces whose machine has already accepted `archive`, so a retry after runbloom.app could
+    /// not be reached goes straight to runbloom.app rather than asking the machine again, which
+    /// would answer with a fresh preview and read as something having changed.
+    @ObservationIgnored private var archivedOnMachine: Set<CloudWorkspaceID> = []
 
     static let pollInterval: Duration = .seconds(20)
+    static let backgroundPollInterval: Duration = .seconds(60)
     private static let promptsKey = "cloudWorkspaces.pendingOpeningPrompts"
     private static let originKey = "cloudWorkspaces.runbloomOrigin"
 
@@ -240,10 +244,16 @@ final class CloudWorkspaces {
     private func startPolling() {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
+            var sinceLastRead: Duration = .zero
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.pollInterval)
+                sinceLastRead += Self.pollInterval
                 guard let self, !Task.isCancelled else { return }
-                if NSApp.isActive { await self.refresh() }
+                // Slower in the background rather than not at all: a Cloud workspace waiting for an
+                // answer is worth a banner most while the person is in another app.
+                guard NSApp.isActive || sinceLastRead >= Self.backgroundPollInterval else { continue }
+                sinceLastRead = .zero
+                await self.refresh()
             }
         }
         activation = NotificationCenter.default.addObserver(
@@ -349,10 +359,11 @@ final class CloudWorkspaces {
     /// which checks its answer again and winds the workspace down, then on runbloom.app, which
     /// deletes the machine.
     func archive(_ id: CloudWorkspaceID, confirmed confirmation: CloudArchiveConfirmation) async -> ArchiveStep {
-        if let confirmationID = confirmation.confirmationID {
+        if let confirmationID = confirmation.confirmationID, !archivedOnMachine.contains(id) {
             do {
                 let result = try await session(for: id).perform(.archive(confirmationID: confirmationID))
                 if case .archivePreview(let moved) = result { return .moved(CloudArchiveConfirmation(preview: moved)) }
+                archivedOnMachine.insert(id)
             } catch {
                 // A machine that went away between the question and the answer is archived on
                 // runbloom.app all the same: the person has already agreed to lose what it held.

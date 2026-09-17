@@ -36,7 +36,7 @@ public struct MachineClient: Sendable {
             } catch let failure as MachineFailure {
                 throw failure
             } catch {
-                throw .unreadable("\(error)")
+                throw .unreadable("Check for an update to Bloom.")
             }
         case 401: throw .unauthenticated(Self.failure(data, fallback: WireError(.unauthenticated, "Your access to this Cloud workspace was refused.")))
         case 502, 503, 504: throw .noAnswer("It may still be waking up.")

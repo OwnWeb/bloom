@@ -46,20 +46,19 @@ public struct CloudWorkspaceState: Sendable, Hashable {
     }
 
     /// One transcript page. Answers the `after_seq` of the next page, or nil when there is none.
+    ///
+    /// **Only its rows are taken.** A page is as old as the moment it was read, and the stream may
+    /// have moved on while it travelled: a turn that ended, a question answered, a queue that
+    /// emptied. The stream sends all of that whole when it opens and as it changes, so the page's
+    /// copy of it could only ever put something stale back. Its chat record is taken only for a
+    /// chat the stream has not described yet.
     @discardableResult
     public mutating func absorbPage(_ page: TranscriptRecord) -> Int? {
-        upsert(page.chat)
-        var chat = chats[page.chat.id] ?? CloudChatState(chat: page.chat)
-        for message in page.messages { chat.insert(message) }
-        chat.questions = page.questions
-        chat.queue = page.queue
-        chat.busy = page.busy
-        chat.streamingText = page.busy ? page.streamingText : ""
-        let last = page.messages.map(\.seq).max()
-        if !page.hasMore { chat.hasReadHistory = true }
-        chats[page.chat.id] = chat
+        if chats[page.chat.id]?.chat == nil { upsert(page.chat) }
+        chats[page.chat.id, default: CloudChatState(chat: page.chat)].insert(contentsOf: page.messages)
+        if !page.hasMore { chats[page.chat.id]?.hasReadHistory = true }
         for message in page.messages { advance(to: message.cursor) }
-        return page.hasMore ? last : nil
+        return page.hasMore ? page.messages.map(\.seq).max() : nil
     }
 
     // MARK: Events
@@ -83,16 +82,14 @@ public struct CloudWorkspaceState: Sendable, Hashable {
     public mutating func apply(_ event: WorkspaceEvent) -> Consequence {
         switch event {
         case .message(let message):
-            var chat = chats[message.chatID] ?? CloudChatState(id: message.chatID)
-            chat.insert(message)
-            if message.kind == "assistantText" || message.kind == "result" { chat.streamingText = "" }
-            chats[message.chatID] = chat
+            // In place, so the dictionary's copy is the only one and a long chat's rows are not
+            // copied for every row that arrives.
+            chats[message.chatID, default: CloudChatState(id: message.chatID)].insert(message)
+            if message.kind == "assistantText" || message.kind == "result" { chats[message.chatID]?.streamingText = "" }
             if !chatOrder.contains(message.chatID) { chatOrder.append(message.chatID) }
             advance(to: message.cursor)
         case .stream(let chatID, let text, let snapshot):
-            var chat = chats[chatID] ?? CloudChatState(id: chatID)
-            chat.streamingText = snapshot ? text : chat.streamingText + text
-            chats[chatID] = chat
+            chats[chatID, default: CloudChatState(id: chatID)].appendStreaming(text, snapshot: snapshot)
         case .chat(let record):
             let isNew = chats[record.id]?.chat == nil
             upsert(record)
@@ -188,6 +185,14 @@ public struct CloudChatState: Sendable, Hashable {
 
     /// The newest `seq` held, or -1 for none, which is what the next page's `after_seq` is.
     public var lastSeq: Int { messages.last?.seq ?? -1 }
+
+    mutating func insert(contentsOf rows: [MessageRecord]) {
+        for row in rows { insert(row) }
+    }
+
+    mutating func appendStreaming(_ text: String, snapshot: Bool) {
+        streamingText = snapshot ? text : streamingText + text
+    }
 
     /// Inserts a row in `seq` order. A second copy of a `seq` replaces nothing: a row never changes
     /// once written, so the first copy is as good as any.

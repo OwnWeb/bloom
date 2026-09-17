@@ -645,8 +645,9 @@ final class TranscriptModel {
     func markAllRead() async {
         if let cloud {
             guard let last = rows.last?.seq, last != session.lastReadSeq else { return }
-            session.lastReadSeq = last
-            await cloud.markRead(seq: last)
+            // Moved only once the machine took it, so a mark made while the workspace could not be
+            // reached is made again next time rather than lost.
+            if await cloud.markRead(seq: last) { session.lastReadSeq = last }
             return
         }
         guard let store, let last = rows.last?.seq, last != session.lastReadSeq else { return }
@@ -2338,6 +2339,8 @@ final class TranscriptModel {
     /// How many machine rows the list above was built from, so a page that arrives after its
     /// events (and lands in the middle) is told apart from rows arriving at the end.
     @ObservationIgnored private var cloudRowCount = 0
+    @ObservationIgnored private var cloudChatRecord: ChatRecord?
+    @ObservationIgnored private var cloudPendingQuestions: Set<String>?
 
     /// Folds what the machine says about this chat into the model the transcript and the composer
     /// draw: its rows, its streaming text, whether a turn is running, its questions and its queue.
@@ -2345,9 +2348,10 @@ final class TranscriptModel {
     /// Rows arriving at the end are absorbed one by one, as a local turn's are. Anything else (a
     /// history page landing under rows the stream already delivered) rebuilds the list, which is
     /// the one read `read(from:)` would have done; it happens once per page, not per event.
-    func receiveCloud(_ chat: CloudChatState, workspaceID: CloudWorkspaceID, readerID: String?) {
+    func receiveCloud(_ chat: CloudChatState, streaming: String, workspaceID: CloudWorkspaceID, readerID: String?) {
         guard cloud != nil else { return }
-        if let record = chat.chat {
+        if let record = chat.chat, record != cloudChatRecord {
+            cloudChatRecord = record
             var fresh = Session(cloudChat: record)
             fresh.lastReadSeq = session.lastReadSeq
             if fresh != session { session = fresh }
@@ -2361,9 +2365,14 @@ final class TranscriptModel {
             if message.author?.userID == readerID { message.author = nil }
             return message
         }
-        let held = messages.prefix { $0.seq <= highestSeenMessageSeq }.count
-        if held == cloudRowCount, messages.count >= cloudRowCount {
-            for record in messages.dropFirst(held) {
+        // Rows only ever arrive at the end, unless a history page landed under rows the stream had
+        // already delivered. The row at the old count still being the newest one held says which,
+        // without walking the chat.
+        let appendsOnly = messages.count >= cloudRowCount
+            && (cloudRowCount == 0 ? highestSeenMessageSeq == -1 : messages[cloudRowCount - 1].seq == highestSeenMessageSeq)
+        let appended = messages.count != cloudRowCount
+        if appendsOnly {
+            for record in messages.dropFirst(cloudRowCount) {
                 absorb(converted(record))
                 highestSeenMessageSeq = max(highestSeenMessageSeq, record.seq)
             }
@@ -2385,14 +2394,17 @@ final class TranscriptModel {
         // A question nobody is waiting on any more was answered, by this reader or somebody else.
         // The reader's own answer is already on the row in their words; anybody else's reads as
         // answered.
-        for position in rows.indices where rows[position].kind == .permissionAsk && rows[position].permissionDecision == nil {
-            guard let ask = PermissionAsk.decode(payload: rows[position].payload), !pending.contains(ask.requestID) else { continue }
-            foldCache.invalidate(row: position)
-            rows[position].permissionDecision = PermissionDecision.answer(input: .null).storedName
-            presentationRevision += 1
+        if appended || pending != cloudPendingQuestions {
+            cloudPendingQuestions = pending
+            for position in rows.indices where rows[position].kind == .permissionAsk && rows[position].permissionDecision == nil {
+                guard let ask = PermissionAsk.decode(payload: rows[position].payload), !pending.contains(ask.requestID) else { continue }
+                foldCache.invalidate(row: position)
+                rows[position].permissionDecision = PermissionDecision.answer(input: .null).storedName
+                presentationRevision += 1
+            }
         }
 
-        if streamingText != chat.streamingText { streamingText = chat.streamingText }
+        receiveCloudStreaming(streaming)
         setRunning(chat.isRunning)
         setAwaitingPermission(!chat.questions.isEmpty)
         if !chat.isRunning, statusLabel != nil { statusLabel = nil }
@@ -2408,6 +2420,12 @@ final class TranscriptModel {
             // The machine has it now, as a queued prompt or as a row, so the echo retires.
             sending = nil
         }
+    }
+
+    /// Streaming text for a Cloud chat, on its own, because it arrives a few tokens at a time and
+    /// nothing else about the chat moves with it.
+    func receiveCloudStreaming(_ text: String) {
+        if streamingText != text { streamingText = text }
     }
 
     /// `submit`, for a chat whose queue is on its machine.

@@ -35,6 +35,10 @@ public actor WorkspaceConnection {
         case noAccess(String)
         /// The machine did not answer and the connection is trying again.
         case retrying(String)
+
+        public var isConnecting: Bool {
+            if case .connecting = self { true } else { false }
+        }
     }
 
     public enum Update: Sendable, Hashable {
@@ -86,6 +90,9 @@ public actor WorkspaceConnection {
     /// Set once a request has been answered since the last time the machine was known to sleep, so
     /// only the first request after a pause is given the long allowance.
     private var hasBeenAnswered = false
+    /// Streams refused with a fresh token, in a row. One fresh token is worth trying; a second
+    /// refusal means access went away.
+    private var refusedStreams = 0
 
     public init(
         workspaceID: String, api: RunbloomAPI, machine: MachineClient = MachineClient(),
@@ -133,6 +140,15 @@ public actor WorkspaceConnection {
         streamTask?.cancel()
         streamTask = nil
         open()
+    }
+
+    /// Closes the stream but keeps what the connection knows (its cursor, its token), so opening it
+    /// again resumes exactly where it stopped. For a workspace nobody is looking at: a stream left
+    /// open would reconnect by itself after a dropped network, and a reconnect wakes the machine.
+    public func suspend() {
+        streamTask?.cancel()
+        streamTask = nil
+        set(.closed)
     }
 
     public func close() {
@@ -225,6 +241,7 @@ public actor WorkspaceConnection {
 
     private func run() async {
         var failures = 0
+        refusedStreams = 0
         while !Task.isCancelled {
             let outcome = await connectOnce()
             if Task.isCancelled { return }
@@ -288,7 +305,12 @@ public actor WorkspaceConnection {
             opened = try await machine.events(from: session.machineURL, token: session.token, after: cursor, timeout: Self.wakingTimeout)
         } catch {
             switch error {
-            case .unauthenticated:
+            case .unauthenticated(let wire):
+                refusedStreams += 1
+                guard refusedStreams < 2 else {
+                    set(.noAccess(wire.message))
+                    return .stop
+                }
                 token = nil
                 return .retry(after: 1)
             case .noAnswer(let detail), .unreadable(let detail):
@@ -301,6 +323,7 @@ public actor WorkspaceConnection {
         }
         notice.cancel()
         hasBeenAnswered = true
+        refusedStreams = 0
         set(.live)
 
         let refresher = opened.streamID.map { id in
@@ -346,9 +369,10 @@ public actor WorkspaceConnection {
             return .retry(after: nil)
         }
         if Task.isCancelled { return .stop }
-        // The server closed the stream without saying why: a restart, most likely.
+        // The server closed the stream without saying why: a restart, most likely. Backed off like
+        // any other failure, so a server that closes every stream at once is not asked every second.
         set(.retrying("The connection closed."))
-        return .retry(after: 1)
+        return .retry(after: nil)
     }
 
     /// Half a second in and still not live. A machine runbloom.app last saw asleep, or one not yet

@@ -935,8 +935,8 @@ the coordinator.
   terminal, changes and setup output as panes of its own.
 - **Signed out, nothing asks.** The sidebar has no Cloud section and the New menu no Cloud item until
   a Bloom account is signed in; Settings has a Bloom Account pane that says what an account is for.
-- **The list is read every 20 seconds while Bloom is active and whenever it becomes active,** never
-  in the background. Notifications are derived from consecutive readings: into `waiting_for_input`,
+- **The list is read every 20 seconds while Bloom is active, whenever it becomes active, and every
+  minute in the background,** where its notifications matter most. Notifications are derived from consecutive readings: into `waiting_for_input`,
   `running` to `idle`, into `setup_failed`; not on the first reading, not for a workspace the reader
   has no role in, and not for the one on screen while Bloom is in front.
 - **Waking.** The first request after a machine was last seen asleep gets 45 seconds before it counts
@@ -944,6 +944,13 @@ the coordinator.
   column says the workspace is waking once half a second has passed.
 - **The review is read when its pane is shown and on `review` events,** not by a `wait: true` long
   poll, which would hold a request open on a machine that is trying to sleep.
+- **Only the workspace on screen keeps its event stream.** Leaving one suspends its stream and keeps
+  its cursor, because a stream left open reconnects by itself after a dropped network, and a
+  reconnect is what wakes a machine. A stream refused twice in a row with fresh tokens stops.
+- **Sign in uses an ephemeral browser session,** so signing out leaves no web login behind for the
+  next person, and signing out revokes both tokens, clears held opening prompts and removes Cloud
+  banners. A token is only sent to an HTTPS machine address (plain HTTP only on loopback), and a
+  preview only opens on its own machine's host. A machine's shell cannot write this Mac's clipboard.
 - **Each person gets a terminal of their own,** named `shell-<user id>`, because a terminal is a
   turn with its opener's keys and GitHub identity. A keystroke into a closed terminal reconnects it.
 - **Left out of the first Cloud release on the Mac:** attaching files to a Cloud chat (the composer

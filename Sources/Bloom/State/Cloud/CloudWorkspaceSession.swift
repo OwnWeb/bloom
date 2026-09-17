@@ -44,6 +44,10 @@ final class CloudWorkspaceSession {
     @ObservationIgnored private var transcripts: [String: TranscriptModel] = [:]
     @ObservationIgnored private var historyReads: Set<String> = []
     @ObservationIgnored private var isSendingOpeningPrompt = false
+    /// Each chat's streaming text, outside `state` and outside observation. A delta arrives per few
+    /// tokens, and written into `state` it redrew everything that reads the workspace (the header,
+    /// the pane strip) on each one; only the chat's own transcript model needs it.
+    @ObservationIgnored private var streaming: [String: String] = [:]
     /// The reader's own terminal, made the first time the pane is shown and kept, with its
     /// scrollback, for as long as the workspace is open.
     @ObservationIgnored private(set) lazy var terminal = CloudTerminal(session: self)
@@ -85,6 +89,13 @@ final class CloudWorkspaceSession {
         Task { await connection.resume() }
     }
 
+    /// Closes the stream of a workspace that is no longer on screen, keeping everything it read.
+    /// Opening it again resumes from where it stopped. See `WorkspaceConnection.suspend`.
+    func suspend() {
+        terminal.close()
+        if let connection { Task { await connection.suspend() } }
+    }
+
     func close() {
         terminal.close()
         listener?.cancel()
@@ -100,10 +111,15 @@ final class CloudWorkspaceSession {
             phase = next
             if next == .live {
                 abilities = await connection?.abilities ?? []
-                await sendOpeningPromptIfHeld()
+                // A history read that failed while the workspace could not be reached is tried
+                // again now that it can.
+                for chatID in transcripts.keys where state.chats[chatID]?.hasReadHistory != true { readHistory(chatID) }
+                // Not awaited: this loop is what drains the stream, and the opening prompt can take
+                // a minute on a machine that is still waking.
+                Task { await sendOpeningPromptIfHeld() }
             }
             if case .archived = next {
-                await cloud.refresh(id)
+                Task { await cloud.refresh(id) }
             }
         case .snapshot(let snapshot):
             state.absorb(snapshot)
@@ -111,7 +127,14 @@ final class CloudWorkspaceSession {
                 selectedChatID = state.topLevelChats.last.map { SessionID($0.id) }
             }
             for chat in state.chatOrder { forward(chat) }
+        case .event(.stream(let chatID, let text, let snapshot)):
+            let next = snapshot ? text : (streaming[chatID] ?? "") + text
+            streaming[chatID] = next
+            transcripts[chatID]?.receiveCloudStreaming(next)
         case .event(let event):
+            if case .message(let message) = event, message.kind == "assistantText" || message.kind == "result" {
+                streaming[message.chatID] = ""
+            }
             let consequence = state.apply(event)
             switch consequence {
             case .newChat(let chatID):
@@ -142,7 +165,7 @@ final class CloudWorkspaceSession {
     /// Hands a chat's slice of the state to its transcript model, when it has one.
     private func forward(_ chatID: String) {
         guard let transcript = transcripts[chatID], let chat = state.chats[chatID] else { return }
-        transcript.receiveCloud(chat, workspaceID: id, readerID: readerID)
+        transcript.receiveCloud(chat, streaming: streaming[chatID] ?? "", workspaceID: id, readerID: readerID)
     }
 
     /// A session token, fetched through the connection so every stream on this workspace shares
@@ -183,7 +206,8 @@ final class CloudWorkspaceSession {
         Task {
             var after = -1
             while true {
-                guard let result = try? await perform(.transcript(chatID: chatID, afterSeq: after, limit: 500)),
+                guard phase == .live || phase == .closed || phase.isConnecting,
+                      let result = try? await perform(.transcript(chatID: chatID, afterSeq: after, limit: 500)),
                       case .transcript(let page) = result else {
                     historyReads.remove(chatID)
                     return
@@ -280,20 +304,27 @@ final class CloudWorkspaceSession {
         guard var prompt = heldPrompt, !isSendingOpeningPrompt else { return }
         isSendingOpeningPrompt = true
         defer { isSendingOpeningPrompt = false }
+        var attempts = 0
         while true {
             let next = prompt.nextOperation
             let result: OperationResult
             do {
                 result = try await perform(next.operation, commandID: next.commandID)
             } catch {
-                // Not the machine's to decide yet, or it refused the prompt outright. A refusal is
-                // said once and the prompt goes back into a draft rather than being tried for ever.
                 if case .refused(let wire) = error {
-                    notice = "The opening prompt could not be sent: \(wire.message)"
+                    // Refused outright. Said once, with the words, so nothing typed is lost, and
+                    // not tried again.
+                    notice = "Your first message could not be sent (\(wire.message)). It was: \(prompt.text)"
                     cloud.release(promptFor: id.rawValue)
-                    if let chatID = prompt.chatID { transcripts[chatID]?.draft = prompt.text }
+                    return
                 }
-                return
+                // No answer, or runbloom.app not ready to hand out a token. Tried again while the
+                // workspace stays connected, backing off, under the same command id.
+                attempts += 1
+                guard phase == .live, attempts < 6 else { return }
+                try? await Task.sleep(for: .seconds(5 * attempts))
+                guard phase == .live else { return }
+                continue
             }
             switch result {
             case .chat(let chat):

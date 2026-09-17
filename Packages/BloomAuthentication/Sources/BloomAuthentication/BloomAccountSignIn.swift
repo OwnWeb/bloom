@@ -70,6 +70,9 @@ public final class BloomAccountSignIn {
     /// tokens it ends with.
     public func signIn(presenting window: NSWindow) async throws {
         guard flow == nil else { throw SignInFailure("Signing in is already in progress in another window.") }
+        // Whatever way this ends (signed in, cancelled in the sheet, refused), the next press of Sign
+        // In has to be able to start again.
+        defer { flow = nil }
         let document = try await discover()
         let client = try document.macClient(redirect: environment.redirect)
         guard let redirect = URL(string: environment.redirect) else { throw SignInFailure("This build of Bloom has no sign in address.") }
@@ -95,7 +98,6 @@ public final class BloomAccountSignIn {
                 }
             }
         }
-        flow = nil
         let kept = Stored(state: state, document: document)
         try save(kept)
         stored = kept

@@ -48,10 +48,24 @@ import Testing
 
     @Test func aChatStateEventSettlesBusy() {
         var state = CloudWorkspaceState()
-        state.absorbPage(Records.page([], chat: Records.chat(state: "running"), busy: true, streaming: "x"))
+        state.apply(.chat(Records.chat(state: "running")))
         #expect(state.chats["c1"]?.busy == true)
         state.apply(.chat(Records.chat(state: "idle")))
         #expect(state.chats["c1"]?.busy == false)
+    }
+
+    @Test func aPageReadBeforeTheTurnEndedPutsNothingStaleBack() {
+        var state = CloudWorkspaceState()
+        state.apply(.chat(Records.chat(state: "running")))
+        state.apply(.stream(chatID: "c1", text: "Working", snapshot: true))
+        state.apply(.message(Records.message(4, kind: "result")))
+        state.apply(.chat(Records.chat(state: "idle")))
+        // The page was served while the turn was still running.
+        state.absorbPage(Records.page([Records.message(3)], chat: Records.chat(state: "running"), busy: true, streaming: "Work"))
+        #expect(state.chats["c1"]?.busy == false)
+        #expect(state.chats["c1"]?.streamingText == "")
+        #expect(state.chats["c1"]?.chat?.state == "idle")
+        #expect(state.chats["c1"]?.messages.map(\.seq) == [3, 4])
     }
 
     @Test func aChatNeverSeenBeforeAsksForItsHistory() {

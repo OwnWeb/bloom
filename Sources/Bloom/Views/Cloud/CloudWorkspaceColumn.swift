@@ -38,6 +38,10 @@ struct CloudWorkspaceColumn: View {
             session.open()
             await app.cloud.markRead(id)
         }
+        // A workspace nobody is looking at keeps what it read and lets go of its stream, which
+        // would otherwise reconnect by itself after a dropped network and wake its machine.
+        .onChange(of: id) { previous, _ in app.cloud.existingSession(for: previous)?.suspend() }
+        .onDisappear { app.cloud.existingSession(for: id)?.suspend() }
     }
 
     @ViewBuilder

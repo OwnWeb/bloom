@@ -144,3 +144,71 @@ struct EchoTransport: HTTPTransport {
         try await inner.lines(for: request)
     }
 }
+
+@Suite struct WorkspaceConnectionLifecycleTests {
+    private func stream(_ events: [WorkspaceEvent]) -> FakeTransport.Answer {
+        var lines: [String] = []
+        for event in events {
+            lines.append("event: \(event.kind)")
+            if let cursor = event.cursor { lines.append("id: \(cursor)") }
+            lines += ["data: " + Records.json(event), ""]
+        }
+        return .init(status: 200, body: Data(), headers: ["Bloom-Stream-ID": "s1"], lines: lines)
+    }
+
+    private func connection(_ transport: FakeTransport) -> WorkspaceConnection {
+        WorkspaceConnection(
+            workspaceID: "01k5ws", api: Fixtures.api(transport),
+            machine: MachineClient(transport: EchoTransport(inner: transport, result: .workspace(Records.workspace(cursor: 77)))),
+            sleep: { _ in await Task.yield() }
+        )
+    }
+
+    @Test func wakingAfterSleepResumesFromTheCursorWithoutReadingTheWorkspaceAgain() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on("GET", "/_bloom/v1/events",
+                     stream([.message(Records.message(3, cursor: 80)), .sleeping]),
+                     stream([.sleeping]))
+        let live = connection(transport)
+        await live.open()
+        for await update in live.updates where update == .phase(.asleep) { break }
+        await live.resume()
+        var sleeps = 0
+        for await update in live.updates where update == .phase(.asleep) {
+            sleeps += 1
+            break
+        }
+        #expect(sleeps == 1)
+        #expect(transport.requests(to: "/_bloom/v1/events").map { $0.value(forHTTPHeaderField: "Last-Event-ID") } == ["77", "80"])
+    }
+
+    @Test func aStreamRefusedTwiceStops() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on("GET", "/_bloom/v1/events", .json(#"{"code": "unauthenticated", "message": "Access was removed."}"#, status: 401))
+        let live = connection(transport)
+        await live.open()
+        for await update in live.updates {
+            if case .phase(.noAccess(let message)) = update {
+                #expect(message == "Access was removed.")
+                break
+            }
+        }
+        #expect(transport.requests(to: "/_bloom/v1/events").count == 2)
+    }
+
+    @Test func aSuspendedConnectionKeepsItsCursor() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on("GET", "/_bloom/v1/events", stream([.message(Records.message(3, cursor: 90)), .sleeping]))
+        let live = connection(transport)
+        await live.open()
+        for await update in live.updates where update == .phase(.asleep) { break }
+        await live.suspend()
+        #expect(await live.currentPhase == .closed)
+        await live.resume()
+        for await update in live.updates where update == .phase(.asleep) { break }
+        #expect(transport.requests(to: "/_bloom/v1/events").last?.value(forHTTPHeaderField: "Last-Event-ID") == "90")
+    }
+}
