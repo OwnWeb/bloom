@@ -226,6 +226,8 @@ struct TranscriptRowView: View, Equatable {
                 SessionStartRowView(info: info)
             } else if let wake = backgroundWake {
                 BackgroundWakeRowView(wake: wake)
+            } else if let compaction {
+                CompactionBoundaryRowView(compaction: compaction)
             }
 
         // A result row is a turn boundary, and the footer that renders it needs the rows around it,
@@ -322,6 +324,13 @@ struct TranscriptRowView: View, Equatable {
     private var backgroundWake: BackgroundWake? {
         guard case .subagent(.reported(let report))? = event else { return nil }
         return BackgroundWake(report)
+    }
+
+    /// The boundary that closes a compaction. Every one of these is drawn: a `compact_boundary`
+    /// only exists because a compaction finished.
+    private var compaction: ContextCompaction? {
+        guard case .contextCompacted(let compaction)? = event else { return nil }
+        return compaction
     }
 
     /// Only decoded once a row is open, because a tool result is the largest payload in the file.

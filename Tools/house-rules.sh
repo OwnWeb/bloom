@@ -296,6 +296,7 @@ id_type_allowed_files=(
   'Sources/BloomCore/Agent/Grok/GrokClient.swift'    # the same protocol's request envelopes
   'Sources/BloomCore/Agent/Grok/GrokRunner.swift'    # Grok session ids assigned by that server
   'Sources/BloomCore/Agent/AgentRetry.swift'   # the same stream-json, one line of it
+  'Sources/BloomCore/Transcript/ContextCompaction.swift' # the same stream-json, one line of it
 )
 # Names that are never a Bloom row, wherever they appear. This list should only
 # ever get shorter. A name not on it is a new mistake.

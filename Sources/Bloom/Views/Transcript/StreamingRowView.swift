@@ -1,4 +1,5 @@
 import SwiftUI
+import BloomCore
 
 /// The live tail of the turn: what is arriving right now, before the CLI emits the finished block.
 ///
@@ -47,6 +48,16 @@ struct StreamingRowView: View {
         !transcript.streamingThinking.isEmpty || !transcript.streamingText.isEmpty
     }
 
+    /// Compaction is the one status that is not the agent working for you, so it is the one that
+    /// does not get the running dot. Read off the label rather than off a second piece of state,
+    /// because the label is what the CLI said and there is nothing else to know: see
+    /// `ContextCompaction.isCompacting`.
+    private func mark(for label: String) -> StreamingStatusView.Mark {
+        ContextCompaction.isCompacting(status: label)
+            ? .housekeeping(CompactionBoundaryRowView.symbol)
+            : .activity
+    }
+
     var body: some View {
         // Spacing 0, like the stored row list: each piece below carries the same padding its
         // persisted twin does, so replacing one with the other moves nothing.
@@ -81,15 +92,13 @@ struct StreamingRowView: View {
                 RetryRowView(run: run)
                     .transaction { $0.animation = nil }
             } else if let tool = transcript.streamingToolName {
-                StreamingStatusView(glyph: "gearshape", text: "Running \(tool)")
+                StreamingStatusView(mark: .tool("gearshape"), text: "Running \(tool)")
                     .transaction { $0.animation = nil }
             } else if transcript.isRunning || transcript.sending != nil, !hasVisibleStream {
                 // Reserve the activity line with the instant echo so starting the agent does
                 // not insert another row underneath a bubble that is still arriving.
-                StreamingStatusView(
-                    glyph: nil,
-                    text: transcript.statusLabel ?? (transcript.isRunning ? "Working" : "Starting")
-                )
+                let label = transcript.statusLabel ?? (transcript.isRunning ? "Working" : "Starting")
+                StreamingStatusView(mark: mark(for: label), text: label)
                     .transaction { $0.animation = nil }
             }
         }
