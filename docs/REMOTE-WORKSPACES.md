@@ -111,7 +111,12 @@ app. runbloom.app's own API uses those access tokens.
 ### Workspace tokens
 
 A client exchanges its runbloom.app access token for a workspace token:
-`POST /api/v1/cloud-workspaces/{id}/session-token`. The reply is an EdDSA JWT, five minutes long:
+`POST /api/v1/cloud-workspaces/{id}/session-token`. runbloom.app refuses it with `{"code":
+"machine_not_ready", "message", "retry_after"}` (HTTP 409) until bloom-server on that machine has
+posted its first summary, so a client never connects to a URL with nothing behind it. From that
+first summary on, which bloom-server posts before setup starts, a token is issued, so the setup
+output can be watched live. A sleeping machine is ready: the token is what the client then uses to
+wake it. The reply is an EdDSA JWT, five minutes long:
 
 | Claim | Value |
 | --- | --- |
@@ -175,7 +180,7 @@ So:
   **A personal key is used only in a workspace that is not shared.** Everyone in a workspace has a
   terminal and sudo, so a collaborator could read a running turn's environment; in a shared
   workspace every turn uses the team key, and sharing a workspace switches it over from the next
-  turn.
+  turn. The same rule covers a person's own overrides of secrets and environment variables.
   The key is resolved per turn from the prompter. `claude setup-token` tokens are never stored on
   runbloom.app.
 - **Later, personal subscriptions** in workspaces that are not shared: the person runs Claude's own
@@ -261,9 +266,17 @@ last client stream closes (the app quit, the workspace closed, the laptop slept)
 minutes later if nothing else renewed it. A client that is open but idle is not detected; that would
 need every client to report its own visibility, which is more state than the minutes it saves.
 
-When none is true it posts a final summary with `awake: false`, sends `sleeping` on every stream
-and closes them. Clients show the runbloom.app summary and reconnect on the next interaction; a
-wake is under a second. Project services stay running and freeze with the Sprite, so a Vite HMR
+When none is true it releases, in this order and never another: post the final summary with
+`awake: false` and the usage report, send `sleeping` on every stream and close them, and only then
+delete the task. The order is forced by a measurement: a Sprite released from its last task paused
+almost at once, not 30 s later, so anything sent after the release may be frozen mid-request.
+Clients show the runbloom.app summary and reconnect on the next interaction.
+
+A wake is not always under a second. Through the public URL the first request after a two minute
+pause took 4.5 s end to end, and requests after a minute idle took 0.2 to 0.6 s to first byte
+against 0.23 s awake. So a client allows at least 10 s for the first request to a sleeping
+workspace, shows that it is waking after 500 ms rather than a spinner with no words, and never
+treats a slow first response as a failure to retry with a new command id. Project services stay running and freeze with the Sprite, so a Vite HMR
 socket in someone's browser does not hold it awake past the lease either: the preview proxy closes
 upgraded connections when it sends `sleeping`.
 
@@ -408,7 +421,8 @@ Bloom injects into every script and service: `BLOOM_PUBLIC_URL` (the Sprite URL,
 the team and project environment runbloom.app holds. The repository maps them itself
 (`APP_URL=$BLOOM_PUBLIC_URL`, Vite's allowed hosts from `BLOOM_PUBLIC_HOST`). Team and project
 values arrive at setup and at every resume; personal values arrive only with a turn or a terminal
-session and apply only to its processes. All of it lives only in process environments; a script
+session, apply only to its processes, and, like personal keys, are delivered only in a workspace
+that is not shared. All of it lives only in process environments; a script
 that writes it into `.env` has made that choice itself.
 
 Project services run under bloom-server's own supervisor, not as Sprite Services. A Sprite Service
@@ -458,9 +472,10 @@ because it is append-only where the summary is replace-latest:
 ```
 
 - **Awake and released.** `awake` is when bloom-server takes its first hold, with the reason (setup,
-  turn, script, human input); `released` is when it lets go of the last one. The provider pauses
-  about 30 s after `released`, which bloom-server cannot observe, so runbloom.app adds that margin
-  or reconciles against the provider's own billing where its API offers it. A wake after a pause
+  turn, script, human input); `released` is when it lets go of the last one. Measured, the Sprite paused almost immediately after
+  the release, so `released` is close to the true pause; runbloom.app's added margin covers the
+  case where an idle open connection kept it awake a little longer, and the provider's own state is
+  the reconciliation. A wake after a pause
   is detected as a wall clock gap and reported as `awake`.
 - **Counters are cumulative** since boot, so a lost or repeated report changes nothing: runbloom.app
   takes differences between sequences within one `machine_boot_id`. `cpu_seconds` is non-idle time
@@ -471,7 +486,7 @@ because it is append-only where the summary is replace-latest:
 - **Turns** carry the user, so limits can be per person as well as per team.
 
 Sent at every `released`, every 5 minutes while awake, and on shutdown. runbloom.app adds 30 s
-after each `released` for the pause it cannot see, carries storage forward from the last disk
+after each `released` for a pause it cannot see (generous, given the measurement above), carries storage forward from the last disk
 report until the machine is deleted, and checks machine state against the provider's API on its
 own, because anyone with root on the machine could stop or falsify these reports. The reports are
 for showing usage and enforcing limits early, not the only source of truth.
@@ -764,9 +779,16 @@ The owner asked for these before implementation starts.
 - **Measured, not relied on:** after about 600 s idle, with the API reporting cold, a background
   process was still alive and the wake took 0.4 s, contrary to the documentation. The design keeps
   to the documented case, where memory is dropped.
-- **Being measured:** SSE and WebSocket through the public URL for longer than a turn, with CORS
-  preflight reaching bloom-server unaltered; the Tasks API from inside a Service's process, and its
-  release when that process dies.
+- **Verified:** SSE through the public URL, 60 events over five minutes with no gaps, and a sparse
+  stream with 100 s of silence between events stayed open, so there is no proxy idle timeout at
+  that length.
+- **Verified:** a WebSocket through the public URL survived 150 s of complete silence with no pings
+  either way.
+- **Verified:** a Sprite Service's process (uid 1001) reaches `/.sprite/api.sock`, creates and
+  deletes tasks, and a held task kept the Sprite running for 150 s with no connections at all.
+  After the release it paused almost immediately, which is why releasing sends everything first.
+- **Measured:** the first request through the public URL after a two minute pause took 4.5 s; see
+  the awake section for what a client does about it.
 
 ## Decided by the owner
 
@@ -791,4 +813,4 @@ The owner asked for these before implementation starts.
 
 ## Still open
 
-- The results of the SSE, WebSocket and Tasks API measurements.
+- Nothing. The contract matches runbloom.app pull request #23.
