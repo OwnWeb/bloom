@@ -1,18 +1,20 @@
-# Remote workspaces on Sprites
+# Cloud workspaces on Sprites
 
 Status: design, September 2026. Nothing here is built yet. This document is what the next pull
 request builds, and the order it builds it in. The control server half lives in the runbloom.app
 repository and is designed there; the contract between the two is written down here as well,
 because both sides have to read the same one.
 
-A remote workspace is a Bloom workspace whose worktree, agents, terminals and transcript live on a
+A cloud workspace is a Bloom workspace whose worktree, agents, terminals and transcript live on a
 Fly.io Sprite instead of this Mac. One Sprite per workspace, and the Sprite is the isolation
 boundary. Several people can work in the same one.
 
-**Nobody using Bloom sees Fly or a Sprite.** runbloom.app runs every remote workspace in one Fly
-organisation with one token, for every team; nobody connects a Fly account. In the app, on
-runbloom.app and in any message a person can read, it is a remote workspace, and the computer it
-runs on is its machine. "Sprite" appears in this document, in the provider implementation and in
+**Nobody using Bloom sees Fly or a Sprite.** runbloom.app runs every cloud workspace in one Fly
+organisation with one token, for every team; nobody connects a Fly account. In the app (sidebar,
+create window, menus, errors), on runbloom.app and in any message a person can read, it is a
+**Cloud workspace**, plural **Cloud workspaces**, and never a remote workspace, a Fly machine or a
+Sprite. Type names in code stay neutral (`Remote…`, `Machine…`), because they are not read by
+anyone using the app. "Sprite" appears in this document, in the provider implementation and in
 logs, and nowhere else. The provider stays behind the interface described under "Where the code
 goes", so a second provider changes no user-facing word.
 
@@ -354,9 +356,19 @@ read-only installation token, create the branch, `scripts.prepare`, `scripts.set
 about two and a half minutes, most of it apt. The opening prompt queues behind setup, as it does
 locally.
 
-runbloom.app keeps a Machine record per Sprite, named `bloom-<machine id>`. The Sprites HTTP API
+runbloom.app keeps a Machine record per Sprite, named `bloom-<machine ulid>`. The Sprites HTTP API
 cannot set labels, so the mapping from Sprite to workspace lives in its database, and the orphan
-sweep deletes any `bloom-` Sprite no Machine owns.
+sweep deletes a Sprite no Machine owns only when its whole name matches
+`^bloom-[0-9a-hjkmnp-tv-z]{26}$`, never on the prefix alone.
+
+Production, development and tests share the one Fly organisation, and there is no staging
+environment: end-to-end testing runs against runbloom.app itself behind its access and
+configuration switches. So the names keep them apart. Machines created by local development are
+named `bloomdev-<...>` and by automated tests `bloomtest-<...>`; neither starts with `bloom-`, so
+the production sweep cannot match them however it is written, and nothing that creates or sweeps
+development or test machines can match a production one. A test deletes what it created in its
+own teardown, and `Tools/sweep-test-machines.sh` deletes `bloomtest-` machines older than a day for
+the runs that crashed before theirs.
 
 **Later, a warm pool.** Because `prepare` is already its own script with no secrets, a pool of
 machines that ran it and paused is an addition on runbloom.app's side plus a claim step in
@@ -652,7 +664,7 @@ steps, summaries and usage, preview exchange with Caddy, `control/*`. References
 | `Terminal/HTTPSTerminalConnection.swift`, `Terminal/RemoteTerminalConnection.swift`, `Terminal/RemoteTerminalAttachment.swift` | port, with the `auth` first frame |
 | `RemoteApproval.swift`, `RemoteApprovalSubmission.swift`, `AgentQuestion.swift`, `AgentQuestionDraft.swift`, `WorkspaceSafetyReport.swift`, `ArchiveHazards.swift` | port |
 | `Sources/Bloom/State/AppModel+RemoteServers.swift`, `ServerReviewModel.swift`, `ServerFileBuffer.swift`, `System/ServerAuthentication.swift` | rewrite for workspaces listed from runbloom.app |
-| sidebar remote sections, `Views/Server/RemoteTerminalView.swift`, `RemoteFilePreviewView.swift` | rewrite, as remote workspaces inside the existing sidebar and panes |
+| sidebar remote sections, `Views/Server/RemoteTerminalView.swift`, `RemoteFilePreviewView.swift` | rewrite, as Cloud workspaces inside the existing sidebar and panes |
 | `Composer/`, `Review/`, `Tools/`, `Presentation/`, `Transcript/` files that are moves of main's own `BloomCore` types (`AgentKind`, `DiffParser`, `MarkdownParser`, `ToolPresenter` and the like) | leave; those moves are for sharing with iOS and wait for the iOS pull request |
 | `ServerWindowModel*`, `ServerSetupModel`, `ServerMaintenanceModel*`, `ServerStorageModel`, `ServerSkillsModel`, `ServerCredentialImportModel`, `ServerDockerRecoveryModel`, `ServerToolUpdatesModel`, `RemoteServersSettings*`, `Design/Server*Probe` | leave |
 | `Packages/BloomUI`, `iOS/`, `Tools/ios-*`, `.github/workflows/ios.yml` | leave, for the iOS pull request |
@@ -693,6 +705,9 @@ written into a fixture. Like `BLOOM_LIVE=1` today, it costs money and is off unl
 - iOS later, with the contract kept usable by iOS and a web interface.
 - Fly and Sprites are invisible to users: one organisation and one token, owned by runbloom.app.
 - Two pull requests, server then Mac client, each from main, porting from #163 selectively.
+- The user-facing name is Cloud workspace.
+- One Fly organisation for production, development and tests, kept apart by machine name prefixes.
+  No staging environment.
 - A web interface, when it comes, lives in runbloom.app on the same accounts and this contract.
 
 ## Still open
