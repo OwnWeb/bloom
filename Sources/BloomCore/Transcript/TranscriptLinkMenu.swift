@@ -75,7 +75,7 @@ public enum TranscriptLinkMenu {
     public static func items(
         for url: URL, placement: TranscriptLinkPlacement
     ) -> [TranscriptLinkItem] {
-        var items = [TranscriptLinkItem(title: "Open in External Browser", target: .externalBrowser)]
+        var items = [TranscriptLinkItem(title: "Open in Default Browser", target: .externalBrowser)]
 
         // Everything below opens a browser of Bloom's own, so everything below needs an address
         // one could show. Asked once here rather than per item, because an address that cannot

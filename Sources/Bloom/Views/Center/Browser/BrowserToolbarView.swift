@@ -180,7 +180,13 @@ struct BrowserToolbarView: View {
                 .disabled(!isCommentEnabled)
                 .help(isReviewing ? "Finish reviewing this page" : "Drag over part of this page to leave a comment")
             }
+            // The pair that hands this page to something outside Bloom. The address is the one on
+            // screen, so a page navigated away from its starting URL opens where it now is.
             actionGroup {
+                pageAction(toolbar.openInDefaultBrowser) {
+                    if let url = toolbar.externalURL { NSWorkspace.shared.open(url) }
+                }
+                Hairline(axis: .vertical)
                 BrowserShareButton(
                     control: toolbar.share,
                     shareable: toolbar.shareable,

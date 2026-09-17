@@ -155,6 +155,28 @@ public struct BrowserToolbar: Equatable, Sendable {
         )
     }
 
+    /// The page on screen, in whatever the Mac says opens web pages.
+    ///
+    /// "Default" rather than "External", because Bloom has a browser of its own and "Open in
+    /// Browser" said nothing about which. The tooltip is the name again, against the rule on
+    /// `Control.help`, because the name is already the sentence a hover would need.
+    ///
+    /// Gated by `BrowserAddress.external` rather than `destination`, because the address is
+    /// written by the page and `NSWorkspace` hands it to whatever claims the scheme.
+    public var openInDefaultBrowser: Control {
+        Control(
+            symbol: "arrow.up.forward.app",
+            name: "Open in Default Browser",
+            help: "Open in Default Browser",
+            isEnabled: externalURL != nil
+        )
+    }
+
+    /// What the button above hands to `NSWorkspace`, or nil when there is nothing it may.
+    public var externalURL: URL? {
+        BrowserAddress.external(from: page.address)
+    }
+
     public var regionCapture: Control {
         Control(
             symbol: "crop",
