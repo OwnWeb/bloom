@@ -28,7 +28,7 @@ actor RemotePromptQueue {
     /// Whether a chat's prompts must wait without that being an error: setup is still running.
     private let held: @Sendable (SessionID) async -> Bool
     private let changed: @Sendable (SessionID) async -> Void
-    private let settled: @Sendable (SessionID, RemoteTurnEnd) async -> Void
+    private let settled: @Sendable (SessionID, RemoteTurnEnd, String?) async -> Void
     private let started: @Sendable (SessionID, Delivery) async -> Void
 
     private var tasks: [SessionID: Task<Void, Never>] = [:]
@@ -46,7 +46,7 @@ actor RemotePromptQueue {
         held: @escaping @Sendable (SessionID) async -> Bool = { _ in false },
         changed: @escaping @Sendable (SessionID) async -> Void = { _ in },
         started: @escaping @Sendable (SessionID, Delivery) async -> Void = { _, _ in },
-        settled: @escaping @Sendable (SessionID, RemoteTurnEnd) async -> Void = { _, _ in }
+        settled: @escaping @Sendable (SessionID, RemoteTurnEnd, String?) async -> Void = { _, _, _ in }
     ) {
         self.store = store
         self.gate = gate
@@ -168,14 +168,15 @@ actor RemotePromptQueue {
     func runningTurn(_ id: SessionID) -> String? { running[id] }
 
     func turnEnded(_ id: SessionID, ending: RemoteTurnEnd) async {
-        if let turnID = running.removeValue(forKey: id) { await gate.end(turnID: turnID) }
+        let turnID = running.removeValue(forKey: id)
+        if let turnID { await gate.end(turnID: turnID) }
         guard !closed else { return }
         if ending.isFailure {
             errors[id] = ending.summary.isEmpty ? Self.pausedSentence : ending.summary
             try? await store.setSetting(Self.pauseKey(id), "true")
             await changed(id)
         }
-        await settled(id, ending)
+        await settled(id, ending, turnID)
         start(id)
     }
 

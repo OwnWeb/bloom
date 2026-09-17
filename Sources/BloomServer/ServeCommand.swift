@@ -62,7 +62,10 @@ public enum ServeCommand {
             case .turnStarted(_, let turnID, let author, let agent):
                 if let turnID { await reporter.record(.turnStarted(turnID: turnID, userID: author?.userID, agent: agent, at: Date())) }
                 await reporter.changed()
-            case .turnFinished:
+            case .turnFinished(_, let turnID):
+                // runbloom.app pairs a finish with its start by the turn, so a turn nobody
+                // registered (a subagent's report) is reported as neither.
+                if let turnID { await reporter.record(.turnFinished(turnID: turnID, at: Date())) }
                 await reporter.changed()
             case .setupStarted:
                 await reporter.record(.setupStarted(at: Date()))

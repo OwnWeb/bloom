@@ -42,6 +42,9 @@ public struct RemoteUsageMeter: Codable, Sendable, Hashable {
         if sample.bootID != bootID { self = RemoteUsageMeter(bootID: sample.bootID) }
         cpuSeconds = max(cpuSeconds, sample.cpuSeconds)
         defer { lastSampleAt = date }
+        // Before anything else, so the first reading of a boot already gives a report its disk:
+        // runbloom.app meters no storage for a machine whose reports carry none.
+        if let disk = sample.diskUsedBytes { lastDisk = UsageReport.Disk(usedBytes: disk, at: date) }
         guard let last = lastSampleAt else { return false }
         let gap = date.timeIntervalSince(last)
         guard gap > 0 else { return false }
@@ -50,7 +53,6 @@ public struct RemoteUsageMeter: Codable, Sendable, Hashable {
             awakeSeconds += gap
             memoryGBSeconds += Double(sample.memoryUsedBytes) / 1_073_741_824 * gap
         }
-        if let disk = sample.diskUsedBytes { lastDisk = UsageReport.Disk(usedBytes: disk, at: date) }
         return false
     }
 

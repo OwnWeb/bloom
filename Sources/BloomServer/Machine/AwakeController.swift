@@ -36,6 +36,9 @@ public actor AwakeController {
     private var openStreams = 0
     private var loop: Task<Void, Never>?
     private var releasing = false
+    /// Whether `released` has been reported since the last hold, because runbloom.app adds its
+    /// margin once per `released` and a second one for the same pause would bill it twice.
+    private var releaseReported = true
     private var onWake: @Sendable () async -> Void = {}
 
     public init(host: any MachineHost, runtime: WorkspaceRuntime, reporter: MachineReporter, now: @escaping @Sendable () -> Date = Date.init) {
@@ -125,6 +128,7 @@ public actor AwakeController {
                 return
             }
             holding = true
+            releaseReported = false
             lastRenewal = date
             lastUsageReport = date
             await reporter.record(.awake(reason, at: date))
@@ -142,7 +146,10 @@ public actor AwakeController {
         releasing = true
         defer { releasing = false }
         let date = now()
-        await reporter.record(.released(at: date))
+        if !releaseReported {
+            releaseReported = true
+            await reporter.record(.released(at: date))
+        }
         await reporter.setAwake(false, leaseUntil: nil)
         await reporter.postSummaryNow()
         await reporter.sendUsage(includingDisk: true)
@@ -158,7 +165,10 @@ public actor AwakeController {
     public func shutdown() async {
         stop()
         releasing = true
-        await reporter.record(.released(at: now()))
+        if !releaseReported {
+            releaseReported = true
+            await reporter.record(.released(at: now()))
+        }
         await reporter.setAwake(false, leaseUntil: nil)
         await reporter.postSummaryNow()
         await reporter.sendUsage(includingDisk: true)

@@ -161,7 +161,15 @@ extension WorkspaceRuntime {
 
     /// A limit was reached while the machine is awake: running turns stop the way Stop stops them,
     /// and every waiting prompt is marked with the limit rather than sent.
+    ///
+    /// `inactive` is runbloom.app telling a machine that stayed awake with nobody working to go to
+    /// sleep: its turns stop, but nothing is blocked, because no limit was reached and nothing has
+    /// to be cleared before the next prompt may go.
     public func stopForLimit(_ block: DeliveryBlock) async {
+        if block.limit == "inactive" {
+            for session in sessions.values { await session.stop() }
+            return
+        }
         for id in (try? await chatIDs()) ?? [] {
             if let pending = try? await store.pendingDeliveries(sessionID: id) {
                 for delivery in pending where delivery.state == .pending {

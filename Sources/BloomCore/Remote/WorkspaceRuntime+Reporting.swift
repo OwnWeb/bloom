@@ -5,7 +5,7 @@ import Foundation
 /// hold on the machine, to record usage, and to post a summary.
 public enum RemoteActivityEvent: Sendable, Hashable {
     case turnStarted(chat: SessionID, turnID: String?, author: MessageAuthor?, agent: AgentKind)
-    case turnFinished(chat: SessionID)
+    case turnFinished(chat: SessionID, turnID: String?)
     case setupStarted(step: String)
     case setupStep(String)
     case setupFinished(succeeded: Bool)

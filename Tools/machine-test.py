@@ -62,7 +62,10 @@ def step(message):
 
 
 def sprite(name, *arguments, stdin=None, check=True, timeout=300):
-    command = [SPRITE, *arguments[:1], "-o", ORGANISATION, "-s", name, *arguments[1:]]
+    # The CLI reads its flags after the whole subcommand (`file push`, `url update`), so they go
+    # after every leading word that is a command rather than a value.
+    verbs = 2 if arguments[0] in ("file", "url") and len(arguments) > 1 and arguments[1] in ("push", "pull", "update") else 1
+    command = [SPRITE, *arguments[:verbs], "-o", ORGANISATION, "-s", name, *arguments[verbs:]]
     result = subprocess.run(command, input=stdin, capture_output=True, text=True, timeout=timeout)
     if check and result.returncode != 0:
         raise RuntimeError(f"sprite {arguments[0]} failed: {result.stderr.strip()[-600:]}")
@@ -199,15 +202,27 @@ def main():
                 (word for word in sprite(name, "url").split() if word.startswith("https://")), None), 60)
             step(f"machine URL {url}")
 
+            # Into the home directory, because the provider's file API will not write to /tmp.
             step("installing the package as runbloom.app does")
-            sprite(name, "file", "push", str(package), "/tmp/bloom-server.tar.gz", timeout=600)
-            sprite(name, "file", "push", str(HERE / "bloom_fake_runbloom.py"), "/tmp/bloom_fake_runbloom.py")
-            run_on(name, f"sudo mkdir -p /opt/bloom/{version} && sudo tar -xzf /tmp/bloom-server.tar.gz -C /opt/bloom/{version} "
+            # In pieces, because one upload of a debug package (over 100 MB) outlasts the file API's
+            # own deadline, and joined on the machine. Straight into the home directory, because the file API
+            # refuses a directory it has not seen, even one that exists.
+            pieces = scratch / "pieces"
+            pieces.mkdir()
+            data = package.read_bytes()
+            size = 8 * 1024 * 1024
+            for index in range(0, len(data), size):
+                piece = pieces / f"part-{index // size:04d}"
+                piece.write_bytes(data[index:index + size])
+                sprite(name, "file", "push", str(piece), f"/home/sprite/bloom-piece-{piece.name}", timeout=300)
+            run_on(name, "cat /home/sprite/bloom-piece-part-* > /home/sprite/bloom-server.tar.gz && rm -f /home/sprite/bloom-piece-part-*")
+            sprite(name, "file", "push", str(HERE / "bloom_fake_runbloom.py"), "/home/sprite/bloom_fake_runbloom.py")
+            run_on(name, f"sudo mkdir -p /opt/bloom/{version} && sudo tar -xzf /home/sprite/bloom-server.tar.gz -C /opt/bloom/{version} "
                          f"&& sudo ln -sfn /opt/bloom/{version} /opt/bloom/current && /opt/bloom/current/bin/bloom-server version")
 
             issuer = Issuer(scratch / "issuer", f"http://127.0.0.1:{FAKE_PORT}", workspace)
             (scratch / "jwks.json").write_bytes(issuer.jwks)
-            sprite(name, "file", "push", str(scratch / "jwks.json"), "/tmp/jwks.json")
+            sprite(name, "file", "push", str(scratch / "jwks.json"), "/home/sprite/jwks.json")
             configuration = {
                 "workspace_id": workspace, "issuer": issuer.issuer, "jwks_url": f"{issuer.issuer}/.well-known/jwks.json",
                 "base_url": issuer.issuer, "workspace_secret": secret, "allowed_origins": ["https://runbloom.app"],
@@ -220,7 +235,7 @@ def main():
 
             step("starting the fake runbloom.app on the machine's loopback")
             fake = subprocess.Popen([SPRITE, "exec", "-o", ORGANISATION, "-s", name, "--no-port-forward", "--",
-                                     "python3", "/tmp/bloom_fake_runbloom.py", "--port", str(FAKE_PORT), "--jwks-file", "/tmp/jwks.json",
+                                     "python3", "/home/sprite/bloom_fake_runbloom.py", "--port", str(FAKE_PORT), "--jwks-file", "/home/sprite/jwks.json",
                                      "--secret-stdin"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             processes.append(fake)
             fake.stdin.write(secret + "\n")
