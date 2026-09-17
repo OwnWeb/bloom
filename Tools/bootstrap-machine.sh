@@ -88,7 +88,7 @@ sudo_if_needed mv -T "$prefix/current.next" "$prefix/current"
 
 if [[ "$action" == "install" ]]; then
   if ! "$service_tool" services list 2>/dev/null | grep -qw bloom; then
-    "$service_tool" services create bloom --http-port 8080 -- "$prefix/current/bin/bloom-server" serve
+    "$service_tool" services create bloom --cmd "$prefix/current/bin/bloom-server" --args serve --http-port 8080 --no-stream
   else
     "$service_tool" services restart bloom
   fi

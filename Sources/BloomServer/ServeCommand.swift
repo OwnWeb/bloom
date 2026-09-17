@@ -77,6 +77,9 @@ public enum ServeCommand {
                 await reporter.changed()
             case .humanInput:
                 break
+            case .workspaceChanged:
+                await reporter.changed()
+                return
             case .connectionsChanged(let open):
                 await awake.connectionsChanged(open: open)
                 await reporter.changed(slow: true)

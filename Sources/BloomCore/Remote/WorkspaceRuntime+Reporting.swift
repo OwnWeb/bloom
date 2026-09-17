@@ -11,6 +11,8 @@ public enum RemoteActivityEvent: Sendable, Hashable {
     case setupFinished(succeeded: Bool)
     case humanInput
     case connectionsChanged(open: Int)
+    /// The workspace's row changed: its name, branch or setup.
+    case workspaceChanged
 }
 
 /// What the awake policy asks of the runtime.

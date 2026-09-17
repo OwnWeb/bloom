@@ -586,7 +586,7 @@ checksum, unpack into `/opt/bloom/<version>`, point `/opt/bloom/current` at it, 
 origins and the workspace secret, and create the service once:
 
 ```sh
-sprite-env services create bloom --http-port 8080 -- /opt/bloom/current/bin/bloom-server serve
+sprite-env services create bloom --cmd /opt/bloom/current/bin/bloom-server --args serve --http-port 8080 --no-stream
 ```
 
 The command never changes, because creating a service under an existing name keeps the old

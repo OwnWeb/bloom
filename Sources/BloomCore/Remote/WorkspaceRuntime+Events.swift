@@ -134,6 +134,15 @@ extension WorkspaceRuntime {
             publishedQuestions.removeValue(forKey: id)
         }
         guard let workspace = try await store.workspace(id: workspaceID) else { return }
+        let record = workspace.record(setup: setupRecord(workspace))
+        if publishedWorkspace != record {
+            let first = publishedWorkspace == nil
+            publishedWorkspace = record
+            if publishing {
+                await events.publish(.workspace(record))
+                if !first { await report(.workspaceChanged) }
+            }
+        }
         let setup = setupRecord(workspace)
         if publishedSetup != setup {
             publishedSetup = setup
