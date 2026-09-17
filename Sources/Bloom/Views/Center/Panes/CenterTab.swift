@@ -108,7 +108,7 @@ struct CenterTab: Identifiable, Hashable, Codable, Sendable {
     /// What the notes tab is called. Fixed, and not renameable: a workspace has one of them and it
     /// is always the same thing, so a name typed over it would only ever be a name for the
     /// workspace, which the sidebar already carries.
-    static let notesTitle = "Notes"
+    static let notesTitle = PaneNaming.notes
 
     // MARK: - Decoding
 
