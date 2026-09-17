@@ -171,6 +171,13 @@ public actor ReportDelivery {
         do {
             try await send()
             return .delivered
+        } catch let error as RunbloomError where error.isTerminal {
+            // The workspace is archived or its secret revoked: nothing this machine says will be
+            // heard again, so it stops saying it rather than retrying for the rest of its life.
+            summary = nil
+            usage.removeAll()
+            isShutDown = true
+            return .dropped
         } catch let error as RunbloomError where !error.isWorthRetrying {
             return .dropped
         } catch {

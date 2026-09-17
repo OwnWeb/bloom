@@ -114,6 +114,7 @@ public enum ServeCommand {
         }
 
         let measurements = WorktreeMeasurements(runtime: runtime, reporter: reporter)
+        await awake.whenWaking { await machineEnvironment.refresh() }
         await awake.start()
         await measurements.start()
         // After the first summary and with the server about to listen, so setup can be watched live.
@@ -127,7 +128,11 @@ public enum ServeCommand {
 
         // SIGTERM: a limit's grace ran out, an update is restarting the service, or the machine is
         // being deleted. Stop turns, report what can be reported, and go.
+        note("stopping: reporting to runbloom.app and closing streams")
+        // Setup stopped and filed first, so the last report says `released` rather than a setup
+        // that ended a moment after it.
         setupRun.cancel()
+        await setupRun.value
         await measurements.stop()
         await services.stopAll()
         await caddy.stop()
@@ -135,6 +140,11 @@ public enum ServeCommand {
         await runtime.shutdown()
         await delivery.shutdown()
         try await http.shutdown()
+        note("stopped")
+    }
+
+    static func note(_ line: String) {
+        FileHandle.standardError.write(Data("bloom-server: \(line)\n".utf8))
     }
 
     /// The secret the git credential helper proves itself to the loopback route with. New on every

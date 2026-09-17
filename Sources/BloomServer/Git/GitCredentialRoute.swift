@@ -51,12 +51,21 @@ enum GitCredentialRoute {
             guard asked.repository.lowercased() == repository.lowercased() else { return Response(status: .forbidden) }
             var turn = asked.turnID
             if turn == nil, let chat = asked.chatID { turn = await runtime.runningTurnID(chat: chat) }
-            do {
-                let credential = try await fetch(repository, turn == nil ? .read : .write, turn)
-                return WireResponses.json(Answer(username: credential.username, token: credential.token))
-            } catch {
-                return Response(status: .forbidden)
+            // runbloom.app answers 503 while GitHub is unreachable, and a clone halfway through setup
+            // is worth a few seconds of patience before git is told no.
+            var delay = Duration.seconds(1)
+            for attempt in 1...4 {
+                do {
+                    let credential = try await fetch(repository, turn == nil ? .read : .write, turn)
+                    return WireResponses.json(Answer(username: credential.username, token: credential.token))
+                } catch let error as RunbloomError where error.isWorthRetrying && attempt < 4 {
+                    try? await Task.sleep(for: delay)
+                    delay *= 2
+                } catch {
+                    return Response(status: .forbidden)
+                }
             }
+            return Response(status: .forbidden)
         }
     }
 

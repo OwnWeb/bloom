@@ -127,7 +127,8 @@ def main():
             summaries = fake.recorded("/summary")
             assert summaries[-1]["awake"] is False, summaries[-1]
             usage = fake.recorded("/usage")
-            assert usage and usage[-1]["events"][-1]["kind"] == "released", usage
+            events = [event for report in usage for event in report["events"]]
+            assert events and events[-1]["kind"] == "released", ([(m, p) for m, p, _ in fake.requests], usage)
         except BaseException:
             log.flush()
             print((scratch / "server.log").read_text()[-4000:], file=sys.stderr)

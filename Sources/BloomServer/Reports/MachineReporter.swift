@@ -112,26 +112,30 @@ public actor MachineReporter {
 
     // MARK: - Usage
 
+    /// Every change to the meter happens with no suspension between reading it and writing it back,
+    /// because a release and a shutdown can overlap, and a meter read before one of them suspended
+    /// and written back after it overwrote the other's events: the report that said `released`
+    /// went missing. The database copy is written afterwards and only survives restarts.
     public func record(_ event: UsageEvent) async {
-        var meter = await loadMeter()
-        meter.record(event)
-        await save(meter)
+        await loadMeterOnce()
+        meter?.record(event)
+        await persistMeter()
     }
 
     /// Takes a reading. Answers whether the machine was paused since the last one.
     public func sample(awake: Bool) async -> Bool {
         guard let reading = host.usageSample() else { return false }
-        var meter = await loadMeter()
-        let paused = meter.sample(reading, at: now(), awake: awake)
-        await save(meter)
+        await loadMeterOnce()
+        let paused = meter?.sample(reading, at: now(), awake: awake) ?? false
+        await persistMeter()
         return paused
     }
 
     public func sendUsage(includingDisk: Bool) async {
-        var meter = await loadMeter()
-        let report = meter.report(at: now(), includingDisk: includingDisk)
-        await save(meter)
+        await loadMeterOnce()
+        guard let report = meter?.report(at: now(), includingDisk: includingDisk) else { return }
         if let data = try? WireJSON.encode(report) { await delivery.submitUsage(data) }
+        await persistMeter()
     }
 
     /// Waits for what is queued to reach runbloom.app, for at most this long.
@@ -139,22 +143,19 @@ public actor MachineReporter {
         await delivery.flush(timeout: timeout)
     }
 
-    private func loadMeter() async -> RemoteUsageMeter {
-        if let meter { return meter }
-        if let text = try? await store.setting(Self.meterKey),
-           let stored = try? WireJSON.decode(RemoteUsageMeter.self, from: Data(text.utf8)) {
-            meter = stored
-            return stored
+    private func loadMeterOnce() async {
+        guard meter == nil else { return }
+        var loaded: RemoteUsageMeter?
+        if let text = try? await store.setting(Self.meterKey) {
+            loaded = try? WireJSON.decode(RemoteUsageMeter.self, from: Data(text.utf8))
         }
-        let fresh = RemoteUsageMeter(bootID: host.usageSample()?.bootID ?? "unknown")
-        meter = fresh
-        return fresh
+        // Another caller may have loaded it while this one read the database; theirs is newer.
+        guard meter == nil else { return }
+        meter = loaded ?? RemoteUsageMeter(bootID: host.usageSample()?.bootID ?? "unknown")
     }
 
-    private func save(_ meter: RemoteUsageMeter) async {
-        self.meter = meter
-        if let data = try? WireJSON.encode(meter) {
-            try? await store.setSetting(Self.meterKey, String(decoding: data, as: UTF8.self))
-        }
+    private func persistMeter() async {
+        guard let meter, let data = try? WireJSON.encode(meter) else { return }
+        try? await store.setSetting(Self.meterKey, String(decoding: data, as: UTF8.self))
     }
 }
