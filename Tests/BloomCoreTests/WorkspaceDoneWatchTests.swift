@@ -313,7 +313,12 @@ struct WorkspaceSayThrottleTests {
 
     @Test("the message after the limit inside the window is refused, and one outside it is not counted")
     func limit() {
-        let full = (0..<WorkspaceSayThrottle.limit).map { sent("Update \($0)", minutesAgo: Double($0)) }
+        // Spread across the window rather than a minute apart: at thirty a minute apart, the older
+        // third fell outside ten minutes and the full set was not full.
+        let spacing = WorkspaceSayThrottle.window / 60 / Double(WorkspaceSayThrottle.limit + 1)
+        let full = (0..<WorkspaceSayThrottle.limit).map {
+            sent("Update \($0)", minutesAgo: Double($0) * spacing)
+        }
         #expect(WorkspaceSayThrottle.refusal(sending: "One more", to: "b", recent: full, now: now)
             == .tooMany(workspace: "b", count: WorkspaceSayThrottle.limit))
 
