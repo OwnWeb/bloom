@@ -898,7 +898,13 @@ and its builder confirmed them.
   before a revoke (plus the thirty seconds of clock skew) are refused, and the list is kept in the
   database for eight hours, the longest preview cookie. The person's queued prompts are removed
   rather than left to pause the chat for everybody, their running turn stops, and the shells they
-  opened end.
+  opened end. Withdrawing a share link is a revoke too: runbloom.app sends the `share:<id>` subject
+  as `user_id`, and that link's preview cookies stop working at once.
+- **The local git credential route takes a turn only while it is live on the machine.** A chat's
+  turn is looked up by `BLOOM_CHAT_ID`, a terminal's by `BLOOM_TERMINAL` (the turn of whichever
+  connection to it is open, since a shell outlives the connection it started with), and a bare
+  `turn_id` is accepted only while a push or pull request runs under it. Every shell can read the
+  local secret, so a named turn is otherwise another person's push waiting to happen.
 - **A terminal belongs to whoever opened it.** Its shell holds that person's key, personal
   environment and turn, so nobody else attaches to it or closes it by name. Keys reach tmux through
   the creating client's environment (`update-environment`), never its arguments. A renewal of a

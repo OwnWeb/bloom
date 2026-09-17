@@ -81,7 +81,8 @@ public struct WorkspaceHTTPServer: Sendable {
                                runtime: dependencies.runtime)
         if let credentials = dependencies.gitCredentials {
             GitCredentialRoute.register(on: router, secret: credentials.secret, repository: credentials.repository,
-                                        runtime: dependencies.runtime, fetch: credentials.fetch)
+                                        runtime: dependencies.runtime, liveTerminalTurn: { [terminals] in await terminals.liveTurn(terminal: $0) },
+                                        fetch: credentials.fetch)
         }
         return router
     }

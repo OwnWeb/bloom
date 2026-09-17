@@ -245,6 +245,38 @@ struct WorkspaceHTTPServerTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("the local git credential route pushes only under a turn that is live here")
+    func gitCredentialTurns() async throws {
+        let fixture = try await fixture()
+        let asked = Mutex<[String]>([])
+        let verifier = TokenVerifier(issuer: fixture.issuer.issuer, workspaceID: fixture.issuer.workspaceID, keys: fixture.issuer.keySet())
+        let server = WorkspaceHTTPServer(dependencies: .init(
+            runtime: fixture.runtime, verifier: verifier, gate: UngatedTurns(), control: fixture.control, store: fixture.store,
+            allowedOrigins: [], version: "1.2.3",
+            gitCredentials: .init(secret: "local", repository: "spatie/bloom") { _, operation, turn in
+                asked.withLock { $0.append("\(operation.rawValue) \(turn ?? "-")") }
+                return RunbloomGitCredential(token: "t", expiresAt: Date(), username: "x-access-token")
+            }
+        ))
+        let headers: HTTPFields = [GitCredentialRoute.secretHeader: "local", .contentType: "application/json"]
+        try await server.application(port: 0).test(.router) { client in
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/bloom","turn_id":"somebody-elses-turn"}"#)) { response in
+                #expect(response.status == .forbidden, "A turn id nothing here is publishing under is refused")
+            }
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/bloom","terminal":"not-connected"}"#)) { response in
+                #expect(response.status == .ok)
+            }
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/other"}"#)) { response in
+                #expect(response.status == .forbidden)
+            }
+        }
+        #expect(asked.withLock { $0 } == ["read -"], "A terminal with no open connection only reads")
+        await fixture.runtime.shutdown()
+    }
+
     @Test("an SSE frame keeps its JSON on one line and carries the cursor as its id")
     func frames() throws {
         let message = MessageRecord(cursor: 42, chatID: "chat", seq: 1, kind: "user", payload: .string("line one\nline two"), createdAt: Date(timeIntervalSince1970: 0))

@@ -14,7 +14,9 @@ import NIOCore
 ///
 /// **The shell is a turn.** It is registered with runbloom.app under the person's token and
 /// started, which hands the machine that person's agent keys and personal environment for this
-/// shell alone, and `BLOOM_TURN_ID` in its environment is what lets `git push` from it push as them.
+/// shell alone. `BLOOM_TERMINAL` in its environment is what lets `git push` from it push as them:
+/// the credential route looks up the turn of whichever connection to that terminal is open now,
+/// because a shell outlives its connection and the turn it started with ends with that one.
 enum TerminalRoute {
     static let authenticationDeadline: Duration = .seconds(5)
     static let maximumFrame = 1 << 20
@@ -69,7 +71,7 @@ enum TerminalRoute {
             let caller = token.caller(token: raw)
             turnID = try await dependencies.gate.register(.terminal, chat: nil, agent: nil, caller: caller)
             registered = turnID
-            (environment, personal) = try await shellEnvironment(turnID: turnID, gate: dependencies.gate, runtime: dependencies.runtime)
+            (environment, personal) = try await shellEnvironment(turnID: turnID, terminal: name, gate: dependencies.gate, runtime: dependencies.runtime)
         } catch {
             // Registered but refused at start: runbloom.app counts a registered turn until it ends.
             if let registered, !registered.isEmpty { Task { await dependencies.gate.end(turnID: registered) } }
@@ -86,7 +88,7 @@ enum TerminalRoute {
             return
         }
         let expiry = TerminalExpiry(expiresAt: token.expiresAt)
-        let connection = await dependencies.connections.add(userID: token.author?.userID) {
+        let connection = await dependencies.connections.add(userID: token.author?.userID, turnID: turnID, terminal: name) {
             await attachment.close()
         }
         defer { Task { await dependencies.connections.remove(connection) } }
@@ -154,7 +156,7 @@ enum TerminalRoute {
     /// Also answers what of it is one person's own, which the shell is tagged with, and retires
     /// whatever this grant shows can no longer hold personal credentials.
     static func shellEnvironment(
-        turnID: String, gate: any RemoteTurnGate, runtime: WorkspaceRuntime
+        turnID: String, terminal: String, gate: any RemoteTurnGate, runtime: WorkspaceRuntime
     ) async throws -> (environment: [String: String], personal: Set<String>) {
         var environment: [String: String] = [:]
         guard !turnID.isEmpty else { return (environment, []) }
@@ -164,7 +166,7 @@ enum TerminalRoute {
             environment.merge(grant.environment(for: agent)) { _, new in new }
         }
         environment.merge(grant.environment) { current, _ in current }
-        environment["BLOOM_TURN_ID"] = turnID
+        environment["BLOOM_TERMINAL"] = terminal
         return (environment, grant.personalMarks(for: Array(grant.agentKeys.keys)))
     }
 }
@@ -182,12 +184,19 @@ actor TerminalExpiry {
 public actor TerminalConnections {
     public init() {}
 
-    private var entries: [UUID: (userID: String?, close: @Sendable () async -> Void)] = [:]
+    private var entries: [UUID: (userID: String?, turnID: String, terminal: String, close: @Sendable () async -> Void)] = [:]
 
-    func add(userID: String?, close: @escaping @Sendable () async -> Void) -> UUID {
+    func add(userID: String?, turnID: String = "", terminal: String = "", close: @escaping @Sendable () async -> Void) -> UUID {
         let id = UUID()
-        entries[id] = (userID, close)
+        entries[id] = (userID, turnID, terminal, close)
         return id
+    }
+
+    /// The runbloom.app turn of a connection to this terminal that is open now, if any. A terminal
+    /// belongs to one person, so any of its connections is theirs.
+    func liveTurn(terminal: String) -> String? {
+        guard !terminal.isEmpty else { return nil }
+        return entries.values.first { $0.terminal == terminal && !$0.turnID.isEmpty }?.turnID
     }
 
     func remove(_ id: UUID) {

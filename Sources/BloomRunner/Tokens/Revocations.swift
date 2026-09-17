@@ -16,7 +16,9 @@ public actor Revocations {
     private let store: Store?
     private let now: @Sendable () -> Date
     private var revoked: [String: Date] = [:]
-    private var loaded = false
+    /// Shared by every caller, so a request arriving while the stored list is still being read
+    /// waits for it rather than checking an empty one.
+    private var loading: Task<[String: Date], Never>?
 
     static let settingKey = "remote.revocations"
     /// The longest preview cookie. Nothing issued before a revocation outlives this.
@@ -41,10 +43,18 @@ public actor Revocations {
     }
 
     private func load() async {
-        guard !loaded else { return }
-        loaded = true
-        guard let text = try? await store?.setting(Self.settingKey),
-              let stored = try? JSONDecoder().decode([String: Date].self, from: Data(text.utf8)) else { return }
+        if let loading {
+            _ = await loading.value
+            return
+        }
+        let store = store
+        let task = Task { () -> [String: Date] in
+            guard let text = try? await store?.setting(Self.settingKey),
+                  let stored = try? JSONDecoder().decode([String: Date].self, from: Data(text.utf8)) else { return [:] }
+            return stored
+        }
+        loading = task
+        let stored = await task.value
         // Merged, because a revocation can land while the stored copy is on its way back.
         revoked.merge(stored) { current, _ in current }
     }

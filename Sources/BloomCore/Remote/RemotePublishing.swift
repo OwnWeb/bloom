@@ -35,6 +35,8 @@ extension WorkspaceRuntime {
             case .refused(_, let message): throw RemoteFailure(.invalidValue, message)
             }
         }
+        publishingTurns.insert(turnID)
+        defer { publishingTurns.remove(turnID) }
         do {
             let token = try await publishing.token(turnID)
             let value = try await body(["BLOOM_TURN_ID": turnID, "GH_TOKEN": token])
@@ -44,6 +46,11 @@ extension WorkspaceRuntime {
             await gate.end(turnID: turnID)
             throw error
         }
+    }
+
+    /// Whether a push or pull request is running under this turn now.
+    public func isPublishingTurn(_ turnID: String) -> Bool {
+        publishingTurns.contains(turnID)
     }
 
     func push(_ workspace: Workspace, environment: [String: String]) async throws {

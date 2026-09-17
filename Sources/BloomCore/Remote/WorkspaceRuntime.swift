@@ -34,6 +34,9 @@ public actor WorkspaceRuntime {
     let admissions = RemoteAdmissions()
     let reviewCache = RemoteReviewCache()
     var terminalService: RemoteTerminals?
+    /// Turns a push or pull request is running under right now, which the git credential route
+    /// accepts a turn id for. See `RemotePublishing`.
+    var publishingTurns: Set<String> = []
 
     var sessions: [SessionID: RemoteSession] = [:]
     var creating: [SessionID: Task<RemoteSession, Error>] = [:]

@@ -13,7 +13,7 @@ enum MachineUpdate {
     static let script = "/opt/bloom/current/bin/bootstrap-machine.sh"
 
     static func start(version: String, sha256: String) throws {
-        guard version.range(of: #"^v?[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$"#, options: .regularExpression) != nil,
+        guard version.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$"#, options: .regularExpression) != nil,
               sha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             throw RemoteFailure(.invalidValue, "An update needs a release version and its sha256.")
         }
