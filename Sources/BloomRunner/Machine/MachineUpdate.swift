@@ -11,6 +11,9 @@ import Foundation
 /// "Installing and updating bloom-runner".
 enum MachineUpdate {
     static let script = "/opt/bloom/current/bin/bootstrap-machine.sh"
+    /// Where the script's output goes. It outlives this process, so nothing here can report a
+    /// failed update; the file is how anybody looking at the machine finds out why.
+    static let logPath = "/var/tmp/bloom-update.log"
 
     static func start(version: String, sha256: String) throws {
         guard version.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$"#, options: .regularExpression) != nil,
@@ -24,8 +27,13 @@ enum MachineUpdate {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/setsid")
         process.arguments = ["-f", script, "update", version, sha256]
         process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        if !FileManager.default.fileExists(atPath: logPath) {
+            _ = FileManager.default.createFile(atPath: logPath, contents: nil, attributes: [.posixPermissions: 0o600])
+        }
+        let log = FileHandle(forWritingAtPath: logPath) ?? FileHandle.nullDevice
+        _ = try? log.seekToEnd()
+        process.standardOutput = log
+        process.standardError = log
         try ProcessLaunch.run(process)
     }
 }

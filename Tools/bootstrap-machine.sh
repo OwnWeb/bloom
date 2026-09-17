@@ -87,7 +87,8 @@ sudo_if_needed ln -sfn "$target" "$prefix/current.next"
 sudo_if_needed mv -T "$prefix/current.next" "$prefix/current"
 
 if [[ "$action" == "install" ]]; then
-  if ! "$service_tool" services list 2>/dev/null | grep -qw bloom; then
+  # The whole name, so a service called bloom-something does not count as this one.
+  if ! "$service_tool" services list 2>/dev/null | grep -qE '(^|[^[:alnum:]_-])bloom([^[:alnum:]_-]|$)'; then
     "$service_tool" services create bloom --cmd "$prefix/current/bin/bloom-runner" --args serve --http-port 8080 --no-stream
   else
     "$service_tool" services restart bloom
