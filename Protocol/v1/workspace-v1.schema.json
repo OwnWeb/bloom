@@ -653,6 +653,21 @@
               "type": "null"
             }
           ]
+        },
+        "layer": {
+          "oneOf": [
+            {
+              "enum": [
+                "conflicted",
+                "staged",
+                "unstaged",
+                "untracked"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -730,6 +745,81 @@
       "required": [
         "commits",
         "has_more"
+      ],
+      "additionalProperties": false
+    },
+    "SearchPiece": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "is_match": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "is_match",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "SearchMatch": {
+      "type": "object",
+      "properties": {
+        "chat_id": {
+          "type": "string"
+        },
+        "chat_title": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer"
+        },
+        "cursor": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "excerpt": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SearchPiece"
+          }
+        }
+      },
+      "required": [
+        "at",
+        "chat_id",
+        "chat_title",
+        "cursor",
+        "excerpt",
+        "kind",
+        "seq"
+      ],
+      "additionalProperties": false
+    },
+    "Search": {
+      "type": "object",
+      "properties": {
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SearchMatch"
+          }
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "matches",
+        "total"
       ],
       "additionalProperties": false
     },
@@ -1087,6 +1177,32 @@
           "required": [
             "kind",
             "sha"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "transcript_search"
+            },
+            "query": {
+              "type": "string"
+            },
+            "limit": {
+              "oneOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "query"
           ],
           "additionalProperties": false
         },
@@ -1525,6 +1641,56 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "revert_file"
+            },
+            "path": {
+              "type": "string"
+            },
+            "scope": {
+              "enum": [
+                "branch",
+                "uncommitted"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "scope"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "discard_hunk"
+            },
+            "path": {
+              "type": "string"
+            },
+            "scope": {
+              "enum": [
+                "branch",
+                "uncommitted"
+              ]
+            },
+            "patch": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "patch",
+            "path",
+            "scope"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "rename_workspace"
             },
             "name": {
@@ -1824,6 +1990,22 @@
           "required": [
             "files",
             "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "search"
+            },
+            "search": {
+              "$ref": "#/$defs/Search"
+            }
+          },
+          "required": [
+            "kind",
+            "search"
           ],
           "additionalProperties": false
         },

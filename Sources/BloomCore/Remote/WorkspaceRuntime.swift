@@ -217,6 +217,7 @@ public actor WorkspaceRuntime {
         case .workspace: return .workspace(try await snapshot())
         case .transcript(let chatID, let afterSeq, let limit): return .transcript(try await transcript(chatID, afterSeq: afterSeq, limit: limit))
         case .composer(let chatID): return .composer(try await composer(chatID))
+        case .transcriptSearch(let query, let limit): return .search(try await searchTranscripts(query, limit: limit))
         case .newChat(let controls): return .chat(try await newChat(controls, as: caller))
         case .renameChat(let chatID, let title): try await renameChat(chatID, title: title); return .accepted
         case .closeChat(let chatID): try await closeChat(try chatID.sessionID, notifyingParent: true); return .accepted
@@ -233,7 +234,7 @@ public actor WorkspaceRuntime {
         case .answer(let chatID, let requestID, let answer): try await answerQuestion(chatID, requestID: requestID, answer: answer); return .accepted
         case .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch, .runScripts, .notes, .pullRequest,
              .archivePreview, .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace,
-             .runSetup, .runScript, .closeTerminal, .archive, .history, .commitFiles:
+             .runSetup, .runScript, .closeTerminal, .archive, .history, .commitFiles, .revertFile, .discardHunk:
             return try await performOnWorktree(operation, as: caller)
         }
     }

@@ -25,6 +25,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case history(limit: Int?, before: String?)
     /// One commit's changed files, for a History row somebody opened.
     case commitFiles(sha: String)
+    /// The workspace's transcripts, searched on the machine that holds them.
+    case transcriptSearch(query: String, limit: Int?)
     case notes
     case pullRequest
     case archivePreview
@@ -47,6 +49,9 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case push
     case createPullRequest(title: String, body: String, draft: Bool)
     case saveNotes(text: String)
+    /// Puts a file back to the review's baseline, and one hunk of it back, as the diff gutter does.
+    case revertFile(path: String, scope: DiffScope)
+    case discardHunk(path: String, scope: DiffScope, patch: String)
     case renameWorkspace(name: String)
     case runSetup
     case runScript(id: String)
@@ -57,7 +62,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     public var mutates: Bool {
         switch self {
         case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
-             .runScripts, .history, .commitFiles, .notes, .pullRequest, .archivePreview: false
+             .runScripts, .history, .commitFiles, .transcriptSearch, .notes, .pullRequest, .archivePreview: false
         default: true
         }
     }
@@ -66,7 +71,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     public var ability: String {
         switch self {
         case .send, .cancelQueued, .stop, .answer, .newChat, .closeChat, .renameChat, .setComposer: "prompt"
-        case .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup: "files"
+        case .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup,
+             .revertFile, .discardHunk: "files"
         case .runScript, .closeTerminal: "terminal"
         case .archive, .archivePreview: "share"
         default: "view"
@@ -89,6 +95,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .files: "files"
         case .history: "history"
         case .commitFiles: "commit_files"
+        case .transcriptSearch: "transcript_search"
         case .file: "file"
         case .download: "download"
         case .reviewSnapshot: "review_snapshot"
@@ -112,6 +119,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .push: "push"
         case .createPullRequest: "create_pull_request"
         case .saveNotes: "save_notes"
+        case .revertFile: "revert_file"
+        case .discardHunk: "discard_hunk"
         case .renameWorkspace: "rename_workspace"
         case .runSetup: "run_setup"
         case .runScript: "run_script"
@@ -122,7 +131,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
 
     enum Keys: String, CodingKey {
         case chatID = "chat_id", afterSeq = "after_seq", limit, path, scope, knownRevision = "known_revision", wait
-        case controls, title, seq, text, promptID = "prompt_id", requestID = "request_id", answer, before, sha
+        case controls, title, seq, text, promptID = "prompt_id", requestID = "request_id", answer, before, sha, patch, query
         case revision, name, data, message, body, draft, id, confirmationID = "confirmation_id"
     }
 
@@ -140,6 +149,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case "history":
             self = .history(limit: try c.decodeIfPresent(Int.self, forKey: .limit), before: try c.decodeIfPresent(String.self, forKey: .before))
         case "commit_files": self = .commitFiles(sha: try c.decode(String.self, forKey: .sha))
+        case "transcript_search":
+            self = .transcriptSearch(query: try c.decode(String.self, forKey: .query), limit: try c.decodeIfPresent(Int.self, forKey: .limit))
         case "file": self = .file(path: try c.decode(String.self, forKey: .path))
         case "download": self = .download(path: try c.decode(String.self, forKey: .path))
         case "review_snapshot":
@@ -174,6 +185,11 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
             self = .createPullRequest(title: try c.decode(String.self, forKey: .title), body: try c.decodeIfPresent(String.self, forKey: .body) ?? "",
                                       draft: try c.decodeIfPresent(Bool.self, forKey: .draft) ?? false)
         case "save_notes": self = .saveNotes(text: try c.decode(String.self, forKey: .text))
+        case "revert_file":
+            self = .revertFile(path: try c.decode(String.self, forKey: .path), scope: try c.decode(DiffScope.self, forKey: .scope))
+        case "discard_hunk":
+            self = .discardHunk(path: try c.decode(String.self, forKey: .path), scope: try c.decode(DiffScope.self, forKey: .scope),
+                                patch: try c.decode(String.self, forKey: .patch))
         case "rename_workspace": self = .renameWorkspace(name: try c.decode(String.self, forKey: .name))
         case "run_setup": self = .runSetup
         case "run_script": self = .runScript(id: try c.decode(String.self, forKey: .id))
@@ -195,6 +211,11 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .history(let limit, let before):
             try c.encodeIfPresent(limit, forKey: .limit); try c.encodeIfPresent(before, forKey: .before)
         case .commitFiles(let sha): try c.encode(sha, forKey: .sha)
+        case .transcriptSearch(let query, let limit):
+            try c.encode(query, forKey: .query); try c.encodeIfPresent(limit, forKey: .limit)
+        case .revertFile(let path, let scope): try c.encode(path, forKey: .path); try c.encode(scope, forKey: .scope)
+        case .discardHunk(let path, let scope, let patch):
+            try c.encode(path, forKey: .path); try c.encode(scope, forKey: .scope); try c.encode(patch, forKey: .patch)
         case .reviewSnapshot(let scope, let knownRevision, let wait):
             try c.encode(scope, forKey: .scope); try c.encodeIfPresent(knownRevision, forKey: .knownRevision); try c.encode(wait, forKey: .wait)
         case .reviewPatch(let path, let scope, let knownRevision):

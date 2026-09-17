@@ -196,6 +196,29 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("a search finds this workspace's transcripts, with the matching words marked")
+    func transcriptSearch() async throws {
+        let fixture = try await fixture()
+        _ = try await fixture.store.appendNext(sessionID: fixture.session.id, kind: .assistantText,
+                                               payload: Data(#"{"text":"I will retry the queue twice"}"#.utf8))
+        _ = try await fixture.store.appendNext(sessionID: fixture.session.id, kind: .assistantText,
+                                               payload: Data(#"{"text":"Nothing to do with that word"}"#.utf8))
+
+        let reply = await fixture.runtime.respond(to: CommandRequest(.transcriptSearch(query: "retry", limit: nil)),
+                                                  as: Self.caller(Self.freek))
+        guard case .search(let found) = reply.result else { Issue.record("No search result: \(String(describing: reply.error))"); return }
+        #expect(found.total == 1)
+        let match = try #require(found.matches.first)
+        #expect(match.chatID == fixture.session.id.rawValue)
+        #expect(match.excerpt.contains { $0.isMatch && $0.text.lowercased().contains("retry") })
+        #expect(match.cursor > 0, "The cursor is the row's own id, so a client can open it")
+
+        let empty = await fixture.runtime.respond(to: CommandRequest(.transcriptSearch(query: "   ", limit: nil)),
+                                                  as: Self.caller(Self.freek))
+        #expect(empty.error?.code == .invalidValue)
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a failed setup's last lines travel with the workspace, and only a failed one's")
     func setupFailureNote() async throws {
         let fixture = try await fixture()

@@ -36,6 +36,34 @@ extension WorkspaceRuntime {
         return lines.joined(separator: "\n")
     }
 
+    /// The workspace's own transcripts, searched where they are.
+    ///
+    /// Bloom's search panel would otherwise have to say Cloud conversations cannot be searched,
+    /// which is the difference between a local workspace and a Cloud one that this design exists to
+    /// remove. The machine holds the same SQLite database with the same full text index, so it is
+    /// the same query, narrowed to this workspace because a machine has only one.
+    func searchTranscripts(_ query: String, limit: Int?) async throws -> SearchRecord {
+        let wanted = min(max(limit ?? 30, 1), 100)
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.utf8.count <= 200 else {
+            throw RemoteFailure.invalid("Search for something between one and 200 characters.")
+        }
+        let grouped = try await store.searchTranscripts(trimmed)
+        guard let mine = grouped.first(where: { $0.workspaceID == workspaceID }) else {
+            return SearchRecord(matches: [], total: 0)
+        }
+        return SearchRecord(
+            matches: mine.matches.prefix(wanted).map { match in
+                SearchMatchRecord(
+                    chatID: match.sessionID.rawValue, chatTitle: match.sessionTitle, seq: match.seq,
+                    cursor: match.messageID, kind: match.kind.rawValue, at: match.createdAt,
+                    excerpt: match.snippet.segments.map { .init(text: $0.text, isMatch: $0.isMatch) }
+                )
+            },
+            total: mine.total
+        )
+    }
+
     func transcript(_ chatID: String, afterSeq: Int, limit: Int?) async throws -> TranscriptRecord {
         let id = try chatID.sessionID
         let session = try await storedSession(id)

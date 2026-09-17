@@ -13,8 +13,12 @@ public struct ChangedFileRecord: Codable, Sendable, Hashable {
     public var deletions: Int
     public var isBinary: Bool
     public var contentRevision: String?
+    /// Which staging layer this change is in, when the scope separates them: `staged`, `unstaged`,
+    /// `untracked` or `conflicted`. Nil for the branch comparison, which has no layers.
+    public var layer: String?
 
-    public init(path: String, oldPath: String? = nil, change: String, additions: Int, deletions: Int, isBinary: Bool, contentRevision: String? = nil) {
+    public init(path: String, oldPath: String? = nil, change: String, additions: Int, deletions: Int, isBinary: Bool,
+                contentRevision: String? = nil, layer: String? = nil) {
         self.path = path
         self.oldPath = oldPath
         self.change = change
@@ -22,10 +26,11 @@ public struct ChangedFileRecord: Codable, Sendable, Hashable {
         self.deletions = deletions
         self.isBinary = isBinary
         self.contentRevision = contentRevision
+        self.layer = layer
     }
 
     enum CodingKeys: String, CodingKey {
-        case path, change, additions, deletions
+        case path, change, additions, deletions, layer
         case oldPath = "old_path"
         case isBinary = "is_binary"
         case contentRevision = "content_revision"
