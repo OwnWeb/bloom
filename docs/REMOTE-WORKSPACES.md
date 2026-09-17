@@ -313,7 +313,7 @@ starts again as `bloom-workspace` version 1. What changes:
 | `POST /_bloom/v1/rpc` | the envelope, bearer token |
 | `GET /_bloom/v1/events` | SSE read with `fetch`, bearer token |
 | `GET /_bloom/v1/terminal?name=` | WebSocket, `auth` first frame, binary frames, resize and `reauth` text frames |
-| `GET /_bloom/preview/enter?t=` | preview cookie exchange |
+| `GET /_bloom/preview/enter?token=` | preview cookie exchange |
 | `POST /_bloom/v1/control/revoke`, `update`, `environment`, `limits-cleared`, `stop` | runbloom.app only, `admin` token |
 | `GET /_bloom/health` | unauthenticated, version only |
 | everything else | the preview |
@@ -360,7 +360,7 @@ Control never reads cookies; it wants `Authorization: Bearer`. The preview wants
 checked by Caddy's `forward_auth` against bloom-server, stripped before the request reaches the
 app, and refused if the app tries to set it. So the app's own JavaScript shares an origin with
 control and still cannot reach it. A client opens the preview through `GET
-/_bloom/preview/enter?t=<60 s single-use preview JWT>`, which sets the cookie and redirects. A share
+/_bloom/preview/enter?token=<60 s single-use preview JWT>`, which sets the cookie and redirects. A share
 link is `https://runbloom.app/share/<id>`: runbloom.app checks the share is live, mints a 60 s
 preview token for `sub: "share:<id>"` and redirects to the exchange, which sets a cookie lasting
 one hour rather than eight. There is no long-lived share token.
@@ -458,7 +458,7 @@ because it is append-only where the summary is replace-latest:
     {"kind": "awake", "at": "2026-09-17T09:40:02Z", "reason": "human_input"},
     {"kind": "setup_started", "at": "…"},
     {"kind": "setup_finished", "at": "…", "outcome": "succeeded"},
-    {"kind": "turn_started", "at": "…", "turn_id": "…", "user_id": "…", "agent": "claudeCode"},
+    {"kind": "turn_started", "at": "…", "turn_id": "…", "user_id": "…", "agent": "claude"},
     {"kind": "turn_finished", "at": "…", "turn_id": "…"},
     {"kind": "released", "at": "2026-09-17T10:15:00Z"}
   ],
@@ -485,8 +485,8 @@ because it is append-only where the summary is replace-latest:
   because storage bills whether awake or not.
 - **Turns** carry the user, so limits can be per person as well as per team.
 
-Sent at every `released`, every 5 minutes while awake, and on shutdown. runbloom.app adds 30 s
-after each `released` for a pause it cannot see (generous, given the measurement above), carries storage forward from the last disk
+Sent at every `released`, every 5 minutes while awake, and on shutdown. runbloom.app adds a margin
+after each `released` for a pause it cannot see (its own configuration, five seconds, given the measurement above), carries storage forward from the last disk
 report until the machine is deleted, and checks machine state against the provider's API on its
 own, because anyone with root on the machine could stop or falsify these reports. The reports are
 for showing usage and enforcing limits early, not the only source of truth.
@@ -550,7 +550,7 @@ monotonic `revision` means a late post never overwrites a newer one.
   "running_since": "2026-09-17T09:58:12Z",
   "diff": {"files": 4, "additions": 120, "deletions": 8},
   "pull_request": null,
-  "chats": [{"id": "...", "title": "...", "agent": "claudeCode", "state": "running"}],
+  "chats": [{"id": "...", "title": "...", "agent": "claude", "state": "running"}],
   "present_user_ids": ["..."]
 }
 ```
@@ -810,6 +810,61 @@ Measured on real Sprites before implementation started, as the owner asked.
 - One Fly organisation for production, development and tests, kept apart by machine name prefixes.
   No staging environment.
 - A web interface, when it comes, lives in runbloom.app on the same accounts and this contract.
+
+## Decided while building
+
+Taken while building the server pull request, where this document or runbloom.app pull request #23
+left a choice open or the two disagreed. The coordinator relayed the ones that touch runbloom.app,
+and its builder confirmed them.
+
+- **The preview exchange takes `?token=`**, runbloom.app's spelling, not `?t=`.
+- **Agents are named by their executable on every wire**: `claude`, `codex`, `grok`. Never
+  `claudeCode`, which is a Swift case name.
+- **Control paths are hyphenated**: `POST /_bloom/v1/control/limits-cleared`, beside `revoke`,
+  `update`, `environment` and `stop`.
+- **`/etc/bloom/workspace.json`** holds `workspace_id`, `issuer`, `jwks_url`, `base_url`,
+  `workspace_secret` and `allowed_origins`. Ids on every wire to runbloom.app are lowercase ULIDs.
+- **The release margin is runbloom.app's configuration** (five seconds there), not a number this
+  document fixes.
+- **The machine API payloads are runbloom.app's**, recorded under "Machine API payloads" in its
+  design document: `turns` takes `kind`, `session_token`, `chat_id` and `agent`; `start` answers
+  `agent_keys` (per agent: `key`, `identity`, `source`) and `environment`, or the limit refusal, or
+  `no_agent_key`, `not_a_collaborator`, `github_not_connected`, or 409 `turn_not_startable`;
+  `git-credentials` takes `repository`, `operation` (`read` or `write`) and `turn_id`, and answers
+  `token`, `expires_at` and `username`. `control/update` carries `version` and `sha256`, and the
+  machine derives the release asset's address from the version.
+- **Version 1 lays a tagged value out flat, except a whole record.** An operation is one object
+  with `kind` and its fields beside it. A result or an event that carries a record puts it under a
+  key named after the kind, `{"kind": "transcript", "transcript": {...}}`, because a transcript
+  row has a `kind` of its own and spreading it overwrote the tag. The Swift types are
+  `WorkspaceOperation` and `WorkspaceEvent`, since `Operation` is taken by Foundation.
+- **The event stream's cursor is the transcript row id, not `seq`.** `seq` counts within one chat
+  and a workspace has several, so `id:` and `Last-Event-ID` carry the row's id, which SQLite hands
+  out in increasing order and never reuses. Every row on the wire carries both.
+- **A message is never written into a running turn, on any backend.** On the Mac a Codex chat
+  takes a second message mid-turn; in a Cloud workspace the next message may be somebody else's,
+  so every backend waits for the turn to end.
+- **Archive on the machine winds the workspace down; it does not delete anything.** The client
+  asks the machine for `archive_preview`, confirms with `archive`, which checks the answer again,
+  stops every turn and closes the door, and then asks runbloom.app to archive, which deletes the
+  machine. A confirmation whose answer moved comes back as a fresh preview.
+- **A chat that has spoken keeps its agent.** `set_composer` refuses another agent on a chat with
+  messages, as the Mac does; a client opens a new chat instead.
+- **Agent sign-in probes and Codex speeds are not ported.** #163's `ServerAgentAuthentication`
+  asked each CLI whether it was signed in, which answers nothing when every turn brings its own
+  key. It comes back with personal subscriptions signed in on the machine.
+- **The review's uncommitted scope is one row per path**, measured from `HEAD`, because the wire
+  record cannot tell a staged row from an unstaged one. A file over 2 MB is listed without a line
+  count rather than read whole.
+- **A slow reader is disconnected, never skipped.** An event stream or a terminal attachment whose
+  buffer fills is closed, and the client reconnects from its cursor or redraws the screen, because
+  a transcript with a gap or a terminal missing bytes looks complete and is not.
+- **Cloud project settings are read from the repository's files only**, never from the machine's
+  home directory, which belongs to the machine rather than to anybody's preferences.
+- **The protocol schema is checked without a JSON Schema package.** `Protocol/v1/schema.py`
+  validates the subset the schema uses, so the check runs in CI's lint job with nothing installed.
+- **Linux runs the core tests the server needs, by name.** `Package.swift` lists them, so a test
+  written on a Mac about the window cannot fail a Linux job its author never thought about.
 
 ## Still open
 
