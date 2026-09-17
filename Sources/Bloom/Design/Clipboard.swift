@@ -1,6 +1,10 @@
 import AppKit
 import BloomCore
 
+// Both halves of the pasteboard: `Clipboard` writes text to it, and the `NSPasteboard` extension
+// below reads what is on it into the values `PastedAttachment` and `TerminalPaste` decide from.
+// The reading used to be the composer's own, and moved here the day a terminal pane needed it.
+
 /// Putting text on the pasteboard, in one place.
 ///
 /// Two lines, written out nine times: a branch name, a file path in three different rows, a pull
@@ -35,6 +39,12 @@ extension NSPasteboard {
     /// `items` uses this form, so the indices in the plan are indices into that same array.
     func attachmentPlan(for items: [NSPasteboardItem]) -> PastedAttachment.Plan {
         PastedAttachment.plan(items: attachmentOffers(for: items), hasText: hasPlainText)
+    }
+
+    /// Every item on the board, reduced to the file it points at and the types it carries. Types
+    /// only: no picture is read here, and the composer and a terminal pane both decide from this.
+    var attachmentOffers: [PastedAttachment.Offer] {
+        attachmentOffers(for: pasteboardItems ?? [])
     }
 
     func attachmentOffers(for items: [NSPasteboardItem]) -> [PastedAttachment.Offer] {

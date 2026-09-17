@@ -398,25 +398,32 @@ final class BloomTerminalView: LocalProcessTerminalView {
     /// depends on what the application negotiated: a plain shell wants 0x16 and one using the kitty
     /// keyboard protocol, which Claude Code does, wants `CSI 118;5u`. SwiftTerm's `keyDown` already
     /// knows which, so the event goes through it the way a real keypress would.
+    ///
+    /// The press is followed by its release, because a real key has one and SwiftTerm reports
+    /// releases to an application that asked for them through the kitty protocol's event flag.
     override func paste(_ sender: Any) {
         let board = NSPasteboard.general
-        let offers = board.attachmentOffers(for: board.pasteboardItems ?? [])
-        switch TerminalPaste.action(items: offers, hasText: board.hasPlainText) {
+        switch TerminalPaste.action(items: board.attachmentOffers, hasText: board.hasPlainText) {
         case .text:
             super.paste(sender)
         case .imageKey:
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown, location: .zero, modifierFlags: .control,
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window?.windowNumber ?? 0, context: nil,
-                characters: "\u{16}", charactersIgnoringModifiers: "v",
-                isARepeat: false, keyCode: Self.vKeyCode
-            ) else { return super.paste(sender) }
-            keyDown(with: event)
+            guard let press = keyEvent(.keyDown, for: TerminalPaste.imageKeystroke),
+                  let release = keyEvent(.keyUp, for: TerminalPaste.imageKeystroke)
+            else { return super.paste(sender) }
+            keyDown(with: press)
+            keyUp(with: release)
         }
     }
 
-    private static let vKeyCode: UInt16 = 9
+    private func keyEvent(_ type: NSEvent.EventType, for key: TerminalPaste.Keystroke) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: type, location: .zero, modifierFlags: .control,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window?.windowNumber ?? 0, context: nil,
+            characters: key.character, charactersIgnoringModifiers: key.unmodifiedCharacter,
+            isARepeat: false, keyCode: key.keyCode
+        )
+    }
 
     /// Screen and scrollback both go, then a form feed nudges the shell into redrawing its prompt
     /// so the user is not left staring at an empty rectangle.

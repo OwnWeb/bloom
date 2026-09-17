@@ -19,11 +19,27 @@
 /// and pastes as it always has. Text still wins whenever there is any, for the reason the composer
 /// gives, and it is read only once a picture has been found, because reading it copies the whole
 /// clipboard and a plain paste is about to copy it again.
+///
+/// The key goes to whatever holds the pane, and at a bare prompt Control+V is zsh's quoted-insert,
+/// which swallows the next keystroke. That is accepted rather than gated: a CLI chat runs inside
+/// tmux, whose pty says nothing about what is in the foreground without two subprocesses per
+/// reading, and a picture pasted at a prompt meant nothing before this either.
 public enum TerminalPaste: Equatable, Sendable {
     /// The terminal's own paste: the string on the board, sent to the shell.
     case text
-    /// Control+V, so the application in the pane reads the picture off the clipboard itself.
+    /// `imageKeystroke`, so the application in the pane reads the picture off the clipboard itself.
     case imageKey
+
+    /// The Control+V, described rather than typed at the view, because SwiftTerm builds the wire
+    /// form out of these three fields: the control character for a plain shell, the unmodified
+    /// letter and its key code for the kitty keyboard protocol's `CSI 118;5u`.
+    public struct Keystroke: Equatable, Sendable {
+        public var character: String
+        public var unmodifiedCharacter: String
+        public var keyCode: UInt16
+    }
+
+    public static let imageKeystroke = Keystroke(character: "\u{16}", unmodifiedCharacter: "v", keyCode: 9)
 
     public static func action(
         items: [PastedAttachment.Offer], hasText: @autoclosure () -> Bool
