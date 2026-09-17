@@ -85,6 +85,7 @@ public struct RunbloomTeam: Codable, Sendable, Hashable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, slug, role, setup
+        case cloudWorkspaces = "cloud_workspaces"
         case cloudWorkspacesEnabled = "cloud_workspaces_enabled"
     }
 
@@ -94,11 +95,13 @@ public struct RunbloomTeam: Codable, Sendable, Hashable, Identifiable {
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         slug = try c.decodeIfPresent(String.self, forKey: .slug) ?? ""
         role = try c.decodeIfPresent(String.self, forKey: .role) ?? "member"
-        // Nested under `setup` or laid out beside the team's own fields: which of the two
-        // runbloom.app settles on is not final yet, and a setup this client cannot read is none.
+        // Under `cloud_workspaces`, which is where runbloom.app settled, and still read from the
+        // two shapes it was tried in first. A setup this client cannot read is none, which reads as
+        // nothing known rather than as everything missing.
+        let named = try? c.decodeIfPresent(TeamSetup.self, forKey: .cloudWorkspaces)
         let nested = try? c.decodeIfPresent(TeamSetup.self, forKey: .setup)
         let flat = try? TeamSetup(from: decoder)
-        setup = nested ?? (flat?.saysAnything == true ? flat : nil)
+        setup = named ?? nested ?? (flat?.saysAnything == true ? flat : nil)
         cloudWorkspacesEnabled = try c.decodeIfPresent(Bool.self, forKey: .cloudWorkspacesEnabled) ?? setup?.enabled ?? false
     }
 
@@ -109,12 +112,12 @@ public struct RunbloomTeam: Codable, Sendable, Hashable, Identifiable {
         try c.encode(slug, forKey: .slug)
         try c.encode(role, forKey: .role)
         try c.encode(cloudWorkspacesEnabled, forKey: .cloudWorkspacesEnabled)
-        try c.encodeIfPresent(setup, forKey: .setup)
+        try c.encodeIfPresent(setup, forKey: .cloudWorkspaces)
     }
 
     /// Whether a Cloud workspace can be created in this team now, as far as runbloom.app said.
     public var isReadyForCloudWorkspaces: Bool {
-        cloudWorkspacesEnabled && (setup?.missing.isEmpty ?? true)
+        cloudWorkspacesEnabled && (setup?.isComplete ?? true)
     }
 }
 

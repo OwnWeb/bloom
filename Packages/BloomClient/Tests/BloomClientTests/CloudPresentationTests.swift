@@ -264,20 +264,30 @@ import Testing
     @Test func aTeamInEarlyAccessWithStepsLeftSaysWhichAndWhere() throws {
         let team = try team("""
         {"id": "t", "name": "Spatie", "role": "owner", "cloud_workspaces_enabled": true,
-         "setup": {"enabled": true, "github_connected": true, "github_app_installed": false, "has_project": false, "has_agent_key": true,
-                   "setup_url": "https://runbloom.app/teams/t/dashboard"}}
+         "cloud_workspaces": {"enabled": true, "setup_complete": false, "github_connected": true, "github_app_installed": false,
+                              "has_project": false, "has_agent_key": true, "setup_url": "https://runbloom.app/account/spatie"}}
         """)
         #expect(!team.isReadyForCloudWorkspaces)
         let notice = try #require(TeamSetupNotice(team: team, environment: environment))
         #expect(notice.steps == ["Install the Bloom GitHub App for the team.", "Add a repository as a project."])
-        #expect(notice.setupPage?.absoluteString == "https://runbloom.app/teams/t/dashboard")
+        #expect(notice.setupPage?.absoluteString == "https://runbloom.app/account/spatie")
     }
 
     @Test func aTeamNotInEarlyAccessSaysSo() throws {
-        let team = try team(#"{"id": "t", "name": "Side", "cloud_workspaces_enabled": false, "setup": {"enabled": false}}"#)
+        let team = try team(#"{"id": "t", "name": "Side", "cloud_workspaces_enabled": false, "cloud_workspaces": {"enabled": false, "has_agent_key": false}}"#)
         let notice = try #require(TeamSetupNotice(team: team, environment: environment))
         #expect(notice.sentence.contains("early access"))
+        // Still worth doing before early access arrives, so still listed.
+        #expect(notice.steps == ["Add a Claude Code or Codex API key."])
+    }
+
+    /// runbloom.app counts the steps itself, and may count one this version has never heard of.
+    @Test func runbloomsOwnVerdictOnTheStepsWins() throws {
+        let team = try team(#"{"id": "t", "name": "Spatie", "cloud_workspaces_enabled": true, "cloud_workspaces": {"enabled": true, "setup_complete": false, "github_connected": true, "github_app_installed": true, "has_project": true, "has_agent_key": true}}"#)
+        #expect(!team.isReadyForCloudWorkspaces)
+        let notice = try #require(TeamSetupNotice(team: team, environment: environment))
         #expect(notice.steps.isEmpty)
+        #expect(notice.sentence.contains("needs a few things"))
     }
 
     @Test func fieldsBesideTheTeamAreReadToo() throws {
@@ -287,7 +297,7 @@ import Testing
     }
 
     @Test func aReadyTeamOrOneThatSaysNothingHasNoNotice() throws {
-        let ready = try team(#"{"id": "t", "name": "Ready", "cloud_workspaces_enabled": true, "setup": {"enabled": true, "github_connected": true, "github_app_installed": true, "has_project": true, "has_agent_key": true}}"#)
+        let ready = try team(#"{"id": "t", "name": "Ready", "cloud_workspaces_enabled": true, "cloud_workspaces": {"enabled": true, "setup_complete": true, "github_connected": true, "github_app_installed": true, "has_project": true, "has_agent_key": true}}"#)
         #expect(TeamSetupNotice(team: ready, environment: environment) == nil)
         let silent = try team(#"{"id": "t", "name": "Old", "cloud_workspaces_enabled": true}"#)
         #expect(silent.setup == nil)
@@ -295,7 +305,7 @@ import Testing
     }
 
     @Test func aSetupPageElsewhereIsNotOffered() throws {
-        let team = try team(#"{"id": "t", "name": "X", "cloud_workspaces_enabled": true, "setup": {"has_project": false, "setup_url": "https://evil.test/setup"}}"#)
+        let team = try team(#"{"id": "t", "name": "X", "cloud_workspaces_enabled": true, "cloud_workspaces": {"has_project": false, "setup_url": "https://evil.test/setup"}}"#)
         #expect(TeamSetupNotice(team: team, environment: environment)?.setupPage == nil)
     }
 }
