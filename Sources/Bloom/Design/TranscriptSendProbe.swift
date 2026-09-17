@@ -26,7 +26,7 @@ enum TranscriptSendProbe {
         let activity: Activity
         var body: some View {
             if let label = activity.label {
-                StreamingStatusView(glyph: nil, text: label)
+                StreamingStatusView(mark: .activity, text: label)
                     .padding(.bottom, TranscriptLayout.block)
             } else {
                 Color.clear.frame(height: 0)
