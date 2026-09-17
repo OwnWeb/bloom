@@ -77,6 +77,8 @@ public enum ServeCommand {
                 // registered (a subagent's report) is reported as neither.
                 if let turnID { await reporter.record(.turnFinished(turnID: turnID, at: Date())) }
                 await reporter.changed()
+            case .chatIdle:
+                await reporter.changed()
             case .setupStarted:
                 await reporter.record(.setupStarted(at: Date()))
                 await reporter.changed()

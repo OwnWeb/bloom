@@ -333,7 +333,8 @@ public actor WorkspaceRuntime {
                     return make(session, workspace.path, store, environment, handle)
                 },
                 onStream: { [weak self] text, reset in await self?.streamed(id, text: text, reset: reset) },
-                onTurnEnded: { [weak self] ending in await self?.queue().turnEnded(id, ending: ending) }
+                onTurnEnded: { [weak self] ending in await self?.queue().turnEnded(id, ending: ending) },
+                onIdle: { [weak self] in await self?.report(.chatIdle(chat: id)) }
             )
         }
         creating[id] = task

@@ -36,6 +36,10 @@ actor RemoteSession {
     private var claimedEnd = false
     private var wasStopped = false
     private let onTurnEnded: @Sendable (RemoteTurnEnd) async -> Void
+    /// After a turn is released, which is later than `onTurnEnded`: a summary built from that
+    /// callback still read the chat as busy, and nothing asked again, so runbloom.app listed the
+    /// workspace as running until something unrelated changed.
+    private let onIdle: @Sendable () async -> Void
     private let onStream: @Sendable (_ text: String, _ reset: Bool) async -> Void
     /// How long shutdown waits for a terminated runner to exit. See `shutdown()`.
     private let runnerExitGrace: Duration
@@ -44,8 +48,10 @@ actor RemoteSession {
         runnerExitGrace: Duration = .seconds(6),
         make: @escaping MakeRunner,
         onStream: @escaping @Sendable (_ text: String, _ reset: Bool) async -> Void = { _, _ in },
-        onTurnEnded: @escaping @Sendable (RemoteTurnEnd) async -> Void = { _ in }
+        onTurnEnded: @escaping @Sendable (RemoteTurnEnd) async -> Void = { _ in },
+        onIdle: @escaping @Sendable () async -> Void = {}
     ) {
+        self.onIdle = onIdle
         self.make = make
         self.runnerExitGrace = runnerExitGrace
         self.onStream = onStream
@@ -135,6 +141,8 @@ actor RemoteSession {
     private func endTurn() {
         isBusy = false
         busySince = nil
+        let onIdle = onIdle
+        Task { await onIdle() }
     }
 
     /// One report per turn, whichever of a result, an error or a failed send arrives first.
@@ -149,6 +157,28 @@ actor RemoteSession {
         guard isBusy, let runner else { return }
         wasStopped = true
         runner.cancelNow()
+    }
+
+    /// Waits for a stopped turn to come to rest, and ends it by force if it does not.
+    ///
+    /// **A stop does not always produce an event.** Claude Code on SIGINT marks the session
+    /// cancelled in the store and sends no result, and until something called `refreshState` the
+    /// turn stayed busy: the machine held itself awake all night and runbloom.app kept the turn
+    /// open against the team. Only the queue's drain called it, and a stop pauses the queue first.
+    /// So whoever stops also settles, here, and a runner that neither reports nor records within
+    /// `limit` is retired and its turn ended as stopped.
+    func settleStop(store: Store, sessionID: SessionID, limit: Duration = .seconds(20)) async {
+        let deadline = ContinuousClock.now.advanced(by: limit)
+        while isBusy, wasStopped, ContinuousClock.now < deadline {
+            try? await refreshState(store: store, sessionID: sessionID)
+            guard isBusy else { return }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        guard isBusy, wasStopped else { return }
+        await retireRunner()
+        guard isBusy else { return }
+        if claimEnd() { await onTurnEnded(.stopped(stopReason ?? "")) }
+        endTurn()
     }
 
     /// Releases a turn whose runner went quiet after a stop.

@@ -23,7 +23,9 @@ public actor RemoteEventHub {
     private let onChange: @Sendable () async -> Void
 
     /// `onChange` runs whenever a subscriber comes or goes, which is what presence counts.
-    public init(bufferLimit: Int = 4_096, onChange: @escaping @Sendable () async -> Void = {}) {
+    public static let defaultBufferLimit = 4_096
+
+    public init(bufferLimit: Int = defaultBufferLimit, onChange: @escaping @Sendable () async -> Void = {}) {
         self.bufferLimit = bufferLimit
         self.onChange = onChange
     }
@@ -49,6 +51,11 @@ public actor RemoteEventHub {
             if case .dropped = subscriber.continuation.yield(event) { overflowed.append(id) }
         }
         for id in overflowed { subscribers.removeValue(forKey: id)?.continuation.finish() }
+        // Its termination handler finds nothing left to remove, so presence hears of it here.
+        if !overflowed.isEmpty {
+            let onChange = onChange
+            Task { await onChange() }
+        }
     }
 
     /// Sends one last event to some subscribers and closes their streams: everyone's when the
