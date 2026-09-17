@@ -159,7 +159,8 @@ public final class BridgeServer: Sendable {
     public func attach(
         session: Session,
         workspace: Workspace,
-        shimPath: String
+        shimPath: String,
+        configurationPath: String? = nil
     ) -> BridgeAttachment {
         let role = BridgeRole.workspace
         let token = registry.mint(sessionID: session.id, workspaceID: workspace.id, role: role)
@@ -167,7 +168,8 @@ public final class BridgeServer: Sendable {
             shimPath: shimPath,
             socketPath: socketPath,
             token: token,
-            role: role
+            role: role,
+            configurationPath: configurationPath
         )
     }
 
@@ -176,30 +178,40 @@ public final class BridgeServer: Sendable {
     /// Nil when there is no shim to point at, which is a build assembled without one and every
     /// test that did not ask for a bridge. The chat then runs with no bridge tools, which is what
     /// every chat had before this existed, rather than failing to start.
-    public func register(session: Session, workspace: Workspace) -> BridgeHandle? {
+    public func register(
+        session: Session, workspace: Workspace, reusing handle: BridgeHandle? = nil,
+        reconnectable: Bool = false
+    ) -> BridgeHandle? {
         guard let shimPath = BridgeRegistration.shimPath() else {
             note("no bloom-bridge beside the running executable, so \(session.id) gets no bridge")
             return nil
         }
-        let attachment = attach(session: session, workspace: workspace, shimPath: shimPath)
-        switch session.agentKind {
-        case .claudeCode, .cursor, .openCode:
-            do {
-                let path = try BridgeRegistration.writeClaudeConfig(
-                    attachment,
-                    sessionID: session.id,
-                    directory: configDirectory
-                )
-                sweepConfigDirectory()
-                return BridgeHandle(attachment: attachment, mcpConfigPath: path)
-            } catch {
-                // A chat with no bridge is a chat as it was last week. A chat that refused to
-                // start because a scratch file could not be written would be a regression.
-                note("could not write the bridge config for \(session.id): \(error.readableMessage)")
-                return nil
-            }
-        case .codex, .grok:
+        let configurationPath = reconnectable ? configPath(for: session.id) : nil
+        // Preparing a resume command must not revoke the running CLI's token.
+        if let handle,
+           handle.attachment.socketPath == socketPath,
+           handle.attachment.shimPath == shimPath,
+           handle.attachment.configurationPath == configurationPath,
+           registry.identity(forToken: handle.attachment.token) == BridgeIdentity(
+               sessionID: session.id, workspaceID: workspace.id, role: .workspace
+           ) {
+            return handle
+        }
+        let attachment = attach(
+            session: session, workspace: workspace, shimPath: shimPath, configurationPath: configurationPath
+        )
+        if !reconnectable, session.agentKind == .codex || session.agentKind == .grok {
             return BridgeHandle(attachment: attachment, mcpConfigPath: nil)
+        }
+        do {
+            let path = try BridgeRegistration.writeClaudeConfig(
+                attachment, sessionID: session.id, directory: configDirectory
+            )
+            sweepConfigDirectory()
+            return BridgeHandle(attachment: attachment, mcpConfigPath: path)
+        } catch {
+            note("could not write the bridge config for \(session.id): \(error.readableMessage)")
+            return nil
         }
     }
 
