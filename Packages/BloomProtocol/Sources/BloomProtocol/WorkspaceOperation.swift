@@ -25,6 +25,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case history(limit: Int?, before: String?)
     /// One commit's changed files, for a History row somebody opened.
     case commitFiles(sha: String)
+    /// One file's diff inside one commit, answered as `review_patch` answers the other scopes.
+    case commitPatch(sha: String, path: String)
     /// The workspace's transcripts, searched on the machine that holds them.
     case transcriptSearch(query: String, limit: Int?)
     case notes
@@ -62,7 +64,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     public var mutates: Bool {
         switch self {
         case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
-             .runScripts, .history, .commitFiles, .transcriptSearch, .notes, .pullRequest, .archivePreview: false
+             .runScripts, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes, .pullRequest,
+             .archivePreview: false
         default: true
         }
     }
@@ -95,6 +98,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .files: "files"
         case .history: "history"
         case .commitFiles: "commit_files"
+        case .commitPatch: "commit_patch"
         case .transcriptSearch: "transcript_search"
         case .file: "file"
         case .download: "download"
@@ -149,6 +153,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case "history":
             self = .history(limit: try c.decodeIfPresent(Int.self, forKey: .limit), before: try c.decodeIfPresent(String.self, forKey: .before))
         case "commit_files": self = .commitFiles(sha: try c.decode(String.self, forKey: .sha))
+        case "commit_patch":
+            self = .commitPatch(sha: try c.decode(String.self, forKey: .sha), path: try c.decode(String.self, forKey: .path))
         case "transcript_search":
             self = .transcriptSearch(query: try c.decode(String.self, forKey: .query), limit: try c.decodeIfPresent(Int.self, forKey: .limit))
         case "file": self = .file(path: try c.decode(String.self, forKey: .path))
@@ -211,6 +217,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .history(let limit, let before):
             try c.encodeIfPresent(limit, forKey: .limit); try c.encodeIfPresent(before, forKey: .before)
         case .commitFiles(let sha): try c.encode(sha, forKey: .sha)
+        case .commitPatch(let sha, let path): try c.encode(sha, forKey: .sha); try c.encode(path, forKey: .path)
         case .transcriptSearch(let query, let limit):
             try c.encode(query, forKey: .query); try c.encodeIfPresent(limit, forKey: .limit)
         case .revertFile(let path, let scope): try c.encode(path, forKey: .path); try c.encode(scope, forKey: .scope)

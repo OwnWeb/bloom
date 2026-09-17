@@ -85,6 +85,7 @@ OPERATIONS = {
     "files": plain(),
     "history": plain({}, {"limit": I, "before": S}),
     "commit_files": plain({"sha": S}),
+    "commit_patch": plain({"sha": S, "path": S}),
     "transcript_search": plain({"query": S}, {"limit": I}),
     "file": plain({"path": S}),
     "download": plain({"path": S}),

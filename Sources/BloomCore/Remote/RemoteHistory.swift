@@ -33,6 +33,28 @@ public enum RemoteHistory {
     }
 
     public static func files(workspace: Workspace, sha: String) async throws -> [ChangedFileRecord] {
+        let (_, files) = try await commit(workspace: workspace, sha: sha)
+        return files.map { $0.record(contentRevision: nil) }
+    }
+
+    /// One file's diff inside one commit, in the same patch text and the same file vocabulary the
+    /// other scopes answer with, so one parser draws every diff a client shows.
+    ///
+    /// An unknown commit or a file that commit did not touch is a refusal rather than an empty
+    /// patch: empty is what a commit that changed nothing would answer, and a reader cannot tell
+    /// those apart.
+    public static func patch(workspace: Workspace, sha: String, path: String) async throws -> PatchSnapshotRecord {
+        let (commit, files) = try await commit(workspace: workspace, sha: sha)
+        guard let file = files.first(where: { $0.path == path || $0.oldPath == path }) else {
+            throw RemoteFailure.notFound("This file did not change in that commit.")
+        }
+        let patch = try await Git.patch(worktree: workspace.path, base: workspace.baseBranch, file: file, scope: .commit(commit))
+        return PatchSnapshotRecord(revision: commit.sha, patch: patch)
+    }
+
+    /// The commit as git has it here, with the files it changed, or a refusal naming which of the
+    /// two went wrong.
+    private static func commit(workspace: Workspace, sha: String) async throws -> (BranchCommit, [ChangedFile]) {
         guard sha.count >= 7, sha.count <= 64, sha.allSatisfy({ $0.isHexDigit }) else {
             throw RemoteFailure.invalid("That is not a commit.")
         }
@@ -40,8 +62,7 @@ public enum RemoteHistory {
         guard try await Git.containsCommit(commit, worktree: workspace.path) else {
             throw RemoteFailure.notFound("That commit is not on this branch any more.")
         }
-        let files = try await Git.changedFiles(worktree: workspace.path, base: workspace.baseBranch, scope: .commit(commit))
-        return files.map { $0.record(contentRevision: nil) }
+        return (commit, try await Git.changedFiles(worktree: workspace.path, base: workspace.baseBranch, scope: .commit(commit)))
     }
 
     /// Which of these commits the branch's remote already has, or nil when there is no remote

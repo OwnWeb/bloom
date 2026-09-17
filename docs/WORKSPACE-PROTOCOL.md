@@ -104,6 +104,7 @@ Reading (ability `view`):
 | `run_scripts` | | `run_scripts` |
 | `history` | `limit`, `before` | `history`: `commits` (newest first, each with `pushed` when the branch has a remote) and `has_more` |
 | `commit_files` | `sha` | `commit_files`: that commit's own changed files |
+| `commit_patch` | `sha`, `path` | `review_patch`: the file's diff inside that commit, refused when the commit or the file is not in it |
 | `transcript_search` | `query`, `limit` | `search`: `matches` (chat, seq, cursor, and the excerpt with its matching pieces marked) and `total` |
 | `notes` | | `text` |
 | `pull_request` | | `text`: its URL, or empty |
