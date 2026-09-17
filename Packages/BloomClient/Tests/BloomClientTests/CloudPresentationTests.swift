@@ -156,3 +156,21 @@ import Testing
         #expect(confirmation.losses.last?.contains("3 files") == true)
     }
 }
+
+@Suite struct TerminalSocketTests {
+    @Test func theAddressIsASecureSocketWithTheNameAndNoToken() {
+        let url = TerminalSocket.url(machine: URL(string: "https://bloom-x.sprites.test")!, name: "shell-01k5")
+        #expect(url.absoluteString == "wss://bloom-x.sprites.test/_bloom/v1/terminal?name=shell-01k5")
+    }
+
+    @Test func framesAreSpelledTheWireWay() {
+        #expect(TerminalSocket.text(.auth(token: "t")) == #"{"kind":"auth","token":"t"}"#)
+        #expect(TerminalSocket.text(.resize(columns: 120, rows: 40)) == #"{"columns":120,"kind":"resize","rows":40}"#)
+    }
+
+    @Test func everyPersonGetsAShellOfTheirOwn() {
+        #expect(TerminalSocket.name(for: "01K5ABCDEF") == "shell-01k5abcdef")
+        #expect(TerminalSocket.name(for: nil) == "shell")
+        #expect(TerminalSocket.name(for: "a/b c") == "shell-abc")
+    }
+}

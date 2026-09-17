@@ -44,6 +44,9 @@ final class CloudWorkspaceSession {
     @ObservationIgnored private var transcripts: [String: TranscriptModel] = [:]
     @ObservationIgnored private var historyReads: Set<String> = []
     @ObservationIgnored private var isSendingOpeningPrompt = false
+    /// The reader's own terminal, made the first time the pane is shown and kept, with its
+    /// scrollback, for as long as the workspace is open.
+    @ObservationIgnored private(set) lazy var terminal = CloudTerminal(session: self)
 
     init(id: CloudWorkspaceID, cloud: CloudWorkspaces) {
         self.id = id
@@ -81,6 +84,7 @@ final class CloudWorkspaceSession {
     }
 
     func close() {
+        terminal.close()
         listener?.cancel()
         listener = nil
         if let connection { Task { await connection.close() } }
@@ -135,6 +139,13 @@ final class CloudWorkspaceSession {
     private func forward(_ chatID: String) {
         guard let transcript = transcripts[chatID], let chat = state.chats[chatID] else { return }
         transcript.receiveCloud(chat, workspaceID: id, readerID: readerID)
+    }
+
+    /// A session token, fetched through the connection so every stream on this workspace shares
+    /// one. Nil when runbloom.app will not issue one, which the banner already says why.
+    func sessionToken(forceRefresh: Bool = false) async -> SessionToken? {
+        if connection == nil { open() }
+        return try? await connection?.currentToken(forceRefresh: forceRefresh)
     }
 
     // MARK: Chats
