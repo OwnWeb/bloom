@@ -10,7 +10,7 @@ import BloomCore
 enum FileRevert {
     /// What the user is about to lose, in the same voice as the archive confirmation: what
     /// disappears, not "are you sure?".
-    static func losses(for file: ChangedFile, in workspace: Workspace, hasDraft: Bool) -> String {
+    static func losses(for file: ChangedFile, baseBranch: String, hasDraft: Bool) -> String {
         var text: String
 
         switch file.change {
@@ -18,9 +18,9 @@ enum FileRevert {
             text = "\(file.path) is not tracked by git, so git has no copy of it. Discarding "
                 + "moves it to the Trash, and the Trash is the only place it can be recovered from."
         case .added:
-            text = "\(file.path) did not exist on \(workspace.baseBranch). Discarding deletes it."
+            text = "\(file.path) did not exist on \(baseBranch). Discarding deletes it."
         default:
-            text = "Discarding restores \(file.path) to the version on \(workspace.baseBranch)."
+            text = "Discarding restores \(file.path) to the version on \(baseBranch)."
         }
 
         let changed = file.additions + file.deletions

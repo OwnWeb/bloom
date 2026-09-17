@@ -100,7 +100,10 @@ struct CloudWorkspaceColumn: View {
         case .tool(let id):
             switch session.tabs.tools.first(where: { $0.id == id })?.kind {
             case .terminal: CloudTerminalPane(session: session)
-            case .changes: CloudChangesPane(session: session)
+            // The same file list the inspector column draws, over the same protocol. The diff
+            // beside it becomes the local review pane in the next slice; until then it is the same
+            // line view the local diff is drawn with.
+            case .changes: CloudReviewTab(session: session)
             case .setup: CloudSetupLogView(session: session)
             case .notes, .none: CloudChatArea(session: session)
             }

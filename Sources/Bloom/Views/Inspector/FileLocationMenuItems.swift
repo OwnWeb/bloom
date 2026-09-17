@@ -14,8 +14,15 @@ import BloomCore
 /// Everything here is values and closures, so a row that holds these as parameters keeps comparing
 /// on its values alone. See `ChangedFileRow.==`.
 struct FileLocationMenuItems: View {
-    /// Where the row is on disk, which is what every item but the last is handed.
-    var path: String
+    /// Where the row is on disk, which is what every item but the last is handed. Nil for a
+    /// workspace whose files are in the cloud: the items stay, greyed, with `unavailable` saying
+    /// why, because a menu that loses half its rows on one kind of workspace teaches nobody
+    /// anything. See `WorkspaceCapabilities`.
+    var path: String?
+    /// Why the items above Copy path are off, when they are.
+    var unavailable: String?
+    /// The honest equivalent where the file is not on this Mac: the same file on GitHub.
+    var onOpenOnGitHub: (@MainActor () -> Void)?
     /// The row's path inside the worktree, which is what Copy path puts on the pasteboard: the
     /// form a reader pastes into a prompt or a commit message.
     var relativePath: String
@@ -32,7 +39,10 @@ struct FileLocationMenuItems: View {
     var onSplitPage: (@MainActor (SplitAxis) -> Void)?
 
     var body: some View {
-        if allowsWorktreeActions {
+        if let onOpenOnGitHub {
+            Button(isDirectory ? "Open Folder on GitHub" : "Open File on GitHub", action: onOpenOnGitHub)
+        }
+        if allowsWorktreeActions, let path {
             // The target is decided per row rather than per view, because the worktree tree is
             // the one place a row is either kind: a folder is not offered to something that only
             // opens files, and a file is not handed to a terminal.
@@ -53,6 +63,15 @@ struct FileLocationMenuItems: View {
             if let onOpenPage, let onSplitPage {
                 LocalPageItems(path: path, open: onOpenPage, split: onSplitPage)
             }
+        }
+        if allowsWorktreeActions, path == nil, let unavailable {
+            // The same items a local workspace offers, in the same order, greyed, saying why.
+            Group {
+                Button("Reveal in Finder") {}
+                Button(FolderTerminal.menuTitle) {}
+            }
+            .disabled(true)
+            .help(unavailable)
         }
         Button("Copy path") { Clipboard.copy(relativePath) }
     }

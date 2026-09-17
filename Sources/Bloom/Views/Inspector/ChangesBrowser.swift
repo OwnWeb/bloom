@@ -2,8 +2,8 @@ import SwiftUI
 import BloomCore
 
 /// Changes keeps its full file-list height; only the History tab shares that space with commits.
-struct ChangesBrowser: View {
-    let model: WorkspaceModel
+struct ChangesBrowser<Model: WorkspaceReviewSurface>: View {
+    let model: Model
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,8 +26,8 @@ struct ChangesBrowser: View {
     }
 }
 
-struct ChangesHistoryList: View {
-    let model: WorkspaceModel
+struct ChangesHistoryList<Model: WorkspaceReviewSurface>: View {
+    let model: Model
     @State private var keyboard = ListKeyboard()
     @State private var hasKeyboard = false
     @State private var armToken = 0
@@ -68,7 +68,7 @@ struct ChangesHistoryList: View {
                                 .id(DiffScope.commit(commit))
                             }
                             if model.branchCommits.isTruncated {
-                                Button("Load earlier commits", action: model.loadMoreCommits)
+                                Button("Load earlier commits") { Task { await model.loadMoreCommits() } }
                                     .controlSize(.small).padding(InspectorLayout.inset)
                             } else if model.hasReadBranchCommits, model.branchCommits.commits.isEmpty {
                                 Text("No commits unique to this branch.")
@@ -140,10 +140,8 @@ struct ChangesHistoryList: View {
 
     private func select(_ scope: DiffScope) {
         model.setDiffScope(scope)
-        FileReview.open(path: "", in: model)
-        if let tab = CenterTabStore.shared.review(for: model.workspace.id) {
-            CenterTabStore.shared.setShowsAllFiles(true, for: tab)
-        }
+        model.openFile(path: "")
+        model.showAllFiles(true)
         armToken += 1
     }
 

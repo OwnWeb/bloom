@@ -59,6 +59,11 @@ public struct CloudReviewCache: Sendable, Hashable {
         return patches[path].flatMap { $0.revision == record.revision ? $0.patch : nil }
     }
 
+    /// Forgets one file's patch, for a caller that has just changed the file under it.
+    public mutating func forget(path: String) {
+        patches.removeValue(forKey: path)
+    }
+
     public func file(_ path: String) -> ChangedFileRecord? {
         files.first { $0.path == path }
     }

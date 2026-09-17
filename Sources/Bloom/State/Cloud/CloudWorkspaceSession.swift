@@ -16,7 +16,7 @@ import Observation
 @Observable
 final class CloudWorkspaceSession {
     let id: CloudWorkspaceID
-    @ObservationIgnored private unowned let cloud: CloudWorkspaces
+    @ObservationIgnored unowned let cloud: CloudWorkspaces
 
     private(set) var state = CloudWorkspaceState()
     private(set) var phase: WorkspaceConnection.Phase = .closed

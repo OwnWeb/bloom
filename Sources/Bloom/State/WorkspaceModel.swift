@@ -1603,15 +1603,6 @@ final class WorkspaceModel {
 
     /// Why a refresh of the changed file list was asked for, which is what decides how loud it is
     /// allowed to be.
-    enum ChangesRefresh {
-        /// The reader did something that changed the worktree, or the pane has just opened.
-        /// Reports progress, and opens the first file when nothing is open.
-        case requested
-        /// The poll that keeps the list honest while an agent writes. It has to be invisible: a
-        /// spinner every six seconds says less than a list one tick out of date, and moving the
-        /// selection would reopen a diff the reader had just closed.
-        case quiet
-    }
 
     func refreshChanges(_ reason: ChangesRefresh = .requested) async {
         // A refresh already on its way is about to answer about this same worktree, so the poll

@@ -74,3 +74,24 @@ import Testing
         #expect(CloudQueueCaption.sentence(first: nil, isRunning: true, isAwaitingAnswer: false, queueError: nil) == nil)
     }
 }
+
+@Suite struct CloudChangedFileTests {
+    @Test func aChangedFileCrossesTheWireAndComesBack() {
+        let file = ChangedFile(path: "a/b.swift", oldPath: "a/old.swift", change: .renamed, additions: 3, deletions: 1, isBinary: false)
+        let record = file.record(contentRevision: "r1")
+        let back = ChangedFile(cloudRecord: record)
+        #expect(back.path == file.path)
+        #expect(back.oldPath == file.oldPath)
+        #expect(back.change == .renamed)
+        #expect(back.additions == 3)
+        #expect(back.deletions == 1)
+        // The machine measures one row per path from HEAD, so there is no layer to carry.
+        #expect(back.layer == nil)
+    }
+
+    @Test func aLetterThisVersionDoesNotKnowIsAModification() {
+        let record = ChangedFileRecord(path: "a", change: "teleported", additions: 0, deletions: 0, isBinary: false)
+        #expect(ChangedFile(cloudRecord: record).change == .modified)
+        #expect(ChangedFile.Change(wireName: "untracked") == .untracked)
+    }
+}

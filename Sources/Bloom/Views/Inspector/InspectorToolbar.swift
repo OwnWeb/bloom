@@ -9,8 +9,8 @@ import BloomCore
 /// Only the controls that mean something for the pane below are drawn. A row of four trailing
 /// buttons pushed the picker into its narrow form at the DEFAULT inspector width, and two of them
 /// did nothing at all on the checks tab.
-struct InspectorToolbar: View {
-    @Bindable var model: WorkspaceModel
+struct InspectorToolbar<Model: WorkspaceReviewSurface>: View {
+    @Bindable var model: Model
 
     /// Shared with `ChangedFileList` through the same defaults key, and outliving the launch
     /// because a user who thinks in folders thinks in folders tomorrow too.
@@ -82,7 +82,9 @@ struct InspectorToolbar: View {
             // The items themselves are `WorktreeMenuItems`, which is a view of its own so that
             // this menu can be photographed. See its head.
             Menu {
-                WorktreeMenuItems(workspace: model.workspace, pullRequest: model.pullRequest)
+                if let workspace = (model as? WorkspaceModel)?.workspace {
+                    WorktreeMenuItems(workspace: workspace, pullRequest: model.pullRequest)
+                }
             } label: {
                 Label("More for this worktree", systemImage: "ellipsis.circle")
             }

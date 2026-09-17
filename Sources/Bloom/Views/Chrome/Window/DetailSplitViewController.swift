@@ -467,6 +467,12 @@ struct DetailSplitView: NSViewControllerRepresentable {
     }
 
     private var inspector: AnyView {
-        AnyView(InspectorPane(model: app.selectedModel).environment(app))
+        AnyView(
+            InspectorPane(
+                model: app.selectedModel,
+                cloud: app.selection.cloudWorkspaceID.flatMap { app.cloud.existingSession(for: $0) }
+            )
+            .environment(app)
+        )
     }
 }

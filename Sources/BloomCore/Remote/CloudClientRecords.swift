@@ -54,6 +54,41 @@ extension Message {
     }
 }
 
+extension ChangedFile {
+    /// A changed file off the wire, for the inspector, which draws the same rows for both kinds of
+    /// workspace. The inverse of `record(contentRevision:)` above it.
+    ///
+    /// `layer` is nil, and that is honest rather than a gap: the machine's review measures one row
+    /// per path from `HEAD`, so there is no staged row and no unstaged row to tell apart. See
+    /// "Decided while building" in docs/REMOTE-WORKSPACES.md.
+    public init(cloudRecord record: ChangedFileRecord) {
+        self.init(
+            path: record.path,
+            oldPath: record.oldPath,
+            change: Change(wireName: record.change) ?? .modified,
+            additions: record.additions,
+            deletions: record.deletions,
+            isBinary: record.isBinary
+        )
+    }
+}
+
+extension ChangedFile.Change {
+    /// The inverse of `wireName`. Nil for a letter this version does not know, which the caller
+    /// reads as a modification rather than dropping the row.
+    public init?(wireName: String) {
+        switch wireName {
+        case "added": self = .added
+        case "modified": self = .modified
+        case "deleted": self = .deleted
+        case "renamed": self = .renamed
+        case "copied": self = .copied
+        case "untracked": self = .untracked
+        default: return nil
+        }
+    }
+}
+
 extension ComposerControls {
     /// The wire's spelling of these controls, for `set_composer` and `new_chat`.
     public var cloudRecord: ComposerControlsRecord { record }

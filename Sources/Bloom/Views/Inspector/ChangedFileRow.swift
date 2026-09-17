@@ -33,7 +33,8 @@ struct ChangedFileRow: View, Equatable {
     /// never visible anywhere except the control that set it. See `ReviewedFile`.
     var isViewed: Bool = false
     /// The file's location in the worktree, for the menu items that hand it to another app.
-    var fullPath: String
+    /// Where the row is on this Mac, or nil for a workspace whose files are in the cloud.
+    var fullPath: String?
     /// How many levels down the tree this row is drawn. Zero in the flat list, which is what
     /// leaves that shape with no indent and no guides while both shapes run this same row.
     var depth: Int = 0
@@ -96,11 +97,11 @@ struct ChangedFileRow: View, Equatable {
         }
         .buttonStyle(.plain)
         .background {
-            if allowsWorktreeActions { HoverQuickLook(url: URL(fileURLWithPath: fullPath)) }
+            if allowsWorktreeActions, let fullPath { HoverQuickLook(url: URL(fileURLWithPath: fullPath)) }
         }
         // The real file, so a drop into Finder or an editor gets the document rather than a
         // sentence about where it lives. One file per drag: the list carries a single selection.
-        .fileDrag(path: fullPath, enabled: allowsWorktreeActions)
+        .fileDrag(path: fullPath ?? "", enabled: allowsWorktreeActions && fullPath != nil)
         .contextMenu {
             // First, because it is the one item here about the reader's pass through the diff
             // rather than about handing the file to something else, and because it is the item

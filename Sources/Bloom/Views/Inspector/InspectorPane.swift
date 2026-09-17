@@ -16,6 +16,10 @@ import SwiftUI
 /// left here is the one question this column answers.
 struct InspectorPane: View {
     let model: WorkspaceModel?
+    /// The Cloud workspace on screen, when that is what the window is showing. One of the two is
+    /// nil: the column draws the same `InspectorView` over whichever it was handed, because that
+    /// view is generic over `WorkspaceReviewSurface` rather than over a kind of workspace.
+    var cloud: CloudWorkspaceSession?
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -30,6 +34,9 @@ struct InspectorPane: View {
                 .disabled(app.isArchiving(model.workspace.id))
                 // Rebuilt per workspace, so a diff selection never leaks across a switch.
                 .id(model.workspace.id)
+        } else if let cloud {
+            InspectorView(model: cloud)
+                .id(cloud.id)
         } else {
             EmptyStateView(
                 glyph: "sidebar.right",

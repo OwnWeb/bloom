@@ -1040,6 +1040,43 @@ the coordinator.
   `archive_preview` when it can answer, runbloom.app's last summary when it cannot, and the sentence
   that the conversation is deleted first in both.
 
+## One UI, two kinds of workspace
+
+The owner's instruction, after the first Cloud panes were built beside the local ones: "I really
+want the UI to use the same code for local and remote, so that if I change this, it is both for
+local and cloud." So there are no Cloud views of things a local workspace already has. There is one
+set of views, written against protocols, with two implementations behind them.
+
+**`WorkspaceReviewSurface` is the first of those protocols.** It is what the inspector and the
+review panes ask a workspace for: the changed files and their patches, the file tree and a file's
+contents, the read ticks, the scope, the branch's commits, the pull request and the things a reader
+can do to one. `WorkspaceModel` answers it out of the worktree on this Mac, `CloudWorkspaceSession`
+out of the machine. It was written from what the inspector already asked `WorkspaceModel` for, and
+`WorkspaceModel` conforms to it with five new members and not one changed one, which is the reason
+the local path could not regress: the views call the same methods on the same object they always
+did.
+
+**Generic over the protocol, never `any WorkspaceReviewSurface`.** SwiftUI's `@Bindable` refuses an
+existential, and the inspector binds a selection and a tab. `struct FileTreeView<Model:
+WorkspaceReviewSurface>` keeps the binding and keeps every type static, so the redraw behaviour
+these columns were tuned for is what it was. The cost is real and is paid in one place: a generic
+SwiftUI body is much harder work for the type checker, and `FileTreeView` had to be cut into
+`body`, `watched`, `loading`, `stack` and `scroller` before the CI runner would finish it. Cut a
+generic view up before it is a problem rather than after.
+
+**Differences are capabilities, not branches.** `WorkspaceCapabilities` in the core carries one
+case per thing a workspace might not be able to do (revealing a file, reverting, a shell, managing
+the pull request, history, transcript search, Keep Awake, a preview), and each case carries the one
+sentence that says why it is off for a Cloud workspace. A view asks whether the capability is
+there; it never asks which kind of workspace it has. An action that cannot work stays where it is,
+greyed, with that sentence, and with the honest equivalent beside it: GitHub where a local
+workspace offers the Finder, the workspace's own terminal where it offers a shell in a folder.
+
+The slices, in the order they are being built: the review surface (this one), then the tab strip,
+header and banners, then the composer and transcript behind a chat backend, then the terminal and
+the browser tab, then the sidebar rows, menus and archiving. Each one leaves the app working, and
+each one reports what changed in the local path and how that was checked.
+
 ## Still open
 
 - Nothing. The contract matches runbloom.app pull request #23.

@@ -1169,7 +1169,7 @@ final class AppModel {
     /// Two spellings of one rule is how the window ends up refusing a width for a pane it is not
     /// drawing. See `WindowWidths`.
     var isInspectorPresented: Bool {
-        isInspectorVisible && selectedWorkspace != nil
+        isInspectorVisible && (selectedWorkspace != nil || selection.cloudWorkspaceID != nil)
     }
 
     /// The archived workspace being read, if that is what the window is on.
