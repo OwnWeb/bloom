@@ -1110,6 +1110,13 @@ there; it never asks which kind of workspace it has. An action that cannot work 
 greyed, with that sentence, and with the honest equivalent beside it: GitHub where a local
 workspace offers the Finder, the workspace's own terminal where it offers a shell in a folder.
 
+**History is the machine's own `git log`.** `history` pages the branch's commits and `commit_files`
+answers the files of the row somebody opened, so the History tab draws the rows it has always drawn.
+Two differences from a local workspace, both said where they matter: Load earlier commits pages from
+the oldest row rather than asking again with a larger limit, because a machine is across a network
+and may be asleep; and a commit's patch cannot be read yet, so the pane says so under the file list
+rather than showing an empty diff. A commit patch is the next thing to ask Bloom Runner for.
+
 The slices, in the order they are being built: the review surface (this one), then the tab strip,
 header and banners, then the composer and transcript behind a chat backend, then the terminal and
 the browser tab, then the sidebar rows, menus and archiving. Each one leaves the app working, and

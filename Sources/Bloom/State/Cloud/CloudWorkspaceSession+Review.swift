@@ -32,7 +32,7 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
     var capabilities: WorkspaceCapabilities {
         .cloud(
             // Each of these turns on here the day its half lands on the other side of the wire.
-            history: false,
+            history: true,
             revertChanges: false,
             searchTranscripts: false,
             preview: allows("preview"),
@@ -67,6 +67,9 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
 
     func refreshChanges(_ reason: ChangesRefresh) async {
         await changes.refresh(quietly: reason == .quiet)
+        // The commits move when the review does, and only while somebody is looking at them: a
+        // machine trying to sleep should not be asked for a list nothing is drawing.
+        if changes.inspectorTab == .history { await history.refresh() }
     }
 
     func readPatch(for file: ChangedFile) async throws -> String {
@@ -86,13 +89,15 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
     }
 
     var selectedChangeLayer: ChangeLayer? {
-        // The machine measures one row per path from HEAD, so there is no staged row to pick, and
-        // a write has nowhere to go: the layer a caller names is the only one there is.
-        get { nil }
-        set { _ = newValue }
+        get { changes.selectedLayer }
+        set { changes.selectedLayer = newValue }
     }
 
-    var selectedChangeID: String? { changes.selectedPath }
+    /// The row identity the list highlights, which is the path with its layer where there is one.
+    var selectedChangeID: String? {
+        changedFiles.first { $0.path == changes.selectedPath && $0.layer == changes.selectedLayer }?.id
+            ?? changedFiles.first { $0.path == changes.selectedPath }?.id
+    }
 
     /// The review is one tab of this workspace's own strip and shows the selected file, so the two
     /// are the same thing here.
@@ -100,17 +105,31 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
 
     // MARK: The inspector's own state
 
+    /// Setting it does what the local model's does: History lands on a commit rather than on the
+    /// sentence asking for one, and leaving History puts the review back on the whole branch.
     var inspectorTab: InspectorTab {
         get { changes.inspectorTab }
-        set { changes.inspectorTab = newValue }
+        set {
+            changes.inspectorTab = newValue
+            switch newValue {
+            case .history:
+                Task {
+                    await history.refresh()
+                    guard changes.inspectorTab == .history, !diffScope.isHistorical,
+                          let commit = history.commits.commits.first else { return }
+                    setDiffScope(.commit(commit))
+                }
+            case .changes where diffScope.isHistorical:
+                setDiffScope(.all)
+            default:
+                break
+            }
+        }
     }
 
     var availableInspectorTabs: [InspectorTab] {
-        // Checks only once runbloom.app can answer for a pull request; History once the machine
-        // can list the branch's commits. Both are `WorkspaceCapabilities`, so the day either
-        // lands the tab appears without a view changing.
-        // No pull request to report on yet, so no Checks tab; History stays in the strip and says
-        // why it is empty, which is what a tab that exists for both kinds has to do.
+        // No pull request to report on yet, so no Checks tab. It appears the day runbloom.app can
+        // answer for one, by the same rule a local workspace's does.
         InspectorTab.available(for: nil)
     }
 
@@ -122,11 +141,14 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
 
     // MARK: The branch's commits
 
-    var branchCommits: BranchCommitList { BranchCommitList() }
-    var hasReadBranchCommits: Bool { true }
-    var historyError: String? { nil }
-    var historyNotice: String? { WorkspaceCapabilities.Capability.history.cloudSentence }
-    func loadMoreCommits() async {}
+    var branchCommits: BranchCommitList { history.commits }
+    var hasReadBranchCommits: Bool { history.hasRead }
+    var historyError: String? { history.problem }
+    /// Nothing to add: the rows are the machine's own `git log`, in the tab that has always drawn
+    /// them. What a commit still cannot show is its patch, and `scopeNote` says that where it
+    /// matters rather than over the whole list.
+    var historyNotice: String? { nil }
+    func loadMoreCommits() async { await history.loadMore() }
 
     // MARK: Acting on a file, where the workspace can
 

@@ -58,9 +58,9 @@ extension ChangedFile {
     /// A changed file off the wire, for the inspector, which draws the same rows for both kinds of
     /// workspace. The inverse of `record(contentRevision:)` above it.
     ///
-    /// `layer` is nil, and that is honest rather than a gap: the machine's review measures one row
-    /// per path from `HEAD`, so there is no staged row and no unstaged row to tell apart. See
-    /// "Decided while building" in docs/REMOTE-WORKSPACES.md.
+    /// `layer` is read rather than dropped, though no scope the machine measures separates staged
+    /// from unstaged work today: `discard_hunk` already names a layer, so the day the snapshot does
+    /// too the rows arrive with it. A name this version does not know reads as no layer.
     public init(cloudRecord record: ChangedFileRecord) {
         self.init(
             path: record.path,
@@ -68,8 +68,21 @@ extension ChangedFile {
             change: Change(wireName: record.change) ?? .modified,
             additions: record.additions,
             deletions: record.deletions,
-            isBinary: record.isBinary
+            isBinary: record.isBinary,
+            layer: record.layer.flatMap(ChangeLayer.init(rawValue:))
         )
+    }
+}
+
+extension BranchCommit {
+    /// One commit of the branch's history as the machine measured it, for the History tab, which
+    /// draws the same rows for both kinds of workspace.
+    ///
+    /// `pushed` is left on the record. It is a fact a local workspace has no way to be asked for,
+    /// and nothing draws it yet; putting it on this type would be inventing a field for one side.
+    public init(cloudRecord record: CommitRecord) {
+        self.init(sha: record.sha, subject: record.subject, author: record.authorName, date: record.date,
+                  body: record.body, parents: record.parents, authorEmail: record.authorEmail)
     }
 }
 

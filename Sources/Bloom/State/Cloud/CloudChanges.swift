@@ -19,8 +19,7 @@ import Observation
 @Observable
 final class CloudChanges {
     /// The scope as the app spells it, so the same menu and the same picker drive both kinds of
-    /// workspace. `.commit` is a local-only scope until the machine's history lands, and is held
-    /// here so the picker's selection survives being set.
+    /// workspace, including a commit picked in History.
     private(set) var localScope: BloomCore.DiffScope = .all
     private(set) var files: [ChangedFileRecord] = []
     private(set) var hasRead = false
@@ -32,6 +31,9 @@ final class CloudChanges {
     var selectedPath: String? {
         didSet { if selectedPath != oldValue { Task { await loadPatchForSelection() } } }
     }
+    /// Which staging layer of that file is open, for a scope that separates them. Nil is the whole
+    /// file, which is every row of the branch comparison.
+    var selectedLayer: ChangeLayer?
     /// Which of the inspector's tabs this workspace is on, and whether its review is showing every
     /// file. The local model keeps the same two facts; they are per workspace and not per window.
     var inspectorTab: InspectorTab = .changes
@@ -58,15 +60,27 @@ final class CloudChanges {
 
     private static func viewedKey(_ id: CloudWorkspaceID) -> String { "cloud.viewedFiles.\(id.rawValue)" }
 
-    /// The scope the machine understands. A commit is not one of them yet, so the review falls
-    /// back to the branch until the machine's history operation lands.
+    /// The scope the machine understands for the two comparisons it measures continuously. A
+    /// commit is not one of them: its files are `commit_files`, read for the one commit somebody
+    /// opened, so `wireScope` is only asked for when the review is not historical.
     private var wireScope: BloomProtocol.DiffScope {
         localScope == .uncommitted ? .uncommitted : .branch
     }
 
+    /// The commit the review is pointed at, or nil for the two continuous comparisons.
+    private var commit: BranchCommit? {
+        if case .commit(let commit) = localScope { return commit }
+        return nil
+    }
+
+    /// A commit's files come over whole; its patches do not, so the diff pane says so rather than
+    /// showing an empty one. The machine's `review_patch` measures the branch and the worktree,
+    /// and a commit patch is the next thing to ask its builder for.
+    static let noCommitPatch = "A commit's files are here. Its diff cannot be read from a Cloud"
+        + " workspace yet."
+
     var scopeNote: String? {
-        guard case .commit = localScope else { return nil }
-        return WorkspaceCapabilities.Capability.history.cloudSentence
+        commit == nil ? nil : Self.noCommitPatch
     }
 
     func setScope(_ scope: BloomCore.DiffScope) {
@@ -79,6 +93,7 @@ final class CloudChanges {
 
     func refresh(quietly: Bool = false) async {
         guard let session else { return }
+        if let commit { await refreshCommit(commit, quietly: quietly); return }
         let scope = wireScope
         var cache = caches[scope] ?? CloudReviewCache()
         if !quietly { isLoading = true }
@@ -104,10 +119,37 @@ final class CloudChanges {
         }
     }
 
+    /// One commit's files, which the machine reads from that commit's own two trees. Held in no
+    /// cache: a commit is immutable, so a reader who opens the same row twice is one request, and
+    /// holding every commit's file list would be a page of them for a branch nobody is reviewing.
+    private func refreshCommit(_ commit: BranchCommit, quietly: Bool) async {
+        guard let session else { return }
+        if !quietly { isLoading = true }
+        defer { isLoading = false }
+        do {
+            let result = try await session.perform(.commitFiles(sha: commit.sha))
+            guard case .commitFiles(let records) = result else { return }
+            guard self.commit == commit else { return }
+            if files != records {
+                files = records
+                generation += 1
+            }
+            hasRead = true
+            problem = nil
+            if selectedPath == nil || !files.contains(where: { $0.path == selectedPath }) {
+                selectedPath = files.first?.path
+            }
+        } catch {
+            problem = error.message
+            hasRead = true
+        }
+    }
+
     /// One file's patch, read once per revision. Throws what the machine said, which is what the
     /// local read does with git's own message.
     func patch(for path: String) async throws -> String {
         guard let session else { throw CloudReviewFailure(message: "This Cloud workspace is closed.") }
+        guard commit == nil else { throw CloudReviewFailure(message: Self.noCommitPatch) }
         let scope = wireScope
         var cache = caches[scope] ?? CloudReviewCache()
         if let held = cache.patch(for: path) { return held }

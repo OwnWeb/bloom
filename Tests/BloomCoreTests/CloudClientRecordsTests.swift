@@ -85,8 +85,31 @@ import Testing
         #expect(back.change == .renamed)
         #expect(back.additions == 3)
         #expect(back.deletions == 1)
-        // The machine measures one row per path from HEAD, so there is no layer to carry.
+        // No layer on this one: the branch comparison has none to separate.
         #expect(back.layer == nil)
+    }
+
+    @Test func aStagingLayerSurvivesTheWireAndAnUnknownOneIsNoLayer() {
+        let staged = ChangedFile(path: "a", change: .modified, additions: 1, deletions: 0, isBinary: false, layer: .staged)
+        #expect(ChangedFile(cloudRecord: staged.record(contentRevision: nil)).layer == .staged)
+        let record = ChangedFileRecord(path: "a", change: "modified", additions: 0, deletions: 0, isBinary: false, layer: "rebased")
+        #expect(ChangedFile(cloudRecord: record).layer == nil)
+    }
+
+    @Test func aCommitOffTheWireDrawsTheSameHistoryRow() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let record = CommitRecord(sha: "0123456789abcdef", subject: "Fix the parser", authorName: "Freek",
+                                  authorEmail: "freek@spatie.be", date: date, body: "The body.",
+                                  parents: ["fedcba9876543210"], pushed: true)
+        let commit = BranchCommit(cloudRecord: record)
+        #expect(commit.sha == record.sha)
+        #expect(commit.abbreviated == "0123456")
+        #expect(commit.subject == "Fix the parser")
+        #expect(commit.author == "Freek")
+        #expect(commit.authorEmail == "freek@spatie.be")
+        #expect(commit.date == date)
+        #expect(commit.body == "The body.")
+        #expect(commit.parents == ["fedcba9876543210"])
     }
 
     @Test func aLetterThisVersionDoesNotKnowIsAModification() {
