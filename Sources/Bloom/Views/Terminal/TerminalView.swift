@@ -390,6 +390,41 @@ final class BloomTerminalView: LocalProcessTerminalView {
         return true
     }
 
+    /// Command+V and the Edit menu's Paste both land here, and SwiftTerm's answer is the string on
+    /// the board, of which a screenshot has none. `TerminalPaste` says when the picture is instead
+    /// handed to the application in the pane as the Control+V it reads the clipboard on.
+    ///
+    /// Sent as a key event rather than as the byte, because what Control+V looks like on the wire
+    /// depends on what the application negotiated: a plain shell wants 0x16 and one using the kitty
+    /// keyboard protocol, which Claude Code does, wants `CSI 118;5u`. SwiftTerm's `keyDown` already
+    /// knows which, so the event goes through it the way a real keypress would.
+    ///
+    /// The press is followed by its release, because a real key has one and SwiftTerm reports
+    /// releases to an application that asked for them through the kitty protocol's event flag.
+    override func paste(_ sender: Any) {
+        let board = NSPasteboard.general
+        switch TerminalPaste.action(items: board.attachmentOffers, hasText: board.hasPlainText) {
+        case .text:
+            super.paste(sender)
+        case .imageKey:
+            guard let press = keyEvent(.keyDown, for: TerminalPaste.imageKeystroke),
+                  let release = keyEvent(.keyUp, for: TerminalPaste.imageKeystroke)
+            else { return super.paste(sender) }
+            keyDown(with: press)
+            keyUp(with: release)
+        }
+    }
+
+    private func keyEvent(_ type: NSEvent.EventType, for key: TerminalPaste.Keystroke) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: type, location: .zero, modifierFlags: .control,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window?.windowNumber ?? 0, context: nil,
+            characters: key.character, charactersIgnoringModifiers: key.unmodifiedCharacter,
+            isARepeat: false, keyCode: key.keyCode
+        )
+    }
+
     /// Screen and scrollback both go, then a form feed nudges the shell into redrawing its prompt
     /// so the user is not left staring at an empty rectangle.
     func clearScreen() {
