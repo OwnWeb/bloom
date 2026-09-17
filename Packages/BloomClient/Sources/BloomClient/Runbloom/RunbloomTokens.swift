@@ -125,8 +125,9 @@ public struct CloudWorkspaceMembers: Codable, Sendable, Hashable {
         /// `owner` or `collaborator`.
         public var role: String
 
-        /// False when this person cannot push to the repository, which in a shared workspace means
-        /// they cannot prompt (runbloom.app refuses with `no_push_access`). Nil when not said.
+        /// False when this person cannot push to the repository or has not connected GitHub, which in
+        /// a shared workspace means they cannot prompt (runbloom.app refuses with `no_push_access`).
+        /// Nil when runbloom.app never checked or could not reach GitHub, which says nothing either way.
         public var hasPushAccess: Bool?
 
         public var id: String { user.id }

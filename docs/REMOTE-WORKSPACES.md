@@ -913,6 +913,11 @@ the coordinator.
   streams, which the confirmation says. Owner only; 403 `no_team_agent_key` when a team key is
   missing. Collaborators are chosen from `GET /api/v1/teams/{team}/members`, `{"data": [{"id",
   "name", "email", "avatar_url", "role"}]}`.
+- **Members carry `push_access`**: true, false (no push access, or GitHub not connected) or null (not
+  checked, or GitHub unreachable). Only false is shown, as "Cannot push". A share's `created_by` may
+  be null. A workspace the reader cannot open is listed with only `id`, `team_id`, `name`, `state`,
+  `owner`, `role` (null), `can_open`, `can_archive`, `created_at` and `archived_at`, and is drawn as
+  not openable, archivable when `can_archive` says so.
 - **`sharing_in_progress`** (409, `retry_after`) on a session or preview token, for anybody but the
   owner while runbloom.app tells the machine the workspace became shared, is waited out like
   `machine_not_ready`: a short starting state, then asked again.

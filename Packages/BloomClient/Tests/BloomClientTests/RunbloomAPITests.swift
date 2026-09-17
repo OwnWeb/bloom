@@ -65,6 +65,41 @@ import Testing
         #expect(item.name == "Odd")
     }
 
+    @Test func aWorkspaceTheReaderCannotOpenIsListedWithWhatItCarries() async throws {
+        let transport = FakeTransport()
+        transport.on("GET", "/teams/t/cloud-workspaces", .json("""
+        {"data": [{"id": "01k5private", "team_id": "t", "name": "Somebody's", "state": "idle",
+          "owner": {"id": "u9", "name": "Alex", "avatar_url": null}, "role": null, "can_open": false, "can_archive": true,
+          "created_at": "2026-09-17T09:40:02.000000Z", "archived_at": null}]}
+        """))
+        let item = try #require(try await Fixtures.api(transport).cloudWorkspaces(team: "t").first)
+        #expect(!item.canOpen)
+        #expect(item.canArchive)
+        #expect(!item.isMember)
+        #expect(item.summary == nil)
+        #expect(item.branch == "")
+        #expect(CloudWorkspaceStatus(item: item) == .asleep)
+    }
+
+    @Test func pushAccessIsTrueFalseOrNotKnown() async throws {
+        let transport = FakeTransport()
+        transport.on("GET", "/cloud-workspaces/w/members", .json("""
+        {"data": {"shared_with_team": false, "members": [
+          {"user": {"id": "a", "name": "A"}, "role": "owner", "push_access": true},
+          {"user": {"id": "b", "name": "B"}, "role": "collaborator", "push_access": false},
+          {"user": {"id": "c", "name": "C"}, "role": "collaborator", "push_access": null},
+          {"user": {"id": "d", "name": "D"}, "role": "collaborator"}]}}
+        """))
+        transport.on("GET", "/cloud-workspaces/w/shares", .json("""
+        {"data": [{"id": "s", "url": "https://runbloom.app/share/s", "created_at": null, "expires_at": "2026-09-24T10:00:00Z", "created_by": null}]}
+        """))
+        let api = Fixtures.api(transport)
+        let members = try await api.members(of: "w")
+        #expect(members.members.map(\.hasPushAccess) == [true, false, nil, nil])
+        let shares = try await api.shares(of: "w")
+        #expect(shares.first?.createdBy == nil)
+    }
+
     @Test func createsACloudWorkspace() async throws {
         let transport = FakeTransport()
         transport.on("POST", "/teams/01k5team/cloud-workspaces", .json("""

@@ -61,7 +61,7 @@ struct CloudSharePopover: View {
                         if member.hasPushAccess == false {
                             Text("Cannot push")
                                 .foregroundStyle(Palette.warning)
-                                .help("Without push access to the repository, they cannot prompt in a shared Cloud workspace.")
+                                .help("They have no push access to the repository, or have not connected GitHub, so they cannot prompt in a shared Cloud workspace.")
                         }
                         Spacer()
                         if member.role != "owner" {

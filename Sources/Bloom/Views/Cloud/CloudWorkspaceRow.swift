@@ -17,7 +17,15 @@ struct CloudWorkspaceRow: View {
                     .fontWeight(item.unread ? .semibold : .regular)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if item.sharedWithTeam || item.role == "collaborator" {
+                if !item.canOpen {
+                    // A team owner or admin can see a private workspace exists, and archive it,
+                    // without being able to open it.
+                    Image(systemName: "lock")
+                        .font(.caption2)
+                        .foregroundStyle(isSelected ? Palette.textInverted : Palette.textTertiary)
+                        .help("Private to \(item.owner?.name ?? "its owner")")
+                        .accessibilityLabel("Private to \(item.owner?.name ?? "its owner")")
+                } else if item.sharedWithTeam || item.role == "collaborator" {
                     Image(systemName: "person.2")
                         .font(.caption2)
                         .foregroundStyle(isSelected ? Palette.textInverted : Palette.textTertiary)
