@@ -835,8 +835,9 @@ and its builder confirmed them.
   `agent_keys` (per agent: `key`, `identity`, `source`) and `environment`, or the limit refusal, or
   `no_agent_key`, `not_a_collaborator`, `github_not_connected`, or 409 `turn_not_startable`;
   `git-credentials` takes `repository`, `operation` (`read` or `write`) and `turn_id`, and answers
-  `token`, `expires_at` and `username`. `control/update` carries `version` and `sha256`, and the
-  machine derives the release asset's address from the version.
+  `token`, `expires_at` and `username`. `control/update` carries `version`, `sha256` and `tag`, and the
+  machine downloads the asset from that tag, `v<version>` for a Bloom release or `runner-v<version>`
+  for a runner-only test release, which `release.yml` builds without the app. Any other tag is refused.
 - **Version 1 lays a tagged value out flat, except a whole record.** An operation is one object
   with `kind` and its fields beside it. A result or an event that carries a record puts it under a
   key named after the kind, `{"kind": "transcript", "transcript": {...}}`, because a transcript
@@ -1040,6 +1041,43 @@ the coordinator.
   `archive_preview` when it can answer, runbloom.app's last summary when it cannot, and the sentence
   that the conversation is deleted first in both.
 
+### The preview inside Bloom
+
+The preview opens in a Browser tab in Bloom, as a local workspace's does, and not only in the
+default browser. **The cookie stays, and no per-request token replaces it.** A token on every
+request would have to live in the web view's address bar or in every link the project's app writes,
+where a page could read it, copy it and use it later; the cookie is the thing a browser is built to
+keep out of a page's hands.
+
+How it works: the Mac asks runbloom.app for a preview token, navigates the web view once to
+`https://<machine>/_bloom/preview/enter?token=…`, and the redirect sets `__Host-bloom-preview` in
+that web view's own store. Everything that made this safe from a browser still holds: the cookie is
+`__Host-`, `HttpOnly`, `Secure`, `SameSite=Lax`, Caddy strips it from `Cookie` before the request
+reaches the project's app, blanks a `Set-Cookie` that tries to plant one, and answers `/_bloom/*`
+from Bloom Runner rather than from the app. So the preview cannot reach the control API, and the
+app's own JavaScript cannot read the credential that let the tab in.
+
+The Mac's half, agreed with its builder and written here because the safety depends on it:
+
+- A **non-persistent `WKWebsiteDataStore` per Cloud workspace**, made when that workspace's Browser
+  tab first opens and dropped when the workspace is closed or archived or the account signs out.
+  Never the app's shared store, and never shared between workspaces: one store per origin means one
+  workspace's preview cookie can never travel to another machine's origin, and nothing survives a
+  relaunch, so the cookie's real life is the shorter of its eight hours and the window staying open.
+- The web view is **navigated only to the enter URL runbloom.app has just issued**, with the token in
+  that one navigation. No token is injected into a page the app did not navigate to, the address bar
+  cannot be used to enter with a token, and a page that navigates off the machine's origin carries no
+  Bloom token with it.
+
+**What an attacker gets.** Somebody who reads that web view's store, which means code already
+running as the person on their Mac, gets the preview of one workspace for up to eight hours: the
+project's app as that person sees it, and nothing else. That is what a share link already hands out
+deliberately. They do not get the control API (a preview token grants `preview` and nothing more,
+and the RPC, event stream and terminal routes all refuse anything but a session token), they do not
+get another workspace (the cookie is `__Host-`, bound to that machine's host, in a store that holds
+only that machine), and they do not get the agent's keys or a GitHub token, which never leave the
+machine.
+
 ## One UI, two kinds of workspace
 
 The owner's instruction, after the first Cloud panes were built beside the local ones: "I really
@@ -1076,6 +1114,77 @@ The slices, in the order they are being built: the review surface (this one), th
 header and banners, then the composer and transcript behind a chat backend, then the terminal and
 the browser tab, then the sidebar rows, menus and archiving. Each one leaves the app working, and
 each one reports what changed in the local path and how that was checked.
+
+## When a Cloud workspace misbehaves
+
+The first people to use this will be reading a workspace that is stuck without knowing which half
+is at fault, so here is what each thing means and how to tell the two apart.
+
+**The one word on a workspace** is `RemoteSummary.state`, worked out from setup and the chats, in
+this order: `setting_up` while setup is pending or running, then `waiting_for_input` when any chat
+has a question nobody has answered, `stopping` while a stop is going through, `running` while a turn
+is running, `blocked` when a team limit is holding a prompt, `setup_failed` only when setup failed
+and nothing has happened since, and `idle` otherwise. A chat carries the same words for itself. A
+workspace that says `running` long after the agent went quiet is a bug worth reporting: the machine
+sends a fresh summary a moment after a chat goes idle.
+
+**A project with no Cloud workspace setup is told so before anything runs.** A repository with no
+`.bloom` settings file and no `prepare`, `resume` or `[[services]]` has nothing written for a
+machine, so the setup log opens with what to add and a warning that the project's existing setup
+script, which may have been written for a Mac, runs as it is. Setup is still attempted: refusing
+would leave somebody with a workspace that does nothing.
+
+**Every script gets the same variables as on a Mac**, under both the `BLOOM_` and `CONDUCTOR_`
+prefixes: `IS_LOCAL` (`0` here), `WORKSPACE_NAME`, `WORKSPACE_ID`, `WORKSPACE_PATH`, `ROOT_PATH`,
+`PROJECT_NAME`, `DEFAULT_BRANCH` and `PORT`, beside the machine's own `BLOOM_PUBLIC_URL`,
+`BLOOM_PUBLIC_HOST`, `BLOOM_APP_PORT`, `BLOOM_BRANCH`, `BLOOM_REPOSITORY`, `BLOOM_DATA_DIR` and
+`BLOOM_RUNNER_PORT`. `WORKSPACE_PATH` and `ROOT_PATH` are the same path, because the clone is both.
+This is not tidiness: scripts in the wild start with `set -u` and read `$BLOOM_ROOT_PATH`, and an
+unbound variable ends them on their first line with nothing a person can act on.
+
+**Setup output** goes to two places, and the row is the one a person reads. Every step appends to
+the workspace's setup log, a few writes a second, which clients watch through the event stream; the
+log is capped, so a very long `apt` or `composer install` keeps its tail rather than its head. The
+whole of each step is also kept on the machine under `~/.bloom/setup/<step>.log`, up to 20 MB, which
+is where to look when the row has been trimmed. A run the machine was stopped in the middle of is
+added to rather than started over, so an interrupted first attempt stays visible above the second.
+
+**A failed step names itself**: "The setup script exited with status 4.", and the last lines of a
+failed run travel with the workspace record (`setup.note`), so a client can say what went wrong
+without asking for the whole log.
+
+**A failed setup does not cost the workspace.** Prompts go once setup ends, however it ended, so a
+failed `setup` script leaves a workspace somebody can still work in; the log says what failed, and
+`run_setup` runs it again. A clone that fails says what to check (the repository still exists, and
+Bloom's GitHub App is installed for it) rather than leaving git's own message alone.
+
+**A preview that shows nothing** is answered by Bloom Runner rather than by Caddy, and names the
+project's services and how each ended: `vite: crashed after 3 restarts. Exited with status 1.` A
+service that keeps crashing is restarted with a growing wait, so this page is the quickest way to
+tell "the app never started" from "the app is slow".
+
+**Telling a provider outage from a Bloom Runner problem.** They look different from the app:
+
+- The machine's URL not answering at all, or answering a provider error page, is the provider or a
+  machine that is asleep and waking. Bloom Runner's own answers always carry a `bloom-runner`
+  server name, and `/_bloom/health` answers with the version and nothing else.
+- Everything except the preview working, or the other way round, is Bloom Runner: one process
+  serves both, behind one Caddy.
+- The whole team's workspaces failing at once is runbloom.app or the provider. One workspace
+  failing while another is fine is that machine.
+- A workspace that never leaves `setting_up`, with a setup log that has not grown in minutes, is
+  a step that is genuinely running (watch the step's log on the machine) rather than a lost machine.
+- Creating, waking or deleting machines failing, while existing machines answer, is the provider's
+  API. It has hung for tens of minutes in testing while the status page said all was well, so a
+  first reaction of "try again in a while" is usually right.
+- `Tools/machine-test.py --from-release <tag>` reproduces the whole path on a throwaway machine of
+  your own, and it prints which step it got to. If that passes while a real workspace does not, the
+  problem is runbloom.app's side of the contract rather than the runner.
+
+**What the machine keeps for you**, all under the data directory (`~/.bloom` on a machine):
+`bloom.sqlite` with the transcript and queue, `setup/` with the step logs, `services/` with a log
+per project service, `caddy/access.log`, and `/var/tmp/bloom-update.log` for the last update. None
+of them holds a key or a token.
 
 ## Still open
 

@@ -408,6 +408,14 @@ import Testing
         #expect(notice.opensRunbloom)
         #expect(!CloudRefusalNotice(message: "The connection dropped.", code: "internal").opensRunbloom)
     }
+
+    /// runbloom.app renamed this one after shipping it twice. Both spellings mean the same thing
+    /// and both have to offer the way to the page where GitHub is connected.
+    @Test func bothSpellingsOfAMissingGitHubConnectionGoBackToRunbloom() {
+        let message = "Connect GitHub to your Bloom account first."
+        #expect(CloudRefusalNotice(message: message, code: "github_not_connected").opensRunbloom)
+        #expect(CloudRefusalNotice(message: message, code: "no_github_connection").opensRunbloom)
+    }
 }
 
 @Suite struct CloudEmptyStateTests {

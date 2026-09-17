@@ -15,6 +15,9 @@ public enum OperationResult: Codable, Sendable, Hashable {
     case reviewSnapshot(ReviewSnapshotRecord)
     case reviewPatch(PatchSnapshotRecord)
     case runScripts(scripts: [RunScriptRecord])
+    case history(HistoryRecord)
+    case commitFiles(files: [ChangedFileRecord])
+    case search(SearchRecord)
     case text(String)
     case chat(ChatRecord)
     /// A `send` that was queued: the prompt's id, which `cancel_queued` names.
@@ -22,7 +25,7 @@ public enum OperationResult: Codable, Sendable, Hashable {
     case archivePreview(ArchivePreviewRecord)
     case terminal(TerminalRecord)
 
-    enum Keys: String, CodingKey { case value, paths, scripts, promptID = "prompt_id" }
+    enum Keys: String, CodingKey { case value, paths, scripts, files, promptID = "prompt_id" }
 
     public init(from decoder: any Decoder) throws {
         let kind = try Tagged.kind(from: decoder)
@@ -39,6 +42,9 @@ public enum OperationResult: Codable, Sendable, Hashable {
         case "review_snapshot": self = .reviewSnapshot(try Tagged.record(ReviewSnapshotRecord.self, kind: kind, from: decoder))
         case "review_patch": self = .reviewPatch(try Tagged.record(PatchSnapshotRecord.self, kind: kind, from: decoder))
         case "run_scripts": self = .runScripts(scripts: try c.decode([RunScriptRecord].self, forKey: .scripts))
+        case "history": self = .history(try Tagged.record(HistoryRecord.self, kind: kind, from: decoder))
+        case "commit_files": self = .commitFiles(files: try c.decode([ChangedFileRecord].self, forKey: .files))
+        case "search": self = .search(try Tagged.record(SearchRecord.self, kind: kind, from: decoder))
         case "text": self = .text(try c.decode(String.self, forKey: .value))
         case "chat": self = .chat(try Tagged.record(ChatRecord.self, kind: kind, from: decoder))
         case "queued": self = .queued(promptID: try c.decode(String.self, forKey: .promptID))
@@ -62,6 +68,9 @@ public enum OperationResult: Codable, Sendable, Hashable {
         case .reviewSnapshot(let value): try Tagged.encode(kind: "review_snapshot", to: encoder, record: value)
         case .reviewPatch(let value): try Tagged.encode(kind: "review_patch", to: encoder, record: value)
         case .runScripts(let scripts): try Tagged.encode(kind: "run_scripts", to: encoder); try c.encode(scripts, forKey: .scripts)
+        case .history(let value): try Tagged.encode(kind: "history", to: encoder, record: value)
+        case .commitFiles(let files): try Tagged.encode(kind: "commit_files", to: encoder); try c.encode(files, forKey: .files)
+        case .search(let value): try Tagged.encode(kind: "search", to: encoder, record: value)
         case .text(let value): try Tagged.encode(kind: "text", to: encoder); try c.encode(value, forKey: .value)
         case .chat(let value): try Tagged.encode(kind: "chat", to: encoder, record: value)
         case .queued(let promptID): try Tagged.encode(kind: "queued", to: encoder); try c.encode(promptID, forKey: .promptID)

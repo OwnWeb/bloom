@@ -15,16 +15,24 @@ struct MachineScripts {
     var resume: ScriptLaunch?
     var services: [RemoteProjectSettings.Service]
     var problems: [String]
+    /// Whether anything here was written for a Cloud workspace: a `.bloom` settings file, or
+    /// `prepare`, `resume` or `[[services]]`, none of which the Mac reads. A repository with none
+    /// of them still gets its `setup` script run, but somebody is told first.
+    var hasCloudSetup: Bool
 
     static func load(repo: String) -> MachineScripts {
         let remote = RemoteProjectSettings.load(repo: repo)
         let setup = setupScript(repo: repo)
+        let bloomFiles = SettingsLoader.repoPaths(repo: repo)
+            .filter { $0.contains("/.bloom/") && FileManager.default.fileExists(atPath: $0) }
         return MachineScripts(
             prepare: ScriptLaunch.resolve(text: remote.prepareScript, file: remote.prepareFile, repo: repo),
             setup: ScriptLaunch.resolve(text: setup.text, file: setup.file, repo: repo),
             resume: ScriptLaunch.resolve(text: remote.resumeScript, file: remote.resumeFile, repo: repo),
             services: remote.services,
-            problems: remote.problems
+            problems: remote.problems,
+            hasCloudSetup: !bloomFiles.isEmpty || remote.prepareScript != nil || remote.prepareFile != nil
+                || remote.resumeScript != nil || remote.resumeFile != nil || !remote.services.isEmpty
         )
     }
 

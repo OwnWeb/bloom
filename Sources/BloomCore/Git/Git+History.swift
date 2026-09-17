@@ -10,7 +10,7 @@ extension Git {
         let count = max(1, limit)
         let output = try await checkRaw([
             "log", "--date-order", "--max-count=\(count + 1)",
-            "--format=%H%x00%s%x00%an%x00%aI%x00%P%x00%b%x00",
+            "--format=%H%x00%s%x00%an%x00%aI%x00%P%x00%b%x00%ae%x00",
             "\(mergeBase)..HEAD", "--",
         ], in: worktree)
         let parsed = parseBranchCommits(output.stdout)
@@ -22,15 +22,16 @@ extension Git {
         let fields = data.split(separator: 0, omittingEmptySubsequences: false)
         var commits: [BranchCommit] = []
         var index = 0
-        while index + 5 < fields.count {
-            let values = fields[index..<(index + 6)].map { String(decoding: $0, as: UTF8.self) }
-            index += 6
+        while index + 6 < fields.count {
+            let values = fields[index..<(index + 7)].map { String(decoding: $0, as: UTF8.self) }
+            index += 7
             let sha = values[0].trimmingCharacters(in: .whitespacesAndNewlines)
             guard !sha.isEmpty, let date = try? Date.ISO8601FormatStyle().parse(values[3]) else { continue }
             commits.append(BranchCommit(
                 sha: sha, subject: values[1], author: values[2], date: date,
                 body: values[5].trimmingCharacters(in: .whitespacesAndNewlines),
-                parents: values[4].split(separator: " ").map(String.init)
+                parents: values[4].split(separator: " ").map(String.init),
+                authorEmail: values[6].trimmingCharacters(in: .whitespacesAndNewlines)
             ))
         }
         return commits

@@ -156,7 +156,7 @@ struct WorkspaceHTTPServerTests {
                 #expect(response.status == .unauthorized, "A control token is refused the second time")
             }
             try await client.execute(uri: "/_bloom/v1/control/update", method: .post, headers: Self.bearer(fixture.issuer.control()),
-                                     body: ByteBuffer(string: #"{"version":"1.4.0","sha256":"abc"}"#)) { response in
+                                     body: ByteBuffer(string: #"{"version":"1.4.0","sha256":"abc","tag":"runner-v1.4.0"}"#)) { response in
                 #expect(response.status == .accepted)
             }
             try await client.execute(uri: "/_bloom/v1/control/stop", method: .post, headers: Self.bearer(fixture.issuer.control()),
@@ -177,7 +177,7 @@ struct WorkspaceHTTPServerTests {
             }
         }
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3rq"))
-        #expect(fixture.control.calls.withLock { $0 }.contains("update 1.4.0 abc"))
+        #expect(fixture.control.calls.withLock { $0 }.contains("update 1.4.0 abc runner-v1.4.0"))
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3r1"))
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3r2"))
         #expect(fixture.control.calls.withLock { $0 }.contains("secret-rotated"))
@@ -213,6 +213,33 @@ struct WorkspaceHTTPServerTests {
             let share = fixture.issuer.preview(subject: "share:01k5a7c2b0z9y8x7w6v5t4s3rs")
             try await client.execute(uri: "/_bloom/preview/enter?token=\(share)", method: .get) { response in
                 #expect(response.headers[.setCookie]?.contains("Max-Age=3600") == true, "A share link's cookie lasts an hour")
+            }
+        }
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("the page behind a preview that shows nothing names the services, and only to somebody let in")
+    func previewUnavailable() async throws {
+        let fixture = try await fixture()
+        let verifier = TokenVerifier(issuer: fixture.issuer.issuer, workspaceID: fixture.issuer.workspaceID, keys: fixture.issuer.keySet())
+        let server = WorkspaceHTTPServer(dependencies: .init(
+            runtime: fixture.runtime, verifier: verifier, gate: UngatedTurns(), control: fixture.control, store: fixture.store,
+            allowedOrigins: [], version: "1.2.3",
+            services: { [.init(name: "vite", state: .crashed, restarts: 3, message: "Exited with status 1. Starting again in 5 s.")] }
+        ))
+        try await server.application(port: 0).test(.router) { client in
+            let cookie = try await client.execute(uri: "/_bloom/preview/enter?token=\(fixture.issuer.preview())", method: .get) { response -> String in
+                String((response.headers[.setCookie] ?? "").split(separator: ";")[0])
+            }
+            try await client.execute(uri: "/_bloom/preview/unavailable", method: .get, headers: [.cookie: cookie]) { response in
+                let text = String(buffer: response.body)
+                #expect(response.status == .badGateway)
+                #expect(text.contains("vite: crashed after 3 restarts. Exited with status 1."))
+            }
+            try await client.execute(uri: "/_bloom/preview/unavailable", method: .get) { response in
+                let text = String(buffer: response.body)
+                #expect(response.status == .badGateway)
+                #expect(!text.contains("vite"), "Without the cookie it names nothing of the project")
             }
         }
         await fixture.runtime.shutdown()
@@ -294,7 +321,9 @@ final class RecordingControl: MachineControl {
     func stop(limit: String) async { calls.withLock { $0.append("stop \(limit)") } }
     func limitsCleared() async { calls.withLock { $0.append("limits-cleared") } }
     func revoke(userID: String) async { calls.withLock { $0.append("revoke \(userID)") } }
-    func update(version: String, sha256: String) async throws { calls.withLock { $0.append("update \(version) \(sha256)") } }
+    func update(version: String, sha256: String, tag: String?) async throws {
+        calls.withLock { $0.append("update \(version) \(sha256) \(tag ?? "-")") }
+    }
     func environmentChanged() async { calls.withLock { $0.append("environment") } }
     func secretRotated() async { calls.withLock { $0.append("secret-rotated") } }
     func shared() async { calls.withLock { $0.append("shared") } }

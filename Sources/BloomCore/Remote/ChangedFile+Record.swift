@@ -7,7 +7,8 @@ extension ChangedFile {
     public func record(contentRevision: String?) -> ChangedFileRecord {
         ChangedFileRecord(
             path: path, oldPath: oldPath, change: change.wireName,
-            additions: additions, deletions: deletions, isBinary: isBinary, contentRevision: contentRevision
+            additions: additions, deletions: deletions, isBinary: isBinary, contentRevision: contentRevision,
+            layer: layer?.rawValue
         )
     }
 }

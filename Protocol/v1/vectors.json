@@ -236,6 +236,23 @@
       },
       "version" : 1
     },
+    "commit_files" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "files" : [
+          {
+            "additions" : 12,
+            "change" : "modified",
+            "deletions" : 3,
+            "is_binary" : false,
+            "layer" : "unstaged",
+            "path" : "app/Queue.php"
+          }
+        ],
+        "kind" : "commit_files"
+      },
+      "version" : 1
+    },
     "composer" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "result" : {
@@ -318,6 +335,30 @@
       },
       "version" : 1
     },
+    "history" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "history" : {
+          "commits" : [
+            {
+              "author_email" : "freek@spatie.be",
+              "author_name" : "Freek",
+              "body" : "Twice, with a wait.",
+              "date" : "2026-09-17T09:40:00.000Z",
+              "parents" : [
+                "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"
+              ],
+              "pushed" : true,
+              "sha" : "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234",
+              "subject" : "Retry the queue"
+            }
+          ],
+          "has_more" : false
+        },
+        "kind" : "history"
+      },
+      "version" : 1
+    },
     "queued" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "result" : {
@@ -386,6 +427,40 @@
             "name" : "Tests"
           }
         ]
+      },
+      "version" : 1
+    },
+    "search" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "search",
+        "search" : {
+          "matches" : [
+            {
+              "at" : "2026-09-17T09:40:00.000Z",
+              "chat_id" : "01k5a7d3v1x0m8n2q4r6s9t0wy",
+              "chat_title" : "Queue retries",
+              "cursor" : 4211,
+              "excerpt" : [
+                {
+                  "is_match" : false,
+                  "text" : "I will "
+                },
+                {
+                  "is_match" : true,
+                  "text" : "retry"
+                },
+                {
+                  "is_match" : false,
+                  "text" : " the queue."
+                }
+              ],
+              "kind" : "assistantText",
+              "seq" : 12
+            }
+          ],
+          "total" : 3
+        }
       },
       "version" : 1
     },
@@ -665,6 +740,15 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "commit_files" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "commit_files",
+        "sha" : "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "composer" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
@@ -681,6 +765,17 @@
         "draft" : true,
         "kind" : "create_pull_request",
         "title" : "Retry the queue"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "discard_hunk" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "discard_hunk",
+        "patch" : "@@ -1,3 +1,4 @@\n context\n+added\n context\n context\n",
+        "path" : "app/Queue.php",
+        "scope" : "uncommitted"
       },
       "protocol" : "bloom-workspace",
       "version" : 1
@@ -707,6 +802,15 @@
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
         "kind" : "files"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "history" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "history",
+        "limit" : 50
       },
       "protocol" : "bloom-workspace",
       "version" : 1
@@ -778,6 +882,16 @@
       "operation" : {
         "kind" : "rename_workspace",
         "name" : "Queue retries"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "revert_file" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "revert_file",
+        "path" : "app/Queue.php",
+        "scope" : "uncommitted"
       },
       "protocol" : "bloom-workspace",
       "version" : 1
@@ -890,6 +1004,16 @@
         "chat_id" : "chat-1",
         "kind" : "transcript",
         "limit" : 200
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "transcript_search" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "transcript_search",
+        "limit" : 30,
+        "query" : "retry the queue"
       },
       "protocol" : "bloom-workspace",
       "version" : 1

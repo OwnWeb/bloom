@@ -52,7 +52,8 @@ extension WorkspaceRuntime {
             return .archivePreview(try await prepareArchive())
         case .archive(let confirmationID):
             return try await archive(confirmationID: confirmationID)
-        case .files, .file, .download, .reviewSnapshot, .reviewPatch, .writeFile, .uploadFile, .runScript, .closeTerminal:
+        case .files, .file, .download, .reviewSnapshot, .reviewPatch, .writeFile, .uploadFile, .runScript, .closeTerminal,
+             .history, .commitFiles, .revertFile, .discardHunk:
             return try await performOnFiles(operation, as: caller)
         default:
             throw RemoteFailure(.internal, "This operation is not a worktree operation.")
@@ -146,6 +147,16 @@ extension WorkspaceRuntime {
             let listed = try await Git.checkRaw(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], in: workspace.path)
             let paths = String(decoding: listed.stdout, as: UTF8.self).split(separator: "\0").map(String.init)
             return .files(paths: Array(Set(paths)).sorted())
+        case .history(let limit, let before):
+            return .history(try await RemoteHistory.page(workspace: workspace, limit: limit, before: before))
+        case .revertFile(let path, let scope):
+            try await RemoteDiscard.revertFile(workspace: workspace, path: path, scope: scope)
+            return .accepted
+        case .discardHunk(let path, let scope, let patch):
+            try await RemoteDiscard.discardHunk(workspace: workspace, path: path, scope: scope, patch: patch)
+            return .accepted
+        case .commitFiles(let sha):
+            return .commitFiles(files: try await RemoteHistory.files(workspace: workspace, sha: sha))
         case .file(let path):
             return .file(try RemoteReview.file(workspace: workspace, path: path))
         case .download(let path):

@@ -43,6 +43,11 @@ struct CaddyIntegrationTests {
         let server = try await LocalListener.start { router in
             router.get("/_bloom/health") { _, _ in "bloom-runner" }
             router.get("/_bloom/local/git-credentials") { _, _ in "reached a local route" }
+            router.get("/_bloom/preview/unavailable") { request, _ -> Response in
+                let cookies = request.headers[values: .cookie].joined(separator: "; ")
+                return Response(status: .badGateway, body: .init(byteBuffer: ByteBuffer(
+                    string: cookies.contains(Self.goodCookie) ? "The app is not answering. vite: crashed." : "The app is not answering.")))
+            }
             router.get("/_bloom/preview/check") { request, _ -> Response in
                 let cookies = request.headers[values: .cookie].joined(separator: "; ")
                 return Response(status: cookies.contains(Self.goodCookie) ? .noContent : .unauthorized,
@@ -151,7 +156,9 @@ struct CaddyIntegrationTests {
         await machine.app.stop()
         let down = try await machine.get("/", cookie: Self.goodCookie)
         #expect(down.status == 502)
-        #expect(down.body.hasPrefix("The app is not running."))
+        // Bloom Runner answers, not Caddy, so the page can say what the services are doing, and it
+        // still has the cookie to decide whether to name them.
+        #expect(down.body == "The app is not answering. vite: crashed.")
         #expect(down.headers.contains { $0.0.lowercased() == "content-type" && $0.1.hasPrefix("text/plain") })
         await machine.stop()
     }

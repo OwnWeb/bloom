@@ -102,6 +102,9 @@ Reading (ability `view`):
 | `review_snapshot` | `scope` (`branch` or `uncommitted`), `known_revision`, `wait` | `review_snapshot`: `revision`, and `files` unless you already had that revision |
 | `review_patch` | `path`, `scope`, `known_revision` | `review_patch`: `revision`, and `patch` unless you already had it |
 | `run_scripts` | | `run_scripts` |
+| `history` | `limit`, `before` | `history`: `commits` (newest first, each with `pushed` when the branch has a remote) and `has_more` |
+| `commit_files` | `sha` | `commit_files`: that commit's own changed files |
+| `transcript_search` | `query`, `limit` | `search`: `matches` (chat, seq, cursor, and the excerpt with its matching pieces marked) and `total` |
 | `notes` | | `text` |
 | `pull_request` | | `text`: its URL, or empty |
 | `archive_preview` (`share`) | | `archive_preview` |
@@ -134,6 +137,8 @@ Changing the worktree (ability `files`, except where noted):
 | `push` | | `accepted` |
 | `create_pull_request` | `title`, `body`, `draft` | `text`: the pull request's URL |
 | `save_notes` | `text` | `accepted` |
+| `revert_file` | `path`, `scope` | `accepted`: the file goes back to what the diff was measured against |
+| `discard_hunk` | `path`, `scope`, `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
 | `rename_workspace` | `name` | `accepted` |
 | `run_setup` | | `accepted` once setup has run again |
 | `run_script` (`terminal`) | `id` | `terminal`: the terminal it runs in |
@@ -356,7 +361,7 @@ accepted; the machine answers 202 and carries the work on.
 | `stop` | `{"limit": "..."}` | stops running turns, marks queued prompts blocked, reports and lets the machine sleep |
 | `limits-cleared` | `{}` | tries blocked prompts again |
 | `revoke` | `{"user_id": "..."}` or `{"user_ids": [...]}` | refuses their tokens and preview cookies issued before it, closes their streams, removes their queued prompts, stops their running turn and ends the shells they opened; a `share:<id>` subject withdraws a share link's preview |
-| `update` | `{"version": "...", "sha256": "..."}` | starts the bootstrap script for that release, which restarts the server |
+| `update` | `{"version": "...", "sha256": "...", "tag": "v... or runner-v..."}` | starts the bootstrap script for that release, which restarts the server |
 | `environment` | `{}` | fetches team and project environment again |
 | `shared` | `{}` | stops every agent process and ends every terminal holding a personal key or personal environment; a turn running on one ends with a row saying why, and queued prompts start on the team key |
 | `secret-rotated` | `{}` | reads `/etc/bloom/workspace.json` again and uses its new workspace secret |

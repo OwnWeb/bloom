@@ -35,6 +35,7 @@ struct CaddyConfigurationTests {
         #expect(text.contains("header_down Set-Cookie"))
         #expect(text.contains("header_up X-Forwarded-Proto https"))
         #expect(text.contains("{http.error.status_code} == 502 && !path('/_bloom/*')"))
+        #expect(text.contains("rewrite * /_bloom/preview/unavailable"))
     }
 
     @Test("the cookie pattern removes the preview cookie from anywhere in the header and nothing else")

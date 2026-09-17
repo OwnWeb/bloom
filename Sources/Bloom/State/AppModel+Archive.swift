@@ -137,13 +137,23 @@ extension AppModel {
         }
 
         var hazards = ArchiveHazards(
-            isAgentRunning: isRunning(workspace),
+            isAgentRunning: isRunning(workspace) || isAwaitingPermission(workspace),
             isPullRequestMerged: isPullRequestMerged(workspace),
             // Resolved here rather than left as nil, because the confirmation has to say whether
             // the commits are at stake, and only the repository's settings know that when the
             // caller did not say.
             isDeletingBranch: deleteBranch ?? SettingsLoader.load(repo: repo.path).deleteBranchOnArchive
         )
+
+        if alwaysConfirm, allowsConfirmation, presentConfirmation != nil {
+            var request = ArchiveRequest(
+                workspace: workspace, report: WorkspaceSafetyReport(),
+                deleteBranch: deleteBranch, hazards: hazards
+            )
+            request.isChecking = true
+            offerArchiveConfirmation(request, present: presentConfirmation)
+            return .refused("Confirm this archive in Bloom.")
+        }
 
         let report: WorkspaceSafetyReport
         do {
@@ -322,10 +332,32 @@ extension AppModel {
             repo: repo,
             deleteBranch: request.deleteBranch,
             force: true,
-            report: request.problem == nil ? request.report : nil,
+            report: request.problem == nil && !request.isChecking ? request.report : nil,
             hazards: request.hazards,
             presentConfirmation: presentConfirmation
         )
+    }
+
+    func checkArchive(_ request: ArchiveRequest) async -> ArchiveRequest {
+        var checked = request
+        guard let manager, let repo = repo(for: request.workspace) else {
+            checked.isChecking = false
+            checked.problem = "Bloom could not check this workspace because its project is unavailable."
+            return checked
+        }
+        do {
+            checked.report = try await manager.safetyReport(workspace: request.workspace, repo: repo)
+        } catch {
+            guard !Task.isCancelled else { return request }
+            let trouble = await WorkspaceTrouble.archiving(
+                error, workspace: request.workspace.name,
+                path: request.workspace.path, baseBranch: request.workspace.baseBranch
+            )
+            checked.problem = "Bloom could not check this workspace for unsaved work. \(trouble.sentence)"
+        }
+        checked.hazards.isAgentRunning = isRunning(request.workspace) || isAwaitingPermission(request.workspace)
+        checked.isChecking = false
+        return checked
     }
 
     func cancelPendingArchive() {

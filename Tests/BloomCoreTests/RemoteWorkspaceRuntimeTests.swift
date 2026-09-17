@@ -196,6 +196,45 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("a search finds this workspace's transcripts, with the matching words marked")
+    func transcriptSearch() async throws {
+        let fixture = try await fixture()
+        _ = try await fixture.store.appendNext(sessionID: fixture.session.id, kind: .assistantText,
+                                               payload: Data(#"{"text":"I will retry the queue twice"}"#.utf8))
+        _ = try await fixture.store.appendNext(sessionID: fixture.session.id, kind: .assistantText,
+                                               payload: Data(#"{"text":"Nothing to do with that word"}"#.utf8))
+
+        let reply = await fixture.runtime.respond(to: CommandRequest(.transcriptSearch(query: "retry", limit: nil)),
+                                                  as: Self.caller(Self.freek))
+        guard case .search(let found) = reply.result else { Issue.record("No search result: \(String(describing: reply.error))"); return }
+        #expect(found.total == 1)
+        let match = try #require(found.matches.first)
+        #expect(match.chatID == fixture.session.id.rawValue)
+        #expect(match.excerpt.contains { $0.isMatch && $0.text.lowercased().contains("retry") })
+        #expect(match.cursor > 0, "The cursor is the row's own id, so a client can open it")
+
+        let empty = await fixture.runtime.respond(to: CommandRequest(.transcriptSearch(query: "   ", limit: nil)),
+                                                  as: Self.caller(Self.freek))
+        #expect(empty.error?.code == .invalidValue)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a failed setup's last lines travel with the workspace, and only a failed one's")
+    func setupFailureNote() async throws {
+        let fixture = try await fixture()
+        var workspace = try #require(try await fixture.store.workspace(id: fixture.runtime.workspaceID))
+        workspace.setupState = .failed
+        workspace.setupLog = (1...20).map { "line \($0)" }.joined(separator: "\n") + "\nThe setup script exited with status 4."
+        let note = try #require(WorkspaceRuntime.failureNote(workspace))
+        #expect(note.hasSuffix("The setup script exited with status 4."))
+        #expect(note.contains("line 20"))
+        #expect(!note.contains("line 1\n"), "Only the tail, so it can travel in every workspace record")
+
+        workspace.setupState = .succeeded
+        #expect(WorkspaceRuntime.failureNote(workspace) == nil)
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a grant supersedes personal credentials only where it shows the workspace is shared")
     func supersedingIsPerAgent() {
         let team = RemoteTurnGrant(agentKeys: [.codex: RemoteAgentKey(key: "k", identity: "i", source: "team")], environment: ["A": "b"])

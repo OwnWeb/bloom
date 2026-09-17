@@ -30,6 +30,7 @@ Environment:
 """
 
 import argparse
+import hashlib
 import http.client
 import json
 import os
@@ -44,6 +45,7 @@ import tempfile
 import threading
 import time
 import urllib.parse
+import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -53,6 +55,7 @@ from bloom_fake_runbloom import Issuer  # noqa: E402
 ORGANISATION = os.environ.get("BLOOM_TEST_SPRITES_ORG", "freek-van-der-herten")
 SPRITE = shutil.which("sprite") or str(pathlib.Path.home() / ".local/bin/sprite")
 USER = "01k5a7c2b0z9y8x7w6v5t4s3rq"
+REPOSITORY_FOR_RELEASES = "spatie/bloom"
 REPOSITORY = "octocat/Hello-World"
 FAKE_PORT = 9000
 
@@ -70,6 +73,18 @@ def sprite(name, *arguments, stdin=None, check=True, timeout=300):
     if check and result.returncode != 0:
         raise RuntimeError(f"sprite {arguments[0]} failed: {result.stderr.strip()[-600:]}")
     return result.stdout
+
+
+def push(name, source, destination, timeout=300):
+    # A machine a few seconds old has answered "directory does not exist" for its own home
+    # directory, and a moment later accepted the same upload.
+    for attempt in range(5):
+        try:
+            return push(name, source, destination, timeout=timeout)
+        except RuntimeError:
+            if attempt == 4:
+                raise
+            time.sleep(5)
 
 
 def run_on(name, script, stdin=None, timeout=300):
@@ -176,14 +191,39 @@ def credential_for_live_turn():
     raise SystemExit("--live needs a Claude subscription token file or BLOOM_LIVE_ANTHROPIC_API_KEY.")
 
 
+def install_by_upload(name, scratch, package, version):
+    """Uploads a package built here, in pieces: one upload of a debug package (over 100 MB) outlasts
+    the provider's file API deadline, and it refuses a directory it has not seen, even one that
+    exists, so everything lands in the home directory."""
+    pieces = scratch / "pieces"
+    pieces.mkdir()
+    data = package.read_bytes()
+    size = 8 * 1024 * 1024
+    for index in range(0, len(data), size):
+        piece = pieces / f"part-{index // size:04d}"
+        piece.write_bytes(data[index:index + size])
+        push(name, str(piece), f"/home/sprite/bloom-piece-{piece.name}", timeout=300)
+    run_on(name, "cat /home/sprite/bloom-piece-part-* > /home/sprite/bloom-runner.tar.gz && rm -f /home/sprite/bloom-piece-part-*")
+    run_on(name, f"sudo mkdir -p /opt/bloom/{version} && sudo tar -xzf /home/sprite/bloom-runner.tar.gz -C /opt/bloom/{version} "
+                 f"&& sudo ln -sfn /opt/bloom/{version} /opt/bloom/current && /opt/bloom/current/bin/bloom-runner version")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--package", type=pathlib.Path, required=True)
+    parser.add_argument("--package", type=pathlib.Path)
+    parser.add_argument("--from-release", metavar="TAG",
+                        help="install from a published release with bootstrap-machine.sh instead of uploading a package, "
+                             "which is how runbloom.app installs a machine and is far faster than the provider's file API")
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--update", action="store_true",
+                        help="also move the machine to another release through control/update, and back from a broken one")
     parser.add_argument("--keep", action="store_true", help="do not delete the machine, for looking at it afterwards")
     arguments = parser.parse_args()
-    package = arguments.package.resolve()
-    version = package.name.removeprefix("bloom-runner-linux-x86_64-").removesuffix(".tar.gz")
+    if not arguments.package and not arguments.from_release:
+        raise SystemExit("--package or --from-release is needed.")
+    package = arguments.package.resolve() if arguments.package else None
+    version = (package.name.removeprefix("bloom-runner-linux-x86_64-").removesuffix(".tar.gz") if package
+               else arguments.from_release.removeprefix("runner-v").removeprefix("v"))
     grant = credential_for_live_turn() if arguments.live else None
 
     name = "bloomtest-" + secrets.token_hex(4)
@@ -195,34 +235,40 @@ def main():
         scratch = pathlib.Path(scratch)
         try:
             step(f"creating {name} in {ORGANISATION}")
-            subprocess.run([SPRITE, "create", "-o", ORGANISATION, "--skip-console", name], check=True, capture_output=True, timeout=120)
-            created = True
+            # The provider's API has refused a create and timed out on a delete for minutes at a
+            # time; a test that gives up on the first of those tells you nothing about the runner.
+            for attempt in range(5):
+                created = subprocess.run([SPRITE, "create", "-o", ORGANISATION, "--skip-console", name],
+                                         capture_output=True, timeout=180).returncode == 0
+                if created:
+                    break
+                if attempt == 4:
+                    raise RuntimeError(f"the provider would not create {name}")
+                time.sleep(15)
             sprite(name, "url", "update", "--auth", "public")
             url = wait_for("the machine has a URL", lambda: next(
                 (word for word in sprite(name, "url").split() if word.startswith("https://")), None), 60)
             step(f"machine URL {url}")
 
-            # Into the home directory, because the provider's file API will not write to /tmp.
-            step("installing the package as runbloom.app does")
-            # In pieces, because one upload of a debug package (over 100 MB) outlasts the file API's
-            # own deadline, and joined on the machine. Straight into the home directory, because the file API
-            # refuses a directory it has not seen, even one that exists.
-            pieces = scratch / "pieces"
-            pieces.mkdir()
-            data = package.read_bytes()
-            size = 8 * 1024 * 1024
-            for index in range(0, len(data), size):
-                piece = pieces / f"part-{index // size:04d}"
-                piece.write_bytes(data[index:index + size])
-                sprite(name, "file", "push", str(piece), f"/home/sprite/bloom-piece-{piece.name}", timeout=300)
-            run_on(name, "cat /home/sprite/bloom-piece-part-* > /home/sprite/bloom-runner.tar.gz && rm -f /home/sprite/bloom-piece-part-*")
-            sprite(name, "file", "push", str(HERE / "bloom_fake_runbloom.py"), "/home/sprite/bloom_fake_runbloom.py")
-            run_on(name, f"sudo mkdir -p /opt/bloom/{version} && sudo tar -xzf /home/sprite/bloom-runner.tar.gz -C /opt/bloom/{version} "
-                         f"&& sudo ln -sfn /opt/bloom/{version} /opt/bloom/current && /opt/bloom/current/bin/bloom-runner version")
-
+            if arguments.from_release:
+                # The machine downloads the release itself, which is what runbloom.app's own install
+                # does, and is the only part of bootstrap-machine.sh nothing else exercises. It also
+                # avoids the provider's file API, which has hung for the better part of an hour on a
+                # 120 MB upload.
+                step(f"installing {arguments.from_release} with bootstrap-machine.sh, as runbloom.app does")
+                checksum = urllib.request.urlopen(
+                    f"https://github.com/{REPOSITORY_FOR_RELEASES}/releases/download/{arguments.from_release}/"
+                    f"bloom-runner-linux-x86_64-{version}.tar.gz.sha256", timeout=60).read().decode().split()[0]
+                push(name, str(HERE / "bootstrap-machine.sh"), "/home/sprite/bootstrap-machine.sh")
+                run_on(name, f"chmod +x /home/sprite/bootstrap-machine.sh && /home/sprite/bootstrap-machine.sh install "
+                             f"{version} {checksum} {arguments.from_release} 2>&1 | tail -n 5", timeout=600)
+            else:
+                step("installing the package as runbloom.app does")
+                install_by_upload(name, scratch, package, version)
+            push(name, str(HERE / "bloom_fake_runbloom.py"), "/home/sprite/bloom_fake_runbloom.py")
             issuer = Issuer(scratch / "issuer", f"http://127.0.0.1:{FAKE_PORT}", workspace)
             (scratch / "jwks.json").write_bytes(issuer.jwks)
-            sprite(name, "file", "push", str(scratch / "jwks.json"), "/home/sprite/jwks.json")
+            push(name, str(scratch / "jwks.json"), "/home/sprite/jwks.json")
             configuration = {
                 "workspace_id": workspace, "issuer": issuer.issuer, "jwks_url": f"{issuer.issuer}/.well-known/jwks.json",
                 "base_url": issuer.issuer, "workspace_secret": secret, "allowed_origins": ["https://runbloom.app"],
@@ -297,6 +343,39 @@ def main():
             step(f"preview with the cookie reaches Caddy's app route: {status} {body[:60]!r}")
             assert status == 502, status
 
+            if arguments.update:
+                # The release is laid out under /opt/bloom beforehand, which the bootstrap script takes
+                # as already downloaded: what this checks is the restart, the new process saying it
+                # came up, and the rollback, which no other test reaches.
+                digest = hashlib.sha256(data).hexdigest()
+                updated = f"{version}-update"
+                run_on(name, f"sudo mkdir -p /opt/bloom/{updated} && sudo tar -xzf /home/sprite/bloom-runner.tar.gz -C /opt/bloom/{updated}")
+                step(f"asking for an update to {updated}")
+                status, _, body = https(url, "POST", "/_bloom/v1/control/update", token=issuer.token("control", "control", ["admin"]),
+                                        body={"version": updated, "sha256": digest, "tag": f"runner-v{updated}"})
+                assert status == 202, (status, body)
+                wait_for(f"health answers with {updated}", lambda: json.loads(https(url, path="/_bloom/health")[2])["version"] == updated,
+                         180, interval=3)
+                step(f"updated: health answers with {updated}, current is {run_on(name, 'readlink /opt/bloom/current').strip()}")
+
+                broken = f"{version}-broken"
+                run_on(name, f"sudo mkdir -p /opt/bloom/{broken}/bin && printf '#!/bin/sh\\nexit 1\\n' | sudo tee /opt/bloom/{broken}/bin/bloom-runner >/dev/null "
+                             f"&& sudo chmod +x /opt/bloom/{broken}/bin/bloom-runner")
+                step(f"asking for an update to {broken}, which never starts")
+                status, _, body = https(url, "POST", "/_bloom/v1/control/update", token=issuer.token("control", "control", ["admin"]),
+                                        body={"version": broken, "sha256": digest, "tag": f"v{broken}"})
+                assert status == 202, (status, body)
+                time.sleep(10)
+                try:
+                    wait_for(f"the machine is back on {updated}", lambda: json.loads(https(url, path="/_bloom/health")[2])["version"] == updated
+                             and run_on(name, "readlink /opt/bloom/current").strip().endswith(updated), 240, interval=5)
+                except RuntimeError:
+                    print(run_on(name, "readlink /opt/bloom/current; cat /var/tmp/bloom-update.log; ls -la /var/tmp; "
+                                       "sprite-env services list; ps -eo pid,etimes,args | grep -i bloom | head", timeout=60)[-6000:],
+                          file=sys.stderr)
+                    raise
+                step(f"rolled back to {updated}; the script said: {run_on(name, 'tail -n 3 /var/tmp/bloom-update.log').strip()[-300:]}")
+
             if grant:
                 step("live turn")
                 controls = {"agent": "claude", "model": "sonnet", "effort": "low", "permission_mode": "bypassPermissions",
@@ -304,9 +383,34 @@ def main():
                 chat = rpc(url, session(), {"kind": "new_chat", "controls": controls})["chat"]
                 rpc(url, session(), {"kind": "send", "chat_id": chat["id"],
                                      "text": "Reply with exactly the single word pineapple, and nothing else."})
-                answer = wait_for("the agent answers", lambda: reader.find(
-                    lambda e: e["kind"] == "message" and e["message"]["kind"] == "assistantText"
-                    and "pineapple" in json.dumps(e["message"]["payload"]).lower()), 300, interval=3)
+                try:
+                    answer = wait_for("the agent answers", lambda: reader.find(
+                        lambda e: e["kind"] == "message" and e["message"]["kind"] == "assistantText"
+                        and "pineapple" in json.dumps(e["message"]["payload"]).lower()), 300, interval=3)
+                except RuntimeError:
+                    # What the chat and its queue say, and whether the CLI is there, with the credential
+                    # taken out of anything printed in case an error echoed its environment.
+                    secret_values = [value for value in grant.get("environment", {}).values()] + [grant.get("key", "")]
+                    def redacted(text):
+                        for value in secret_values:
+                            if value:
+                                text = text.replace(value, "[redacted]")
+                        return text
+                    transcript = rpc(url, session(), {"kind": "transcript", "chat_id": chat["id"], "after_seq": -1})
+                    rows = [row for row in transcript["transcript"]["messages"] if row["kind"] not in ("system", "user")]
+                    print(redacted(json.dumps({"chat": transcript["transcript"]["chat"]["state"], "queue": transcript["transcript"].get("queue"),
+                                               "rows": rows})[:8000]), file=sys.stderr)
+                    # Whether the credential reached the agent unchanged, as a yes or no: the hash of the
+                    # value in the running process's environment against the hash of the one sent.
+                    for key, value in grant.get("environment", {}).items():
+                        expected = hashlib.sha256(value.encode()).hexdigest()
+                        found = run_on(name, "for p in $(pgrep -u sprite -f 'claude.*stream-json'); do "
+                                             f"tr '\\0' '\\n' < /proc/$p/environ | grep '^{key}=' | cut -d= -f2- | tr -d '\\n' | sha256sum | cut -d' ' -f1; done",
+                                       timeout=60).split()
+                        print(f"{key} in the agent's environment matches what was sent: {expected in found} ({len(found)} processes)", file=sys.stderr)
+                    print(redacted(run_on(name, "command -v claude; ls -la ~/.local/bin 2>/dev/null | head; "
+                                                "sprite-env services logs bloom 2>/dev/null | tail -n 60", timeout=60))[-6000:], file=sys.stderr)
+                    raise
                 step(f"the agent answered in chat {answer[0]['message']['chat_id']}")
                 recorded = requests()
                 assert any(r["path"].endswith("/start") for r in recorded), "no turn start"

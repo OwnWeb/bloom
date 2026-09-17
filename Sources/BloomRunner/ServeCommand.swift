@@ -108,17 +108,18 @@ public enum ServeCommand {
         let terminals = TerminalConnections()
         let supervisor = MachineSupervisor(
             runtime: runtime, awake: awake, reporter: reporter, streams: streams, terminals: terminals,
-            environment: machineEnvironment, secret: secret, revocations: verifier.revocations, updater: { version, sha256 in try MachineUpdate.start(version: version, sha256: sha256) }
+            environment: machineEnvironment, secret: secret, revocations: verifier.revocations, updater: { version, sha256, tag in try MachineUpdate.start(version: version, sha256: sha256, tag: tag) }
         )
+        let services = ServiceSupervisor(layout: layout)
         let server = WorkspaceHTTPServer(dependencies: .init(
             runtime: runtime, verifier: verifier, gate: gate, control: supervisor, store: store,
             allowedOrigins: configuration.allowedOrigins, version: version, streams: streams, terminals: terminals,
             gitCredentials: .init(secret: localSecret, repository: configuration.repository) { repository, operation, turn in
                 try await client.gitCredentials(repository: repository, operation: operation, turnID: turn)
-            }
+            },
+            services: { await services.status }
         ))
 
-        let services = ServiceSupervisor(layout: layout)
         let caddy = CaddySupervisor(layout: layout, publicURL: configuration.publicURL)
         let setup = MachineSetup(runtime: runtime, store: store, configuration: configuration, layout: layout,
                                  environment: machineEnvironment, services: services)

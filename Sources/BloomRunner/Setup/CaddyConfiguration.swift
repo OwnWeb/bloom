@@ -21,6 +21,8 @@ import Foundation
 ///   is ignored by browsers (RFC 6265, 5.2).
 /// - Streaming is never buffered (`flush_interval -1`), for the event stream and for an app's own
 ///   server-sent events alike.
+/// - A 502 from the app is answered by Bloom Runner rather than by Caddy, so somebody looking at a
+///   preview that shows nothing is told what the project's services are doing.
 ///
 /// Automatic HTTPS and the admin endpoint are off: the Sprite's proxy terminates TLS, and an admin
 /// API on a machine that runs other people's code is a way to rewrite these rules from inside.
@@ -111,8 +113,8 @@ public struct CaddyConfiguration: Sendable, Hashable {
         \thandle_errors {
         \t\t@appDown expression `{http.error.status_code} == 502 && !path('/_bloom/*')`
         \t\thandle @appDown {
-        \t\t\theader Content-Type "text/plain; charset=utf-8"
-        \t\t\trespond "The app is not running. Nothing is listening on port \(appPort) on this Cloud workspace yet." 502
+        \t\t\trewrite * /_bloom/preview/unavailable
+        \t\t\treverse_proxy 127.0.0.1:\(serverPort)
         \t\t}
         \t}
         }

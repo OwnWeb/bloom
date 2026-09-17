@@ -79,6 +79,16 @@
               "type": "null"
             }
           ]
+        },
+        "note": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -643,6 +653,21 @@
               "type": "null"
             }
           ]
+        },
+        "layer": {
+          "oneOf": [
+            {
+              "enum": [
+                "conflicted",
+                "staged",
+                "unstaged",
+                "untracked"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -651,6 +676,150 @@
         "deletions",
         "is_binary",
         "path"
+      ],
+      "additionalProperties": false
+    },
+    "Commit": {
+      "type": "object",
+      "properties": {
+        "sha": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "author_name": {
+          "type": "string"
+        },
+        "author_email": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "body": {
+          "type": "string"
+        },
+        "parents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pushed": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "author_email",
+        "author_name",
+        "body",
+        "date",
+        "parents",
+        "sha",
+        "subject"
+      ],
+      "additionalProperties": false
+    },
+    "History": {
+      "type": "object",
+      "properties": {
+        "commits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Commit"
+          }
+        },
+        "has_more": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "commits",
+        "has_more"
+      ],
+      "additionalProperties": false
+    },
+    "SearchPiece": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "is_match": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "is_match",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "SearchMatch": {
+      "type": "object",
+      "properties": {
+        "chat_id": {
+          "type": "string"
+        },
+        "chat_title": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer"
+        },
+        "cursor": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "excerpt": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SearchPiece"
+          }
+        }
+      },
+      "required": [
+        "at",
+        "chat_id",
+        "chat_title",
+        "cursor",
+        "excerpt",
+        "kind",
+        "seq"
+      ],
+      "additionalProperties": false
+    },
+    "Search": {
+      "type": "object",
+      "properties": {
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SearchMatch"
+          }
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "matches",
+        "total"
       ],
       "additionalProperties": false
     },
@@ -960,6 +1129,80 @@
           },
           "required": [
             "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "history"
+            },
+            "limit": {
+              "oneOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "before": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "commit_files"
+            },
+            "sha": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "sha"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "transcript_search"
+            },
+            "query": {
+              "type": "string"
+            },
+            "limit": {
+              "oneOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "query"
           ],
           "additionalProperties": false
         },
@@ -1398,6 +1641,56 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "revert_file"
+            },
+            "path": {
+              "type": "string"
+            },
+            "scope": {
+              "enum": [
+                "branch",
+                "uncommitted"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "scope"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "discard_hunk"
+            },
+            "path": {
+              "type": "string"
+            },
+            "scope": {
+              "enum": [
+                "branch",
+                "uncommitted"
+              ]
+            },
+            "patch": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "patch",
+            "path",
+            "scope"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "rename_workspace"
             },
             "name": {
@@ -1662,6 +1955,57 @@
           "required": [
             "kind",
             "paths"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "history"
+            },
+            "history": {
+              "$ref": "#/$defs/History"
+            }
+          },
+          "required": [
+            "history",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "commit_files"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ChangedFile"
+              }
+            }
+          },
+          "required": [
+            "files",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "search"
+            },
+            "search": {
+              "$ref": "#/$defs/Search"
+            }
+          },
+          "required": [
+            "kind",
+            "search"
           ],
           "additionalProperties": false
         },

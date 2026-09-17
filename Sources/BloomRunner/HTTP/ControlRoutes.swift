@@ -17,7 +17,8 @@ public protocol MachineControl: Sendable {
     /// The workspace became shared: stop everything holding personal credentials.
     func shared() async
     /// Move to another Bloom Runner release.
-    func update(version: String, sha256: String) async throws
+    /// `tag` is the release to download from, `v<version>` when nil.
+    func update(version: String, sha256: String, tag: String?) async throws
     /// Team or project environment changed: fetch it again.
     func environmentChanged() async
 }
@@ -44,6 +45,7 @@ enum ControlRoutes {
     private struct Update: Decodable {
         var version: String
         var sha256: String
+        var tag: String?
     }
 
     static func register(on router: Router<WorkspaceRequestContext>, verifier: TokenVerifier, control: any MachineControl) {
@@ -71,7 +73,7 @@ enum ControlRoutes {
                     }
                 case "update":
                     let update = try JSONDecoder().decode(Update.self, from: body)
-                    try await control.update(version: update.version, sha256: update.sha256)
+                    try await control.update(version: update.version, sha256: update.sha256, tag: update.tag)
                 case "environment":
                     Task { await control.environmentChanged() }
                 case "shared":

@@ -52,8 +52,12 @@ public struct CloudRefusalNotice: Sendable, Hashable {
 
     /// The codes whose cause is a setting on runbloom.app rather than anything on this Mac or in
     /// the workspace.
+    ///
+    /// `no_github_connection` is the same refusal under the name it shipped with by accident;
+    /// runbloom.app answers `github_not_connected` now, and both are here until the copies in the
+    /// wild have caught up.
     static let settledOnRunbloom: Set<String> = [
-        "no_agent_key", "github_not_connected", "no_push_access", "not_a_collaborator", "no_team_agent_key",
+        "no_agent_key", "github_not_connected", "no_github_connection", "no_push_access", "not_a_collaborator", "no_team_agent_key",
         "limit_reached", "repository_not_allowed", "forbidden",
     ]
 }
