@@ -16,6 +16,8 @@ struct SidebarDock: View {
 
     var onNewWorkspace: () -> Void
     var onStartProject: () -> Void
+    var onCreateWorkspace: (Repo) -> Void
+    var recentProjects: [Repo]
 
     @State private var hovered: Item?
 
@@ -30,9 +32,12 @@ struct SidebarDock: View {
             .help("Home")
 
             Menu {
-                // The same words, and the same order, the plus on Home's row had.
-                Button("New workspace…", action: onNewWorkspace)
-                Button("New project…", action: onStartProject)
+                NewMenuItems(
+                    recent: recentProjects,
+                    onNewWorkspace: onNewWorkspace,
+                    onStartProject: onStartProject,
+                    onCreateWorkspace: onCreateWorkspace
+                )
             } label: {
                 label("New", systemImage: "plus", item: .new, isActive: false)
             }

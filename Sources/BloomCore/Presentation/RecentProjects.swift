@@ -33,4 +33,16 @@ public enum RecentProjects {
         }
         return sorted.prefix(limit).map(\.repo)
     }
+
+    /// How many the sidebar's New menu offers, under its two generic items.
+    public static let newMenuLimit = 5
+
+    /// The New menu's "New workspace in" section: the same order, without hidden projects.
+    ///
+    /// Hidden before the cap rather than after, so five hidden projects at the top of the history
+    /// cannot leave the section empty. Hiding is the owner saying a project is not worth the room,
+    /// and a menu of five has less room than anywhere else a project is listed.
+    public static func newMenu(_ repos: [Repo], workspaces: [Workspace]) -> [Repo] {
+        ordered(repos.filter { !$0.hidden }, workspaces: workspaces, limit: newMenuLimit)
+    }
 }
