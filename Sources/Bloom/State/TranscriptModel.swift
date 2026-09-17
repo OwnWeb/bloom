@@ -1538,8 +1538,7 @@ final class TranscriptModel {
     /// The one place a backend becomes a process. Static and taking only values, so which runner a
     /// session gets can be asserted on without a workspace, a store or a view.
     ///
-    /// It is also the one place the workspace bridge is registered, and that is not a coincidence:
-    /// the bridge is per process, so it belongs wherever the process is decided. A runner built
+    /// The bridge is per process, so it belongs wherever the process is decided. A runner built
     /// anywhere else would be a second CLI on the same session row, which is the invariant
     /// `BridgeServer` refuses to touch and the reason nothing on the bridge's side of the socket
     /// may build one.

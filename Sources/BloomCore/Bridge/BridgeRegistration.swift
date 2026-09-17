@@ -6,22 +6,26 @@ public struct BridgeAttachment: Sendable, Hashable {
     public let socketPath: String
     public let token: String
     public let role: BridgeRole
+    public let configurationPath: String?
 
-    public init(shimPath: String, socketPath: String, token: String, role: BridgeRole) {
+    public init(
+        shimPath: String, socketPath: String, token: String, role: BridgeRole, configurationPath: String? = nil
+    ) {
         self.shimPath = shimPath
         self.socketPath = socketPath
         self.token = token
         self.role = role
+        self.configurationPath = configurationPath
     }
 
-    /// The three variables, and nothing else. The shim inherits the rest of the CLI's environment
-    /// and needs none of it.
     public var environment: [String: String] {
-        [
+        var environment = [
             BridgeProtocol.socketVariable: socketPath,
             BridgeProtocol.tokenVariable: token,
             BridgeProtocol.roleVariable: role.rawValue,
         ]
+        environment[BridgeProtocol.configurationVariable] = configurationPath
+        return environment
     }
 }
 

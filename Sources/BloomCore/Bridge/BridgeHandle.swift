@@ -9,8 +9,8 @@ import Foundation
 /// attachment rather than being built twice.
 public struct BridgeHandle: Sendable, Hashable {
     public let attachment: BridgeAttachment
-    /// The `--mcp-config` file, written mode 0600. Nil for a chat whose backend registers another
-    /// way, which today is Codex.
+    /// The mode 0600 config file. CLI shims reread it after app restarts; regular Codex and Grok
+    /// chats register without a file.
     public let mcpConfigPath: String?
 
     public init(attachment: BridgeAttachment, mcpConfigPath: String?) {

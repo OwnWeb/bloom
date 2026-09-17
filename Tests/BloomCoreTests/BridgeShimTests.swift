@@ -13,6 +13,11 @@ private let shimPath = BridgeRegistration.shimPath()
 
 @Suite("BridgeShim", .enabled(if: shimPath != nil), .tags(.subprocess), .scratchDirectory)
 struct BridgeShimTests {
+    private actor RequestCounter {
+        private(set) var count = 0
+        func record() { count += 1 }
+    }
+
     private func launch(_ environment: [String: String]) throws -> StreamingProcess {
         let process = StreamingProcess(
             executable: try #require(shimPath),
@@ -84,6 +89,60 @@ struct BridgeShimTests {
         #expect(text.contains("cut the index"))
         #expect(text.contains("bloom/cut-the-index"))
         #expect(text.contains("billing"))
+    }
+
+    @Test("CLI bridge reloads credentials after Bloom restarts", .timeLimit(.minutes(1)), arguments: [false, true])
+    func reconnectsAfterRestart(alreadyRunning: Bool) async throws {
+        let store = try makeTestStore("shim-restart")
+        let repo = try await store.upsert(Repo(name: "r", path: "/tmp/r"))
+        let workspace = try await store.upsert(Workspace(
+            repoID: repo.id, name: "reconnected", branch: "b", path: "/tmp/w", baseBranch: "main"
+        ))
+        let session = try await store.upsert(Session(workspaceID: workspace.id))
+        let socketPath = scratchSocket()
+        let first = BridgeServer(store: store, socketPath: socketPath)
+        try first.start()
+        defer { first.stop() }
+        let initial = try #require(first.register(session: session, workspace: workspace, reconnectable: true))
+        var process = alreadyRunning ? try launch(initial.attachment.environment) : nil
+        defer { process?.terminate() }
+        var replies = process?.lines.makeAsyncIterator()
+        let request = #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"whoami","arguments":{}}}"#
+        if alreadyRunning {
+            process?.writeLine(request)
+            let reply = try #require(try await replies?.next())
+            #expect(reply.contains("reconnected"))
+        }
+
+        first.retire(sessionID: session.id)
+        first.stop()
+        if alreadyRunning {
+            process?.writeLine(request)
+            let offline = try #require(try await replies?.next())
+            #expect(offline.contains("error"))
+        }
+        let second = BridgeServer(store: store, socketPath: socketPath)
+        try second.start()
+        defer { second.stop() }
+        let restored = try #require(second.register(session: session, workspace: workspace, reconnectable: true))
+        #expect(restored.attachment.token != initial.attachment.token)
+        #expect(restored.mcpConfigPath == initial.mcpConfigPath)
+        #expect(session.agentSessionID == nil)
+
+        if process == nil {
+            process = try launch(initial.attachment.environment)
+            replies = process?.lines.makeAsyncIterator()
+        }
+        process?.writeLine(request)
+        let reply = try #require(try await replies?.next())
+        #expect(reply.contains("reconnected"))
+        second.retire(sessionID: session.id)
+        process?.writeLine(request)
+        let retired = try #require(try await replies?.next())
+        #expect(retired.contains("error"))
+        let activeProcess = try #require(process)
+        activeProcess.closeStdin()
+        #expect(await activeProcess.exitStatus == BridgeShim.Exit.ok)
     }
 
     @Test("closing its stdin ends the process, so no shim outlives the CLI that started it",
@@ -170,9 +229,10 @@ struct BridgeShimTests {
     /// which is the same thing it does when the CLI asks it to shut down, so the CLI was told the
     /// server had finished normally while the answer it was waiting for never arrived. A tool call
     /// that never answers and never complains is a turn that cannot end.
-    @Test("says so and fails when Bloom goes away with a call in flight", .timeLimit(.minutes(1)))
-    func bloomQuitsMidCall() async throws {
+    @Test("says so and fails when Bloom goes away with a call in flight", .timeLimit(.minutes(1)), arguments: [false, true])
+    func bloomQuitsMidCall(reconnectable: Bool) async throws {
         let socketPath = scratchSocket()
+        let requests = RequestCounter()
         let welcome = String(
             decoding: try JSONEncoder().encode(BridgeWelcome.accepting()),
             as: UTF8.self
@@ -184,25 +244,72 @@ struct BridgeShimTests {
                 connection.writeLine(welcome)
                 // The call arrives, and then Bloom is gone without having answered it.
                 _ = await incoming.next()
+                await requests.record()
                 connection.close()
             }
         }
         defer { listener.stop() }
 
-        let process = try launch([
-            BridgeProtocol.socketVariable: socketPath,
-            BridgeProtocol.tokenVariable: "t",
-            BridgeProtocol.roleVariable: "parent",
-        ])
+        let attachment = BridgeAttachment(
+            shimPath: try #require(shimPath), socketPath: socketPath, token: "t", role: .workspace
+        )
+        var environment = attachment.environment
+        if reconnectable {
+            environment[BridgeProtocol.configurationVariable] = try BridgeRegistration.writeClaudeConfig(
+                attachment, sessionID: .new(), directory: try makeTestStore("shim-mid-call").path + ".d"
+            )
+        }
+        let process = try launch(environment)
         defer { process.terminate() }
         process.writeLine(#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"whoami"}}"#)
 
-        var complaints: [String] = []
-        for await line in process.errorLines { complaints.append(line) }
+        if reconnectable {
+            var replies = process.lines.makeAsyncIterator()
+            let reply = try JSONDecoder().decode(JSONValue.self, from: Data(try #require(try await replies.next()).utf8))
+            #expect(reply["id"] == .integer(1))
+            #expect(reply["error"]?["message"]?.stringValue?.contains("not retried") == true)
+            #expect(await requests.count == 1)
+            process.closeStdin()
+            #expect(await process.exitStatus == BridgeShim.Exit.ok)
+        } else {
+            var complaints: [String] = []
+            for await line in process.errorLines { complaints.append(line) }
+            #expect(await process.exitStatus == BridgeShim.Exit.cannotReachBloom)
+            #expect(complaints.joined(separator: " ").contains("before answering"))
+        }
+    }
 
-        // stdin is still open here, which is what tells the shim this was not a shutdown.
-        #expect(await process.exitStatus == BridgeShim.Exit.cannotReachBloom)
-        #expect(complaints.joined(separator: " ").contains("before answering"))
+    @Test("Closing CLI stdin cancels a bridge call waiting for a reply", .timeLimit(.minutes(1)))
+    func closesWhileWaiting() async throws {
+        let socketPath = scratchSocket()
+        let (received, continuation) = AsyncStream.makeStream(of: Bool.self)
+        defer { continuation.finish() }
+        let welcome = String(decoding: try JSONEncoder().encode(BridgeWelcome.accepting()), as: UTF8.self)
+        let listener = try UnixSocketListener(path: socketPath) { connection in
+            Task {
+                var requests = connection.lines.makeAsyncIterator()
+                _ = await requests.next()
+                connection.writeLine(welcome)
+                _ = await requests.next()
+                continuation.yield(true)
+                _ = await requests.next()
+                connection.close()
+            }
+        }
+        defer { listener.stop() }
+        let attachment = BridgeAttachment(
+            shimPath: try #require(shimPath), socketPath: socketPath, token: "t", role: .workspace
+        )
+        let configPath = try BridgeRegistration.writeClaudeConfig(
+            attachment, sessionID: .new(), directory: try makeTestStore("shim-wait").path + ".d"
+        )
+        let process = try launch([BridgeProtocol.configurationVariable: configPath])
+        defer { process.terminate() }
+        process.writeLine(#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+        var requests = received.makeAsyncIterator()
+        #expect(await requests.next() == true)
+        process.closeStdin()
+        #expect(await process.exitStatus == BridgeShim.Exit.ok)
     }
 
     /// The Sparkle case, from the shim's side: the bundle was replaced underneath a running Bloom,

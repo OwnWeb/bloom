@@ -480,6 +480,7 @@ final class AppModel {
             BottomPanelDefaults.forget()
             Log.launchStep("recovery done")
             bridge = makeBridge(on: store)
+            TerminalSessionStore.shared.useBridge(bridge)
             // After the store, because a Cloud workspace's opening controls are this Mac's defaults
             // for a new chat, which are read from it.
             cloud.attach(self)

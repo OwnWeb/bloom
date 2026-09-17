@@ -30,6 +30,7 @@ public enum BridgeProtocol {
     /// Where the shim is told to connect. Derived by the app alone: see `BridgeSocketPath`, which
     /// is the one implementation of the derivation.
     public static let socketVariable = "BLOOM_BRIDGE_SOCKET"
+    public static let configurationVariable = "BLOOM_BRIDGE_CONFIG"
 
     /// The per-launch token that says which session is calling.
     ///

@@ -50,8 +50,8 @@ public enum PastedImageFormat: String, Sendable, CaseIterable {
 /// Pure, and in BloomCore, because this is the part of pasting that is a decision rather than a
 /// gesture: which of the half dozen flavours on a clipboard is the one the user meant, whether
 /// what they meant was a file at all, and what a picture that has never had a name should be
-/// called. `ComposerTextView` reads an `NSPasteboard` into `Offer` values and does what comes
-/// back; nothing here knows AppKit exists.
+/// called. `NSPasteboard.attachmentOffers` reads a board into `Offer` values, and the composer
+/// and a terminal pane each decide from them; nothing here knows AppKit exists.
 public enum PastedAttachment {
     /// One item on a pasteboard, reduced to the two things that decide its fate.
     ///
@@ -108,16 +108,19 @@ public enum PastedAttachment {
     /// somebody filled by selecting a passage, and swallowing the words to attach the illustration
     /// would throw away what they actually copied. Pasting has to keep meaning pasting, so this is
     /// the case that falls through to the text system untouched.
-    public static func plan(items: [Offer], hasText: Bool) -> Plan {
+    ///
+    /// `hasText` is read last and only when a picture is on the board, because answering it means
+    /// copying the whole clipboard string, and this runs on every frame of a drag over the composer.
+    public static func plan(items: [Offer], hasText: @autoclosure () -> Bool) -> Plan {
         let files = items.compactMap(\.filePath)
         if !files.isEmpty { return .files(files) }
-
-        guard !hasText else { return .text }
 
         let images = items.enumerated().compactMap { index, item in
             item.imageFormat.map { Image(item: index, format: $0) }
         }
-        return images.isEmpty ? .text : .images(images)
+        if images.isEmpty { return .text }
+
+        return hasText() ? .text : .images(images)
     }
 
     // MARK: - What a picture with no name is called

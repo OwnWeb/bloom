@@ -39,7 +39,7 @@ extension AppModel {
 
     /// The original path, for a folder git already recognises.
     ///
-    /// It hands the row back, because one caller needs it: a project that was just created goes
+    /// It hands the row back, because one caller needs it: a project that was just started goes
     /// straight on to its first workspace, and the create window has to be told which project.
     @discardableResult
     private func addKnownRepository(at path: String) async -> Repo? {
@@ -52,8 +52,8 @@ extension AppModel {
         }
     }
 
-    /// Registers what `StartProjectView` ended with, and hands the row back so a first workspace
-    /// can follow where there is one to start.
+    /// Registers what `StartProjectView` ended with, and hands the row back so the first workspace
+    /// can follow.
     ///
     /// The same call as adding a folder somebody chose, deliberately: by the time this runs the
     /// folder is a git repository with a commit in it, whether Bloom made it a moment ago or found

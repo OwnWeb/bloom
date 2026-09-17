@@ -1333,9 +1333,8 @@ final class WorkspaceModel {
 
     private func prepareCLICommand(for session: Session, prompt: String) -> String? {
         do {
-            return try session.agentKind.prepareInteractiveCommand(
-                directory: workspace.path, prompt: prompt, sessionID: session.id,
-                model: session.model, effort: session.effort, permissionMode: session.permissionMode
+            return try TerminalSessionStore.shared.prepareCLICommand(
+                for: session, workspace: workspace, prompt: prompt
             )
         } catch {
             app.alert = BloomAlert(title: "Could not launch the agent", message: error.readableMessage)

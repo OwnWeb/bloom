@@ -242,6 +242,14 @@ struct CreateWorkspaceView: View {
         // in flight when the project changed could land another project's branches on this one's
         // window. `.task(id:)` cancels the stale load; `load` checks before writing.
         .task(id: repoID) { await load() }
+        // The empty state's "Choose a folder" adds a project while this window is open, and the
+        // load above resolved the project once, to nothing, before there was one. Picking it here
+        // is what turns the empty state into the composer for the project that was just added
+        // rather than a composer with no project behind it.
+        .onChange(of: app.repos.isEmpty) { _, isEmpty in
+            guard !isEmpty, repoID == nil else { return }
+            repoID = app.repos.first?.id
+        }
         // Keyed on both lists that can change the answer: a workspace started or archived
         // elsewhere while this window is open, and an archive cleared out.
         .task(id: [app.workspaces.count, app.archivedRevision]) {
