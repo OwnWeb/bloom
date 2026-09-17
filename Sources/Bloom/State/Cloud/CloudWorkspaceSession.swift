@@ -227,7 +227,12 @@ final class CloudWorkspaceSession {
             }
             if let chatID = Self.chatID(of: event) { forward(chatID) }
         case .skipped(let cursor):
+            // The machine could not replay everything this Mac missed, which is what a runner that
+            // restarted under an open window answers. The cursor moves on so the stream stays
+            // usable, and every open chat is read again to fill what went past: rows are keyed by
+            // `seq`, so a second copy replaces nothing.
             state.skip(cursor: cursor)
+            for chatID in transcripts.keys { readHistory(chatID) }
         }
     }
 

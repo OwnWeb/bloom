@@ -130,8 +130,13 @@ public struct CloudWorkspaceState: Sendable, Hashable {
 
     /// Records the cursor of a frame that could not be decoded, so a reconnect does not ask for it
     /// again.
+    /// The machine could not replay everything after the cursor the client asked from, so the
+    /// client has a gap it cannot see. Advancing alone would leave that gap in the transcript for
+    /// good, so every chat is marked unread as well: `insert` is keyed by `seq`, so reading a
+    /// history again costs requests and changes nothing that was already right.
     public mutating func skip(cursor: Int64?) {
         if let cursor { advance(to: cursor) }
+        for id in chats.keys { chats[id]?.hasReadHistory = false }
     }
 
     /// The whole log as `setup_output` read it, which replaces what the stream had appended.

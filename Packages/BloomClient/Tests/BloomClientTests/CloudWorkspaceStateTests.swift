@@ -33,6 +33,22 @@ import Testing
         #expect(state.cursor == 150)
     }
 
+    /// A machine that could not replay everything after the cursor leaves the client with a gap it
+    /// cannot see. The cursor moves on, and every chat is marked unread so the histories are read
+    /// again: this is what a runner restarting under an open window looks like from here.
+    @Test func aSkippedCursorMakesEveryHistoryWorthReadingAgain() {
+        var state = CloudWorkspaceState()
+        state.absorb(Records.workspace(cursor: 100))
+        _ = state.absorbPage(Records.page([Records.message(0), Records.message(1)]))
+        #expect(state.chats["c1"]?.hasReadHistory == true)
+        state.skip(cursor: 200)
+        #expect(state.chats["c1"]?.hasReadHistory == false)
+        #expect(state.cursor == 200)
+        // And a page read again changes nothing that was already right: rows are keyed by seq.
+        _ = state.absorbPage(Records.page([Records.message(0), Records.message(1)]))
+        #expect(state.chats["c1"]?.messages.map(\.seq) == [0, 1])
+    }
+
     @Test func streamingTextIsReplacedAppendedAndDroppedByTheAssistantsRow() {
         var state = CloudWorkspaceState()
         state.apply(.stream(chatID: "c1", text: "Hel", snapshot: true))
