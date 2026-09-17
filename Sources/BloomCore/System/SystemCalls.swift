@@ -88,7 +88,10 @@ enum SystemCalls {
     }
 
     #if os(Linux)
-    // Linux has MSG_NOSIGNAL for sockets but no F_SETNOSIGPIPE for child-process pipes.
-    private static let ignoredPipeSignal: Void = { _ = signal(SIGPIPE, SIG_IGN) }()
+    // Linux has MSG_NOSIGNAL for sockets but no F_SETNOSIGPIPE for child-process pipes. A handler
+    // that does nothing rather than SIG_IGN, because an ignored signal stays ignored across exec:
+    // every setup script, agent and git would inherit it, and `yes | head` in any of them would
+    // print "Broken pipe" and carry on instead of stopping. A caught signal is reset in the child.
+    private static let ignoredPipeSignal: Void = { _ = signal(SIGPIPE) { _ in } }()
     #endif
 }

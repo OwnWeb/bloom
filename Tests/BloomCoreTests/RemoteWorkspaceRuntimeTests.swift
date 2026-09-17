@@ -65,6 +65,11 @@ struct RemoteWorkspaceRuntimeTests {
         let reused = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Something else"), commandID: "retry-1"),
                                                    as: Self.caller(Self.freek))
         #expect(reused.error?.code == .commandIDReused)
+
+        // The same id from somebody else is their own command, never a copy of Freek's reply.
+        let other = await fixture.runtime.respond(to: CommandRequest(.renameChat(chatID: fixture.session.id.rawValue, title: "Theirs"), commandID: "retry-1"),
+                                                  as: Self.caller(Self.seb))
+        #expect(other.error == nil)
         await fixture.runtime.shutdown()
     }
 
@@ -73,7 +78,7 @@ struct RemoteWorkspaceRuntimeTests {
         let fixture = try await fixture()
         let request = CommandRequest(.renameChat(chatID: fixture.session.id.rawValue, title: "Review"), commandID: "interrupted")
         let entry = #"{"recorded_at":"2026-09-17T10:00:00.000Z","request":"# + String(decoding: try WireJSON.encode(request), as: UTF8.self) + "}"
-        try await fixture.store.setSetting("remote.command.interrupted", entry)
+        try await fixture.store.setSetting("remote.command.\(Self.freek.userID).interrupted", entry)
         let reply = await fixture.runtime.respond(to: request, as: Self.caller(Self.freek))
         #expect(reply.error?.code == .outcomeUnknown)
         await fixture.runtime.shutdown()
@@ -123,6 +128,25 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("removing a blocked prompt lets the ones behind it try again")
+    func cancellingABlockedPromptUnblocks() async throws {
+        let gate = RemoteTestGate()
+        gate.refusal.withLock { $0 = .blocked(DeliveryBlock(limit: "monthly_hours", message: "Out of hours.")) }
+        let fixture = try await fixture(gate: gate)
+        let chat = fixture.session.id.rawValue
+        let first = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Blocked")), as: Self.caller(Self.freek))
+        guard case .queued(let blockedID) = first.result else { Issue.record("Expected queued"); return }
+        await waitUntil("the prompt was marked blocked") {
+            (try? await fixture.store.pendingDeliveries(sessionID: fixture.session.id).first?.block) != nil
+        }
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Behind it")), as: Self.caller(Self.freek))
+        gate.refusal.withLock { $0 = nil }
+        let cancelled = await fixture.runtime.respond(to: CommandRequest(.cancelQueued(chatID: chat, promptID: blockedID)), as: Self.caller(Self.freek))
+        #expect(cancelled.error == nil)
+        await waitUntil("the prompt behind it went") { fixture.runners.sent.withLock { $0 } == ["Behind it"] }
+        await fixture.runtime.shutdown()
+    }
+
     @Test("the agent process keeps its key across turns on the same key, and is relaunched for another")
     func keysDecideRelaunches() async throws {
         let gate = RemoteTestGate()
@@ -146,6 +170,54 @@ struct RemoteWorkspaceRuntimeTests {
         #expect(launches.count == 2, "A different key needs its own process")
         #expect(launches.last?["ANTHROPIC_API_KEY"] == "seb-personal-key")
         #expect(gate.ended.withLock { $0 }.count >= 2, "Every finished turn is ended with runbloom.app")
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("sharing stops a turn on a personal key with a row saying why, and the queue carries on on the team key")
+    func sharingRetiresPersonalKeys() async throws {
+        let gate = RemoteTestGate()
+        let fixture = try await fixture(gate: gate)
+        let chat = fixture.session.id.rawValue
+        gate.keys.withLock { $0 = [Self.freek.userID: "freek-personal-key", Self.seb.userID: "team-key"] }
+
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Mine")), as: Self.caller(Self.freek))
+        await waitUntil("the personal turn is running") { fixture.runners.sent.withLock { $0 }.count == 1 }
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Theirs")), as: Self.caller(Self.seb))
+
+        await fixture.runtime.becameShared()
+        await fixture.runtime.becameShared()
+        await waitUntil("the queued prompt went on the team key") { fixture.runners.sent.withLock { $0 } == ["Mine", "Theirs"] }
+        let launches = fixture.runners.launches.withLock { $0 }
+        #expect(launches.map { $0["ANTHROPIC_API_KEY"] } == ["freek-personal-key", "team-key"])
+        let rows = try await fixture.store.messages(sessionID: fixture.session.id).filter { $0.kind == .error }
+        #expect(rows.count == 1, "Sharing twice stops once")
+        let payload = rows.first.map { String(decoding: $0.payload, as: UTF8.self) } ?? ""
+        #expect(payload.contains("stoppedForSharing"))
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a grant supersedes personal credentials only where it shows the workspace is shared")
+    func supersedingIsPerAgent() {
+        let team = RemoteTurnGrant(agentKeys: [.codex: RemoteAgentKey(key: "k", identity: "i", source: "team")], environment: ["A": "b"])
+        #expect(team.supersedes(["codex"]))
+        #expect(!team.supersedes(["claude"]), "A team key for Codex says nothing about a personal Claude key")
+        #expect(!team.supersedes(["environment"]), "Personal environment still arrives, so the workspace is not shared")
+        #expect(RemoteTurnGrant().supersedes(["environment"]))
+        #expect(team.personalMarks(for: [.codex]) == ["environment"])
+    }
+
+    @Test("a stop that sends no event still ends the turn, with the queue paused as a stop leaves it")
+    func aSilentStopSettles() async throws {
+        let gate = RemoteTestGate()
+        let fixture = try await fixture(gate: gate)
+        fixture.runners.silentCancel.withLock { $0 = true }
+        let chat = fixture.session.id.rawValue
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Long job")), as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 }.count == 1 }
+        #expect(await fixture.runtime.activity().turnsRunning == 1)
+        _ = await fixture.runtime.respond(to: CommandRequest(.stop(chatID: chat)), as: Self.caller(Self.freek))
+        await waitUntil("the stopped turn came to rest") { await fixture.runtime.activity().turnsRunning == 0 }
+        await waitUntil("its runbloom.app turn was ended") { !gate.ended.withLock { $0 }.isEmpty }
         await fixture.runtime.shutdown()
     }
 
@@ -193,6 +265,40 @@ struct RemoteWorkspaceRuntimeTests {
                 break
             }
         }
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("revoking somebody removes their queued prompts and leaves everybody else's")
+    func revokeRemovesTheirPrompts() async throws {
+        let fixture = try await fixture()
+        let chat = fixture.session.id.rawValue
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "One")), as: Self.caller(Self.freek))
+        await waitUntil("the first turn is running") { fixture.runners.sent.withLock { $0 }.count == 1 }
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Two")), as: Self.caller(Self.seb))
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Three")), as: Self.caller(Self.freek))
+        await fixture.runtime.revoke(userID: Self.seb.userID)
+        let reply = await fixture.runtime.respond(to: CommandRequest(.transcript(chatID: chat, afterSeq: -1, limit: nil)), as: Self.caller(Self.freek))
+        guard case .transcript(let transcript) = reply.result else { Issue.record("No transcript"); return }
+        #expect(transcript.queue.prompts.map(\.text) == ["Three"])
+        #expect(transcript.queue.error == nil, "The chat is not paused for the people still in it")
+        await fixture.runners.finishTurn()
+        await waitUntil("Freek's next prompt went") { fixture.runners.sent.withLock { $0 } == ["One", "Three"] }
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a question in one chat does not count as waiting while another chat is working")
+    func oneWaitingChatDoesNotReleaseAnother() async throws {
+        let fixture = try await fixture()
+        let other = try await fixture.store.upsert(Session(workspaceID: fixture.workspace.id, title: "Other"))
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "One")), as: Self.caller(Self.freek))
+        await waitUntil("the first turn is running") { fixture.runners.sent.withLock { $0 }.count == 1 }
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: other.id.rawValue, text: "Two")), as: Self.caller(Self.freek))
+        await waitUntil("the second turn is running") { fixture.runners.sent.withLock { $0 }.count == 2 }
+        let ask = try #require(PermissionAsk.decode(payload: Data(PermissionAskTests.realAsk.utf8)))
+        try await fixture.store.appendPermissionAsk(sessionID: fixture.session.id, ask: ask)
+        let activity = await fixture.runtime.activity()
+        #expect(activity.turnsRunning == 2)
+        #expect(activity.questionWaitingSince == nil)
         await fixture.runtime.shutdown()
     }
 
@@ -261,7 +367,8 @@ final class RemoteTestGate: RemoteTurnGate {
         if let refusal = refusal.withLock({ $0 }) { throw refusal }
         let author = registered.withLock { $0.first { $0.turnID == turnID }?.author } ?? ""
         guard let key = keys.withLock({ $0[author] }) else { return RemoteTurnGrant() }
-        return RemoteTurnGrant(agentKeys: [.claudeCode: RemoteAgentKey(key: key, identity: "identity-of-\(key)", source: "team")])
+        let source = key.contains("personal") ? "personal" : "team"
+        return RemoteTurnGrant(agentKeys: [.claudeCode: RemoteAgentKey(key: key, identity: "identity-of-\(key)", source: source)])
     }
 
     func end(turnID: String) async {
@@ -274,6 +381,8 @@ final class RemoteTestRunners: Sendable {
     let launches = Mutex<[[String: String]]>([])
     let sent = Mutex<[String]>([])
     let current = Mutex<RemoteTestRunner?>(nil)
+    /// Stops the way Claude Code does: the store says cancelled, and no event arrives.
+    let silentCancel = Mutex(false)
 
     func make(session: Session, store: Store, environment: [String: String]) -> any SessionRunner {
         launches.withLock { $0.append(environment) }
@@ -314,7 +423,14 @@ actor RemoteTestRunner: SessionRunner {
         try await store.acceptDelivery(id: delivery.id)
     }
 
-    nonisolated func cancelNow() { sink.yield(.result(AgentResult())) }
+    nonisolated func cancelNow() {
+        guard owner.silentCancel.withLock({ $0 }) else {
+            sink.yield(.result(AgentResult()))
+            return
+        }
+        let store = store, id = sessionID
+        Task { try? await store.update(sessionID: id) { $0.state = .cancelled } }
+    }
     nonisolated func terminateNow() { terminated.withLock { $0 = true } }
 
     func answer(requestID: String, decision: PermissionDecision) async {

@@ -34,6 +34,9 @@ public actor WorkspaceRuntime {
     let admissions = RemoteAdmissions()
     let reviewCache = RemoteReviewCache()
     var terminalService: RemoteTerminals?
+    /// Turns a push or pull request is running under right now, which the git credential route
+    /// accepts a turn id for. See `RemotePublishing`.
+    var publishingTurns: Set<String> = []
 
     var sessions: [SessionID: RemoteSession] = [:]
     var creating: [SessionID: Task<RemoteSession, Error>] = [:]
@@ -135,19 +138,24 @@ public actor WorkspaceRuntime {
             await report(.humanInput)
         }
         guard request.operation.mutates else { return await execute(request, as: caller) }
-        if let task = commands[request.commandID] {
+        let key = Self.journalKey(request.commandID, caller: caller)
+        if let task = commands[key] {
             _ = await task.value
-            return await recorded(request)
+            return await recorded(request, key: key)
         }
         // Registered before the first suspension, so two retries arriving together share one run.
-        let task = Task { await self.performOnce(request, as: caller) }
-        commands[request.commandID] = task
+        let task = Task { await self.performOnce(request, as: caller, key: key) }
+        commands[key] = task
         let reply = await task.value
-        commands.removeValue(forKey: request.commandID)
+        commands.removeValue(forKey: key)
         return reply
     }
 
-    private static func journalKey(_ commandID: String) -> String { "remote.command." + commandID }
+    /// Scoped to the person as well as the id. A command id is chosen by the client, so one keyed
+    /// by id alone let anybody who learnt another person's id read that person's recorded reply.
+    private static func journalKey(_ commandID: String, caller: RemoteCaller) -> String {
+        "remote.command." + (caller.author?.userID ?? "machine") + "." + commandID
+    }
 
     private struct JournalEntry: Codable {
         var request: CommandRequest
@@ -160,21 +168,21 @@ public actor WorkspaceRuntime {
         }
     }
 
-    private func performOnce(_ request: CommandRequest, as caller: RemoteCaller) async -> CommandReply {
+    private func performOnce(_ request: CommandRequest, as caller: RemoteCaller, key: String) async -> CommandReply {
         do {
-            if try await store.setting(Self.journalKey(request.commandID)) != nil { return await recorded(request) }
-            try await journal(JournalEntry(request: request, reply: nil, recordedAt: Date()))
+            if try await store.setting(key) != nil { return await recorded(request, key: key) }
+            try await journal(JournalEntry(request: request, reply: nil, recordedAt: Date()), key: key)
             let reply = await execute(request, as: caller)
-            try await journal(JournalEntry(request: request, reply: reply, recordedAt: Date()))
+            try await journal(JournalEntry(request: request, reply: reply, recordedAt: Date()), key: key)
             return reply
         } catch {
             return CommandReply(commandID: request.commandID, error: RemoteFailure.wire(error))
         }
     }
 
-    private func recorded(_ request: CommandRequest) async -> CommandReply {
+    private func recorded(_ request: CommandRequest, key: String) async -> CommandReply {
         do {
-            guard let text = try await store.setting(Self.journalKey(request.commandID)) else {
+            guard let text = try await store.setting(key) else {
                 throw RemoteFailure(.outcomeUnknown, "The outcome of this command is unknown. Refresh before trying again.")
             }
             let entry = try WireJSON.decode(JournalEntry.self, from: Data(text.utf8))
@@ -188,9 +196,9 @@ public actor WorkspaceRuntime {
         }
     }
 
-    private func journal(_ entry: JournalEntry) async throws {
+    private func journal(_ entry: JournalEntry, key: String) async throws {
         let data = try WireJSON.encode(entry)
-        try await store.setSetting(Self.journalKey(entry.request.commandID), String(decoding: data, as: UTF8.self))
+        try await store.setSetting(key, String(decoding: data, as: UTF8.self))
     }
 
     private func execute(_ request: CommandRequest, as caller: RemoteCaller) async -> CommandReply {
@@ -298,6 +306,8 @@ public actor WorkspaceRuntime {
             await self?.turnStarted(id, delivery: delivery)
         }, settled: { [weak self] id, ending, turnID in
             await self?.turnSettled(id, ending: ending, turnID: turnID)
+        }, granted: { [weak self] grant in
+            await self?.retirePersonalCredentials(where: grant.supersedes)
         })
         promptQueue = queue
         return queue
@@ -323,7 +333,8 @@ public actor WorkspaceRuntime {
                     return make(session, workspace.path, store, environment, handle)
                 },
                 onStream: { [weak self] text, reset in await self?.streamed(id, text: text, reset: reset) },
-                onTurnEnded: { [weak self] ending in await self?.queue().turnEnded(id, ending: ending) }
+                onTurnEnded: { [weak self] ending in await self?.queue().turnEnded(id, ending: ending) },
+                onIdle: { [weak self] in await self?.report(.chatIdle(chat: id)) }
             )
         }
         creating[id] = task
@@ -338,6 +349,25 @@ public actor WorkspaceRuntime {
     }
 
     /// Called when a turn comes to rest, after the queue has ended runbloom.app's turn.
+    /// runbloom.app says the workspace became shared: everything holding one person's credentials
+    /// goes. Safe to repeat, since a second call finds nothing personal left.
+    public func becameShared() async {
+        await retirePersonalCredentials { !$0.isEmpty }
+    }
+
+    /// Stops every agent process and ends every shell holding personal credentials `superseded`
+    /// picks out. A turn running on them ends with a row saying why, and queued prompts stay
+    /// queued, to start on the team key.
+    public func retirePersonalCredentials(where superseded: @escaping @Sendable (Set<String>) -> Bool) async {
+        guard !isClosed else { return }
+        for (id, session) in sessions {
+            guard await session.retirePersonal(reason: PersonalCredentials.sharedSentence, where: superseded) else { continue }
+            let row = AgentError.stoppedForSharing(message: PersonalCredentials.sharedSentence)
+            _ = try? await store.appendNext(sessionID: id, kind: .error, payload: row.raw)
+        }
+        try? await terminalService?.closeAll(where: superseded)
+    }
+
     func turnSettled(_ id: SessionID, ending: RemoteTurnEnd, turnID: String?) async {
         await reportToParent(id, ending: ending)
         await report(.turnFinished(chat: id, turnID: turnID))

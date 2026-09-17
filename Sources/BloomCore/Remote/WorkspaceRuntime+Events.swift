@@ -15,6 +15,17 @@ extension WorkspaceRuntime {
         guard !isClosed else { throw RemoteFailure.shuttingDown }
         if let author = caller.author { presence.noteName(author) }
         let subscription = await events.subscribe(userID: caller.author?.userID)
+        do {
+            return try await openEvents(subscription, after: cursor)
+        } catch {
+            // Or the subscriber stays counted: presence shows the person and the lease never
+            // takes its cut for a stream nobody has.
+            await events.unsubscribe(subscription.id)
+            throw error
+        }
+    }
+
+    private func openEvents(_ subscription: RemoteEventHub.Subscription, after cursor: Int64?) async throws -> AsyncStream<WorkspaceEvent> {
         var opening: [WorkspaceEvent] = []
         let workspace = try await workspace()
         opening.append(.workspace(workspace.record(setup: setupRecord(workspace))))
@@ -44,12 +55,17 @@ extension WorkspaceRuntime {
         let highWater = replayed
         let initial = opening
         let live = subscription.events
-        let (stream, continuation) = AsyncStream.makeStream(of: WorkspaceEvent.self)
+        // Bounded like the hub's own buffer, above the opening events. Unbounded, this copy drained
+        // the hub's buffer as fast as events came, so its overflow never fired and a client that
+        // stopped reading grew the machine's memory instead of being disconnected.
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: WorkspaceEvent.self, bufferingPolicy: .bufferingOldest(initial.count + RemoteEventHub.defaultBufferLimit)
+        )
         let task = Task {
             for event in initial { continuation.yield(event) }
             for await event in live {
                 if let eventCursor = event.cursor, eventCursor <= highWater { continue }
-                continuation.yield(event)
+                if case .dropped = continuation.yield(event) { break }
             }
             continuation.finish()
         }
@@ -176,7 +192,7 @@ extension WorkspaceRuntime {
     /// to be cleared before the next prompt may go.
     public func stopForLimit(_ block: DeliveryBlock) async {
         if block.limit == "inactive" {
-            for session in sessions.values { await session.stop() }
+            for id in sessions.keys { await stopAndSettle(id) }
             return
         }
         for id in (try? await chatIDs()) ?? [] {
@@ -185,15 +201,22 @@ extension WorkspaceRuntime {
                     try? await store.setDeliveryBlock(id: delivery.id, block)
                 }
             }
-            await sessions[id]?.stop()
+            await stopAndSettle(id)
             await queueChanged(id)
         }
     }
 
-    /// Somebody lost access: their streams close at once rather than when their token runs out.
+    /// Somebody lost access: their streams close at once rather than when their token runs out,
+    /// their queued prompts go, a turn of theirs that is running stops, and the shells they opened
+    /// end, since each of those carries their key.
     public func revoke(userID: String) async {
         await events.close(with: .closing(WireError(.unauthenticated, "Your access to this Cloud workspace was removed.")),
                            where: { $0 == userID })
+        guard !isClosed else { return }
+        let chats = (try? await chatIDs()) ?? []
+        let stopping = await queue().revoke(userID: userID, sessions: chats)
+        for id in stopping { await stopAndSettle(id) }
+        try? await terminalService?.closeAll(ownedBy: userID)
     }
 
     /// Tells everyone the machine is about to sleep and closes their streams. Sent before the

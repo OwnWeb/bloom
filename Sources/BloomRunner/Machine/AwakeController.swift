@@ -36,6 +36,9 @@ public actor AwakeController {
     private var openStreams = 0
     private var loop: Task<Void, Never>?
     private var releasing = false
+    /// Apart from `releasing`, because a release in flight ends by clearing that, and shutdown
+    /// must stay shut.
+    private var isShutDown = false
     /// Whether `released` has been reported since the last hold, because runbloom.app adds its
     /// margin once per `released` and a second one for the same pause would bill it twice.
     private var releaseReported = true
@@ -84,7 +87,7 @@ public actor AwakeController {
     func tick() async {
         // A tick that was already running when shutdown began must not send a report after the
         // final one, which would leave runbloom.app's last word from this boot without `released`.
-        guard loop != nil, !releasing else { return }
+        guard loop != nil, !releasing, !isShutDown else { return }
         let date = now()
         if lastSample.map({ date.timeIntervalSince($0) >= RemoteUsageMeter.sampleInterval }) ?? true {
             lastSample = date
@@ -104,19 +107,24 @@ public actor AwakeController {
     }
 
     func evaluate() async {
-        guard !releasing else { return }
+        guard !releasing, !isShutDown else { return }
+        let decision = await decide()
+        guard !releasing, !isShutDown else { return }
+        if decision.holds {
+            await hold(reason: decision.reasons[0], leaseUntil: decision.leaseUntil)
+        } else if holding {
+            await release()
+        }
+    }
+
+    private func decide() async -> RemoteAwakePolicy.Decision {
         let activity = await runtime.activity()
         let situation = RemoteAwakePolicy.Situation(
             setupRunning: activity.setupRunning, turnsRunning: activity.turnsRunning,
             questionWaitingSince: activity.questionWaitingSince, lastHumanInputAt: activity.lastHumanInputAt,
             openStreams: openStreams, lastStreamClosedAt: lastStreamClosedAt
         )
-        let decision = RemoteAwakePolicy.decide(situation, now: now())
-        if decision.holds {
-            await hold(reason: decision.reasons[0], leaseUntil: decision.leaseUntil)
-        } else if holding {
-            await release()
-        }
+        return RemoteAwakePolicy.decide(situation, now: now())
     }
 
     private func hold(reason: RemoteAwakePolicy.Reason, leaseUntil: Date?) async {
@@ -125,6 +133,12 @@ public actor AwakeController {
             do {
                 try await host.hold(for: Self.holdLength)
             } catch {
+                return
+            }
+            // Shutdown began while the hold was being made. Its final report already said
+            // `released`, so this hold is let go again rather than outliving the process.
+            guard !isShutDown else {
+                try? await host.release()
                 return
             }
             holding = true
@@ -154,16 +168,34 @@ public actor AwakeController {
         await reporter.postSummaryNow()
         await reporter.sendUsage(includingDisk: true)
         _ = await reporter.flush(timeout: Self.releaseFlushTimeout)
-        await runtime.announceSleep()
-        if (try? await host.release()) != nil {
-            holding = false
-            lastRenewal = nil
+        // The flush can take seconds, and every nudge in them was dropped. A turn that started
+        // meanwhile must not have the machine paused under it, so the answer is asked again
+        // right before the hold goes.
+        let second = await decide()
+        if second.holds, !isShutDown {
+            releaseReported = false
+            lastUsageReport = now()
+            await reporter.record(.awake(second.reasons[0], at: now()))
+            await reporter.setAwake(true, leaseUntil: second.leaseUntil)
+            return
         }
+        await runtime.announceSleep()
+        // Cleared even when the release fails: the hold runs out by itself within `holdLength`,
+        // and a `holding` left true with `released` already reported would skip the next `awake`
+        // and send this whole release again every tick.
+        try? await host.release()
+        holding = false
+        lastRenewal = nil
     }
 
     /// Shutting down: the same order as a release, whether or not anything was held.
     public func shutdown() async {
         stop()
+        isShutDown = true
+        // A release in flight is sending the same reports; let it finish rather than interleave.
+        while releasing {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         releasing = true
         if !releaseReported {
             releaseReported = true

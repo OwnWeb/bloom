@@ -11,11 +11,13 @@ public actor MachineSupervisor: MachineControl {
     private let terminals: TerminalConnections
     private let environment: MachineEnvironment
     private let secret: WorkspaceSecret
+    private let revocations: Revocations
     private let updater: @Sendable (_ version: String, _ sha256: String) async throws -> Void
 
     public init(
         runtime: WorkspaceRuntime, awake: AwakeController, reporter: MachineReporter, streams: EventStreams,
         terminals: TerminalConnections, environment: MachineEnvironment, secret: WorkspaceSecret,
+        revocations: Revocations,
         updater: @escaping @Sendable (_ version: String, _ sha256: String) async throws -> Void
     ) {
         self.runtime = runtime
@@ -25,6 +27,7 @@ public actor MachineSupervisor: MachineControl {
         self.terminals = terminals
         self.environment = environment
         self.secret = secret
+        self.revocations = revocations
         self.updater = updater
     }
 
@@ -45,9 +48,15 @@ public actor MachineSupervisor: MachineControl {
     }
 
     public func revoke(userID: String) async {
+        // First, so nothing they hold can open anything again while the rest closes.
+        await revocations.revoke(userID)
         await runtime.revoke(userID: userID)
         await streams.revoke(userID: userID)
         await terminals.revoke(userID: userID)
+    }
+
+    public func shared() async {
+        await runtime.becameShared()
     }
 
     public func secretRotated() async {

@@ -128,17 +128,20 @@ struct CaddyIntegrationTests {
         let machine = try await machine()
         var request = HTTPClientRequest(url: "http://127.0.0.1:\(machine.publicPort)/events")
         request.headers.add(name: "Cookie", value: Self.goodCookie)
-        let began = ContinuousClock.now
         let response = try await machine.http.execute(request, timeout: .seconds(10))
         var received = ""
-        var firstArrivedAfter: Duration?
+        var firstArrivedAt: ContinuousClock.Instant?
         for try await chunk in response.body {
             received += String(buffer: chunk)
-            if firstArrivedAfter == nil, received.contains("data: one") { firstArrivedAfter = ContinuousClock.now - began }
+            if firstArrivedAt == nil, received.contains("data: one") { firstArrivedAt = ContinuousClock.now }
         }
+        let ended = ContinuousClock.now
         #expect(received.contains("data: two"))
-        let first = try #require(firstArrivedAfter)
-        #expect(first < .milliseconds(1_000))
+        // The gap between the two events rather than the time to the first, which also counted
+        // connecting and the forward_auth hop and was over a second on a loaded runner. The app
+        // waits 1.5 s between them; a buffered proxy delivers both together.
+        let first = try #require(firstArrivedAt)
+        #expect(ended - first > .milliseconds(1_000))
         await machine.stop()
     }
 

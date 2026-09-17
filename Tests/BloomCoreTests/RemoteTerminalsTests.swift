@@ -140,6 +140,7 @@ struct RemoteTerminalsTests {
             await #expect(throws: RemoteFailure.self) { try await terminals.ensureSession(name: name) }
         }
         await #expect(throws: RemoteFailure.self) { try await terminals.ensureSession(name: "main", environment: ["A=B": "c"]) }
+        await #expect(throws: RemoteFailure.self) { try await terminals.ensureSession(name: "main", environment: ["A B": "c"]) }
         await terminals.shutdown()
     }
 
@@ -148,6 +149,32 @@ struct RemoteTerminalsTests {
         #expect(RemoteTerminalDaemon.panesBlockMaintenance("0\tbash\t42", children: { _ in "99 " }))
         #expect(RemoteTerminalDaemon.panesBlockMaintenance("0\tnode\t42", children: { _ in "" }))
         #expect(RemoteTerminalDaemon.panesBlockMaintenance("garbage", children: { _ in "" }))
+    }
+
+    @Test func sharingEndsOnlyTheShellsHoldingPersonalCredentials() async throws {
+        guard Shell.which("tmux") != nil else { return }
+        let repo = try await TempRepo()
+        let databasePath = TestScratch.unique("terminal-shared") + "/bloom.sqlite"
+        try FileManager.default.createDirectory(atPath: (databasePath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let terminals = RemoteTerminals(workspaceID: WorkspaceID("fixture"), worktree: repo.path, databasePath: databasePath)
+        do {
+            try await terminals.ensureSession(name: "personal", environment: ["ANTHROPIC_API_KEY": "mine"], owner: "freek", personal: ["claude"])
+            try await terminals.ensureSession(name: "team", environment: ["ANTHROPIC_API_KEY": "team"], owner: "seb")
+            try await terminals.closeAll { !$0.isEmpty }
+            let tmux = try #require(Shell.which("tmux"))
+            let socket = TmuxSessions.socketName(databasePath: databasePath)
+            func exists(_ name: String) async throws -> Bool {
+                let session = TmuxSessions.sessionName(workspaceID: WorkspaceID("fixture"), paneID: name)
+                return try await Shell.run(tmux, ["-L", socket, "has-session", "-t", "=" + session]).ok
+            }
+            #expect(try await !exists("personal"))
+            #expect(try await exists("team"), "A shell on the team key stays")
+        } catch {
+            await terminals.shutdown()
+            throw error
+        }
+        try? await terminals.closeAll()
+        await terminals.shutdown()
     }
 
     @Test func disconnectReattachesTheSameShellWithoutReplayingInput() async throws {
@@ -159,11 +186,14 @@ struct RemoteTerminalsTests {
         try (TmuxSessions.configuration(defaultShell: "/bin/sh") + "\nset -g default-command /bin/sh\n").write(toFile: configuration, atomically: true, encoding: .utf8)
         let terminals = RemoteTerminals(workspaceID: WorkspaceID("fixture"), worktree: repo.path, databasePath: databasePath)
         do {
-            let first = try await terminals.attach(name: "https", environment: ["BLOOM_TERMINAL_FIXTURE": "from-attach"])
+            let first = try await terminals.attach(name: "https", environment: ["BLOOM_TERMINAL_FIXTURE": "from-attach"], owner: "freek")
+            // Somebody else attaching by name would act as the person who opened it.
+            await #expect(throws: RemoteFailure.self) { try await terminals.attach(name: "https", owner: "seb") }
+            await #expect(throws: RemoteFailure.self) { try await terminals.close(name: "https", requester: "seb") }
             await first.write(Data("printf \"first $BLOOM_TERMINAL_FIXTURE\\n\" >> stream.txt\r".utf8))
             await waitUntil("terminal writes the first command") { FileManager.default.fileExists(atPath: repo.path + "/stream.txt") }
             await first.close()
-            let second = try await terminals.attach(name: "https")
+            let second = try await terminals.attach(name: "https", owner: "freek")
             // The screen comes back from tmux's copy, so the first command is on it before
             // anything new is typed.
             let restored = Task { () -> Bool in

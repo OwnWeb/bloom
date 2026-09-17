@@ -6,6 +6,8 @@ import Foundation
 public enum RemoteActivityEvent: Sendable, Hashable {
     case turnStarted(chat: SessionID, turnID: String?, author: MessageAuthor?, agent: AgentKind)
     case turnFinished(chat: SessionID, turnID: String?)
+    /// A chat's agent is no longer busy, a moment after `turnFinished`.
+    case chatIdle(chat: SessionID)
     case setupStarted(step: String)
     case setupStep(String)
     case setupFinished(succeeded: Bool)
@@ -48,16 +50,25 @@ extension WorkspaceRuntime {
     }
 
     public func activity() async -> RemoteActivity {
-        var running = 0
+        var busy: Set<SessionID> = []
+        var waiting = 0
         var waitingSince: Date?
         for (id, session) in sessions where await session.isBusy {
-            running += 1
+            busy.insert(id)
             if let asked = try? await store.pendingPermissionAsks(sessionID: id).map(\.askedAt).min() {
+                waiting += 1
                 waitingSince = min(waitingSince ?? asked, asked)
             }
         }
-        // A turn waiting on a question only counts as waiting when every running turn is.
-        let everyTurnWaiting = running > 0 && waitingSince != nil
+        // A chat whose queue is on its way to the next turn counts as running too. Between one
+        // turn ending and the next reaching its agent there are seconds of runbloom.app's start
+        // and perhaps a relaunch with nothing busy, and a machine released in them slept with a
+        // prompt still queued.
+        let draining = await promptQueue?.drainingChats ?? []
+        let running = busy.union(draining).count
+        // A turn waiting on a question only counts as waiting when every running turn is: one chat
+        // left on a question must not let the machine sleep under another that is working.
+        let everyTurnWaiting = running > 0 && waiting == running
         return RemoteActivity(
             setupRunning: holdsPromptsForSetup, turnsRunning: running,
             questionWaitingSince: everyTurnWaiting ? waitingSince : nil,

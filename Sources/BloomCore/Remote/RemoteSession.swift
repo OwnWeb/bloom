@@ -19,6 +19,11 @@ actor RemoteSession {
     private let make: MakeRunner
     private(set) var runner: (any SessionRunner)?
     private var launchIdentity: String?
+    /// What the running process holds of one person's, from `RemoteTurnGrant.personalMarks`.
+    private(set) var personalMarks: Set<String> = []
+    /// Set when a turn is stopped because its key must go, so the turn ends with that sentence
+    /// rather than whatever the agent printed on its way out.
+    private var stopReason: String?
     private(set) var isBusy = false
     /// When the turn in progress was sent, for the summary's `running_since`.
     private(set) var busySince: Date?
@@ -31,6 +36,10 @@ actor RemoteSession {
     private var claimedEnd = false
     private var wasStopped = false
     private let onTurnEnded: @Sendable (RemoteTurnEnd) async -> Void
+    /// After a turn is released, which is later than `onTurnEnded`: a summary built from that
+    /// callback still read the chat as busy, and nothing asked again, so runbloom.app listed the
+    /// workspace as running until something unrelated changed.
+    private let onIdle: @Sendable () async -> Void
     private let onStream: @Sendable (_ text: String, _ reset: Bool) async -> Void
     /// How long shutdown waits for a terminated runner to exit. See `shutdown()`.
     private let runnerExitGrace: Duration
@@ -39,8 +48,10 @@ actor RemoteSession {
         runnerExitGrace: Duration = .seconds(6),
         make: @escaping MakeRunner,
         onStream: @escaping @Sendable (_ text: String, _ reset: Bool) async -> Void = { _, _ in },
-        onTurnEnded: @escaping @Sendable (RemoteTurnEnd) async -> Void = { _ in }
+        onTurnEnded: @escaping @Sendable (RemoteTurnEnd) async -> Void = { _ in },
+        onIdle: @escaping @Sendable () async -> Void = {}
     ) {
+        self.onIdle = onIdle
         self.make = make
         self.runnerExitGrace = runnerExitGrace
         self.onStream = onStream
@@ -52,7 +63,7 @@ actor RemoteSession {
     ///
     /// A nil identity keeps whatever process is there, and launches one with no key when there
     /// is none: a turn nobody in particular asked for runs on the key the chat already has.
-    func prepare(identity: String?, environment: [String: String]) async throws {
+    func prepare(identity: String?, environment: [String: String], personal: Set<String> = []) async throws {
         guard !isClosed else { throw RemoteFailure(.unavailable, "This conversation is closed.") }
         guard !isBusy else { throw RemoteFailure(.busy, "The agent is busy. Wait for it to finish or stop it first.") }
         if runner != nil, identity == nil || launchIdentity == identity { return }
@@ -60,6 +71,7 @@ actor RemoteSession {
         let fresh = make(environment)
         runner = fresh
         launchIdentity = identity
+        personalMarks = personal
         let events = fresh.events
         eventTask = Task { [weak self] in
             for await event in events {
@@ -77,6 +89,7 @@ actor RemoteSession {
         busySince = Date()
         isSending = true
         wasStopped = false
+        stopReason = nil
         claimedEnd = false
         generation += 1
         defer { isSending = false }
@@ -88,7 +101,7 @@ actor RemoteSession {
             try await runner.sendDelivery(delivery)
         } catch {
             if claimEnd() {
-                await onTurnEnded(wasStopped ? .stopped(error.localizedDescription) : .failed(error.localizedDescription))
+                await onTurnEnded(wasStopped ? .stopped(stopReason ?? error.localizedDescription) : .failed(error.localizedDescription))
             }
             endTurn()
             throw error
@@ -113,13 +126,13 @@ actor RemoteSession {
             guard claimEnd() else { return }
             streamingText = ""
             await onStream("", true)
-            await onTurnEnded(wasStopped ? .stopped(result.summary) : (result.isError ? .failed(result.summary) : .completed(result.summary)))
+            await onTurnEnded(wasStopped ? .stopped(stopReason ?? result.summary) : (result.isError ? .failed(result.summary) : .completed(result.summary)))
             endTurn()
         case .error(let error):
             guard claimEnd() else { return }
             streamingText = ""
             await onStream("", true)
-            await onTurnEnded(wasStopped ? .stopped(error.message) : .failed(error.message))
+            await onTurnEnded(wasStopped ? .stopped(stopReason ?? error.message) : .failed(error.message))
             endTurn()
         default: break
         }
@@ -128,6 +141,8 @@ actor RemoteSession {
     private func endTurn() {
         isBusy = false
         busySince = nil
+        let onIdle = onIdle
+        Task { await onIdle() }
     }
 
     /// One report per turn, whichever of a result, an error or a failed send arrives first.
@@ -144,6 +159,28 @@ actor RemoteSession {
         runner.cancelNow()
     }
 
+    /// Waits for a stopped turn to come to rest, and ends it by force if it does not.
+    ///
+    /// **A stop does not always produce an event.** Claude Code on SIGINT marks the session
+    /// cancelled in the store and sends no result, and until something called `refreshState` the
+    /// turn stayed busy: the machine held itself awake all night and runbloom.app kept the turn
+    /// open against the team. Only the queue's drain called it, and a stop pauses the queue first.
+    /// So whoever stops also settles, here, and a runner that neither reports nor records within
+    /// `limit` is retired and its turn ended as stopped.
+    func settleStop(store: Store, sessionID: SessionID, limit: Duration = .seconds(20)) async {
+        let deadline = ContinuousClock.now.advanced(by: limit)
+        while isBusy, wasStopped, ContinuousClock.now < deadline {
+            try? await refreshState(store: store, sessionID: sessionID)
+            guard isBusy else { return }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        guard isBusy, wasStopped else { return }
+        await retireRunner()
+        guard isBusy else { return }
+        if claimEnd() { await onTurnEnded(.stopped(stopReason ?? "")) }
+        endTurn()
+    }
+
     /// Releases a turn whose runner went quiet after a stop.
     ///
     /// A stored idle or failed row can beat its terminal event to this actor, and releasing the
@@ -156,7 +193,7 @@ actor RemoteSession {
         guard isBusy, !isSending, generation == observedGeneration else { return }
         if let session, session.state == .cancelled, wasStopped {
             streamingText = ""
-            if claimEnd() { await onTurnEnded(.stopped("")) }
+            if claimEnd() { await onTurnEnded(.stopped(stopReason ?? "")) }
             endTurn()
         }
     }
@@ -180,6 +217,29 @@ actor RemoteSession {
         await runner.answer(requestID: requestID, decision: decision)
     }
 
+    /// Stops the process when it holds personal credentials `superseded` says must go, ending a
+    /// running turn with `reason` first. Answers whether a turn was running. The next turn launches
+    /// a fresh process on whatever key runbloom.app then hands out.
+    func retirePersonal(reason: String, where superseded: @Sendable (Set<String>) -> Bool) async -> Bool {
+        guard runner != nil, !personalMarks.isEmpty, superseded(personalMarks) else { return false }
+        let wasBusy = isBusy
+        if wasBusy {
+            stopReason = reason
+            stop()
+            let deadline = ContinuousClock.now.advanced(by: runnerExitGrace)
+            while isBusy, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+        }
+        await retireRunner()
+        // The process is gone whether or not its last event made it here, so the turn is over.
+        if isBusy {
+            if claimEnd() { await onTurnEnded(.stopped(reason)) }
+            endTurn()
+        }
+        return wasBusy
+    }
+
     private func retireRunner() async {
         guard let current = runner else { return }
         current.terminateNow()
@@ -191,6 +251,7 @@ actor RemoteSession {
         eventTask = nil
         runner = nil
         launchIdentity = nil
+        personalMarks = []
     }
 
     func shutdown() async {

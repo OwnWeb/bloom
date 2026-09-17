@@ -77,6 +77,7 @@ public actor ServiceSupervisor {
     /// Bumped by every start and stop, so an event from a process that belonged to an earlier
     /// start cannot move the state of the one that replaced it.
     private var generation = 0
+    private var operation: Task<Void, Never>?
 
     public init(layout: MachineLayout, tuning: Tuning = .standard) {
         self.layout = layout
@@ -97,7 +98,36 @@ public actor ServiceSupervisor {
     /// second one under a name already taken, is left out; `RemoteProjectSettings.problems` has
     /// already said so.
     public func start(_ services: [RemoteProjectSettings.Service], environment: [String: String]) async {
-        await stopAll()
+        await serially { await self.startNow(services, environment: environment) }
+    }
+
+    /// Everything stopped and started again with this environment, which is what a changed team or
+    /// project environment needs: a running process cannot be handed new variables.
+    public func restartAll(environment: [String: String]) async {
+        // The services as they are when this one's turn comes, not when it was asked for.
+        await serially { await self.startNow(await self.services, environment: environment) }
+    }
+
+    public func stopAll() async {
+        await serially { await self.stopNow() }
+    }
+
+    /// Starts and stops one after the other. Each suspends while processes stop, and a second one
+    /// running in that gap found nothing to stop, launched everything, and was then overwritten by
+    /// the first: two copies of every service fighting for its port, one of which nothing could
+    /// stop any more.
+    private func serially(_ work: @escaping @Sendable () async -> Void) async {
+        let previous = operation
+        let next = Task {
+            await previous?.value
+            await work()
+        }
+        operation = next
+        await next.value
+    }
+
+    private func startNow(_ services: [RemoteProjectSettings.Service], environment: [String: String]) async {
+        await stopNow()
         generation += 1
         self.services = services
         self.environment = environment
@@ -110,13 +140,7 @@ public actor ServiceSupervisor {
         launchWhatIsReady()
     }
 
-    /// Everything stopped and started again with this environment, which is what a changed team or
-    /// project environment needs: a running process cannot be handed new variables.
-    public func restartAll(environment: [String: String]) async {
-        await start(services, environment: environment)
-    }
-
-    public func stopAll() async {
+    private func stopNow() async {
         generation += 1
         var stopping: [SupervisedProcess] = []
         for name in order {

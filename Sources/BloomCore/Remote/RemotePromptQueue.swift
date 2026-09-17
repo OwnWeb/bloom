@@ -30,6 +30,9 @@ actor RemotePromptQueue {
     private let changed: @Sendable (SessionID) async -> Void
     private let settled: @Sendable (SessionID, RemoteTurnEnd, String?) async -> Void
     private let started: @Sendable (SessionID, Delivery) async -> Void
+    /// Handed every grant before its chat's process is prepared, so a team key arriving while
+    /// other processes hold personal ones retires those.
+    private let granted: @Sendable (RemoteTurnGrant) async -> Void
 
     private var tasks: [SessionID: Task<Void, Never>] = [:]
     private var errors: [SessionID: String] = [:]
@@ -37,6 +40,8 @@ actor RemotePromptQueue {
     private var cancellations: [SessionID: Int] = [:]
     /// The runbloom.app turn each chat is running, ended when the turn comes to rest.
     private var running: [SessionID: String] = [:]
+    /// Whose turn each chat is running, so a revoke can find it.
+    private var runningAuthors: [SessionID: String] = [:]
     private var closed = false
 
     init(
@@ -46,8 +51,10 @@ actor RemotePromptQueue {
         held: @escaping @Sendable (SessionID) async -> Bool = { _ in false },
         changed: @escaping @Sendable (SessionID) async -> Void = { _ in },
         started: @escaping @Sendable (SessionID, Delivery) async -> Void = { _, _ in },
-        settled: @escaping @Sendable (SessionID, RemoteTurnEnd, String?) async -> Void = { _, _, _ in }
+        settled: @escaping @Sendable (SessionID, RemoteTurnEnd, String?) async -> Void = { _, _, _ in },
+        granted: @escaping @Sendable (RemoteTurnGrant) async -> Void = { _ in }
     ) {
+        self.granted = granted
         self.store = store
         self.gate = gate
         self.load = load
@@ -61,20 +68,8 @@ actor RemotePromptQueue {
     static let pausedSentence = "Queue paused. Send a message to resume."
 
     var isDraining: Bool { !tasks.isEmpty }
+    var drainingChats: Set<SessionID> { Set(tasks.keys) }
     var hasRunningTurn: Bool { !running.isEmpty }
-
-    /// Whether any chat has a prompt that could go if the machine stayed awake: queued, not
-    /// blocked by a limit, not paused. What the awake policy asks before letting the machine sleep.
-    func hasDeliverableWork(in sessions: [SessionID]) async -> Bool {
-        for id in sessions where errors[id] == nil && !blocked.contains(id) {
-            if tasks[id] != nil { return true }
-            if (try? await store.setting(Self.pauseKey(id))) == "true" { continue }
-            if let pending = try? await store.pendingDeliveries(sessionID: id), pending.contains(where: { $0.state == .pending }) {
-                return true
-            }
-        }
-        return false
-    }
 
     // MARK: - Asking
 
@@ -110,6 +105,9 @@ actor RemotePromptQueue {
         defer {
             let remaining = (cancellations[sessionID] ?? 1) - 1
             cancellations[sessionID] = remaining == 0 ? nil : remaining
+            // The prompt that was blocked may be the one removed, and the ones behind it may run on
+            // a key no limit applies to; the next start blocks the chat again if not.
+            blocked.remove(sessionID)
             start(sessionID)
         }
         let task = tasks[sessionID]
@@ -122,6 +120,21 @@ actor RemotePromptQueue {
         if let turnID = delivery.remoteTurnID { await gate.end(turnID: turnID) }
         errors.removeValue(forKey: sessionID)
         await changed(sessionID)
+    }
+
+    /// Somebody lost access. Their queued prompts are removed, since runbloom.app would refuse
+    /// each at the front of the queue and pause the chat for everybody behind it. Answers the
+    /// chats running one of their turns, for the runtime to stop.
+    func revoke(userID: String, sessions: [SessionID]) async -> [SessionID] {
+        guard !closed else { return [] }
+        for id in sessions {
+            let theirs = ((try? await store.pendingDeliveries(sessionID: id)) ?? [])
+                .filter { $0.author?.userID == userID && $0.state == .pending }
+            for delivery in theirs {
+                try? await cancel(delivery.id, sessionID: id)
+            }
+        }
+        return runningAuthors.filter { $0.value == userID }.map(\.key)
     }
 
     func pause(_ id: SessionID) async throws {
@@ -168,6 +181,7 @@ actor RemotePromptQueue {
     func runningTurn(_ id: SessionID) -> String? { running[id] }
 
     func turnEnded(_ id: SessionID, ending: RemoteTurnEnd) async {
+        runningAuthors.removeValue(forKey: id)
         let turnID = running.removeValue(forKey: id)
         if let turnID { await gate.end(turnID: turnID) }
         guard !closed else { return }
@@ -180,14 +194,22 @@ actor RemotePromptQueue {
         start(id)
     }
 
+    static let shutdownSentence = "The Cloud workspace stopped while this turn was running."
+
     func shutdown() async {
         closed = true
         let pending = Array(tasks.values)
         tasks.removeAll()
         for task in pending { task.cancel() }
         for task in pending { await task.value }
-        for turnID in running.values { await gate.end(turnID: turnID) }
+        // A turn still running is ended here, and settled too: its usage has to say it finished
+        // before the machine's last report, or runbloom.app keeps it open against the team.
+        let stillRunning = running
         running.removeAll()
+        for (id, turnID) in stillRunning {
+            await gate.end(turnID: turnID)
+            await settled(id, .stopped(Self.shutdownSentence), turnID)
+        }
     }
 
     // MARK: - Draining
@@ -236,6 +258,13 @@ actor RemotePromptQueue {
                 try Task.checkCancellation()
 
                 let agent = try await store.session(id: id)?.agentKind ?? .claudeCode
+                // Started at runbloom.app but not yet handed to the agent. A failure or a
+                // cancellation in that gap ends it, or it counts against the team until somebody
+                // resumes the queue.
+                var startedTurn: String?
+                defer {
+                    if let startedTurn { Task { [gate] in await gate.end(turnID: startedTurn) } }
+                }
                 if let turnID = delivery.remoteTurnID {
                     let grant: RemoteTurnGrant
                     do {
@@ -244,8 +273,11 @@ actor RemotePromptQueue {
                         try await refuse(delivery, refusal)
                         return
                     }
+                    startedTurn = turnID
                     if delivery.block != nil { try await store.setDeliveryBlock(id: delivery.id, nil) }
-                    try await live.prepare(identity: grant.launchIdentity(for: agent), environment: grant.environment(for: agent))
+                    await granted(grant)
+                    try await live.prepare(identity: grant.launchIdentity(for: agent), environment: grant.environment(for: agent),
+                                           personal: grant.personalMarks(for: [agent]))
                 } else {
                     // Not a person's turn, such as a subagent's report reaching its parent: it
                     // runs on whatever key the chat's process already has.
@@ -254,6 +286,9 @@ actor RemotePromptQueue {
 
                 guard try await store.claimDelivery(id: delivery.id) else { continue }
                 if let turnID = delivery.remoteTurnID { running[id] = turnID }
+                // From here the turn is `running`'s to end, on every path.
+                startedTurn = nil
+                runningAuthors[id] = delivery.author?.userID
                 await changed(id)
                 await started(id, delivery)
                 do {

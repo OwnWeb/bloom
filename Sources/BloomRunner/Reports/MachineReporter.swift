@@ -23,6 +23,8 @@ public actor MachineReporter {
     private var schedule = RemoteSummarySchedule()
     private var lastSent: RemoteSummary?
     private var pending: Task<Void, Never>?
+    /// The post running now, which the next one waits behind.
+    private var posting: Task<Void, Never>?
     private var pendingIncludesSlow = false
     private var meter: RemoteUsageMeter?
     private var diff = RemoteSummary.Diff(files: 0, additions: 0, deletions: 0)
@@ -54,6 +56,8 @@ public actor MachineReporter {
         let wait = max(0, due.timeIntervalSince(now()))
         pending = Task {
             if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            // `postSummaryNow` cancelled this and posted itself.
+            guard !Task.isCancelled else { return }
             await self.postSummary()
         }
     }
@@ -85,8 +89,22 @@ public actor MachineReporter {
         await postSummary()
     }
 
+    /// One at a time, in order. Two overlapping posts each read `awake` before suspending, and the
+    /// one that read it first could land last: runbloom.app's last word was a machine awake that
+    /// had just been released. Each post reads the state when its turn comes, so the later one
+    /// always carries the later state.
     private func postSummary() async {
         pending = nil
+        let previous = posting
+        let post = Task {
+            await previous?.value
+            await self.postOnce()
+        }
+        posting = post
+        await post.value
+    }
+
+    private func postOnce() async {
         let includesSlow = pendingIncludesSlow
         pendingIncludesSlow = false
         do {

@@ -47,6 +47,31 @@ public struct RemoteTurnGrant: Sendable, Hashable {
         return values
     }
 
+    /// What a process or shell launched with this grant carries that belongs to one person: the
+    /// wire name of every agent whose key is personal, and `environment` when there is personal
+    /// environment. Empty means nothing of anybody's own. See `PersonalCredentials`.
+    public func personalMarks(for agents: [AgentKind]) -> Set<String> {
+        var marks = Set(agents.filter { agentKeys[$0]?.source == "personal" }.map(\.wireName))
+        if !environment.isEmpty { marks.insert(PersonalCredentials.environmentMark) }
+        return marks
+    }
+
+    /// Whether this grant shows the workspace became shared while something still holds personal
+    /// credentials of this kind. runbloom.app hands out personal keys and personal environment
+    /// only in a workspace nobody else is in, so a team key for an agent that something holds a
+    /// personal key for, or a grant with no personal environment where something holds some, means
+    /// those credentials must go even if the `control/shared` call never arrived.
+    public func supersedes(_ marks: Set<String>) -> Bool {
+        for mark in marks {
+            if mark == PersonalCredentials.environmentMark {
+                if environment.isEmpty { return true }
+            } else if let agent = AgentKind.named(wire: mark), agentKeys[agent]?.source == "team" {
+                return true
+            }
+        }
+        return false
+    }
+
     /// What decides whether a running agent process can take this turn or has to be relaunched:
     /// the key's identity, never the person, so teammates on the team key never cause a relaunch.
     public func launchIdentity(for agent: AgentKind) -> String {
@@ -67,6 +92,14 @@ public struct RemoteAgentKey: Sendable, Hashable {
         self.identity = identity
         self.source = source
     }
+}
+
+/// Personal keys are used only in a workspace that is not shared, because everyone in a shared one
+/// has sudo on the machine and could read them from a running process. When a workspace becomes
+/// shared, every process and shell still holding them is stopped.
+public enum PersonalCredentials {
+    public static let environmentMark = "environment"
+    public static let sharedSentence = "This Cloud workspace was shared, so the turn stopped; the next turn uses the team key."
 }
 
 /// Why runbloom.app would not start a turn.

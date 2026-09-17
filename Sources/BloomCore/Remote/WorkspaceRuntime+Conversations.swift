@@ -159,7 +159,15 @@ extension WorkspaceRuntime {
         }
         _ = try await storedSession(id)
         try await queue().pause(id)
-        await sessions[id]?.stop()
+        await stopAndSettle(id)
+    }
+
+    /// Stops a chat's turn and makes sure it comes to rest. See `RemoteSession.settleStop`.
+    func stopAndSettle(_ id: SessionID) async {
+        guard let session = sessions[id] else { return }
+        await session.stop()
+        let store = store
+        Task { await session.settleStop(store: store, sessionID: id) }
     }
 
     func answerQuestion(_ chatID: String, requestID: String, answer: Answer) async throws {

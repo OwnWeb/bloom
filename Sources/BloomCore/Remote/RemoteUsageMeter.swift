@@ -39,7 +39,13 @@ public struct RemoteUsageMeter: Codable, Sendable, Hashable {
     /// caller can record why it is awake again.
     @discardableResult
     public mutating func sample(_ sample: MachineUsageReading, at date: Date, awake: Bool) -> Bool {
-        if sample.bootID != bootID { self = RemoteUsageMeter(bootID: sample.bootID) }
+        if sample.bootID != bootID {
+            // Events recorded before a boot's first reading (setup starting races the first
+            // sample) belong to this boot, and are kept when the meter starts counting afresh.
+            let recorded = events
+            self = RemoteUsageMeter(bootID: sample.bootID)
+            events = recorded
+        }
         cpuSeconds = max(cpuSeconds, sample.cpuSeconds)
         defer { lastSampleAt = date }
         // Before anything else, so the first reading of a boot already gives a report its disk:

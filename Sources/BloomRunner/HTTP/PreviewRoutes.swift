@@ -24,6 +24,9 @@ enum PreviewRoutes {
             } catch {
                 return notAllowed()
             }
+            // The verifier grants a preview token nothing but `preview`, and this says so here too,
+            // so the route does not rest on that alone.
+            guard token.abilities.contains("preview") else { return notAllowed() }
             // Eight hours for a person, one for a share link, which is somebody runbloom.app let in
             // without an account.
             let lifetime: TimeInterval = token.isShare ? 3_600 : 8 * 3_600

@@ -149,6 +149,7 @@ public actor MachineSetup {
                 succeeded = await runScript(name, launch, timeout: timeout, environment: environment, log: log, continuing: false)
             }
         }
+        if await interruptedByShutdown(log: log) { return false }
         await settle(log: log, succeeded: succeeded)
         guard succeeded else { return false }
         try? await store.setSetting(Self.completedSetting, "1")
@@ -169,6 +170,7 @@ public actor MachineSetup {
         await configureGit(environment: environment, log: log)
         let scripts = MachineScripts.load(repo: layout.worktree)
         let succeeded = await runScript("resume", scripts.resume, timeout: timeouts.resume, environment: environment, log: log, continuing: true)
+        if await interruptedByShutdown(log: log) { return false }
         if await log.hasBegun { await settle(log: log, succeeded: succeeded) }
         guard succeeded else { return false }
         await services.start(scripts.services, environment: environment)
@@ -202,6 +204,15 @@ public actor MachineSetup {
     }
 
     // MARK: - Steps
+
+    /// A shutdown cancels setup, and the step it stopped exits non-zero. Filing that as a failure
+    /// would tell runbloom.app setup failed and let the queue start turns while the machine goes
+    /// down, so it is filed as interrupted and nothing else happens.
+    private func interruptedByShutdown(log: SetupLog) async -> Bool {
+        guard Task.isCancelled else { return false }
+        if await log.hasBegun { await log.interrupt() }
+        return true
+    }
 
     /// The row's state and the runtime's record both say how it ended. A sequence where nothing
     /// ran is filed as skipped, as the Mac files a workspace with no setup script.
@@ -238,10 +249,21 @@ public actor MachineSetup {
         }
     }
 
+    /// Whether the clone and its checkout both finished, recorded apart from `.git` existing:
+    /// a clone killed by the watchdog or a checkout that failed leaves `.git` behind, and the next
+    /// start would otherwise run the scripts on the default branch of a half-made repository.
+    static let clonedSetting = "remote.setup.cloned"
+
     private func cloneIfNeeded(environment: [String: String], log: SetupLog) async -> Bool {
         let worktree = layout.worktree
-        guard !FileManager.default.fileExists(atPath: worktree + "/.git") else { return true }
+        let cloned = (try? await store.setting(Self.clonedSetting)) == "1"
+        // A setup that once completed had a whole clone, whatever the marker says.
+        let completed = (try? await store.setting(Self.completedSetting)) == "1"
+        if FileManager.default.fileExists(atPath: worktree + "/.git") && (cloned || completed) { return true }
         await begin("clone", log: log, continuing: false)
+        // Only an earlier attempt of this step has written here. Prompts wait for setup, so before
+        // the clone is marked finished there is no work of anybody's in it to lose.
+        try? FileManager.default.removeItem(atPath: worktree)
         try? FileManager.default.createDirectory(atPath: (worktree as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         var succeeded = await runProcess(
             "git", ["clone", cloneURL(configuration.repository), worktree],
@@ -260,6 +282,7 @@ public actor MachineSetup {
                 : ["checkout", "--no-track", "-B", branch, "origin/\(configuration.baseBranch)"]
             succeeded = await runProcess("git", arguments, directory: worktree, timeout: .seconds(5 * 60), environment: environment, log: log)
         }
+        if succeeded, !Task.isCancelled { try? await store.setSetting(Self.clonedSetting, "1") }
         await log.endStep()
         return succeeded
     }
@@ -301,12 +324,23 @@ public actor MachineSetup {
             process.kill()
             return true
         }
-        do {
-            for try await line in lines { await log.append(line) }
-        } catch {
-            await log.append("[bloom] \(error)")
+        // A shutdown cancels this task, which ends `lines` and with it sends SIGTERM. A script that
+        // ignores it would hold shutdown until its step timeout, up to an hour, so it gets the
+        // same grace as the watchdog gives and is then killed.
+        let status = await withTaskCancellationHandler {
+            do {
+                for try await line in lines { await log.append(line) }
+            } catch {
+                await log.append("[bloom] \(error)")
+            }
+            return await process.exitStatus
+        } onCancel: {
+            process.terminate()
+            Task {
+                try? await Task.sleep(for: Self.stopGrace)
+                process.kill()
+            }
         }
-        let status = await process.exitStatus
         watchdog.cancel()
         if await watchdog.value {
             await log.note("This step took longer than \(Self.minutes(timeout)) and was stopped.")

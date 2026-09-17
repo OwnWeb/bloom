@@ -2,6 +2,7 @@ import AsyncHTTPClient
 import BloomCore
 import Foundation
 import Hummingbird
+import ServiceLifecycle
 
 /// `bloom-runner serve`: everything a machine runs, put together once.
 ///
@@ -63,7 +64,8 @@ public enum ServeCommand {
         let awake = AwakeController(host: host, runtime: runtime, reporter: reporter)
         let machineEnvironment = MachineEnvironment { try await client.environment() }
         let keys = KeySet.live(url: configuration.jwksURL, client: http)
-        let verifier = TokenVerifier(issuer: configuration.issuer, workspaceID: configuration.workspaceID, keys: keys)
+        let verifier = TokenVerifier(issuer: configuration.issuer, workspaceID: configuration.workspaceID, keys: keys,
+                                     revocations: Revocations(store: store))
 
         await runtime.observeActivity { event in
             switch event {
@@ -74,6 +76,8 @@ public enum ServeCommand {
                 // runbloom.app pairs a finish with its start by the turn, so a turn nobody
                 // registered (a subagent's report) is reported as neither.
                 if let turnID { await reporter.record(.turnFinished(turnID: turnID, at: Date())) }
+                await reporter.changed()
+            case .chatIdle:
                 await reporter.changed()
             case .setupStarted:
                 await reporter.record(.setupStarted(at: Date()))
@@ -104,7 +108,7 @@ public enum ServeCommand {
         let terminals = TerminalConnections()
         let supervisor = MachineSupervisor(
             runtime: runtime, awake: awake, reporter: reporter, streams: streams, terminals: terminals,
-            environment: machineEnvironment, secret: secret, updater: { version, sha256 in try MachineUpdate.start(version: version, sha256: sha256) }
+            environment: machineEnvironment, secret: secret, revocations: verifier.revocations, updater: { version, sha256 in try MachineUpdate.start(version: version, sha256: sha256) }
         )
         let server = WorkspaceHTTPServer(dependencies: .init(
             runtime: runtime, verifier: verifier, gate: gate, control: supervisor, store: store,
@@ -138,20 +142,32 @@ public enum ServeCommand {
         let application = server.application(port: layout.serverPort) { _ in
             try? FileManager.default.removeItem(atPath: environment["BLOOM_UPDATE_MARKER"] ?? "/var/tmp/bloom-update-pending")
         }
-        try await application.runService()
 
         // SIGTERM: a limit's grace ran out, an update is restarting the service, or the machine is
-        // being deleted. Stop turns, report what can be reported, and go.
-        note("stopping: reporting to runbloom.app and closing streams")
-        // Setup stopped and filed first, so the last report says `released` rather than a setup
-        // that ended a moment after it.
-        setupRun.cancel()
-        await setupRun.value
-        await measurements.stop()
-        await services.stopAll()
-        await caddy.stop()
-        await awake.shutdown()
-        await runtime.shutdown()
+        // being deleted. The wind down runs before the HTTP server stops, not after: the server's
+        // graceful shutdown waits for every request to finish, and an event stream or a terminal
+        // never does, so a machine with one client connected never got as far as reporting.
+        let windDown = WindDown {
+            note("stopping: stopping turns, reporting to runbloom.app and closing streams")
+            // Setup first, filed as interrupted, so nothing it would start begins now.
+            setupRun.cancel()
+            await setupRun.value
+            await measurements.stop()
+            // Turns before the report, so the last usage report has every turn finishing in it.
+            // This also closes every event stream.
+            await runtime.shutdown()
+            await terminals.closeAll()
+            await services.stopAll()
+            await caddy.stop()
+            await awake.shutdown()
+        }
+        // A service group shuts its services down in reverse order, so the wind down goes first.
+        let group = ServiceGroup(configuration: .init(
+            services: [.init(service: application), .init(service: windDown, successTerminationBehavior: .gracefullyShutdownGroup)],
+            gracefulShutdownSignals: [.sigterm, .sigint],
+            logger: application.logger
+        ))
+        try await group.run()
         await delivery.shutdown()
         try await http.shutdown()
         note("stopped")
@@ -172,5 +188,16 @@ public enum ServeCommand {
             throw MachineConfigurationError("Cannot write \(path).")
         }
         return secret
+    }
+}
+
+/// Waits for the service group to begin shutting down, then does the machine's own shutdown.
+struct WindDown: Service {
+    let work: @Sendable () async -> Void
+
+    func run() async throws {
+        // Throws only when the group is cancelled, which is a shutdown too.
+        try? await gracefulShutdown()
+        await work()
     }
 }

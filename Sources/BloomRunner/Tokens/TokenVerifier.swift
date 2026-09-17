@@ -31,15 +31,21 @@ public actor TokenVerifier {
     private let audience: String
     private let keys: KeySet
     private let now: @Sendable () -> Date
+    /// People and share links that lost access. Checked here so every route refuses their tokens
+    /// alike, rather than each route remembering to.
+    public nonisolated let revocations: Revocations
 
     /// `use:jti` of every single-use token accepted and not yet expired, with when it can be
     /// forgotten.
     private var used: [String: Date] = [:]
 
-    public init(issuer: String, workspaceID: String, keys: KeySet, now: @escaping @Sendable () -> Date = Date.init) {
+    /// `revocations` nil keeps them in memory, on this verifier's clock.
+    public init(issuer: String, workspaceID: String, keys: KeySet, revocations: Revocations? = nil,
+                now: @escaping @Sendable () -> Date = Date.init) {
         self.issuer = issuer
         self.audience = "bloom-workspace:\(workspaceID)"
         self.keys = keys
+        self.revocations = revocations ?? Revocations(now: now)
         self.now = now
     }
 
@@ -77,6 +83,11 @@ public actor TokenVerifier {
         guard claims.tokenUse == use.rawValue else {
             throw Self.refusal("This workspace token cannot be used for this.")
         }
+        // A list naming an ability twice is not one runbloom.app writes, and refusing it keeps two
+        // readers of the same token from ever disagreeing about what it grants.
+        if let listed = claims.abilities, Set(listed).count != listed.count {
+            throw Self.refusal("This workspace token's claims are not readable.")
+        }
         let abilities = Set(claims.abilities ?? [])
         if abilities.contains("admin"), use != .control {
             throw Self.refusal("This workspace token claims an ability it cannot hold.")
@@ -104,6 +115,10 @@ public actor TokenVerifier {
         }
         guard expiresAt.addingTimeInterval(Self.clockSkew) > moment else {
             throw RemoteFailure(.tokenExpired, "This workspace token has expired.")
+        }
+
+        if use != .control, await revocations.isRevoked(subject, issuedAt: issuedAt) {
+            throw RemoteFailure(.unauthenticated, "Your access to this Cloud workspace was removed.")
         }
 
         if use.isSingleUse {

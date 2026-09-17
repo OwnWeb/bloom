@@ -33,6 +33,11 @@ enum EventStreamRoute {
                 return WireResponses.failure(error)
             }
             let (id, closing) = await streams.open(for: token)
+            // A revoke that landed while the stream was being opened found nothing to close.
+            if await verifier.revocations.isRevoked(token.subject, issuedAt: token.issuedAt) {
+                await streams.closed(id)
+                return WireResponses.failure(RemoteFailure(.unauthenticated, "Your access to this Cloud workspace was removed."))
+            }
             var headers = HTTPFields()
             headers[.contentType] = "text/event-stream"
             headers[.cacheControl] = "no-store"
@@ -51,6 +56,11 @@ enum EventStreamRoute {
             guard let id = context.parameters.get("id") else { return Response(status: .notFound) }
             do {
                 let token = try await verifier.verify(request.bearerToken ?? "", as: .session)
+                // Checked again on renewal, so somebody whose access narrowed cannot keep watching
+                // on fresh tokens that no longer allow it.
+                guard token.abilities.contains("view") else {
+                    throw RemoteFailure(.missingAbility, "Your access does not include viewing this workspace.")
+                }
                 try await streams.refresh(id, with: token)
                 return Response(status: .noContent)
             } catch {

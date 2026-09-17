@@ -44,6 +44,16 @@ final class ProcessPipeReader: Sendable {
         }
     }
 
+    /// Whether bytes are waiting on the reader's own descriptor. Asked of this rather than of the
+    /// original handle, which Foundation may already have retired, so that the question does not
+    /// always answer no once the child has exited.
+    var hasPendingBytes: Bool {
+        guard !closed.withLock({ $0 }) else { return false }
+        var event = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+        guard poll(&event, 1, 0) > 0 else { return false }
+        return event.revents & Int16(POLLIN) != 0
+    }
+
     func close() {
         let claimed = closed.withLock { closed -> Bool in
             if closed { return false }

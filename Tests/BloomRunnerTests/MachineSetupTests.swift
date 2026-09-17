@@ -251,9 +251,12 @@ struct MachineSetupTests {
 
     @Test("output reaches the setup log while the step is still running")
     func liveOutput() async throws {
+        // The script waits for a file the test creates rather than for a fixed time, so a slow
+        // runner cannot let it finish before the test has looked.
+        let release = NSTemporaryDirectory() + "bloom-live-output-\(UUID().uuidString)"
         let settings = """
         [scripts]
-        setup = "echo first line; sleep 3; echo second line"
+        setup = "echo first line; for i in $(seq 1 600); do [ -e '\(release)' ] && break; sleep 0.1; done; echo second line"
         """
         let fixture = try await fixture(files: [".bloom/settings.toml": settings])
         let setup = try fixture.setup()
@@ -267,6 +270,8 @@ struct MachineSetupTests {
         let midway = try await fixture.workspace()
         #expect(midway.setupState == .running)
         #expect(!midway.setupLog.contains("second line"))
+        _ = FileManager.default.createFile(atPath: release, contents: nil)
+        defer { try? FileManager.default.removeItem(atPath: release) }
         await run.value
         #expect(try await fixture.workspace().setupLog.contains("second line"))
         await fixture.runtime.shutdown()

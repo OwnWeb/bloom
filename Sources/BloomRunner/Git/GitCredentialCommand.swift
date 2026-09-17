@@ -62,7 +62,8 @@ enum GitCredentialCommand {
         request.setValue(secret, forHTTPHeaderField: GitCredentialRoute.secretHeader.rawName)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONEncoder().encode(GitCredentialRoute.Asked(
-            repository: repository, chatID: environment["BLOOM_CHAT_ID"], turnID: environment["BLOOM_TURN_ID"]
+            repository: repository, chatID: environment["BLOOM_CHAT_ID"], turnID: environment["BLOOM_TURN_ID"],
+            terminal: environment["BLOOM_TERMINAL"]
         ))
         guard let (body, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }

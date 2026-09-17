@@ -10,7 +10,7 @@ import Foundation
 ///
 /// **The locations are baked in, the turn is not.** `BLOOM_DATA_DIR` and `BLOOM_RUNNER_PORT` go
 /// into the helper and the wrapper, so a shell somebody opens with none of Bloom's variables still
-/// finds the server. `BLOOM_CHAT_ID` and `BLOOM_TURN_ID` stay in the environment of whichever
+/// finds the server. `BLOOM_CHAT_ID`, `BLOOM_TERMINAL` and `BLOOM_TURN_ID` stay in the environment of whichever
 /// process runs git, because they are what makes a push use the token of the person whose turn it
 /// is.
 struct MachineGitTools {

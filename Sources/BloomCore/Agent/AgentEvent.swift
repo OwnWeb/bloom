@@ -475,6 +475,19 @@ extension AgentError {
             ?? Data(#"{"type":"error","subtype":"notStarted"}"#.utf8)
         return AgentError(message: message, raw: payload)
     }
+
+    /// A Cloud workspace's turn stopped because the workspace was shared while it ran on somebody's
+    /// personal key. Not the agent's failure, and the queue carries on, so its own subtype.
+    public static func stoppedForSharing(message: String) -> AgentError {
+        struct Stopped: Encodable {
+            let type = "error"
+            let subtype = "stoppedForSharing"
+            let message: String
+        }
+        let payload = (try? JSONEncoder().encode(Stopped(message: message)))
+            ?? Data(#"{"type":"error","subtype":"stoppedForSharing"}"#.utf8)
+        return AgentError(message: message, raw: payload)
+    }
 }
 
 /// Token accounting, filled from either the thin `assistant` usage object or the richer one on

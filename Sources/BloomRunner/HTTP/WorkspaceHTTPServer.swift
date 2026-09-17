@@ -77,11 +77,12 @@ public struct WorkspaceHTTPServer: Sendable {
         RPCRoute.register(on: router, runtime: dependencies.runtime, verifier: dependencies.verifier)
         EventStreamRoute.register(on: router, runtime: dependencies.runtime, verifier: dependencies.verifier, streams: streams)
         ControlRoutes.register(on: router, verifier: dependencies.verifier, control: dependencies.control)
-        PreviewRoutes.register(on: router, verifier: dependencies.verifier, sessions: PreviewSessions(store: dependencies.store),
+        PreviewRoutes.register(on: router, verifier: dependencies.verifier, sessions: PreviewSessions(store: dependencies.store, revocations: dependencies.verifier.revocations),
                                runtime: dependencies.runtime)
         if let credentials = dependencies.gitCredentials {
             GitCredentialRoute.register(on: router, secret: credentials.secret, repository: credentials.repository,
-                                        runtime: dependencies.runtime, fetch: credentials.fetch)
+                                        runtime: dependencies.runtime, liveTerminalTurn: { [terminals] in await terminals.liveTurn(terminal: $0) },
+                                        fetch: credentials.fetch)
         }
         return router
     }

@@ -14,7 +14,9 @@ import NIOCore
 ///
 /// **The shell is a turn.** It is registered with runbloom.app under the person's token and
 /// started, which hands the machine that person's agent keys and personal environment for this
-/// shell alone, and `BLOOM_TURN_ID` in its environment is what lets `git push` from it push as them.
+/// shell alone. `BLOOM_TERMINAL` in its environment is what lets `git push` from it push as them:
+/// the credential route looks up the turn of whichever connection to that terminal is open now,
+/// because a shell outlives its connection and the turn it started with ends with that one.
 enum TerminalRoute {
     static let authenticationDeadline: Duration = .seconds(5)
     static let maximumFrame = 1 << 20
@@ -59,6 +61,8 @@ enum TerminalRoute {
         let token: WorkspaceToken
         let turnID: String
         let environment: [String: String]
+        let personal: Set<String>
+        var registered: String?
         do {
             token = try await dependencies.verifier.verify(raw, as: .session)
             guard token.abilities.contains("view"), token.abilities.contains("terminal") else {
@@ -66,8 +70,11 @@ enum TerminalRoute {
             }
             let caller = token.caller(token: raw)
             turnID = try await dependencies.gate.register(.terminal, chat: nil, agent: nil, caller: caller)
-            environment = try await shellEnvironment(turnID: turnID, gate: dependencies.gate)
+            registered = turnID
+            (environment, personal) = try await shellEnvironment(turnID: turnID, terminal: name, gate: dependencies.gate, runtime: dependencies.runtime)
         } catch {
+            // Registered but refused at start: runbloom.app counts a registered turn until it ends.
+            if let registered, !registered.isEmpty { Task { await dependencies.gate.end(turnID: registered) } }
             try await outbound.close(.policyViolation, reason: RemoteFailure.wire(error).message)
             return
         }
@@ -75,16 +82,22 @@ enum TerminalRoute {
 
         let attachment: RemoteTerminalAttachment
         do {
-            attachment = try await dependencies.runtime.terminals().attach(name: name, environment: environment)
+            attachment = try await dependencies.runtime.terminals().attach(name: name, environment: environment, owner: token.author?.userID, personal: personal)
         } catch {
             try await outbound.close(.unexpectedServerError, reason: RemoteFailure.wire(error).message)
             return
         }
         let expiry = TerminalExpiry(expiresAt: token.expiresAt)
-        let connection = await dependencies.connections.add(userID: token.author?.userID) {
+        let connection = await dependencies.connections.add(userID: token.author?.userID, turnID: turnID, terminal: name) {
             await attachment.close()
         }
         defer { Task { await dependencies.connections.remove(connection) } }
+        // A revoke that landed during the two runbloom.app calls above found no socket to close.
+        if await dependencies.verifier.revocations.isRevoked(token.subject, issuedAt: token.issuedAt) {
+            await attachment.close()
+            try await outbound.close(.policyViolation, reason: "Your access to this Cloud workspace was removed.")
+            return
+        }
 
         // Output and the token's deadline run beside the socket's own reads, which stay in this
         // task because the inbound iterator cannot be handed to another one.
@@ -125,8 +138,11 @@ enum TerminalRoute {
                 switch frame {
                 case .resize(let columns, let rows): await attachment.resize(columns: columns, rows: rows)
                 case .reauth(let raw):
+                    // The same person, and still allowed the terminal: a renewal must not carry a
+                    // shell past the moment its owner's access narrowed.
                     guard let fresh = try? await dependencies.verifier.verify(raw, as: .session),
-                          fresh.author?.userID == token.author?.userID else { continue }
+                          fresh.author?.userID == token.author?.userID,
+                          fresh.abilities.contains("view"), fresh.abilities.contains("terminal") else { continue }
                     await expiry.extend(to: fresh.expiresAt)
                 case .auth: continue
                 }
@@ -137,16 +153,21 @@ enum TerminalRoute {
 
     /// The shell's environment: every key runbloom.app resolved for this person, under the names
     /// each CLI reads, their personal environment, and the turn git credentials are asked for.
-    static func shellEnvironment(turnID: String, gate: any RemoteTurnGate) async throws -> [String: String] {
+    /// Also answers what of it is one person's own, which the shell is tagged with, and retires
+    /// whatever this grant shows can no longer hold personal credentials.
+    static func shellEnvironment(
+        turnID: String, terminal: String, gate: any RemoteTurnGate, runtime: WorkspaceRuntime
+    ) async throws -> (environment: [String: String], personal: Set<String>) {
         var environment: [String: String] = [:]
-        guard !turnID.isEmpty else { return environment }
+        guard !turnID.isEmpty else { return (environment, []) }
         let grant = try await gate.start(turnID: turnID)
+        await runtime.retirePersonalCredentials(where: grant.supersedes)
         for agent in grant.agentKeys.keys {
             environment.merge(grant.environment(for: agent)) { _, new in new }
         }
         environment.merge(grant.environment) { current, _ in current }
-        environment["BLOOM_TURN_ID"] = turnID
-        return environment
+        environment["BLOOM_TERMINAL"] = terminal
+        return (environment, grant.personalMarks(for: Array(grant.agentKeys.keys)))
     }
 }
 
@@ -163,12 +184,19 @@ actor TerminalExpiry {
 public actor TerminalConnections {
     public init() {}
 
-    private var entries: [UUID: (userID: String?, close: @Sendable () async -> Void)] = [:]
+    private var entries: [UUID: (userID: String?, turnID: String, terminal: String, close: @Sendable () async -> Void)] = [:]
 
-    func add(userID: String?, close: @escaping @Sendable () async -> Void) -> UUID {
+    func add(userID: String?, turnID: String = "", terminal: String = "", close: @escaping @Sendable () async -> Void) -> UUID {
         let id = UUID()
-        entries[id] = (userID, close)
+        entries[id] = (userID, turnID, terminal, close)
         return id
+    }
+
+    /// The runbloom.app turn of a connection to this terminal that is open now, if any. A terminal
+    /// belongs to one person, so any of its connections is theirs.
+    func liveTurn(terminal: String) -> String? {
+        guard !terminal.isEmpty else { return nil }
+        return entries.values.first { $0.terminal == terminal && !$0.turnID.isEmpty }?.turnID
     }
 
     func remove(_ id: UUID) {
@@ -181,6 +209,14 @@ public actor TerminalConnections {
             entries.removeValue(forKey: id)
             await entry.close()
         }
+    }
+
+    /// Every terminal socket, at shutdown. An open WebSocket is a request that never finishes, and
+    /// the HTTP server's graceful shutdown waits for those.
+    func closeAll() async {
+        let closing = entries
+        entries.removeAll()
+        for entry in closing.values { await entry.close() }
     }
 
     var count: Int { entries.count }

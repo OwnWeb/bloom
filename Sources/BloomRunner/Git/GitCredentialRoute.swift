@@ -23,9 +23,10 @@ enum GitCredentialRoute {
         var repository: String
         var chatID: String?
         var turnID: String?
+        var terminal: String?
 
         enum CodingKeys: String, CodingKey {
-            case repository
+            case repository, terminal
             case chatID = "chat_id"
             case turnID = "turn_id"
         }
@@ -37,6 +38,7 @@ enum GitCredentialRoute {
     }
 
     static func register(on router: Router<WorkspaceRequestContext>, secret: String, repository: String, runtime: WorkspaceRuntime,
+                         liveTerminalTurn: @escaping @Sendable (String) async -> String?,
                          fetch: @escaping @Sendable (String, RunbloomGitOperation, String?) async throws -> RunbloomGitCredential) {
         router.post("/_bloom/local/git-credentials") { request, _ -> Response in
             guard let given = request.headers[secretHeader], constantTimeEquals(given, secret) else {
@@ -49,8 +51,19 @@ enum GitCredentialRoute {
             // Only this workspace's repository, whatever git asked for: a token for anything else
             // would be refused by runbloom.app anyway, and asking costs it a request.
             guard asked.repository.lowercased() == repository.lowercased() else { return Response(status: .forbidden) }
-            var turn = asked.turnID
-            if turn == nil, let chat = asked.chatID { turn = await runtime.runningTurnID(chat: chat) }
+            // A turn id is taken only while a push or pull request runs under it. Every shell can read
+            // the local secret, so without this one person's shell could name another person's
+            // running turn and push as them; runbloom.app refuses a turn that ended, not one that is
+            // running. A terminal and a chat are looked up instead, for the turn live on them now.
+            var turn: String?
+            if let named = asked.turnID {
+                guard await runtime.isPublishingTurn(named) else { return Response(status: .forbidden) }
+                turn = named
+            } else if let terminal = asked.terminal {
+                turn = await liveTerminalTurn(terminal)
+            } else if let chat = asked.chatID {
+                turn = await runtime.runningTurnID(chat: chat)
+            }
             // runbloom.app answers 503 while GitHub is unreachable, and a clone halfway through setup
             // is worth a few seconds of patience before git is told no.
             var delay = Duration.seconds(1)

@@ -355,7 +355,8 @@ accepted; the machine answers 202 and carries the work on.
 | --- | --- | --- |
 | `stop` | `{"limit": "..."}` | stops running turns, marks queued prompts blocked, reports and lets the machine sleep |
 | `limits-cleared` | `{}` | tries blocked prompts again |
-| `revoke` | `{"user_id": "..."}` or `{"user_ids": [...]}` | closes those people's event streams and terminals at once |
+| `revoke` | `{"user_id": "..."}` or `{"user_ids": [...]}` | refuses their tokens and preview cookies issued before it, closes their streams, removes their queued prompts, stops their running turn and ends the shells they opened; a `share:<id>` subject withdraws a share link's preview |
 | `update` | `{"version": "...", "sha256": "..."}` | starts the bootstrap script for that release, which restarts the server |
 | `environment` | `{}` | fetches team and project environment again |
+| `shared` | `{}` | stops every agent process and ends every terminal holding a personal key or personal environment; a turn running on one ends with a row saying why, and queued prompts start on the team key |
 | `secret-rotated` | `{}` | reads `/etc/bloom/workspace.json` again and uses its new workspace secret |
