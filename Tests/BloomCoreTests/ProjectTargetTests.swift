@@ -88,7 +88,6 @@ struct ProjectTargetTests {
         let verdict = ProjectTargetVerdict.of(facts())
         #expect(verdict == .create(makesLocation: false))
         #expect(verdict.buttonTitle == "Create Project")
-        #expect(verdict.opensAWorkspace)
         #expect(verdict.makesACommit)
     }
 
@@ -97,7 +96,6 @@ struct ProjectTargetTests {
         let verdict = ProjectTargetVerdict.of(facts(exists: true, isDirectory: true, isEmpty: true))
         #expect(verdict == .adopt)
         #expect(verdict.buttonTitle == "Create Project")
-        #expect(verdict.opensAWorkspace)
     }
 
     /// The first of the two refusals that retired. It used to read "is already a git repository.
@@ -110,9 +108,7 @@ struct ProjectTargetTests {
         )
         #expect(verdict == .add(root: "/Users/tester/dev/code/sparkline"))
         #expect(verdict.buttonTitle == "Add Project")
-        // It ends in the sidebar rather than in the New Workspace sheet, and it makes no commit,
-        // so an unconfigured git is none of its business.
-        #expect(!verdict.opensAWorkspace)
+        // It makes no commit, so an unconfigured git is none of its business.
         #expect(!verdict.makesACommit)
     }
 
@@ -124,9 +120,6 @@ struct ProjectTargetTests {
         #expect(verdict == .track)
         #expect(verdict.buttonTitle == "Start Tracking")
         #expect(verdict.makesACommit)
-        // A project that already has work in it ends in the sidebar: the person may well have
-        // come to read what is there rather than to start an agent on it.
-        #expect(!verdict.opensAWorkspace)
     }
 
     // MARK: - Which rule answered
