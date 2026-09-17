@@ -80,7 +80,17 @@ struct CloudWorkspaceColumn: View {
         }
         // A workspace nobody is looking at keeps what it read and lets go of its stream, which
         // would otherwise reconnect by itself after a dropped network and wake its machine.
-        .onChange(of: id) { previous, _ in app.cloud.existingSession(for: previous)?.suspend() }
+        // Rename Tab, from the menu bar, which opens a field on a strip this view owns. The same
+        // notification the local column hears, and `PaneContent.id` is the same string both strips
+        // file an open field under.
+        .onReceive(NotificationCenter.default.publisher(for: .bloomRenameTab)) { _ in
+            guard let selected = session.selectedTab else { return }
+            renamingID = selected.id
+        }
+        .onChange(of: id) { previous, _ in
+            app.cloud.existingSession(for: previous)?.suspend()
+            renamingID = nil
+        }
         .onDisappear { app.cloud.existingSession(for: id)?.suspend() }
     }
 

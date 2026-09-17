@@ -135,10 +135,16 @@ struct BloomCommands: Commands {
                     Task { await model.ask.newConversation() }
                     return
                 }
+                // A Cloud workspace opens a chat the same way, on the same key: its chats are its
+                // machine's, so the ask goes over the wire rather than into this Mac's database.
+                if let cloud = model.selectedCloudSession {
+                    Task { await cloud.newChat() }
+                    return
+                }
                 guard let workspace = model.selectedModel else { return }
                 NewPane.open(.chat, in: workspace) { WorkspaceTabsStore.shared.select($0, in: workspace) }
             }
-            .disabled(model.selectedModel == nil && !model.isAskInFront)
+            .disabled(model.selectedModel == nil && model.selectedCloudSession == nil && !model.isAskInFront)
 
             // The other four things that open a tab in the workspace's centre column, which until
             // now existed only as key equivalents on hidden buttons inside `SessionTabsView`. The
@@ -162,7 +168,7 @@ struct BloomCommands: Commands {
             Divider()
 
             MenuCommand(.newTerminalTab) { openPane(.terminal) }
-                .disabled(model.selectedModel == nil)
+                .disabled(model.selectedModel == nil && model.selectedCloudSession == nil)
 
             MenuCommand(.newBrowserTab) { openBrowserPane() }
                 .disabled(model.selectedModel == nil)
@@ -173,10 +179,14 @@ struct BloomCommands: Commands {
             // the way back out of a review and a workspace can have a review open with nothing
             // left in it.
             MenuCommand(.showChanges) {
+                if let cloud = model.selectedCloudSession {
+                    cloud.open(.changes)
+                    return
+                }
                 guard let workspace = model.selectedModel else { return }
                 FileReview.toggle(in: workspace)
             }
-            .disabled(model.selectedModel == nil)
+            .disabled(model.selectedModel == nil && model.selectedCloudSession == nil)
 
             MenuCommand(.reviewAllFiles) {
                 guard let workspace = model.selectedModel else { return }
@@ -904,6 +914,12 @@ struct BloomCommands: Commands {
     /// What Cmd+W would close: the tab in front, or the pane of it the keyboard is in. See
     /// `TabClosure`, which is the rule and which the tests hold.
     private var closableTab: PaneContent? {
+        if let cloud = model.selectedCloudSession {
+            // A Cloud workspace's tabs have no panes to fold, so what is closable is what is in
+            // front, and the last chat stays: see `TabClosure`, which both kinds ask.
+            guard let selected = cloud.selectedTab else { return nil }
+            return cloud.entries.count > 1 || !selected.isChat ? selected : nil
+        }
         guard let workspace = model.selectedModel else { return nil }
         let tabs = WorkspaceTabsStore.shared
         guard let tab = tabs.selectedTab(in: workspace) else { return nil }
@@ -918,6 +934,10 @@ struct BloomCommands: Commands {
     /// either would be a label the next reopen throws away. See `TabRenaming` in the core, which is
     /// also what the tab's own menu asks.
     private var renamableTab: PaneContent? {
+        if let cloud = model.selectedCloudSession {
+            guard let selected = cloud.selectedTab else { return nil }
+            return TabRenaming.canRename(selected, tabKind: nil) ? selected : nil
+        }
         guard let workspace = model.selectedModel else { return nil }
         let tabs = WorkspaceTabsStore.shared
         guard let selected = tabs.selectedTab(in: workspace) else { return nil }
@@ -942,6 +962,10 @@ struct BloomCommands: Commands {
     private func closeSelectedTab() {
         if model.isAskInFront {
             if canCloseAskTab, let id = model.ask.selectedID { model.ask.requestClose(id) }
+            return
+        }
+        if let cloud = model.selectedCloudSession, let target = closableTab {
+            cloud.close(target)
             return
         }
         guard let workspace = model.selectedModel, let target = closableTab else { return }
@@ -993,6 +1017,12 @@ struct BloomCommands: Commands {
 
     /// A terminal in a new tab, placed and selected exactly as the tab strip's own `+` does it.
     private func openPane(_ kind: PaneKind) {
+        if let cloud = model.selectedCloudSession {
+            // The kinds a machine has. A browser tab over a Cloud workspace is its preview, which
+            // is its own door, and the notes are not on the wire yet.
+            if kind == .terminal { cloud.open(.terminal) }
+            return
+        }
         guard let workspace = model.selectedModel else { return }
         NewPane.open(kind, in: workspace) {
             WorkspaceTabsStore.shared.select($0, in: workspace)

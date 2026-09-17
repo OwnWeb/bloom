@@ -1168,6 +1168,14 @@ final class AppModel {
         return cloud.item(id)
     }
 
+    /// The Cloud workspace's session, for the window's own commands: the same New Chat, New
+    /// Terminal Tab, Show Changes and Close Tab a local workspace answers. Nil unless the window
+    /// is on one that can be opened.
+    var selectedCloudSession: CloudWorkspaceSession? {
+        guard let id = selection.cloudWorkspaceID, cloud.item(id)?.canOpen == true else { return nil }
+        return cloud.session(for: id)
+    }
+
     /// Whether the inspector is actually on screen, rather than merely switched on.
     ///
     /// Keyed on `selectedWorkspace` rather than on `selection`, because `DetailColumn` already
