@@ -172,6 +172,10 @@ So:
 
 - **Phase 1 is API keys only.** A team key (Anthropic Console, OpenAI) is the default, and a user
   can add a personal key that overrides it for their own turns, stored encrypted on runbloom.app.
+  **A personal key is used only in a workspace that is not shared.** Everyone in a workspace has a
+  terminal and sudo, so a collaborator could read a running turn's environment; in a shared
+  workspace every turn uses the team key, and sharing a workspace switches it over from the next
+  turn.
   The key is resolved per turn from the prompter. `claude setup-token` tokens are never stored on
   runbloom.app.
 - **Later, personal subscriptions** in workspaces that are not shared: the person runs Claude's own
@@ -575,21 +579,20 @@ symlink goes back.
 
 ## Archive and restore
 
-**Pending the owner's decision.** Phase 1 may ship without the export, in which case archive
-deletes the machine after the confirmation below, the confirmation says the conversation goes with
-it, and restore is a new Cloud workspace on the same branch. What follows is the design if the
-export is kept.
+Archive deletes the machine, and with it the conversation. It is confirmed the way #163 confirms
+it, a preview with hazards and then a confirmation id:
 
-Deleting the Sprite deletes the transcript, so archive is a sequence, driven by bloom-server and
-confirmed the way #163 confirms it (a preview with hazards, then a confirmation id):
+1. The preview reports unpushed commits and uncommitted changes, as today, and says that the
+   conversation is deleted with the Cloud workspace.
+2. bloom-server stops its turns and services and posts a last summary and usage report.
+3. runbloom.app deletes the machine and revokes the secret.
 
-1. The preview reports unpushed commits and uncommitted changes, as today.
-2. bloom-server uploads an export to runbloom.app (`POST /api/machine/workspaces/{id}/export`): the transcript, and the agents' own session files
-   (`~/.claude/projects/...`, Codex rollouts) so a restore can resume the conversation.
-3. runbloom.app deletes the Sprite and revokes the secret.
+Restore is a new Cloud workspace on the same branch. Anything that was not pushed is gone, which
+the preview said.
 
-Restore is a cold create on the same branch, with the export written back before the agent
-starts. Uncommitted work that was not pushed is lost, which the preview said.
+**Later, an export.** Before deleting, bloom-server would upload the transcript and the agents'
+own session files (`~/.claude/projects/...`, Codex rollouts) to runbloom.app, and a restore would
+write them back before the agent starts, so the conversation resumes.
 
 ## The machine-facing endpoints on runbloom.app
 
@@ -604,8 +607,6 @@ No provider name in any path. All take the workspace secret except where noted.
 | `POST /api/machine/workspaces/{id}/turns/{turn}/start` | the key and personal environment, or a limit refusal |
 | `DELETE /api/machine/workspaces/{id}/turns/{turn}` | ending a turn or terminal session |
 | `POST /api/machine/workspaces/{id}/git-credentials` | a short-lived GitHub token for the current turn, or read-only outside one |
-| `POST /api/machine/workspaces/{id}/export` | the archive export (pending) |
-| `GET /api/machine/workspaces/{id}/export` | the export written back on restore (pending) |
 | `GET /.well-known/jwks.json` | public, the key set for workspace and control tokens |
 
 Clients use `POST /api/v1/cloud-workspaces/{id}/session-token` and the rest of `/api/v1/cloud-workspaces`, which accepts a
@@ -691,6 +692,7 @@ steps, summaries and usage, preview exchange with Caddy, `control/*`. References
 | `ServerHTTPTransport.swift`, `ServerOAuthMetadata.swift` | leave; the server verifies runbloom.app tokens, it is not an OAuth resource server with discovery |
 | `ServerPreview.swift`, `ServerPortForward.swift` | rewrite as the Caddy route and preview exchange |
 | `ServerUIBroker.swift`, `ServerUIBridgeTools.swift` | leave for phase 1; agent UI tools on a remote client come later |
+| main's `Sources/BloomCore/Bridge/` `BridgeServer`, `BridgeShim`, `BridgeDispatch`, `BridgeRegistry` and the in-workspace tools: `ChatListTool`, `ChatReadTool`, `WorkspaceDiffTool`, `WhoamiTool`, `CrewTools` (agent start, say, list, stop) | port to run inside bloom-server, scoped to its one workspace. Browser, pane, terminal pane, project and cross-workspace tools are not offered |
 | `docs/SERVER-PROTOCOL.md` | rewrite as `docs/WORKSPACE-PROTOCOL.md`, with the client chapter |
 
 **Step 4, packaging.**
@@ -737,7 +739,7 @@ steps, summaries and usage, preview exchange with Caddy, `control/*`. References
 
 Later pull requests, roughly in this order: the iOS app over HTTPS (#163's UIKit app is SSH first,
 so it is reworked rather than ported), agent UI tools on remote clients, personal subscriptions
-signed in on the machine, the warm pool, agent bridge tools across workspaces through runbloom.app,
+signed in on the machine, the warm pool, the archive export, browser and pane tools, agent bridge tools across workspaces through runbloom.app,
 per-project egress allowlists, Reverb, a read-only viewer, other providers. The web interface is
 built in runbloom.app against the same contract.
 
@@ -749,14 +751,21 @@ control server in the test the way runbloom.app would hand it over, and never co
 written into a fixture. Like `BLOOM_LIVE=1` today, it costs money and is off unless set.
 
 
-## Still to verify on a real Sprite
+## Verified on a real Sprite, and still to verify
 
-- SSE and WebSocket through the public Sprite URL, not only `sprite proxy`, for longer than a turn,
-  and CORS preflight reaching bloom-server unaltered.
-- The Tasks API reachable from a Sprite Service's process, and released cleanly when that process dies.
-- Which user a Sprite runs processes as, since parts of the #163 runtime refuse root.
-- Setting a Sprite's URL public through the API at create.
-- Whether a cold wake really drops process memory, since one measurement kept a process alive.
+The owner asked for these before implementation starts.
+
+- **Verified:** a Sprite's URL is made public at create through the API (`url_settings: {"auth":
+  "public"}`), and can be changed later.
+- **Verified:** `sprite exec` and Services run as the unprivileged user `sprite` (uid 1001) with
+  passwordless sudo. Postgres `initdb` and a server ran as that user, and the #163 checks that
+  refuse root are satisfied.
+- **Measured, not relied on:** after about 600 s idle, with the API reporting cold, a background
+  process was still alive and the wake took 0.4 s, contrary to the documentation. The design keeps
+  to the documented case, where memory is dropped.
+- **Being measured:** SSE and WebSocket through the public URL for longer than a turn, with CORS
+  preflight reaching bloom-server unaltered; the Tasks API from inside a Service's process, and its
+  release when that process dies.
 
 ## Decided by the owner
 
@@ -766,6 +775,11 @@ written into a fixture. Like `BLOOM_LIVE=1` today, it costs money and is off unl
 - The presence lease is 15 minutes.
 - No warm pool in phase 1; every create is cold.
 - No viewer role in phase 1.
+- Personal keys only in workspaces that are not shared.
+- The in-workspace bridge tools are in the server pull request; browser, pane and cross-workspace
+  tools later.
+- Archive deletes the machine and the conversation; the export comes later.
+- The unverified Sprite facts are measured before implementation starts.
 - iOS later, with the contract kept usable by iOS and a web interface.
 - Fly and Sprites are invisible to users: one organisation and one token, owned by runbloom.app.
 - Two pull requests, server then Mac client, each from main, porting from #163 selectively.
@@ -776,10 +790,4 @@ written into a fixture. Like `BLOOM_LIVE=1` today, it costs money and is off unl
 
 ## Still open
 
-- Archive export: kept, or phase 1 archive simply deletes the machine.
-- Personal keys in shared workspaces: a collaborator with sudo can read a running turn's
-  environment, so a personal key is exposed to teammates. Recommended: personal keys only in
-  workspaces that are not shared.
-- A half-day spike on the unverified Sprite facts above before server step 3.
-- Whether the in-workspace bridge tools (chats, diff, subagents) belong in the server pull request,
-  since agents in a Cloud workspace otherwise lose Bloom's MCP tools in phase 1.
+- The results of the SSE, WebSocket and Tasks API measurements.
