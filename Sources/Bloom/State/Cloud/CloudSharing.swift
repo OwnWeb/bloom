@@ -13,6 +13,7 @@ final class CloudSharing {
 
     private(set) var members: CloudWorkspaceMembers?
     private(set) var teamMembers: [RunbloomPerson] = []
+    private(set) var hasReadTeam = false
     private(set) var shares: [PreviewShare] = []
     private(set) var isBusy = false
     var problem: String?
@@ -21,6 +22,14 @@ final class CloudSharing {
         self.workspaceID = workspaceID
         self.teamID = teamID
         self.cloud = cloud
+    }
+
+    /// Whether a collaborator has left the workspace's team. runbloom.app keeps their row, so the
+    /// owner can remove them, and it gives them nothing while they are gone. Read against the team's
+    /// members, and only once those were read: an empty list that failed to load is not a team
+    /// everybody left.
+    func hasLeftTeam(_ member: CloudWorkspaceMembers.Member) -> Bool {
+        member.role != "owner" && hasReadTeam && !teamMembers.contains { $0.id == member.user.id }
     }
 
     /// Team members who are not in the workspace yet, for adding.
@@ -34,7 +43,10 @@ final class CloudSharing {
             let api = cloud.api
             members = try await api.members(of: workspaceID.rawValue)
             shares = try await api.shares(of: workspaceID.rawValue)
-            teamMembers = (try? await api.teamMembers(team: teamID)) ?? []
+            if let team = try? await api.teamMembers(team: teamID) {
+                teamMembers = team
+                hasReadTeam = true
+            }
         }
     }
 

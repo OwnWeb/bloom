@@ -56,7 +56,7 @@ struct CloudSharePopover: View {
                 ForEach(members.members) { member in
                     HStack {
                         Text(member.user.name)
-                        Text(member.role == "owner" ? "Owner" : "Collaborator")
+                        Text(member.role == "owner" ? "Owner" : sharing.hasLeftTeam(member) ? "Left the team" : "Collaborator")
                             .foregroundStyle(Palette.textSecondary)
                         Spacer()
                         if member.role != "owner" {
@@ -92,7 +92,7 @@ struct CloudSharePopover: View {
                 .buttonStyle(.borderless)
                 .disabled(sharing.isBusy)
             }
-            Text("Anyone with a link can open the project's app for an hour at a time, until the link expires or you revoke it.")
+            Text("Anyone with a link can open the project's app for an hour at a time, until the link expires, you revoke it, or you can no longer share this Cloud workspace.")
                 .font(.caption)
                 .foregroundStyle(Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
