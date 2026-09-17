@@ -65,6 +65,11 @@ struct RemoteWorkspaceRuntimeTests {
         let reused = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Something else"), commandID: "retry-1"),
                                                    as: Self.caller(Self.freek))
         #expect(reused.error?.code == .commandIDReused)
+
+        // The same id from somebody else is their own command, never a copy of Freek's reply.
+        let other = await fixture.runtime.respond(to: CommandRequest(.renameChat(chatID: fixture.session.id.rawValue, title: "Theirs"), commandID: "retry-1"),
+                                                  as: Self.caller(Self.seb))
+        #expect(other.error == nil)
         await fixture.runtime.shutdown()
     }
 
@@ -73,7 +78,7 @@ struct RemoteWorkspaceRuntimeTests {
         let fixture = try await fixture()
         let request = CommandRequest(.renameChat(chatID: fixture.session.id.rawValue, title: "Review"), commandID: "interrupted")
         let entry = #"{"recorded_at":"2026-09-17T10:00:00.000Z","request":"# + String(decoding: try WireJSON.encode(request), as: UTF8.self) + "}"
-        try await fixture.store.setSetting("remote.command.interrupted", entry)
+        try await fixture.store.setSetting("remote.command.\(Self.freek.userID).interrupted", entry)
         let reply = await fixture.runtime.respond(to: request, as: Self.caller(Self.freek))
         #expect(reply.error?.code == .outcomeUnknown)
         await fixture.runtime.shutdown()
@@ -193,6 +198,24 @@ struct RemoteWorkspaceRuntimeTests {
                 break
             }
         }
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("revoking somebody removes their queued prompts and leaves everybody else's")
+    func revokeRemovesTheirPrompts() async throws {
+        let fixture = try await fixture()
+        let chat = fixture.session.id.rawValue
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "One")), as: Self.caller(Self.freek))
+        await waitUntil("the first turn is running") { fixture.runners.sent.withLock { $0 }.count == 1 }
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Two")), as: Self.caller(Self.seb))
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Three")), as: Self.caller(Self.freek))
+        await fixture.runtime.revoke(userID: Self.seb.userID)
+        let reply = await fixture.runtime.respond(to: CommandRequest(.transcript(chatID: chat, afterSeq: -1, limit: nil)), as: Self.caller(Self.freek))
+        guard case .transcript(let transcript) = reply.result else { Issue.record("No transcript"); return }
+        #expect(transcript.queue.prompts.map(\.text) == ["Three"])
+        #expect(transcript.queue.error == nil, "The chat is not paused for the people still in it")
+        await fixture.runners.finishTurn()
+        await waitUntil("Freek's next prompt went") { fixture.runners.sent.withLock { $0 } == ["One", "Three"] }
         await fixture.runtime.shutdown()
     }
 

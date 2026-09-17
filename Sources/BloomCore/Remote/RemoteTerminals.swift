@@ -14,6 +14,13 @@ public actor RemoteTerminals {
     private let makeAttachProcess: @Sendable (TmuxCommand, String, String) -> StreamingProcess
     private var attachments: [UUID: RemoteTerminalAttachment] = [:]
     private var closed = false
+    /// The session being created now, which the next creation waits behind. Creation sets tmux's
+    /// global `update-environment` for the moment it runs, and two at once would each pick up the
+    /// other's list.
+    private var creating: Task<Void, Error>?
+
+    /// The tmux user option holding who opened a session.
+    static let ownerOption = "@bloom_owner"
 
     public static let attachmentLimit = 32
 
@@ -36,40 +43,89 @@ public actor RemoteTerminals {
 
     /// The tmux session behind a terminal name, created when it does not exist yet.
     ///
-    /// `environment` reaches the shell only when the session is created: tmux reads `-e` at
-    /// `new-session` and never again, so a session that already exists keeps the environment it
-    /// started with. That is the right answer for a person's own keys, which belong to the shell
-    /// they opened rather than to whoever attaches later.
+    /// `environment` reaches the shell only when the session is created, and never through tmux's
+    /// arguments: a command line is readable by every process on the machine, and these are
+    /// people's keys. tmux copies the variables `update-environment` names from the creating
+    /// client's own environment, so they are handed to that one short-lived process instead. A
+    /// session that already exists keeps the environment it started with, which is the right
+    /// answer for a person's own keys: they belong to the shell they opened.
+    ///
+    /// **A terminal belongs to whoever opened it.** Its shell carries that person's key, their
+    /// personal environment and the turn their git credentials are asked for under, so somebody
+    /// else attaching by name would act as them. `owner` nil is the server's own, such as the
+    /// shell a run script is typed into, which anybody may open.
     @discardableResult
-    public func ensureSession(name: String, environment: [String: String] = [:]) async throws -> String {
+    public func ensureSession(name: String, environment: [String: String] = [:], owner: String? = nil) async throws -> String {
         guard !closed else { throw RemoteFailure.shuttingDown }
         try Self.validate(name: name)
-        for key in environment.keys where key.isEmpty || key.contains("=") || key.contains("\0") {
-            throw RemoteFailure.invalid("Environment variable names cannot be empty or contain \"=\".")
+        for key in environment.keys where !Self.isValidVariableName(key) {
+            throw RemoteFailure.invalid("Environment variable names can only hold letters, digits and underscores.")
         }
         let command = try tmuxCommand()
         try await daemon.start(command: command, cwd: worktree)
         let session = TmuxSessions.sessionName(workspaceID: workspaceID, paneID: name)
-        let exists = try await Shell.run(command.executable, command.arguments(["has-session", "-t", "=" + session]), cwd: worktree)
-        guard !exists.ok else { return session }
-        var arguments = ["new-session", "-d", "-s", session, "-c", worktree]
-        for (key, value) in environment.sorted(by: { $0.key < $1.key }) {
-            arguments += ["-e", "\(key)=\(value)"]
+        if try await exists(session, command: command) {
+            try await requireOwner(owner, of: session, command: command)
+            return session
         }
-        let created = try await Shell.run(command.executable, command.arguments(arguments), cwd: worktree)
-        if !created.ok {
+        let previous = creating
+        let creation = Task { [worktree] in
+            _ = try? await previous?.value
+            try await Self.create(session: session, environment: environment, owner: owner, command: command, worktree: worktree)
+        }
+        creating = creation
+        do {
+            try await creation.value
+        } catch {
             // Two clients opening the same new terminal at once: one of them creates it.
-            let raced = try await Shell.run(command.executable, command.arguments(["has-session", "-t", "=" + session]), cwd: worktree)
-            guard raced.ok else { throw RemoteFailure(.unavailable, created.stderr) }
+            guard try await exists(session, command: command) else { throw error }
+            try await requireOwner(owner, of: session, command: command)
         }
         return session
     }
 
+    private static func create(session: String, environment: [String: String], owner: String?, command: TmuxCommand, worktree: String) async throws {
+        let names = environment.keys.sorted().joined(separator: " ")
+        _ = try await Shell.run(command.executable, command.arguments(["set-option", "-g", "update-environment", names]), cwd: worktree)
+        // One tmux invocation, so the owner is on the session before anybody can attach to it.
+        var arguments = ["new-session", "-d", "-s", session, "-c", worktree]
+        // `=name:` because an option's target is a pane, and `=name` alone matches no pane.
+        if let owner { arguments += [";", "set-option", "-t", "=" + session + ":", ownerOption, owner] }
+        let created = try await Shell.run(command.executable, command.arguments(arguments), cwd: worktree,
+                                          env: Shell.environment(extra: environment))
+        // Emptied again at once, so a later attach does not copy the attaching client's variables
+        // of those names over this session's.
+        _ = try await Shell.run(command.executable, command.arguments(["set-option", "-g", "update-environment", ""]), cwd: worktree)
+        guard created.ok else { throw RemoteFailure(.unavailable, created.stderr) }
+    }
+
+    private func exists(_ session: String, command: TmuxCommand) async throws -> Bool {
+        try await Shell.run(command.executable, command.arguments(["has-session", "-t", "=" + session]), cwd: worktree).ok
+    }
+
+    private func requireOwner(_ requester: String?, of session: String, command: TmuxCommand) async throws {
+        // `-q` answers an unset option as empty, so any failure left is a real one and refuses.
+        let shown = try await Shell.run(command.executable, command.arguments(["show-options", "-t", "=" + session + ":", "-qv", Self.ownerOption]),
+                                        cwd: worktree)
+        guard shown.ok else { throw RemoteFailure(.unavailable, "This terminal could not be checked. Try again.") }
+        let owner = shown.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard owner.isEmpty || owner == requester else {
+            throw RemoteFailure(.missingAbility, "This terminal belongs to somebody else. Open a terminal of your own.")
+        }
+    }
+
+    /// POSIX's shape for a variable name. Anything wider could not be named in `update-environment`,
+    /// which splits on spaces.
+    static func isValidVariableName(_ name: String) -> Bool {
+        guard let first = name.utf8.first, !(48...57).contains(first) else { return false }
+        return name.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 95 }
+    }
+
     /// Attaches to a terminal, creating its session first when there is none.
     public func attach(
-        name: String, environment: [String: String] = [:], columns: Int = 80, rows: Int = 24
+        name: String, environment: [String: String] = [:], owner: String? = nil, columns: Int = 80, rows: Int = 24
     ) async throws -> RemoteTerminalAttachment {
-        let session = try await ensureSession(name: name, environment: environment)
+        let session = try await ensureSession(name: name, environment: environment, owner: owner)
         guard !closed else { throw RemoteFailure.shuttingDown }
         guard attachments.count < Self.attachmentLimit else {
             throw RemoteFailure(.unavailable, "Too many terminal connections are open.")
@@ -89,13 +145,33 @@ public actor RemoteTerminals {
         attachments[id] = nil
     }
 
-    /// Ends a terminal's shell. Its attachments see their output finish.
-    public func close(name: String) async throws {
+    /// Ends a terminal's shell. Its attachments see their output finish. A person may close only
+    /// a terminal they could attach to; `requester` nil is the server, which closes any.
+    public func close(name: String, requester: String? = nil) async throws {
         try Self.validate(name: name)
         guard let executable = Shell.which("tmux") else { return }
         let command = TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath)
         let session = TmuxSessions.sessionName(workspaceID: workspaceID, paneID: name)
+        if let requester { try await requireOwner(requester, of: session, command: command) }
         _ = try await Shell.run(executable, command.arguments(["kill-session", "-t", "=" + session]), cwd: stateDirectory)
+    }
+
+    /// Ends every shell a person opened, which is what losing access to the workspace means for
+    /// them: the shell holds their key and their turn.
+    public func closeAll(ownedBy owner: String) async throws {
+        guard let executable = Shell.which("tmux") else { return }
+        let command = TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath)
+        let listed = try await Shell.run(executable, command.arguments(["list-sessions", "-F", "#{session_name} #{\(Self.ownerOption)}"]),
+                                         cwd: stateDirectory)
+        guard listed.ok else { return }
+        for line in listed.stdout.split(separator: "\n") {
+            // A space, because tmux prints a tab in a format as `_`. Neither a session name nor a
+            // user id holds one.
+            let fields = line.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count == 2, fields[1] == owner,
+                  !TmuxSessions.sessions(ofWorkspace: workspaceID, in: [fields[0]]).isEmpty else { continue }
+            _ = try await Shell.run(executable, command.arguments(["kill-session", "-t", "=" + fields[0]]), cwd: stateDirectory)
+        }
     }
 
     /// Ends every shell this workspace has, which is what archiving it means for its terminals.

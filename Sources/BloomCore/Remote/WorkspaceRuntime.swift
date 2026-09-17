@@ -135,19 +135,24 @@ public actor WorkspaceRuntime {
             await report(.humanInput)
         }
         guard request.operation.mutates else { return await execute(request, as: caller) }
-        if let task = commands[request.commandID] {
+        let key = Self.journalKey(request.commandID, caller: caller)
+        if let task = commands[key] {
             _ = await task.value
-            return await recorded(request)
+            return await recorded(request, key: key)
         }
         // Registered before the first suspension, so two retries arriving together share one run.
-        let task = Task { await self.performOnce(request, as: caller) }
-        commands[request.commandID] = task
+        let task = Task { await self.performOnce(request, as: caller, key: key) }
+        commands[key] = task
         let reply = await task.value
-        commands.removeValue(forKey: request.commandID)
+        commands.removeValue(forKey: key)
         return reply
     }
 
-    private static func journalKey(_ commandID: String) -> String { "remote.command." + commandID }
+    /// Scoped to the person as well as the id. A command id is chosen by the client, so one keyed
+    /// by id alone let anybody who learnt another person's id read that person's recorded reply.
+    private static func journalKey(_ commandID: String, caller: RemoteCaller) -> String {
+        "remote.command." + (caller.author?.userID ?? "machine") + "." + commandID
+    }
 
     private struct JournalEntry: Codable {
         var request: CommandRequest
@@ -160,21 +165,21 @@ public actor WorkspaceRuntime {
         }
     }
 
-    private func performOnce(_ request: CommandRequest, as caller: RemoteCaller) async -> CommandReply {
+    private func performOnce(_ request: CommandRequest, as caller: RemoteCaller, key: String) async -> CommandReply {
         do {
-            if try await store.setting(Self.journalKey(request.commandID)) != nil { return await recorded(request) }
-            try await journal(JournalEntry(request: request, reply: nil, recordedAt: Date()))
+            if try await store.setting(key) != nil { return await recorded(request, key: key) }
+            try await journal(JournalEntry(request: request, reply: nil, recordedAt: Date()), key: key)
             let reply = await execute(request, as: caller)
-            try await journal(JournalEntry(request: request, reply: reply, recordedAt: Date()))
+            try await journal(JournalEntry(request: request, reply: reply, recordedAt: Date()), key: key)
             return reply
         } catch {
             return CommandReply(commandID: request.commandID, error: RemoteFailure.wire(error))
         }
     }
 
-    private func recorded(_ request: CommandRequest) async -> CommandReply {
+    private func recorded(_ request: CommandRequest, key: String) async -> CommandReply {
         do {
-            guard let text = try await store.setting(Self.journalKey(request.commandID)) else {
+            guard let text = try await store.setting(key) else {
                 throw RemoteFailure(.outcomeUnknown, "The outcome of this command is unknown. Refresh before trying again.")
             }
             let entry = try WireJSON.decode(JournalEntry.self, from: Data(text.utf8))
@@ -188,9 +193,9 @@ public actor WorkspaceRuntime {
         }
     }
 
-    private func journal(_ entry: JournalEntry) async throws {
+    private func journal(_ entry: JournalEntry, key: String) async throws {
         let data = try WireJSON.encode(entry)
-        try await store.setSetting(Self.journalKey(entry.request.commandID), String(decoding: data, as: UTF8.self))
+        try await store.setSetting(key, String(decoding: data, as: UTF8.self))
     }
 
     private func execute(_ request: CommandRequest, as caller: RemoteCaller) async -> CommandReply {

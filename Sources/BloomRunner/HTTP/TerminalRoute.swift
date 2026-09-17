@@ -79,7 +79,7 @@ enum TerminalRoute {
 
         let attachment: RemoteTerminalAttachment
         do {
-            attachment = try await dependencies.runtime.terminals().attach(name: name, environment: environment)
+            attachment = try await dependencies.runtime.terminals().attach(name: name, environment: environment, owner: token.author?.userID)
         } catch {
             try await outbound.close(.unexpectedServerError, reason: RemoteFailure.wire(error).message)
             return
@@ -89,6 +89,12 @@ enum TerminalRoute {
             await attachment.close()
         }
         defer { Task { await dependencies.connections.remove(connection) } }
+        // A revoke that landed during the two runbloom.app calls above found no socket to close.
+        if await dependencies.verifier.revocations.isRevoked(token.subject, issuedAt: token.issuedAt) {
+            await attachment.close()
+            try await outbound.close(.policyViolation, reason: "Your access to this Cloud workspace was removed.")
+            return
+        }
 
         // Output and the token's deadline run beside the socket's own reads, which stay in this
         // task because the inbound iterator cannot be handed to another one.
@@ -129,8 +135,11 @@ enum TerminalRoute {
                 switch frame {
                 case .resize(let columns, let rows): await attachment.resize(columns: columns, rows: rows)
                 case .reauth(let raw):
+                    // The same person, and still allowed the terminal: a renewal must not carry a
+                    // shell past the moment its owner's access narrowed.
                     guard let fresh = try? await dependencies.verifier.verify(raw, as: .session),
-                          fresh.author?.userID == token.author?.userID else { continue }
+                          fresh.author?.userID == token.author?.userID,
+                          fresh.abilities.contains("view"), fresh.abilities.contains("terminal") else { continue }
                     await expiry.extend(to: fresh.expiresAt)
                 case .auth: continue
                 }

@@ -64,7 +64,8 @@ public enum ServeCommand {
         let awake = AwakeController(host: host, runtime: runtime, reporter: reporter)
         let machineEnvironment = MachineEnvironment { try await client.environment() }
         let keys = KeySet.live(url: configuration.jwksURL, client: http)
-        let verifier = TokenVerifier(issuer: configuration.issuer, workspaceID: configuration.workspaceID, keys: keys)
+        let verifier = TokenVerifier(issuer: configuration.issuer, workspaceID: configuration.workspaceID, keys: keys,
+                                     revocations: Revocations(store: store))
 
         await runtime.observeActivity { event in
             switch event {
@@ -105,7 +106,7 @@ public enum ServeCommand {
         let terminals = TerminalConnections()
         let supervisor = MachineSupervisor(
             runtime: runtime, awake: awake, reporter: reporter, streams: streams, terminals: terminals,
-            environment: machineEnvironment, secret: secret, updater: { version, sha256 in try MachineUpdate.start(version: version, sha256: sha256) }
+            environment: machineEnvironment, secret: secret, revocations: verifier.revocations, updater: { version, sha256 in try MachineUpdate.start(version: version, sha256: sha256) }
         )
         let server = WorkspaceHTTPServer(dependencies: .init(
             runtime: runtime, verifier: verifier, gate: gate, control: supervisor, store: store,

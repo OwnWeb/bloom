@@ -205,6 +205,20 @@ struct TokenVerifierTests {
 
     // MARK: Replay
 
+    @Test func aTokenIssuedBeforeItsSubjectWasRevokedIsRefusedAndOneIssuedLaterIsNot() async throws {
+        let verifier = issuer.verifier(clock: clock)
+        let before = issuer.session(issuedAt: clock.now)
+        _ = try await verifier.verify(before, as: .session)
+        await verifier.revocations.revoke(TestTokenIssuer.defaultUserID)
+        await #expect(throws: RemoteFailure.self) { try await verifier.verify(before, as: .session) }
+        let share = issuer.preview(subject: "share:01k5a7e4f5g6h7j8k9m0n1p2q3", issuedAt: clock.now)
+        await verifier.revocations.revoke("share:01k5a7e4f5g6h7j8k9m0n1p2q3")
+        await #expect(throws: RemoteFailure.self) { try await verifier.verify(share, as: .preview) }
+
+        clock.advance(by: TokenVerifier.clockSkew + 1)
+        _ = try await verifier.verify(issuer.session(issuedAt: clock.now), as: .session)
+    }
+
     @Test func aPreviewTokenIsGoodForOneUse() async throws {
         let verifier = issuer.verifier(clock: clock)
         let raw = issuer.preview(issuedAt: clock.now)

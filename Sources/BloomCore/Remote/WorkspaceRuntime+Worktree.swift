@@ -169,7 +169,7 @@ extension WorkspaceRuntime {
             await attachment.close()
             return .terminal(TerminalRecord(name: String(name), title: script.name))
         case .closeTerminal(let name):
-            try await terminals().close(name: name)
+            try await terminals().close(name: name, requester: caller.author?.userID)
             return .accepted
         default:
             throw RemoteFailure(.internal, "This operation is not a file operation.")

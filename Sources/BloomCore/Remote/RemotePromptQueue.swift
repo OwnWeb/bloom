@@ -37,6 +37,8 @@ actor RemotePromptQueue {
     private var cancellations: [SessionID: Int] = [:]
     /// The runbloom.app turn each chat is running, ended when the turn comes to rest.
     private var running: [SessionID: String] = [:]
+    /// Whose turn each chat is running, so a revoke can find it.
+    private var runningAuthors: [SessionID: String] = [:]
     private var closed = false
 
     init(
@@ -124,6 +126,21 @@ actor RemotePromptQueue {
         await changed(sessionID)
     }
 
+    /// Somebody lost access. Their queued prompts are removed, since runbloom.app would refuse
+    /// each at the front of the queue and pause the chat for everybody behind it. Answers the
+    /// chats running one of their turns, for the runtime to stop.
+    func revoke(userID: String, sessions: [SessionID]) async -> [SessionID] {
+        guard !closed else { return [] }
+        for id in sessions {
+            let theirs = ((try? await store.pendingDeliveries(sessionID: id)) ?? [])
+                .filter { $0.author?.userID == userID && $0.state == .pending }
+            for delivery in theirs {
+                try? await cancel(delivery.id, sessionID: id)
+            }
+        }
+        return runningAuthors.filter { $0.value == userID }.map(\.key)
+    }
+
     func pause(_ id: SessionID) async throws {
         try await store.setSetting(Self.pauseKey(id), "true")
         let task = tasks[id]
@@ -168,6 +185,7 @@ actor RemotePromptQueue {
     func runningTurn(_ id: SessionID) -> String? { running[id] }
 
     func turnEnded(_ id: SessionID, ending: RemoteTurnEnd) async {
+        runningAuthors.removeValue(forKey: id)
         let turnID = running.removeValue(forKey: id)
         if let turnID { await gate.end(turnID: turnID) }
         guard !closed else { return }
@@ -262,6 +280,7 @@ actor RemotePromptQueue {
 
                 guard try await store.claimDelivery(id: delivery.id) else { continue }
                 if let turnID = delivery.remoteTurnID { running[id] = turnID }
+                runningAuthors[id] = delivery.author?.userID
                 await changed(id)
                 await started(id, delivery)
                 do {

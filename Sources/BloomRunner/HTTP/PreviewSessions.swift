@@ -16,13 +16,18 @@ actor PreviewSessions {
     private struct Entry: Codable {
         var subject: String
         var expiresAt: Date
+        /// Compared with a revocation of the subject, so a person removed from the workspace or a
+        /// withdrawn share link loses a cookie handed out before, not after.
+        var createdAt: Date?
     }
 
     private let store: Store
+    private let revocations: Revocations
     private let now: @Sendable () -> Date
 
-    init(store: Store, now: @escaping @Sendable () -> Date = Date.init) {
+    init(store: Store, revocations: Revocations, now: @escaping @Sendable () -> Date = Date.init) {
         self.store = store
+        self.revocations = revocations
         self.now = now
     }
 
@@ -31,7 +36,7 @@ actor PreviewSessions {
         for index in bytes.indices { bytes[index] = UInt8.random(in: .min ... .max) }
         let cookie = Data(bytes).base64EncodedString().replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-        let entry = Entry(subject: subject, expiresAt: now().addingTimeInterval(lifetime))
+        let entry = Entry(subject: subject, expiresAt: now().addingTimeInterval(lifetime), createdAt: now())
         if let data = try? JSONEncoder().encode(entry) {
             try? await store.setSetting(Self.key(cookie), String(decoding: data, as: UTF8.self))
         }
@@ -43,6 +48,10 @@ actor PreviewSessions {
               let text = try? await store.setting(Self.key(cookie)),
               let entry = try? JSONDecoder().decode(Entry.self, from: Data(text.utf8)) else { return nil }
         guard entry.expiresAt > now() else {
+            try? await store.setSetting(Self.key(cookie), nil)
+            return nil
+        }
+        if await revocations.isRevoked(entry.subject, issuedAt: entry.createdAt ?? .distantPast) {
             try? await store.setSetting(Self.key(cookie), nil)
             return nil
         }
