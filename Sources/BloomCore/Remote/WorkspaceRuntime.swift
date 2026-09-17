@@ -57,6 +57,10 @@ public actor WorkspaceRuntime {
     var archivePreviews: [String: (preview: ArchivePreviewRecord, createdAt: Date)] = [:]
     var isClosed = false
     var shutdownTask: Task<Void, Never>?
+    /// Who is told what happened, for summaries, usage and the awake policy. See
+    /// `WorkspaceRuntime+Reporting`.
+    var activityObserver: (@Sendable (RemoteActivityEvent) async -> Void)?
+    var lastSetupSucceeded: Bool?
 
     public init(
         store: Store,
@@ -111,7 +115,10 @@ public actor WorkspaceRuntime {
             return CommandReply(commandID: request.commandID, error: RemoteFailure.wire(error))
         }
         guard !isClosed else { return CommandReply(commandID: request.commandID, error: RemoteFailure.shuttingDown.wire) }
-        if request.operation.isHumanInput, let author = caller.author { presence.noteInput(author, at: Date()) }
+        if request.operation.isHumanInput, let author = caller.author {
+            presence.noteInput(author, at: Date())
+            await report(.humanInput)
+        }
         guard request.operation.mutates else { return await execute(request, as: caller) }
         if let task = commands[request.commandID] {
             _ = await task.value
@@ -271,6 +278,8 @@ public actor WorkspaceRuntime {
             await self?.holdsPromptsForSetup ?? false
         }, changed: { [weak self] id in
             await self?.queueChanged(id)
+        }, started: { [weak self] id, delivery in
+            await self?.turnStarted(id, delivery: delivery)
         }, settled: { [weak self] id, ending in
             await self?.turnSettled(id, ending: ending)
         })
@@ -307,9 +316,15 @@ public actor WorkspaceRuntime {
         return live
     }
 
-    /// Called when a turn comes to rest, after the queue has ended runbloom.app's turn. The bridge
-    /// tools hang their subagent reports here.
-    func turnSettled(_ id: SessionID, ending: RemoteTurnEnd) async {}
+    /// Called when a turn comes to rest, after the queue has ended runbloom.app's turn.
+    func turnSettled(_ id: SessionID, ending: RemoteTurnEnd) async {
+        await report(.turnFinished(chat: id))
+    }
+
+    func turnStarted(_ id: SessionID, delivery: Delivery) async {
+        let agent = (try? await store.session(id: id)?.agentKind) ?? .claudeCode
+        await report(.turnStarted(chat: id, turnID: delivery.remoteTurnID, author: delivery.author, agent: agent))
+    }
 
     public static let installedAgents: AgentDiscovery = {
         AgentCatalog.installedKinds().filter(\.canRunWorkspaces)

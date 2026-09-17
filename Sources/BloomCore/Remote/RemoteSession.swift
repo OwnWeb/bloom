@@ -20,6 +20,8 @@ actor RemoteSession {
     private(set) var runner: (any SessionRunner)?
     private var launchIdentity: String?
     private(set) var isBusy = false
+    /// When the turn in progress was sent, for the summary's `running_since`.
+    private(set) var busySince: Date?
     private(set) var streamingText = ""
     private var eventTask: Task<Void, Never>?
     private var isClosed = false
@@ -72,6 +74,7 @@ actor RemoteSession {
         guard let runner else { throw RemoteFailure(.internal, "The agent was not started before its turn.") }
         guard !isBusy else { throw RemoteFailure(.busy, "The agent is busy. Wait for it to finish or stop it first.") }
         isBusy = true
+        busySince = Date()
         isSending = true
         wasStopped = false
         claimedEnd = false
@@ -87,7 +90,7 @@ actor RemoteSession {
             if claimEnd() {
                 await onTurnEnded(wasStopped ? .stopped(error.localizedDescription) : .failed(error.localizedDescription))
             }
-            isBusy = false
+            endTurn()
             throw error
         }
     }
@@ -111,15 +114,20 @@ actor RemoteSession {
             streamingText = ""
             await onStream("", true)
             await onTurnEnded(wasStopped ? .stopped(result.summary) : (result.isError ? .failed(result.summary) : .completed(result.summary)))
-            isBusy = false
+            endTurn()
         case .error(let error):
             guard claimEnd() else { return }
             streamingText = ""
             await onStream("", true)
             await onTurnEnded(wasStopped ? .stopped(error.message) : .failed(error.message))
-            isBusy = false
+            endTurn()
         default: break
         }
+    }
+
+    private func endTurn() {
+        isBusy = false
+        busySince = nil
     }
 
     /// One report per turn, whichever of a result, an error or a failed send arrives first.
@@ -149,7 +157,7 @@ actor RemoteSession {
         if let session, session.state == .cancelled, wasStopped {
             streamingText = ""
             if claimEnd() { await onTurnEnded(.stopped("")) }
-            isBusy = false
+            endTurn()
         }
     }
 

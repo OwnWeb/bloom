@@ -29,6 +29,7 @@ actor RemotePromptQueue {
     private let held: @Sendable (SessionID) async -> Bool
     private let changed: @Sendable (SessionID) async -> Void
     private let settled: @Sendable (SessionID, RemoteTurnEnd) async -> Void
+    private let started: @Sendable (SessionID, Delivery) async -> Void
 
     private var tasks: [SessionID: Task<Void, Never>] = [:]
     private var errors: [SessionID: String] = [:]
@@ -44,6 +45,7 @@ actor RemotePromptQueue {
         load: @escaping LoadSession,
         held: @escaping @Sendable (SessionID) async -> Bool = { _ in false },
         changed: @escaping @Sendable (SessionID) async -> Void = { _ in },
+        started: @escaping @Sendable (SessionID, Delivery) async -> Void = { _, _ in },
         settled: @escaping @Sendable (SessionID, RemoteTurnEnd) async -> Void = { _, _ in }
     ) {
         self.store = store
@@ -52,6 +54,7 @@ actor RemotePromptQueue {
         self.held = held
         self.changed = changed
         self.settled = settled
+        self.started = started
     }
 
     static func pauseKey(_ id: SessionID) -> String { "remote.queue.paused." + id.rawValue }
@@ -161,6 +164,9 @@ actor RemotePromptQueue {
 
     // MARK: - Turns ending
 
+    /// The runbloom.app turn a chat is running, if any.
+    func runningTurn(_ id: SessionID) -> String? { running[id] }
+
     func turnEnded(_ id: SessionID, ending: RemoteTurnEnd) async {
         if let turnID = running.removeValue(forKey: id) { await gate.end(turnID: turnID) }
         guard !closed else { return }
@@ -248,6 +254,7 @@ actor RemotePromptQueue {
                 guard try await store.claimDelivery(id: delivery.id) else { continue }
                 if let turnID = delivery.remoteTurnID { running[id] = turnID }
                 await changed(id)
+                await started(id, delivery)
                 do {
                     // Its own task, so cancelling the drain pauses the queue rather than a runner
                     // halfway through writing a turn.

@@ -76,7 +76,7 @@ extension WorkspaceRuntime {
         let manager = WorkspaceManager(store: store)
         let port = await manager.ensurePort(for: workspace)
         let succeeded = await manager.runSetup(workspace: workspace, repo: repo, port: port, onOutput: { _ in })
-        await setupFinished()
+        await setupFinished(succeeded: succeeded)
         guard succeeded else { throw RemoteFailure(.internal, "Setup failed. Check the setup output before trying again.") }
         return .accepted
     }

@@ -296,6 +296,9 @@ id_type_allowed_files=(
   'Sources/BloomCore/Agent/Grok/GrokClient.swift'    # the same protocol's request envelopes
   'Sources/BloomCore/Agent/Grok/GrokRunner.swift'    # Grok session ids assigned by that server
   'Sources/BloomCore/Agent/AgentRetry.swift'   # the same stream-json, one line of it
+  'Sources/BloomCore/Remote/RemoteSummary.swift'      # runbloom.app's summary body, ids as JSON strings
+  'Sources/BloomCore/Remote/RemoteUsageMeter.swift'   # runbloom.app's usage body and the kernel's boot id
+  'Sources/BloomServer/Machine/MachineConfiguration.swift' # runbloom.app's workspace.json
 )
 # Names that are never a Bloom row, wherever they appear. This list should only
 # ever get shorter. A name not on it is a new mistake.
@@ -345,6 +348,9 @@ id_type_allowed_properties=(
   'Sources/BloomCore/Agent/Delivery.swift:remoteTurnID'               # runbloom.app's turn, a ULID it assigns
   'Sources/BloomCore/Model/MessageAuthor.swift:userID'                # runbloom.app's user, the token's sub
   'Sources/BloomCore/Remote/RemoteEventHub.swift:userID'              # the same user, holding an event stream open
+  'Sources/BloomServer/HTTP/EventStreams.swift:userID'                # the same user, on the server's side of the stream
+  'Sources/BloomServer/HTTP/ControlRoutes.swift:userID'               # runbloom.app's user, named in a revoke
+  'Sources/BloomServer/Git/GitCredentialRoute.swift:chatID'           # a chat id off the loopback wire, typed on use
 )
 # A stored property whose name ends in ID or Ids and whose type is a bare
 # String. Trailing `{` is excluded by the `$` anchor, which is what leaves

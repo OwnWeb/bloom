@@ -3033,6 +3033,21 @@ public actor Store {
         ).map(Self.message(from:))
     }
 
+    /// The newest row of these kinds in a workspace, which is what a Cloud workspace's summary
+    /// quotes as its last message.
+    public func lastMessage(workspaceID: WorkspaceID, kinds: [MessageKind]) throws -> Message? {
+        guard !kinds.isEmpty else { return nil }
+        let marks = Array(repeating: "?", count: kinds.count).joined(separator: ", ")
+        return try db.query(
+            """
+            SELECT messages.* FROM messages JOIN sessions ON sessions.id = messages.session_id
+            WHERE sessions.workspace_id = ? AND sessions.archived_at IS NULL AND messages.kind IN (\(marks))
+            ORDER BY messages.id DESC LIMIT 1
+            """,
+            [.text(workspaceID)] + kinds.map { .text($0.rawValue) }
+        ).first.map(Self.message(from:))
+    }
+
     /// The newest transcript row id in a workspace, or 0 when it has none.
     public func latestMessageID(workspaceID: WorkspaceID) throws -> Int64 {
         try db.query(

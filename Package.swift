@@ -43,14 +43,28 @@ let linuxTestDirectory = URL(fileURLWithPath: #filePath).deletingLastPathCompone
 let notOnLinux = try FileManager.default.contentsOfDirectory(atPath: linuxTestDirectory.path)
     .filter { !linuxTests.contains($0) }
 
+let serverDependencies: [Target.Dependency] = [
+    "BloomCore",
+    .product(name: "BloomProtocol", package: "BloomProtocol"),
+    .product(name: "Hummingbird", package: "hummingbird"),
+    .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
+    .product(name: "AsyncHTTPClient", package: "async-http-client"),
+    .product(name: "HTTPTypes", package: "swift-http-types"),
+]
+
 let package = Package(
     name: "Bloom",
     products: [
+        .executable(name: "bloom-server", targets: ["bloom-server"]),
         .executable(name: "bloom-bridge", targets: ["bloom-bridge"]),
         .library(name: "BloomCore", targets: ["BloomCore"]),
     ],
     dependencies: [
         .package(path: "Packages/BloomProtocol"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.26.0"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird-websocket.git", from: "2.7.0"),
+        .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.36.0"),
+        .package(url: "https://github.com/apple/swift-http-types.git", from: "1.4.0"),
         // CryptoKit's API for Linux, where CryptoKit does not exist. The Mac build imports
         // CryptoKit itself and never resolves this.
         .package(url: "https://github.com/apple/swift-crypto.git", from: "4.5.2"),
@@ -77,6 +91,20 @@ let package = Package(
             dependencies: ["BloomCore"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .target(
+            name: "BloomServer",
+            dependencies: serverDependencies + [.product(name: "Crypto", package: "swift-crypto")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .executableTarget(name: "bloom-server", dependencies: ["BloomServer"], swiftSettings: [.swiftLanguageMode(.v6)]),
+        .testTarget(
+            name: "BloomServerTests",
+            dependencies: [
+                "BloomServer", "BloomCore", .product(name: "BloomProtocol", package: "BloomProtocol"),
+                .product(name: "HummingbirdTesting", package: "hummingbird"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .testTarget(
             name: "BloomCoreTests",
             dependencies: ["BloomCore"],
@@ -96,11 +124,18 @@ let package = Package(
         .executable(name: "Bloom", targets: ["Bloom"]),
         .executable(name: "bloom-bridge", targets: ["bloom-bridge"]),
         .executable(name: "bloom-sleep-helper", targets: ["bloom-sleep-helper"]),
+        .executable(name: "bloom-server", targets: ["bloom-server"]),
         .library(name: "BloomCore", targets: ["BloomCore"]),
     ],
     dependencies: [
         // The Cloud workspace wire shapes, shared by the server and every Swift client.
         .package(path: "Packages/BloomProtocol"),
+        // bloom-server's HTTP front, its terminal WebSocket and its client for runbloom.app. The
+        // app never links them: only BloomServer names them, and the app does not depend on it.
+        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.26.0"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird-websocket.git", from: "2.7.0"),
+        .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.36.0"),
+        .package(url: "https://github.com/apple/swift-http-types.git", from: "1.4.0"),
         // Native live Markdown editing for workspace notes. Pin the pre-1.0 API we integrate.
         .package(url: "https://github.com/nodes-app/swift-markdown-engine", exact: "0.12.0"),
         // The terminal panes. The upper bound is not tidiness: SwiftTerm tags 1.20.0 as a
@@ -140,6 +175,29 @@ let package = Package(
         .executableTarget(
             name: "bloom-bridge",
             dependencies: ["BloomCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The server a Cloud workspace's machine runs, built here as well as on Linux so it can be
+        // developed and tested on a Mac. See docs/REMOTE-WORKSPACES.md.
+        .target(
+            name: "BloomServer",
+            dependencies: [
+                "BloomCore",
+                .product(name: "BloomProtocol", package: "BloomProtocol"),
+                .product(name: "Hummingbird", package: "hummingbird"),
+                .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
+                .product(name: "AsyncHTTPClient", package: "async-http-client"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .executableTarget(name: "bloom-server", dependencies: ["BloomServer"], swiftSettings: [.swiftLanguageMode(.v6)]),
+        .testTarget(
+            name: "BloomServerTests",
+            dependencies: [
+                "BloomServer", "BloomCore", .product(name: "BloomProtocol", package: "BloomProtocol"),
+                .product(name: "HummingbirdTesting", package: "hummingbird"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // The privileged daemon that turns the system sleep switch off for a Keep Awake session,

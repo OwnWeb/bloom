@@ -63,8 +63,9 @@ extension WorkspaceRuntime {
 
     /// Human input that does not arrive as a command: a keystroke in a terminal, a navigation in
     /// the preview. It renews the presence lease the same way a prompt does.
-    public func noteHumanInput(from author: MessageAuthor) {
+    public func noteHumanInput(from author: MessageAuthor) async {
         presence.noteInput(author, at: Date())
+        await report(.humanInput)
     }
 
     public var lastHumanInputAt: Date? { presence.lastHumanInputAt }
@@ -73,6 +74,7 @@ extension WorkspaceRuntime {
         if presence.setConnected(await events.connectedUserIDs) {
             await events.publish(.presence(presence.records))
         }
+        await report(.connectionsChanged(open: await events.count))
     }
 
     func queueChanged(_ id: SessionID) async {
@@ -190,18 +192,22 @@ extension WorkspaceRuntime {
             setupStartedAt = Date()
             setupFinishedAt = nil
         }
+        let starting = !holdsPromptsForSetup
         setupStep = step
         holdsPromptsForSetup = true
         try? await refreshPublishedState(publishing: true)
+        await report(starting ? .setupStarted(step: step) : .setupStep(step))
     }
 
     /// Setup finished, however it ended, and the prompts that waited for it may go: a failed setup
     /// is something the agent can read the log of and fix, which is what the Mac does too.
-    public func setupFinished() async {
+    public func setupFinished(succeeded: Bool = true) async {
         setupStep = nil
         setupFinishedAt = Date()
         holdsPromptsForSetup = false
+        lastSetupSucceeded = succeeded
         try? await refreshPublishedState(publishing: true)
+        await report(.setupFinished(succeeded: succeeded))
         for id in (try? await chatIDs()) ?? [] { await queue().resume(id) }
     }
 }

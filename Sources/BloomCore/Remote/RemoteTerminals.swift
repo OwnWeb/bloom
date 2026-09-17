@@ -123,6 +123,10 @@ public actor RemoteTerminals {
         await daemon.shutdown()
     }
 
+    /// Whether a terminal name would be accepted, for a caller deciding before it has anything to
+    /// throw into, such as a WebSocket upgrade.
+    public static func isValid(name: String) -> Bool { (try? validate(name: name)) != nil }
+
     static func validate(name: String) throws {
         guard !name.isEmpty, name.utf8.count <= 64,
               name.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95 }) else {
