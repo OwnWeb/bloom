@@ -18,7 +18,7 @@ goes", so a second provider changes no user-facing word.
 
 What this replaces: the self-provisioned SSH server of pull request #163 (install scripts, SSH
 wizard, rootless Docker, swap, storage cleanup, server updates) is dropped entirely. #163 stays open
-as a quarry; the last section says what is taken from it and what is not.
+as a quarry; "Two pull requests, and what comes from #163" says what is taken from it and what is not.
 
 ## Measured facts this design rests on
 
@@ -537,17 +537,23 @@ starts. Uncommitted work that was not pushed is lost, which the preview said.
 
 ## Where the code goes
 
-- `Sources/BloomCore` stays free of networking servers. The wire types, the single-workspace runtime,
-  the prompt queue with authors, presence, the awake policy as a pure state machine, the summary
-  builder and coalescing, usage counters, and the settings for `prepare`, `resume` and
-  `[[services]]` go here, grouped under a new `Remote/` subject, testable with no Sprite.
+- `Packages/BloomProtocol` is new: the version 1 wire records, operations, events and error codes,
+  plain Foundation and nothing else. The server and every Swift client depend on it, so neither has
+  to import the other to agree on a shape. #163 proposed this target and never made it, and its
+  clients carried wire types inside `BloomClient` instead, which is how the server came to depend on
+  a client package.
+- `Sources/BloomCore` stays free of networking servers. The single-workspace runtime, the prompt
+  queue with authors, presence, the awake policy as a pure state machine, the summary builder and
+  coalescing, usage counters, and the settings for `prepare`, `resume` and `[[services]]` go here,
+  grouped under a new `Remote/` subject, testable with no Sprite.
 - `Sources/BloomServer` is a new library target, Linux and macOS, owning the HTTP front
-  (Hummingbird 2 on SwiftNIO), token verification, the SSE and WebSocket endpoints, the Sprites Tasks
-  API client, the Caddy and service supervisor, and the runbloom.app client. The Mac app does not link
-  it. `Tests/BloomServerTests` depends on it.
+  (Hummingbird 2 on SwiftNIO), token verification, the SSE and WebSocket endpoints, CORS, the
+  provider implementation, the Caddy and service supervisor, and the runbloom.app client. The Mac
+  app does not link it. `Tests/BloomServerTests` depends on it.
 - `Sources/bloom-server` is its `main.swift`.
-- `Packages/BloomClient` is the client half, shared later with iOS; `Packages/BloomAuthentication`
-  the sign-in.
+- `Packages/BloomClient` (Mac client pull request) holds what a Swift client needs beyond the wire
+  shapes: the workspace connection, event stream reader, transcript merging, the outbox, the review
+  and composer stores. `Packages/BloomAuthentication` holds sign-in.
 - The provider-specific surface inside the machine is one protocol, `MachineHost`: hold awake and
   release, the public URL, and where usage is read from. Sprites are its first implementation;
   Daytona or E2B later is another. Create, wake, exec, filesystem, delete and URL are runbloom.app's,
@@ -556,42 +562,116 @@ starts. Uncommitted work that was not pushed is lost, which the preview said.
 `make lint` gains a rule that `BloomCore` imports no NIO, and CI gains a Linux job that builds
 `bloom-server` and runs `BloomCoreTests` and `BloomServerTests` in `swift:6.3-noble`.
 
-## What comes from #163, and in what order
+## Two pull requests, and what comes from #163
 
-#163's Linux enabling work is spread across feature commits and merges, so it is re-derived on
-main with the old commits as reference rather than cherry-picked. The pull request is built in
-this order, and every step leaves `make build`, `make lint` and CI green:
+Both start from main in new branches. #163 is read with `git show
+origin/freekmurze/client-server-runtime:<path>` and ported file by file; nobody branches from it and
+deletes the SSH code, because its Linux work is spread through feature commits and merges, and
+because main has moved on under it. Every file that comes across is read against main's version of
+its neighbours before it lands. Each step below leaves `make build`, `make lint`, `make swiftlint`
+and CI green.
 
-1. **Linux base.** The Linux section of `Package.swift`, the `CSQLite` system library, swift-crypto,
-   `SystemCalls`, `ProcessLaunch` with its signal mask handling, the `ProcessPipeReader`,
-   `StreamingProcess`, `Shell` and `Git` fixes, `CoreLogger`, the `#if` guards. Reference
-   `c3a6c577`, `fe69f40f`, the Linux parts of `7b66cfe6`, `c02d47f2`, `5aada145`. A Linux CI job.
-2. **Runtime core, single workspace.** `ServerProtocol` as `bloom-workspace` v1, `ServerRuntime`,
-   `ServerSession`, `ServerPromptQueue`, `ServerWorkspaceOperations`, the review cache and watch,
-   `ServerComposerState`. Authors on deliveries and messages. Not ported: Docker housekeeping and
-   recovery, maintenance, skills, storage, removal, SSH setup, credential import, the UI broker.
-3. **bloom-server on a Sprite.** `BloomServer`: HTTP front, tokens, events, terminal WebSocket, the
-   awake policy and Tasks API, credentials per turn, the git credential helper and `gh` wrapper,
-   services, `prepare`, `setup` and `resume`, summaries, usage, CORS, preview exchange with Caddy,
-   and the protocol document with its client chapter, schema and vectors. Tested against a real
-   Sprite with a small command line client, before any UI.
-4. **Packaging.** `package-linux-server.py` with Caddy, a release asset, the bootstrap script
-   runbloom.app runs. Not ported: `install-bloom-server.py`, the maintenance supervisor, the Go
-   gateway, BloomSSH.
-5. **Mac client.** BloomAuthentication and account sign-in in Settings; BloomClient's wire session,
-   HTTPS connection (moved from polling to events), transcript projection, review store, composer
-   store and outbox; remote workspaces in the main sidebar under their project, listed from
-   runbloom.app; the transcript, composer, terminal and preview for a remote workspace; a remote
-   machine as a destination in the create sheet; presence on the workspace. Not ported: `ServerWindowModel` and
-   the server settings window, which are tied to SSH setup.
+In the lists, **port** means bring across and adapt to main, **rewrite** means #163's file is the
+reference for behaviour but the code is new, and **leave** means it stays in #163.
 
-Later pull requests: the iOS app over HTTPS (#163's UIKit app is SSH first), a web interface,
-personal subscriptions signed in on the machine, the warm pool, agent bridge tools across
-workspaces through runbloom.app, per-project egress allowlists, Reverb, a read-only viewer, other
-providers.
+### Pull request 1: the server
 
-Steps 1 to 4 are server side and can be reviewed and run against a Sprite before any Mac code
-exists. Step 5 is the larger half. Splitting at that line into two pull requests is recommended.
+**Step 1, Linux base.** Reference commits `c3a6c577`, `fe69f40f`, the Linux parts of `7b66cfe6`,
+`c02d47f2` and `5aada145`.
+
+| #163 path | |
+| --- | --- |
+| `Package.swift` Linux section, `Sources/CSQLite/` | port |
+| swift-crypto dependency, and wherever core code imports `CryptoKit` | port |
+| `Sources/BloomCore/System/SystemCalls.swift`, `ProcessLaunch.swift`, `CoreLogger.swift`, `ProcessPipeReader.swift` | port (new on main) |
+| Linux changes to `StreamingProcess.swift`, `Shell`, `Git`, the `#if canImport` guards in `Presentation/` and the bridge socket | port, as edits to main's files |
+| `.github/workflows/server.yml` | rewrite, as a Linux job in `test.yml` |
+| `Tests/BloomCoreTests/ProcessLaunchTests.swift` | port |
+
+**Step 2, runtime core for one workspace.**
+
+| #163 path | |
+| --- | --- |
+| `Sources/BloomCore/Server/ServerProtocol.swift`, `ServerOperation+Workspace.swift`, `ServerWorkspaceAction.swift` | rewrite as `Packages/BloomProtocol`, version 1, named fields |
+| `ServerRuntime.swift` | rewrite, single workspace, keeping the receipt journal and admission logic |
+| `ServerSession.swift`, `ServerPromptQueue.swift`, `ServerWorkspaceAdmissions.swift`, `ServerWorkspaceOperations.swift` | port, adding authors and turn registration |
+| `ServerReview.swift`, `ServerReviewCache.swift`, `ServerReviewWatch.swift`, `ServerReviewFileStamp.swift`, `ServerWorkspaceReviewReader.swift`, `ServerDiffWorktree.swift` | port |
+| `ServerComposerState.swift`, `ServerAgentAuthentication.swift`, `ServerFileOperations.swift`, `WorkspaceFileAccess.swift`, `ServerSetupOutput.swift` | port |
+| `ServerTerminalService.swift`, `ServerTerminalStreams.swift`, `ServerTerminalProcessLifetime.swift` | port; the relay is replaced by the WebSocket in step 3 |
+| `ServerProjectSettings.swift` | port, extended with `prepare`, `resume` and `[[services]]` |
+| `ServerCreation.swift`, `ServerRepositoryResolver.swift`, `ServerSidebar.swift` | rewrite; creation is a bootstrap step now, not an operation |
+| `ServerDaemon.swift`, `ServerCommandLine.swift` | rewrite as `bloom-server serve`, no Unix socket, no `connect` |
+| Tests: `ServerRuntimeTests`, `ServerWorkspaceTests`, `ServerWorkspaceAdmissionsTests`, `ServerReviewTests`, `ServerReviewCacheTests`, `ServerReviewLifecycleTests`, `ServerCrewQueueTests`, `ServerAgentAuthenticationTests`, `ServerCodexSpeedTests`, `ServerProjectSettingsTests`, `ServerTerminalStreamTests`, `ServerProtocolVectorTests` | port with the code they test |
+| `Protocol/generate-schema.py`, `Protocol/verify.py`, `Protocol/examples/` | port for version 1; the v13 to v16 schemas and vectors are left |
+
+**Step 3, bloom-server on a machine.** All new code in `Sources/BloomServer`: HTTP front, tokens,
+event stream, terminal WebSocket, CORS, awake policy and `MachineHost` for Sprites, turn
+registration and credentials, git credential helper and `gh` wrapper, services supervisor, setup
+steps, summaries and usage, preview exchange with Caddy, `control/*`. References from #163:
+
+| #163 path | |
+| --- | --- |
+| `Gateway/internal/gateway/` (RPC and terminal WebSocket handling, header and cookie stripping, its tests) | rewrite in Swift; the Go gateway is left |
+| `ServerHTTPTransport.swift`, `ServerOAuthMetadata.swift` | leave; the server verifies runbloom.app tokens, it is not an OAuth resource server with discovery |
+| `ServerPreview.swift`, `ServerPortForward.swift` | rewrite as the Caddy route and preview exchange |
+| `ServerUIBroker.swift`, `ServerUIBridgeTools.swift` | leave for phase 1; agent UI tools on a remote client come later |
+| `docs/SERVER-PROTOCOL.md` | rewrite as `docs/WORKSPACE-PROTOCOL.md`, with the client chapter |
+
+**Step 4, packaging.**
+
+| #163 path | |
+| --- | --- |
+| `Tools/package-linux-server.py`, `Tools/test-linux-server-package.py`, `Tools/server-licences/` | port, adding Caddy and its licence |
+| `Tools/server-release-assets.py`, `Tools/test-server-release-assets.py`, the Linux asset in `release.yml` | port |
+| `Tools/server-smoke.py` | rewrite as a smoke test that boots `bloom-server` with a test issuer |
+| new `Tools/bootstrap-machine.sh` | the one exec runbloom.app runs |
+
+**Left behind in #163 for good**, and not to be ported by accident:
+
+- `Tools/install-bloom-server.py`, `install-bloom-docker.py`, `install-bloom-swap.py`,
+  `install-bloom-browser.py`, `bloom-maintenance.py`, `bloom_maintenance_*.py`, `bloom_swap_state.py`,
+  `bloom_install_process.py`, `prepare-server-service.py`, `embed-server-setup.py`, and their tests
+- `Sources/BloomCore/Server/`: `ServerSetupSSH`, `ServerSetupConnection`, `ServerSetupDiagnostics`,
+  `ServerSetupFailure`, `ServerSetupStream`, `ServerConnectionProfile`, `ServerConnectionShelf`,
+  `ServerConnections`, `ServerEndpoint`, `ServerClient`, `LocalServerIdentity`, `ServerLockWait`,
+  `ServerCredentialImport*`, `ServerDocker*`, `ServerStorage*`, `ServerSkill*`, `ServerSkills*`,
+  `ServerMaintenance*`, `ServerUpdate*`, `ServerToolUpdates*`, `ServerRemoval`, `ServerDiagnostics*`,
+  `ServerTerminalRelay`, `PaneStateNamespace`
+- `Packages/BloomSSH`, `Gateway/`, `Protocol/maintenance-v1.schema.json`, `docs/SERVER.md`,
+  `docs/SERVER-MAINTENANCE.md`, `.github/workflows/gateway.yml`
+
+### Pull request 2: the Mac client
+
+| #163 path | |
+| --- | --- |
+| `Packages/BloomAuthentication` | port; the Mac redirect becomes `bloom://oauth/callback` |
+| `Packages/BloomClient/.../RemoteWireSession.swift`, `RemoteCommand.swift`, `HTTPSConnection.swift`, `Connection/` | rewrite against `BloomProtocol` and the event stream; no version negotiation |
+| `ConversationDraftStore.swift`, `TranscriptBuffer.swift`, `Transcript/RemoteTranscriptProjection.swift` | port, merging events by `seq` |
+| `Review/WorkspaceReviewStore.swift`, `Review/RemoteReview.swift`, `Review/WorkspaceReviewReading.swift` | port |
+| `Composer/RemoteComposerStore.swift`, `Composer/RemoteComposerState.swift` | port |
+| `Terminal/HTTPSTerminalConnection.swift`, `Terminal/RemoteTerminalConnection.swift`, `Terminal/RemoteTerminalAttachment.swift` | port, with the `auth` first frame |
+| `RemoteApproval.swift`, `RemoteApprovalSubmission.swift`, `AgentQuestion.swift`, `AgentQuestionDraft.swift`, `WorkspaceSafetyReport.swift`, `ArchiveHazards.swift` | port |
+| `Sources/Bloom/State/AppModel+RemoteServers.swift`, `ServerReviewModel.swift`, `ServerFileBuffer.swift`, `System/ServerAuthentication.swift` | rewrite for workspaces listed from runbloom.app |
+| sidebar remote sections, `Views/Server/RemoteTerminalView.swift`, `RemoteFilePreviewView.swift` | rewrite, as remote workspaces inside the existing sidebar and panes |
+| `Composer/`, `Review/`, `Tools/`, `Presentation/`, `Transcript/` files that are moves of main's own `BloomCore` types (`AgentKind`, `DiffParser`, `MarkdownParser`, `ToolPresenter` and the like) | leave; those moves are for sharing with iOS and wait for the iOS pull request |
+| `ServerWindowModel*`, `ServerSetupModel`, `ServerMaintenanceModel*`, `ServerStorageModel`, `ServerSkillsModel`, `ServerCredentialImportModel`, `ServerDockerRecoveryModel`, `ServerToolUpdatesModel`, `RemoteServersSettings*`, `Design/Server*Probe` | leave |
+| `Packages/BloomUI`, `iOS/`, `Tools/ios-*`, `.github/workflows/ios.yml` | leave, for the iOS pull request |
+
+### After these two
+
+Later pull requests, roughly in this order: the iOS app over HTTPS (#163's UIKit app is SSH first,
+so it is reworked rather than ported), agent UI tools on remote clients, personal subscriptions
+signed in on the machine, the warm pool, agent bridge tools across workspaces through runbloom.app,
+per-project egress allowlists, Reverb, a read-only viewer, other providers. The web interface is
+built in runbloom.app against the same contract.
+
+### Testing turns during development
+
+Live turns use the developer's own Anthropic API key, the personal key path: supplied through the
+environment of the test run (`BLOOM_LIVE_ANTHROPIC_API_KEY`), handed to bloom-server by a fake
+control server in the test the way runbloom.app would hand it over, and never committed, logged or
+written into a fixture. Like `BLOOM_LIVE=1` today, it costs money and is off unless set.
+
 
 ## Still to verify on a real Sprite
 
@@ -612,9 +692,9 @@ exists. Step 5 is the larger half. Splitting at that line into two pull requests
 - No viewer role in phase 1.
 - iOS later, with the contract kept usable by iOS and a web interface.
 - Fly and Sprites are invisible to users: one organisation and one token, owned by runbloom.app.
+- Two pull requests, server then Mac client, each from main, porting from #163 selectively.
+- A web interface, when it comes, lives in runbloom.app on the same accounts and this contract.
 
 ## Still open
 
-- Splitting the build into a server-side pull request (steps 1 to 4) and a Mac client pull request
-  (step 5). Recommended.
 - The usage fields above, being agreed with the runbloom.app side.
