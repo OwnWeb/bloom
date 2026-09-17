@@ -58,6 +58,11 @@ struct CloudSharePopover: View {
                         Text(member.user.name)
                         Text(member.role == "owner" ? "Owner" : sharing.hasLeftTeam(member) ? "Left the team" : "Collaborator")
                             .foregroundStyle(Palette.textSecondary)
+                        if member.hasPushAccess == false {
+                            Text("Cannot push")
+                                .foregroundStyle(Palette.warning)
+                                .help("Without push access to the repository, they cannot prompt in a shared Cloud workspace.")
+                        }
                         Spacer()
                         if member.role != "owner" {
                             Button("Remove") { removing = member }

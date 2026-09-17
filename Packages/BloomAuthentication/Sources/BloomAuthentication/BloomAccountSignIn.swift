@@ -80,7 +80,12 @@ public final class BloomAccountSignIn {
             configuration: configuration, clientId: client.clientID, scopes: nil, redirectURL: redirect,
             responseType: OIDResponseTypeCode, additionalParameters: nil
         )
-        let agent = OIDExternalUserAgentMac(presenting: window)
+        // Ephemeral, so the web login ends with the sheet. A login kept in the shared browser jar
+        // would outlive signing out here, and the next person to press Sign In on this Mac user
+        // account would be handed the previous person's account without typing anything.
+        guard let agent = OIDExternalUserAgentMac(presenting: window, prefersEphemeralSession: true) else {
+            throw SignInFailure("This Mac could not open the sign in window.")
+        }
         let state: OIDAuthState = try await withCheckedThrowingContinuation { continuation in
             flow = OIDAuthState.authState(byPresenting: request, externalUserAgent: agent) { state, error in
                 if let state {
@@ -121,7 +126,12 @@ public final class BloomAccountSignIn {
                     }
                 }
             }
-            try? save(stored)
+            // Kept only if it is still the sign in this began with. A sign out while the refresh was
+            // on the network has deleted the item, and writing it back would sign this Mac in again
+            // on the next launch; a sign in as somebody else meanwhile would be overwritten.
+            if self.stored?.state === stored.state {
+                try? save(stored)
+            }
             return token
         } catch let error as NSError where error.domain == OIDOAuthTokenErrorDomain {
             forget()
@@ -139,18 +149,22 @@ public final class BloomAccountSignIn {
     public func signOut() async {
         loadIfNeeded()
         guard let stored else { return }
-        let token = stored.state.refreshToken ?? stored.state.lastTokenResponse?.accessToken
+        let tokens = [
+            (stored.state.refreshToken, "refresh_token"),
+            (stored.state.lastTokenResponse?.accessToken, "access_token"),
+        ]
         let client = try? stored.document.macClient(redirect: environment.redirect)
         forget()
-        guard let token, let client, let endpoint = stored.document.revocationEndpoint else { return }
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Self.form([
-            "client_id": client.clientID, "token": token,
-            "token_type_hint": stored.state.refreshToken == nil ? "access_token" : "refresh_token",
-        ])
-        _ = try? await session.data(for: request)
+        guard let client, let endpoint = stored.document.revocationEndpoint else { return }
+        // Both, because runbloom.app rotates the refresh token on every refresh and either one may
+        // be the one it still honours. Revoking one revokes both there; asking twice costs nothing.
+        for case let (token?, hint) in tokens {
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Self.form(["client_id": client.clientID, "token": token, "token_type_hint": hint])
+            _ = try? await session.data(for: request)
+        }
     }
 
     private func forget() {

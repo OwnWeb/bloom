@@ -316,6 +316,10 @@ final class CloudWorkspaceSession {
     func openPreview() async {
         do {
             let preview = try await cloud.api.previewToken(for: id.rawValue)
+            guard preview.isSafe(forMachine: await connection?.machineURL) else {
+                notice = "runbloom.app gave a preview address that is not this Cloud workspace's, so Bloom did not open it."
+                return
+            }
             NSWorkspace.shared.open(preview.enterURL)
         } catch let refusal as RunbloomRefusal {
             notice = LimitNotice(refusal: refusal).map { "\($0.message) \($0.detail)" } ?? refusal.message

@@ -239,6 +239,17 @@ final class NotificationService {
         ))
     }
 
+    /// Takes every Cloud workspace banner out of Notification Center, on signing out: they name
+    /// workspaces and quote agents from an account this Mac is no longer signed in to.
+    func removeCloudNotifications() {
+        guard Self.isAvailable else { return }
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let delivered = await center.deliveredNotifications()
+            center.removeDeliveredNotifications(withIdentifiers: delivered.map(\.request.identifier).filter { $0.hasPrefix("cloud.") })
+        }
+    }
+
     /// Delivered straight past the policy, because it was asked for by somebody who is looking at
     /// the settings window: every rule that would suppress it would suppress exactly this case.
     func sendTestNotification() {

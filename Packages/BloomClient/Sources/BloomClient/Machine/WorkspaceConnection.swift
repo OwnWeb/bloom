@@ -113,6 +113,9 @@ public actor WorkspaceConnection {
     /// The abilities the current token carries, or none before one has been fetched.
     public var abilities: [String] { token?.abilities ?? [] }
 
+    /// The machine's address, once a token named it.
+    public var machineURL: URL? { token?.machineURL }
+
     // MARK: Opening and closing
 
     /// Opens the event stream, unless it is open or opening already.
@@ -213,6 +216,7 @@ public actor WorkspaceConnection {
         tokenTask = task
         defer { tokenTask = nil }
         let fresh = try await task.value
+        guard fresh.hasSafeMachineURL else { throw SessionToken.unsafeMachineURL }
         token = fresh
         return fresh
     }

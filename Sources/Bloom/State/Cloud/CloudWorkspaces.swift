@@ -57,6 +57,9 @@ final class CloudWorkspaces {
     /// Created here and not read back yet, so their first reading can still notify. See
     /// `CloudWorkspaceNotices`.
     @ObservationIgnored private var watching: Set<String> = []
+    /// Moved by every sign in and sign out, and checked after every await in `refresh`, so an
+    /// answer for an account that has since signed out is dropped rather than drawn.
+    @ObservationIgnored private var generation = 0
 
     static let pollInterval: Duration = .seconds(20)
     private static let promptsKey = "cloudWorkspaces.pendingOpeningPrompts"
@@ -117,6 +120,7 @@ final class CloudWorkspaces {
             return
         }
         accountState = .signingIn
+        generation += 1
         do {
             try await signIn.signIn(presenting: window)
             accountState = .loading
@@ -130,16 +134,25 @@ final class CloudWorkspaces {
     }
 
     func signOut() async {
+        generation += 1
         pollTask?.cancel()
         pollTask = nil
+        if let activation { NotificationCenter.default.removeObserver(activation) }
+        activation = nil
         for session in sessions.values { session.close() }
         sessions.removeAll()
-        await signIn.signOut()
         account = nil
         items = []
         lastReading = nil
         listProblem = nil
+        watching = []
+        // Held prompts belong to the account that typed them. Sent after somebody else signs in,
+        // they would be queued under that person's name and on their key.
+        pendingPrompts = PendingOpeningPrompts()
+        UserDefaults.standard.removeObject(forKey: Self.promptsKey)
+        NotificationService.shared.removeCloudNotifications()
         accountState = .signedOut
+        await signIn.signOut()
         if case .cloud = app?.selection { app?.selection = .home }
     }
 
@@ -148,21 +161,26 @@ final class CloudWorkspaces {
     /// Reads the account and every team's list.
     func refresh() async {
         let api = api
+        let began = generation
         do {
             let account = try await api.account()
+            guard began == generation else { return }
             self.account = account
             accountState = .signedIn
             var gathered: [CloudWorkspaceItem] = []
             for team in account.cloudTeams {
                 gathered += try await api.cloudWorkspaces(team: team.id)
             }
+            guard began == generation else { return }
             gathered.sort { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
             absorb(gathered)
             listProblem = nil
         } catch let failure as SignInFailure where failure == .signedOut {
-            await signOut()
+            if began == generation { await signOut() }
         } catch let refusal as RunbloomRefusal where refusal.isUnauthenticated {
-            await signOut()
+            if began == generation { await signOut() }
+        } catch where began != generation {
+            return
         } catch let refusal as RunbloomRefusal {
             if account == nil { accountState = .failed(refusal.message) }
             listProblem = refusal.message

@@ -24,11 +24,10 @@ final class CloudTerminalView: SwiftTerm.TerminalView, @preconcurrency TerminalV
     func hostCurrentDirectoryUpdate(source: SwiftTerm.TerminalView, directory: String?) {}
     func scrolled(source: SwiftTerm.TerminalView, position: Double) {}
     func rangeChanged(source: SwiftTerm.TerminalView, startY: Int, endY: Int) {}
-    func clipboardCopy(source: SwiftTerm.TerminalView, content: Data) {
-        guard let text = String(data: content, encoding: .utf8) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
+    /// Ignored. A program on a shared machine asking to write this Mac's clipboard (OSC 52) is
+    /// not something a collaborator's shell, or an agent in it, should be able to do. Copying a
+    /// selection with the keyboard is SwiftTerm's own and still works.
+    func clipboardCopy(source: SwiftTerm.TerminalView, content: Data) {}
 
     func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {
         guard let url = URL(string: link), ["http", "https"].contains(url.scheme) else { return }

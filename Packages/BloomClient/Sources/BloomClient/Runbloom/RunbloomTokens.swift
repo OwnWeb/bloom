@@ -45,6 +45,22 @@ public struct SessionToken: Codable, Sendable, Hashable {
 
     public func allows(_ ability: String) -> Bool { abilities.contains(ability) }
 
+    /// Whether the machine's address is one a bearer token may be sent to: HTTPS, with no user or
+    /// password in it, or plain HTTP only to this Mac for a development machine. A token sent over
+    /// plain HTTP to anywhere else would be readable on the way.
+    public var hasSafeMachineURL: Bool { Self.isSafe(machineURL) }
+
+    static func isSafe(_ url: URL) -> Bool {
+        guard url.user == nil, url.password == nil, let host = url.host(), !host.isEmpty else { return false }
+        if url.scheme == "https" { return true }
+        return url.scheme == "http" && ["localhost", "127.0.0.1", "::1"].contains(host)
+    }
+
+    static let unsafeMachineURL = RunbloomRefusal(
+        status: 200, code: "unsafe_machine_url",
+        message: "runbloom.app gave an address for this Cloud workspace that is not secure, so Bloom did not connect to it."
+    )
+
     /// Whether this token should be replaced before it is used again: within a minute of its
     /// expiry, which is the margin the protocol asks a stream's token to be refreshed by.
     public func needsRefresh(at now: Date, margin: TimeInterval = 60) -> Bool {
@@ -58,6 +74,14 @@ public struct PreviewToken: Codable, Sendable, Hashable {
     public var token: String
     public var expiresAt: Date
     public var enterURL: URL
+
+    /// Whether the address is safe to open: the machine's own host, over HTTPS, and never another
+    /// scheme, which `NSWorkspace` would hand to whatever application claims it.
+    public func isSafe(forMachine machine: URL?) -> Bool {
+        guard SessionToken.isSafe(enterURL), enterURL.path() == "/_bloom/preview/enter" else { return false }
+        guard let machine else { return true }
+        return machine.host()?.lowercased() == enterURL.host()?.lowercased() && machine.port == enterURL.port
+    }
 
     public init(token: String, expiresAt: Date, enterURL: URL) {
         self.token = token
@@ -101,11 +125,28 @@ public struct CloudWorkspaceMembers: Codable, Sendable, Hashable {
         /// `owner` or `collaborator`.
         public var role: String
 
+        /// False when this person cannot push to the repository, which in a shared workspace means
+        /// they cannot prompt (runbloom.app refuses with `no_push_access`). Nil when not said.
+        public var hasPushAccess: Bool?
+
         public var id: String { user.id }
 
-        public init(user: RunbloomPerson, role: String) {
+        public init(user: RunbloomPerson, role: String, hasPushAccess: Bool? = nil) {
             self.user = user
             self.role = role
+            self.hasPushAccess = hasPushAccess
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case user, role
+            case hasPushAccess = "push_access"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            user = try c.decode(RunbloomPerson.self, forKey: .user)
+            role = try c.decodeIfPresent(String.self, forKey: .role) ?? "collaborator"
+            hasPushAccess = try? c.decodeIfPresent(Bool.self, forKey: .hasPushAccess)
         }
     }
 

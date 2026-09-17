@@ -200,3 +200,36 @@ import Testing
         #expect(cache.patch(for: "a") == nil)
     }
 }
+
+@Suite struct AddressSafetyTests {
+    @Test func aTokenGoesOnlyToASecureMachine() {
+        #expect(SessionToken.isSafe(URL(string: "https://bloom-x.sprites.test")!))
+        #expect(SessionToken.isSafe(URL(string: "http://localhost:8080")!))
+        #expect(!SessionToken.isSafe(URL(string: "http://bloom-x.sprites.test")!))
+        #expect(!SessionToken.isSafe(URL(string: "https://user:pass@bloom-x.sprites.test")!))
+        #expect(!SessionToken.isSafe(URL(string: "file:///etc/passwd")!))
+    }
+
+    @Test func aPreviewOpensOnlyOnItsOwnMachine() {
+        let machine = URL(string: "https://bloom-x.sprites.test")!
+        let good = PreviewToken(token: "p", expiresAt: Date(), enterURL: URL(string: "https://bloom-x.sprites.test/_bloom/preview/enter?token=p")!)
+        let elsewhere = PreviewToken(token: "p", expiresAt: Date(), enterURL: URL(string: "https://evil.test/_bloom/preview/enter?token=p")!)
+        let scheme = PreviewToken(token: "p", expiresAt: Date(), enterURL: URL(string: "bloom://oauth/callback?code=x")!)
+        #expect(good.isSafe(forMachine: machine))
+        #expect(!elsewhere.isSafe(forMachine: machine))
+        #expect(!scheme.isSafe(forMachine: nil))
+    }
+
+    @Test func aConnectionRefusesAnInsecureMachine() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken().replacingOccurrences(of: "https://", with: "http://")))
+        let connection = WorkspaceConnection(workspaceID: "w", api: Fixtures.api(transport), machine: MachineClient(transport: transport))
+        do {
+            _ = try await connection.perform(.workspace)
+            Issue.record("Expected a refusal")
+        } catch {
+            #expect(error == .runbloom(SessionToken.unsafeMachineURL))
+        }
+        #expect(transport.requests(to: "/_bloom/v1/rpc").isEmpty)
+    }
+}
