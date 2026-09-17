@@ -14,38 +14,10 @@ import Foundation
 /// Read from runbloom.app's list alone, which is what the sidebar has for a workspace nobody has
 /// open, so nothing here wakes a machine.
 extension WorkspaceStatus {
+    /// The precedence is `CloudSidebarMark`'s, beside the records and under test; this is the one
+    /// line that turns its answer back into the type. A name this version does not know reads as
+    /// a workspace with nothing to say rather than as no row at all.
     init(cloudItem item: CloudWorkspaceItem) {
-        let state = CloudWorkspaceStatus(item: item)
-        switch state {
-        case .settingUp, .stopping, .archiving:
-            self = .settingUp
-        case .setupFailed, .error:
-            self = .setupFailed
-        case .waiting:
-            self = .awaitingPermission
-        case .running:
-            self = .running
-        case .blocked:
-            // Held by a team limit: nothing is running and nothing will until somebody raises it,
-            // which is the same shape of fact as a setup that failed rather than as an idle row.
-            self = .setupFailed
-        case .idle, .asleep:
-            self = WorkspaceStatus.ofBranch(cloudItem: item, isUnread: item.unread)
-        }
-    }
-
-    /// What is true of the branch and whatever pull request runbloom.app last saw, with the agent
-    /// left out of it. The same precedence a local workspace's branch takes, asked of the summary.
-    static func ofBranch(cloudItem item: CloudWorkspaceItem, isUnread: Bool) -> WorkspaceStatus {
-        if let pullRequest = item.summary?.pullRequest {
-            switch (pullRequest.state ?? "open").lowercased() {
-            case "merged": return .merged
-            case "closed": return .closed
-            default: return .pullRequestOpen
-            }
-        }
-        if isUnread { return .unread }
-        let diff = item.summary?.diff
-        return (diff?.files ?? 0) > 0 ? .changed : .clean
+        self = WorkspaceStatus(rawValue: CloudSidebarMark.name(for: item)) ?? .clean
     }
 }

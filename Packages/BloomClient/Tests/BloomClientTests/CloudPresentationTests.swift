@@ -620,3 +620,45 @@ import Testing
         #expect(banner?.dismissalKey != nil)
     }
 }
+
+@Suite struct CloudSidebarMarkTests {
+    private func item(
+        state: String = "idle", unread: Bool = false, files: Int = 0, pullRequest: String? = nil, awake: Bool = true
+    ) -> CloudWorkspaceItem {
+        let request = pullRequest.map { #"{"number": 1, "url": "u", "title": "t", "state": "\#($0)"}"# } ?? "null"
+        let json = #"""
+        {"id": "w1", "team_id": "t1", "name": "Queue", "branch": "b", "base_branch": "main", "state": "\#(state)",
+         "unread": \#(unread),
+         "summary": {"awake": \#(awake), "diff": {"files": \#(files), "additions": 1, "deletions": 0},
+           "pull_request": \#(request)}}
+        """#
+        return (try? JSONDecoder().decode(CloudWorkspaceItem.self, from: Data(json.utf8)))
+            ?? CloudWorkspaceItem(id: "w1", teamID: "t1", name: "Queue", branch: "b", baseBranch: "main", state: state)
+    }
+
+    /// The agent's own states win, in the order a local row weighs them.
+    @Test func theAgentComesFirst() {
+        #expect(CloudSidebarMark.name(for: item(state: "running", unread: true)) == "running")
+        #expect(CloudSidebarMark.name(for: item(state: "waiting_for_input")) == "awaitingPermission")
+        #expect(CloudSidebarMark.name(for: item(state: "setting_up")) == "settingUp")
+        #expect(CloudSidebarMark.name(for: item(state: "setup_failed")) == "setupFailed")
+        // A prompt held by a team limit is nothing running and nothing about to.
+        #expect(CloudSidebarMark.name(for: item(state: "blocked")) == "setupFailed")
+    }
+
+    /// Then the branch: GitHub first, then unread, then whether there is anything on it.
+    @Test func thenTheBranch() {
+        #expect(CloudSidebarMark.name(for: item(unread: true, pullRequest: "merged")) == "merged")
+        #expect(CloudSidebarMark.name(for: item(pullRequest: "closed")) == "closed")
+        #expect(CloudSidebarMark.name(for: item(pullRequest: "open")) == "pullRequestOpen")
+        #expect(CloudSidebarMark.name(for: item(unread: true, files: 3)) == "unread")
+        #expect(CloudSidebarMark.name(for: item(files: 3)) == "changed")
+        #expect(CloudSidebarMark.name(for: item()) == "clean")
+    }
+
+    /// An asleep machine is a resting state, not a mark of its own: the row says what the branch
+    /// says, the way a local workspace nobody is running anything in does.
+    @Test func asleepIsNotAState() {
+        #expect(CloudSidebarMark.name(for: item(files: 2, awake: false)) == "changed")
+    }
+}

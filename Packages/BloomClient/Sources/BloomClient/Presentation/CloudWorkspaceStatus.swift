@@ -75,3 +75,39 @@ public enum CloudWorkspaceStatus: Sendable, Hashable {
         "resume": "resuming", "services": "starting services",
     ]
 }
+
+/// The sidebar's own mark for a Cloud workspace's row, as the name of a `WorkspaceStatus`.
+///
+/// **A name rather than the type, because the type is in `BloomCore` and this package cannot see
+/// it.** What is worth having here rather than in the app is the precedence: which of the workspace
+/// facts wins when several are true at once. That is the rule a local row already follows, and it
+/// has to be the same rule or one column says two things. The app turns the name into the value
+/// with `WorkspaceStatus(rawValue:)`, which is what the name is taken from.
+public enum CloudSidebarMark {
+    public static func name(for item: CloudWorkspaceItem) -> String {
+        switch CloudWorkspaceStatus(item: item) {
+        case .settingUp, .stopping, .archiving: "settingUp"
+        // Held by a team limit is nothing running and nothing about to, until somebody raises it:
+        // the shape of a setup that failed rather than of an idle row.
+        case .setupFailed, .error, .blocked: "setupFailed"
+        case .waiting: "awaitingPermission"
+        case .running: "running"
+        case .idle, .asleep: branchName(for: item)
+        }
+    }
+
+    /// What is true of the branch with the agent left out of it, in the order a local workspace
+    /// weighs it: what GitHub says first, then whether anybody has read the last turn, then
+    /// whether there is anything on the branch at all.
+    static func branchName(for item: CloudWorkspaceItem) -> String {
+        if let pullRequest = item.summary?.pullRequest {
+            switch (pullRequest.state ?? "open").lowercased() {
+            case "merged": return "merged"
+            case "closed": return "closed"
+            default: return "pullRequestOpen"
+            }
+        }
+        if item.unread { return "unread" }
+        return (item.summary?.diff?.files ?? 0) > 0 ? "changed" : "clean"
+    }
+}
