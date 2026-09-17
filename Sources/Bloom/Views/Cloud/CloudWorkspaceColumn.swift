@@ -27,11 +27,17 @@ struct CloudWorkspaceColumn: View {
             if let notice = session.notice {
                 CloudNoticeStrip(text: notice) { session.notice = nil }
             }
+            if let change = session.composerChange, change.chatID == session.selectedChatID?.rawValue, session.pane == .chat {
+                CloudNoticeStrip(text: "\(change.name) changed this chat's settings.") { session.acknowledgeComposerChange() }
+            }
             content(session)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Palette.windowBackground)
-        .task(id: id) { session.open() }
+        .task(id: id) {
+            session.open()
+            await app.cloud.markRead(id)
+        }
     }
 
     @ViewBuilder

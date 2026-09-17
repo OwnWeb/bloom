@@ -154,7 +154,15 @@ final class CloudWorkspaceSession {
 
     // MARK: Chats
 
-    /// The transcript model for a chat, made on first use, with its history read.
+    /// The transcript model for a chat when one has been made. Safe from a view's body: it reads a
+    /// dictionary outside observation and writes nothing.
+    func existingTranscript(for id: SessionID) -> TranscriptModel? {
+        transcripts[id.rawValue]
+    }
+
+    /// The transcript model for a chat, made on first use, with its history read. Writes
+    /// observable state, so it is called from a task and never from a body.
+    @discardableResult
     func transcript(for id: SessionID) -> TranscriptModel? {
         let chatID = id.rawValue
         if let existing = transcripts[chatID] { return existing }

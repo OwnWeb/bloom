@@ -6,10 +6,27 @@ import SwiftUI
 struct CloudChatArea: View {
     var session: CloudWorkspaceSession
 
+    /// Bumped when a transcript model was made, which is outside observation, so the body reads
+    /// it again.
+    @State private var prepared: SessionID?
+
     var body: some View {
-        if let id = session.selectedChatID, let transcript = session.transcript(for: id) {
+        content
+            .task(id: session.selectedChatID) {
+                guard let id = session.selectedChatID else { return }
+                session.transcript(for: id)
+                prepared = id
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let id = session.selectedChatID, prepared == id || session.existingTranscript(for: id) != nil,
+           let transcript = session.existingTranscript(for: id) {
             CloudChatView(transcript: transcript)
                 .id(id)
+        } else if session.selectedChatID != nil {
+            Palette.windowBackground
         } else if let held = session.heldPrompt {
             EmptyStateView(
                 glyph: "clock",

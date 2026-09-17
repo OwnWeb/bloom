@@ -193,11 +193,22 @@ final class CloudWorkspaces {
         lastReading = reading
         if reading != items { items = reading }
         for notice in notices { NotificationService.shared.cloudWorkspace(notice) }
+        // The workspace on screen is being read, so what arrived in it since is not unread.
+        if let selected = app?.selection.cloudWorkspaceID, NSApp.isActive, item(selected)?.unread == true {
+            Task { await markRead(selected) }
+        }
         // A selected workspace that is no longer listed was archived somewhere else.
         if let selected = app?.selection.cloudWorkspaceID, !reading.contains(where: { $0.id == selected.rawValue }) {
             close(selected)
             app?.selection = .home
         }
+    }
+
+    /// Marks a workspace read on runbloom.app, which is where unread lives, per person.
+    func markRead(_ id: CloudWorkspaceID) async {
+        guard let index = items.firstIndex(where: { $0.id == id.rawValue }), items[index].unread else { return }
+        items[index].unread = false
+        try? await api.markRead(id.rawValue)
     }
 
     func item(_ id: CloudWorkspaceID) -> CloudWorkspaceItem? {
