@@ -15,7 +15,8 @@
 # release asset are the whole of what it is told.
 #
 # 1. Download bloom-runner-linux-x86_64-<version>.tar.gz from the bloom repository's GitHub
-#    release, and refuse it unless its sha256 is the one given.
+#    release (tag v<version>, or runner-v<version> for a runner-only test release), and refuse it
+#    unless its sha256 is the one given.
 # 2. Unpack it into /opt/bloom/<version>, and point /opt/bloom/current at that.
 # 3. On install, create the `bloom` service once. On update, restart it, and if the new version
 #    does not answer /_bloom/health within 20 seconds, point the symlink back and restart again.
@@ -64,7 +65,10 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 if [[ ! -x "$target/bin/bloom-runner" ]]; then
-  curl --fail --silent --show-error --location --retry 3 --output "$work/$asset" "$release_base/v$version/$asset"
+  # A runner-only test release is tagged runner-v<version>; the sha256 below decides either way.
+  if ! curl --fail --silent --show-error --location --retry 3 --output "$work/$asset" "$release_base/v$version/$asset"; then
+    curl --fail --silent --show-error --location --retry 3 --output "$work/$asset" "$release_base/runner-v$version/$asset"
+  fi
   actual="$(sha256sum "$work/$asset" | cut -d' ' -f1)"
   [[ "$actual" == "$checksum" ]] || fail "$asset has sha256 $actual, not $checksum"
   mkdir -p "$work/unpacked"
