@@ -177,8 +177,8 @@ extension WorkspaceRuntime {
                 throw RemoteFailure.notFound("This run script is no longer configured in the project.")
             }
             let name = "script-" + UUID().uuidString.lowercased().prefix(8)
-            let attachment = try await terminals().attach(name: String(name))
-            await attachment.write(Data((script.command + "\r").utf8))
+            // tmux runs it as the session's command; typing it in raced the shell's own start.
+            let attachment = try await terminals().attach(name: String(name), owner: caller.author?.userID, command: script.command)
             await attachment.close()
             return .terminal(TerminalRecord(name: String(name), title: script.name))
         case .closeTerminal(let name):

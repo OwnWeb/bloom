@@ -221,6 +221,9 @@ def main():
                         help="install from a published release with bootstrap-machine.sh instead of uploading a package, "
                              "which is how runbloom.app installs a machine and is far faster than the provider's file API")
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--restart", action="store_true",
+                        help="what survives the service restart an update causes: the queue, a terminal's shell, "
+                             "and what a retried command id answers")
     parser.add_argument("--update", action="store_true",
                         help="also move the machine to another release through control/update, and back from a broken one")
     parser.add_argument("--keep", action="store_true", help="do not delete the machine, for looking at it afterwards")
@@ -350,6 +353,66 @@ def main():
             status, _, body = https(url, path="/", headers={"Cookie": cookie})
             step(f"preview with the cookie reaches Caddy's app route: {status} {body[:60]!r}")
             assert status == 502, status
+
+            if arguments.restart:
+                # An update lands seconds after somebody opens a sleeping workspace, because that is
+                # when a machine is awake and idle. So what matters is what a person loses when the
+                # runner restarts under them.
+                step("what survives a restart")
+                # A prompt that cannot start yet: the fake refuses the turn, so it stays queued and
+                # marked, which is what a team limit looks like and what a person would have typed.
+                local(proxy_port, "POST", "/test/refuse-starts",
+                      {"code": "limit_reached", "message": "Out of hours for the test.", "limit": "monthly_hours"})
+                chat = rpc(url, session(), {"kind": "new_chat", "controls": {
+                    "agent": "claude", "model": "sonnet", "effort": "low", "permission_mode": "bypassPermissions",
+                    "interaction_mode": "build", "fast_mode": False, "output_style": "default", "codex_context_window": 0}})["chat"]
+                command_id = secrets.token_hex(8)
+                queued = rpc(url, session(), {"kind": "send", "chat_id": chat["id"], "text": "Wait for me"}, command_id=command_id)
+                prompt_id = queued["prompt_id"]
+                wait_for("the prompt is queued and marked", lambda: [p for p in
+                         rpc(url, session(), {"kind": "transcript", "chat_id": chat["id"], "after_seq": -1})["transcript"]["queue"]["prompts"]
+                         if p["id"] == prompt_id], 60, interval=3)
+
+                # A terminal, opened the way a run script opens one, so its shell is a tmux session
+                # the runner started rather than a socket the test holds.
+                run_on(name, "mkdir -p ~/workspace/.bloom", timeout=60)
+                run_on(name, "cat > ~/workspace/.bloom/settings.toml",
+                       stdin='[scripts.run.probe]\nname = "Probe"\n'
+                             'command = "echo probe-shell-$$ > ~/probe-shell.txt; sleep 600"\n',
+                       timeout=120)
+                # The runner's tmux is on a named socket, `-L bloom-<fingerprint of the database
+                # path>`, not a socket file of its own; asking for the wrong one is how the first
+                # attempt at this probe proved nothing.
+                tmux = ("tmux -L $(ls ${TMUX_TMPDIR:-/tmp}/tmux-$(id -u) | grep '^bloom-' | head -1)")
+                # A shell that takes its time starting, which is what a cold machine looks like and
+                # what a keystroke sent too early falls into.
+                run_on(name, "printf 'sleep 3\\n' >> ~/.bashrc", timeout=60)
+                terminal = rpc(url, session(), {"kind": "run_script", "id": "probe"})["terminal"]["name"]
+                try:
+                    wait_for("the run script's shell is running", lambda: "probe-shell-" in
+                             run_on(name, "cat ~/probe-shell.txt 2>/dev/null || true", timeout=60), 180, interval=5)
+                except RuntimeError:
+                    print(run_on(name, f"{tmux} list-sessions 2>&1 | head; echo ---; "
+                                       f"{tmux} capture-pane -p -t \"$({tmux} list-sessions -F '#{{session_name}}' "
+                                       f"2>/dev/null | head -1)\" 2>&1 | tail -n 20", timeout=60),
+                          file=sys.stderr)
+                    raise
+                shell_before = run_on(name, "cat ~/probe-shell.txt", timeout=60).strip()
+                sessions_before = run_on(name, f"{tmux} list-sessions 2>/dev/null | wc -l", timeout=60).strip()
+
+                step(f"restarting the service under it, as an update does ({terminal}, {shell_before})")
+                run_on(name, "sprite-env services restart bloom", timeout=120)
+                wait_for("health answers again", lambda: https(url, path="/_bloom/health")[0] == 200, 180, interval=3)
+
+                after = rpc(url, session(), {"kind": "transcript", "chat_id": chat["id"], "after_seq": -1})["transcript"]
+                kept = [p for p in after["queue"]["prompts"] if p["id"] == prompt_id]
+                step(f"the queue kept the prompt: {bool(kept)} ({[p.get('state') for p in kept]})")
+                retried = rpc(url, session(), {"kind": "send", "chat_id": chat["id"], "text": "Wait for me"}, command_id=command_id)
+                step(f"the same command id answers {retried.get('prompt_id') == prompt_id and 'the same prompt' or retried}")
+                shell_after = run_on(name, "cat ~/probe-shell.txt", timeout=60).strip()
+                sessions_after = run_on(name, f"{tmux} list-sessions 2>/dev/null | wc -l", timeout=60).strip()
+                step(f"the terminal's shell: before {shell_before} / after {shell_after}, tmux sessions {sessions_before} -> {sessions_after}")
+                local(proxy_port, "POST", "/test/refuse-starts", None)
 
             if arguments.update:
                 # Releases are laid out under /opt/bloom beforehand, so the bootstrap takes them as

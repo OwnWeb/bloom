@@ -57,8 +57,17 @@ public actor RemoteTerminals {
     /// else attaching by name would act as them. `owner` nil is the server's own, such as the
     /// shell a run script is typed into, which anybody may open.
     @discardableResult
+    /// `command` is run by tmux as the session's own command when the session is created, with a
+    /// login shell left behind it.
+    ///
+    /// **Not typed into the shell.** A run script used to be sent as keystrokes the moment the
+    /// session existed, and on a machine whose shell takes a moment to start (a profile that
+    /// sources anything, a cold page cache) those keystrokes went into a shell that was not reading
+    /// yet: the terminal opened, the pane stayed empty, and nothing anywhere said the script had
+    /// not run. Measured on a Sprite with a three second `.bashrc`. Handing the command to tmux
+    /// removes the race rather than waiting longer for it.
     public func ensureSession(name: String, environment: [String: String] = [:], owner: String? = nil,
-                              personal: Set<String> = []) async throws -> String {
+                              personal: Set<String> = [], command runScript: String? = nil) async throws -> String {
         guard !closed else { throw RemoteFailure.shuttingDown }
         try Self.validate(name: name)
         for key in environment.keys where !Self.isValidVariableName(key) {
@@ -74,7 +83,8 @@ public actor RemoteTerminals {
         let previous = creating
         let creation = Task { [worktree] in
             _ = try? await previous?.value
-            try await Self.create(session: session, environment: environment, owner: owner, personal: personal, command: command, worktree: worktree)
+            try await Self.create(session: session, environment: environment, owner: owner, personal: personal,
+                                  command: command, worktree: worktree, runScript: runScript)
         }
         creating = creation
         do {
@@ -88,12 +98,16 @@ public actor RemoteTerminals {
     }
 
     private static func create(
-        session: String, environment: [String: String], owner: String?, personal: Set<String>, command: TmuxCommand, worktree: String
+        session: String, environment: [String: String], owner: String?, personal: Set<String>, command: TmuxCommand,
+        worktree: String, runScript: String?
     ) async throws {
         let names = environment.keys.sorted().joined(separator: " ")
         _ = try await Shell.run(command.executable, command.arguments(["set-option", "-g", "update-environment", names]), cwd: worktree)
         // One tmux invocation, so the owner is on the session before anybody can attach to it.
         var arguments = ["new-session", "-d", "-s", session, "-c", worktree]
+        // The shell stays after it, so a person can read what happened and carry on in the same
+        // terminal, which is what typing the command used to leave them with.
+        if let runScript { arguments.append(runScript + "\nexec \"$SHELL\" -l\n") }
         // `=name:` because an option's target is a pane, and `=name` alone matches no pane.
         if let owner { arguments += [";", "set-option", "-t", "=" + session + ":", ownerOption, owner] }
         if !personal.isEmpty { arguments += [";", "set-option", "-t", "=" + session + ":", personalOption, personal.sorted().joined(separator: " ")] }
@@ -129,9 +143,11 @@ public actor RemoteTerminals {
 
     /// Attaches to a terminal, creating its session first when there is none.
     public func attach(
-        name: String, environment: [String: String] = [:], owner: String? = nil, personal: Set<String> = [], columns: Int = 80, rows: Int = 24
+        name: String, environment: [String: String] = [:], owner: String? = nil, personal: Set<String> = [],
+        command runScript: String? = nil, columns: Int = 80, rows: Int = 24
     ) async throws -> RemoteTerminalAttachment {
-        let session = try await ensureSession(name: name, environment: environment, owner: owner, personal: personal)
+        let session = try await ensureSession(name: name, environment: environment, owner: owner, personal: personal,
+                                              command: runScript)
         guard !closed else { throw RemoteFailure.shuttingDown }
         guard attachments.count < Self.attachmentLimit else {
             throw RemoteFailure(.unavailable, "Too many terminal connections are open.")

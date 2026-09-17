@@ -81,6 +81,7 @@ class FakeRunbloom(http.server.ThreadingHTTPServer):
         self.jwks = jwks
         self.requests = []
         self.grant = None
+        self.refusal = None
         self.turns = 0
         self.lock = threading.Lock()
 
@@ -127,6 +128,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             turn = self.path.split("/")[-2]
             with server.lock:
                 grant = server.grant
+                refusal = server.refusal
+            # A refused start is how a test keeps a prompt in the queue without an agent: the
+            # machine leaves it there, marked, exactly as it does for a real team limit.
+            if refusal:
+                return self.answer(429, json.dumps(refusal).encode())
             keys, environment = {}, {}
             if grant:
                 environment = dict(grant.get("environment", {}))
@@ -136,6 +142,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return self.answer(204)
 
     def test_api(self, method, body):
+        if self.path == "/test/refuse-starts" and method == "POST":
+            with self.server.lock:
+                self.server.refusal = json.loads(body) if body else None
+            return self.answer(204)
         if self.path == "/test/grant" and method == "POST":
             with self.server.lock:
                 self.server.grant = json.loads(body)
