@@ -41,11 +41,13 @@ public enum TranscriptRowInk {
     /// result whose call is on the row above draws nothing either, but which rows those are is a
     /// question about the row before it rather than about the row, so it is not answered here.
     ///
-    /// Two `system` rows draw: an init, and a background task's notification, which is stored only
-    /// when it opens a turn the CLI started by itself. See `BackgroundWake`.
+    /// Three `system` rows draw: an init, a background task's notification, which is stored only
+    /// when it opens a turn the CLI started by itself, and the boundary that closes a compaction.
+    /// See `BackgroundWake` and `ContextCompaction`.
     public static func drawsNothing(kind: MessageKind, payload: Data) -> Bool {
         guard kind == .system else { return false }
         return payload.prefix(probeLength).range(of: initMarker) == nil
             && !BackgroundWake.isRow(kind: kind, payload: payload)
+            && !ContextCompaction.isRow(kind: kind, payload: payload)
     }
 }

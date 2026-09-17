@@ -71,7 +71,7 @@ struct SubagentConversationView: View {
         }
 
         if isRunning {
-            StreamingStatusView(glyph: nil, text: "Working")
+            StreamingStatusView(mark: .activity, text: "Working")
                 .padding(.bottom, TranscriptLayout.block)
                 .subagentReadingColumn()
         }

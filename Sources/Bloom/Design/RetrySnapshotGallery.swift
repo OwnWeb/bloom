@@ -27,7 +27,7 @@ struct RetrySnapshotGallery: View {
         // whole page renders blank, which is what the first photograph of this file was.
         VStack(alignment: .leading, spacing: 20) {
                 group("What it used to say, for three minutes and fourteen seconds") {
-                    StreamingStatusView(glyph: nil, text: "Requesting")
+                    StreamingStatusView(mark: .activity, text: "Requesting")
                 }
 
                 group("Attempt 1 of 10, six hundred milliseconds in. Not news yet.") {
