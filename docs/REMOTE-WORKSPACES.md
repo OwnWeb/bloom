@@ -1191,10 +1191,13 @@ both with no view changing at all, and would retire `CloudTabs`. The second is t
 the riskier change, and the risk is all on the local side, which is the side that must not regress.
 Take it with the stores' own tests in front of you rather than in passing.
 
-After that, in the order they are worth doing: the sidebar's Cloud row and column, the create and
-archive sheets and the empty state, then the menus and commands. Two are deliberately not on that
-list: the terminal pane and the share popover. A terminal over a network and a public preview link
-have no local equivalent to converge on, and inventing one would be a merge nobody asked for.
+After that, in the order they are worth doing: the sidebar's Cloud column (its row already wears
+the column's own mark), the create and archive sheets and the empty state. The menus and the tab
+commands are done: New Chat, New Terminal Tab, Show Changes, Rename Tab and Close Tab act on a
+Cloud workspace on the same keys, and what a machine has no answer to is left out rather than
+faked. Two things are deliberately not on that list: the terminal pane and the share popover. A
+terminal over a network and a public preview link have no local equivalent to converge on, and
+inventing one would be a merge nobody asked for.
 
 The slices, in the order they are being built: the review surface (this one), then the tab strip,
 header and banners, then the composer and transcript behind a chat backend, then the terminal and
