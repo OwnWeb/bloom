@@ -402,6 +402,12 @@ jobs:
       - name: Run the core tests
         run: ./Tools/test-core.sh
 
+      # The Mac client's own package: runbloom.app's API, the connection to a Cloud workspace's
+      # machine and the merging rules, against fakes of both. On the Mac runner because the
+      # event stream is read with URLSession's byte streams, which Linux Foundation lacks.
+      - name: Run the Cloud workspace client tests
+        run: swift test --package-path Packages/BloomClient -Xswiftc -warnings-as-errors
+
   # The server half, on the platform it ships to. A Cloud workspace runs on
   # Ubuntu x86_64 and nothing on a Mac compiles for it, so a Darwin-only call
   # added to BloomCore is found here or on a machine. The image pins the Swift

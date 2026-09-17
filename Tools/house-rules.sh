@@ -145,8 +145,13 @@ echo "==> only the app target imports a UI framework"
 # not here. Only the app target declares them in `Package.swift`, so an import
 # of either from the core or the bridge is a link error rather than a lint
 # finding, and a rule that can never fire is a rule that gets believed in.
+#
+# `Packages/BloomClient` is held to the same line and for the same reason: its
+# tests are the only ones that reach the Cloud workspace client, and iOS takes
+# the package as it is. `BloomAuthentication` presents a sign in sheet over a
+# window, so it is the one package that may import AppKit.
 ui_import='(^|[^A-Za-z0-9_])import[[:space:]]+([a-z]+[[:space:]]+)?(SwiftUI|AppKit|Cocoa)([^A-Za-z0-9_]|$)'
-if hits="$(git grep --untracked -n -I -E "$ui_import" -- 'Sources/BloomCore/*' 'Sources/bloom-bridge/*' || true)" && [ -n "$hits" ]; then
+if hits="$(git grep --untracked -n -I -E "$ui_import" -- 'Sources/BloomCore/*' 'Sources/bloom-bridge/*' 'Packages/BloomClient/*' || true)" && [ -n "$hits" ]; then
   echo "$hits" | show
   report "A target that is not Sources/Bloom imports a UI framework. Move the view part into Sources/Bloom and leave the decision behind, where the suite can reach it."
 fi

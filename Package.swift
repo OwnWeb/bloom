@@ -132,6 +132,10 @@ let package = Package(
     dependencies: [
         // The Cloud workspace wire shapes, shared by the server and every Swift client.
         .package(path: "Packages/BloomProtocol"),
+        // The Mac's half of Cloud workspaces: runbloom.app's API and the connection to a machine,
+        // and signing in to a Bloom account. Only the app target names them.
+        .package(path: "Packages/BloomClient"),
+        .package(path: "Packages/BloomAuthentication"),
         // bloom-server's HTTP front, its terminal WebSocket and its client for runbloom.app. The
         // app never links them: only BloomServer names them, and the app does not depend on it.
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.26.0"),
@@ -162,6 +166,9 @@ let package = Package(
             name: "Bloom",
             dependencies: [
                 "BloomCore",
+                .product(name: "BloomProtocol", package: "BloomProtocol"),
+                .product(name: "BloomClient", package: "BloomClient"),
+                .product(name: "BloomAuthentication", package: "BloomAuthentication"),
                 .product(name: "MarkdownEngine", package: "swift-markdown-engine"),
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
                 .product(name: "Sparkle", package: "Sparkle"),
