@@ -67,4 +67,15 @@ struct RecentProjectsTests {
         #expect(recent.first?.name == "p11")
         #expect(recent.last?.name == "p2")
     }
+
+    @Test("the New menu leaves hidden projects out before capping at five")
+    func newMenu() {
+        let hidden = (0..<5).map { Repo(name: "h\($0)", path: "/h\($0)", sortOrder: $0, hidden: true) }
+        let workspaces = hidden.map { workspace(in: $0, at: 1_000) }
+            + [workspace(in: flare, at: 100), workspace(in: site, at: 200)]
+
+        let menu = RecentProjects.newMenu(hidden + [flare, site], workspaces: workspaces)
+
+        #expect(menu.map(\.name) == ["site", "flare"])
+    }
 }

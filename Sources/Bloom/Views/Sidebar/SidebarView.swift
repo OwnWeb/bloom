@@ -100,6 +100,9 @@ struct SidebarView: View {
     /// sayings: two drops refused in the same project produce the same words, and a note keyed to
     /// the words would have the second one taken away on the first one's clock.
     @State private var reorderNote: ReorderNote?
+    /// The New menu's "New workspace in" section, loaded here rather than in the menu because the
+    /// archived workspaces it counts are a store read. See `RecentProjects.newMenu`.
+    @State private var recentProjects: [Repo] = []
     /// The crew member whose Stop is waiting on an answer, and nil when nothing is being asked.
     ///
     /// Only ever set for one that is still working: stopping an agent that has already finished
@@ -242,6 +245,12 @@ struct SidebarView: View {
         .settlesArrivals($arrival)
         .settlesArrivals($childArrival)
         // The note takes itself back, and each one is on its own clock.
+        // Keyed on what can change the answer: a workspace started or archived, an archive
+        // cleared out, and a project hidden, shown or removed.
+        .task(id: NewMenuRecentKey(app: app)) {
+            let archived = await app.archivedWorkspaces()
+            recentProjects = RecentProjects.newMenu(app.repos, workspaces: app.workspaces + archived)
+        }
         .task(id: reorderNote) {
             guard reorderNote != nil else { return }
             try? await Task.sleep(for: .seconds(2.4))
@@ -254,7 +263,9 @@ struct SidebarView: View {
             SidebarToolbar(
                 isFolded: isSidebarFolded,
                 onNewWorkspace: { presentCreate(in: nil) },
-                onStartProject: startProject
+                onStartProject: startProject,
+                onCreateWorkspace: { presentCreate(in: $0) },
+                recentProjects: recentProjects
             )
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -263,6 +274,7 @@ struct SidebarView: View {
                 onCreateWorkspace: { presentCreate(in: $0) },
                 onNewWorkspace: { presentCreate(in: nil) },
                 onStartProject: startProject,
+                recentProjects: recentProjects,
                 note: reorderNote?.sentence
             )
         }
@@ -958,6 +970,8 @@ struct SidebarToolbar: ToolbarContent {
     var isFolded: Bool
     var onNewWorkspace: () -> Void
     var onStartProject: () -> Void
+    var onCreateWorkspace: (Repo) -> Void
+    var recentProjects: [Repo]
 
     var body: some ToolbarContent {
         if !isFolded {
@@ -967,8 +981,12 @@ struct SidebarToolbar: ToolbarContent {
 
             ToolbarItemGroup(placement: .primaryAction) {
                 Menu {
-                    Button("New workspace…", action: onNewWorkspace)
-                    Button("New project…", action: onStartProject)
+                    NewMenuItems(
+                        recent: recentProjects,
+                        onNewWorkspace: onNewWorkspace,
+                        onStartProject: onStartProject,
+                        onCreateWorkspace: onCreateWorkspace
+                    )
                 } label: {
                     Label("New", systemImage: "plus")
                 }
