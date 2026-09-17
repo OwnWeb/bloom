@@ -121,6 +121,12 @@ jobs:
       - name: Check the house rules
         run: ./Tools/house-rules.sh
 
+      # The Cloud workspace protocol: the JSON Schema a client in another language reads has to
+      # list every kind the Swift types decode and accept every vector they encode. Python and
+      # nothing installed, so it belongs here rather than on a Swift runner.
+      - name: Check the workspace protocol schema
+        run: python3 Protocol/v1/schema.py --check
+
       # And the rules that are the language's rather than ours, which is the other half.
       # `.swiftlint.yml` is tuned rather than default: the head of that file has the counts every
       # disabled rule produced and why each one is off.
@@ -420,7 +426,7 @@ jobs:
         run: |
           set -euo pipefail
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends libsqlite3-dev pkg-config git
+          apt-get install -y -qq --no-install-recommends libsqlite3-dev pkg-config git tmux
           useradd --create-home --shell /bin/bash bloom-ci
           chown -R bloom-ci:bloom-ci "$GITHUB_WORKSPACE"
           runuser -u bloom-ci -- git config --global --add safe.directory "$GITHUB_WORKSPACE"

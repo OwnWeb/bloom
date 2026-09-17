@@ -344,6 +344,7 @@ id_type_allowed_properties=(
   'Sources/BloomCore/Agent/PlanArtefact.swift:sourceID'               # the provider's plan item or tool-use token
   'Sources/BloomCore/Agent/Delivery.swift:remoteTurnID'               # runbloom.app's turn, a ULID it assigns
   'Sources/BloomCore/Model/MessageAuthor.swift:userID'                # runbloom.app's user, the token's sub
+  'Sources/BloomCore/Remote/RemoteEventHub.swift:userID'              # the same user, holding an event stream open
 )
 # A stored property whose name ends in ID or Ids and whose type is a bare
 # String. Trailing `{` is excluded by the `$` anchor, which is what leaves

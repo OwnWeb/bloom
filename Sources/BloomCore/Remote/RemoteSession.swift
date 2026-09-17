@@ -1,0 +1,200 @@
+import Foundation
+
+/// One chat's live agent in a Cloud workspace, owned by the runtime rather than by any connection.
+///
+/// **Nobody's disconnect can cancel an agent or abandon a question.** A client going away closes
+/// its stream and nothing else; the turn, its questions and its queue carry on and are there for
+/// whoever opens the workspace next. This is #163's `ServerSession`, which earned that rule, with
+/// one thing added: the process is launched with the key of the person whose turn it is running.
+///
+/// **A process keeps its key for as long as turns keep resolving to the same one.** The identity
+/// compared is the key's hash and the personal environment, never the person, so two teammates
+/// on the team key share one long-lived process. A turn on a different key waits for the current
+/// turn to end, stops the process and starts it again with `--resume`, which reloads the
+/// conversation from the machine's own files. That costs a prompt cache miss, which is why it
+/// happens only when the key actually changes. See docs/REMOTE-WORKSPACES.md.
+actor RemoteSession {
+    typealias MakeRunner = @Sendable (_ environment: [String: String]) -> any SessionRunner
+
+    private let make: MakeRunner
+    private(set) var runner: (any SessionRunner)?
+    private var launchIdentity: String?
+    private(set) var isBusy = false
+    private(set) var streamingText = ""
+    private var eventTask: Task<Void, Never>?
+    private var isClosed = false
+    private var isSending = false
+    private var generation = 0
+    private var answering: Set<String> = []
+    private var claimedEnd = false
+    private var wasStopped = false
+    private let onTurnEnded: @Sendable (RemoteTurnEnd) async -> Void
+    private let onStream: @Sendable (_ text: String, _ reset: Bool) async -> Void
+    /// How long shutdown waits for a terminated runner to exit. See `shutdown()`.
+    private let runnerExitGrace: Duration
+
+    init(
+        runnerExitGrace: Duration = .seconds(6),
+        make: @escaping MakeRunner,
+        onStream: @escaping @Sendable (_ text: String, _ reset: Bool) async -> Void = { _, _ in },
+        onTurnEnded: @escaping @Sendable (RemoteTurnEnd) async -> Void = { _ in }
+    ) {
+        self.make = make
+        self.runnerExitGrace = runnerExitGrace
+        self.onStream = onStream
+        self.onTurnEnded = onTurnEnded
+    }
+
+    /// Makes sure the process that takes the next turn was launched with this identity, relaunching
+    /// it when it was not. Only ever called between turns: the queue waits for `isBusy` to clear.
+    ///
+    /// A nil identity keeps whatever process is there, and launches one with no key when there
+    /// is none: a turn nobody in particular asked for runs on the key the chat already has.
+    func prepare(identity: String?, environment: [String: String]) async throws {
+        guard !isClosed else { throw RemoteFailure(.unavailable, "This conversation is closed.") }
+        guard !isBusy else { throw RemoteFailure(.busy, "The agent is busy. Wait for it to finish or stop it first.") }
+        if runner != nil, identity == nil || launchIdentity == identity { return }
+        if runner != nil { await retireRunner() }
+        let fresh = make(environment)
+        runner = fresh
+        launchIdentity = identity
+        let events = fresh.events
+        eventTask = Task { [weak self] in
+            for await event in events {
+                guard !Task.isCancelled else { break }
+                await self?.receive(event)
+            }
+        }
+    }
+
+    func send(_ delivery: Delivery) async throws {
+        guard !isClosed else { throw RemoteFailure(.unavailable, "This conversation is closed.") }
+        guard let runner else { throw RemoteFailure(.internal, "The agent was not started before its turn.") }
+        guard !isBusy else { throw RemoteFailure(.busy, "The agent is busy. Wait for it to finish or stop it first.") }
+        isBusy = true
+        isSending = true
+        wasStopped = false
+        claimedEnd = false
+        generation += 1
+        defer { isSending = false }
+        if !streamingText.isEmpty {
+            streamingText = ""
+            await onStream("", true)
+        }
+        do {
+            try await runner.sendDelivery(delivery)
+        } catch {
+            if claimEnd() {
+                await onTurnEnded(wasStopped ? .stopped(error.localizedDescription) : .failed(error.localizedDescription))
+            }
+            isBusy = false
+            throw error
+        }
+    }
+
+    private func receive(_ event: AgentEvent) async {
+        switch event {
+        case .streamDelta(.text(let text)):
+            // The durable transcript stays complete; only the transient tail is bounded.
+            streamingText += text
+            if streamingText.utf8.count > 262_144 {
+                streamingText = String(streamingText.suffix(65_536))
+                await onStream(streamingText, true)
+            } else {
+                await onStream(text, false)
+            }
+        case .assistantText:
+            streamingText = ""
+            await onStream("", true)
+        case .result(let result):
+            guard claimEnd() else { return }
+            streamingText = ""
+            await onStream("", true)
+            await onTurnEnded(wasStopped ? .stopped(result.summary) : (result.isError ? .failed(result.summary) : .completed(result.summary)))
+            isBusy = false
+        case .error(let error):
+            guard claimEnd() else { return }
+            streamingText = ""
+            await onStream("", true)
+            await onTurnEnded(wasStopped ? .stopped(error.message) : .failed(error.message))
+            isBusy = false
+        default: break
+        }
+    }
+
+    /// One report per turn, whichever of a result, an error or a failed send arrives first.
+    private func claimEnd() -> Bool {
+        guard !claimedEnd else { return false }
+        claimedEnd = true
+        return true
+    }
+
+    func stop() {
+        // Keep the turn reserved until its terminal event. A late stop must not cancel a new turn.
+        guard isBusy, let runner else { return }
+        wasStopped = true
+        runner.cancelNow()
+    }
+
+    /// Releases a turn whose runner went quiet after a stop.
+    ///
+    /// A stored idle or failed row can beat its terminal event to this actor, and releasing the
+    /// turn then would let a queued send start before that old event arrives. Only an explicit
+    /// stop has a backend that may finish without a result event (Claude Code on SIGTERM).
+    func refreshState(store: Store, sessionID: SessionID) async throws {
+        guard isBusy, !isSending else { return }
+        let observedGeneration = generation
+        let session = try await store.session(id: sessionID)
+        guard isBusy, !isSending, generation == observedGeneration else { return }
+        if let session, session.state == .cancelled, wasStopped {
+            streamingText = ""
+            if claimEnd() { await onTurnEnded(.stopped("")) }
+            isBusy = false
+        }
+    }
+
+    /// The first answer wins. A second, from anybody, is told the question was already answered.
+    func answer(requestID: String, decision: PermissionDecision, store: Store, sessionID: SessionID) async throws {
+        guard !isClosed, !answering.contains(requestID) else {
+            throw RemoteFailure(.alreadyAnswered, "This question has already been answered.")
+        }
+        answering.insert(requestID)
+        defer { answering.remove(requestID) }
+        let pending = try await store.pendingPermissionAsks(sessionID: sessionID)
+        guard let question = pending.first(where: { $0.requestID == requestID }), !isClosed, let runner else {
+            throw RemoteFailure(.alreadyAnswered, "This question is no longer waiting for an answer.")
+        }
+        if case .approvePlan(let mode) = decision {
+            guard question.ask.isPlanApproval, PlanApproval.modes.contains(mode) else {
+                throw RemoteFailure(.invalidValue, "This question cannot approve implementation in that mode.")
+            }
+        }
+        await runner.answer(requestID: requestID, decision: decision)
+    }
+
+    private func retireRunner() async {
+        guard let current = runner else { return }
+        current.terminateNow()
+        let deadline = ContinuousClock.now.advanced(by: runnerExitGrace)
+        while await current.isProcessAlive, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        eventTask?.cancel()
+        eventTask = nil
+        runner = nil
+        launchIdentity = nil
+    }
+
+    func shutdown() async {
+        isClosed = true
+        // The runner escalates to SIGKILL on its own budget. Keep the server alive long enough for
+        // that to run rather than orphaning a CLI that ignored SIGTERM, and bounded, so a runner
+        // that never exits cannot hold shutdown for ever.
+        await retireRunner()
+    }
+
+    deinit {
+        runner?.terminateNow()
+        eventTask?.cancel()
+    }
+}
