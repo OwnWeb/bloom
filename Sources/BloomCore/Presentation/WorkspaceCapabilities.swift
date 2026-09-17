@@ -27,6 +27,10 @@ public struct WorkspaceCapabilities: Sendable, Hashable {
         case keepAwake
         /// Open the project's own app inside Bloom.
         case preview
+        /// Write to a file from the diff: the in-place editor and the whole-file editor.
+        case editFiles
+        /// Leave notes on a diff to send with the next message.
+        case reviewComments
 
         /// Why a Cloud workspace cannot do this, in one sentence, for the one place that draws a
         /// missing capability. Written as what is true rather than as an apology.
@@ -48,6 +52,10 @@ public struct WorkspaceCapabilities: Sendable, Hashable {
                 "A Cloud workspace runs in the cloud, so it keeps working whatever this Mac does. It sleeps by itself when nobody is using it and wakes when you are."
             case .preview:
                 "This Cloud workspace has no preview yet. It appears once the project's own app is running on it."
+            case .editFiles:
+                "Editing a file in a Cloud workspace is not built yet. Ask the agent to make the change, or edit it from the workspace's terminal."
+            case .reviewComments:
+                "Notes on a diff are not built for a Cloud workspace yet. Say what you want changed in the chat instead."
             }
         }
     }
@@ -67,7 +75,8 @@ public struct WorkspaceCapabilities: Sendable, Hashable {
     /// side of the wire, so each of them turns on here the day it lands rather than in a view.
     public static func cloud(
         history: Bool = false, revertChanges: Bool = false, searchTranscripts: Bool = false,
-        preview: Bool = true, terminal: Bool = true, managePullRequest: Bool = false
+        preview: Bool = true, terminal: Bool = true, managePullRequest: Bool = false,
+        editFiles: Bool = false, reviewComments: Bool = false
     ) -> WorkspaceCapabilities {
         var supported: Set<Capability> = []
         if history { supported.insert(.history) }
@@ -76,6 +85,8 @@ public struct WorkspaceCapabilities: Sendable, Hashable {
         if preview { supported.insert(.preview) }
         if terminal { supported.insert(.terminal) }
         if managePullRequest { supported.insert(.managePullRequest) }
+        if editFiles { supported.insert(.editFiles) }
+        if reviewComments { supported.insert(.reviewComments) }
         // Never, by construction: there is no worktree on this Mac to reveal, and nothing this Mac
         // does keeps a machine in the cloud awake.
         return WorkspaceCapabilities(supported)

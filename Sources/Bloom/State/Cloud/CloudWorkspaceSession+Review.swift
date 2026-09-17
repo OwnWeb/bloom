@@ -33,7 +33,7 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
         .cloud(
             // Each of these turns on here the day its half lands on the other side of the wire.
             history: true,
-            revertChanges: false,
+            revertChanges: true,
             searchTranscripts: false,
             preview: allows("preview"),
             terminal: allows("terminal"),
@@ -157,8 +157,71 @@ extension CloudWorkspaceSession: WorkspaceReviewSurface {
     func absolutePath(for relativePath: String) -> String? { nil }
 
     func revert(file: ChangedFile) async -> String? {
-        WorkspaceCapabilities.Capability.revertChanges.cloudSentence
+        await changes.revert(file: file)
     }
+
+    func discard(hunk: DiffHunk, of file: ChangedFile) async -> String? {
+        await changes.discard(hunk: hunk, of: file)
+    }
+
+    /// The file as the machine has it, read once and held, so the expanders between hunks work
+    /// the same way they do over a worktree.
+    func reviewContents(for file: ChangedFile) async -> String? {
+        await changes.text(of: file.path)
+    }
+
+    /// No worktree on this Mac to root a language server in, so the diff offers no lookup and
+    /// says nothing it cannot do.
+    var offersSourceLookup: Bool { false }
+
+    func lookUpInDiff(at offset: Int, view: CodeTextView, lines: [DiffLine?], source: String,
+                      path: String, references: Bool, automatic: Bool, newTab: Bool,
+                      onOpen: @escaping (CodeLocation, Bool) -> Void) {}
+
+    func openFromDiff(_ location: CodeLocation, newTab: Bool) async {
+        openFile(path: location.path, focusing: true)
+    }
+
+    /// No source editor to walk, so the buttons that walk it are greyed rather than missing.
+    var canStepSourceHistory: (back: Bool, forward: Bool) { (false, false) }
+    func stepSourceHistory(_ delta: Int) {}
+
+    /// A line of a file is the review, which is the tab this workspace already has.
+    func openSource(at location: CodeLocation) {
+        openFile(path: location.path, focusing: true)
+    }
+
+    /// No file on this Mac to name, so the key names the workspace and the file. Nothing opens it:
+    /// the editor is behind `.editFiles`, which a Cloud workspace does not have.
+    func editorKey(for relativePath: String) -> String {
+        "cloud:\(id.rawValue)/\(relativePath)"
+    }
+
+    func heldDiff(for file: ChangedFile, ignoringWhitespace: Bool) -> DiffPresentation? {
+        changes.heldDiff(for: file, ignoringWhitespace: ignoringWhitespace)
+    }
+
+    func holdDiff(_ presentation: DiffPresentation, for file: ChangedFile, ignoringWhitespace: Bool) {
+        changes.holdDiff(presentation, for: file, ignoringWhitespace: ignoringWhitespace)
+    }
+
+    // MARK: Notes on a diff
+
+    /// None, and none can be written: `.reviewComments` is off, so the gutter that starts one is
+    /// not drawn. The buffers are the protocol's shape rather than anything in use.
+    var reviewComments: [ReviewComment] { [] }
+    var reviewDrafts: [String: ReviewDraft] {
+        get { changes.reviewDrafts }
+        set { changes.reviewDrafts = newValue }
+    }
+    var reviewEdits: Set<ReviewCommentID> {
+        get { changes.reviewEdits }
+        set { changes.reviewEdits = newValue }
+    }
+    var reviewText: ReviewTextHost { changes.reviewText }
+    func addReviewComment(filePath: String, selection: ReviewSelection, anchor: ReviewCommentAnchor, body: String) async {}
+    func editReviewComment(id: ReviewCommentID, body: String) async {}
+    func removeReviewComment(id: ReviewCommentID) async {}
 
     func openTerminal(in folder: String) {
         // The workspace's own shell, which is the honest equivalent of a shell in a folder here.

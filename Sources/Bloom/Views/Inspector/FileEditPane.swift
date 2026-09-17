@@ -32,7 +32,7 @@ struct FileEditPane: View {
     @State private var wantsDiskVersion = false
 
     private var absolutePath: String {
-        absolutePathOverride ?? (model.workspace.path as NSString).appendingPathComponent(path)
+        absolutePathOverride ?? model.editorKey(for: path)
     }
 
     private var state: SourceEditorState { SourceEditorState.file(absolutePath) }
@@ -238,5 +238,18 @@ struct FileEditPane: View {
                 .font(Typo.caption)
                 .foregroundStyle(Palette.textTertiary)
         }
+    }
+}
+
+extension WorkspaceModel {
+    /// The file itself, editable, which is what Edit mode in a diff shows.
+    ///
+    /// A view built by the workspace rather than by `DiffView`, because this is the one part of a
+    /// diff that cannot be written against `WorkspaceReviewSurface`: an editor needs the bytes on
+    /// this Mac, the language servers rooted in the worktree and the chat to ask about a symbol in.
+    /// A Cloud workspace answers the same call with the sentence saying so, and `.editFiles` keeps
+    /// the mode off its bar in the first place.
+    func editorPane(path: String, session: FileEditSession) -> FileEditPane {
+        FileEditPane(model: self, path: path, session: session)
     }
 }

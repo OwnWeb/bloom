@@ -40,6 +40,46 @@ extension WorkspaceModel: WorkspaceReviewSurface {
         await FileRevert.revert(file: file, in: workspace)
     }
 
+    func discard(hunk: DiffHunk, of file: ChangedFile) async -> String? {
+        await FileRevert.discard(hunk: hunk, of: file, in: workspace, scope: diffScope)
+    }
+
+    func reviewContents(for file: ChangedFile) async -> String? {
+        await Self.reviewContents(worktree: workspace.path, file: file, scope: diffScope)
+    }
+
+    var offersSourceLookup: Bool { true }
+
+    func lookUpInDiff(at offset: Int, view: CodeTextView, lines: [DiffLine?], source: String,
+                      path: String, references: Bool, automatic: Bool, newTab: Bool,
+                      onOpen: @escaping (CodeLocation, Bool) -> Void) {
+        SourceActions.lookupInDiff(at: offset, view: view, lines: lines, source: source, path: path,
+                                   model: self, references: references, automatic: automatic,
+                                   newTab: newTab, onOpen: onOpen)
+    }
+
+    func openFromDiff(_ location: CodeLocation, newTab: Bool) async {
+        await FileReview.openFromDiff(location, in: self, newTab: newTab)
+    }
+
+    var canStepSourceHistory: (back: Bool, forward: Bool) {
+        let history = SourceNavigation.shared.histories[workspace.id]
+        return (history?.canGoBack == true, history?.canGoForward == true)
+    }
+
+    func stepSourceHistory(_ delta: Int) {
+        SourceNavigation.shared.move(delta, in: self)
+    }
+
+    func openSource(at location: CodeLocation) {
+        FileReview.open(location: location, in: self)
+    }
+
+    /// The file itself, which is what the editor opens and what the find bar files its state under.
+    func editorKey(for relativePath: String) -> String {
+        (workspace.path as NSString).appendingPathComponent(relativePath)
+    }
+
     func openTerminal(in folder: String) {
         FolderTerminalTab.open(folder: folder, in: self)
     }

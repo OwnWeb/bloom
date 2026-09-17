@@ -34,6 +34,11 @@ enum ChangesRefresh {
 /// revert and a local shell are `WorkspaceCapabilities`, asked before they are offered.
 @MainActor
 protocol WorkspaceReviewSurface: AnyObject, Observable {
+    /// What Edit mode in a diff shows. See `WorkspaceModel.editorPane(path:session:)` for why
+    /// the workspace builds this view and the diff does not.
+    associatedtype EditorPane: View
+    func editorPane(path: String, session: FileEditSession) -> EditorPane
+
     /// What this workspace is, for the caches that are keyed per workspace and for a view that has
     /// to tell two of them apart. See `WorkspaceSurfaceID`.
     var surfaceID: WorkspaceSurfaceID { get }
@@ -61,6 +66,10 @@ protocol WorkspaceReviewSurface: AnyObject, Observable {
     var changesGeneration: Int { get }
     func refreshChanges(_ reason: ChangesRefresh) async
     func readPatch(for file: ChangedFile) async throws -> String
+    /// What the review pane last drew for this file, so a diff the app already has goes on screen
+    /// on the frame the tab is picked rather than after a read.
+    func heldDiff(for file: ChangedFile, ignoringWhitespace: Bool) -> DiffPresentation?
+    func holdDiff(_ presentation: DiffPresentation, for file: ChangedFile, ignoringWhitespace: Bool)
 
     /// Opens one of this workspace's files where its reader expects it: the review in the centre
     /// column for a worktree on this Mac, the same review for a workspace on a machine.
@@ -107,6 +116,35 @@ protocol WorkspaceReviewSurface: AnyObject, Observable {
     func absolutePath(for relativePath: String) -> String?
     /// Takes a file back to what it was. Answers what went wrong, or nil. Behind `.revertChanges`.
     func revert(file: ChangedFile) async -> String?
+    /// The same for one hunk of it, named by the hunk the reader is looking at rather than by an
+    /// index, so a file that moved under the diff is refused rather than guessed at.
+    func discard(hunk: DiffHunk, of file: ChangedFile) async -> String?
+    /// Where the source editor's back and forward buttons can go, and stepping them. A workspace
+    /// whose files are not on this Mac has no source editor to walk, so it answers false and the
+    /// buttons are greyed rather than absent.
+    var canStepSourceHistory: (back: Bool, forward: Bool) { get }
+    func stepSourceHistory(_ delta: Int)
+    /// Opens a file at a line, which is what a link in a diff or a preview means. Behind
+    /// `.editFiles` where there is no source editor to open.
+    func openSource(at location: CodeLocation)
+    /// The file as the review's baseline has it, which is what the between-hunks expanders
+    /// reveal. Nil where it cannot be read, and then the diff simply has no expanders.
+    func reviewContents(for file: ChangedFile) async -> String?
+    /// Go to definition and find usages from a diff line. Both need a language server rooted in a
+    /// worktree on this Mac, so a workspace without one offers neither and the diff is read-only
+    /// in that one respect rather than pretending.
+    var offersSourceLookup: Bool { get }
+    func lookUpInDiff(at offset: Int, view: CodeTextView, lines: [DiffLine?], source: String,
+                      path: String, references: Bool, automatic: Bool, newTab: Bool,
+                      onOpen: @escaping (CodeLocation, Bool) -> Void)
+    /// Opens what a lookup found, in this pane or a new tab.
+    func openFromDiff(_ location: CodeLocation, newTab: Bool) async
+    /// What the editor, the find bar and the source state file this file under.
+    ///
+    /// The path on this Mac for a worktree, and a key naming the Cloud workspace and the file for
+    /// one in the cloud. It is a key and not a path: nothing opens it, and everything that reads
+    /// or writes the file itself is behind `.editFiles` or `.revealFiles`.
+    func editorKey(for relativePath: String) -> String
     /// A shell opened in one of the workspace's folders. Behind `.terminal`.
     func openTerminal(in folder: String)
     /// The file shown as a page, which is how a local workspace previews an image or a PDF.
@@ -114,6 +152,22 @@ protocol WorkspaceReviewSurface: AnyObject, Observable {
     /// The same file, or the branch itself, on GitHub. The honest equivalent of a reveal for a
     /// workspace whose files are not on this Mac; nil where the files are here.
     func gitHubURL(forFile relativePath: String?) -> URL?
+
+    // MARK: Notes on a diff
+
+    /// The pending review: what has been written on this workspace's diffs and not yet sent.
+    /// Empty where `.reviewComments` is missing, and the gutter that would add one is not drawn.
+    var reviewComments: [ReviewComment] { get }
+    /// Where a note is being written on each file, and which finished notes are open for editing.
+    /// On the workspace rather than in the view, because the view is destroyed by scrolling.
+    var reviewDrafts: [String: ReviewDraft] { get set }
+    var reviewEdits: Set<ReviewCommentID> { get set }
+    /// What is being typed into those. A `let` on both implementations, so a keystroke invalidates
+    /// the one editor row reading its key rather than the diff.
+    var reviewText: ReviewTextHost { get }
+    func addReviewComment(filePath: String, selection: ReviewSelection, anchor: ReviewCommentAnchor, body: String) async
+    func editReviewComment(id: ReviewCommentID, body: String) async
+    func removeReviewComment(id: ReviewCommentID) async
 
     // MARK: What GitHub thinks of it
 

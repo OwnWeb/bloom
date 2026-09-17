@@ -38,6 +38,15 @@ final class CloudChanges {
     /// file. The local model keeps the same two facts; they are per workspace and not per window.
     var inspectorTab: InspectorTab = .changes
     var showsAllFiles = false
+    /// What the review pane last drew per file, so walking back to a file it has already read
+    /// costs no request. The local model holds the same cache for the same reason.
+    @ObservationIgnored private var presentations = DiffPresentationCache()
+    /// Where a note is being written and which are open for editing, held for the protocol's sake.
+    /// Nothing writes them today: `.reviewComments` is off for a Cloud workspace, so the gutter
+    /// that would start one is not drawn.
+    var reviewDrafts: [String: ReviewDraft] = [:]
+    var reviewEdits: Set<ReviewCommentID> = []
+    let reviewText = ReviewTextHost()
     private(set) var fileTree: [String: [FileTreeNode]] = [:]
     private(set) var hasReadFileTree = false
 
@@ -167,7 +176,69 @@ final class CloudChanges {
     /// Drops the held patch for a file whose contents were rewritten under the reader.
     func forgetHeldDiff(for path: String) {
         for scope in caches.keys { caches[scope]?.forget(path: path) }
+        presentations.forget(file: path)
         generation += 1
+    }
+
+    // MARK: What the pane last drew
+
+    func heldDiff(for file: ChangedFile, ignoringWhitespace: Bool) -> DiffPresentation? {
+        presentations.presentation(for: presentationKey(file, ignoringWhitespace: ignoringWhitespace))
+    }
+
+    func holdDiff(_ presentation: DiffPresentation, for file: ChangedFile, ignoringWhitespace: Bool) {
+        presentations.store(presentation, for: presentationKey(file, ignoringWhitespace: ignoringWhitespace))
+    }
+
+    /// The machine's own name for the workspace stands in for the worktree path, which there is
+    /// none of here: the key only has to tell one workspace's diffs from another's.
+    private func presentationKey(_ file: ChangedFile, ignoringWhitespace: Bool) -> DiffPresentationCache.Key {
+        DiffPresentationCache.Key(
+            worktree: "cloud:" + (session?.id.rawValue ?? ""),
+            base: session?.surfaceBaseBranch ?? "",
+            file: file,
+            scope: localScope,
+            ignoresWhitespace: ignoringWhitespace
+        )
+    }
+
+    /// Takes a file, or one hunk of it, back to what the review measured it against. Nil on
+    /// success, or what the machine said. The machine does the git: it has the worktree.
+    func revert(file: ChangedFile) async -> String? {
+        guard let session else { return "This Cloud workspace is closed." }
+        guard commit == nil else { return Self.noCommitPatch }
+        do {
+            _ = try await session.perform(.revertFile(path: file.path, scope: wireScope))
+        } catch {
+            return error.message
+        }
+        forgetHeldDiff(for: file.path)
+        await refresh()
+        return nil
+    }
+
+    /// The hunk is sent as its own patch, because that is how the machine recognises it: a hunk
+    /// that has moved or changed since this diff was read is refused there rather than guessed at.
+    func discard(hunk: DiffHunk, of file: ChangedFile) async -> String? {
+        guard let session else { return "This Cloud workspace is closed." }
+        guard commit == nil else { return Self.noCommitPatch }
+        let whole: String
+        do {
+            whole = try await patch(for: file.path)
+        } catch {
+            return error.localizedDescription
+        }
+        guard let isolated = HunkPatch.isolate(hunk, from: whole) else {
+            return "This part of the file has changed since it was read. Refresh the diff and try again."
+        }
+        do {
+            _ = try await session.perform(.discardHunk(path: file.path, scope: wireScope, patch: isolated))
+        } catch {
+            return error.message
+        }
+        forgetHeldDiff(for: file.path)
+        await refresh()
+        return nil
     }
 
     private func loadPatchForSelection() async {
@@ -195,6 +266,16 @@ final class CloudChanges {
             generation += 1
         }
         return nil
+    }
+
+    /// A file's text, waited for rather than polled. `contents(of:)` above answers what is held
+    /// and starts a read; this is the same read for a caller that can wait for it.
+    func text(of relativePath: String) async -> String? {
+        if let held = contentsByPath[relativePath] { return held }
+        guard let session else { return nil }
+        guard let result = try? await session.perform(.file(path: relativePath)), case .file(let record) = result else { return nil }
+        contentsByPath[relativePath] = record.text
+        return record.text
     }
 
     // MARK: Read marks
