@@ -127,6 +127,12 @@ jobs:
       - name: Check the workspace protocol schema
         run: python3 Protocol/v1/schema.py --check
 
+      # What a Cloud workspace's machine runs before bloom-runner does: the release a machine falls
+      # back to when a new one will not start. A shell script, tested by a shell script, because the
+      # case it exists for is a binary that cannot start at all.
+      - name: Check what the runner's start wrapper decides
+        run: zsh Tools/runner-start-probe.sh
+
       # And the rules that are the language's rather than ours, which is the other half.
       # `.swiftlint.yml` is tuned rather than default: the head of that file has the counts every
       # disabled rule produced and why each one is off.

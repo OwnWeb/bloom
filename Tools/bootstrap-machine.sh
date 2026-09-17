@@ -108,7 +108,10 @@ fi
 # In /var/tmp rather than beside the versions, because /opt is root's and the server deleting it is
 # the machine's own user.
 marker="${BLOOM_UPDATE_MARKER:-/var/tmp/bloom-update-pending}"
-printf '%s\n%s\n' "$version" "$previous" > "$marker"
+# Version, the version to go back to, and how many starts have seen this marker. The start wrapper
+# in bin/bloom-runner counts those and gives up on the release that does not come up. See
+# Tools/runner-start.sh.
+printf '%s\n%s\n0\n' "$version" "$previous" > "$marker"
 "$service_tool" services restart bloom >/dev/null 2>&1 &
 for _ in $(seq 1 20); do
   if [[ ! -e "$marker" ]]; then

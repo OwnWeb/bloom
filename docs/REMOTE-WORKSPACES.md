@@ -1015,6 +1015,20 @@ project's services and how each ended: `vite: crashed after 3 restarts. Exited w
 service that keeps crashing is restarted with a growing wait, so this page is the quickest way to
 tell "the app never started" from "the app is slow".
 
+**A release that will not start is undone at the next start, not by the script that asked for it.**
+`sprite-env services restart bloom` ends the script that called it, so the loop in
+`bootstrap-machine.sh` that was meant to watch the health check never runs during a real update.
+Measured on a Sprite: a service whose process exits at once is restarted for ever, about once a
+minute (`restart_count` 1, 2, 8, 12 over seven minutes). So `bin/bloom-runner` in the package is a
+small start wrapper, with the binary beside it as `bin/bloom-runner-exec`, and the service's command
+is unchanged. Before it execs, a `serve` reads `/var/tmp/bloom-update-pending`: the second start
+that still finds the version it names current puts `current` back to the version before it. One
+start is not a failure, because a machine can restart for its own reasons; and a rollback that
+cannot be done (the old release gone, the symlink unwritable) execs the new version anyway, because
+a machine answering wrongly can be looked at and a machine answering nothing cannot. Rolling back
+from outside, through the provider, is runbloom.app's half and covers a machine that is wedged for
+reasons no script on it could see.
+
 **Telling a provider outage from a Bloom Runner problem.** They look different from the app:
 
 - The machine's URL not answering at all, or answering a provider error page, is the provider or a

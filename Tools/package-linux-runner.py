@@ -181,9 +181,15 @@ def package(bin_directory, output_directory, version):
                 copy_notice(pathlib.Path("/usr/share/doc") / owner / "copyright", notices / (owner + ".txt"))
 
         for source in executables:
-            executable = bundle / "bin" / source.name
+            # bloom-runner is the start wrapper, and the binary sits beside it as bloom-runner-exec.
+            # The service's command never changes once it is created, so the thing that decides
+            # whether to roll a failed update back has to be what that command already names.
+            name = "bloom-runner-exec" if source.name == "bloom-runner" else source.name
+            executable = bundle / "bin" / name
             shutil.copy2(source, executable)
             run("patchelf", "--set-rpath", "$ORIGIN/../lib", str(executable))
+        shutil.copy2(root / "Tools/runner-start.sh", bundle / "bin" / "bloom-runner")
+        (bundle / "bin" / "bloom-runner").chmod(0o755)
         fetch_caddy(machine, bundle / "bin" / "caddy", notices)
         shutil.copy2(root / "Tools/bootstrap-machine.sh", bundle / "bin" / "bootstrap-machine.sh")
         (bundle / "bin" / "bootstrap-machine.sh").chmod(0o755)
@@ -198,7 +204,8 @@ def package(bin_directory, output_directory, version):
         )
         # Fail before producing an archive if relocation left a dependency outside the package.
         for source in executables:
-            relocated = linked_libraries(bundle / "bin" / source.name)
+            name = "bloom-runner-exec" if source.name == "bloom-runner" else source.name
+            relocated = linked_libraries(bundle / "bin" / name)
             if any(not path.is_relative_to(bundle) for path in relocated.values()):
                 raise RuntimeError("A bundled dependency still resolves outside the package")
         if run(str(bundle / "bin/bloom-runner"), "version") == "":
