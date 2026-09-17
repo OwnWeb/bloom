@@ -123,7 +123,10 @@ def main():
             assert status == 202, status
 
             process.send_signal(signal.SIGTERM)
-            process.wait(timeout=60)
+            status = process.wait(timeout=60)
+            # A server that reports everything and then dies on its way out is not a server that
+            # shut down, and a machine update rolls back on exactly this.
+            assert status == 0, f"bloom-runner exited with status {status} on SIGTERM"
             summaries = fake.recorded("/summary")
             assert summaries[-1]["awake"] is False, summaries[-1]
             usage = fake.recorded("/usage")

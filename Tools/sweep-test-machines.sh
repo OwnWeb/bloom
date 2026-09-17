@@ -51,9 +51,12 @@ api() {
 now="$(date -u +%s)"
 token=""
 swept=0
+# A machine the provider will not delete would otherwise be found again on every pass.
+passes=0
 while true; do
   query="/v1/sprites?prefix=bloomtest-&max_results=100"
   [[ -n "$token" ]] && query="$query&continuation_token=$token"
+  before_page=$swept
   page="$(api "$query")"
   names=("${(@f)$(print -r -- "$page" | python3 -c 'import json,sys; [print(s["name"]) for s in json.load(sys.stdin).get("sprites", [])]')}")
   for name in $names; do
@@ -74,6 +77,15 @@ while true; do
     fi
     swept=$((swept + 1))
   done
+  # The next page is asked for from the token this page came with, but this page's deletions have
+  # already moved the list under it. Rather than trusting a token taken before the deletes, the
+  # sweep starts again from the beginning when it deleted anything, and stops when a whole pass
+  # deletes nothing.
+  passes=$((passes + 1))
+  if (( swept > before_page && ! dry_run && passes < 20 )); then
+    token=""
+    continue
+  fi
   token="$(print -r -- "$page" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("next_continuation_token") or "")')"
   [[ -z "$token" ]] && break
 done
