@@ -17,6 +17,8 @@ struct SidebarStatusBar: View {
     /// New workspace with no project named, which the create window asks for.
     var onNewWorkspace: () -> Void = {}
     var onStartProject: () -> Void = {}
+    /// The New menu's recent section. See `NewMenuItems`.
+    var recentProjects: [Repo] = []
     /// Whether the projects the owner has hidden are in the list. A preference rather than this
     /// window's state, which is why it is `@AppStorage` here and in `SidebarView` rather than a
     /// second `@State` passed down. See `ProjectVisibility.showsHiddenKey`.
@@ -39,7 +41,12 @@ struct SidebarStatusBar: View {
             Hairline()
 
             HStack(spacing: Metrics.spacingSmall) {
-                SidebarDock(onNewWorkspace: onNewWorkspace, onStartProject: onStartProject)
+                SidebarDock(
+                    onNewWorkspace: onNewWorkspace,
+                    onStartProject: onStartProject,
+                    onCreateWorkspace: onCreateWorkspace,
+                    recentProjects: recentProjects
+                )
 
                 noteLabel
 
