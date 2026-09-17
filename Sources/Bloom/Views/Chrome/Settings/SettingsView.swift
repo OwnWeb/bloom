@@ -39,6 +39,9 @@ struct SettingsView: View {
                 Section("Terminal & connections") {
                     navigationRows([.terminal, .commandLine])
                 }
+                Section("Cloud") {
+                    navigationRows([.account])
+                }
             }
             .listStyle(.sidebar)
             .frame(width: 185)
@@ -119,6 +122,7 @@ struct SettingsView: View {
         case .prompts: PromptSettingsView()
         case .terminal: TerminalSettingsView()
         case .commandLine: CommandLineSettingsView()
+        case .account: AccountSettingsView()
         }
     }
 }

@@ -296,6 +296,9 @@ struct RootView: View {
                 // explanation. See `AppModel.open(workspaceID:)`.
                 Task { await app.open(workspaceID: id) }
             }
+            .onReceive(OpenWorkspaceNotification.cloudPublisher()) { id in
+                app.selection = .cloud(id)
+            }
             // Shift+Cmd+F, and Cmd+F where nothing in front can find, are handled in
             // `windowWiring` below, and they open the panel rather than putting a keyboard
             // anywhere in the window.

@@ -56,6 +56,9 @@ final class AppModel {
 
     private(set) var repos: [Repo] = []
     private(set) var workspaces: [Workspace] = []
+    /// Cloud workspaces: the Bloom account, runbloom.app's list and the open ones. See
+    /// `CloudWorkspaces`, which holds all of it so this file holds one line.
+    let cloud = CloudWorkspaces()
     private(set) var isLoaded = false
     /// What every provider has said about its own allowances, as last read from the store.
     ///
@@ -476,6 +479,9 @@ final class AppModel {
             BottomPanelDefaults.forget()
             Log.launchStep("recovery done")
             bridge = makeBridge(on: store)
+            // After the store, because a Cloud workspace's opening controls are this Mac's defaults
+            // for a new chat, which are read from it.
+            cloud.attach(self)
             Log.launchStep("bridge bound")
             await reload()
             Log.launchStep("reloaded")
@@ -597,6 +603,7 @@ final class AppModel {
     /// a login shell keeps running, all reparented to launchd. Worse, the next launch marks those
     /// sessions idle and happily resumes them, which puts two `claude` processes on one session.
     func shutdownEverything() async {
+        cloud.shutdown()
         refreshTask?.cancel()
         refreshTask = nil
         worktreeWatcher.stop()

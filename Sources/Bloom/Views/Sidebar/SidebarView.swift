@@ -168,6 +168,7 @@ struct SidebarView: View {
             } else {
                 Section { paneRowsList }
             }
+            if app.cloud.isSignedIn { cloudSection }
         }
         // The native list owns row height, keyboard navigation and which row is selected. How the
         // selected row is drawn is `SidebarSelectionFill`'s, on each row, for the reason given there.
@@ -871,6 +872,55 @@ struct SidebarView: View {
             listHasKeyboard: listHasKeyboard,
             windowIsKey: windowIsKey
         )
+    }
+
+    // MARK: - Cloud workspaces
+
+    /// Cloud workspaces, below the projects, only while a Bloom account is signed in.
+    ///
+    /// A section of their own rather than rows among a project's, because a Cloud workspace belongs
+    /// to a runbloom.app project and a team, not to a folder on this Mac, and because the one thing
+    /// the pane's drag moves is the order of this Mac's own rows. Newest first, as runbloom.app
+    /// lists them.
+    private var cloudSection: some View {
+        Section {
+            ForEach(app.cloud.items) { item in
+                let target = SidebarSelection.cloud(CloudWorkspaceID(item.id))
+                CloudWorkspaceRow(item: item, isSelected: listSelection == target)
+                    .tag(target)
+                    .sidebarSelection(selectionStyle(for: target))
+                    .selectionDisabled(!item.canOpen)
+                    .moveDisabled(true)
+                    .contextMenu { CloudWorkspaceMenuItems(item: item) }
+            }
+            if let problem = app.cloud.listProblem {
+                Text(problem)
+                    .font(.caption)
+                    .foregroundStyle(Palette.textTertiary)
+                    .lineLimit(3)
+                    .selectionDisabled()
+            } else if app.cloud.items.isEmpty, app.cloud.accountState == .signedIn {
+                Text("No Cloud workspaces yet")
+                    .font(.caption)
+                    .foregroundStyle(Palette.textTertiary)
+                    .selectionDisabled()
+            }
+        } header: {
+            HStack {
+                Text("Cloud workspaces")
+                    .bold()
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Button {
+                    app.cloud.isCreating = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.borderless)
+                .help("New Cloud Workspace")
+                .accessibilityLabel("New Cloud Workspace")
+            }
+        }
     }
 
     // MARK: - Empty

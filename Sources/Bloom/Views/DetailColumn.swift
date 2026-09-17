@@ -29,6 +29,8 @@ struct DetailColumn: View {
                 subagent(.recorded(toolUseID: toolUseID), in: workspaceID)
             case .archived(let id):
                 archived(id)
+            case .cloud(let id):
+                CloudWorkspaceColumn(id: id)
             }
         }
     }

@@ -1,6 +1,8 @@
 import SwiftUI
 import Observation
 import BloomCore
+import BloomClient
+import BloomProtocol
 
 /// One renderable row in a transcript.
 ///
@@ -40,6 +42,9 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
     /// What the transcript should say about how it was settled, when that is not obvious. Only
     /// ever set for a question a rule answered rather than a person.
     var permissionNote = ""
+    /// Who wrote a user row in a Cloud workspace, when it was somebody other than the reader. Nil
+    /// everywhere else, which is every local row: a Mac has one person at it.
+    var authorName: String?
 
     init(message: Message) {
         id = message.id
@@ -49,6 +54,7 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
         createdAt = message.createdAt
         durationMS = message.durationMS
         refID = message.refID
+        authorName = message.author?.name
     }
 
     /// This row in the only terms `TranscriptFold` cares about.
@@ -118,6 +124,13 @@ final class TranscriptModel {
     /// New Ask conversations use the folder chosen in Settings, with Bloom's own folder as fallback.
     let cwd: String
     private unowned let app: AppModel
+    /// The machine this chat lives on, for a chat in a Cloud workspace, and nil for every other.
+    ///
+    /// **A Cloud chat has no store.** Its rows, queue and questions are the machine's, and they
+    /// arrive through `receiveCloud`; `store` below answers nil for it, which is what switches off
+    /// every local read and write in this file without a branch at each one. What it does have is
+    /// a handful of verbs that go to the machine instead: see the Cloud section at the foot.
+    let cloud: CloudChatLink?
 
     /// Where this conversation's file paths point, and which workspace a file chip opens into.
     /// One value rather than the whole workspace, because those two fields are all a row has ever
@@ -402,6 +415,7 @@ final class TranscriptModel {
         self.workspace = workspace
         self.cwd = workspace.path
         self.app = app
+        cloud = nil
         history.report = { [unowned app] in app.notice = BloomNotice(message: $0) }
     }
 
@@ -415,10 +429,23 @@ final class TranscriptModel {
         self.workspace = nil
         self.cwd = directory
         self.app = app
+        cloud = nil
         history.report = { [unowned app] in app.notice = BloomNotice(message: $0) }
     }
 
-    private var store: Store? { app.store }
+    /// A chat in a Cloud workspace, which lives on its machine. See `cloud`.
+    init(cloudChat session: Session, link: CloudChatLink, app: AppModel) {
+        self.session = session
+        self.workspace = nil
+        // No worktree on this Mac. A file chip in a Cloud row names a path on the machine, which
+        // an empty home leaves unresolved rather than pointing at whatever this Mac has there.
+        self.cwd = ""
+        self.app = app
+        cloud = link
+        isLoaded = true
+    }
+
+    private var store: Store? { cloud == nil ? app.store : nil }
 
     // MARK: - Loading
 
@@ -616,6 +643,12 @@ final class TranscriptModel {
     }
 
     func markAllRead() async {
+        if let cloud {
+            guard let last = rows.last?.seq, last != session.lastReadSeq else { return }
+            session.lastReadSeq = last
+            await cloud.markRead(seq: last)
+            return
+        }
         guard let store, let last = rows.last?.seq, last != session.lastReadSeq else { return }
         session.lastReadSeq = last
         try? await store.updateLastReadSeq(sessionID: session.id, seq: last)
@@ -647,6 +680,13 @@ final class TranscriptModel {
         implementationMode: PermissionMode? = nil,
         agentKind: AgentKind? = nil
     ) async {
+        if let cloud {
+            await updateCloudPreferences(
+                through: cloud, model: model, effort: effort, permissionMode: permissionMode,
+                interactionMode: interactionMode, agentKind: agentKind
+            )
+            return
+        }
         guard let store else { return }
         try? await store.updateSessionPreferences(
             id: session.id,
@@ -706,6 +746,7 @@ final class TranscriptModel {
             return false
         }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let cloud { return await submitToCloud(body, through: cloud, sourceDraft: sourceDraft) }
         guard !body.isEmpty, let store else { return false }
 
         // Review payloads expand compact chips into comments. Clear the source draft, while
@@ -801,6 +842,7 @@ final class TranscriptModel {
     /// question the moment a running turn stopped holding the queue on two of the four backends:
     /// the tooltip went on offering to queue a message that was about to go straight out.
     var queuesNextMessage: Bool {
+        if cloud != nil { return isRunning || isAwaitingPermission || !pendingDeliveries.isEmpty }
         if history.isCapturing || history.isFinalisingTurn || (history.hasActiveTurn && !isRunning) { return true }
         if isRunning, session.interactionMode != activeInteractionMode { return true }
         return !Delivery.goesImmediately(
@@ -814,6 +856,11 @@ final class TranscriptModel {
     /// business knowing, and because a caption that disagrees with the drain is the one thing this
     /// queue may not do: both read `DeliveryHold`. See `DeliveryHold.sentence(on:)`.
     var holdSentence: String? {
+        if cloud != nil {
+            return CloudQueueCaption.sentence(
+                first: pendingDeliveries.first, isRunning: isRunning, isAwaitingAnswer: isAwaitingPermission, queueError: cloudQueueError
+            )
+        }
         if history.isCapturing || history.isFinalisingTurn { return "Saving this turn's file changes." }
         if pendingDeliveries.first?.state == .uncertain {
             return "Bloom could not confirm delivery. Check the conversation before sending again."
@@ -964,6 +1011,10 @@ final class TranscriptModel {
     /// whether the sentence can go back into it.
     func confirmDiscard(_ delivery: Delivery) async {
         discarding = nil
+        if let cloud {
+            await cloud.cancelQueued(delivery.id)
+            return
+        }
         guard dispatchingDeliveryID != delivery.id else { return }
         guard let store else { return }
         let recovery = PendingMessageDiscard.recovery(of: delivery, composerDraft: draft)
@@ -998,6 +1049,17 @@ final class TranscriptModel {
     /// The join is worked out after the row is gone rather than before, so the words go in front
     /// of whatever the box holds by then rather than in front of what it held a round trip ago.
     func editPending(_ delivery: Delivery) async {
+        if let cloud {
+            // Only somebody's own message comes back into their composer. Anybody may remove a
+            // queued prompt, and the machine records who did, but nobody's words are typed into
+            // anybody else's box.
+            guard delivery.author == nil || delivery.author?.userID == cloud.readerID else { return }
+            guard await cloud.cancelQueued(delivery.id) else { return }
+            draft = PendingMessageEdit.draft(taking: delivery, into: draft)
+            composerFocusRequests += 1
+            jumpToLiveEnd()
+            return
+        }
         guard dispatchingDeliveryID != delivery.id, PendingMessageEdit.canEdit(delivery), let store else { return }
         let removed = (try? await store.cancelDelivery(id: delivery.id)) ?? false
         await refreshQueue()
@@ -1057,7 +1119,10 @@ final class TranscriptModel {
 
     /// Whether this queued message may be sent in place of the turn that is running.
     func canSteer(_ delivery: Delivery) -> Bool {
-        DeliverySteer.canSteer(delivery, hold: deliveryHold, on: session.agentKind)
+        // A Cloud chat's queue is shared and first come, first served: stopping somebody else's
+        // turn to jump the queue is not something one person's button should do.
+        guard cloud == nil else { return false }
+        return DeliverySteer.canSteer(delivery, hold: deliveryHold, on: session.agentKind)
     }
 
     /// Stops the turn that is running and sends this queued message into the space it makes.
@@ -1317,6 +1382,14 @@ final class TranscriptModel {
     /// turn still emits its own result, and that event is what writes the final state back into the
     /// session row. Tearing the pump down here used to strand the session until the next launch.
     func stop() {
+        if let cloud {
+            // The machine's queue pauses and its turn stops; what the chat shows next comes back
+            // on the event stream. Nothing is handed back to the composer, because the queue may
+            // hold other people's messages.
+            statusLabel = nil
+            Task { await cloud.stop() }
+            return
+        }
         steering = nil
         cancelTurn()
 
@@ -1965,6 +2038,10 @@ final class TranscriptModel {
     /// buttons stop being pressable the moment one of them is, and a slow store cannot leave two
     /// answers on their way to the same question.
     func answer(requestID: String, decision: PermissionDecision) async {
+        if let cloud {
+            await answerOnCloud(requestID: requestID, decision: decision, through: cloud)
+            return
+        }
         if case .approvePlan = decision {
             // Saving the implementation mode can fail. Keep the card answerable until the
             // runner confirms it, rather than showing a settled plan above a blocked agent.
@@ -2252,6 +2329,148 @@ final class TranscriptModel {
         await app.archiveIfRequested(
             workspaceNow, endedIn: session.id, wasStopped: wasStoppedByHand
         )
+    }
+
+    // MARK: - Cloud
+
+    /// Why the machine's queue for this chat is paused, when it is. See `holdSentence`.
+    private(set) var cloudQueueError: String?
+    /// How many machine rows the list above was built from, so a page that arrives after its
+    /// events (and lands in the middle) is told apart from rows arriving at the end.
+    @ObservationIgnored private var cloudRowCount = 0
+
+    /// Folds what the machine says about this chat into the model the transcript and the composer
+    /// draw: its rows, its streaming text, whether a turn is running, its questions and its queue.
+    ///
+    /// Rows arriving at the end are absorbed one by one, as a local turn's are. Anything else (a
+    /// history page landing under rows the stream already delivered) rebuilds the list, which is
+    /// the one read `read(from:)` would have done; it happens once per page, not per event.
+    func receiveCloud(_ chat: CloudChatState, workspaceID: CloudWorkspaceID, readerID: String?) {
+        guard cloud != nil else { return }
+        if let record = chat.chat {
+            var fresh = Session(cloudChat: record)
+            fresh.lastReadSeq = session.lastReadSeq
+            if fresh != session { session = fresh }
+        }
+
+        let pending = Set(chat.questions.map(\.requestID))
+        let messages = chat.messages
+        func converted(_ record: MessageRecord) -> Message {
+            var message = Message(cloudMessage: record, id: CloudMessageIdentity.id(workspace: workspaceID, cursor: record.cursor))
+            // The reader's own messages are drawn as theirs, without a name on them.
+            if message.author?.userID == readerID { message.author = nil }
+            return message
+        }
+        let held = messages.prefix { $0.seq <= highestSeenMessageSeq }.count
+        if held == cloudRowCount, messages.count >= cloudRowCount {
+            for record in messages.dropFirst(held) {
+                absorb(converted(record))
+                highestSeenMessageSeq = max(highestSeenMessageSeq, record.seq)
+            }
+        } else {
+            var built: [TranscriptRow] = []
+            var index: [String: Int] = [:]
+            for record in messages {
+                Self.absorb(converted(record), decisions: [:], into: &built, indexByRefID: &index)
+            }
+            foldCache.reset()
+            questionIndex = PinnedQuestionIndex()
+            rows = built
+            indexByRefID = index
+            highestSeenMessageSeq = messages.last?.seq ?? -1
+            presentationRevision += 1
+        }
+        cloudRowCount = messages.count
+
+        // A question nobody is waiting on any more was answered, by this reader or somebody else.
+        // The reader's own answer is already on the row in their words; anybody else's reads as
+        // answered.
+        for position in rows.indices where rows[position].kind == .permissionAsk && rows[position].permissionDecision == nil {
+            guard let ask = PermissionAsk.decode(payload: rows[position].payload), !pending.contains(ask.requestID) else { continue }
+            foldCache.invalidate(row: position)
+            rows[position].permissionDecision = PermissionDecision.answer(input: .null).storedName
+            presentationRevision += 1
+        }
+
+        if streamingText != chat.streamingText { streamingText = chat.streamingText }
+        setRunning(chat.isRunning)
+        setAwaitingPermission(!chat.questions.isEmpty)
+        if !chat.isRunning, statusLabel != nil { statusLabel = nil }
+
+        let queue = chat.queue.prompts.map { Delivery(cloudPrompt: $0, chatID: chat.id) }
+        if queue != pendingDeliveries { pendingDeliveries = queue }
+        if cloudQueueError != chat.queue.error { cloudQueueError = chat.queue.error }
+        if let echo = sending, queue.contains(where: { $0.body == echo.body }) || rows.last?.kind == .user {
+            // The machine has it now, as a queued prompt or as a row, so the echo retires.
+            sending = nil
+        }
+    }
+
+    /// `submit`, for a chat whose queue is on its machine.
+    private func submitToCloud(_ body: String, through cloud: CloudChatLink, sourceDraft: String?) async -> Bool {
+        guard !body.isEmpty else { return false }
+        let submittedDraft = SubmittedDraft.matching(current: draft, message: body, source: sourceDraft)
+        if submittedDraft != nil { draft = "" }
+        let delivery = Delivery(targetSessionID: session.id, body: body)
+        messageArrivals.sent(delivery.id)
+        // The echo only when nothing is ahead of it, which is when the machine will start it at
+        // once; otherwise the queue event that follows draws it where it waits.
+        if !queuesNextMessage { sending = delivery }
+        jumpToLiveEnd()
+        if let failure = await cloud.send(body) {
+            if sending?.id == delivery.id { sending = nil }
+            draft = PendingMessageReturn.draft(taking: [delivery], into: draft)
+            composerFocusRequests += 1
+            app.alert = BloomAlert(title: "Could not send the message", message: failure)
+            return false
+        }
+        return true
+    }
+
+    private func answerOnCloud(requestID: String, decision: PermissionDecision, through cloud: CloudChatLink) async {
+        settle(PermissionResolution(requestID: requestID, decision: decision.storedName))
+        refreshAwaitingPermission()
+        guard let failure = await cloud.answer(requestID: requestID, decision: decision) else { return }
+        if failure.code == .alreadyAnswered {
+            // Somebody else got there first, which is how a shared question is meant to end.
+            app.notice = BloomNotice(message: failure.message)
+            return
+        }
+        if let index = rows.firstIndex(where: {
+            $0.kind == .permissionAsk && PermissionAsk.decode(payload: $0.payload)?.requestID == requestID
+        }) {
+            foldCache.invalidate(row: index)
+            rows[index].permissionDecision = nil
+            presentationRevision += 1
+        }
+        refreshAwaitingPermission()
+        app.alert = BloomAlert(title: "Could not send the answer", message: failure.message)
+    }
+
+    /// The composer's pickers, for a Cloud chat: last writer wins on the machine, and the event it
+    /// sends back names who wrote it.
+    private func updateCloudPreferences(
+        through cloud: CloudChatLink, model: String?, effort: String?, permissionMode: PermissionMode?,
+        interactionMode: InteractionMode?, agentKind: AgentKind?
+    ) async {
+        var next = session
+        if let agentKind { next.agentKind = agentKind }
+        if let model { next.model = model }
+        if let effort { next.effort = effort }
+        if let permissionMode { next.permissionMode = permissionMode }
+        if let interactionMode { next.interactionMode = interactionMode }
+        var controls = cloud.controls ?? ComposerControls(session: next, isFastMode: false, outputStyle: OutputStyle.defaultName)
+        controls.agentKind = next.agentKind
+        controls.model = next.model
+        controls.effort = next.effort
+        controls.permissionMode = next.permissionMode
+        controls.interactionMode = next.interactionMode
+        let previous = session
+        session = next
+        if let failure = await cloud.setComposer(controls) {
+            session = previous
+            app.alert = BloomAlert(title: "Could not change this chat", message: failure)
+        }
     }
 }
 
