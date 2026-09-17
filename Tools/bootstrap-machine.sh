@@ -6,8 +6,8 @@
 # runs when runbloom.app's `control/update` call asks it to move to another release, and `install`
 # is kept for development machines set up by hand.
 #
-#   bootstrap-machine.sh install <version> <sha256>
-#   bootstrap-machine.sh update  <version> <sha256>
+#   bootstrap-machine.sh install <version> <sha256> [tag]
+#   bootstrap-machine.sh update  <version> <sha256> [tag]
 #
 # runbloom.app runs this as the machine's user, with the script itself on stdin
 # (`bash -s -- install 1.29.0 <sha256>`), after writing /etc/bloom/workspace.json through the
@@ -15,8 +15,9 @@
 # release asset are the whole of what it is told.
 #
 # 1. Download bloom-runner-linux-x86_64-<version>.tar.gz from the bloom repository's GitHub
-#    release (tag v<version>, or runner-v<version> for a runner-only test release), and refuse it
-#    unless its sha256 is the one given.
+#    release under the tag given, or v<version> without one, and refuse it unless its sha256 is
+#    the one given. The tag is v<version> or runner-v<version> (a runner-only test release) and
+#    nothing else, so it can only ever name this version in this repository.
 # 2. Unpack it into /opt/bloom/<version>, and point /opt/bloom/current at that.
 # 3. On install, create the `bloom` service once. On update, restart it, and if the new version
 #    does not answer /_bloom/health within 20 seconds, point the symlink back and restart again.
@@ -37,6 +38,7 @@ set -euo pipefail
 action="${1:-}"
 version="${2:-}"
 checksum="${3:-}"
+tag="${4:-v$version}"
 release_base="${BLOOM_RELEASE_BASE:-https://github.com/spatie/bloom/releases/download}"
 prefix="${BLOOM_PREFIX:-/opt/bloom}"
 service_tool="${BLOOM_SERVICE_TOOL:-sprite-env}"
@@ -49,10 +51,11 @@ fail() {
 
 case "$action" in
   install | update) ;;
-  *) fail "usage: bootstrap-machine.sh install|update <version> <sha256>" ;;
+  *) fail "usage: bootstrap-machine.sh install|update <version> <sha256> [tag]" ;;
 esac
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || fail "not a release version: $version"
 [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || fail "not a sha256: $checksum"
+[[ "$tag" == "v$version" || "$tag" == "runner-v$version" ]] || fail "not a tag for $version: $tag"
 
 # /opt is root's. The machine's user has passwordless sudo, which is what makes this one exec enough.
 sudo_if_needed() {
@@ -65,10 +68,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 if [[ ! -x "$target/bin/bloom-runner" ]]; then
-  # A runner-only test release is tagged runner-v<version>; the sha256 below decides either way.
-  if ! curl --fail --silent --show-error --location --retry 3 --output "$work/$asset" "$release_base/v$version/$asset"; then
-    curl --fail --silent --show-error --location --retry 3 --output "$work/$asset" "$release_base/runner-v$version/$asset"
-  fi
+  curl --fail --silent --show-error --location --retry 3 --output "$work/$asset" "$release_base/$tag/$asset"
   actual="$(sha256sum "$work/$asset" | cut -d' ' -f1)"
   [[ "$actual" == "$checksum" ]] || fail "$asset has sha256 $actual, not $checksum"
   mkdir -p "$work/unpacked"

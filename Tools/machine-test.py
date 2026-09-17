@@ -321,7 +321,7 @@ def main():
                 run_on(name, f"sudo mkdir -p /opt/bloom/{updated} && sudo tar -xzf /home/sprite/bloom-runner.tar.gz -C /opt/bloom/{updated}")
                 step(f"asking for an update to {updated}")
                 status, _, body = https(url, "POST", "/_bloom/v1/control/update", token=issuer.token("control", "control", ["admin"]),
-                                        body={"version": updated, "sha256": digest})
+                                        body={"version": updated, "sha256": digest, "tag": f"runner-v{updated}"})
                 assert status == 202, (status, body)
                 wait_for(f"health answers with {updated}", lambda: json.loads(https(url, path="/_bloom/health")[2])["version"] == updated,
                          180, interval=3)
@@ -332,7 +332,7 @@ def main():
                              f"&& sudo chmod +x /opt/bloom/{broken}/bin/bloom-runner")
                 step(f"asking for an update to {broken}, which never starts")
                 status, _, body = https(url, "POST", "/_bloom/v1/control/update", token=issuer.token("control", "control", ["admin"]),
-                                        body={"version": broken, "sha256": digest})
+                                        body={"version": broken, "sha256": digest, "tag": f"v{broken}"})
                 assert status == 202, (status, body)
                 time.sleep(10)
                 try:

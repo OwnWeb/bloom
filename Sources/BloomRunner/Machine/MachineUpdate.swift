@@ -15,17 +15,22 @@ enum MachineUpdate {
     /// failed update; the file is how anybody looking at the machine finds out why.
     static let logPath = "/var/tmp/bloom-update.log"
 
-    static func start(version: String, sha256: String) throws {
+    static func start(version: String, sha256: String, tag: String?) throws {
         guard version.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$"#, options: .regularExpression) != nil,
               sha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             throw RemoteFailure(.invalidValue, "An update needs a release version and its sha256.")
+        }
+        // Only this version's own tag, so a request cannot point the download at another release.
+        let tag = tag ?? "v" + version
+        guard tag == "v" + version || tag == "runner-v" + version else {
+            throw RemoteFailure(.invalidValue, "An update's tag has to be v\(version) or runner-v\(version).")
         }
         guard FileManager.default.isExecutableFile(atPath: script) else {
             throw RemoteFailure(.unavailable, "This machine has no bootstrap script to update with.")
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/setsid")
-        process.arguments = ["-f", script, "update", version, sha256]
+        process.arguments = ["-f", script, "update", version, sha256, tag]
         process.standardInput = FileHandle.nullDevice
         if !FileManager.default.fileExists(atPath: logPath) {
             _ = FileManager.default.createFile(atPath: logPath, contents: nil, attributes: [.posixPermissions: 0o600])

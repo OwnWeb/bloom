@@ -156,7 +156,7 @@ struct WorkspaceHTTPServerTests {
                 #expect(response.status == .unauthorized, "A control token is refused the second time")
             }
             try await client.execute(uri: "/_bloom/v1/control/update", method: .post, headers: Self.bearer(fixture.issuer.control()),
-                                     body: ByteBuffer(string: #"{"version":"1.4.0","sha256":"abc"}"#)) { response in
+                                     body: ByteBuffer(string: #"{"version":"1.4.0","sha256":"abc","tag":"runner-v1.4.0"}"#)) { response in
                 #expect(response.status == .accepted)
             }
             try await client.execute(uri: "/_bloom/v1/control/stop", method: .post, headers: Self.bearer(fixture.issuer.control()),
@@ -177,7 +177,7 @@ struct WorkspaceHTTPServerTests {
             }
         }
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3rq"))
-        #expect(fixture.control.calls.withLock { $0 }.contains("update 1.4.0 abc"))
+        #expect(fixture.control.calls.withLock { $0 }.contains("update 1.4.0 abc runner-v1.4.0"))
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3r1"))
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3r2"))
         #expect(fixture.control.calls.withLock { $0 }.contains("secret-rotated"))
@@ -294,7 +294,9 @@ final class RecordingControl: MachineControl {
     func stop(limit: String) async { calls.withLock { $0.append("stop \(limit)") } }
     func limitsCleared() async { calls.withLock { $0.append("limits-cleared") } }
     func revoke(userID: String) async { calls.withLock { $0.append("revoke \(userID)") } }
-    func update(version: String, sha256: String) async throws { calls.withLock { $0.append("update \(version) \(sha256)") } }
+    func update(version: String, sha256: String, tag: String?) async throws {
+        calls.withLock { $0.append("update \(version) \(sha256) \(tag ?? "-")") }
+    }
     func environmentChanged() async { calls.withLock { $0.append("environment") } }
     func secretRotated() async { calls.withLock { $0.append("secret-rotated") } }
     func shared() async { calls.withLock { $0.append("shared") } }

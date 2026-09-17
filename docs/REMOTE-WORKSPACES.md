@@ -835,8 +835,9 @@ and its builder confirmed them.
   `agent_keys` (per agent: `key`, `identity`, `source`) and `environment`, or the limit refusal, or
   `no_agent_key`, `not_a_collaborator`, `github_not_connected`, or 409 `turn_not_startable`;
   `git-credentials` takes `repository`, `operation` (`read` or `write`) and `turn_id`, and answers
-  `token`, `expires_at` and `username`. `control/update` carries `version` and `sha256`, and the
-  machine derives the release asset's address from the version.
+  `token`, `expires_at` and `username`. `control/update` carries `version`, `sha256` and `tag`, and the
+  machine downloads the asset from that tag, `v<version>` for a Bloom release or `runner-v<version>`
+  for a runner-only test release, which `release.yml` builds without the app. Any other tag is refused.
 - **Version 1 lays a tagged value out flat, except a whole record.** An operation is one object
   with `kind` and its fields beside it. A result or an event that carries a record puts it under a
   key named after the kind, `{"kind": "transcript", "transcript": {...}}`, because a transcript
