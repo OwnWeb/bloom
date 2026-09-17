@@ -1160,6 +1160,19 @@ because GitHub answers null while it is still working it out, and null is "not k
 than "no"; and the same count is `passed` in the pull request body and `succeeded` in the checks
 body, which is a wart of runbloom.app's and is read in one place here rather than papered over.
 
+**A machine's own runner restarts under an open window, and the client is tuned for it rather than
+against it.** A sleeping workspace updates itself the moment it wakes and goes idle, which is
+seconds after somebody opens it, and the process is gone for about eight seconds on the good path.
+Three things follow. A dropped connection says nothing for two seconds, so a drop that mends itself
+never raises a banner, and the reconnection attempts land at 0.5, 1, 2, 3 and 5 seconds before
+backing off to half a minute, so the common case is covered four times over. A command keeps trying
+for thirty seconds rather than five: three attempts a second apart gave up before the machine came
+back, which meant a prompt sent in that window was guaranteed to fail in front of the person for no
+reason. Retries go under one command id, so a machine that took the command before it died answers
+the retry from its journal. And a stream that resumes from a cursor the machine can no longer
+replay from answers `skipped`, which now makes every open chat read its history again rather than
+leaving the rows in the gap missing for the life of the window.
+
 **A machine that put itself back says so.** A Cloud workspace's machine updates itself, and when a
 new version will not start it restores the previous one. runbloom.app reports that as
 `runner_notice` on the workspace, in three kinds: being rolled back, rolled back, and the update

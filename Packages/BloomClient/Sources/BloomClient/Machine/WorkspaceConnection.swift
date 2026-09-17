@@ -85,6 +85,8 @@ public actor WorkspaceConnection {
     private var token: SessionToken?
     private var tokenTask: Task<SessionToken, any Error>?
     private var streamTask: Task<Void, Never>?
+    /// The banner a dropped connection is about to raise, held for `retryingNotice`.
+    private var retryNotice: Task<Void, Never>?
     private var cursor: Int64?
     private var phase: Phase = .closed
     /// Set once a request has been answered since the last time the machine was known to sleep, so
@@ -113,6 +115,32 @@ public actor WorkspaceConnection {
     static let awakeTimeout: TimeInterval = 25
     /// How long a machine last seen asleep may take before the window says it is waking.
     static let wakingNotice: Duration = .milliseconds(500)
+
+    /// How long a connection that dropped may be gone before the window says so.
+    ///
+    /// **A machine's own runner restarts under an open window**: it updates itself the moment a
+    /// sleeping workspace wakes and goes idle, which is seconds after somebody opens it, and the
+    /// process is gone for about eight seconds on the good path. A banner on the instant the stream
+    /// broke made that read as a workspace that had failed. Two seconds is two failed attempts, so
+    /// a drop that mends itself says nothing at all, and one that does not is still named long
+    /// before anybody could act on it.
+    static let retryingNotice: Duration = .seconds(2)
+
+    /// What a reconnection waits between attempts. The first four land inside seven seconds,
+    /// which is what covers a runner restart, and it backs off to half a minute for a machine that
+    /// is genuinely gone rather than asking a dead address every two seconds for an hour.
+    static let retryDelays: [Double] = [0.5, 1, 2, 3, 5, 8, 13, 21, 30]
+
+    /// How long a command keeps trying before it is a failure in front of a person.
+    ///
+    /// **Longer than the restart it has to survive.** Three attempts a second apart gave up after
+    /// about five seconds, and the disappearance it most often meets lasts eight, so a prompt sent
+    /// in that window was guaranteed to fail seconds before the machine came back. Retries go under
+    /// one command id, so a machine that took the command before dying answers the retry from its
+    /// journal rather than doing it twice.
+    static let commandBudgetSeconds: TimeInterval = 30
+    /// The fewest attempts a command gets, whatever the clock says, so a caller with an injected
+    /// clock or a machine that fails instantly still retries rather than giving up on one refusal.
     static let commandAttempts = 3
 
     public var currentPhase: Phase { phase }
@@ -174,7 +202,8 @@ public actor WorkspaceConnection {
         var lastProblem = "It did not answer."
         var refreshed = false
         var attempt = 0
-        while attempt < Self.commandAttempts {
+        let deadline = now().addingTimeInterval(Self.commandBudgetSeconds)
+        while attempt < Self.commandAttempts || now() < deadline {
             attempt += 1
             let session: SessionToken
             do {
@@ -206,7 +235,14 @@ public actor WorkspaceConnection {
             case .failure(.noAnswer(let detail)):
                 lastProblem = detail
                 hasBeenAnswered = false
-                if attempt < Self.commandAttempts { try? await sleep(.seconds(attempt)) }
+                // Waited out rather than given up on, because the disappearance this most often
+                // meets is a runner restarting itself, which lasts about eight seconds. The gap
+                // grows and the whole thing stops at `commandBudget`.
+                let wait = Self.retryDelays[min(attempt - 1, Self.retryDelays.count - 1)]
+                guard now().addingTimeInterval(wait) < deadline else {
+                    throw .noAnswer("The Cloud workspace did not answer. \(lastProblem)")
+                }
+                try? await sleep(.seconds(wait))
             case .failure(.refused(_, let error)):
                 throw .refused(error)
             case .failure(.unreadable(let detail)):
@@ -252,8 +288,8 @@ public actor WorkspaceConnection {
             case .reconnectNow:
                 failures = 0
             case .retry(let delay):
+                let wait = delay ?? Self.retryDelays[min(failures, Self.retryDelays.count - 1)]
                 failures += 1
-                let wait = delay ?? Double(min(30, 1 << min(failures, 5)))
                 try? await sleep(.seconds(wait))
             }
         }
@@ -279,7 +315,7 @@ public actor WorkspaceConnection {
         } catch let refusal as RunbloomRefusal {
             return outcome(for: refusal)
         } catch {
-            set(.retrying(MachineClient.describe(error)))
+            noticeRetrying(MachineClient.describe(error))
             return .retry(after: nil)
         }
 
@@ -290,7 +326,7 @@ public actor WorkspaceConnection {
             do {
                 let result = try await perform(.workspace)
                 guard case .workspace(let snapshot) = result else {
-                    set(.retrying("The Cloud workspace answered with something other than itself."))
+                    noticeRetrying("The Cloud workspace answered with something other than itself.")
                     return .retry(after: nil)
                 }
                 advance(snapshot.cursor)
@@ -314,14 +350,15 @@ public actor WorkspaceConnection {
                 token = nil
                 return .retry(after: 1)
             case .noAnswer(let detail), .unreadable(let detail):
-                set(.retrying(detail))
+                noticeRetrying(detail)
                 return .retry(after: nil)
             case .refused(_, let wire):
-                set(.retrying(wire.message))
+                noticeRetrying(wire.message)
                 return .retry(after: nil)
             }
         }
         notice.cancel()
+        retryNotice?.cancel()
         hasBeenAnswered = true
         refusedStreams = 0
         set(.live)
@@ -355,7 +392,7 @@ public actor WorkspaceConnection {
                             set(.noAccess(error.message))
                             return .stop
                         default:
-                            set(.retrying(error.message))
+                            noticeRetrying(error.message)
                             return .retry(after: nil)
                         }
                     default:
@@ -365,13 +402,13 @@ public actor WorkspaceConnection {
             }
         } catch {
             if Task.isCancelled { return .stop }
-            set(.retrying(MachineClient.describe(error)))
+            noticeRetrying(MachineClient.describe(error))
             return .retry(after: nil)
         }
         if Task.isCancelled { return .stop }
         // The server closed the stream without saying why: a restart, most likely. Backed off like
         // any other failure, so a server that closes every stream at once is not asked every second.
-        set(.retrying("The connection closed."))
+        noticeRetrying("The connection closed.")
         return .retry(after: nil)
     }
 
@@ -380,6 +417,27 @@ public actor WorkspaceConnection {
     private func noticeWaking() {
         guard case .connecting = phase else { return }
         set(.connecting(waking: !(token?.awake ?? false)))
+    }
+
+    /// Says the connection dropped, once it has been down long enough to be worth saying. A drop
+    /// that mends inside `retryingNotice` says nothing at all: see the note there for the restart
+    /// this exists for.
+    private func noticeRetrying(_ message: String) {
+        retryNotice?.cancel()
+        retryNotice = Task { [sleep] in
+            try? await sleep(Self.retryingNotice)
+            guard !Task.isCancelled else { return }
+            self.showRetrying(message)
+        }
+    }
+
+    private func showRetrying(_ message: String) {
+        switch phase {
+        // Still trying, so the banner is news. Anything else has moved on: live, asleep, archived,
+        // refused, or closed by somebody leaving the workspace.
+        case .connecting, .retrying: set(.retrying(message))
+        default: return
+        }
     }
 
     /// Sends the stream a fresh token a minute before the current one runs out, for as long as it
@@ -404,10 +462,10 @@ public actor WorkspaceConnection {
                 set(.noAccess(wire.message))
                 return .stop
             case .refused(let wire):
-                set(.retrying(wire.message))
+                noticeRetrying(wire.message)
                 return .retry(after: nil)
             case .noAnswer(let detail), .unreadable(let detail):
-                set(.retrying(detail))
+                noticeRetrying(detail)
                 return .retry(after: nil)
             }
         }

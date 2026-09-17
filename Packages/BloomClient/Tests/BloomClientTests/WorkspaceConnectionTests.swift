@@ -226,4 +226,40 @@ struct EchoTransport: HTTPTransport {
         for await update in live.updates where update == .phase(.asleep) { break }
         #expect(transport.requests(to: "/_bloom/v1/events").last?.value(forHTTPHeaderField: "Last-Event-ID") == "90")
     }
+
+    /// The disappearance this most often meets is a runner restarting itself, about eight seconds.
+    /// A command has to outlive it: three attempts a second apart gave up after five, which
+    /// guaranteed a prompt sent in that window failed seconds before the machine came back.
+    @Test func aCommandOutlivesARunnerRestart() async throws {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on(
+            "POST", "/_bloom/v1/rpc",
+            .dropped(), .dropped(), .dropped(), .dropped(),
+            .json(Records.json(CommandReply(commandID: "cmd-1", result: .queued(promptID: "p1"))))
+        )
+        let waits = Waits()
+        let connection = WorkspaceConnection(
+            workspaceID: "01k5ws", api: Fixtures.api(transport), machine: MachineClient(transport: transport),
+            sleep: { await waits.record($0) }
+        )
+        let result = try await connection.perform(.send(chatID: "c1", text: "Run the tests"), commandID: "cmd-1")
+        #expect(result == .queued(promptID: "p1"))
+        let sent = transport.requests(to: "/_bloom/v1/rpc").compactMap(\.httpBody)
+            .compactMap { try? WireJSON.decode(CommandRequest.self, from: $0) }
+        #expect(sent.count == 5, "it gave up before the machine came back")
+        #expect(Set(sent.map(\.commandID)) == ["cmd-1"], "a retry must be the same command")
+        // The waits grow rather than repeating, and together they cover the eight seconds a
+        // restart takes.
+        let slept = await waits.durations
+        #expect(slept.count == 4)
+        #expect(slept.reduce(Duration.zero, +) > .seconds(6))
+    }
+}
+
+/// The sleeps a connection asked for, recorded rather than taken.
+private actor Waits {
+    private(set) var durations: [Duration] = []
+
+    func record(_ duration: Duration) { durations.append(duration) }
 }

@@ -96,6 +96,18 @@ import Testing
 }
 
 @Suite struct CloudConnectionBannerTests {
+    /// A connection that dropped says nothing for the first two seconds, which is the window a
+    /// runner restarting itself lives in. The phase carries the message either way; what the two
+    /// seconds decide is when the column starts drawing it. See `WorkspaceConnection.retryingNotice`.
+    @Test func aRetryingConnectionStillCarriesItsSentenceAndAWayForward() {
+        let banner = CloudConnectionBanner.of(.retrying("The connection closed."))
+        #expect(banner?.tone == .caution)
+        #expect(banner?.title == "Reconnecting…")
+        #expect(banner?.message == "The connection closed.")
+        #expect(banner?.actions == [.retry])
+        #expect(banner?.dismissalKey == nil, "a workspace that cannot be reached is not a banner to hide")
+    }
+
     @Test func nothingIsSaidWhileAConnectionIsQuickOrLive() {
         #expect(CloudConnectionBanner.of(.connecting(waking: false)) == nil)
         #expect(CloudConnectionBanner.of(.live) == nil)
