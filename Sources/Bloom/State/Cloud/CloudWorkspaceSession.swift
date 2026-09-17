@@ -370,12 +370,12 @@ final class CloudWorkspaceSession {
     }
 
     /// Queues a message. Nil when the machine took it.
-    func send(_ text: String, chatID: SessionID) async -> String? {
+    func send(_ text: String, chatID: SessionID) async -> CloudSendOutcome {
         do {
             _ = try await perform(.send(chatID: chatID.rawValue, text: text))
-            return nil
+            return .sent
         } catch {
-            return error.message
+            return CloudSendOutcome(failure: error)
         }
     }
 

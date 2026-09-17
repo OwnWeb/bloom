@@ -2451,14 +2451,18 @@ final class TranscriptModel {
         // once; otherwise the queue event that follows draws it where it waits.
         if !queuesNextMessage { sending = delivery }
         jumpToLiveEnd()
-        if let failure = await cloud.send(body) {
-            if sending?.id == delivery.id { sending = nil }
-            draft = PendingMessageReturn.draft(taking: [delivery], into: draft)
-            composerFocusRequests += 1
-            app.alert = BloomAlert(title: "Could not send the message", message: failure)
-            return false
-        }
-        return true
+        let outcome = await cloud.send(body)
+        guard let sentence = outcome.sentence else { return true }
+        // The echo goes either way: it said the turn had started, and for the unknown case that
+        // is exactly what nobody can promise. What the machine really did is in the transcript,
+        // which is why the sentence sends the reader there.
+        if sending?.id == delivery.id { sending = nil }
+        // The words come back to the composer in both cases, because losing them is worse than
+        // either answer. What differs is what the person is told: see `CloudSendOutcome`.
+        draft = PendingMessageReturn.draft(taking: [delivery], into: draft)
+        composerFocusRequests += 1
+        app.alert = BloomAlert(title: outcome.title, message: sentence)
+        return false
     }
 
     private func answerOnCloud(requestID: String, decision: PermissionDecision, through cloud: CloudChatLink) async {

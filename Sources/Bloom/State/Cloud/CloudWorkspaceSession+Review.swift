@@ -423,7 +423,7 @@ extension CloudWorkspaceSession: WorkspaceSurface {
         guard let chatID = selectedChatID ?? chatIDs.first else {
             return "Open a chat in this Cloud workspace first."
         }
-        return await send(sentence, chatID: chatID)
+        return await send(sentence, chatID: chatID).sentence
     }
 
     // MARK: Read marks

@@ -25,9 +25,10 @@ final class CloudChatLink {
         session?.state.chats[chatID.rawValue]?.controls.flatMap(ComposerControls.cloud)
     }
 
-    /// Nil when it was queued, otherwise the sentence to show.
-    func send(_ text: String) async -> String? {
-        guard let session else { return Self.closed }
+    /// Whether it went, did not go, or nobody knows. See `CloudSendOutcome`, which is where the
+    /// third answer is argued.
+    func send(_ text: String) async -> CloudSendOutcome {
+        guard let session else { return .failed(Self.closed) }
         return await session.send(text, chatID: chatID)
     }
 

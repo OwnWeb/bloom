@@ -674,3 +674,34 @@ import Testing
         #expect(CloudSidebarMark.name(for: item(files: 2, awake: false)) == "changed")
     }
 }
+
+@Suite struct CloudSendOutcomeTests {
+    @Test func aPromptThatWentSaysNothing() {
+        #expect(CloudSendOutcome(failure: nil) == .sent)
+        #expect(CloudSendOutcome(failure: nil).sentence == nil)
+    }
+
+    @Test func aRefusalIsTheMachinesOwnSentence() {
+        let outcome = CloudSendOutcome(failure: .refused(WireError(.busy, "This chat is already running a turn.")))
+        #expect(outcome == .failed("This chat is already running a turn."))
+        #expect(outcome.sentence == "This chat is already running a turn.")
+        #expect(outcome.title == "Could not send the message")
+    }
+
+    /// The one that matters: a runner that died while the agent was already holding the prompt
+    /// answers `outcome_unknown` rather than resolving it, because the alternative is running it
+    /// twice. Told as a failure, the obvious next thing somebody does is send it again.
+    @Test func anUnknownOutcomeIsNotAFailure() {
+        let outcome = CloudSendOutcome(failure: .refused(WireError(.outcomeUnknown, "The workspace restarted while it was running.")))
+        #expect(outcome == .unknown("The workspace restarted while it was running."))
+        #expect(outcome.title == "That message may already have been sent")
+        let sentence = outcome.sentence ?? ""
+        #expect(sentence.contains("does not know whether"))
+        #expect(sentence.contains("Read the conversation before sending it again."))
+        #expect(sentence.contains("The workspace restarted while it was running."))
+    }
+
+    @Test func noAnswerAtAllIsAPlainFailure() {
+        #expect(CloudSendOutcome(failure: .noAnswer("It did not answer.")) == .failed("It did not answer."))
+    }
+}
