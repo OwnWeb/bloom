@@ -161,7 +161,7 @@ extension RunScriptAutostart {
         switch setupState {
         case .running: return false
         case .pending: return !hasSetupScript
-        case .succeeded, .failed, .skipped: return true
+        case .succeeded, .failed, .ignored, .skipped: return true
         }
     }
 }

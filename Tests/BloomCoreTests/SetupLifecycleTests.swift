@@ -76,6 +76,32 @@ struct SetupLifecycleTests {
         #expect(finished.setupLog == "done")
     }
 
+    @Test("only a failure can be ignored, and the log it left is kept")
+    func ignoringAFailure() {
+        var subject = workspace(.failed, log: "sudo: a password is required")
+        #expect(subject.apply(.failureIgnored) == .moves(to: .ignored))
+        #expect(subject.setupLog == "sudo: a password is required")
+        #expect(subject.apply(.failureIgnored) == .unchanged)
+    }
+
+    @Test("there is nothing to ignore outside a failure", arguments: [
+        SetupState.pending, .running, .succeeded, .skipped,
+    ])
+    func ignoringNothing(from state: SetupState) {
+        #expect(state.transition(on: .failureIgnored) == .refused)
+    }
+
+    @Test("an ignored failure can still be run again")
+    func runningAnIgnoredFailure() {
+        #expect(SetupState.ignored.transition(on: .runStarted) == .moves(to: .running))
+    }
+
+    @Test("an ignored failure no longer needs anybody")
+    func ignoredLeavesNeedsYou() {
+        let status = WorkspaceStatus.resolve(workspace: workspace(.ignored), isRunning: false, pullRequest: nil)
+        #expect(status != .setupFailed)
+    }
+
     // MARK: - Recovery, which is in the table rather than around it
 
     /// Commit 89e8d35. A setup script is a child of this process, so a row still `running` at

@@ -123,6 +123,11 @@ public enum SetupState: String, Sendable, Codable, CaseIterable, Hashable {
     case running
     case succeeded
     case failed
+    /// It failed, and the reader said to stop asking. The log stays, so what went wrong is still
+    /// there to read; the workspace just stops sitting in Needs You over a failure somebody has
+    /// already looked at and decided to live with, which was otherwise permanent short of a run
+    /// that succeeds.
+    case ignored
     case skipped
 }
 

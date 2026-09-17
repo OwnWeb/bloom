@@ -1538,6 +1538,19 @@ final class WorkspaceModel {
         }
     }
 
+    /// Files a failed setup as ignored, so the workspace leaves Needs You.
+    ///
+    /// Before this there was no way out of that group except a run that succeeded, and a script
+    /// that needs a password it cannot ask for never will. The log is kept. See `SetupEvent.failureIgnored`.
+    func ignoreSetupFailure() {
+        guard let store, workspace.setupState == .failed, !isRunningSetup else { return }
+        let id = workspace.id
+        Task { [weak self] in
+            _ = try? await store.update(workspaceID: id) { $0.apply(.failureIgnored) }
+            await self?.refreshSetupState()
+        }
+    }
+
     /// Stops the setup script that is running in this worktree.
     ///
     /// Only the script: whatever was waiting for setup to finish goes on as it would after a
