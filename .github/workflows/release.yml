@@ -38,6 +38,72 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # bloom-server for Cloud workspaces, published beside the app on the same release. runbloom.app
+  # installs a machine from exactly these two names, so a release without them is a release no new
+  # Cloud workspace can be created from. Separate from the Mac job because it needs nothing of it:
+  # a Linux runner, the Swift image the server is tested on, and its own packaging.
+  server:
+    runs-on: ubuntu-latest
+    container: swift:6.3.3-noble
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Work out what is being released
+        id: release
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "release" ]; then tag="$RELEASE_TAG"; else tag="$INPUT_TAG"; fi
+          [ -n "$tag" ] || { echo "No tag to build."; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends libsqlite3-dev pkg-config git patchelf python3 curl
+          # gh, for the upload. The Swift image does not carry it.
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+          apt-get update -qq
+          apt-get install -y -qq gh
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build bloom-server in release configuration
+        run: |
+          set -euo pipefail
+          swift build -c release --product bloom-server -j 4 -Xswiftc -warnings-as-errors
+          swift build -c release --product bloom-bridge -j 4 -Xswiftc -warnings-as-errors
+
+      - name: Package it
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 Tools/package-linux-server.py "$(swift build -c release --show-bin-path)" .build/server-release --version "$VERSION"
+          (cd .build/server-release && sha256sum -c "bloom-server-linux-x86_64-$VERSION.tar.gz.sha256")
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            ".build/server-release/bloom-server-linux-x86_64-$VERSION.tar.gz" \
+            ".build/server-release/bloom-server-linux-x86_64-$VERSION.tar.gz.sha256"
+
   release:
     runs-on: macos-26
     timeout-minutes: 90
