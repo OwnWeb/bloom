@@ -18,6 +18,27 @@ final class TerminalSessionStore {
     static let shared = TerminalSessionStore()
 
     private var terminals: [String: BloomTerminalView] = [:]
+    @ObservationIgnored private var bridge: BridgeServer?
+    @ObservationIgnored private var cliBridges: [SessionID: BridgeHandle] = [:]
+
+    func useBridge(_ bridge: BridgeServer?) {
+        self.bridge = bridge
+        cliBridges.removeAll()
+    }
+
+    func prepareCLICommand(
+        for session: Session, workspace: Workspace, prompt: String, resuming: String? = nil
+    ) throws -> String? {
+        let handle = bridge?.register(
+            session: session, workspace: workspace, reusing: cliBridges[session.id]
+        )
+        cliBridges[session.id] = handle
+        return try session.agentKind.prepareInteractiveCommand(
+            directory: workspace.path, prompt: prompt, sessionID: session.id,
+            model: session.model, effort: session.effort, permissionMode: session.permissionMode,
+            resuming: resuming, bridge: handle
+        )
+    }
 
     /// A command waiting for its pane's shell to exist, which is how a run script opens: a terminal
     /// tab named after the script, with the script's own command typed into it.
@@ -401,6 +422,8 @@ final class TerminalSessionStore {
         let panes = livePanes()
         let linkedTabs = CenterTabStore.shared.tabsByWorkspace.values.flatMap { $0 }
             .filter { $0.kind == .terminal && $0.agentSessionID != nil }
+        let linkedSessions = Set(linkedTabs.compactMap(\.agentSessionID))
+        cliBridges = cliBridges.filter { linkedSessions.contains($0.key) }
         guard !panes.isEmpty || !linkedTabs.isEmpty else {
             paneAgents = [:]
             if !agentTurns.isEmpty || !runningWorkspaceIDs.isEmpty {
@@ -471,15 +494,14 @@ final class TerminalSessionStore {
                     }
                 }
             }
-            if isPresent, let externalSession,
+            if let externalSession = externalSession ?? session.agentSessionID,
                let workspace = try? await store.workspace(id: tab.workspaceID),
                CenterTabStore.shared.terminal(for: sessionID, in: tab.workspaceID)?.id == tab.id,
-               let resume = try? session.agentKind.prepareInteractiveCommand(
-                   directory: workspace.path, prompt: "", sessionID: sessionID,
-                   model: session.model, effort: session.effort,
-                   permissionMode: session.permissionMode, resuming: externalSession
+               !Task.isCancelled,
+               let resume = try? prepareCLICommand(
+                   for: session, workspace: workspace, prompt: "", resuming: externalSession
                ) {
-                await recall.rememberResume(resume, inPane: tab.id, store: store)
+                if isPresent { await recall.rememberResume(resume, inPane: tab.id, store: store) }
             }
             if isPresent { runningPanes.remove(tab.id) }
             turns[sessionID] = AgentTurns.Live(
@@ -709,6 +731,7 @@ final class TerminalSessionStore {
         recordTask?.cancel()
         recordTask = nil
         activity.stop()
+        useBridge(nil)
         await recordCommands()
 
         let views = Array(terminals.values)

@@ -189,9 +189,19 @@ struct InteractiveAgentTests {
         try Data("#!/bin/sh\nfor argument do printf '%s\n' \"$argument\"; done\n".utf8).write(to: fake)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
         let id = SessionID.new()
+        let attachment = BridgeAttachment(
+            shimPath: root.appendingPathComponent("Bloom Dev/bloom-bridge").path,
+            socketPath: root.appendingPathComponent("bridge.sock").path,
+            token: "test-token", role: .workspace
+        )
+        let config = try BridgeRegistration.writeClaudeConfig(attachment, sessionID: id, directory: root.path)
+        let bridge = BridgeHandle(attachment: attachment, mcpConfigPath: config)
+        let expectedBridgeArguments = agent == .codex
+            ? BridgeRegistration.codexArguments(attachment)
+            : BridgeRegistration.claudeArguments(configPath: config)
         let prompt = String(repeating: "A long task. ", count: 1000) + "\n'quoted' $(touch unwanted)"
         let command = try #require(try agent.prepareInteractiveCommand(
-            directory: root.path, prompt: prompt, sessionID: id, model: "", effort: "", base: root
+            directory: root.path, prompt: prompt, sessionID: id, model: "", effort: "", base: root, bridge: bridge
         ))
         #expect(command.utf8.count < 1_000)
         #expect(!command.contains("A long task"))
@@ -201,15 +211,17 @@ struct InteractiveAgentTests {
         #expect(attributes[.posixPermissions] as? Int == 0o600)
         let result = try await Shell.run("/bin/sh", ["-c", command], env: ["PATH": root.path + ":/usr/bin:/bin"])
         #expect(result.ok)
+        #expect(result.stdout.contains(expectedBridgeArguments.joined(separator: "\n") + "\n"))
         #expect(result.stdout.hasSuffix("--\n" + prompt + "\n"))
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("unwanted").path))
         let resume = try #require(try agent.prepareInteractiveCommand(
             directory: root.path, prompt: "", sessionID: id, model: "", effort: "",
-            resuming: "native-id", base: root
+            resuming: "native-id", base: root, bridge: bridge
         ))
         #expect(resume != command)
         let resumed = try await Shell.run("/bin/sh", ["-c", resume], env: ["PATH": root.path + ":/usr/bin:/bin"])
         #expect(resumed.ok)
+        #expect(resumed.stdout.contains(expectedBridgeArguments.joined(separator: "\n") + "\n"))
         #expect(resumed.stdout.contains("native-id"))
         #expect(!resumed.stdout.contains("A long task"))
         try AgentKind.removeInteractiveLaunch(sessionID: id, base: root)

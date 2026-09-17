@@ -11,6 +11,21 @@ import Testing
 /// config file can say whether the flags are right. That is `LiveBridgeTests`.
 @Suite("BridgeServer", .tags(.subprocess, .persistence), .scratchDirectory)
 struct BridgeServerTests {
+    @Test("Preparing CLI resume keeps its live bridge and replaces retired registrations")
+    func reuseCLIRegistration() async throws {
+        let (server, _, workspace, session) = try await makeBridge()
+        defer { server.stop() }
+        let initial = try #require(server.register(session: session, workspace: workspace))
+        let resumed = try #require(server.register(session: session, workspace: workspace, reusing: initial))
+        #expect(resumed == initial)
+        #expect(server.registry.identity(forToken: initial.attachment.token)?.sessionID == session.id)
+
+        server.retire(sessionID: session.id)
+        let renewed = try #require(server.register(session: session, workspace: workspace, reusing: resumed))
+        #expect(renewed.attachment.token != initial.attachment.token)
+        #expect(server.registry.identity(forToken: renewed.attachment.token)?.workspaceID == workspace.id)
+    }
+
     @Test(arguments: [false, true])
     func revocationClosesAlreadyAuthenticatedClients(owner: Bool) async throws {
         let (server, sessionToken, _, session) = try await makeBridge()

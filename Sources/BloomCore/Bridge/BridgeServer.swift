@@ -176,10 +176,21 @@ public final class BridgeServer: Sendable {
     /// Nil when there is no shim to point at, which is a build assembled without one and every
     /// test that did not ask for a bridge. The chat then runs with no bridge tools, which is what
     /// every chat had before this existed, rather than failing to start.
-    public func register(session: Session, workspace: Workspace) -> BridgeHandle? {
+    public func register(
+        session: Session, workspace: Workspace, reusing handle: BridgeHandle? = nil
+    ) -> BridgeHandle? {
         guard let shimPath = BridgeRegistration.shimPath() else {
             note("no bloom-bridge beside the running executable, so \(session.id) gets no bridge")
             return nil
+        }
+        // Preparing a resume command must not revoke the running CLI's token.
+        if let handle,
+           handle.attachment.socketPath == socketPath,
+           handle.attachment.shimPath == shimPath,
+           registry.identity(forToken: handle.attachment.token) == BridgeIdentity(
+               sessionID: session.id, workspaceID: workspace.id, role: .workspace
+           ) {
+            return handle
         }
         let attachment = attach(session: session, workspace: workspace, shimPath: shimPath)
         switch session.agentKind {

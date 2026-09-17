@@ -476,6 +476,7 @@ final class AppModel {
             BottomPanelDefaults.forget()
             Log.launchStep("recovery done")
             bridge = makeBridge(on: store)
+            TerminalSessionStore.shared.useBridge(bridge)
             Log.launchStep("bridge bound")
             await reload()
             Log.launchStep("reloaded")
