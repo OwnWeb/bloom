@@ -903,9 +903,14 @@ the coordinator.
   streams, which the confirmation says. Owner only; 403 `no_team_agent_key` when a team key is
   missing. Collaborators are chosen from `GET /api/v1/teams/{team}/members`, `{"data": [{"id",
   "name", "email", "avatar_url", "role"}]}`.
+- **Refusals while sharing** are shown as runbloom.app words them: 422 `already_owner`, 403
+  `owner_cannot_be_removed`, 404 for removing somebody who is not a member, 409 `workspace_archived`
+  for any change to an archived workspace. A collaborator who left the team is still listed, so the
+  owner can remove them; the Mac shows them as having left, by their absence from the team's members.
 - **Preview links.** `GET .../shares` lists live ones as `{"id", "url", "created_at", "expires_at",
   "created_by"}`; `POST {}` (or `{"expires_at"}`, a week by default and a month at most) answers 201;
-  `DELETE .../shares/{share}` revokes. Owner only.
+  `DELETE .../shares/{share}` revokes. Owner only. A link stops working when its creator can no longer
+  share, and shows a "still starting" page until the machine is ready.
 - **The opening prompt is the Mac's.** Create takes none. The Mac keeps it in its own defaults,
   survives a relaunch, shows it as waiting, and sends it on the first live connection as `new_chat`
   then `send`, each under a command id kept with the prompt so a retry cannot open two chats or
