@@ -1,4 +1,7 @@
 import Foundation
+#if os(Linux)
+import Glibc
+#endif
 import Synchronization
 
 /// A listening unix domain socket, handing each accepted connection to a callback.
@@ -10,7 +13,7 @@ import Synchronization
 public final class UnixSocketListener: Sendable {
     public let path: String
     private let descriptor: Int32
-    private let source: any DispatchSourceRead
+    private let source: Mutex<any DispatchSourceRead>
     /// Guards the once-ness of `stop`, which both the owner and `deinit` may reach: a second
     /// cancel is harmless, but a second unlink could remove a socket file a successor has
     /// already bound. `Mutex` rather than `NSLock` plus `@unchecked Sendable`, for the reason
@@ -28,7 +31,7 @@ public final class UnixSocketListener: Sendable {
         self.path = path
 
         var address = try UnixSocketAddress.make(path: path)
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        let descriptor = socket(AF_UNIX, SystemCalls.streamSocketType, 0)
         guard descriptor >= 0 else { throw UnixSocketError.couldNotOpen(code: errno) }
         self.descriptor = descriptor
 
@@ -45,12 +48,12 @@ public final class UnixSocketListener: Sendable {
         umask(previousMask)
         guard bound == 0 else {
             let code = errno
-            Darwin.close(descriptor)
+            SystemCalls.close(descriptor)
             throw UnixSocketError.couldNotBind(path: path, code: code)
         }
         guard listen(descriptor, 16) == 0 else {
             let code = errno
-            Darwin.close(descriptor)
+            SystemCalls.close(descriptor)
             unlink(path)
             throw UnixSocketError.couldNotListen(path: path, code: code)
         }
@@ -59,7 +62,7 @@ public final class UnixSocketListener: Sendable {
         // is the same thread the cancel has to run on.
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL, 0) | O_NONBLOCK)
 
-        source = DispatchSource.makeReadSource(
+        let source = DispatchSource.makeReadSource(
             fileDescriptor: descriptor,
             queue: DispatchQueue(label: "be.spatie.bloom.bridge.accept")
         )
@@ -68,7 +71,7 @@ public final class UnixSocketListener: Sendable {
             // between two of them, so this drains rather than accepting one and waiting to be
             // told again.
             while true {
-                let accepted = Darwin.accept(descriptor, nil, nil)
+                let accepted = SystemCalls.accept(descriptor)
                 guard accepted >= 0 else { return }
                 handler(UnixSocketConnection(descriptor: accepted))
             }
@@ -76,8 +79,9 @@ public final class UnixSocketListener: Sendable {
         // The descriptor is closed here rather than in `stop`, because cancelling a source is
         // asynchronous: closing it first frees a number the source may still be about to use, and
         // the next thing to open a file gets it.
-        source.setCancelHandler { Darwin.close(descriptor) }
+        source.setCancelHandler { SystemCalls.close(descriptor) }
         source.resume()
+        self.source = Mutex(source)
     }
 
     /// Stops listening and removes the socket file. Connections already accepted are not touched:
@@ -90,7 +94,7 @@ public final class UnixSocketListener: Sendable {
         }
         guard claimed else { return }
 
-        source.cancel()
+        source.withLock { $0.cancel() }
         unlink(path)
     }
 

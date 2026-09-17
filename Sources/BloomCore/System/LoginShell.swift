@@ -14,7 +14,12 @@ import Foundation
 public enum LoginShell {
     /// Where it lands when `SHELL` says nothing usable. macOS's own default since Catalina, and
     /// the one shell that is on every supported system.
+    #if os(Linux)
+    // A Linux image is not promised zsh, and the Sprite image does not carry it.
+    public static let fallback = "/bin/sh"
+    #else
     public static let fallback = "/bin/zsh"
+    #endif
 
     /// The shell to run.
     ///

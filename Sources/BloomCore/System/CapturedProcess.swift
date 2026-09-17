@@ -72,7 +72,7 @@ final class CapturedProcess: Sendable {
                 throw pipeFailure("configure pipes", errno)
             }
         }
-        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        SystemCalls.configurePipeWrites(stdin.fileHandleForWriting.fileDescriptor)
 
         let started = ContinuousClock.now
         let deadline = timeout.map { started.advanced(by: $0) }

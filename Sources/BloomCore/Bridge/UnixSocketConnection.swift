@@ -1,4 +1,7 @@
 import Foundation
+#if os(Linux)
+import Glibc
+#endif
 import Synchronization
 
 /// One end of a connected unix domain socket, read as lines and written as lines.
@@ -6,10 +9,8 @@ import Synchronization
 /// Line delimited JSON both ways, because that is what MCP over stdio already is and the shim is a
 /// relay: whatever the CLI wrote on one line arrives here as one line and goes back the same way.
 ///
-/// `SO_NOSIGPIPE` is set on every socket this type owns, and it is not optional. Writing to a
-/// socket whose far end has gone raises SIGPIPE, whose default disposition kills the process, so
-/// without it Bloom would be taken down by an agent CLI exiting mid-call. With it the write
-/// returns EPIPE and the connection closes, which is what "the other side left" should look like.
+/// Darwin sockets use `SO_NOSIGPIPE`; Linux writes use `MSG_NOSIGNAL`. A disconnected client
+/// must cause a failed write, never a SIGPIPE that takes down every other server session.
 public final class UnixSocketConnection: Sendable {
     private let descriptor: Int32
     private let handle: FileHandle
@@ -31,8 +32,10 @@ public final class UnixSocketConnection: Sendable {
         handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .unbounded)
 
+        #if canImport(Darwin)
         var on: Int32 = 1
         setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        #endif
         // Blocking, explicitly. On BSD, and therefore on macOS, an accepted socket inherits
         // O_NONBLOCK from the listener, and the listener has to be non-blocking so its accept loop
         // can drain. `availableData` on a non-blocking descriptor answers with no bytes when there
@@ -58,15 +61,15 @@ public final class UnixSocketConnection: Sendable {
     /// than a tool call that hangs for a timeout the model cannot see.
     public static func connect(to path: String) throws -> UnixSocketConnection {
         var address = try UnixSocketAddress.make(path: path)
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        let descriptor = socket(AF_UNIX, SystemCalls.streamSocketType, 0)
         guard descriptor >= 0 else { throw UnixSocketError.couldNotOpen(code: errno) }
 
         let result = UnixSocketAddress.withSocketAddress(&address) { socketAddress, length in
-            Darwin.connect(descriptor, socketAddress, length)
+            SystemCalls.connect(descriptor, socketAddress, length)
         }
         guard result == 0 else {
             let code = errno
-            Darwin.close(descriptor)
+            SystemCalls.close(descriptor)
             throw UnixSocketError.couldNotConnect(path: path, code: code)
         }
         return UnixSocketConnection(descriptor: descriptor)
@@ -77,12 +80,27 @@ public final class UnixSocketConnection: Sendable {
     public var peerProcessID: pid_t? {
         closed.withLock { closed -> pid_t? in
             guard !closed else { return nil }
+            #if os(Linux)
+            // Linux has no LOCAL_PEERPID; the kernel records the peer's credentials instead, and
+            // Bloom Server's bridge asks the same question there. Without this the linux job
+            // failed to compile on SOL_LOCAL. Glibc only declares `ucred` and `SO_PEERCRED` under
+            // _GNU_SOURCE, which Swift does not define, so both are spelled out here: the struct
+            // is three 32 bit fields and the option is 17 on x86_64 and arm64 alike.
+            struct PeerCredentials { var pid: pid_t = 0; var uid: uid_t = 0; var gid: gid_t = 0 }
+            let peerCredentialsOption: Int32 = 17
+            var credentials = PeerCredentials()
+            var length = socklen_t(MemoryLayout<PeerCredentials>.size)
+            guard getsockopt(descriptor, SOL_SOCKET, peerCredentialsOption, &credentials, &length) == 0,
+                  credentials.pid > 0 else { return nil }
+            return credentials.pid
+            #else
             var pid: pid_t = 0
             var length = socklen_t(MemoryLayout<pid_t>.size)
             guard getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0, pid > 0 else {
                 return nil
             }
             return pid
+            #endif
         }
     }
 
@@ -102,7 +120,7 @@ public final class UnixSocketConnection: Sendable {
             var offset = 0
             while offset < payload.count {
                 let written = payload.withUnsafeBufferPointer { bytes in
-                    Darwin.write(descriptor, bytes.baseAddress! + offset, bytes.count - offset)
+                    SystemCalls.socketWrite(descriptor, bytes.baseAddress! + offset, bytes.count - offset)
                 }
                 // EINTR is a signal landing mid-write and nothing else, so the same bytes are
                 // written again. Any other failure means the far end is gone and there is nothing
@@ -126,6 +144,6 @@ public final class UnixSocketConnection: Sendable {
 
         handle.readabilityHandler = nil
         continuation.finish()
-        Darwin.close(descriptor)
+        SystemCalls.close(descriptor)
     }
 }

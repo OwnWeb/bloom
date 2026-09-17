@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 /// Where a content-sized utility window sits: centred on its owner when it opens, and pinned by
 /// its top edge whenever its content changes height afterwards. Screen bounds win near an edge so

@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 /// How big the Ask Bloom panel is, the order its conversations are listed in, and the mark each
 /// one wears.

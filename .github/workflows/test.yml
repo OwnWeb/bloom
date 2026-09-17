@@ -18,6 +18,9 @@ name: Test
 #            build. This job is what catches it.
 #   test     ./Tools/test-core.sh, the BloomCore suite, over three thousand
 #            tests in about half a minute.
+#   linux    the server half on Linux x86_64, which is what a Cloud workspace
+#            runs on: BloomCore and bloom-bridge built, and the tests Package.swift
+#            names for Linux run. See docs/REMOTE-WORKSPACES.md.
 #
 # build and test were one job with one after the other in it, and were 187 and
 # 204 seconds of a 404 second run. They share no output, so they now share no
@@ -392,3 +395,36 @@ jobs:
 
       - name: Run the core tests
         run: ./Tools/test-core.sh
+
+  # The server half, on the platform it ships to. A Cloud workspace runs on
+  # Ubuntu x86_64 and nothing on a Mac compiles for it, so a Darwin-only call
+  # added to BloomCore is found here or on a machine. The image pins the Swift
+  # the release is built with.
+  #
+  # As an unprivileged user rather than the container's root, because that is
+  # how the server runs on a machine (uid 1001 with sudo) and because some of
+  # what it runs refuses root outright.
+  linux:
+    runs-on: ubuntu-latest
+    container: swift:6.3.3-noble
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends libsqlite3-dev pkg-config git
+          useradd --create-home --shell /bin/bash bloom-ci
+          chown -R bloom-ci:bloom-ci "$GITHUB_WORKSPACE"
+          runuser -u bloom-ci -- git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          runuser -u bloom-ci -- git config --global user.name "Bloom CI"
+          runuser -u bloom-ci -- git config --global user.email "ci@bloom.local"
+
+      - name: Build for Linux
+        run: runuser -u bloom-ci -- swift build --build-tests -j 4 -Xswiftc -warnings-as-errors
+
+      - name: Run the Linux tests
+        run: runuser -u bloom-ci -- swift test --skip-build

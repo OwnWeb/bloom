@@ -1,6 +1,81 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
+// Two manifests in one file, because the server half of Bloom builds on Linux and the app half
+// cannot: SwiftTerm, Sparkle and the Markdown editor are AppKit, and SwiftPM resolves every
+// dependency a manifest names whether or not the product being built uses it. A Linux build
+// that declared them would fail before compiling a line of our own. See
+// docs/REMOTE-WORKSPACES.md, "Where the code goes".
+#if os(Linux)
+import Foundation
+
+// The BloomCore tests that run on Linux, by file. An allow-list rather than an exclusion list,
+// because most of the suite is about the window and the Mac, and a test added on a Mac should not
+// start failing a Linux job its author never thought about. A suite joins this list when the code
+// it tests is code the server runs.
+let linuxTests: [String] = [
+    "AgentRunnerTests.swift",
+    "CodexTestSupport.swift",
+    "CodexTranslationTests.swift",
+    "DiffParserTests.swift",
+    "GitTests.swift",
+    "PermissionAskTests.swift",
+    "PlanApprovalTests.swift",
+    "ProcessLaunchTests.swift",
+    "ProcessPipeLifetimeTests.swift",
+    "ShellCaptureTests.swift",
+    "ShellTests.swift",
+    "StoreTests.swift",
+    "TestSupport.swift",
+    "TestWorkloadLimit.swift",
+    "WorkspaceWriteIsolationTests.swift",
+]
+let linuxTestDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    .appendingPathComponent("Tests/BloomCoreTests")
+let notOnLinux = try FileManager.default.contentsOfDirectory(atPath: linuxTestDirectory.path)
+    .filter { !linuxTests.contains($0) }
+
+let package = Package(
+    name: "Bloom",
+    products: [
+        .executable(name: "bloom-bridge", targets: ["bloom-bridge"]),
+        .library(name: "BloomCore", targets: ["BloomCore"]),
+    ],
+    dependencies: [
+        // CryptoKit's API for Linux, where CryptoKit does not exist. The Mac build imports
+        // CryptoKit itself and never resolves this.
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "4.5.2"),
+    ],
+    targets: [
+        // The SDK carries SQLite on a Mac; on Linux it is the system library from libsqlite3-dev.
+        .systemLibrary(
+            name: "SQLite3",
+            path: "Sources/CSQLite",
+            pkgConfig: "sqlite3",
+            providers: [.apt(["libsqlite3-dev"])]
+        ),
+        .target(
+            name: "BloomCore",
+            dependencies: ["SQLite3", .product(name: "Crypto", package: "swift-crypto")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .executableTarget(
+            name: "bloom-bridge",
+            dependencies: ["BloomCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "BloomCoreTests",
+            dependencies: ["BloomCore"],
+            path: "Tests/BloomCoreTests",
+            exclude: notOnLinux,
+            sources: linuxTests,
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+    ]
+)
+#else
+
 let package = Package(
     name: "Bloom",
     platforms: [.macOS(.v26)],
@@ -66,3 +141,4 @@ let package = Package(
         ),
     ]
 )
+#endif
