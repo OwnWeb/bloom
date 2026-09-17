@@ -26,6 +26,22 @@ struct ArchiveConfirmationTests {
         )
     }
 
+    @Test("an unfinished check warns about unknown losses and allows archiving")
+    func unfinishedCheck() {
+        var request = ArchiveRequest(workspace: makeWorkspace(), report: WorkspaceSafetyReport())
+        request.isChecking = true
+
+        #expect(request.isDestructive)
+        #expect(request.confirmLabel == "Archive anyway")
+        #expect(request.message.contains("Archiving now may lose unsaved files and unpushed commits."))
+
+        request.isChecking = false
+
+        #expect(!request.isDestructive)
+        #expect(request.confirmLabel == "Archive")
+        #expect(!request.message.contains("The check is still running."))
+    }
+
     /// The thirteen paths from the report that started this, in git's own order and shape.
     private let ownersIgnoredPaths = [
         ".env",

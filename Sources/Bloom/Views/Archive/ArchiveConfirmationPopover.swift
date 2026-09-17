@@ -5,27 +5,47 @@ struct ArchiveConfirmationPopover: View {
     let request: ArchiveRequest
     var canConfirm = true
     var tint: Color = Palette.controlAccent
-    let onConfirm: () -> Void
+    let onConfirm: (ArchiveRequest) -> Void
     let onCancel: () -> Void
+
+    @Environment(AppModel.self) private var app
+    @State private var checkedRequest: ArchiveRequest?
+
+    private var currentRequest: ArchiveRequest {
+        guard let checkedRequest, checkedRequest.id == request.id else { return request }
+        return checkedRequest
+    }
 
     var body: some View {
         ConfirmationPopover(
             title: "Archive this workspace?",
-            confirmLabel: request.confirmLabel,
+            confirmLabel: currentRequest.confirmLabel,
             tint: tint,
             canConfirm: canConfirm,
-            onConfirm: onConfirm,
+            onConfirm: { onConfirm(currentRequest) },
             onCancel: onCancel,
             width: 380
         ) {
+            if currentRequest.isChecking {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text("Checking for unsaved work…")
+                }
+            }
             ViewThatFits(in: .vertical) {
-                Text(request.message).fixedSize(horizontal: false, vertical: true)
+                Text(currentRequest.message).fixedSize(horizontal: false, vertical: true)
                 ScrollView {
-                    Text(request.message).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(currentRequest.message).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
             .frame(maxHeight: 440)
+        }
+        .task(id: request.id) {
+            guard request.isChecking else { return }
+            let checked = await app.checkArchive(request)
+            guard !Task.isCancelled else { return }
+            checkedRequest = checked
         }
     }
 
@@ -49,9 +69,9 @@ extension View {
                 request: value,
                 canConfirm: canConfirm,
                 tint: tint,
-                onConfirm: {
+                onConfirm: { confirmed in
                     request.wrappedValue = nil
-                    onConfirm(value)
+                    onConfirm(confirmed)
                 },
                 onCancel: { request.wrappedValue = nil }
             )
