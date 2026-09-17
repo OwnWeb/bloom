@@ -9,11 +9,13 @@ public extension AgentKind {
         effort: String,
         permissionMode: PermissionMode? = nil,
         resuming: String? = nil,
-        base: URL? = nil
+        base: URL? = nil,
+        bridge: BridgeHandle? = nil
     ) throws -> String? {
         guard let script = interactiveCommand(
             directory: directory, prompt: prompt, sessionID: sessionID,
-            model: model, effort: effort, permissionMode: permissionMode, resuming: resuming
+            model: model, effort: effort, permissionMode: permissionMode,
+            resuming: resuming, bridge: bridge
         ) else { return nil }
         let folder = try Self.interactiveLaunchDirectory(sessionID: sessionID, base: base)
         let file = folder.appendingPathComponent(resuming == nil ? "start.sh" : "resume.sh")

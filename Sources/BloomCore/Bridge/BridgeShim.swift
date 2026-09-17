@@ -31,6 +31,9 @@ public enum BridgeShim {
         shim: String? = CommandLine.arguments.first
     ) async -> Int32 {
         SystemCalls.configurePipeWrites(STDOUT_FILENO)
+        if let path = environment[BridgeProtocol.configurationVariable], !path.isEmpty {
+            return await runReconnecting(configurationPath: path, shim: shim)
+        }
         if let complaint = missingEnvironment(environment) {
             complain(complaint)
             return Exit.notConfigured
@@ -155,7 +158,7 @@ public enum BridgeShim {
 
     /// `write(2)` rather than `FileHandle.write`, which raises an Objective-C exception on a
     /// broken pipe that no Swift `catch` can see.
-    private static func write(_ text: String, to descriptor: Int32) {
+    static func write(_ text: String, to descriptor: Int32) {
         var payload = Array(text.utf8)
         var offset = 0
         while offset < payload.count {

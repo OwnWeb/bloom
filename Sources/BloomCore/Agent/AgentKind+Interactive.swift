@@ -8,11 +8,12 @@ public extension AgentKind {
         model: String,
         effort: String,
         permissionMode: PermissionMode? = nil,
-        resuming: String? = nil
+        resuming: String? = nil,
+        bridge: BridgeHandle? = nil
     ) -> String? {
         guard let arguments = interactiveArguments(
             prompt: prompt, sessionID: sessionID, model: model,
-            effort: effort, permissionMode: permissionMode, resuming: resuming
+            effort: effort, permissionMode: permissionMode, resuming: resuming, bridge: bridge
         ) else { return nil }
         let command = TerminalLaunchScript.shellCommand(
             directory: directory,
@@ -36,7 +37,8 @@ public extension AgentKind {
         model: String,
         effort: String,
         permissionMode: PermissionMode? = nil,
-        resuming: String? = nil
+        resuming: String? = nil,
+        bridge: BridgeHandle? = nil
     ) -> [String]? {
         let events = [
             "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
@@ -57,12 +59,18 @@ public extension AgentKind {
                   let settings = String(data: data, encoding: .utf8) else { return nil }
             arguments = resuming.map { ["--resume", $0] } ?? ["--session-id", sessionID.rawValue]
             arguments += ["--settings", settings]
+            if let configPath = bridge?.mcpConfigPath {
+                arguments += BridgeRegistration.claudeArguments(configPath: configPath)
+            }
             if let permissionMode {
                 arguments += ["--permission-mode", permissionMode.nearest(on: self).cliValue]
             }
             if !effort.isEmpty { arguments += ["--effort", effort] }
         case .codex:
             arguments = resuming.map { ["resume", $0] } ?? []
+            if let bridge {
+                arguments += BridgeRegistration.codexArguments(bridge.attachment)
+            }
             if let permissionMode {
                 arguments += ["--sandbox", CodexRunner.sandboxMode(for: permissionMode).rawValue,
                               "--ask-for-approval", CodexRunner.approvalPolicy(for: permissionMode).rawValue]

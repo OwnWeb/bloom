@@ -621,20 +621,19 @@ struct StartProjectView: View {
         // Asked here then, so a git that will not read the folder refuses in this window.
         if case .add(let root) = decided {
             if repositoryCheck?.path == current.path {
-                finish(StartedProject(path: root, opensWorkspace: false))
+                finish(root)
                 return
             }
             Task {
                 let problem = await NewProjectStarter.repositoryProblem(at: current.path)
                 repositoryCheck = RepositoryCheck(path: current.path, problem: problem)
                 guard problem == nil else { return }
-                finish(StartedProject(path: root, opensWorkspace: false))
+                finish(root)
             }
             return
         }
 
         let target = current.path
-        let opensWorkspace = decided.opensAWorkspace
         isStepSlow = false
         phase = .working(.initialise)
 
@@ -649,7 +648,7 @@ struct StartProjectView: View {
                     phase = .working(step)
                 }
                 guard !Task.isCancelled else { return }
-                finish(StartedProject(path: creation.path, opensWorkspace: opensWorkspace))
+                finish(creation.path)
             } catch let failure as NewProjectFailure {
                 guard !Task.isCancelled else { return }
                 phase = .failed(failure)
@@ -678,8 +677,8 @@ struct StartProjectView: View {
         }
     }
 
-    /// What happens after the button: the project into the sidebar, this window closed, and, where
-    /// there is a first workspace to write, the create window opened on it.
+    /// What happens after the button: the project into the sidebar, this window closed, and the
+    /// create window opened on it.
     ///
     /// It is said here rather than by whatever raised this window, and that is the change of
     /// container paying for itself. A sheet had to hand its answer back through a closure, park it,
@@ -687,18 +686,17 @@ struct StartProjectView: View {
     /// sheet at a time and the second one could not go up until the first had come down. Two
     /// windows have no such quarrel.
     ///
-    /// **The hand-off is the branch the footer names.** A project Bloom made ends in the create
-    /// window, because a repository with one empty commit in it is not something anybody wanted
-    /// for its own sake: they had an idea, and the next thing is an agent working on it. A project
-    /// that already had work in it ends in the sidebar, because they may well have come to read
-    /// what is already there. See `ProjectTargetVerdict.opensAWorkspace`.
-    private func finish(_ started: StartedProject?) {
+    /// Every project ends in the create window, whichever verb the button wore. It used to be only
+    /// the ones Bloom made, on the theory that somebody adding a repository with work in it may
+    /// have come to read it; the owner found that a project is added to start working in it, and
+    /// a create window that has to be asked for is one more step between the button and the work.
+    private func finish(_ path: String?) {
         isFinishing = true
-        guard let started else { return dismiss() }
+        guard let path else { return dismiss() }
         Task {
             // Registered before this window goes rather than after, so the project is in hand by
             // the time anything is raised in front of it. It is one store write.
-            let repo = await app.addStartedProject(at: started.path)
+            let repo = await app.addStartedProject(at: path)
             dismiss()
             // The window this one is not attached to. What the button just did shows up in the
             // main window's sidebar, and this window can be in front of it, beside it, or open
@@ -708,7 +706,7 @@ struct StartProjectView: View {
             // the window it is attached to. `CreateWorkspaceView.create` makes the same call for
             // the same reason.
             openWindow(id: BloomApp.mainWindowID)
-            guard started.opensWorkspace, let repo else { return }
+            guard let repo else { return }
             openWindow(id: CreateWorkspaceWindow.id, value: repo.id)
         }
     }
@@ -726,15 +724,4 @@ struct StartProjectView: View {
             finish(nil)
         }
     }
-}
-
-/// What the run ended with.
-///
-/// Two facts rather than one, because `finish` does two different things with them: every project
-/// it hands back goes into the sidebar, and only one that Bloom made goes straight on to its first
-/// workspace. See `ProjectTargetVerdict.opensAWorkspace` for why that difference is right, and the
-/// footer for where it is said out loud.
-struct StartedProject: Equatable {
-    var path: String
-    var opensWorkspace: Bool
 }

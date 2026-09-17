@@ -220,15 +220,15 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
 
     /// What is worth attaching from a pasteboard, and what is better left to the text system.
     ///
-    /// The rules are `PastedAttachment.plan`, in BloomCore, where they can be asserted on. This is
-    /// the part that cannot be: turning an `NSPasteboard` into the two facts that decide, and then
-    /// reading the bytes the decision asked for.
+    /// The rules are `PastedAttachment.plan`, in BloomCore, where they can be asserted on, and
+    /// `NSPasteboard.attachmentPlan` is the reading of the board they decide from. This is the part
+    /// that is neither: reading the bytes the decision asked for.
     ///
     /// Reading the bytes is the expensive half, so it is deliberately the last thing that happens
     /// and the only caller that pays for it is a paste or a drop that has already landed.
     static func attachables(on pasteboard: NSPasteboard) -> [AttachmentSource] {
         let items = pasteboard.pasteboardItems ?? []
-        switch plan(for: items, on: pasteboard) {
+        switch pasteboard.attachmentPlan(for: items) {
         case .text:
             return []
         case .files(let paths):
@@ -256,36 +256,7 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
     /// Whether this pasteboard holds anything the composer would take, decided without reading a
     /// single byte of it.
     static func hasAttachables(on pasteboard: NSPasteboard) -> Bool {
-        plan(for: pasteboard.pasteboardItems ?? [], on: pasteboard) != .text
-    }
-
-    private static func plan(
-        for items: [NSPasteboardItem], on pasteboard: NSPasteboard
-    ) -> PastedAttachment.Plan {
-        let offers = items.map { item in
-            PastedAttachment.Offer(
-                filePath: item.fileURL()?.path,
-                types: item.types.map(\.rawValue)
-            )
-        }
-        // Whether there is text, never the text itself. A clipboard is the user's own business and
-        // nothing here has any reason to read what is on it.
-        let hasText = (pasteboard.string(forType: .string)?.isEmpty == false)
-        return PastedAttachment.plan(items: offers, hasText: hasText)
-    }
-}
-
-private extension NSPasteboardItem {
-    /// The file this item points at, if it points at one.
-    ///
-    /// A file URL is read off the item rather than off the whole board, because a board is a list
-    /// of items and reading it whole loses which picture belonged to which file. Anything that is
-    /// not a file, an `https` link most of all, is not a file: pasting a URL types the URL, which
-    /// is what it has always done.
-    func fileURL() -> URL? {
-        guard let string = string(forType: .fileURL),
-              let url = URL(string: string), url.isFileURL else { return nil }
-        return url.standardizedFileURL
+        pasteboard.attachmentPlan != .text
     }
 }
 

@@ -181,21 +181,6 @@ public extension ProjectTargetVerdict {
         }
     }
 
-    /// Whether the window goes on to the New Workspace sheet.
-    ///
-    /// Only where Bloom made the repository. A project with an empty first commit is not something
-    /// anybody wanted for its own sake: they had an idea, and the next thing is an agent working
-    /// on it. A project that already had work in it ends in the sidebar, because they may well
-    /// have come to look at what is already there. The footer says which of the two is about to
-    /// happen, in four words, because in one window it is otherwise a branch nobody was told
-    /// about.
-    var opensAWorkspace: Bool {
-        switch self {
-        case .create, .adopt: true
-        case .add, .track, .refuse: false
-        }
-    }
-
     /// The verb, which is also the button.
     var buttonTitle: String {
         switch self {
