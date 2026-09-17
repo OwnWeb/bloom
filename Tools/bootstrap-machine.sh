@@ -96,8 +96,10 @@ if [[ ! -x "$target/bin/bloom-runner" ]]; then
   sudo_if_needed mv "$target.partial" "$target"
 fi
 
+# The version, not the path `readlink` gives: the marker is read by the start wrapper and by
+# runbloom.app, and one convention for both beats two writers and every reader taking either.
 previous=""
-[[ -L "$prefix/current" ]] && previous="$(readlink "$prefix/current")"
+[[ -L "$prefix/current" ]] && previous="$(basename "$(readlink "$prefix/current")")"
 
 # A new symlink moved over the old one with rename, so there is never a moment with none.
 #
@@ -139,9 +141,12 @@ fi
 # In /var/tmp rather than beside the versions, because /opt is root's and the server deleting it is
 # the machine's own user.
 marker="${BLOOM_UPDATE_MARKER:-/var/tmp/bloom-update-pending}"
-# Version, the version to go back to, and how many starts have seen this marker. The start wrapper
-# in bin/bloom-runner counts those and gives up on the release that does not come up. See
-# Tools/runner-start.sh.
+# Three lines: the version asked for, the version to go back to, and how many starts have seen this
+# marker. The start wrapper in bin/bloom-runner counts those and gives up on the release that does
+# not come up (Tools/runner-start.sh), and runbloom.app reads the same file when it reaches into a
+# machine that has not healed, so that a bad night reads as "19 starts on 0.2.0, going back to
+# 0.1.9" rather than as silence. Changing this shape changes what that reader sees. Its absence is
+# the normal case, not an error.
 printf '%s\n%s\n0\n' "$version" "$previous" > "$marker"
 "$service_tool" services restart bloom >/dev/null 2>&1 &
 for _ in $(seq 1 20); do

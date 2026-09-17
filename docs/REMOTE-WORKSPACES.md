@@ -1036,6 +1036,16 @@ a machine answering wrongly can be looked at and a machine answering nothing can
 from outside, through the provider, is runbloom.app's half and covers a machine that is wedged for
 reasons no script on it could see.
 
+**`/var/tmp/bloom-update-pending` is a contract, not a scratch file.** `bootstrap-machine.sh update`
+writes three lines before it restarts the service: the version asked for, the version to go back to
+(a bare version; older bootstraps wrote an absolute path and readers still take one), and how many
+starts have seen it. The start wrapper counts those starts, and runbloom.app reads the same file in
+the exec it makes when it reaches into a machine that has not healed, so a bad night reads as "19
+starts on 0.2.0, going back to 0.1.9" rather than as silence. A runner that gets as far as listening
+deletes it, so its absence is the normal case. Nothing read from it decides whether to roll back: it
+is the account of a machine that is failing, evidence for a person rather than an input. Change the
+shape and two readers change with it.
+
 **Telling a provider outage from a Bloom Runner problem.** They look different from the app:
 
 - The machine's URL not answering at all, or answering a provider error page, is the provider or a

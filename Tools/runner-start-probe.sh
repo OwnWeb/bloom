@@ -122,7 +122,15 @@ check "the update moved current to the new version" "$bootstrap_prefix/2.1.0" "$
 check "current is still a symlink, not a directory" "yes" "$([[ -L "$bootstrap_prefix/current" ]] && echo yes || echo no)"
 check "nothing was left beside it" "no" "$([[ -e "$bootstrap_prefix/current.next" ]] && echo yes || echo no)"
 check "the marker is left for the wrapper" "2.1.0" "$(sed -n 1p "$root/bootstrap-marker" 2>/dev/null || true)"
-check "with the version to go back to" "$bootstrap_prefix/2.0.0" "$(sed -n 2p "$root/bootstrap-marker" 2>/dev/null || true)"
+check "with the version to go back to, as a bare version" "2.0.0" "$(sed -n 2p "$root/bootstrap-marker" 2>/dev/null || true)"
+
+# A marker from an older bootstrap, whose line 2 is a path rather than a version, still works: a
+# machine can be updated by a bootstrap older than the wrapper it installs.
+point_at 1.1.0
+printf '1.1.0\n%s\n1\n' "$prefix/1.0.0" > "$marker"
+fake_release 1.0.0 0
+start serve
+check "a marker written the old way still rolls back" "$prefix/1.0.0" "$(readlink "$prefix/current")"
 
 # And the wrapper, handed that marker, is what actually goes back.
 BLOOM_PREFIX="$bootstrap_prefix" BLOOM_UPDATE_MARKER="$root/bootstrap-marker" "$bootstrap_prefix/current/bin/bloom-runner" serve 2>/dev/null || true

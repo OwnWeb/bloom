@@ -17,6 +17,12 @@
 #   1.28.4
 #   2
 #
+# **The file is read by runbloom.app as well**, in the exec it makes when it reaches into a machine
+# that has not healed itself, so that a failed rollback can say what the machine had been trying
+# rather than only that it did not come back. Nothing either side reads from it decides whether to
+# roll back: it is the account of a machine that is failing, evidence for a person, not an input.
+# Line 2 is a bare version; a path is accepted for markers written by an older bootstrap.
+#
 # **The count is what makes this a record of attempts rather than of an intention.** One start on
 # the new release is not a failure: a machine can be restarted for its own reasons a second after an
 # update, and rolling back then would undo a release that was fine. The second start that still
@@ -47,8 +53,8 @@ if [ "${1:-}" = "serve" ] && [ -f "$marker" ]; then
     esac
     current="$(basename "$(readlink "$prefix/current" 2>/dev/null || echo "")" 2>/dev/null || true)"
 
-    # The bootstrap writes what `readlink current` gave it, which is an absolute path, while the
-    # probe's fixtures and a hand written marker use a bare version. Take either.
+    # A bare version is what the bootstrap writes now. An absolute path is what older ones wrote,
+    # and a machine can be updated by a bootstrap older than its wrapper, so both are taken.
     case "$previous" in
     /*) previous_path="$previous" ;;
     "") previous_path="" ;;
