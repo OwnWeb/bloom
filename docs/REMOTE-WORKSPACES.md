@@ -767,9 +767,9 @@ control server in the test the way runbloom.app would hand it over, and never co
 written into a fixture. Like `BLOOM_LIVE=1` today, it costs money and is off unless set.
 
 
-## Verified on a real Sprite, and still to verify
+## Verified on a real Sprite
 
-The owner asked for these before implementation starts.
+Measured on real Sprites before implementation started, as the owner asked.
 
 - **Verified:** a Sprite's URL is made public at create through the API (`url_settings: {"auth":
   "public"}`), and can be changed later.
