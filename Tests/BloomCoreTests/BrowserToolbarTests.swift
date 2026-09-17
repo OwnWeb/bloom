@@ -88,6 +88,25 @@ struct BrowserToolbarTests {
         #expect(!Self.toolbar(address: "").screenshot.isEnabled)
     }
 
+    // MARK: - Opening in the default browser
+
+    @Test("The page on screen is what goes to the default browser, wherever it has navigated to")
+    func opensTheCurrentPage() {
+        let toolbar = Self.toolbar(address: "https://shop.test/admin/users")
+        #expect(toolbar.openInDefaultBrowser.isEnabled)
+        #expect(toolbar.externalURL?.absoluteString == "https://shop.test/admin/users")
+        #expect(toolbar.openInDefaultBrowser.symbol == "arrow.up.forward.app")
+        #expect(toolbar.openInDefaultBrowser.help == "Open in Default Browser")
+    }
+
+    @Test("Nothing that is not a web page goes to the default browser",
+          arguments: ["", "about:blank", "file:///etc/hosts", "javascript:alert(1)", "localhost:3100"])
+    func refusesWhatIsNotAPage(address: String) {
+        let toolbar = Self.toolbar(address: address)
+        #expect(toolbar.externalURL == nil)
+        #expect(!toolbar.openInDefaultBrowser.isEnabled)
+    }
+
     // MARK: - Sharing
 
     @Test("A pane with nowhere to be has nothing to share")

@@ -355,6 +355,7 @@ accepted; the machine answers 202 and carries the work on.
 | --- | --- | --- |
 | `stop` | `{"limit": "..."}` | stops running turns, marks queued prompts blocked, reports and lets the machine sleep |
 | `limits-cleared` | `{}` | tries blocked prompts again |
-| `revoke` | `{"user_id": "..."}` | closes that person's event streams and terminals at once |
+| `revoke` | `{"user_id": "..."}` or `{"user_ids": [...]}` | closes those people's event streams and terminals at once |
 | `update` | `{"version": "...", "sha256": "..."}` | starts the bootstrap script for that release, which restarts the server |
 | `environment` | `{}` | fetches team and project environment again |
+| `secret-rotated` | `{}` | reads `/etc/bloom/workspace.json` again and uses its new workspace secret |

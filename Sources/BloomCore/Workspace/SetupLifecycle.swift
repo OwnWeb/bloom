@@ -47,6 +47,8 @@ public enum SetupEvent: Sendable, Hashable {
     /// The worktree was cut again from the branch, so anything the setup script installed is gone.
     /// Sent by restore. See `WorkspaceManager.restore`.
     case worktreeRebuilt(hasSetupScript: Bool)
+    /// The reader looked at a failed run and chose to carry on without it. The log is kept.
+    case failureIgnored
 
     /// The line this event leaves in the setup log, when the event is the only account of itself.
     ///
@@ -64,6 +66,8 @@ public enum SetupEvent: Sendable, Hashable {
         case .runInterrupted:
             "[bloom] The app stopped while the setup script was running, so this run was "
                 + "interrupted before it could report a result. Run setup again to finish it."
+        case .failureIgnored:
+            nil
         case .worktreeRebuilt:
             "[bloom] This worktree was rebuilt when the workspace was restored, so anything the "
                 + "setup script installed is gone. Run setup again."
@@ -128,6 +132,13 @@ public extension SetupState {
         case .runInterrupted:
             guard self == .running else { return .refused }
             return .moves(to: .pending)
+
+        // Only a failure can be ignored. From anywhere else there is nothing to dismiss, and
+        // accepting it would let a stale button file a run that succeeded as one somebody waved
+        // away.
+        case .failureIgnored:
+            if self == .ignored { return .unchanged }
+            return self == .failed ? .moves(to: .ignored) : .refused
 
         // Never refused, from any state. The worktree is a fresh checkout whatever the row was
         // saying a moment ago, and the row does not get a vote on what is on disk.
@@ -213,6 +224,7 @@ extension SetupEvent {
         case .runSkipped: "runSkipped"
         case .runInterrupted: "runInterrupted"
         case .worktreeRebuilt(let hasSetupScript): "worktreeRebuilt(hasSetupScript: \(hasSetupScript))"
+        case .failureIgnored: "failureIgnored"
         }
     }
 }

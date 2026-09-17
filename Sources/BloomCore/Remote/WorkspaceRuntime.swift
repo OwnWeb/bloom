@@ -48,6 +48,7 @@ public actor WorkspaceRuntime {
     var publishedChats: [SessionID: ChatRecord] = [:]
     var publishedQuestions: [SessionID: [QuestionRecord]] = [:]
     var publishedSetup: SetupRecord?
+    var publishedWorkspace: WorkspaceRecord?
     var publishedSetupLogLength = 0
     /// Which setup step is running, for the setup record. Set by the machine's setup runner.
     var setupStep: String?

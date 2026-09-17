@@ -11,6 +11,8 @@ public enum RemoteActivityEvent: Sendable, Hashable {
     case setupFinished(succeeded: Bool)
     case humanInput
     case connectionsChanged(open: Int)
+    /// The workspace's row changed: its name, branch or setup.
+    case workspaceChanged
 }
 
 /// What the awake policy asks of the runtime.
@@ -95,7 +97,7 @@ extension WorkspaceRuntime {
         }
         let last = try await store.lastMessage(workspaceID: workspaceID, kinds: [.assistantText, .user, .crew])
         return RemoteSummary(
-            revision: revision, observedAt: observedAt, bloomServerVersion: version, title: workspace.name,
+            revision: revision, observedAt: observedAt, bloomRunnerVersion: version, title: workspace.name,
             branch: workspace.branch, baseBranch: workspace.baseBranch,
             state: RemoteSummary.state(setup: workspace.setupState, chats: activities), awake: awake,
             presenceLeaseUntil: leaseUntil,

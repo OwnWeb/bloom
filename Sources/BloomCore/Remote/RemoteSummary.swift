@@ -99,7 +99,7 @@ public struct RemoteSummary: Codable, Sendable, Hashable {
 
     public var revision: Int64
     public var observedAt: Date
-    public var bloomServerVersion: String
+    public var bloomRunnerVersion: String
     public var title: String
     public var branch: String
     public var baseBranch: String
@@ -118,7 +118,7 @@ public struct RemoteSummary: Codable, Sendable, Hashable {
     enum CodingKeys: String, CodingKey {
         case revision, title, branch, state, awake, setup, waiting, diff, chats
         case observedAt = "observed_at"
-        case bloomServerVersion = "bloom_server_version"
+        case bloomRunnerVersion = "bloom_runner_version"
         case baseBranch = "base_branch"
         case presenceLeaseUntil = "presence_lease_until"
         case lastMessage = "last_message"
@@ -134,7 +134,7 @@ public struct RemoteSummary: Codable, Sendable, Hashable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(revision, forKey: .revision)
         try container.encode(observedAt, forKey: .observedAt)
-        try container.encode(bloomServerVersion, forKey: .bloomServerVersion)
+        try container.encode(bloomRunnerVersion, forKey: .bloomRunnerVersion)
         try container.encode(title, forKey: .title)
         try container.encode(branch, forKey: .branch)
         try container.encode(baseBranch, forKey: .baseBranch)

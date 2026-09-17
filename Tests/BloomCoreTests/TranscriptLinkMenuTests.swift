@@ -21,7 +21,7 @@ struct TranscriptLinkMenuTests {
     @Test("A page in a pane offers the external browser, a tab, and both splits, in that order")
     func inAPane() throws {
         #expect(try titles("https://example.com/page", .pane) == [
-            "Open in External Browser",
+            "Open in Default Browser",
             "Open in Browser Tab",
             "Open in Split Right",
             "Open in Split Down",
@@ -43,7 +43,7 @@ struct TranscriptLinkMenuTests {
     @Test("A transcript the window cannot name a pane for offers a tab but no split")
     func aColumnWithNoPane() throws {
         #expect(try titles("https://example.com/page", .column) == [
-            "Open in External Browser",
+            "Open in Default Browser",
             "Open in Browser Tab",
         ])
     }
@@ -51,7 +51,7 @@ struct TranscriptLinkMenuTests {
     @Test("A transcript with no column behind it offers the external browser alone")
     func detached() throws {
         for address in ["https://example.com/page", "http://localhost:3100", "mailto:a@b.example"] {
-            #expect(try titles(address, .detached) == ["Open in External Browser"])
+            #expect(try titles(address, .detached) == ["Open in Default Browser"])
         }
     }
 
@@ -60,7 +60,7 @@ struct TranscriptLinkMenuTests {
           arguments: ["mailto:owner@example.com", "ftp://example.com/file", "javascript:alert(1)"])
     func addressesNoPaneCanShow(address: String) throws {
         for placement in TranscriptLinkPlacement.allCases {
-            #expect(try titles(address, placement) == ["Open in External Browser"])
+            #expect(try titles(address, placement) == ["Open in Default Browser"])
         }
     }
 

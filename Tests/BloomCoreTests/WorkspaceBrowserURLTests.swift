@@ -57,6 +57,20 @@ struct WorkspaceBrowserURLTests {
         #expect(address == "https://stated.test")
     }
 
+    // MARK: - Whether a menu may offer it
+
+    @Test("a port or a stated address is enough for the menu to offer the default browser")
+    func mayResolveWithAPortOrAStatedAddress() {
+        #expect(WorkspaceBrowserURL.mayResolve(port: 3100, stated: nil))
+        #expect(WorkspaceBrowserURL.mayResolve(port: 0, stated: "https://shop.test"))
+    }
+
+    @Test("no port and nothing stated greys the item")
+    func mayNotResolveWithNothing() {
+        #expect(!WorkspaceBrowserURL.mayResolve(port: 0, stated: nil))
+        #expect(!WorkspaceBrowserURL.mayResolve(port: 0, stated: "  \n"))
+    }
+
     // MARK: - What counts as an address
 
     @Test("the first line is the address, whatever follows it")

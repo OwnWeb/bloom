@@ -184,6 +184,7 @@ only by trying it.
 | --- | --- | --- |
 | Open in Editor | yes | `⇧⌘E` |
 | Reveal in Finder | yes | `⇧⌘R` |
+| Open in Default Browser | **no** | none |
 | Copy Branch Name | yes | `⇧⌘C` |
 | Run Setup / Run Setup Again | yes | none |
 | Pin / Unpin | **no** | none |
@@ -232,7 +233,7 @@ loud somewhere a user can read it.
 | Edit / Remove image comment | saved comment band on the page | **no** | none |
 | Send image comments | composer below the browser, or the adjacent conversation | **no** | `Return` or `⌘Return` |
 | Share | toolbar | **no** | none |
-| Open in External Browser | page context menu | **no** | none |
+| Open in Default Browser | toolbar, and the page menu | **no** | none |
 | Find in page, next, previous | find bar | yes, Edit > Find | `⌘F` `⌘G` `⇧⌘G` |
 | Downloads bar dismissal | the bar itself | **no** | none |
 
@@ -285,7 +286,7 @@ in its own doc comment.
 | Action | Where it lives | In the menu bar | Key |
 | --- | --- | --- | --- |
 | Copy answer, Copy files touched, Copy raw event | turn footer menu | **no** | none |
-| Copy Link, Open Link, Open in External Browser, open in a split | link menu | **no** | none |
+| Copy Link, Open Link, Open in Default Browser, open in a split | link menu | **no** | none |
 | Allow once / This session / Always allow / Deny / Deny and stop | permission card | **no** | `⌘↩` on the default |
 | Copy the subject of a permission ask | card menu | **no** | none |
 | Answer an agent's question | question card | **no** | `↩` on the default |
@@ -351,7 +352,7 @@ actions are published, and the standard menus are checked for shape.
 
 **Left for a second pass**, in the order they are worth doing:
 
-1. **The browser.** Back, Forward, Reload and Stop, Open in External Browser, Send a Screenshot to
+1. **The browser.** Back, Forward, Reload and Stop, Open in Default Browser, Send a Screenshot to
    the Agent, Share. Needs no new plumbing: `CenterTabStore.liveBrowser(for:)` already hands over
    the session, and `BrowserToolbar.Control.name` already holds the wording. `⌘[`, `⌘]` and `⌘R`
    are free.

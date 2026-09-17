@@ -447,25 +447,25 @@ jobs:
 
       # The wire shapes are their own package, so their vectors are checked on their own. On
       # Linux, because a client in another language is most likely to be reading them there.
-      - name: Boot bloom-server against a fake runbloom.app
-        run: runuser -u bloom-ci -- python3 Tools/server-smoke.py "$(swift build --show-bin-path)/bloom-server"
+      - name: Boot bloom-runner against a fake runbloom.app
+        run: runuser -u bloom-ci -- python3 Tools/runner-smoke.py "$(swift build --show-bin-path)/bloom-runner"
 
       # The package a release would publish, from this debug build, and the packaged server booted
       # against a fake runbloom.app on a machine with no Swift. The artefact is what a bloomdev
       # machine is tried with before a release.
-      - name: Package bloom-server as a release would
+      - name: Package bloom-runner as a release would
         env:
           RUN: ${{ github.run_number }}
         run: |
           set -euo pipefail
           # As the user that built it, because SwiftPM's lock on the build directory is that user's.
-          runuser -u bloom-ci -- python3 Tools/package-linux-server.py "$(runuser -u bloom-ci -- swift build --show-bin-path)" \
-            .build/server-package --version "0.0.0-ci.$RUN"
+          runuser -u bloom-ci -- python3 Tools/package-linux-runner.py "$(runuser -u bloom-ci -- swift build --show-bin-path)" \
+            .build/runner-package --version "0.0.0-ci.$RUN"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: bloom-server-linux-x86_64
-          path: .build/server-package/
+          name: bloom-runner-linux-x86_64
+          path: .build/runner-package/
           if-no-files-found: error
           retention-days: 7
 
@@ -474,7 +474,7 @@ jobs:
 
   # The package on the Ubuntu a Cloud workspace's machine runs, with no Swift installed: what
   # proves the bundled runtime libraries are complete, rather than borrowed from the build image.
-  packaged-server:
+  packaged-runner:
     needs: linux
     runs-on: ubuntu-latest
     container: ubuntu:26.04
@@ -486,7 +486,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          name: bloom-server-linux-x86_64
+          name: bloom-runner-linux-x86_64
           path: package
       - name: Run the package on a machine with no Swift
         run: |
@@ -496,8 +496,8 @@ jobs:
           if command -v swift >/dev/null; then echo "This job must not have Swift."; exit 1; fi
           cd package && sha256sum -c ./*.sha256 && cd ..
           mkdir unpacked && tar -xzf package/*.tar.gz -C unpacked
-          unpacked/bin/bloom-server version
+          unpacked/bin/bloom-runner version
           unpacked/bin/caddy version
           useradd --create-home smoke
           chown -R smoke unpacked
-          runuser -u smoke -- python3 Tools/server-smoke.py unpacked/bin/bloom-server
+          runuser -u smoke -- python3 Tools/runner-smoke.py unpacked/bin/bloom-runner

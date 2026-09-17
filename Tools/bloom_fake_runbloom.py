@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""A fake runbloom.app for bloom-server's smoke and machine tests, and the token signing they share.
+"""A fake runbloom.app for bloom-runner's smoke and machine tests, and the token signing they share.
 
-Standard library and `openssl` only. Imported by Tools/server-smoke.py, and run on its own on a test
+Standard library and `openssl` only. Imported by Tools/runner-smoke.py, and run on its own on a test
 machine by Tools/machine-test.py:
 
     python3 bloom_fake_runbloom.py --port 9000 --workspace <id> --secret-stdin --jwks-file jwks.json
@@ -12,9 +12,11 @@ private key: tokens are signed where the test runs.
 
 **A credential for a live turn only ever arrives over its test API, in memory.** `POST /test/grant`
 with `{"agent": "claude", "environment": {...}}` is what the next turn start hands out, and
-`GET /test/requests` reads back what the machine sent. Both answer only on loopback, which on a
-machine is reached through `sprite proxy`, so the credential travels over the provider's tunnel
-and is never in an argument, an environment variable or a file on the machine.
+`GET /test/requests` reads back what the machine sent. On a machine the fake listens on every
+interface of that machine, because `sprite proxy` arrives on the machine's internal interface
+rather than on loopback, and that proxy, authenticated by the provider, is the only way in: the
+machine's URL routes to port 8080 alone. So the credential travels over the provider's tunnel and
+is never in an argument, an environment variable or a file on the machine.
 """
 
 import argparse
@@ -107,7 +109,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path.startswith("/test/"):
             return self.test_api(method, body)
         if self.headers.get("Authorization") != f"Bearer {server.secret}":
-            return self.answer(401, b'{"code":"unauthenticated","message":"no"}')
+            return self.answer(401, b'{"code":"invalid_workspace_secret","message":"no"}')
         parsed = json.loads(body) if body else None
         with server.lock:
             # Never the grant's contents: the recording is what a test reads back and prints.
@@ -134,8 +136,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return self.answer(204)
 
     def test_api(self, method, body):
-        if self.client_address[0] != "127.0.0.1":
-            return self.answer(404)
         if self.path == "/test/grant" and method == "POST":
             with self.server.lock:
                 self.server.grant = json.loads(body)
@@ -159,11 +159,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--jwks-file", required=True)
     parser.add_argument("--secret-stdin", action="store_true", help="read the workspace secret from the first line of stdin")
     arguments = parser.parse_args()
     secret = sys.stdin.readline().strip() if arguments.secret_stdin else "test-secret"
-    server = FakeRunbloom(secret, pathlib.Path(arguments.jwks_file).read_bytes(), port=arguments.port)
+    server = FakeRunbloom(secret, pathlib.Path(arguments.jwks_file).read_bytes(), host=arguments.host, port=arguments.port)
     print(f"fake runbloom.app listening on {arguments.port}", flush=True)
     server.serve_forever()
 

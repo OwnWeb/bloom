@@ -65,7 +65,7 @@ flowchart LR
     Mac -- RPC, events, terminal, preview --> Sprite
     iOS -- RPC, events, terminal, preview --> Sprite
     subgraph Sprite[One Sprite per workspace]
-        Front[Caddy on the URL port] --> Server[bloom-server]
+        Front[Caddy on the URL port] --> Server[Bloom Runner]
         Front --> App[the project's app]
         Server --> Agents[claude, codex]
         Server --> Services[project services]
@@ -80,7 +80,7 @@ provider credentials, agent and environment secrets, the GitHub App, and push no
 It never carries transcript, terminal or preview bytes: it is a single core Forge box running
 PHP-FPM, and a long-lived stream is the one thing it is bad at.
 
-**bloom-server** runs inside the Sprite and owns exactly one workspace: its checkout, agent
+**Bloom Runner** runs inside the Sprite and owns exactly one workspace: its checkout, agent
 processes, prompt queue, transcript, terminals, project services, setup and the Sprite's awake
 state. It is the #163 runtime cut down, with an HTTP front instead of a Unix socket behind a Go
 gateway.
@@ -90,7 +90,7 @@ a Sprite directly with a short-lived token runbloom.app issued for that one work
 
 Clients stream from the Sprite rather than through runbloom.app. The alternative that keeps Sprite
 URLs private is a relay holding a Fly organisation token, and that relay could not be PHP, so it
-would be a third service to deploy and operate for one benefit (a private URL) that bloom-server's
+would be a third service to deploy and operate for one benefit (a private URL) that Bloom Runner's
 own token check provides as well. If that changes, the relay slots in front of the same endpoints
 without a protocol change.
 
@@ -112,9 +112,9 @@ app. runbloom.app's own API uses those access tokens.
 
 A client exchanges its runbloom.app access token for a workspace token:
 `POST /api/v1/cloud-workspaces/{id}/session-token`. runbloom.app refuses it with `{"code":
-"machine_not_ready", "message", "retry_after"}` (HTTP 409) until bloom-server on that machine has
+"machine_not_ready", "message", "retry_after"}` (HTTP 409) until Bloom Runner on that machine has
 posted its first summary, so a client never connects to a URL with nothing behind it. From that
-first summary on, which bloom-server posts before setup starts, a token is issued, so the setup
+first summary on, which Bloom Runner posts before setup starts, a token is issued, so the setup
 output can be watched live. A sleeping machine is ready: the token is what the client then uses to
 wake it. The reply is an EdDSA JWT, five minutes long:
 
@@ -131,7 +131,7 @@ wake it. The reply is an EdDSA JWT, five minutes long:
 The header carries `kid`. Abilities rather than a role, so a read-only viewer later is a
 different set of strings and not a format change.
 
-bloom-server verifies offline against runbloom.app's JWKS. The issuer and the JWKS URL are written
+Bloom Runner verifies offline against runbloom.app's JWKS. The issuer and the JWKS URL are written
 into the Sprite at bootstrap, never read from the token. The key set is cached and refetched on an
 unknown `kid`, at most once a minute. Verification is Ed25519 through swift-crypto, which the Linux
 build already depends on; no JWT library.
@@ -195,19 +195,19 @@ the Codex app-server) and relaunches with `--resume` or `thread/resume` after a 
 Sprite:
 
 1. **Registering.** A client sends a prompt with a workspace token carrying `prompt`, fresh at the
-   moment of sending. bloom-server passes that token on at once to `POST
+   moment of sending. Bloom Runner passes that token on at once to `POST
    /api/machine/workspaces/{id}/turns`, and gets back a turn id in state `queued`, stored on the
    delivery. The workspace secret alone cannot get a key: every key is tied to a turn a person
    asked for while their token was valid. Removing a member cancels their queued turns, and a turn
    registered more than 12 hours before it starts is refused.
 2. **Starting.** When the delivery reaches the front of the queue, which may be long after that
-   token expired, bloom-server calls `POST .../turns/{turn}/start` with the workspace secret. The
+   token expired, Bloom Runner calls `POST .../turns/{turn}/start` with the workspace secret. The
    reply carries the resolved key, an identity for it (a hash, not the key), and the prompter's
    personal environment. The key is fetched at every start and never cached across turns.
 3. If the running process was started with the same identity, the delivery goes to its stdin. The
    identity is the resolved key, not the person, so teammates sharing the team key never cause a
    relaunch.
-4. Otherwise bloom-server waits for the running turn to end, stops the process and relaunches it
+4. Otherwise Bloom Runner waits for the running turn to end, stops the process and relaunches it
    with `--resume` and the key in the process environment only (`ANTHROPIC_API_KEY`,
    `OPENAI_API_KEY`). Resume reloads the session from local files on the Sprite, which is cheap.
    **The prompt cache is not**: a different key is a cache miss, and the first turn after a switch
@@ -244,13 +244,13 @@ and messages have no sender. Phase 1 adds:
 - **Composer settings** stay last-writer-wins, and the change event names who made it.
 - **Questions and permission prompts**: the first answer wins. The runtime already claims a
   request once; a second answer gets "already answered by <name>".
-- **Presence**: bloom-server keeps the set of users with an open event stream and the last human
+- **Presence**: Bloom Runner keeps the set of users with an open event stream and the last human
   input per user, and publishes it as an event and in the summary.
 
 ## Awake, asleep, and what it costs
 
 An open stream keeps a Sprite awake, so a Mac left open on a workspace would bill until it was
-closed. bloom-server therefore decides when it may sleep, and tells clients.
+closed. Bloom Runner therefore decides when it may sleep, and tells clients.
 
 It holds a Tasks API task, renewed by heartbeat, while any of these is true:
 
@@ -314,7 +314,7 @@ starts again as `bloom-workspace` version 1. What changes:
 | `GET /_bloom/v1/events` | SSE read with `fetch`, bearer token |
 | `GET /_bloom/v1/terminal?name=` | WebSocket, `auth` first frame, binary frames, resize and `reauth` text frames |
 | `GET /_bloom/preview/enter?token=` | preview cookie exchange |
-| `POST /_bloom/v1/control/revoke`, `update`, `environment`, `limits-cleared`, `stop` | runbloom.app only, `admin` token |
+| `POST /_bloom/v1/control/revoke`, `update`, `environment`, `limits-cleared`, `stop`, `secret-rotated` | runbloom.app only, `admin` token |
 | `GET /_bloom/health` | unauthenticated, version only |
 | everything else | the preview |
 
@@ -350,14 +350,14 @@ browser now rather than discovered to be native-only then.
 ## Preview
 
 The Sprite URL has one port, so it cannot give control and the preview separate origins. A Caddy
-supervised by bloom-server listens on it and routes `/_bloom/*` to bloom-server and everything else
+supervised by Bloom Runner listens on it and routes `/_bloom/*` to Bloom Runner and everything else
 to the project's app on `BLOOM_APP_PORT`. Caddy rather than a proxy in Swift, because streaming,
 WebSocket upgrades for Vite and Reverb, and header rewriting are what it is for, and the
 There There spike already ran one.
 
 Control never reads cookies; it wants `Authorization: Bearer`. The preview wants the
 `__Host-bloom-preview` cookie (HttpOnly, Secure, SameSite=Lax, eight hours, bound to a user),
-checked by Caddy's `forward_auth` against bloom-server, stripped before the request reaches the
+checked by Caddy's `forward_auth` against Bloom Runner, stripped before the request reaches the
 app, and refused if the app tries to set it. So the app's own JavaScript shares an origin with
 control and still cannot reach it. A client opens the preview through `GET
 /_bloom/preview/enter?token=<60 s single-use preview JWT>`, which sets the cookie and redirects. A share
@@ -368,7 +368,7 @@ one hour rather than eight. There is no long-lived share token.
 ## Setup
 
 Every create is cold. A Sprite cannot start from another's checkpoint, and phase 1 has no pool of
-prepared machines, so bloom-server runs the whole of it in one go after bootstrap: clone with a
+prepared machines, so Bloom Runner runs the whole of it in one go after bootstrap: clone with a
 read-only installation token, create the branch, `scripts.prepare`, `scripts.setup`,
 `scripts.resume`, then the services, reporting each step in the summary. For There There that is
 about two and a half minutes, most of it apt. The opening prompt queues behind setup, as it does
@@ -393,7 +393,7 @@ the runs that crashed before theirs.
 
 **Later, a warm pool.** Because `prepare` is already its own script with no secrets, a pool of
 machines that ran it and paused is an addition on runbloom.app's side plus a claim step in
-bloom-server (reread configuration, rotate the secret, create the branch, carry on from `setup`).
+Bloom Runner (reread configuration, rotate the secret, create the branch, carry on from `setup`).
 Nothing in phase 1 has to change for it.
 
 The repository side, in `.bloom/settings.toml`, alongside the setup scripts that exist today:
@@ -428,9 +428,9 @@ session, apply only to its processes, and, like personal keys, are delivered onl
 that is not shared. All of it lives only in process environments; a script
 that writes it into `.env` has made that choice itself.
 
-Project services run under bloom-server's own supervisor, not as Sprite Services. A Sprite Service
+Project services run under Bloom Runner's own supervisor, not as Sprite Services. A Sprite Service
 restarts on its own on cold wake, before `resume` has fetched fresh environment, and cannot be
-deleted while another depends on it. bloom-server is the only Sprite Service, and it starts the
+deleted while another depends on it. Bloom Runner is the only Sprite Service, and it starts the
 rest after `resume`.
 
 Setup runs natively. Docker is not supported on Sprites, for the measured reasons above.
@@ -438,7 +438,7 @@ Setup runs natively. Docker is not supported on Sprites, for the measured reason
 ## GitHub
 
 runbloom.app adds a GitHub App with user authorisation. The Sprite never holds a long-lived token:
-`git` is configured with a credential helper, and `gh` with a wrapper, that ask bloom-server, which
+`git` is configured with a credential helper, and `gh` with a wrapper, that ask Bloom Runner, which
 asks runbloom.app for a short-lived token. During a turn or a terminal session that is a user token
 for the person who started it. Outside one (prepare, setup, resume) it is an installation token for
 that one repository with read-only contents. There is no fallback to the owner's token. Nothing is
@@ -447,7 +447,7 @@ is out of scope for phase 1.
 
 ## Usage
 
-runbloom.app meters usage per team and enforces per-team limits, so bloom-server reports what the
+runbloom.app meters usage per team and enforces per-team limits, so Bloom Runner reports what the
 provider bills for, in provider-neutral terms. The fields are agreed with runbloom.app pull request #23.
 
 `POST /api/machine/workspaces/{id}/usage` with the workspace secret, separate from the summary
@@ -474,7 +474,7 @@ because it is append-only where the summary is replace-latest:
 }
 ```
 
-- **Awake and released.** `awake` is when bloom-server takes its first hold, with the reason (setup,
+- **Awake and released.** `awake` is when Bloom Runner takes its first hold, with the reason (setup,
   turn, script, human input); `released` is when it lets go of the last one. Measured, the Sprite paused almost immediately after
   the release, so `released` is close to the true pause; runbloom.app's added margin covers the
   case where an idle open connection kept it awake a little longer, and the provider's own state is
@@ -508,20 +508,20 @@ refusal is:
 `concurrent_machines` is HTTP 429 and carries `retry_after`, because only it clears by itself when
 another machine in the team goes to sleep; the others are 403 and need a person or a new month.
 
-**A refused turn start.** runbloom.app marks the turn blocked. bloom-server keeps the prompt
+**A refused turn start.** runbloom.app marks the turn blocked. Bloom Runner keeps the prompt
 queued, shows it as blocked with the reason on the event stream and in the summary (`state:
 "blocked"`, `blocked: {limit, message}`), and releases the machine so it can sleep. It does **not**
 poll to find out when the limit lifts, because polling keeps the machine awake and billing, which is
 the thing the limit is for. Instead runbloom.app calls `POST /_bloom/v1/control/limits-cleared`
 (control token for that workspace) when a limit lifts: a machine in the team released (oldest
 blocked turn first), an administrator raised a limit, the kill switch went off, a month began. That
-call wakes the machine, and bloom-server retries the start. As a fallback it also retries whenever
+call wakes the machine, and Bloom Runner retries the start. As a fallback it also retries whenever
 it wakes for any other reason.
 
 **Kill switch or overage while awake.** runbloom.app first calls `POST /_bloom/v1/control/stop`
-with the limit. bloom-server stops a running turn the way Stop does, marks queued prompts blocked,
+with the limit. Bloom Runner stops a running turn the way Stop does, marks queued prompts blocked,
 posts its summary and usage, and releases. After a grace of 30 s a scheduled job stops the
-machine's services through the provider regardless, and bloom-server treats the `SIGTERM` that
+machine's services through the provider regardless, and Bloom Runner treats the `SIGTERM` that
 brings the same way: stop the turn, flush the reports it can, exit. A turn cut off like that is
 recorded in the transcript as stopped by a limit, not as a failure.
 
@@ -533,14 +533,14 @@ wake shows the same message where the create or the open was attempted.
 
 ## Summaries
 
-bloom-server posts `POST /api/machine/workspaces/{id}/summary` with the workspace secret. A
+Bloom Runner posts `POST /api/machine/workspaces/{id}/summary` with the workspace secret. A
 monotonic `revision` means a late post never overwrites a newer one.
 
 ```json
 {
   "revision": 42,
   "observed_at": "2026-09-17T10:00:00Z",
-  "bloom_server_version": "0.9.0",
+  "bloom_runner_version": "0.9.0",
   "title": "Queue retries",
   "branch": "freek/queue-retries",
   "base_branch": "main",
@@ -574,11 +574,11 @@ and `setup_failed`.
 Clients poll the list from runbloom.app on focus and every 15 to 30 s while visible, plus APNs. No
 WebSockets on runbloom.app in phase 1; if Reverb arrives later it carries the same payload.
 
-## Installing and updating bloom-server
+## Installing and updating Bloom Runner
 
-A release of this repository publishes `bloom-server-linux-x86_64-<version>.tar.gz` with a sha256
-manifest: `bloom-server`, `bloom-bridge`, Caddy, and the Swift runtime libraries with an `$ORIGIN`
-rpath, as #163's `Tools/package-linux-server.py` already builds them.
+A release of this repository publishes `bloom-runner-linux-x86_64-<version>.tar.gz` with a sha256
+manifest: `bloom-runner`, `bloom-bridge`, Caddy, and the Swift runtime libraries with an `$ORIGIN`
+rpath, as #163's `Tools/package-linux-runner.py` already builds them.
 
 runbloom.app bootstraps a new Sprite with one exec: download the version it chose, verify the
 checksum, unpack into `/opt/bloom/<version>`, point `/opt/bloom/current` at it, write
@@ -586,7 +586,7 @@ checksum, unpack into `/opt/bloom/<version>`, point `/opt/bloom/current` at it, 
 origins and the workspace secret, and create the service once:
 
 ```sh
-sprite-env services create bloom --http-port 8080 -- /opt/bloom/current/bin/bloom-server serve
+sprite-env services create bloom --cmd /opt/bloom/current/bin/bloom-runner --args serve --http-port 8080 --no-stream
 ```
 
 The command never changes, because creating a service under an existing name keeps the old
@@ -602,13 +602,13 @@ it, a preview with hazards and then a confirmation id:
 
 1. The preview reports unpushed commits and uncommitted changes, as today, and says that the
    conversation is deleted with the Cloud workspace.
-2. bloom-server stops its turns and services and posts a last summary and usage report.
+2. Bloom Runner stops its turns and services and posts a last summary and usage report.
 3. runbloom.app deletes the machine and revokes the secret.
 
 Restore is a new Cloud workspace on the same branch. Anything that was not pushed is gone, which
 the preview said.
 
-**Later, an export.** Before deleting, bloom-server would upload the transcript and the agents'
+**Later, an export.** Before deleting, Bloom Runner would upload the transcript and the agents'
 own session files (`~/.claude/projects/...`, Codex rollouts) to runbloom.app, and a restore would
 write them back before the agent starts, so the conversation resumes.
 
@@ -641,11 +641,11 @@ Passport token or, for the web interface, the browser session.
   queue with authors, presence, the awake policy as a pure state machine, the summary builder and
   coalescing, usage counters, and the settings for `prepare`, `resume` and `[[services]]` go here,
   grouped under a new `Remote/` subject, testable with no Sprite.
-- `Sources/BloomServer` is a new library target, Linux and macOS, owning the HTTP front
+- `Sources/BloomRunner` is a new library target, Linux and macOS, owning the HTTP front
   (Hummingbird 2 on SwiftNIO), token verification, the SSE and WebSocket endpoints, CORS, the
   provider implementation, the Caddy and service supervisor, and the runbloom.app client. The Mac
-  app does not link it. `Tests/BloomServerTests` depends on it.
-- `Sources/bloom-server` is its `main.swift`.
+  app does not link it. `Tests/BloomRunnerTests` depends on it.
+- `Sources/bloom-runner` is its `main.swift`.
 - `Packages/BloomClient` (Mac client pull request) holds what a Swift client needs beyond the wire
   shapes: the workspace connection, event stream reader, transcript merging, the outbox, the review
   and composer stores. `Packages/BloomAuthentication` holds sign-in.
@@ -655,7 +655,7 @@ Passport token or, for the web interface, the browser session.
   behind its own provider interface. No type outside that implementation is named after Sprites.
 
 `make lint` gains a rule that `BloomCore` imports no NIO, and CI gains a Linux job that builds
-`bloom-server` and runs `BloomCoreTests` and `BloomServerTests` in `swift:6.3-noble`.
+`bloom-runner` and runs `BloomCoreTests` and `BloomRunnerTests` in `swift:6.3-noble`.
 
 ## Two pull requests, and what comes from #163
 
@@ -695,11 +695,11 @@ reference for behaviour but the code is new, and **leave** means it stays in #16
 | `ServerTerminalService.swift`, `ServerTerminalStreams.swift`, `ServerTerminalProcessLifetime.swift` | port; the relay is replaced by the WebSocket in step 3 |
 | `ServerProjectSettings.swift` | port, extended with `prepare`, `resume` and `[[services]]` |
 | `ServerCreation.swift`, `ServerRepositoryResolver.swift`, `ServerSidebar.swift` | rewrite; creation is a bootstrap step now, not an operation |
-| `ServerDaemon.swift`, `ServerCommandLine.swift` | rewrite as `bloom-server serve`, no Unix socket, no `connect` |
+| `ServerDaemon.swift`, `RunnerCommandLine.swift` | rewrite as `bloom-runner serve`, no Unix socket, no `connect` |
 | Tests: `ServerRuntimeTests`, `ServerWorkspaceTests`, `ServerWorkspaceAdmissionsTests`, `ServerReviewTests`, `ServerReviewCacheTests`, `ServerReviewLifecycleTests`, `ServerCrewQueueTests`, `ServerAgentAuthenticationTests`, `ServerCodexSpeedTests`, `ServerProjectSettingsTests`, `ServerTerminalStreamTests`, `ServerProtocolVectorTests` | port with the code they test |
 | `Protocol/generate-schema.py`, `Protocol/verify.py`, `Protocol/examples/` | port for version 1; the v13 to v16 schemas and vectors are left |
 
-**Step 3, bloom-server on a machine.** All new code in `Sources/BloomServer`: HTTP front, tokens,
+**Step 3, Bloom Runner on a machine.** All new code in `Sources/BloomRunner`: HTTP front, tokens,
 event stream, terminal WebSocket, CORS, awake policy and `MachineHost` for Sprites, turn
 registration and credentials, git credential helper and `gh` wrapper, services supervisor, setup
 steps, summaries and usage, preview exchange with Caddy, `control/*`. References from #163:
@@ -710,21 +710,21 @@ steps, summaries and usage, preview exchange with Caddy, `control/*`. References
 | `ServerHTTPTransport.swift`, `ServerOAuthMetadata.swift` | leave; the server verifies runbloom.app tokens, it is not an OAuth resource server with discovery |
 | `ServerPreview.swift`, `ServerPortForward.swift` | rewrite as the Caddy route and preview exchange |
 | `ServerUIBroker.swift`, `ServerUIBridgeTools.swift` | leave for phase 1; agent UI tools on a remote client come later |
-| main's `Sources/BloomCore/Bridge/` `BridgeServer`, `BridgeShim`, `BridgeDispatch`, `BridgeRegistry` and the in-workspace tools: `ChatListTool`, `ChatReadTool`, `WorkspaceDiffTool`, `WhoamiTool`, `CrewTools` (agent start, say, list, stop) | port to run inside bloom-server, scoped to its one workspace. Browser, pane, terminal pane, project and cross-workspace tools are not offered |
+| main's `Sources/BloomCore/Bridge/` `BridgeServer`, `BridgeShim`, `BridgeDispatch`, `BridgeRegistry` and the in-workspace tools: `ChatListTool`, `ChatReadTool`, `WorkspaceDiffTool`, `WhoamiTool`, `CrewTools` (agent start, say, list, stop) | port to run inside Bloom Runner, scoped to its one workspace. Browser, pane, terminal pane, project and cross-workspace tools are not offered |
 | `docs/SERVER-PROTOCOL.md` | rewrite as `docs/WORKSPACE-PROTOCOL.md`, with the client chapter |
 
 **Step 4, packaging.**
 
 | #163 path | |
 | --- | --- |
-| `Tools/package-linux-server.py`, `Tools/test-linux-server-package.py`, `Tools/server-licences/` | port, adding Caddy and its licence |
+| `Tools/package-linux-runner.py`, `Tools/test-linux-server-package.py`, `Tools/runner-licences/` | port, adding Caddy and its licence |
 | `Tools/server-release-assets.py`, `Tools/test-server-release-assets.py`, the Linux asset in `release.yml` | port |
-| `Tools/server-smoke.py` | rewrite as a smoke test that boots `bloom-server` with a test issuer |
+| `Tools/runner-smoke.py` | rewrite as a smoke test that boots `bloom-runner` with a test issuer |
 | new `Tools/bootstrap-machine.sh` | the one exec runbloom.app runs |
 
 **Left behind in #163 for good**, and not to be ported by accident:
 
-- `Tools/install-bloom-server.py`, `install-bloom-docker.py`, `install-bloom-swap.py`,
+- `Tools/install-Bloom Runner.py`, `install-bloom-docker.py`, `install-bloom-swap.py`,
   `install-bloom-browser.py`, `bloom-maintenance.py`, `bloom_maintenance_*.py`, `bloom_swap_state.py`,
   `bloom_install_process.py`, `prepare-server-service.py`, `embed-server-setup.py`, and their tests
 - `Sources/BloomCore/Server/`: `ServerSetupSSH`, `ServerSetupConnection`, `ServerSetupDiagnostics`,
@@ -765,7 +765,7 @@ built in runbloom.app against the same contract.
 ### Testing turns during development
 
 Live turns use the developer's own Anthropic API key, the personal key path: supplied through the
-environment of the test run (`BLOOM_LIVE_ANTHROPIC_API_KEY`), handed to bloom-server by a fake
+environment of the test run (`BLOOM_LIVE_ANTHROPIC_API_KEY`), handed to Bloom Runner by a fake
 control server in the test the way runbloom.app would hand it over, and never committed, logged or
 written into a fixture. Like `BLOOM_LIVE=1` today, it costs money and is off unless set.
 
@@ -869,16 +869,26 @@ and its builder confirmed them.
   validates the subset the schema uses, so the check runs in CI's lint job with nothing installed.
 - **runbloom.app installs, the machine updates.** runbloom.app's bootstrap execs
   `bash -s -- <version> <sha256>` with its own script, unpacks
-  `bloom-server-linux-x86_64-<version>.tar.gz` from the `v<version>` release (its `bin/` at the
+  `bloom-runner-linux-x86_64-<version>.tar.gz` from the `v<version>` release (its `bin/` at the
   archive's root) into `/opt/bloom/<version>`, links `/opt/bloom/current`, and creates the `bloom`
-  service running `/opt/bloom/current/bin/bloom-server serve` with no arguments, which reads
+  service running `/opt/bloom/current/bin/bloom-runner serve` with no arguments, which reads
   `/etc/bloom/workspace.json`. `control/update` does not run that again: the machine installs the
   release with `bin/bootstrap-machine.sh update`, restarts its service and rolls back itself. A
   release must publish the archive and a `.sha256` beside it in `sha256sum` format, or machine
   creation fails. Control calls time out after 15 seconds on runbloom.app's side, so each answers
   before doing slow work.
-- **runbloom.app's refusals, as the machine treats them.** 401 `invalid_workspace_secret` is
-  terminal: the machine stops reporting. 429 and 5xx (including 503 `unavailable` from
+- **The workspace secret rotates.** When anybody loses access to a workspace, runbloom.app
+  rewrites `/etc/bloom/workspace.json` with a new secret and then calls `control/secret-rotated`;
+  the old secret stays valid there for two minutes so reports in flight land. The machine takes
+  only the secret from the rewritten file (one naming another workspace is ignored), and a call
+  answered 401 `invalid_workspace_secret` reads the file again and is sent once more if the secret
+  changed, in case the control call was missed. `revoke` takes `user_ids` as well as `user_id`.
+- **In a shared workspace, git credentials during a turn are the repository's, not the
+  prompter's**: runbloom.app answers an installation token scoped to the repository, and refuses
+  turns from anybody without push access with 403 `no_push_access`, which the machine handles like
+  any other non-limit refusal.
+- **runbloom.app's refusals, as the machine treats them.** 401 `invalid_workspace_secret`, once
+  the file holds no other secret, is terminal: the machine stops reporting. 429 and 5xx (including 503 `unavailable` from
   git-credentials while GitHub is down) are retried with backoff; any other 4xx drops that report.
   A turn start refused for anything but a limit pauses the chat's queue with runbloom.app's
   sentence rather than marking the prompt blocked, since that turn can never run as it is.

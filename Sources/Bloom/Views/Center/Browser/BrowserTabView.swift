@@ -369,7 +369,7 @@ struct BrowserTabView: View {
     ///
     /// Built fresh on every click, like the pane menu it wraps. Either item is dropped rather than
     /// greyed when it has nothing to act on, which is what Close Pane does one group down: no
-    /// address to open, no Open in External Browser, and a capture already running takes the
+    /// address to open, no Open in Default Browser, and a capture already running takes the
     /// screenshot out for the reason the toolbar button goes quiet, which is that a second press
     /// in the middle of the first would attach the same page twice.
     private func pageMenu() -> NSMenu {
@@ -383,7 +383,7 @@ struct BrowserTabView: View {
         if let url = BrowserAddress.external(from: session.displayAddress) {
             // The same words the transcript's link menu uses for the same destination. See
             // `TranscriptLinkMenu`.
-            items.append(item("Open in External Browser") { NSWorkspace.shared.open(url) })
+            items.append(item(BrowserToolbar().openInDefaultBrowser.name) { NSWorkspace.shared.open(url) })
         }
         if !isCapturing, !isSelectingRegion {
             // The same words as the toolbar's own camera, taken from the one place that says them,

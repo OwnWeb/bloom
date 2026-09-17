@@ -314,7 +314,7 @@ struct WorkspaceEventRow: View {
         switch event.outcome {
         case .running: return LogTail.last(event.log, lines: runningTail)
         case .failed: return LogTail.last(event.log, lines: failedTail)
-        case .succeeded, .skipped: return ""
+        case .succeeded, .skipped, .ignored: return ""
         }
     }
 
@@ -457,7 +457,7 @@ struct WorkspaceEventRow: View {
             // behind a condition of its own instead of being an `HStack` that is sometimes empty:
             // an empty stack is still a view, and the gap above it would be drawn under every
             // finished run.
-            if showsExpandLink || showsRunSetupAgain || showsStopSetup {
+            if showsExpandLink || showsRunSetupAgain || showsIgnoreFailure || showsStopSetup {
                 // Wider than the `spacing` rung most pairs use. The gap was the only thing
                 // saying these were two controls back when both were plain words, and at six
                 // points "Show more of the log Run setup again" read as one sentence somebody had
@@ -495,6 +495,16 @@ struct WorkspaceEventRow: View {
                             .controlSize(.small)
                             .font(Typo.caption)
                             .help("Asks, then runs this repository's setup script in this workspace again")
+                    }
+
+                    // No confirmation: it only changes what the sidebar says, and "Run setup
+                    // again" stays on the row it leaves behind.
+                    if showsIgnoreFailure, let model {
+                        Button("Ignore") { model.ignoreSetupFailure() }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .font(Typo.caption)
+                            .help("Keeps the log but stops this workspace waiting in Needs You")
                     }
 
                     // No confirmation, unlike the run: stopping costs nothing that "Run setup
@@ -537,7 +547,13 @@ struct WorkspaceEventRow: View {
     /// with a line saying what it went looking for, so the worst case is an explanation rather than
     /// a wrong answer.
     private var showsRunSetupAgain: Bool {
-        event.kind == .setup && event.outcome == .failed && model?.canRunSetup == true
+        event.kind == .setup && [.failed, .ignored].contains(event.outcome) && model?.canRunSetup == true
+    }
+
+    /// Whether this row offers to dismiss the failure. Not gated on a setup script existing, since
+    /// a failure whose script has since been removed is exactly the one nobody can re-run away.
+    private var showsIgnoreFailure: Bool {
+        event.kind == .setup && event.outcome == .failed && model?.isRunningSetup == false
     }
 
     /// Whether this row offers to stop the run, which is for as long as the script is going.
