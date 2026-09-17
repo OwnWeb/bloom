@@ -45,6 +45,7 @@ import tempfile
 import threading
 import time
 import urllib.parse
+import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -54,6 +55,7 @@ from bloom_fake_runbloom import Issuer  # noqa: E402
 ORGANISATION = os.environ.get("BLOOM_TEST_SPRITES_ORG", "freek-van-der-herten")
 SPRITE = shutil.which("sprite") or str(pathlib.Path.home() / ".local/bin/sprite")
 USER = "01k5a7c2b0z9y8x7w6v5t4s3rq"
+REPOSITORY_FOR_RELEASES = "spatie/bloom"
 REPOSITORY = "octocat/Hello-World"
 FAKE_PORT = 9000
 
@@ -189,16 +191,39 @@ def credential_for_live_turn():
     raise SystemExit("--live needs a Claude subscription token file or BLOOM_LIVE_ANTHROPIC_API_KEY.")
 
 
+def install_by_upload(name, scratch, package, version):
+    """Uploads a package built here, in pieces: one upload of a debug package (over 100 MB) outlasts
+    the provider's file API deadline, and it refuses a directory it has not seen, even one that
+    exists, so everything lands in the home directory."""
+    pieces = scratch / "pieces"
+    pieces.mkdir()
+    data = package.read_bytes()
+    size = 8 * 1024 * 1024
+    for index in range(0, len(data), size):
+        piece = pieces / f"part-{index // size:04d}"
+        piece.write_bytes(data[index:index + size])
+        push(name, str(piece), f"/home/sprite/bloom-piece-{piece.name}", timeout=300)
+    run_on(name, "cat /home/sprite/bloom-piece-part-* > /home/sprite/bloom-runner.tar.gz && rm -f /home/sprite/bloom-piece-part-*")
+    run_on(name, f"sudo mkdir -p /opt/bloom/{version} && sudo tar -xzf /home/sprite/bloom-runner.tar.gz -C /opt/bloom/{version} "
+                 f"&& sudo ln -sfn /opt/bloom/{version} /opt/bloom/current && /opt/bloom/current/bin/bloom-runner version")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--package", type=pathlib.Path, required=True)
+    parser.add_argument("--package", type=pathlib.Path)
+    parser.add_argument("--from-release", metavar="TAG",
+                        help="install from a published release with bootstrap-machine.sh instead of uploading a package, "
+                             "which is how runbloom.app installs a machine and is far faster than the provider's file API")
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--update", action="store_true",
                         help="also move the machine to another release through control/update, and back from a broken one")
     parser.add_argument("--keep", action="store_true", help="do not delete the machine, for looking at it afterwards")
     arguments = parser.parse_args()
-    package = arguments.package.resolve()
-    version = package.name.removeprefix("bloom-runner-linux-x86_64-").removesuffix(".tar.gz")
+    if not arguments.package and not arguments.from_release:
+        raise SystemExit("--package or --from-release is needed.")
+    package = arguments.package.resolve() if arguments.package else None
+    version = (package.name.removeprefix("bloom-runner-linux-x86_64-").removesuffix(".tar.gz") if package
+               else arguments.from_release.removeprefix("runner-v").removeprefix("v"))
     grant = credential_for_live_turn() if arguments.live else None
 
     name = "bloomtest-" + secrets.token_hex(4)
@@ -225,24 +250,22 @@ def main():
                 (word for word in sprite(name, "url").split() if word.startswith("https://")), None), 60)
             step(f"machine URL {url}")
 
-            # Into the home directory, because the provider's file API will not write to /tmp.
-            step("installing the package as runbloom.app does")
-            # In pieces, because one upload of a debug package (over 100 MB) outlasts the file API's
-            # own deadline, and joined on the machine. Straight into the home directory, because the file API
-            # refuses a directory it has not seen, even one that exists.
-            pieces = scratch / "pieces"
-            pieces.mkdir()
-            data = package.read_bytes()
-            size = 8 * 1024 * 1024
-            for index in range(0, len(data), size):
-                piece = pieces / f"part-{index // size:04d}"
-                piece.write_bytes(data[index:index + size])
-                push(name, str(piece), f"/home/sprite/bloom-piece-{piece.name}", timeout=300)
-            run_on(name, "cat /home/sprite/bloom-piece-part-* > /home/sprite/bloom-runner.tar.gz && rm -f /home/sprite/bloom-piece-part-*")
+            if arguments.from_release:
+                # The machine downloads the release itself, which is what runbloom.app's own install
+                # does, and is the only part of bootstrap-machine.sh nothing else exercises. It also
+                # avoids the provider's file API, which has hung for the better part of an hour on a
+                # 120 MB upload.
+                step(f"installing {arguments.from_release} with bootstrap-machine.sh, as runbloom.app does")
+                checksum = urllib.request.urlopen(
+                    f"https://github.com/{REPOSITORY_FOR_RELEASES}/releases/download/{arguments.from_release}/"
+                    f"bloom-runner-linux-x86_64-{version}.tar.gz.sha256", timeout=60).read().decode().split()[0]
+                push(name, str(HERE / "bootstrap-machine.sh"), "/home/sprite/bootstrap-machine.sh")
+                run_on(name, f"chmod +x /home/sprite/bootstrap-machine.sh && /home/sprite/bootstrap-machine.sh install "
+                             f"{version} {checksum} {arguments.from_release} 2>&1 | tail -n 5", timeout=600)
+            else:
+                step("installing the package as runbloom.app does")
+                install_by_upload(name, scratch, package, version)
             push(name, str(HERE / "bloom_fake_runbloom.py"), "/home/sprite/bloom_fake_runbloom.py")
-            run_on(name, f"sudo mkdir -p /opt/bloom/{version} && sudo tar -xzf /home/sprite/bloom-runner.tar.gz -C /opt/bloom/{version} "
-                         f"&& sudo ln -sfn /opt/bloom/{version} /opt/bloom/current && /opt/bloom/current/bin/bloom-runner version")
-
             issuer = Issuer(scratch / "issuer", f"http://127.0.0.1:{FAKE_PORT}", workspace)
             (scratch / "jwks.json").write_bytes(issuer.jwks)
             push(name, str(scratch / "jwks.json"), "/home/sprite/jwks.json")
