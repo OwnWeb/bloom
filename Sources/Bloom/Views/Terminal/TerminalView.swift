@@ -390,6 +390,30 @@ final class BloomTerminalView: LocalProcessTerminalView {
         return true
     }
 
+    /// Command+V and the Edit menu's Paste both land here, and SwiftTerm's answer is the string on
+    /// the board, of which a screenshot has none. `TerminalPaste` says when the picture is instead
+    /// handed to the application in the pane as the Control+V it reads the clipboard on.
+    ///
+    /// Sent as a key event rather than as the byte, because what Control+V looks like on the wire
+    /// depends on what the application negotiated: a plain shell wants 0x16 and one using the kitty
+    /// keyboard protocol, which Claude Code does, wants `CSI 118;5u`. SwiftTerm's `keyDown` already
+    /// knows which, so the event goes through it the way a real keypress would.
+    override func paste(_ sender: Any) {
+        switch TerminalPaste.action(for: NSPasteboard.general.attachmentPlan) {
+        case .text:
+            super.paste(sender)
+        case .imageKey:
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .control,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window?.windowNumber ?? 0, context: nil,
+                characters: "\u{16}", charactersIgnoringModifiers: "v",
+                isARepeat: false, keyCode: 9
+            ) else { return }
+            keyDown(with: event)
+        }
+    }
+
     /// Screen and scrollback both go, then a form feed nudges the shell into redrawing its prompt
     /// so the user is not left staring at an empty rectangle.
     func clearScreen() {
