@@ -136,7 +136,6 @@ import Testing
         #expect(CloudConnectionBanner.of(.notReady(message: "Still starting.", retryAfter: 5))?.actions == [.watchSetup])
     }
 
-
     @Test func noUserFacingWordNamesTheProvider() {
         let phases: [WorkspaceConnection.Phase] = [
             .connecting(waking: true), .asleep, .notReady(message: "x", retryAfter: 1), .archived, .noAccess("x"), .retrying("x"),
