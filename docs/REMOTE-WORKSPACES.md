@@ -930,6 +930,59 @@ and its builder confirmed them.
 - **Linux runs the core tests the server needs, by name.** `Package.swift` lists them, so a test
   written on a Mac about the window cannot fail a Linux job its author never thought about.
 
+## When a Cloud workspace misbehaves
+
+The first people to use this will be reading a workspace that is stuck without knowing which half
+is at fault, so here is what each thing means and how to tell the two apart.
+
+**The one word on a workspace** is `RemoteSummary.state`, worked out from setup and the chats, in
+this order: `setting_up` while setup is pending or running, then `waiting_for_input` when any chat
+has a question nobody has answered, `stopping` while a stop is going through, `running` while a turn
+is running, `blocked` when a team limit is holding a prompt, `setup_failed` only when setup failed
+and nothing has happened since, and `idle` otherwise. A chat carries the same words for itself. A
+workspace that says `running` long after the agent went quiet is a bug worth reporting: the machine
+sends a fresh summary a moment after a chat goes idle.
+
+**Setup output** goes to two places, and the row is the one a person reads. Every step appends to
+the workspace's setup log, a few writes a second, which clients watch through the event stream; the
+log is capped, so a very long `apt` or `composer install` keeps its tail rather than its head. The
+whole of each step is also kept on the machine under `~/.bloom/setup/<step>.log`, up to 20 MB, which
+is where to look when the row has been trimmed. A run the machine was stopped in the middle of is
+added to rather than started over, so an interrupted first attempt stays visible above the second.
+
+**A failed setup does not cost the workspace.** Prompts go once setup ends, however it ended, so a
+failed `setup` script leaves a workspace somebody can still work in; the log says what failed, and
+`run_setup` runs it again. A clone that fails says what to check (the repository still exists, and
+Bloom's GitHub App is installed for it) rather than leaving git's own message alone.
+
+**A preview that shows nothing** is answered by Bloom Runner rather than by Caddy, and names the
+project's services and how each ended: `vite: crashed after 3 restarts. Exited with status 1.` A
+service that keeps crashing is restarted with a growing wait, so this page is the quickest way to
+tell "the app never started" from "the app is slow".
+
+**Telling a provider outage from a Bloom Runner problem.** They look different from the app:
+
+- The machine's URL not answering at all, or answering a provider error page, is the provider or a
+  machine that is asleep and waking. Bloom Runner's own answers always carry a `bloom-runner`
+  server name, and `/_bloom/health` answers with the version and nothing else.
+- Everything except the preview working, or the other way round, is Bloom Runner: one process
+  serves both, behind one Caddy.
+- The whole team's workspaces failing at once is runbloom.app or the provider. One workspace
+  failing while another is fine is that machine.
+- A workspace that never leaves `setting_up`, with a setup log that has not grown in minutes, is
+  a step that is genuinely running (watch the step's log on the machine) rather than a lost machine.
+- Creating, waking or deleting machines failing, while existing machines answer, is the provider's
+  API. It has hung for tens of minutes in testing while the status page said all was well, so a
+  first reaction of "try again in a while" is usually right.
+- `Tools/machine-test.py --from-release <tag>` reproduces the whole path on a throwaway machine of
+  your own, and it prints which step it got to. If that passes while a real workspace does not, the
+  problem is runbloom.app's side of the contract rather than the runner.
+
+**What the machine keeps for you**, all under the data directory (`~/.bloom` on a machine):
+`bloom.sqlite` with the transcript and queue, `setup/` with the step logs, `services/` with a log
+per project service, `caddy/access.log`, and `/var/tmp/bloom-update.log` for the last update. None
+of them holds a key or a token.
+
 ## Still open
 
 - Nothing. The contract matches runbloom.app pull request #23.
