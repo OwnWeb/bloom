@@ -32,7 +32,8 @@ public enum WorktreeReadiness: Equatable, Sendable, CaseIterable {
         switch setupState {
         case .running: return .installing
         case .failed: return .failed
-        case .pending, .succeeded, .skipped: return .ready
+        // Ignored is the reader saying they know, so the strip stops repeating it.
+        case .pending, .succeeded, .ignored, .skipped: return .ready
         }
     }
 
