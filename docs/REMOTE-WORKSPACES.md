@@ -111,7 +111,7 @@ app. runbloom.app's own API uses those access tokens.
 ### Workspace tokens
 
 A client exchanges its runbloom.app access token for a workspace token:
-`POST /api/v1/workspaces/{id}/session-token`. The reply is an EdDSA JWT, five minutes long:
+`POST /api/v1/cloud-workspaces/{id}/session-token`. The reply is an EdDSA JWT, five minutes long:
 
 | Claim | Value |
 | --- | --- |
@@ -575,6 +575,11 @@ symlink goes back.
 
 ## Archive and restore
 
+**Pending the owner's decision.** Phase 1 may ship without the export, in which case archive
+deletes the machine after the confirmation below, the confirmation says the conversation goes with
+it, and restore is a new Cloud workspace on the same branch. What follows is the design if the
+export is kept.
+
 Deleting the Sprite deletes the transcript, so archive is a sequence, driven by bloom-server and
 confirmed the way #163 confirms it (a preview with hazards, then a confirmation id):
 
@@ -599,11 +604,11 @@ No provider name in any path. All take the workspace secret except where noted.
 | `POST /api/machine/workspaces/{id}/turns/{turn}/start` | the key and personal environment, or a limit refusal |
 | `DELETE /api/machine/workspaces/{id}/turns/{turn}` | ending a turn or terminal session |
 | `POST /api/machine/workspaces/{id}/git-credentials` | a short-lived GitHub token for the current turn, or read-only outside one |
-| `POST /api/machine/workspaces/{id}/export` | the archive export |
-| `GET /api/machine/workspaces/{id}/export` | the export written back on restore |
+| `POST /api/machine/workspaces/{id}/export` | the archive export (pending) |
+| `GET /api/machine/workspaces/{id}/export` | the export written back on restore (pending) |
 | `GET /.well-known/jwks.json` | public, the key set for workspace and control tokens |
 
-Clients use `POST /api/v1/workspaces/{id}/session-token` and the rest of `/api/v1`, which accepts a
+Clients use `POST /api/v1/cloud-workspaces/{id}/session-token` and the rest of `/api/v1/cloud-workspaces`, which accepts a
 Passport token or, for the web interface, the browser session.
 
 ## Where the code goes
@@ -771,4 +776,10 @@ written into a fixture. Like `BLOOM_LIVE=1` today, it costs money and is off unl
 
 ## Still open
 
-- Nothing on this side. The contract matches runbloom.app pull request #23.
+- Archive export: kept, or phase 1 archive simply deletes the machine.
+- Personal keys in shared workspaces: a collaborator with sudo can read a running turn's
+  environment, so a personal key is exposed to teammates. Recommended: personal keys only in
+  workspaces that are not shared.
+- A half-day spike on the unverified Sprite facts above before server step 3.
+- Whether the in-workspace bridge tools (chats, diff, subagents) belong in the server pull request,
+  since agents in a Cloud workspace otherwise lose Bloom's MCP tools in phase 1.
