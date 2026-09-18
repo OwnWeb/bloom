@@ -87,17 +87,26 @@ for index in range(8):
         f'let file{index}Line{line} = "' + ('wrapped text ' * (index + 4)) + '"\n'
         for line in range(30 + index * 7)
     ))
+# **Not `check=True`, and the reason is a probe that answers too quickly.** `open -W` waits for
+# the application by asking the kernel to watch a process that has to still be there when it
+# asks, and a probe with no window to draw can be finished before that: on the CI runner
+# `--cloud-selection-only` came back "Unable to block on applications (initial call to kevent()
+# failed: No such process)" and exit 1, having written a perfectly good result a moment earlier.
+# What the exit status of `open` cannot tell apart, the result file can, so the result is what
+# is believed: written means it ran, absent means it died. See the crash branch below, which is
+# the case this must not swallow.
 try:
     subprocess.run(
         ['open', '-g', '-n', '-W', '-a', str(pathlib.Path(binary).parents[2]),
          '--stdout', f'{root}/result.json', '--stderr', f'{root}/probe.log',
          '--args', '--review-run-probe', root, *arguments],
-        timeout=120, check=True,
+        timeout=120,
     )
 except subprocess.TimeoutExpired:
     print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
     raise
-report = pathlib.Path(root, 'result.json').read_text()
+result_path = pathlib.Path(root, 'result.json')
+report = result_path.read_text() if result_path.exists() else ''
 print(report)
 if os.environ.get('BLOOM_PROBE_VERBOSE'):
     print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
