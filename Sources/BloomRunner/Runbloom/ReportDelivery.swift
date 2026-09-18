@@ -23,7 +23,8 @@ import Foundation
 /// and a queue that grew for a week would be a machine dying of its own reporting. The cap is in
 /// bytes because memory is in bytes, and at the measured sizes (209 bytes for a quiet report, 2.5
 /// kB for one carrying twenty turns, 145 kB for the largest runbloom.app will accept) four
-/// megabytes is a fortnight of a quiet machine or a day and a half of a busy one. Past that the
+/// megabytes is ten weeks of a quiet machine, six days of a busy one, and two and a half hours of
+/// one reporting at the ceiling, which is far longer than any of them stays awake. Past that the
 /// oldest goes, because the counters are cumulative and the newest report carries the totals:
 /// what is lost is the account of which turns made up the oldest hours, never what the workspace
 /// cost. `RemoteUsageMeter.record` already sheds its oldest events the same way and for the same

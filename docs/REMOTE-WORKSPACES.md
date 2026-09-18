@@ -508,10 +508,11 @@ is 209 bytes, one carrying twenty turns is 2.5 kB, and the largest runbloom.app 
 machine is about 30 kB and a day is under a megabyte: the memory was never the emergency. The
 silence was.
 
-**The backlog is capped at four megabytes and sheds its oldest.** That is a fortnight of a quiet
-machine or a day and a half of a busy one. What goes first is the oldest report, because the
-counters are cumulative and the newest one carries the totals: what a workspace cost stays right,
-and what is lost is the account of which turns made up the oldest hours.
+**The backlog is capped at four megabytes and sheds its oldest.** At the sizes above that is ten
+weeks of a quiet machine, six days of a busy one, and two and a half hours of one reporting at the
+ceiling, all of them longer than a machine stays awake. What goes first is the oldest report,
+because the counters are cumulative and the newest one carries the totals: what a workspace cost
+stays right, and what is lost is the account of which turns made up the oldest hours.
 `RemoteUsageMeter.record` already sheds its oldest events at two thousand for the same reason, and
 this is the same rule one layer up. **A summary is never shed**, because there is only ever one:
 it is replace-latest, so a newer one simply takes the older one's place.
@@ -527,6 +528,13 @@ knows about rather than hours that merely look quiet.
 Nothing here is restart-proof, and that is deliberate. An unsent report dies with the process,
 because the counters it carries are cumulative and the next report from the same boot covers them;
 only its events are lost, which is the same loss shedding accepts.
+
+**Measured on a machine**, with `machine-test.py --outage`: twenty-two minutes of refused reports
+while the workspace was in use took the server from 59.8 MB resident to 62.3 MB, most of that in
+the first two minutes and none of it the queue, which held four reports. When runbloom.app came
+back, every one of them arrived, in order, with contiguous sequences, and the one owed summary with
+them. Before this change the service log said nothing about any of it and a client could read
+nothing about it either, which is the whole reason `reporting` exists.
 
 ## Limits
 
