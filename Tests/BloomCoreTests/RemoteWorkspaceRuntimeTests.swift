@@ -642,6 +642,20 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// A client that did not close the chat learns it has gone from the last event about it, rather
+    /// than keeping it in its strip until the next full read and being told "closed" on a send.
+    @Test("closing a chat publishes a last chat event that says it is closed")
+    func closingAChatSaysSo() async throws {
+        let fixture = try await fixture()
+        let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil)
+        let reply = await fixture.runtime.respond(to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue)), as: Self.caller(Self.seb))
+        #expect(reply.result == .accepted)
+        for await event in stream {
+            if case .chat(let chat) = event, chat.id == fixture.session.id.rawValue, chat.closedAt != nil { break }
+        }
+        await fixture.runtime.shutdown()
+    }
+
     @Test("changing the composer names who changed it")
     func composerChangesNameTheirAuthor() async throws {
         let fixture = try await fixture()

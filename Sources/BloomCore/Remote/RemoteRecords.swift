@@ -35,7 +35,8 @@ extension Session {
         ChatRecord(
             id: id.rawValue, title: title, agent: agentKind.wireName, model: model, effort: effort,
             permissionMode: permissionMode.rawValue, interactionMode: interactionMode.rawValue, state: state.rawValue,
-            parentChatID: parentSessionID?.rawValue, lastSeq: lastSeq, createdAt: createdAt, updatedAt: updatedAt
+            parentChatID: parentSessionID?.rawValue, lastSeq: lastSeq, createdAt: createdAt, updatedAt: updatedAt,
+            closedAt: archivedAt
         )
     }
 }

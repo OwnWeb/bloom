@@ -275,6 +275,11 @@ enum WireExamples {
         ("chat", .chat(chat)),
         ("queue", .queue(queue)),
         // A crew chat an agent opened with `agent_start`, which names the chat that asked for it.
+        // The last event about a chat somebody closed. A client that did not close it removes it
+        // from its strip on this, rather than waiting for the next full read.
+        ("chat_closed", .chat(ChatRecord(id: chat.id, title: chat.title, agent: chat.agent, model: chat.model, effort: chat.effort,
+                                         permissionMode: chat.permissionMode, interactionMode: chat.interactionMode, state: "idle",
+                                         lastSeq: chat.lastSeq, createdAt: date, updatedAt: date, closedAt: date))),
         ("chat_from_a_crew", .chat(ChatRecord(id: "chat-2", title: "Check the migrations", agent: "claude", model: "claude-opus-5",
                                               effort: "high", permissionMode: "acceptEdits", interactionMode: "build", state: "running",
                                               parentChatID: "chat-1", lastSeq: 0, createdAt: date, updatedAt: date))),

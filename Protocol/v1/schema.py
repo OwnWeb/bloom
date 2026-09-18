@@ -209,7 +209,8 @@ RECORDS = {
     # Present only when the machine has something wrong to say about reaching runbloom.app.
     "Reporting": obj({"shed": I}, {"unreachable_since": DATE}),
     "Chat": obj({"id": S, "title": S, "agent": S, "model": S, "effort": S, "permission_mode": S, "interaction_mode": S,
-                 "state": S, "last_seq": I, "created_at": DATE, "updated_at": DATE}, {"parent_chat_id": S}),
+                 "state": S, "last_seq": I, "created_at": DATE, "updated_at": DATE},
+                {"parent_chat_id": S, "closed_at": DATE}),
     "Message": obj({"cursor": I, "chat_id": S, "seq": I, "kind": S, "payload": ANY, "created_at": DATE},
                    {"author": ref("Author"), "duration_ms": I, "ref_id": S, "audience": ref("Audience")}),
     # Who a message was for. Absent means the agent, which is every message written before mentions

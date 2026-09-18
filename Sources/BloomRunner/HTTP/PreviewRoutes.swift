@@ -15,6 +15,15 @@ import Hummingbird
 enum PreviewRoutes {
     static let cookieName = "__Host-bloom-preview"
 
+    /// **One hour, for a person and a share link alike**, and it is the longest-lived credential a
+    /// machine honours. It used to be eight hours for a person, which made it the one thing a lost
+    /// `revoke` left open for a working day: a removed person kept the running app, admin screens
+    /// and all, though never the agent. **runbloom.app retries `revoke` for at least this long**, so
+    /// the two numbers move together: lengthen this and tell the control server, as for the wire.
+    /// Somebody who still has access loses nothing but a click, because the page an expired cookie
+    /// gets says to open the preview again from Bloom.
+    static let cookieLifetime: TimeInterval = 3_600
+
     /// What to say about ports on the page somebody sees when the preview is empty.
     ///
     /// Nothing when the app's port is listening, because then the port is not the problem and a
@@ -89,9 +98,7 @@ enum PreviewRoutes {
             // The verifier grants a preview token nothing but `preview`, and this says so here too,
             // so the route does not rest on that alone.
             guard token.abilities.contains("preview") else { return notAllowed() }
-            // Eight hours for a person, one for a share link, which is somebody runbloom.app let in
-            // without an account.
-            let lifetime: TimeInterval = token.isShare ? 3_600 : 8 * 3_600
+            let lifetime = Self.cookieLifetime
             let cookie = await sessions.create(subject: token.subject, lifetime: lifetime)
             var headers = HTTPFields()
             headers[.setCookie] = "\(cookieName)=\(cookie); Path=/; Max-Age=\(Int(lifetime)); HttpOnly; Secure; SameSite=Lax"
@@ -127,7 +134,7 @@ enum PreviewRoutes {
         var headers = HTTPFields()
         headers[.contentType] = "text/plain; charset=utf-8"
         headers[.cacheControl] = "no-store"
-        let text = "This preview has to be opened from Bloom.\n"
+        let text = "This preview has to be opened from Bloom. If you had it open, it has expired: open it again from Bloom.\n"
         return Response(status: .unauthorized, headers: headers, body: .init(byteBuffer: ByteBuffer(string: text)))
     }
 

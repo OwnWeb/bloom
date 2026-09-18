@@ -17,6 +17,7 @@ struct WorkspaceHTTPServerTests {
         let control: RecordingControl
         let session: Session
         let store: Store
+        let verifier: TokenVerifier
     }
 
     func fixture() async throws -> Fixture {
@@ -36,7 +37,8 @@ struct WorkspaceHTTPServerTests {
             runtime: runtime, verifier: verifier, gate: UngatedTurns(), control: control, store: store,
             allowedOrigins: ["https://runbloom.app"], version: "1.2.3"
         ))
-        return Fixture(issuer: issuer, runtime: runtime, server: server, control: control, session: session, store: store)
+        return Fixture(issuer: issuer, runtime: runtime, server: server, control: control, session: session, store: store,
+                       verifier: verifier)
     }
 
     static func bearer(_ token: String) -> HTTPFields {
@@ -195,7 +197,7 @@ struct WorkspaceHTTPServerTests {
                 let setCookie = response.headers[.setCookie] ?? ""
                 #expect(setCookie.hasPrefix("__Host-bloom-preview="))
                 #expect(setCookie.contains("HttpOnly") && setCookie.contains("Secure") && setCookie.contains("SameSite=Lax"))
-                #expect(setCookie.contains("Max-Age=28800"))
+                #expect(setCookie.contains("Max-Age=3600"), "an hour, which runbloom.app's revoke retry is sized to")
                 return String(setCookie.split(separator: ";")[0])
             }
             try await client.execute(uri: "/_bloom/preview/enter?token=\(token)", method: .get) { response in

@@ -235,7 +235,7 @@ events. Then live events as they happen.
 | --- | --- | --- |
 | `message` | a transcript row | adds it to its chat, by `seq` |
 | `stream` | `chat_id`, `text`, `snapshot` | replaces the chat's streaming text when `snapshot` is true, appends otherwise |
-| `chat` | a chat | replaces its copy |
+| `chat` | a chat | replaces its copy; one carrying `closed_at` is the last about that chat, which was closed, so drop it |
 | `queue` | a chat's queued prompts and why it is paused | replaces its copy |
 | `questions` | a chat's waiting questions | replaces its copy |
 | `composer` | a chat's controls and `changed_by` | replaces its copy, and may say who changed it |
