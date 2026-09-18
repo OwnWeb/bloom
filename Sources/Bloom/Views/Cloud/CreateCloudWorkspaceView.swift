@@ -27,8 +27,8 @@ import SwiftUI
 ///
 /// **The name and the branch are derived rather than demanded.** The form asked for both before
 /// anybody had said what they wanted. They come from the first line of the task now, by the rule
-/// the local namer falls back to (`Git.title`), with the branch slugged under the account's GitHub
-/// login (`CloudBranchName.suggestion`). A local workspace wears a sea while a model thinks of
+/// the local namer falls back to (`Git.title`), with the branch from the same `Git.branchStem` a
+/// local workspace's comes from, under the account's GitHub login. A local workspace wears a sea while a model thinks of
 /// something better and renames itself a moment later; a Cloud workspace's name lives on
 /// runbloom.app, so it is named once, here, out of the same sentence the agent is about to be given.
 ///
@@ -115,10 +115,18 @@ struct CreateCloudWorkspaceView: View {
     /// namer falls back to when no model answers. See the head of this file.
     private var derivedName: String { Git.title(from: task) }
 
-    /// And its branch, the name slugged under this account's GitHub login, which is the same
-    /// prefix a local workspace's branch carries. No login, no prefix, never the display name.
+    /// And its branch, by **the same function a local workspace's branch comes from**, under this
+    /// account's GitHub login rather than the project's prefix. No login, no prefix, never the
+    /// display name.
+    ///
+    /// `Git.branchStem` and not a slug of the name, which is what it was, and the difference is
+    /// what the owner met: a name is a sentence and a branch is not, so slugging the name gave him
+    /// `freekmurze/show-me-the-homepage-in-a-pane-next-to-this-chat`. The shared function drops the
+    /// stop words, keeps five, caps the whole at sixty and each word at twenty four, and keeps the
+    /// file a prompt names so two workspaces about two files do not collide. A Cloud branch is read
+    /// in the same places a local one is, so it is the same rule rather than a second one.
     private var derivedBranch: String {
-        CloudBranchName.suggestion(for: derivedName, prefix: cloud.account?.branchPrefix)
+        Git.branchStem(prompt: task, prefix: cloud.account?.branchPrefix)
     }
 
     private var canCreate: Bool {

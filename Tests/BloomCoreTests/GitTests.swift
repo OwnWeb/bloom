@@ -212,6 +212,33 @@ struct GitTests {
         #expect(!oneWord.contains(" "))
     }
 
+    /// **The owner's own sentence, and the shape of the complaint: a long sentence must give a
+    /// short branch.** His workspace cut
+    /// `freekmurze/show-me-the-homepage-in-a-pane-next-to-this-chat`, because the Cloud window
+    /// slugged the workspace NAME, which is a sentence. A branch comes from the prompt through
+    /// this, which drops the stop words and keeps five.
+    @Test("a sentence gives a branch short enough to read in a git listing")
+    func slugStaysShort() {
+        let slug = Git.slug(from: "show me the homepage in a pane next to this chat")
+        #expect(slug == "show-me-homepage-pane-next")
+        #expect(Git.branchStem(prompt: "show me the homepage in a pane next to this chat", prefix: "freekmurze")
+            == "freekmurze/show-me-homepage-pane-next")
+        #expect(slug.count < "show-me-the-homepage-in-a-pane-next-to-this-chat".count)
+    }
+
+    /// And the case a word budget cannot help with, which is the one he asked about: ninety
+    /// characters of keyboard mashing is one word, so five words and sixty characters both leave it
+    /// whole. A word is capped as well now. See `Git.longestWord` for why twenty four.
+    @Test("one enormous word is cut to something a person can read")
+    func slugCapsAWord() {
+        let mashed = Git.slug(from: String(repeating: "qsdf", count: 30))
+        #expect(mashed.count == Git.longestWord)
+        #expect(!mashed.contains("-"))
+
+        // A real identifier of that length survives whole, which is what the number was chosen for.
+        #expect(Git.slug(from: "fix WorkspaceConnectionTests").contains("workspaceconnectiontests"))
+    }
+
     @Test("keeps the file a prompt names, so sibling workspaces stay distinguishable")
     func slugKeepsTheDistinguishingFile() {
         let invoice = Git.slug(from: "Add a class-level docblock to app/Domain/Invoice.php saying what it represents")
