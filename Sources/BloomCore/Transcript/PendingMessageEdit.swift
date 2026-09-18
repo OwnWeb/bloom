@@ -14,8 +14,22 @@ public enum PendingMessageEdit {
     /// A body carrying review chips or attached files cannot come back as text, and there is
     /// nothing honest to draw for it: a disabled button with no explanation says less than no
     /// button, so the row simply does not offer one.
+    ///
+    /// **And never on somebody else's sentence.** Edit is not "remove this from the queue", it is
+    /// "put these words in my composer", where they can be rewritten and sent under my name. In a
+    /// shared Cloud workspace the queue holds several people's sentences, and a machine that
+    /// permits anybody who may prompt to cancel a queued prompt has answered a different question:
+    /// permission to take something out of a queue is not permission to speak in somebody's voice.
+    /// Delete stays, because taking a message out of a shared queue is visible to everybody and
+    /// puts nobody's words anywhere. The same reasoning already keeps Edit off a message relayed
+    /// from another workspace; see `WorkspaceMessageRowView`.
+    ///
+    /// A delivery with no author is the reader's own, which is every delivery in a workspace
+    /// nobody shares. See `MessageAuthorship`.
     public static func canEdit(_ delivery: Delivery) -> Bool {
-        PendingMessageDiscard.canDiscard(delivery) && PendingMessageDiscard.isPlainText(delivery.body)
+        delivery.author == nil
+            && PendingMessageDiscard.canDiscard(delivery)
+            && PendingMessageDiscard.isPlainText(delivery.body)
     }
 
     /// What the composer is left holding once this message has been taken out of the queue.

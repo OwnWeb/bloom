@@ -90,4 +90,20 @@ struct PendingMessageEditTests {
         )
         #expect(PendingMessageEdit.draft(taking: one, into: "half a thought") == "one\n\nhalf a thought")
     }
+
+    /// **Edit puts the words in your own composer**, so it is not offered on somebody else's
+    /// queued sentence in a shared Cloud workspace: permission to take a message out of a queue,
+    /// which the machine gives anybody who may prompt, is not permission to speak in their voice.
+    /// Delete is unaffected and stays.
+    @Test("Somebody else's queued message cannot be taken into your composer")
+    func onlyYourOwnWordsComeBack() {
+        let mine = Delivery(targetSessionID: SessionID("s1"), body: "Run the tests")
+        #expect(PendingMessageEdit.canEdit(mine))
+
+        var theirs = mine
+        theirs.author = MessageAuthor(userID: "u2", name: "Seb")
+        #expect(!PendingMessageEdit.canEdit(theirs))
+        // And taking it out of the queue is still allowed: that is a different act.
+        #expect(PendingMessageDiscard.canDiscard(theirs))
+    }
 }
