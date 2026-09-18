@@ -307,3 +307,41 @@ struct SetupRecordDecodingTests {
         #expect(String(decoding: data, as: UTF8.self).contains("\"enabled\":true"))
     }
 }
+
+/// What a client does with a machine built before a field existed.
+@Suite("Reading an older machine")
+struct OlderMachineDecodingTests {
+    /// **Every machine running today was made before `members` existed.** A synthesised decoder
+    /// throws on a missing key, and the symptom is not a missing list of names: it is that the
+    /// workspace will not open at all.
+    @Test("a snapshot with no members reads as none rather than throwing")
+    func snapshotWithoutMembers() throws {
+        let json = #"""
+        {"workspace": {"id": "w1", "name": "Queue", "branch": "queue", "base_branch": "main",
+                       "services": [], "setup": {"state": "succeeded", "enabled": true}},
+         "chats": [], "presence": [], "cursor": 4,
+         "composer_defaults": {"agent": "claude", "model": "", "effort": "", "permission_mode": "default",
+                               "interaction_mode": "normal"}}
+        """#
+        let snapshot = try JSONDecoder().decode(WorkspaceSnapshotRecord.self, from: Data(json.utf8))
+
+        #expect(snapshot.members.isEmpty)
+        #expect(snapshot.workspace.name == "Queue")
+    }
+
+    /// And a machine new enough to send it is read as it meant.
+    @Test("a snapshot with members keeps them")
+    func snapshotWithMembers() throws {
+        let json = #"""
+        {"workspace": {"id": "w1", "name": "Queue", "branch": "queue", "base_branch": "main",
+                       "services": [], "setup": {"state": "succeeded", "enabled": true}},
+         "chats": [], "presence": [], "cursor": 4,
+         "composer_defaults": {"agent": "claude", "model": "", "effort": "", "permission_mode": "default",
+                               "interaction_mode": "normal"},
+         "members": [{"user_id": "u1", "name": "Sebastian", "handle": "sebdd"}]}
+        """#
+        let snapshot = try JSONDecoder().decode(WorkspaceSnapshotRecord.self, from: Data(json.utf8))
+
+        #expect(snapshot.members.map(\.handle) == ["sebdd"])
+    }
+}

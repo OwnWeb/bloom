@@ -40,6 +40,28 @@ public struct ComposerControlsRecord: Codable, Sendable, Hashable {
         case outputStyle = "output_style"
         case codexContextWindow = "codex_context_window"
     }
+
+    /// **Everything added after the first five is read as absent-means-default**, because a machine
+    /// built before a key existed does not send it and a synthesised decoder throws on a key that
+    /// is not there. The symptom is not a composer with the wrong defaults: this record is inside
+    /// the workspace snapshot, so **the workspace will not open at all**.
+    ///
+    /// Found by a test written for `members`, which threw on `fast_mode` instead. `fast_mode`,
+    /// `output_style` and `codex_context_window` were all added later and all had the same trap,
+    /// silently, waiting for somebody to open a machine older than they are. The default on the
+    /// stored property is not what `Decodable` uses; only this is.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agent = try container.decode(String.self, forKey: .agent)
+        model = try container.decode(String.self, forKey: .model)
+        effort = try container.decode(String.self, forKey: .effort)
+        permissionMode = try container.decode(String.self, forKey: .permissionMode)
+        interactionMode = try container.decode(String.self, forKey: .interactionMode)
+        fastMode = try container.decodeIfPresent(Bool.self, forKey: .fastMode) ?? false
+        codexFastMode = try container.decodeIfPresent(Bool.self, forKey: .codexFastMode)
+        outputStyle = try container.decodeIfPresent(String.self, forKey: .outputStyle) ?? "default"
+        codexContextWindow = try container.decodeIfPresent(Int.self, forKey: .codexContextWindow) ?? 0
+    }
 }
 
 /// A chat's composer and the choices the server can offer it.

@@ -293,6 +293,16 @@ agent reads** and nowhere else: the agent is asked "Fix the server", not "@agent
 while the stored row keeps what was typed because the bubble draws it. A client must not strip it
 early.
 
+**A server is held to sending every field; a client is held to reading what a machine actually
+sends.** The two halves of this protocol are not held to the same standard on purpose. What a
+machine sends is whatever was true when that machine was built, and every machine in the field was
+built before the newest field existed. **So a client decodes an absent field as its default and
+never as an error**, and a machine that has been running for a month keeps working when a client is
+updated. The failure this prevents does not look like a missing field: a required key inside the
+workspace snapshot means **that workspace will not open at all**. `members`, `fast_mode`,
+`output_style` and `codex_context_window` are all read that way, and a default written on a stored
+property does not do it: only an explicit decoder does.
+
 **Who may be addressed is `members` on the workspace snapshot, and it is not `presence`.** Presence
 is who is here; this is who has access, and **somebody who is away is exactly who a mention is most
 useful for**. Each carries a `handle`, which is what a person types after `@`: a display name is not

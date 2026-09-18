@@ -136,6 +136,28 @@ public struct WorkspaceSnapshotRecord: Codable, Sendable, Hashable {
         case workspace, chats, presence, cursor, members
         case composerDefaults = "composer_defaults"
     }
+
+    /// **A field this build requires is a workspace an older machine cannot open.**
+    ///
+    /// The asymmetry is deliberate and is the same one `composer_defaults` already taught us: a
+    /// **server** is held to sending every field the schema says it sends, and a **client** is held
+    /// to reading what a machine in the field actually sends, which is whatever was true when that
+    /// machine was built. Every machine running today was made before `members` existed, and a
+    /// synthesised decoder throws on a key that is not there: not "a workspace with no names in it"
+    /// but **"that workspace will not open"**, which is how a small addition becomes an outage.
+    ///
+    /// Written out rather than left to the property's default, because a default on a stored
+    /// property is not what `Decodable` uses for a missing key. That is the trap, and it is silent
+    /// until somebody opens an older machine.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workspace = try container.decode(WorkspaceRecord.self, forKey: .workspace)
+        chats = try container.decode([ChatRecord].self, forKey: .chats)
+        presence = try container.decode([PresenceRecord].self, forKey: .presence)
+        cursor = try container.decode(Int64.self, forKey: .cursor)
+        composerDefaults = try container.decode(ComposerControlsRecord.self, forKey: .composerDefaults)
+        members = try container.decodeIfPresent([MemberRecord].self, forKey: .members) ?? []
+    }
 }
 
 /// Somebody with access to this workspace, for addressing a message to them.
