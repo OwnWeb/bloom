@@ -350,6 +350,8 @@ id_type_allowed_properties=(
   'Sources/BloomCore/Model/MessageAuthor.swift:userID'                # runbloom.app's user, the token's sub
   'Sources/BloomCore/Model/MessageAudience.swift:userID'              # the same, as who a message was addressed to
   'Sources/BloomCore/Remote/WorkspaceMembers.swift:userID'            # the same, as runbloom.app lists a team
+  'Sources/BloomCore/Remote/AddressedReport.swift:userID'             # the same, as who a message was addressed to
+  'Sources/BloomCore/Remote/AddressedReport.swift:id'                 # runbloom.app's dedupe key for one mail
   'Sources/BloomCore/Workspace/WorkspaceScriptVariables.swift:workspaceID' # a value handed to a script, a Mac's or runbloom.app's
   'Sources/BloomCore/Remote/RemoteEventHub.swift:userID'              # the same user, holding an event stream open
   'Sources/BloomRunner/HTTP/EventStreams.swift:userID'                # the same user, on the server's side of the stream

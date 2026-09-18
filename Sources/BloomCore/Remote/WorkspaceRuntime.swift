@@ -69,6 +69,9 @@ public actor WorkspaceRuntime {
     /// the machine. **Answers `unknown` off a machine and before the list has ever arrived**, which
     /// is refused rather than guessed at. See `MemberLookup`.
     let lookUpMember: @Sendable (String) async -> MemberLookup
+    /// Told when somebody has been addressed, so the machine's half can tell runbloom.app. The row
+    /// is already written by then, so a machine that dies here still reports after its restart.
+    let addressed: (@Sendable (AddressedReport) async -> Void)?
     /// The project's services as the machine is running them. Empty everywhere that is not a
     /// machine, which is every Mac. See `ServiceRecord`.
     var services: [ServiceRecord] = []
@@ -107,9 +110,11 @@ public actor WorkspaceRuntime {
         bridgeShimPath: String? = BridgeRegistration.shimPath(),
         runsSetup: Bool = true,
         briefing: String? = nil,
-        lookUpMember: @escaping @Sendable (String) async -> MemberLookup = { _ in .unknown }
+        lookUpMember: @escaping @Sendable (String) async -> MemberLookup = { _ in .unknown },
+        addressed: (@Sendable (AddressedReport) async -> Void)? = nil
     ) {
         self.lookUpMember = lookUpMember
+        self.addressed = addressed
         self.briefing = briefing
         self.runsSetup = runsSetup
         self.bridgeSocketPath = bridgeSocketPath

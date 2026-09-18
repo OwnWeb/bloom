@@ -35,6 +35,10 @@ public struct RemotePresence: Sendable, Hashable {
         return true
     }
 
+    /// Whether somebody has this workspace open right now, which is the fact only the machine
+    /// holds and the one runbloom.app needs before it decides to send mail.
+    public func isConnected(_ userID: String) -> Bool { connected.contains(userID) }
+
     public var records: [PresenceRecord] {
         connected.sorted().map { PresenceRecord(userID: $0, name: names[$0] ?? "", lastInputAt: lastInput[$0]) }
     }

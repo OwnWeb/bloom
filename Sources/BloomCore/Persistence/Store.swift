@@ -1221,6 +1221,27 @@ public actor Store {
                     try db.execute("ALTER TABLE deliveries ADD COLUMN audience_mention TEXT;")
                 }
             },
+            // Somebody addressed, and whether runbloom.app has been told so it can mail them.
+            //
+            // **A table rather than a flag in memory, because a machine that restarts between
+            // writing the message and sending the report would otherwise never send it** and
+            // nobody would be mailed. One row per message and addressed person, which is the unit
+            // the mail is deduped on at the other end. `id` is minted once and never reused: a
+            // repeat is treated there as a retry and mails nobody, so reuse fails silently.
+            sql("""
+            CREATE TABLE IF NOT EXISTS addressed_reports (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                connected INTEGER NOT NULL,
+                sent_at REAL NOT NULL,
+                from_kind TEXT NOT NULL,
+                from_user_id TEXT,
+                reported_at REAL
+            );
+            CREATE INDEX IF NOT EXISTS addressed_reports_unsent
+                ON addressed_reports (reported_at) WHERE reported_at IS NULL;
+            """),
         ]
 
         let current = Int(try db.readUserVersion())
@@ -4191,6 +4212,44 @@ public actor Store {
             author: Self.author(from: row),
             audience: Self.audience(from: row)
         )
+    }
+
+    // MARK: - Addressed reports
+
+    public func recordAddressed(_ report: AddressedReport) throws {
+        try db.run(
+            """
+            INSERT OR IGNORE INTO addressed_reports
+                (id, session_id, user_id, connected, sent_at, from_kind, from_user_id, reported_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+            """,
+            [
+                .text(report.id), .text(report.sessionID), .text(report.userID),
+                .int(report.connected ? 1 : 0), .double(report.sentAt.timeIntervalSince1970),
+                .text(report.from.kind),
+                { if case .member(let id) = report.from { return .text(id) } else { return .null } }(),
+            ]
+        )
+    }
+
+    /// The reports nobody has been told about yet, oldest first, so a restart finishes what the
+    /// last run started.
+    public func unsentAddressedReports(limit: Int = 50) throws -> [AddressedReport] {
+        try db.query("SELECT * FROM addressed_reports WHERE reported_at IS NULL ORDER BY sent_at LIMIT ?", [.int(Int64(limit))])
+            .compactMap { row in
+                guard let id = row.string("id"), let session = row.string("session_id"),
+                      let user = row.string("user_id"), let sentAt = row.double("sent_at") else { return nil }
+                let from: AddressedReport.Sender = row.string("from_kind") == "guest"
+                    ? .guest
+                    : row.string("from_user_id").map { .member($0) } ?? .guest
+                return AddressedReport(id: id, sessionID: SessionID(session), userID: user,
+                                       connected: (row.int("connected") ?? 0) == 1,
+                                       sentAt: Date(timeIntervalSince1970: sentAt), from: from)
+            }
+    }
+
+    public func markAddressedReported(id: String, at date: Date = Date()) throws {
+        try db.run("UPDATE addressed_reports SET reported_at = ? WHERE id = ?", [.double(date.timeIntervalSince1970), .text(id)])
     }
 
     private static func audience(from row: Row) -> MessageAudience? {

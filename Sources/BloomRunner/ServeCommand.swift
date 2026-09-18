@@ -40,6 +40,13 @@ public enum ServeCommand {
         )
         let version = RunnerVersion.current
         let binDirectory = layout.dataDirectory + "/bin"
+        // Who may be addressed, pulled from runbloom.app and refetched on a miss so that somebody
+        // who joined the team this morning is addressable this afternoon. See `MachineMembers`.
+        let members = MachineMembers { try await client.members() }
+        // The word that somebody was addressed, which is what lets runbloom.app mail them. Its own
+        // sender rather than a fold into the usage queue, because it causes mail: see
+        // `AddressedReporter`.
+        let addressedReporter = AddressedReporter(store: store) { try await client.reportAddressed($0) }
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id, gate: gate,
             makeRunner: { session, path, store, environment, bridge in
@@ -62,7 +69,9 @@ public enum ServeCommand {
             runsSetup: configuration.runsSetup,
             briefing: BridgeBriefing.machine(
                 publicURL: configuration.publicURL, appPort: layout.appPort, reservedPorts: layout.reservedPorts
-            )
+            ),
+            lookUpMember: { await members.look(up: $0) },
+            addressed: { _ in await addressedReporter.start() }
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()
         // What the machine says about its own reporting goes two ways here, because the two readers
@@ -130,6 +139,9 @@ public enum ServeCommand {
         }
 
         try await runtime.start()
+        // Whatever the last run could not deliver, including the case this exists for: a machine
+        // that stopped between writing the message and telling runbloom.app about it.
+        await addressedReporter.start()
         await reporter.postSummaryNow()
         await machineEnvironment.refresh()
 

@@ -247,6 +247,34 @@ and messages have no sender. Phase 1 adds:
 - **Presence**: Bloom Runner keeps the set of users with an open event stream and the last human
   input per user, and publishes it as an event and in the summary.
 
+### Addressing somebody instead of the agent
+
+`@name` at the start of a message means it is for a person and not for the agent. The wire is in
+docs/WORKSPACE-PROTOCOL.md; two machine calls make it work.
+
+**`GET /api/machine/workspaces/{workspace}/members`** answers `user_id`, `name` and `handle` for
+everybody on the team, and **no addresses**. A share-link guest is on the machine and completion is
+offered to whoever is typing, so a directory of every member's email would be a way for somebody
+outside the team to read them by typing `@`. That is a different exposure from the `email` on a
+message's author, which names somebody whose message the reader can already see. **It is a pull, and
+a miss refetches**, because a machine holding a list from three weeks ago refuses a colleague who
+joined last week; `MachineMembers` puts a cooldown on that, since a mistyped handle is a miss too
+and a request per keystroke is not a well behaved machine.
+
+**`POST /api/machine/workspaces/{workspace}/addressed`** tells runbloom.app somebody was addressed,
+so it can mail them if they were not here. **Its own call rather than a fold into a report, because
+it causes mail**: anything coalesced, retried for unrelated reasons or replayed sends two emails or
+none. It carries the message's own id, when it was sent, who sent it, and **whether each addressed
+person was connected at that moment**, which is the fact only the machine holds. The other end
+dedupes per message **and addressed person**, so a retry is free, and the id must never be reused:
+a repeat is treated as a retry and mails nobody, which fails without a symptom.
+
+**A guest's message is reported too, and runbloom.app decides it sends no mail.** The machine says
+what happened and the server says what it means, so that policy is one deploy rather than a release
+to every machine, and there is an answer when somebody asks how often guests try to reach people who
+are away. See `AddressedReporter`: the queue is a table, because a machine that stopped between
+writing the message and sending the report would otherwise never send it.
+
 ## Awake, asleep, and what it costs
 
 An open stream keeps a Sprite awake, so a Mac left open on a workspace would bill until it was

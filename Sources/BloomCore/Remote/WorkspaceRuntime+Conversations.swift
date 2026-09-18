@@ -288,8 +288,18 @@ extension WorkspaceRuntime {
                 .object(["type": .string("text"), "text": .string(body)]),
             ])]),
         ]).compactJSON
-        _ = try await store.appendNext(sessionID: session.id, kind: .user, payload: Data(payload.utf8),
-                                       author: caller.author, audience: audience)
+        let message = try await store.appendNext(sessionID: session.id, kind: .user, payload: Data(payload.utf8),
+                                                 author: caller.author, audience: audience)
+        // **Whether they were here is recorded now, not when the report goes.** Presence is the one
+        // fact only this machine holds, and asked ten minutes later it would be answering a
+        // different question. runbloom.app decides what to do with it, including that a guest's
+        // message sends no mail: the machine says what happened, the server says what it means.
+        let report = AddressedReport(
+            sessionID: session.id, userID: userID, connected: presence.isConnected(userID),
+            sentAt: message.createdAt, from: .of(caller.author)
+        )
+        try? await store.recordAddressed(report)
+        await addressed?(report)
         return .accepted
     }
 
