@@ -164,6 +164,8 @@ struct WorkspaceEventRow: View {
 
     @State private var isExpanded = false
     @State private var isHovered = false
+    /// One line of the running block, as it was actually laid out. See `drawnLineHeight`.
+    @State private var measuredLine: CGFloat?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// What the conversation is set at, which is what a line of the tail is set at, and therefore
@@ -386,7 +388,7 @@ struct WorkspaceEventRow: View {
                         .truncationMode(.tail)
                         // And a line is the same height whatever glyphs are in it, so a blank
                         // line or a line of dots takes the same room as a sentence.
-                        .frame(height: lineHeight)
+                        .frame(height: drawnLineHeight)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         // In at the bottom, out at the top, one line of travel each, which is the
                         // same line of travel the survivors between them are making. Every
@@ -415,7 +417,33 @@ struct WorkspaceEventRow: View {
             // with `lines`, and the settle below therefore carries the block's own growth as well
             // as the travel inside it: the block opens by a line as the line that fills it slides
             // in, over the same 0.12s.
-            .frame(height: lineHeight * CGFloat(runningTail), alignment: .top)
+            .frame(height: drawnLineHeight * CGFloat(runningTail), alignment: .top)
+            // What a line of this text is really drawn at, which is the only number that cannot
+            // disagree with the frame above it.
+            //
+            // **The height was computed rather than measured, and the owner met the difference.**
+            // `SetupLineHeight` asks AppKit for the default line height of the monospaced system
+            // font at the callout size times the font scale, and the transcript draws its code in
+            // whatever `Typo.code` is under the reader's own chat font and line height. Where those
+            // two answers differ by a point, ten lines of block are ten points short, `clipped`
+            // takes the difference off the bottom, and the last line is cut through the middle of
+            // its glyphs. That is what "i also cannot scroll down" was: the rest was not below a
+            // fold, it was underneath the frame. Measuring one line and using it for both is what
+            // makes the two agree by construction rather than by two functions staying in step.
+            .background(alignment: .topLeading) {
+                // One line of the same text, laid out with nothing imposed on it, behind a block
+                // that has a height imposed on every line. A background is outside the layout, so
+                // this costs the block nothing and answers the only question that matters: how
+                // tall is a line of this font, at this reader's chat text size and line height.
+                Text("M")
+                    .font(Typo.code)
+                    .lineLimit(1)
+                    .hidden()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        guard height > 0, abs(height - drawnLineHeight) > 0.5 else { return }
+                        measuredLine = height
+                    }
+            }
             // So the departing line leaves the block rather than being drawn over the row above,
             // or over the link below, which is where it used to land.
             .clipped()
@@ -451,6 +479,10 @@ struct WorkspaceEventRow: View {
     /// How tall one line of the tail is. See `SetupLineHeight`, which is where it is worked out
     /// and where it is held.
     private var lineHeight: CGFloat { SetupLineHeight.height(fontScale: fontScale) }
+
+    /// The computed height until a line has been drawn, and the drawn one from then on. See the
+    /// note on the block's own frame for what disagreeing with it cost.
+    private var drawnLineHeight: CGFloat { measuredLine ?? lineHeight }
 
     /// One line of travel, and it is over before the next line is due.
     ///
@@ -606,8 +638,28 @@ struct WorkspaceEventRow: View {
     /// while the block is still filling: `runningTail` is the log's own length there, so comparing
     /// against it would say there is more to show about a log that is entirely on screen, which is
     /// the dead link this note is about.
+    /// Whether there is more log than the block is showing, and therefore something for the link
+    /// to unfold.
+    ///
+    /// **Asked against what is drawn rather than against the cap**, which is the same question only
+    /// while the two agree. A running block is drawn at `runningTail`, which is the cap or the log,
+    /// whichever is smaller; a finished or failed one is drawn at its own number. Comparing the log
+    /// to the cap said "nothing more to show" for a block that was showing less than the cap, and
+    /// left the rest of the log with no way to reach it. See the owner's "i also cannot scroll
+    /// down", which was two faults in one screen: a block cut through a line, and a link that was
+    /// not drawn because the arithmetic said the log fitted.
     private var hasMoreToShow: Bool {
-        event.logLines > (event.isFailure ? failedTail : tailCap)
+        event.logLines > drawnLines
+    }
+
+    /// How many lines the block is drawing right now.
+    private var drawnLines: Int {
+        if isExpanded { return Self.expandedTail }
+        switch event.outcome {
+        case .running: return runningTail
+        case .failed: return failedTail
+        case .succeeded, .skipped, .ignored: return 0
+        }
     }
 }
 
