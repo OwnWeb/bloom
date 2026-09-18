@@ -103,7 +103,10 @@ final class CloudWorkspaceSession {
         let tab = existing ?? store.add(kind: kind, workspaceID: surfaceID)
         let content = PaneContent.tool(tab.id)
         WorkspaceTabsStore.shared.reveal(content, in: self)
-        if kind == .review { Task { await changes.refresh() } }
+        if kind == .review {
+            Task { await changes.refresh() }
+            changes.reconsiderWatching()
+        }
         return content
     }
 
@@ -116,7 +119,13 @@ final class CloudWorkspaceSession {
             Task { await closeChat(id) }
         case .tool(let id):
             guard let tab = CenterTabStore.shared.tabs(for: surfaceID).first(where: { $0.id == id }) else { return }
-            Task { await CenterTabStore.shared.close(tab, in: self) }
+            Task {
+                await CenterTabStore.shared.close(tab, in: self)
+                // The review tab going is one fewer reader, and with the inspector on another tab
+                // it is the last one: the held read stops rather than waiting on a machine for a
+                // list nothing is drawing.
+                changes.reconsiderWatching()
+            }
         }
     }
 
@@ -173,6 +182,7 @@ final class CloudWorkspaceSession {
     }
 
     func close() {
+        changes.stopWatching()
         terminal.close()
         listener?.cancel()
         listener = nil
@@ -205,7 +215,9 @@ final class CloudWorkspaceSession {
                 // wanted; what stays gated is asking AGAIN, which is what the `reviewMoved` event
                 // does.
                 Task { await changes.refresh() }
+                changes.reconsiderWatching()
             }
+            if next != .live { changes.stopWatching() }
             if case .archived = next {
                 Task { await cloud.refresh(id) }
             }

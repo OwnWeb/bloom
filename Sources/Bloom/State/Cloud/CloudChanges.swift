@@ -12,9 +12,19 @@ import Observation
 /// read again and again while somebody scrolls, and it has caches (`CloudReviewCache`) that nothing
 /// else should be able to reach into.
 ///
-/// **Read when looked at and when the machine says something moved, never on a timer.** A long poll
-/// would hold a request open on a machine that is trying to sleep; the `review` event the stream
-/// already carries is the hint to read again, and it stops when the machine does.
+/// **Read when looked at, when a turn ends, and while somebody is looking, never on a timer.**
+///
+/// The long poll was refused once, on the belief that a held `review_snapshot(wait: true)` would
+/// keep a machine from sleeping and cost real money, and the `review` event was to be the hint
+/// instead. Both halves of that were wrong. Nothing emits the event: it is a case in the protocol
+/// and a line in a decoder, and no machine has ever sent one. And `RemoteAwakePolicy` does not
+/// count a held read as a reason to stay awake, nor as the human input that renews the presence
+/// lease, so the poll costs nothing but a request.
+///
+/// What it does cost is a WAKE. A request to a paused machine is answered, and answering is
+/// waking, so the poll stops the moment the connection is not live and is not started again by
+/// itself: somebody doing something is what starts it. That is the one discipline this has to
+/// hold, and it is why `watch` asks the phase every time round rather than trusting the loop.
 @MainActor
 @Observable
 final class CloudChanges {
@@ -42,7 +52,9 @@ final class CloudChanges {
     /// an event that arrived while the reader was on Checks changed a list nobody was drawing.
     var inspectorTab: InspectorTab = .changes {
         didSet {
-            guard inspectorTab == .changes, oldValue != .changes else { return }
+            guard inspectorTab != oldValue else { return }
+            reconsiderWatching()
+            guard inspectorTab == .changes else { return }
             Task { await refresh(quietly: hasRead) }
         }
     }
@@ -159,6 +171,75 @@ final class CloudChanges {
         } catch {
             problem = error.message
             hasRead = true
+        }
+    }
+
+    // MARK: Watching
+
+    /// The held read, or nil while nobody is looking or the machine is not live.
+    @ObservationIgnored private var watcher: Task<Void, Never>?
+
+    /// Whether anything is drawing this list: the inspector's Changes tab, or a review tab.
+    private var isBeingRead: Bool {
+        inspectorTab == .changes || session?.hasReviewTab == true
+    }
+
+    /// Starts or stops the held read to match who is looking and whether the machine is live.
+    ///
+    /// Called from every place that changes either answer, and safe to call when nothing has
+    /// changed: an already running watcher is left alone rather than restarted, because restarting
+    /// it would drop a wait that is part way through its fifteen seconds and ask the machine again
+    /// for an answer it is already holding.
+    func reconsiderWatching() {
+        guard isBeingRead, session?.phase == .live, session?.isRunningSetup == false else {
+            watcher?.cancel()
+            watcher = nil
+            return
+        }
+        guard watcher == nil else { return }
+        watcher = Task { [weak self] in await self?.watch() }
+    }
+
+    func stopWatching() {
+        watcher?.cancel()
+        watcher = nil
+    }
+
+    /// One held read after another, for as long as somebody is looking at a live machine.
+    ///
+    /// The machine holds the request until its revision moves or its own budget runs out, which is
+    /// fifteen seconds, and answers with the files either way. So a file written by a person in the
+    /// workspace's terminal, or by a script the setup started, reaches the list without anybody
+    /// having ended a turn. That was the one case the other two paths cannot serve.
+    ///
+    /// **A read that fails is not drawn as a failure.** A poll in flight when the machine pauses
+    /// dies exactly as a dropped connection does, which is the ordinary end of this loop rather
+    /// than something to put in front of a reader. `problem` is left alone and the loop stops.
+    private func watch() async {
+        while !Task.isCancelled {
+            guard let session, session.phase == .live, !session.isRunningSetup, isBeingRead else { return }
+            if commit != nil { return }
+            let scope = wireScope
+            var cache = caches[scope] ?? CloudReviewCache()
+            do {
+                let result = try await session.perform(
+                    .reviewSnapshot(scope: scope, knownRevision: cache.revision, wait: true)
+                )
+                guard case .reviewSnapshot(let snapshot) = result else { return }
+                cache.absorb(snapshot)
+                caches[scope] = cache
+                guard scope == wireScope else { return }
+                if files != cache.files {
+                    files = cache.files
+                    generation += 1
+                    if selectedPath == nil || cache.file(selectedPath ?? "") == nil {
+                        selectedPath = files.first?.path
+                    }
+                }
+                hasRead = true
+            } catch {
+                return
+            }
         }
     }
 
