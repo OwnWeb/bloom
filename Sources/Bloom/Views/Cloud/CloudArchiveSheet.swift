@@ -54,10 +54,25 @@ struct CloudArchiveSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.gutter) {
-            // The name as it was written, with a question mark only where the name does not end in
-            // one of its own. See `CloudArchiveConfirmation.question`.
-            Text(CloudArchiveConfirmation.question(archiving: name))
-                .font(.headline)
+            // **A fixed question with the name under it, which is the rule the local archive
+            // dialog already wrote down and this sheet did not follow.** Its words: "The title is
+            // fixed rather than Archive <name>?. Workspace names here are whole sentences, and a
+            // title built from one wraps to two lines of bold text that the eye reads as the
+            // warning." Both of this morning's faults were that concatenation, not its
+            // punctuation: "Archive What is in this project??" and, in the Share popover, "Share
+            // Open up a browser pane next to this chat". A name is not a word and does not go in
+            // a sentence somebody else wrote.
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Archive this Cloud workspace?")
+                    .font(.headline)
+                Text(name)
+                    .font(Typo.body)
+                    .foregroundStyle(Palette.textSecondary)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let confirmation = phase?.confirmation {
                 VStack(alignment: .leading, spacing: Metrics.spacingWide) {
                     ForEach(confirmation.losses, id: \.self) { loss in

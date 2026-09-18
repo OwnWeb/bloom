@@ -52,10 +52,23 @@ struct CloudSharePopover: View {
 
     @ViewBuilder
     private func content(_ sharing: CloudSharing) -> some View {
-        Text("Share \(item?.displayName ?? "this Cloud workspace")")
-            .font(Typo.heading)
-            .lineLimit(1)
-            .truncationMode(.tail)
+        // **Two elements rather than one sentence, because the name is not a word.** It read
+        // "Share Open up a browser pane next to this chat", which is what gluing a fixed word to
+        // somebody's data produces: the owner names his workspaces in sentences, so a title built
+        // by concatenation is a title built out of whatever he typed. The same fault as the
+        // archive sheet's double question mark, and the same answer: the name is its own thing,
+        // drawn as itself, and the word above it says what this is.
+        VStack(alignment: .leading, spacing: 1) {
+            Text("Share")
+                .font(Typo.heading)
+            Text(item?.displayName ?? "this Cloud workspace")
+                .font(Typo.body)
+                .foregroundStyle(Palette.textSecondary)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
 
         // Said once, above the controls it explains. See `CloudShareControls`.
         if !canChange {
@@ -104,17 +117,23 @@ struct CloudSharePopover: View {
 
     private func people(_ sharing: CloudSharing) -> some View {
         card {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Who can work in it").fontWeight(.medium)
-                Spacer(minLength: Metrics.spacing)
-                Toggle(teamLabel, isOn: Binding(
-                    get: { sharing.members?.sharedWithTeam ?? item?.sharedWithTeam ?? false },
-                    set: { shared in Task { await sharing.setSharedWithTeam(shared) } }
-                ))
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .disabled(!canChange || sharing.isBusy || sharing.members == nil)
+            Text("Who can work in it").fontWeight(.medium)
+
+            // **The switch has the row to itself, because its label carries a name.** It shared
+            // one with the heading and took whatever was left after it, which was not enough for
+            // "Everyone in Spatie": a six letter team truncated, so almost every team would have.
+            // A label that holds somebody's data cannot be given the remainder of a line, and the
+            // answer is not a shorter sentence fitted to an imaginary average team.
+            Toggle(isOn: Binding(
+                get: { sharing.members?.sharedWithTeam ?? item?.sharedWithTeam ?? false },
+                set: { shared in Task { await sharing.setSharedWithTeam(shared) } }
+            )) {
+                Text(teamLabel)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .disabled(!canChange || sharing.isBusy || sharing.members == nil)
 
             // Word for word what it was. See the head of this file.
             Text("Once shared, every turn runs on the team's agent key, including yours.")
@@ -155,7 +174,11 @@ struct CloudSharePopover: View {
         HStack(spacing: Metrics.spacingWide) {
             Avatar(name: member.user.name)
             VStack(alignment: .leading, spacing: 0) {
-                Text(member.user.name).lineLimit(1)
+                // Wrapped rather than cut: a person's name is data on a row with two controls, and
+                // the same reasoning as the switch above applies to it one size down.
+                Text(member.user.name)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(member.role == "owner" ? "Owner" : sharing.hasLeftTeam(member) ? "Left the team" : "Collaborator")
                     .font(Typo.caption)
                     .foregroundStyle(Palette.textTertiary)
