@@ -175,4 +175,24 @@ import Testing
         state.apply(.chat(Self.chat("c1", state: "idle")))
         #expect(state.apply(.chat(Self.chat("c1", state: "idle"))) == .none)
     }
+
+    /// Who may be addressed rides on the snapshot, and it is not presence: somebody who is away is
+    /// exactly the person a mention is most useful for.
+    @Test func aSnapshotCarriesWhoMayBeAddressed() {
+        var state = CloudWorkspaceState()
+        state.absorb(Records.workspace(
+            cursor: 12, chats: [],
+            members: [MemberRecord(userID: "u2", name: "Seb De Deyne", handle: "sebdd")]
+        ))
+        #expect(state.members.map(\.handle) == ["sebdd"])
+        #expect(state.presence.isEmpty, "presence is who is here, which is a different list")
+    }
+
+    /// And a machine that has not been told yet answers with none, which is a state rather than an
+    /// empty team: no handle resolves, so nothing can be addressed while it lasts.
+    @Test func aMachineThatHasNotBeenToldCarriesNobody() {
+        var state = CloudWorkspaceState()
+        state.absorb(Records.workspace(cursor: 12, chats: []))
+        #expect(state.members.isEmpty)
+    }
 }

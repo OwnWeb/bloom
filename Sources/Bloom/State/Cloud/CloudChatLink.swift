@@ -43,11 +43,21 @@ final class CloudChatLink {
 
     /// Everybody this workspace's messages may be addressed to, other than the reader.
     ///
-    /// **Empty until the machine is told who is on the team**, which is the control server's half
-    /// and is not built yet. Empty is what makes the rest honest rather than half working: no
-    /// handle resolves, so no message is addressed to a person, so nothing is drawn as one and
-    /// nothing is sent that the machine would refuse. See `MentionAddress`.
-    var people: [ComposerAudience.Person] { [] }
+    /// **The machine's list rather than runbloom.app's, and not `presence`.** Presence is who has
+    /// the workspace open, and somebody who is away is exactly the person a mention is most useful
+    /// for. It carries no addresses, because a share-link guest reads the same snapshot.
+    ///
+    /// **The reader is taken out**, because `@` is for reaching somebody else: a menu offering to
+    /// address yourself is a menu with a row nobody will ever pick. Empty while the machine has not
+    /// been told who is on the team, which by the rule in the core means `@` keeps its file meaning
+    /// and none of this can be entered. See `MentionAddress` and `MemberRecord`.
+    var people: [ComposerAudience.Person] {
+        guard let session else { return [] }
+        let reader = session.readerID
+        return session.state.members
+            .filter { $0.userID != reader }
+            .map { ComposerAudience.Person(id: CloudUserID($0.userID), handle: $0.handle, name: $0.name) }
+    }
 
     /// What is answering in this chat, for `@claude` beside `@agent`.
     var runningAgent: AgentKind? { controls?.agentKind }

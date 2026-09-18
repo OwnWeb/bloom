@@ -377,6 +377,26 @@
       ],
       "additionalProperties": false
     },
+    "Member": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "handle": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "handle",
+        "name",
+        "user_id"
+      ],
+      "additionalProperties": false
+    },
     "Blocked": {
       "type": "object",
       "properties": {
@@ -1125,12 +1145,19 @@
         },
         "composer_defaults": {
           "$ref": "#/$defs/ComposerControls"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Member"
+          }
         }
       },
       "required": [
         "chats",
         "composer_defaults",
         "cursor",
+        "members",
         "presence",
         "workspace"
       ],

@@ -194,6 +194,9 @@ RECORDS = {
     # Who a message was for. Absent means the agent, which is every message written before mentions
     # existed. A message whose kind is `person` is one the agent is never given.
     "Audience": obj({"kind": {"enum": ["agent", "person"]}}, {"user_id": S, "mention": S}),
+    # Who may be addressed with `@`, which is not `presence`: that is who is here, and somebody who
+    # is away is exactly who a mention is for. No addresses; a share-link guest reads this too.
+    "Member": obj({"user_id": S, "name": S, "handle": S}),
     "Blocked": obj({"limit": S, "message": S}),
     "QueuedPrompt": obj({"id": S, "text": S, "state": {"enum": ["queued", "blocked", "uncertain"]}, "created_at": DATE},
                         {"author": ref("Author"), "blocked": ref("Blocked")}),
@@ -229,7 +232,7 @@ RECORDS = {
     "Terminal": obj({"name": S, "title": S}),
     "Presence": obj({"user_id": S, "name": S}, {"last_input_at": DATE}),
     "WorkspaceSnapshot": obj({"workspace": ref("Workspace"), "chats": array(ref("Chat")), "presence": array(ref("Presence")),
-                              "cursor": I, "composer_defaults": ref("ComposerControls")}),
+                              "cursor": I, "composer_defaults": ref("ComposerControls"), "members": array(ref("Member"))}),
 }
 
 

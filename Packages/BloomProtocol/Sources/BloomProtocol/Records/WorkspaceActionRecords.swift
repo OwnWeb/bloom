@@ -115,18 +115,69 @@ public struct WorkspaceSnapshotRecord: Codable, Sendable, Hashable {
     /// that threw on its snapshot would not be reading an old field, it would be unable to open
     /// that workspace at all. So it decodes as absent and the client falls back to its own choice.
     public var composerDefaults: ComposerControlsRecord?
+    /// Everybody who may be addressed with `@`, which is **not the same list as `presence`**: that
+    /// is who is here, and this is who has access. Somebody who is away is exactly the person a
+    /// mention is most useful for.
+    ///
+    /// Each carries a `handle`, which is what somebody types. A name is not typeable and an address
+    /// is not either, and a handle belongs to a **membership** rather than to a person, so the same
+    /// person may be `seb` in one team and `sebdd` in another. **No addresses here**: a share-link
+    /// guest reads this snapshot too, and a directory of every member's email would be a way for
+    /// somebody outside the team to collect them by typing `@`.
+    ///
+    /// Empty when the machine has not been told yet, which is a real state rather than an empty
+    /// team: a `send` addressed to somebody is refused while it lasts, and it ends by itself.
+    public var members: [MemberRecord]
 
     public init(workspace: WorkspaceRecord, chats: [ChatRecord], presence: [PresenceRecord], cursor: Int64,
-                composerDefaults: ComposerControlsRecord? = nil) {
+                composerDefaults: ComposerControlsRecord? = nil, members: [MemberRecord] = []) {
         self.workspace = workspace
         self.chats = chats
         self.presence = presence
         self.cursor = cursor
         self.composerDefaults = composerDefaults
+        self.members = members
     }
 
     enum CodingKeys: String, CodingKey {
-        case workspace, chats, presence, cursor
+        case workspace, chats, presence, cursor, members
         case composerDefaults = "composer_defaults"
+    }
+
+    /// **Absent members read as none, for the same reason absent defaults read as nil.** A machine
+    /// made before this field existed and not yet updated still answers a `workspace` call, and a
+    /// client that threw on its snapshot would not be missing a list of names, it would be unable
+    /// to open that workspace at all. A server is held to sending it, which is what the schema
+    /// says; a client is held to reading what a machine in the field actually sends.
+    ///
+    /// Written out rather than synthesised because a default on a stored property is not what
+    /// `Decodable` uses when a key is missing.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workspace = try container.decode(WorkspaceRecord.self, forKey: .workspace)
+        chats = try container.decode([ChatRecord].self, forKey: .chats)
+        presence = try container.decode([PresenceRecord].self, forKey: .presence)
+        cursor = try container.decode(Int64.self, forKey: .cursor)
+        composerDefaults = try container.decodeIfPresent(ComposerControlsRecord.self, forKey: .composerDefaults)
+        members = try container.decodeIfPresent([MemberRecord].self, forKey: .members) ?? []
+    }
+}
+
+/// Somebody with access to this workspace, for addressing a message to them.
+public struct MemberRecord: Codable, Sendable, Hashable {
+    public var userID: String
+    public var name: String
+    /// What somebody types after `@`. Short, stable, and unique inside this team.
+    public var handle: String
+
+    public init(userID: String, name: String, handle: String) {
+        self.userID = userID
+        self.name = name
+        self.handle = handle
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, handle
+        case userID = "user_id"
     }
 }

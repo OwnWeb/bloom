@@ -32,6 +32,9 @@ public struct CloudWorkspaceState: Sendable, Hashable {
     /// Nil for a machine too old to send it, which is a fallback rather than a failure: see
     /// `WorkspaceSnapshotRecord.composerDefaults`.
     public var composerDefaults: ComposerControlsRecord?
+    /// Who may be addressed with `@` in this workspace, as the machine lists them. Empty until it
+    /// has been told, which is a state rather than an empty team: see `MemberRecord`.
+    public var members: [MemberRecord] = []
 
     public var setup: SetupRecord?
     public var setupLog = ""
@@ -56,6 +59,7 @@ public struct CloudWorkspaceState: Sendable, Hashable {
         for chat in snapshot.chats { upsert(chat) }
         presence = snapshot.presence
         if let defaults = snapshot.composerDefaults { composerDefaults = defaults }
+        members = snapshot.members
         advance(to: snapshot.cursor)
     }
 

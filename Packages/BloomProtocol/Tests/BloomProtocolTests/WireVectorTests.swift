@@ -161,7 +161,15 @@ enum WireExamples {
         ("accepted", .accepted),
         ("workspace", .workspace(WorkspaceSnapshotRecord(workspace: workspace, chats: [chat],
                                                           presence: [PresenceRecord(userID: author.userID, name: author.name, lastInputAt: date)], cursor: 118,
-                                                          composerDefaults: controls))),
+                                                          composerDefaults: controls,
+                                                          // Who may be addressed, which is who has
+                                                          // access rather than who is connected:
+                                                          // somebody away is exactly who a mention
+                                                          // is most useful for.
+                                                          members: [
+                                                              MemberRecord(userID: author.userID, name: author.name, handle: "freek"),
+                                                              MemberRecord(userID: "01k5usr2", name: "Seb De Deyne", handle: "sebdd"),
+                                                          ]))),
         ("transcript", .transcript(TranscriptRecord(chat: chat, messages: [message], hasMore: false, questions: [question], busy: true,
                                                     streamingText: "Running", queue: queue))),
         ("composer", .composer(ComposerRecord(chatID: "chat-1", controls: controls, availableAgents: ["claude", "codex"],
