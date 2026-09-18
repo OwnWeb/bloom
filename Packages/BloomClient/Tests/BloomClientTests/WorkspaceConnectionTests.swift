@@ -287,6 +287,13 @@ struct EchoTransport: HTTPTransport {
         // they cannot be told apart from, leaving these eight. See `SleepLog.backoffSeconds`. The
         // wait after them belongs to the stream that finally opened, which refreshes its token a
         // minute before it expires and is no part of a backoff.
+        //
+        // Worth leaving in writing, because it is the only realistic way these numbers go wrong:
+        // reordering any of the eight moves this sequence, and truncating `retryDelays` repeats an
+        // earlier value where the thirties are, so either still fails here. What dropping 0.5 and 2
+        // does give up is a swap of those two with each other, which is the one edit this cannot
+        // see. They are the two shortest waits; the gap the schedule exists to survive is in the
+        // eight that are asserted.
         #expect(Array(waits.backoffSeconds.prefix(8)) == [1, 3, 5, 8, 13, 21, 30, 30])
     }
 
