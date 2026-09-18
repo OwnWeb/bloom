@@ -114,11 +114,13 @@ final class TranscriptModel {
     let history = TranscriptHistory()
     /// The workspace as it was when this model was made, or nil for a chat that is in none.
     ///
-    /// **Nil is Ask Bloom and nothing else today.** Its id and path are stable and are what most
-    /// of the file needs; its name is not, and anything said out loud reads `workspaceNow`. Every
-    /// reader of this is a thing a worktree has and this chat does not: an inspector, a diff, an
-    /// unread mark, a notification that names a place. Each of them now says nothing rather than
-    /// saying it about a workspace that was invented to keep the type non-optional.
+    /// **Nil is a chat with no worktree on this Mac: Ask Bloom, and a chat in a Cloud workspace.**
+    /// A workspace's id and path are stable and are what most of the file needs; its name is not,
+    /// and anything said out loud reads `workspaceNow`. Every reader of this is a thing a worktree
+    /// has and these chats do not: an inspector, a diff, an unread mark, a notification that names
+    /// a place, and the setup row at the head of the transcript, which is why a Cloud workspace's
+    /// setup is its own tab and its own banner rather than a row in a conversation. Each of them
+    /// says nothing rather than saying it about a workspace invented to keep the type non-optional.
     let workspace: Workspace?
     /// Where this chat's agent runs: its worktree, or the directory retained by its Ask tab.
     /// New Ask conversations use the folder chosen in Settings, with Bloom's own folder as fallback.
