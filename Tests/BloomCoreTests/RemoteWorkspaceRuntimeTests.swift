@@ -38,6 +38,37 @@ struct RemoteWorkspaceRuntimeTests {
         RemoteCaller(author: author, abilities: abilities, sessionToken: "token-for-\(author.userID)")
     }
 
+    /// What the machine found under a step travels in the summary, so runbloom.app decides on an
+    /// observation rather than on the age of a field.
+    @Test("the summary carries what is alive under the setup step, and loses it when setup ends")
+    func summaryCarriesSetupLiveness() async throws {
+        let fixture = try await fixture()
+        let at = Date(timeIntervalSince1970: 1_700_000_000)
+
+        #expect(try await Self.summary(of: fixture.runtime).setup.liveness == nil,
+                "a machine with nothing to say says nothing, which is not a stall")
+
+        await fixture.runtime.setupStepStarted("setup")
+        await fixture.runtime.setupLivenessChanged(.init(verdict: "nothing_alive", running: 0, defunct: 1, at: at))
+        let stalled = try await Self.summary(of: fixture.runtime).setup
+
+        #expect(stalled.liveness?.verdict == "nothing_alive")
+        #expect(stalled.liveness?.defunct == 1)
+        #expect(stalled.step == "setup")
+
+        // A verdict about a step that has ended would be read as one about whatever runs next.
+        await fixture.runtime.setupFinished(succeeded: true)
+        #expect(try await Self.summary(of: fixture.runtime).setup.liveness == nil)
+        await fixture.runtime.shutdown()
+    }
+
+    private static func summary(of runtime: WorkspaceRuntime) async throws -> RemoteSummary {
+        try await runtime.summary(
+            revision: 1, observedAt: Date(), version: "test", awake: true, leaseUntil: nil,
+            diff: .init(files: 0, additions: 0, deletions: 0), pullRequest: nil, atStake: nil
+        )
+    }
+
     @Test("a prompt is queued under its author and reaches the agent with that author on the row")
     func sendRecordsTheAuthor() async throws {
         let fixture = try await fixture()

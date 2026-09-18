@@ -165,12 +165,43 @@ public actor MachineSetup {
         return Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
+                await self?.checkLiveness()
                 await self?.reportStall()
             }
         }
     }
 
     private var stalledSince: Date?
+    /// The script running now, for the liveness read. Nil between steps.
+    private var child: StreamingProcess?
+    private var lastReading: StepLiveness.Reading?
+    private var lastVerdict: StepLiveness.Verdict?
+
+    /// What is alive under the step in hand, told to runbloom.app so that its decision to restart a
+    /// machine rests on something the machine observed rather than on a timestamp going stale.
+    ///
+    /// **The evidence is about the child, never about this process.** During the one hang anybody
+    /// has seen, the runner was healthy in every way something could be asked: it answered health,
+    /// answered RPC, posted summaries, and this very watchdog woke on its timer, all over a child
+    /// that had been dead for seventeen minutes. Anything sourced from here would have called that
+    /// hang healthy for its whole duration. See `StepLiveness`.
+    private func checkLiveness() async {
+        guard let pid = child?.processIdentifier, pid > 0, let reading = StepLiveness.read(child: pid) else {
+            // Between steps, or not on a machine. No signal is not a stall, and saying nothing is
+            // how that is said.
+            guard lastVerdict != nil else { return }
+            lastReading = nil
+            lastVerdict = nil
+            await runtime.setupLivenessChanged(nil)
+            return
+        }
+        let verdict = StepLiveness.verdict(reading, since: lastReading)
+        lastReading = reading
+        lastVerdict = verdict
+        await runtime.setupLivenessChanged(
+            .init(verdict: verdict.rawValue, running: reading.running, defunct: reading.defunct, at: Date())
+        )
+    }
 
     private func reportStall() async {
         guard let activity else {
@@ -187,7 +218,17 @@ public actor MachineSetup {
         if let stalledSince, Date().timeIntervalSince(stalledSince) < stallAfter { return }
         stalledSince = Date()
         let waited = waiting >= 60 ? "\(Int(waiting / 60)) minutes" : "\(Int(waiting)) seconds"
-        let sentence = "Setup has been in \(activity.name) for \(waited) with nothing new. "
+        // The same signal the summary carries, so there is one definition of alive rather than two
+        // that drift. Silence with something running under it is a step working quietly; silence
+        // with nothing running is the only shape worth anybody acting on.
+        let found: String
+        switch lastVerdict {
+        case .working: found = "Something under it is using the processor, so it is working. "
+        case .waiting: found = "Something is still running under it, waiting rather than working. "
+        case .nothingAlive: found = "Nothing is running under it. "
+        case nil: found = ""
+        }
+        let sentence = "Setup has been in \(activity.name) for \(waited) with nothing new. " + found
             + "If it never moves, restarting this machine's server clears it: the one case measured "
             + "was a subprocess launch that never returned, and a restart ran the same step at once."
         await currentLog?.note(sentence)
@@ -503,6 +544,11 @@ public actor MachineSetup {
         log: SetupLog, step: String? = nil
     ) async -> Bool {
         let process = StreamingProcess(executable: executable, arguments: arguments, cwd: directory, environment: environment)
+        // Held so the watchdog can ask what is alive under it. The pid is read at the moment of
+        // asking rather than kept, because `lines` is what starts the process and there is no pid
+        // until then.
+        child = process
+        defer { child = nil }
         let lines = process.lines
         let watchdog = Task<Bool, Never> {
             do {

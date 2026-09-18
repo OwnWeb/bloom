@@ -60,6 +60,11 @@ public actor WorkspaceRuntime {
     /// Which setup step is running, for the setup record. Set by the machine's setup runner.
     var setupStep: String?
     var setupStartedAt: Date?
+    /// What the setup runner last found under the step's child. See `RemoteSummary.Setup.Liveness`.
+    var setupLiveness: RemoteSummary.Setup.Liveness?
+    /// The project's services as the machine is running them. Empty everywhere that is not a
+    /// machine, which is every Mac. See `ServiceRecord`.
+    var services: [ServiceRecord] = []
     var setupFinishedAt: Date?
     /// Whether the workspace's prompts must wait: setup has not finished yet.
     var holdsPromptsForSetup = false

@@ -112,7 +112,8 @@ extension WorkspaceRuntime {
             branch: workspace.branch, baseBranch: workspace.baseBranch,
             state: RemoteSummary.state(setup: workspace.setupState, chats: activities), awake: awake,
             presenceLeaseUntil: leaseUntil,
-            setup: RemoteSummary.Setup(state: workspace.setupState.rawValue, step: setupStep, startedAt: setupStartedAt, finishedAt: setupFinishedAt),
+            setup: RemoteSummary.Setup(state: workspace.setupState.rawValue, step: setupStep, startedAt: setupStartedAt,
+                                       finishedAt: setupFinishedAt, liveness: setupLiveness),
             lastMessage: last.map { message in
                 RemoteSummary.LastMessage(
                     chatID: message.sessionID.rawValue, authorKind: message.kind == .assistantText ? "agent" : "user",

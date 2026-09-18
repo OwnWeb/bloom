@@ -28,7 +28,7 @@ extension WorkspaceRuntime {
     private func openEvents(_ subscription: RemoteEventHub.Subscription, after cursor: Int64?) async throws -> AsyncStream<WorkspaceEvent> {
         var opening: [WorkspaceEvent] = []
         let workspace = try await workspace()
-        opening.append(.workspace(workspace.record(setup: setupRecord(workspace), reporting: reporting)))
+        opening.append(.workspace(workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services)))
         opening.append(.setup(setupRecord(workspace)))
         for id in try await chatIDs() {
             let session = try await storedSession(id)
@@ -157,7 +157,7 @@ extension WorkspaceRuntime {
             publishedQuestions.removeValue(forKey: id)
         }
         guard let workspace = try await store.workspace(id: workspaceID) else { return }
-        let record = workspace.record(setup: setupRecord(workspace), reporting: reporting)
+        let record = workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services)
         if publishedWorkspace != record {
             let first = publishedWorkspace == nil
             publishedWorkspace = record
@@ -256,10 +256,36 @@ extension WorkspaceRuntime {
         try? await refreshPublishedState(publishing: true)
     }
 
+    /// What the setup runner found under the step it is running, from the machine's own watchdog.
+    ///
+    /// **Published when the verdict changes rather than on every look**, because the looks are
+    /// every thirty seconds for the length of a setup and the verdict changes a handful of times.
+    /// A machine whose step has just stopped having anything alive in it is the one case anybody is
+    /// waiting for, and that is a change.
+    public func setupLivenessChanged(_ liveness: RemoteSummary.Setup.Liveness?) async {
+        guard liveness?.verdict != setupLiveness?.verdict else {
+            setupLiveness = liveness
+            return
+        }
+        setupLiveness = liveness
+        try? await refreshPublishedState(publishing: true)
+    }
+
+    /// The machine's service supervisor, saying what it is running. Published so a client can draw
+    /// a service that never started, which is otherwise a sentence nobody can reach.
+    public func servicesChanged(_ services: [ServiceRecord]) async {
+        guard services != self.services else { return }
+        self.services = services
+        try? await refreshPublishedState(publishing: true)
+    }
+
     /// Setup finished, however it ended, and the prompts that waited for it may go: a failed setup
     /// is something the agent can read the log of and fix, which is what the Mac does too.
     public func setupFinished(succeeded: Bool = true) async {
         setupStep = nil
+        // No step, no child, nothing to be alive: a stale verdict outliving its step would be read
+        // as a fact about whatever ran next.
+        setupLiveness = nil
         setupFinishedAt = Date()
         holdsPromptsForSetup = false
         lastSetupSucceeded = succeeded
