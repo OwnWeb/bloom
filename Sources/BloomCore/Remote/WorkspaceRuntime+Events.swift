@@ -40,21 +40,13 @@ extension WorkspaceRuntime {
             }
         }
         opening.append(.presence(presence.records))
-        var replayed = cursor ?? 0
-        if cursor != nil {
-            while true {
-                let page = try await store.messages(workspaceID: workspaceID, afterID: replayed, limit: 500)
-                opening += page.map { .message($0.record) }
-                guard let last = page.last else { break }
-                replayed = last.id
-                if page.count < 500 { break }
-            }
-        } else {
-            replayed = try await store.latestMessageID(workspaceID: workspaceID)
-        }
-        let highWater = replayed
+        // Where the replay stops and the live stream takes over, read before either starts so a row
+        // written in between is sent once by the live stream rather than twice or not at all.
+        let highWater = try await store.latestMessageID(workspaceID: workspaceID)
+        let from = cursor ?? highWater
         let initial = opening
         let live = subscription.events
+        let store = store, workspaceID = workspaceID
         // Bounded like the hub's own buffer, above the opening events. Unbounded, this copy drained
         // the hub's buffer as fast as events came, so its overflow never fired and a client that
         // stopped reading grew the machine's memory instead of being disconnected.
@@ -63,6 +55,21 @@ extension WorkspaceRuntime {
         )
         let task = Task {
             for event in initial { continuation.yield(event) }
+            // **The backlog is read a page at a time and yielded as it is read.** It used to be
+            // collected into one array before the stream answered, so a client reconnecting to a
+            // long conversation had every row it had missed in memory at once, payloads and all,
+            // on a machine sized for one workspace. Whatever the client cannot keep up with is
+            // held by the buffer above, and a client slower than the buffer is disconnected, which
+            // is what the cursor is for.
+            var replayed = from
+            while replayed < highWater, !Task.isCancelled {
+                guard let page = try? await store.messages(workspaceID: workspaceID, afterID: replayed, limit: 200),
+                      let last = page.last else { break }
+                for message in page where message.id <= highWater {
+                    if case .dropped = continuation.yield(.message(message.record)) { break }
+                }
+                replayed = last.id
+            }
             for await event in live {
                 if let eventCursor = event.cursor, eventCursor <= highWater { continue }
                 if case .dropped = continuation.yield(event) { break }

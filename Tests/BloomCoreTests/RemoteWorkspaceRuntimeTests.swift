@@ -341,6 +341,39 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("a long backlog is replayed in order, a page at a time, and each row once")
+    func backlogIsReplayedInPages() async throws {
+        let fixture = try await fixture()
+        // More rows than one page, so the replay has to walk: it used to read the whole backlog
+        // into one array before the stream answered, which is a machine's memory for a client's
+        // reconnection.
+        var ids: [Int64] = []
+        for index in 1...450 {
+            let row = try await fixture.store.appendNext(sessionID: fixture.session.id, kind: .assistantText,
+                                                        payload: Data(#"{"text":"row \#(index)"}"#.utf8))
+            ids.append(row.id)
+        }
+        let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: ids.first)
+        var iterator = stream.makeAsyncIterator()
+        var replayed: [Int64] = []
+        while let event = await iterator.next() {
+            if let cursor = event.cursor { replayed.append(cursor) }
+            if replayed.count == ids.count - 1 { break }
+        }
+        #expect(replayed == Array(ids.dropFirst()), "Every row after the cursor, in order, once each")
+
+        // And a row written after the stream opened arrives from the live side, not the replay.
+        let fresh = try await fixture.store.appendNext(sessionID: fixture.session.id, kind: .assistantText,
+                                                       payload: Data(#"{"text":"after"}"#.utf8))
+        while let event = await iterator.next() {
+            if let cursor = event.cursor {
+                #expect(cursor == fresh.id)
+                break
+            }
+        }
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a question is answered by the first person to answer it")
     func firstAnswerWins() async throws {
         let fixture = try await fixture()

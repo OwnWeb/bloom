@@ -844,7 +844,10 @@ and its builder confirmed them.
   number: above zero on nearly every workspace, and zero on a branch whose commits cancel out
   against the base, which is the confidently wrong answer. When git cannot be asked the three keys
   are absent rather than zero, because a zero reads as "nothing at stake" and somebody will archive
-  on the strength of it. See `RemoteWorkAtStake`.
+  on the strength of it. **A branch with no remote at all counts every commit as unpushed**, which
+  overstates rather than understates: this number exists to stop somebody throwing work away, so
+  being wrong upwards is the direction to be wrong in, and a change that makes it exact by
+  sometimes answering zero would be a worse number. See `RemoteWorkAtStake`.
 - **The machine API payloads are runbloom.app's**, recorded under "Machine API payloads" in its
   design document: `turns` takes `kind`, `session_token`, `chat_id` and `agent`; `start` answers
   `agent_keys` (per agent: `key`, `identity`, `source`) and `environment`, or the limit refusal, or
