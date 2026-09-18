@@ -165,7 +165,10 @@ public actor MachineSetup {
         return Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
-                await self?.checkLiveness()
+                // A child that was being read and is now gone is a step ending under this tick,
+                // not a stall: reading it as "cannot tell" gave restart advice for a step that had
+                // just finished, which the Linux job caught with a `sleep 4` exiting mid-tick.
+                guard let childEnded = await self?.checkLiveness(), !childEnded else { continue }
                 await self?.reportStall()
             }
         }
@@ -185,15 +188,17 @@ public actor MachineSetup {
     /// answered RPC, posted summaries, and this very watchdog woke on its timer, all over a child
     /// that had been dead for seventeen minutes. Anything sourced from here would have called that
     /// hang healthy for its whole duration. See `StepLiveness`.
-    private func checkLiveness() async {
+    /// Returns whether a child that was being read has just gone, which the caller takes as the
+    /// step ending rather than as a machine that cannot tell.
+    private func checkLiveness() async -> Bool {
         guard let pid = child?.processIdentifier, pid > 0, let reading = StepLiveness.read(child: pid) else {
             // Between steps, or not on a machine. No signal is not a stall, and saying nothing is
             // how that is said.
-            guard lastVerdict != nil else { return }
+            guard lastVerdict != nil else { return false }
             lastReading = nil
             lastVerdict = nil
             await runtime.setupLivenessChanged(nil)
-            return
+            return true
         }
         let verdict = StepLiveness.verdict(reading, since: lastReading)
         lastReading = reading
@@ -201,6 +206,7 @@ public actor MachineSetup {
         await runtime.setupLivenessChanged(
             .init(verdict: verdict.rawValue, running: reading.running, defunct: reading.defunct, at: Date())
         )
+        return false
     }
 
     private func reportStall() async {
