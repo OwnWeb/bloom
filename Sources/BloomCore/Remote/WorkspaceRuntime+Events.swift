@@ -39,7 +39,7 @@ extension WorkspaceRuntime {
                 opening.append(.stream(chatID: id.rawValue, text: text, snapshot: true))
             }
         }
-        opening.append(.presence(presence.records))
+        opening.append(.presence(presence.records(knownAs: await memberLabels())))
         // Where the replay stops and the live stream takes over, read before either starts so a row
         // written in between is sent once by the live stream rather than twice or not at all.
         let highWater = try await store.latestMessageID(workspaceID: workspaceID)
@@ -95,7 +95,7 @@ extension WorkspaceRuntime {
 
     func connectionsChanged() async {
         if presence.setConnected(await events.connectedUserIDs) {
-            await events.publish(.presence(presence.records))
+            await events.publish(.presence(presence.records(knownAs: await memberLabels())))
         }
         await report(.connectionsChanged(open: await events.count))
     }

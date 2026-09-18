@@ -348,6 +348,18 @@ It is empty until the machine has been told, which is a real state and not an em
 is not a member of this team, or this machine has not been told who the team is yet. Both are
 refusals rather than a stored guess.
 
+**`author` is absent when nobody wrote it, and it is never cleared for whoever is reading.** It is
+missing on the agent's own rows, on anything the machine wrote, and on every row in a Mac workspace,
+where there is one person and no author to record. **It is present, with the same value, for
+everybody**: the event stream encodes one `message` record and sends it to every subscriber, so a
+per-reader field is not something this protocol can express, and anything that has to differ by
+reader has to be a reply to a call rather than an event.
+
+**So a client decides whether a message is its own by comparing `author.user_id` with its own
+account, never by the field being absent.** "No author means mine" is true on a Mac, where nobody
+has one, and wrong in a shared Cloud workspace, where it draws the reader's own words as somebody
+else's, in somebody else's colour, with a caption naming them over the top of their own sentence.
+
 **Every message has an author, and drawing it is one rule: the name if it is not empty, the email
 if it is, and "somebody" if neither.** `AuthorRecord` carries `user_id`, `name` and an optional
 `email`, and **`name` may be empty**, because not everybody has a display name. An empty name drawn

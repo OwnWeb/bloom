@@ -14,7 +14,7 @@ extension WorkspaceRuntime {
             chats.append(session.record(lastSeq: try await store.nextSeq(sessionID: session.id) - 1))
         }
         return WorkspaceSnapshotRecord(workspace: workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services), chats: chats,
-                                       presence: presence.records, cursor: cursor,
+                                       presence: presence.records(knownAs: await memberLabels()), cursor: cursor,
                                        composerDefaults: try await newChatControls().record,
                                        members: await listMembers().map(\.record))
     }
@@ -55,6 +55,12 @@ extension WorkspaceRuntime {
             }
         }
         return ComposerControls(defaults: defaults, isFastMode: false, outputStyle: OutputStyle.defaultName)
+    }
+
+    /// What to draw for each person the team knows, for presence. Empty off a machine, where
+    /// there is no team to ask and every name came from the one person using it.
+    func memberLabels() async -> [String: String] {
+        Dictionary(await listMembers().map { ($0.userID, $0.label) }, uniquingKeysWith: { first, _ in first })
     }
 
     func setupRecord(_ workspace: Workspace) -> SetupRecord {

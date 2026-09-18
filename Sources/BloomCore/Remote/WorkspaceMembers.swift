@@ -30,6 +30,13 @@ public struct WorkspaceMember: Sendable, Hashable, Codable {
     }
 
     public var record: MemberRecord { MemberRecord(userID: userID, name: name, handle: handle) }
+
+    /// What to draw for this person: their name, or their handle when the team has no name for
+    /// them. **Never empty**, which is the whole reason it exists.
+    public var label: String {
+        let stated = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return stated.isEmpty ? handle : stated
+    }
 }
 
 /// What the machine knows about one id it has been asked to address.
