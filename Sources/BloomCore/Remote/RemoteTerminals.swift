@@ -103,11 +103,22 @@ public actor RemoteTerminals {
     ) async throws {
         let names = environment.keys.sorted().joined(separator: " ")
         _ = try await Shell.run(command.executable, command.arguments(["set-option", "-g", "update-environment", names]), cwd: worktree)
+        // **The shell this machine's user actually has, not the one the service was started with.**
+        // tmux takes `default-shell` from the environment of whoever started the server, which here
+        // is Bloom Runner under a service manager, so a pane ran `/bin/sh`: a bare `$`, no profile,
+        // and a different shell from the one a run script's pane ended in. With `default-command`
+        // left empty, tmux starts `default-shell` as a login shell itself. See `LoginShell`.
+        let shell = LoginShell.machinePath()
+        _ = try await Shell.run(command.executable, command.arguments(["set-option", "-g", "default-shell", shell]), cwd: worktree)
         // One tmux invocation, so the owner is on the session before anybody can attach to it.
         var arguments = ["new-session", "-d", "-s", session, "-c", worktree]
         // The shell stays after it, so a person can read what happened and carry on in the same
-        // terminal, which is what typing the command used to leave them with.
-        if let runScript { arguments.append(runScript + "\nexec \"$SHELL\" -l\n") }
+        // terminal, which is what typing the command used to leave them with. Named rather than
+        // `$SHELL`, which is the service's, and with the login flag only where it is understood.
+        if let runScript {
+            let login = ([shell] + LoginShell.loginArguments(for: shell)).map { "'\($0)'" }.joined(separator: " ")
+            arguments.append(runScript + "\nexec \(login)\n")
+        }
         // `=name:` because an option's target is a pane, and `=name` alone matches no pane.
         if let owner { arguments += [";", "set-option", "-t", "=" + session + ":", ownerOption, owner] }
         if !personal.isEmpty { arguments += [";", "set-option", "-t", "=" + session + ":", personalOption, personal.sorted().joined(separator: " ")] }
