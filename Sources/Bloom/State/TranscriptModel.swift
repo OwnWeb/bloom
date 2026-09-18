@@ -52,6 +52,9 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
     /// Which account that was, for telling one run of messages from the next. The name would
     /// nearly always do and is the wrong key: two people called Freek are two people.
     var authorID: String?
+    /// Who the message was addressed to, which in a shared Cloud workspace is a different question
+    /// from who sent it. Nil for the agent, which is every local row. See `MessageAuthorship`.
+    var audience: MessageAudience?
 
     init(message: Message) {
         id = message.id
@@ -63,6 +66,7 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
         refID = message.refID
         authorName = message.author?.name
         authorID = message.author?.userID
+        audience = message.audience
     }
 
     /// This row in the only terms `TranscriptFold` cares about.
@@ -141,6 +145,22 @@ final class TranscriptModel {
     /// every local read and write in this file without a branch at each one. What it does have is
     /// a handful of verbs that go to the machine instead: see the Cloud section at the foot.
     let cloud: CloudChatLink?
+
+    /// What this workspace calls each account a message may have been addressed to, by id, for the
+    /// caption over a bubble. Empty for a local chat, which has nobody to address.
+    ///
+    /// **The reader is "you"**, and is in here rather than left out the way the composer's menu
+    /// leaves them out: a menu offering to address yourself has a row nobody will pick, but a
+    /// message somebody else addressed TO you is the one the caption is most worth drawing for.
+    /// See `MessageAuthorship.addressee`.
+    var addresseeNames: [String: String] {
+        guard let cloud else { return [:] }
+        var names = Dictionary(
+            uniqueKeysWithValues: cloud.people.map { ($0.id.rawValue, $0.name) }
+        )
+        if let reader = cloud.readerID { names[reader] = "you" }
+        return names
+    }
 
     /// Where this conversation's file paths point, and which workspace a file chip opens into.
     /// One value rather than the whole workspace, because those two fields are all a row has ever

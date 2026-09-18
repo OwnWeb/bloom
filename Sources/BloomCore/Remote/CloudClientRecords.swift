@@ -49,7 +49,12 @@ extension Message {
             createdAt: record.createdAt,
             durationMS: record.durationMS,
             refID: record.refID,
-            author: record.author.map { MessageAuthor(userID: $0.userID, name: $0.name) }
+            author: record.author.map { MessageAuthor(userID: $0.userID, name: $0.name) },
+            // An audience whose kind this client does not know is dropped rather than guessed at,
+            // which `MessageAudience.init(_:)` does by failing. A row that then reads as addressed
+            // to the agent is a row drawn without a caption, which is what every message written
+            // before audiences existed looks like, and is the only safe way to be wrong here.
+            audience: record.audience.flatMap(MessageAudience.init)
         )
     }
 }

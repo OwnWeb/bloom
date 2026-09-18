@@ -39,10 +39,10 @@ struct UserTurnRowView: View {
     var reviewChips: [ReviewTurnRecord.Chip] = []
     /// Which worktree those paths are relative to, and which review the chips open into.
     var home: TranscriptHome
-    /// Who sent it, in a Cloud workspace, when it was not the reader and this is the first of
-    /// their run. Drawn over the bubble in the caption's ink, the way Messages does it, and nil
-    /// everywhere a Mac has one person at it. See `MessageAuthorship.showsName`.
-    var authorName: String?
+    /// Who sent it and who it was for, in a Cloud workspace, on the first of a run. Drawn over the
+    /// bubble in the caption's ink, the way Messages does it, and nil everywhere a Mac has one
+    /// person at it. See `MessageAuthorship.caption`.
+    var caption: String?
     /// Whether somebody else sent it, which is what the fill says.
     ///
     /// **Separate from the name, because a teammate runbloom.app has no name for is still not
@@ -124,10 +124,16 @@ struct UserTurnRowView: View {
             Spacer(minLength: Self.inset)
 
             VStack(alignment: .trailing, spacing: TranscriptLayout.tight) {
-                if let authorName {
-                    Text(authorName)
+                if let caption {
+                    Text(caption)
                         .font(Typo.caption)
                         .foregroundStyle(Palette.textTertiary)
+                        // Two names and a preposition is longer than one name, and a caption that
+                        // ran off the side of the pane would take the bubble's own measure with
+                        // it. Capped at the bubble's width and wrapped rather than truncated: who
+                        // a message was for is not a detail worth losing the end of.
+                        .frame(maxWidth: maxWidth, alignment: .trailing)
+                        .multilineTextAlignment(.trailing)
                 }
                 CappedWidth(width: maxWidth) {
                     bubble.padding(Self.padding)

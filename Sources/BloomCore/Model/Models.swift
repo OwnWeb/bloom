@@ -599,6 +599,10 @@ public struct Message: Identifiable, Sendable, Hashable, Codable {
     public var refID: String?
     /// Who wrote a user row in a Cloud workspace. See `MessageAuthor`.
     public var author: MessageAuthor?
+    /// Who it was addressed to. Nil means the agent, which is every row written before mentions
+    /// existed. **A row addressed to a person is one the agent must never be given**; see
+    /// `MessageAudience`.
+    public var audience: MessageAudience?
 
     public init(
         id: Int64 = 0,
@@ -609,9 +613,11 @@ public struct Message: Identifiable, Sendable, Hashable, Codable {
         createdAt: Date = Date(),
         durationMS: Int? = nil,
         refID: String? = nil,
-        author: MessageAuthor? = nil
+        author: MessageAuthor? = nil,
+        audience: MessageAudience? = nil
     ) {
         self.author = author
+        self.audience = audience
         self.id = id
         self.sessionID = sessionID
         self.seq = seq

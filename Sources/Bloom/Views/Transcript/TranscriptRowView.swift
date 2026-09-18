@@ -53,9 +53,9 @@ struct TranscriptRowView: View, Equatable {
     }
 
     var row: TranscriptRow
-    /// Whether this message says who sent it, which only the list can answer: it depends on the
-    /// message above. See `MessageAuthorship`.
-    var showsAuthorName = false
+    /// What this message says about who sent it and who it was for, or nil where it says nothing.
+    /// Only the list can answer it: it depends on the message above. See `MessageAuthorship`.
+    var caption: String?
     /// Which worktree the row's paths are relative to, and where a file chip opens. Read by a user
     /// turn's attachment chips and by the file chips in a tool row, and constant for a whole
     /// transcript, so it is handed down rather than looked up per row.
@@ -113,7 +113,7 @@ struct TranscriptRowView: View, Equatable {
                     text: review.message,
                     reviewChips: review.chips,
                     home: home,
-                    authorName: showsAuthorName ? row.authorName : nil,
+                    caption: caption,
                     isFromSomebodyElse: MessageAuthorship.isFromSomebodyElse(author: row.authorID)
                 )
             } else {
@@ -128,7 +128,7 @@ struct TranscriptRowView: View, Equatable {
                     text: turn.body,
                     attachments: turn.paths,
                     home: home,
-                    authorName: showsAuthorName ? row.authorName : nil,
+                    caption: caption,
                     isFromSomebodyElse: MessageAuthorship.isFromSomebodyElse(author: row.authorID)
                 )
             }
