@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reads what one machine says about an update it has already been through. Changes nothing.
 
-    python3 Tools/read-update-evidence.py <sprite-name> [--org <organisation>]
+    python3 Tools/read-update-evidence.py <sprite-name> [--org <organisation>] [--before]
 
 **For the first real supervised update of a live workspace.** runbloom.app measures its own half
 from `machines.update_health_reads`; this is the machine's half, and it is deliberately taken
@@ -22,6 +22,14 @@ The machine's own records outlive the window, so nothing is lost by waiting:
   * The provider's own `restart_count` corroborates the wrapper's sentence: a release that was
     brought back twice before the wrapper gave up reads as three.
   * `/_bloom/health` is the version answering now, which is what `runner_version` should agree with.
+
+**`--before` takes the same reads plus five more, and is the one that cannot be taken twice.**
+Everything above describes a machine after the event, which is the right way round for the durable
+records and the wrong way round for anything the update itself destroys: the age of the runner
+about to be replaced, a child it never reaped, where its threads are parked, whether there is room
+on disk for the release it is about to download, and how far the log had got before the restart so
+the after-read knows where to start reading. Two machines carrying the fault have now been deleted
+before anybody took that read. This mode exists so the third is not.
 
 **Read-only by construction, and safe to run on somebody else's machine without reading all seven
 reads first**: every command is a read, none writes, none restarts anything, and none needs a token.
@@ -51,13 +59,33 @@ READS = [
 ]
 
 
+# Only meaningful before the restart, because the restart is what ends all of them.
+BEFORE_READS = [
+    ("the time on the machine, so everything after this has a boundary", "date -u +'%Y-%m-%dT%H:%M:%SZ'"),
+    # The zombie and the parked threads: yesterday's signature, taken while it is still there rather
+    # than reconstructed afterwards. `do_select` appearing once beside a defunct child is the shape.
+    ("the runner, its age, and any child it has not reaped",
+     "ps -eo pid,ppid,etimes,stat,cmd | grep -E 'bloom-runner|defunct' | grep -v grep || echo '(no runner)'"),
+    ("where the runner's threads are parked",
+     "P=$(pgrep -f 'bin/bloom-runner' | head -1); for t in /proc/$P/task/*; do printf '%s ' "
+     "\"$(cat $t/wchan 2>/dev/null)\"; done; echo"),
+    # An update downloads and unpacks a second release before it swaps the symlink, so a machine
+    # with no room fails halfway and a rollback needs the old release still to be on disk.
+    ("room for the release it is about to download", "df -h /opt /var/tmp | sort -u"),
+    ("how far the log has got, so the after-read knows where to start",
+     "wc -l /.sprite/logs/services/*.log 2>/dev/null || echo '(no service logs)'"),
+]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("machine")
     parser.add_argument("--org", default=None, help="the provider organisation the machine belongs to")
+    parser.add_argument("--before", action="store_true",
+                        help="also take the five reads the restart destroys, for a machine about to update")
     arguments = parser.parse_args()
 
-    for title, command in READS:
+    for title, command in (BEFORE_READS if arguments.before else []) + READS:
         print(f"\n==> {title}")
         argv = [SPRITE, "exec"]
         if arguments.org:
