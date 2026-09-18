@@ -717,9 +717,13 @@ struct AgentRunnerProcessTests {
             workspacePath: "/tmp/w", session: session, store: store, makeProcess: recorder.factory
         )
 
+        // Subscribed here rather than inside the task. `runner.events` registers its continuation
+        // when the stream is made, and a task that makes it only once it is scheduled can miss the
+        // first events of the turn: that is a count two short in CI and nowhere else.
+        let stream = runner.events
         let collector = Task {
             var events: [AgentEvent] = []
-            for await event in runner.events {
+            for await event in stream {
                 events.append(event)
                 if case .result = event { break }
             }
