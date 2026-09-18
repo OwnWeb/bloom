@@ -27,6 +27,13 @@ extension CloudWorkspaceSession {
         return chats.first { $0.id == id }
     }
 
+    /// **Nil, and this is load-bearing rather than a gap.** Everything this workspace knows about
+    /// which chat is in front, it knows from `WorkspaceTabsStore`, so answering anything else here
+    /// would be the store asking itself: see `WorkspaceSurface.preferredChatID` for the crash that
+    /// was. The strip opens on its first entry, which is the right answer for a workspace whose
+    /// chats have only just arrived from its machine.
+    var preferredChatID: SessionID? { nil }
+
     /// Selecting a tab adopts the chat in it, which for a Cloud workspace is the tab strip's own
     /// selection: there is no second place that remembers which conversation is in front.
     var activeChatID: SessionID? {

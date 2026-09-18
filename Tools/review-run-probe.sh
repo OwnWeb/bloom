@@ -6,6 +6,8 @@
 # Pass --review-fold-only to check that ticking a file folds it and that the row controls line up.
 # Pass --tab-store-only to check what a workspace's tabs are written as and what comes back.
 # Pass --cloud-terminal-only to check what a Cloud terminal shows after the machine reattaches it.
+# Pass --cloud-selection-only to check that a Cloud workspace with no chats cannot recurse with the
+# tab store. It crashes rather than fails on the code this was written for, which is the failure.
 # Set BLOOM_PROBE_VERBOSE=1 to print the probe's own log on a passing run as well as a failing
 # one, which is how a check that only goes wrong on someone else's machine is read.
 set -euo pipefail
@@ -98,7 +100,16 @@ report = pathlib.Path(root, 'result.json').read_text()
 print(report)
 if os.environ.get('BLOOM_PROBE_VERBOSE'):
     print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
-if not json.loads(report)['passed']:
+# A probe that died wrote nothing, and `open -W` reports its own exit status rather than the
+# app's, so a crash arrives here as an empty file. It used to come out as a JSON traceback, which
+# reads as the harness being broken rather than the thing under test. `--cloud-selection-only`
+# exists for a recursion that takes the process with it, so this is its ordinary failure.
+try:
+    passed = json.loads(report)['passed']
+except json.JSONDecodeError:
+    print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
+    raise SystemExit(f'Probe wrote no result: it crashed or was killed. Evidence: {root}')
+if not passed:
     if os.environ.get('RUNNER_TEMP'):
         evidence = pathlib.Path(os.environ['RUNNER_TEMP'], 'bloom-review-probe')
         evidence.mkdir(exist_ok=True)

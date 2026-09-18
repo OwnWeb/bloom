@@ -65,6 +65,20 @@ final class CloudWorkspaceSession {
 
     var readerID: String? { cloud.account?.id }
 
+    #if DEBUG
+    /// One chat, put into this workspace without a machine to have sent it.
+    ///
+    /// Here rather than in the probe because `state` is `private(set)` and this file is the only
+    /// one that may write it. See `CloudSelectionProbe`, which needs a workspace that goes from no
+    /// chats to one, since the two answer differently and the crash it is about was in the first.
+    func absorbForProbe(chat id: String) {
+        _ = state.apply(.chat(ChatRecord(
+            id: id, title: "Probe", agent: "claude", model: "", effort: "", permissionMode: "",
+            interactionMode: "", state: "idle", lastSeq: 0, createdAt: .now, updatedAt: .now
+        )))
+    }
+    #endif
+
     // MARK: The strip
 
     /// The machine's chats, in the order it lists them, which is what the strip is built from.

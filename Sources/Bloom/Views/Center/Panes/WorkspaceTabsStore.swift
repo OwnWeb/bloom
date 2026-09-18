@@ -258,7 +258,12 @@ final class WorkspaceTabsStore {
         // The active conversation, which is what the toolbar, the inspector and the pull request
         // button are already talking about. It can be a pane of a composite tab rather than a tab
         // of its own, in which case the tab holding it is the one to open on.
-        if let active = model.activeChat.map({ PaneContent.chat($0.id) }) {
+        //
+        // `preferredChatID` and never `activeChat`, and the difference is a crash rather than a
+        // preference: a workspace whose idea of the chat in front comes from this store answers
+        // nil, so this cannot re-enter. It used to ask for `activeChat`, which a Cloud workspace
+        // answers by asking this method. See `WorkspaceSurface.preferredChatID`.
+        if let active = model.preferredChatID.map({ PaneContent.chat($0) }) {
             if entries.contains(active) { return active }
             if let owner = entries.first(where: { claimedContents(of: $0).contains(active) }) {
                 return owner

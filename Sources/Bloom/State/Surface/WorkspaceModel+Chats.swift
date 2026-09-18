@@ -11,6 +11,9 @@ extension WorkspaceModel {
     var chats: [Session] { sessions }
     var hasReadChats: Bool { hasReadSessions }
     var activeChat: Session? { activeSession }
+    /// The sidebar's and the inspector's notion of the conversation in front, which is a stored
+    /// property of this model and not a question for the tab store. See `preferredChatID`.
+    var preferredChatID: SessionID? { activeSession?.id }
     var activeChatID: SessionID? {
         get { activeSessionID }
         set { activeSessionID = newValue }

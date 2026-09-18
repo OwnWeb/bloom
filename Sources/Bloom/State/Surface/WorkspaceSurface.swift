@@ -83,6 +83,22 @@ protocol WorkspaceSurface: AnyObject, Observable {
     /// Which chat the rest of the window is talking about, which selecting a tab adopts.
     var activeChat: Session? { get }
     var activeChatID: SessionID? { get set }
+    /// The chat this workspace would have the strip open on when the strip has no selection of its
+    /// own, **answered from the workspace's own state and never by asking `WorkspaceTabsStore`**.
+    ///
+    /// It is a second, narrower question than `activeChat`, and it exists because the two are the
+    /// same question for a local workspace and opposite ones for a Cloud workspace. A local one
+    /// keeps its own `activeSessionID`, set by the sidebar and the inspector, so the strip asking
+    /// it is a read of somewhere else. A Cloud workspace has no such place: the strip's selection
+    /// IS which chat is in front, so its `activeChat` is derived from the store, and the store
+    /// asking for it was mutual recursion with no base case. It crashed for the owner the first
+    /// time he made a Cloud workspace, at about ten thousand frames, because a workspace with no
+    /// chats yet is where neither side can break the tie by finding an answer.
+    ///
+    /// So a workspace whose selection is the store's own answers nil here, and the store falls
+    /// back to the first entry in the strip, which is what it did anyway for a workspace it had
+    /// never been told about. See `CloudWorkspaceSession.preferredChatID`.
+    var preferredChatID: SessionID? { get }
 
     /// What the centre column does when it arrives on this workspace: a local one reads its
     /// sessions and its settings, a Cloud one opens its connection and marks it read.

@@ -50,6 +50,16 @@ enum ReviewRunProbe {
             exit(failures.isEmpty ? 0 : 1)
         }
 
+        if CommandLine.arguments.contains("--cloud-selection-only") {
+            progress("Checking that a Cloud workspace with no chats does not ask the strip about itself")
+            await CloudSelectionProbe.run(check: check)
+            let result: JSONValue = .object([
+                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
+            ])
+            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         if CommandLine.arguments.contains("--cloud-terminal-only") {
             progress("Checking what a Cloud terminal shows after the machine reattaches it")
             await CloudTerminalProbe.run(check: check)
