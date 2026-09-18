@@ -236,8 +236,13 @@ struct ComposerView: View {
     }
 
     /// The pending review, which rides with whatever is sent next from this workspace.
+    ///
+    /// A Cloud chat has no `WorkspaceModel` here, so it asks through its link, the same way the
+    /// attachment root does: the notes belong to the workspace either way.
     private var reviewComments: [ReviewComment] {
-        includesReviewComments ? (model?.reviewComments ?? []) : []
+        guard includesReviewComments else { return [] }
+        if let model { return model.reviewComments }
+        return transcript.cloud?.reviewComments ?? []
     }
 
     /// Attachments alone are a turn. Dropping a screenshot in and pressing send is a sentence, and
@@ -536,12 +541,19 @@ struct ComposerView: View {
                 ReviewTurn.compose(
                     message: message,
                     comments: comments,
-                    worktreePath: worktree,
+                    // Nil rather than an empty string for a Cloud workspace, which has no worktree
+                    // on this Mac: the payload then renders each note from the lines its anchor
+                    // captured when it was written, rather than resolving every path against "/".
+                    worktreePath: worktree.isEmpty ? nil : worktree,
                     template: template
                 )
             }.value
             await transcript.submit(composed, clearingDraft: sourceDraft)
-            await model?.removeReviewComments(ids: comments.map(\.id))
+            if let model {
+                await model.removeReviewComments(ids: comments.map(\.id))
+            } else {
+                transcript.cloud?.removeReviewComments(ids: comments.map(\.id))
+            }
         }
     }
 
@@ -680,12 +692,12 @@ struct ComposerView: View {
 
     /// A comment chip opens the diff it was written on, where its band is.
     private func open(reviewComment comment: ReviewComment) {
-        guard let model else { return }
-        FileReview.open(path: comment.filePath, in: model)
+        if let model { return FileReview.open(path: comment.filePath, in: model) }
+        transcript.cloud?.openFile(path: comment.filePath)
     }
 
     private func remove(reviewComment id: ReviewCommentID) {
-        guard let model else { return }
+        guard let model else { return transcript.cloud?.removeReviewComment(id: id) ?? () }
         Task { await model.removeReviewComment(id: id) }
     }
 

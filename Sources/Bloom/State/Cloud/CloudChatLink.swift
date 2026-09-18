@@ -61,6 +61,25 @@ final class CloudChatLink {
     /// answer rather than this link's. See `WorkspaceSurface.attachmentRoot`.
     var attachmentRoot: String { session?.attachmentRoot(for: chatID) ?? "" }
 
+    /// The notes written on this workspace's diffs and not yet sent, which ride with whatever this
+    /// chat sends next. The workspace's own, because a note is about the workspace rather than
+    /// about one conversation in it. See `CloudChanges.reviewComments`.
+    var reviewComments: [ReviewComment] { session?.reviewComments ?? [] }
+
+    func removeReviewComment(id: ReviewCommentID) {
+        session?.removeReviewComments(ids: [id])
+    }
+
+    /// Taken away after they have gone with a turn.
+    func removeReviewComments(ids: [ReviewCommentID]) {
+        session?.removeReviewComments(ids: ids)
+    }
+
+    /// Opens the file a note was written on, which for a Cloud workspace is the review tab.
+    func openFile(path: String) {
+        session?.openFile(path: path, focusing: true)
+    }
+
     func stop() async {
         await session?.run(.stop(chatID: chatID.rawValue))
     }

@@ -62,9 +62,16 @@ final class CloudChanges {
     /// What the review pane last drew per file, so walking back to a file it has already read
     /// costs no request. The local model holds the same cache for the same reason.
     @ObservationIgnored private var presentations = DiffPresentationCache()
-    /// Where a note is being written and which are open for editing, held for the protocol's sake.
-    /// Nothing writes them today: `.reviewComments` is off for a Cloud workspace, so the gutter
-    /// that would start one is not drawn.
+    /// The notes written on this workspace's diffs and not yet sent.
+    ///
+    /// **Kept on this Mac, not on the machine, and that is the same choice a local workspace
+    /// makes.** A note is one person's own reminder of what to ask for next, in a state where they
+    /// have not asked for anything yet: locally it is a row in this Mac's database, and putting a
+    /// Cloud workspace's in its machine would publish half-written thoughts to everybody else in
+    /// the workspace and lose them when it is archived. They go where the read marks go, under the
+    /// workspace's own key, for the same reason.
+    private(set) var reviewComments: [ReviewComment] = []
+    /// Where a note is being written and which are open for editing.
     var reviewDrafts: [String: ReviewDraft] = [:]
     var reviewEdits: Set<ReviewCommentID> = []
     let reviewText = ReviewTextHost()
@@ -89,9 +96,53 @@ final class CloudChanges {
     init(session: CloudWorkspaceSession) {
         self.session = session
         viewed = (UserDefaults.standard.dictionary(forKey: Self.viewedKey(session.id)) as? [String: String]) ?? [:]
+        reviewComments = Self.storedComments(session.id)
     }
 
     private static func viewedKey(_ id: CloudWorkspaceID) -> String { "cloud.viewedFiles.\(id.rawValue)" }
+    private static func commentsKey(_ id: CloudWorkspaceID) -> String { "cloud.reviewComments.\(id.rawValue)" }
+
+    private static func storedComments(_ id: CloudWorkspaceID) -> [ReviewComment] {
+        guard let data = UserDefaults.standard.data(forKey: commentsKey(id)),
+              let stored = try? JSONDecoder().decode([ReviewComment].self, from: data) else { return [] }
+        return stored.sortedForReview()
+    }
+
+    // MARK: Notes on a diff
+
+    /// A note on a line, which rides with whatever this workspace sends next.
+    ///
+    /// The workspace id on the note is this Cloud workspace's, spelled as a `WorkspaceID` because
+    /// that is the field's type and the note is never handed to anything that would look a row up
+    /// by it: these live here rather than in this Mac's database. It is kept rather than left
+    /// blank so that a note always says which workspace it belongs to, whichever kind it is.
+    func addComment(filePath: String, side: ReviewCommentSide, anchor: ReviewCommentAnchor, body: String) {
+        guard let session else { return }
+        let comment = ReviewComment(
+            workspaceID: WorkspaceID(session.id.rawValue),
+            filePath: filePath, side: side, anchor: anchor, body: body
+        )
+        reviewComments = (reviewComments + [comment]).sortedForReview()
+        saveComments()
+    }
+
+    func editComment(id: ReviewCommentID, body: String) {
+        guard let index = reviewComments.firstIndex(where: { $0.id == id }) else { return }
+        reviewComments[index].body = body
+        saveComments()
+    }
+
+    func removeComments(ids: Set<ReviewCommentID>) {
+        guard reviewComments.contains(where: { ids.contains($0.id) }) else { return }
+        reviewComments.removeAll { ids.contains($0.id) }
+        saveComments()
+    }
+
+    private func saveComments() {
+        guard let session else { return }
+        guard let data = try? JSONEncoder().encode(reviewComments) else { return }
+        UserDefaults.standard.set(data, forKey: Self.commentsKey(session.id))
+    }
 
     /// The scope the machine understands for the two comparisons it measures continuously. A
     /// commit is not one of them: its files are `commit_files`, read for the one commit somebody

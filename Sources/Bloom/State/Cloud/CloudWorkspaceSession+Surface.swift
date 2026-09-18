@@ -40,7 +40,11 @@ extension CloudWorkspaceSession: WorkspaceSurface {
             // made against a version somebody else has moved on from. The token has to say this
             // Mac may touch files at all: a reader who may only watch gets no editor, which is the
             // same answer the machine would give and is better given before the button is pressed.
-            editFiles: allows("files")
+            editFiles: allows("files"),
+            // Notes on a diff are this reader's own, kept on this Mac until they are sent, so they
+            // need nothing of the machine's until the turn goes. What the turn needs is the right
+            // to send one at all. See `CloudChanges.reviewComments`.
+            reviewComments: allows("prompt")
         )
     }
 

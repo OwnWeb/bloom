@@ -204,9 +204,9 @@ extension CloudWorkspaceSession {
 
     // MARK: Notes on a diff
 
-    /// None, and none can be written: `.reviewComments` is off, so the gutter that starts one is
-    /// not drawn. The buffers are the protocol's shape rather than anything in use.
-    var reviewComments: [ReviewComment] { [] }
+    /// This reader's own notes on this workspace's diffs, kept on this Mac. See
+    /// `CloudChanges.reviewComments`.
+    var reviewComments: [ReviewComment] { changes.reviewComments }
     var reviewDrafts: [String: ReviewDraft] {
         get { changes.reviewDrafts }
         set { changes.reviewDrafts = newValue }
@@ -216,9 +216,22 @@ extension CloudWorkspaceSession {
         set { changes.reviewEdits = newValue }
     }
     var reviewText: ReviewTextHost { changes.reviewText }
-    func addReviewComment(filePath: String, selection: ReviewSelection, anchor: ReviewCommentAnchor, body: String) async {}
-    func editReviewComment(id: ReviewCommentID, body: String) async {}
-    func removeReviewComment(id: ReviewCommentID) async {}
+    func addReviewComment(filePath: String, selection: ReviewSelection, anchor: ReviewCommentAnchor, body: String) async {
+        changes.addComment(filePath: filePath, side: selection.side, anchor: anchor, body: body)
+    }
+
+    func editReviewComment(id: ReviewCommentID, body: String) async {
+        changes.editComment(id: id, body: body)
+    }
+
+    func removeReviewComment(id: ReviewCommentID) async {
+        changes.removeComments(ids: [id])
+    }
+
+    /// The whole pending review, taken away after it has gone with a turn.
+    func removeReviewComments(ids: [ReviewCommentID]) {
+        changes.removeComments(ids: Set(ids))
+    }
 
     func openTerminal(in folder: String) {
         // The workspace's own shell, which is the honest equivalent of a shell in a folder here.
