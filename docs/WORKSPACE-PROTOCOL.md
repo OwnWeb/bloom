@@ -241,10 +241,19 @@ events. Then live events as they happen.
 | `setup` | setup's state and step | replaces its copy |
 | `setup_output` | new output | appends it to the log |
 | `review` | a revision number | **no machine sends this today**; see below |
+| `pane_requested` | a `url` the agent named, or none for this workspace's own address, and the `chat_id` it is speaking for | **open a browser pane, if you want to**; see below |
 | `presence` | who has the workspace open | replaces its copy |
 | `workspace` | name, branch, pull request, `reporting` | replaces its copy |
 | `sleeping` | nothing | see "Sleeping and waking" |
 | `closing` | a failure | the stream ends; act on the code |
+
+**`pane_requested` is an agent on the machine asking, not telling.** It cannot open a pane: a pane
+belongs to the window of whoever is looking, and the machine is not there. So a client shows one if
+it wants to, and may ignore it. **Several clients may receive the same request**, and there is no
+"the" window, so each decides for itself. No `url` means this workspace's own public address, which
+a client connected to it already knows. The tool that sends it tells the agent how many clients were
+told, and tells it plainly when there were none, so **an agent is never in a position to report
+opening something that did not open**.
 
 **Knowing when the diff changed is the waiting `review_snapshot` call, not the `review` event.**
 Ask with the `revision` you hold and `wait` true: the machine answers at once with a new `revision`

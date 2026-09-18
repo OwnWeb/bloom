@@ -2471,6 +2471,38 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "pane_requested"
+            },
+            "url": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "chat_id": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "presence"
             },
             "users": {

@@ -19,7 +19,10 @@ struct BridgeBriefingTests {
         #expect(Self.briefing.contains("http = true"))
         // The one that turned a question into thirty-five actions: absence as an answer.
         #expect(Self.briefing.contains("belong to whoever is looking"))
-        #expect(Self.briefing.contains("absence of a tool for it is the answer"))
+        #expect(Self.briefing.contains("the answer rather than a gap to route around"))
+        // The one thing this end can do about a pane, and the honesty it comes with.
+        #expect(Self.briefing.contains("request_pane"))
+        #expect(Self.briefing.contains("nobody to ask"))
     }
 
     /// Generated rather than written, so a tool added or removed cannot leave the sentence lying.

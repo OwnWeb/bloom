@@ -87,6 +87,11 @@
         "seq" : 4
       }
     },
+    "pane_requested" : {
+      "chat_id" : "chat-1",
+      "kind" : "pane_requested",
+      "url" : "http://127.0.0.1:3000/dashboard"
+    },
     "presence" : {
       "kind" : "presence",
       "users" : [

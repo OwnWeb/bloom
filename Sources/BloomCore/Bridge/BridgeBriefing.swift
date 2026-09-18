@@ -31,9 +31,13 @@ public enum BridgeBriefing {
             You are running on a Cloud workspace machine, not on the owner's Mac.
 
             **Panes, terminals and browsers belong to whoever is looking at this workspace**, in \
-            their own window, somewhere else. Nothing here can open, split or point one, and the \
-            absence of a tool for it is the answer rather than a gap to route around. There is no \
-            browser on this machine to drive either.
+            their own window, somewhere else. Nothing here can open, split or point one, and there \
+            is no browser on this machine to drive. Where a tool for something is missing, that is \
+            the answer rather than a gap to route around.
+
+            **`request_pane` asks them to open a browser pane**, which is the most this end can \
+            do. It reports how many clients were told, and tells you when there was nobody to ask, \
+            because a machine often runs with every window shut. Do not say you opened anything.
 
             **A person is shown a page through the workspace's preview**, which is already there \
             and opens \(publicURL). It routes to whichever service `.bloom/settings.toml` marks \

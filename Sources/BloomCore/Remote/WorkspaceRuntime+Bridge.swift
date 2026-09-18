@@ -76,6 +76,10 @@ extension WorkspaceRuntime {
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.sayToCrew(name, text: text, callerID: sessionID, workspaceID: workspaceID)
             },
+            RequestPaneTool { [weak self] url, sessionID, _ in
+                guard let self else { return 0 }
+                return await self.requestPane(url: url, chatID: sessionID)
+            },
             AgentStopTool { [weak self] name, sessionID, workspaceID in
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.stopCrewMember(name, callerID: sessionID, workspaceID: workspaceID)
@@ -85,6 +89,19 @@ extension WorkspaceRuntime {
             handlers: handlers.map { WorkspaceScopedTool(wrapped: $0, workspaceID: workspaceID) },
             briefing: briefing
         )
+    }
+
+    /// `request_pane`: hands an agent's request to every client that is listening, and answers how
+    /// many that was.
+    ///
+    /// **Zero is the answer that matters.** A machine runs with every window shut, and an agent
+    /// that was told it had shown somebody something would go on to say so. Counting the
+    /// subscribers rather than assuming is the whole honesty of the tool.
+    func requestPane(url: String?, chatID: SessionID?) async -> Int {
+        let listening = await events.count
+        guard listening > 0 else { return 0 }
+        await events.publish(.paneRequested(url: url, chatID: chatID?.rawValue))
+        return listening
     }
 
     // MARK: - The crew
