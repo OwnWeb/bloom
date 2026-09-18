@@ -216,8 +216,7 @@ struct WorkspaceRow: View {
                     }
                 }
             }
-            .mask { trailingYield }
-            .overlay(alignment: .trailing) { hoverControls }
+            .modifier(SidebarRowTrailingControl(isShown: controlsShown) { archiveButton })
             .animation(reduceMotion ? nil : Motion.hover, value: isHovered)
         } icon: {
             // **A mark only when something is happening or something is wanted.** Which states
@@ -315,93 +314,6 @@ struct WorkspaceRow: View {
     /// whole row, and controls drawn over its trailing edge would sit on the text being typed.
     private var controlsShown: Bool { (isHovered || isArchiveActive) && !isRenaming }
 
-    /// The width the controls cover when they are shown: the archive button alone.
-    private static let controlsWidth = SidebarMetrics.rowButton
-
-    /// How far the content underneath fades before the controls begin, so a name that reaches
-    /// them is cut with a fade rather than a cliff.
-    private static let controlsFade: CGFloat = 12
-
-    /// The row's hover control, drawn over the trailing edge while the pointer is on the row.
-    ///
-    /// Conductor swaps the counts for the controls under the pointer, the owner asked for the
-    /// same, and a swap is the right shape here because the two are never both worth reading: the
-    /// counts say how much changed and the controls are what you reach for when you have finished
-    /// reading them.
-    ///
-    /// **An overlay, not a layout slot, and the difference is forty points of every name.** The
-    /// first build kept the controls in the row's layout at every moment, at opacity nought
-    /// inside a `ZStack` with the counts, so that nothing could move when the pointer landed. It
-    /// worked, and it charged every row the width of both buttons whether anything would ever
-    /// draw there or not: the owner measured names in his own sidebar truncating some seventy
-    /// points short of the row's edge and asked for the room back. So the guarantee is now kept
-    /// the other way round. The controls take no layout space at all, the name runs to the row's
-    /// edge, and when the pointer arrives the trailing region YIELDS instead of the name
-    /// reflowing: `trailingYield` fades out whatever the controls would land on and the controls
-    /// draw on the cleared ground. Nothing moves in either direction, because nothing's measured
-    /// size ever changes.
-    ///
-    /// What yields is whatever happens to live in the last fifty points: usually the counts,
-    /// sometimes the pin or the tail of a long name. The counts always yielded; the pin and the
-    /// tail are new to it, which is a real cost, and it is the right side of the trade because
-    /// hovering is the reading state of one row under the pointer while rest is the reading state
-    /// of the whole pane. Everything comes back the moment the pointer leaves.
-    ///
-    /// The reveal follows the project header's GEAR rather than its `+`: from nothing, not lit
-    /// from a resting state. The `+` is present at rest because creating is the thing anyone does
-    /// often enough to go looking for. Archiving is the opposite, and a column of archive boxes
-    /// down a pane whose job is to name the work would read as an invitation. The menu is the same
-    /// argument: a column of ellipses says nothing about any of the rows it is drawn on.
-    ///
-    /// There used to be a menu beside the archive, drawing `WorkspaceMenuItems`, the same items
-    /// the row's right click offers. It went because it was that and nothing more: a second door
-    /// to a menu everyone already opens with a right click, costing twenty points of every hovered
-    /// name. Archive stays because it is the one thing people reach for often enough to want it
-    /// under the pointer, and it is still in the right click menu for anyone who looks there.
-    private var hoverControls: some View {
-        archiveButton
-            .opacity(controlsShown ? 1 : 0)
-            // An invisible control still takes clicks, which over the trailing edge of a row would
-            // be the worst possible bug in a destructive one. The pointer has to be on the row
-            // for it to be drawn at all, so this costs nothing real.
-            .allowsHitTesting(controlsShown)
-    }
-
-    /// The mask that clears the ground under the controls while they are shown.
-    ///
-    /// A full rectangle at rest, so it changes nothing, with an eraser over the trailing edge
-    /// that fades in with the controls: opaque behind the buttons themselves, thinning to nothing
-    /// over `controlsFade` more points. `destinationOut` inside a `compositingGroup` is what
-    /// punches alpha OUT of a mask that is otherwise solid; the obvious alternative, two mask
-    /// shapes switched by the hover, cannot animate between its states.
-    ///
-    /// A mask on the content rather than a plate behind the controls, because the row does not
-    /// know what it is sitting on: the accent fill when selected with the keyboard, the quiet
-    /// grey when selected without it, bare sidebar material otherwise. Erasing the content shows
-    /// the true ground, whichever that is, so the buttons stand on the same fill as the rest of
-    /// the row.
-    private var trailingYield: some View {
-        Rectangle()
-            .overlay(alignment: .trailing) {
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(
-                            color: .black,
-                            location: Self.controlsFade / (Self.controlsFade + Self.controlsWidth)
-                        ),
-                        .init(color: .black, location: 1),
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(width: Self.controlsFade + Self.controlsWidth)
-                .blendMode(.destinationOut)
-                .opacity(controlsShown ? 1 : 0)
-            }
-            .compositingGroup()
-    }
-
     private var archiveButton: some View {
         Button {
             onArchive(workspace)
@@ -462,5 +374,107 @@ private struct SubagentFailureLabelStyle: LabelStyle {
             configuration.icon
             configuration.title
         }
+    }
+}
+
+/// The row's hover control and the ground it clears, for every workspace row in the sidebar.
+///
+/// Lifted out of `WorkspaceRow` whole, prose included, when a Cloud workspace's row needed the same
+/// archive box under the pointer: one copy of a mask this careful is enough.
+struct SidebarRowTrailingControl<Control: View>: ViewModifier {
+    /// Whether the control is being shown, which the row decides: hovered, or held open by an
+    /// archive question it raised, and never while its name is being edited.
+    var isShown: Bool
+    @ViewBuilder var control: () -> Control
+
+    /// The width the controls cover when they are shown: the archive button alone.
+    static var controlsWidth: CGFloat { SidebarMetrics.rowButton }
+
+    /// How far the content underneath fades before the controls begin, so a name that reaches
+    /// them is cut with a fade rather than a cliff.
+    static var controlsFade: CGFloat { 12 }
+
+    /// The row's hover control, drawn over the trailing edge while the pointer is on the row.
+    ///
+    /// Conductor swaps the counts for the controls under the pointer, the owner asked for the
+    /// same, and a swap is the right shape here because the two are never both worth reading: the
+    /// counts say how much changed and the controls are what you reach for when you have finished
+    /// reading them.
+    ///
+    /// **An overlay, not a layout slot, and the difference is forty points of every name.** The
+    /// first build kept the controls in the row's layout at every moment, at opacity nought
+    /// inside a `ZStack` with the counts, so that nothing could move when the pointer landed. It
+    /// worked, and it charged every row the width of both buttons whether anything would ever
+    /// draw there or not: the owner measured names in his own sidebar truncating some seventy
+    /// points short of the row's edge and asked for the room back. So the guarantee is now kept
+    /// the other way round. The controls take no layout space at all, the name runs to the row's
+    /// edge, and when the pointer arrives the trailing region YIELDS instead of the name
+    /// reflowing: `trailingYield` fades out whatever the controls would land on and the controls
+    /// draw on the cleared ground. Nothing moves in either direction, because nothing's measured
+    /// size ever changes.
+    ///
+    /// What yields is whatever happens to live in the last fifty points: usually the counts,
+    /// sometimes the pin or the tail of a long name. The counts always yielded; the pin and the
+    /// tail are new to it, which is a real cost, and it is the right side of the trade because
+    /// hovering is the reading state of one row under the pointer while rest is the reading state
+    /// of the whole pane. Everything comes back the moment the pointer leaves.
+    ///
+    /// The reveal follows the project header's GEAR rather than its `+`: from nothing, not lit
+    /// from a resting state. The `+` is present at rest because creating is the thing anyone does
+    /// often enough to go looking for. Archiving is the opposite, and a column of archive boxes
+    /// down a pane whose job is to name the work would read as an invitation. The menu is the same
+    /// argument: a column of ellipses says nothing about any of the rows it is drawn on.
+    ///
+    /// There used to be a menu beside the archive, drawing `WorkspaceMenuItems`, the same items
+    /// the row's right click offers. It went because it was that and nothing more: a second door
+    /// to a menu everyone already opens with a right click, costing twenty points of every hovered
+    /// name. Archive stays because it is the one thing people reach for often enough to want it
+    /// under the pointer, and it is still in the right click menu for anyone who looks there.
+    func body(content: Content) -> some View {
+        content
+            .mask { trailingYield }
+            .overlay(alignment: .trailing) {
+                control()
+                    .opacity(isShown ? 1 : 0)
+                    // An invisible control still takes clicks, which over the trailing edge of a
+                    // row would be the worst possible bug in a destructive one. The pointer has to
+                    // be on the row for it to be drawn at all, so this costs nothing real.
+                    .allowsHitTesting(isShown)
+            }
+    }
+
+    /// The mask that clears the ground under the controls while they are shown.
+    ///
+    /// A full rectangle at rest, so it changes nothing, with an eraser over the trailing edge
+    /// that fades in with the controls: opaque behind the buttons themselves, thinning to nothing
+    /// over `controlsFade` more points. `destinationOut` inside a `compositingGroup` is what
+    /// punches alpha OUT of a mask that is otherwise solid; the obvious alternative, two mask
+    /// shapes switched by the hover, cannot animate between its states.
+    ///
+    /// A mask on the content rather than a plate behind the controls, because the row does not
+    /// know what it is sitting on: the accent fill when selected with the keyboard, the quiet
+    /// grey when selected without it, bare sidebar material otherwise. Erasing the content shows
+    /// the true ground, whichever that is, so the buttons stand on the same fill as the rest of
+    /// the row.
+    private var trailingYield: some View {
+        Rectangle()
+            .overlay(alignment: .trailing) {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(
+                            color: .black,
+                            location: Self.controlsFade / (Self.controlsFade + Self.controlsWidth)
+                        ),
+                        .init(color: .black, location: 1),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: Self.controlsFade + Self.controlsWidth)
+                .blendMode(.destinationOut)
+                .opacity(isShown ? 1 : 0)
+            }
+            .compositingGroup()
     }
 }

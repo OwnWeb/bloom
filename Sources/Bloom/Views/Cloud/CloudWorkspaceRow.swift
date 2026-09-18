@@ -4,55 +4,95 @@ import SwiftUI
 
 /// One Cloud workspace in the sidebar, drawn from runbloom.app's list alone, so a row never wakes
 /// the machine it describes.
+///
+/// **Built from the local row's own pieces**, so the two sections of the column read as one list:
+/// the same name text with the same unread weight, the same mark drawn by the same policy (a mark
+/// only when something is happening or something is wanted), the same quiet diff figures, and the
+/// same label style that keeps the mark in the icon column. What is here that a local row has not
+/// got is the lock and the sharing mark, which are facts only a shared workspace has.
 struct CloudWorkspaceRow: View {
     var item: CloudWorkspaceItem
     var isSelected: Bool
+    /// Raises the Cloud archive sheet, which asks the machine what is about to be lost and says
+    /// the conversation goes with it. See `CloudArchiveSheet`.
+    var onArchive: () -> Void = {}
 
-    /// What the machine is doing, for the sentence under the row and its tooltip.
+    @Environment(\.backgroundProminence) private var backgroundProminence
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+
+    /// What the machine is doing, in the sentence VoiceOver reads for the row.
     private var status: CloudWorkspaceStatus { CloudWorkspaceStatus(item: item) }
-    /// The same fact in the sidebar's own vocabulary, for the mark. See `WorkspaceStatus`.
+    /// The same fact in the sidebar's own vocabulary, for the mark. See `CloudSidebarMark`.
     private var mark: WorkspaceStatus { WorkspaceStatus(cloudItem: item) }
+
+    private var isEmphasized: Bool { backgroundProminence == .increased }
 
     var body: some View {
         Label {
             HStack(spacing: Metrics.spacing) {
-                Text(item.displayName)
-                    .fontWeight(item.unread ? .semibold : .regular)
+                WorkspaceNameText(name: item.displayName, isUnread: item.unread)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if !item.canOpen {
-                    // A team owner or admin can see a private workspace exists, and archive it,
-                    // without being able to open it.
-                    Image(systemName: "lock")
-                        .font(.caption2)
-                        .foregroundStyle(isSelected ? Palette.textInverted : Palette.textTertiary)
-                        .help("Private to \(item.owner?.name ?? "its owner")")
-                        .accessibilityLabel("Private to \(item.owner?.name ?? "its owner")")
-                } else if item.sharedWithTeam || item.role == "collaborator" {
-                    Image(systemName: "person.2")
-                        .font(.caption2)
-                        .foregroundStyle(isSelected ? Palette.textInverted : Palette.textTertiary)
-                        .accessibilityLabel(item.role == "collaborator" ? "Shared with you" : "Shared with your team")
-                }
+                sharingMark
                 Spacer(minLength: Metrics.spacingSmall)
                 if let diff = item.summary?.diff, diff.files > 0 {
-                    Text("+\(diff.additions) −\(diff.deletions)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(isSelected ? Palette.textInverted : Palette.textTertiary)
+                    DiffStatLabel(additions: diff.additions, deletions: diff.deletions, compact: true, quiet: true)
+                        .opacity(isHovered && item.canArchive ? 0 : 1)
                 }
             }
+            // The local row's own hover control and the ground it clears, so the archive box is
+            // under the pointer in the same place in both sections of the column.
+            .modifier(SidebarRowTrailingControl(isShown: isHovered && item.canArchive) { archiveButton })
+            .animation(reduceMotion ? nil : Motion.hover, value: isHovered)
         } icon: {
-            glyph
+            // The local row's policy, asked of the same status, so a resting Cloud workspace has no
+            // mark exactly where a resting local one has none.
+            if SidebarMarkPolicy.drawsMark(mark) {
+                WorkspaceStatusGlyph(status: mark, isOnSelection: isEmphasized)
+            } else {
+                Color.clear.frame(width: Metrics.glyph, height: Metrics.glyph)
+            }
         }
-        .help("\(item.project?.repository ?? item.displayBranch): \(status.phrase)")
+        .labelStyle(SidebarRowLabelStyle())
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityValue(status.phrase + (item.unread ? ", unread" : ""))
+        .environment(\.isOnEmphasizedSelection, isEmphasized)
     }
 
-    /// The column's own mark, the one a local workspace wears, rather than a cloud of its own.
-    /// Which section the row is in already says it runs in the cloud; the mark is for whether an
-    /// agent is working, whether it wants a person, and what GitHub thinks of the branch.
-    private var glyph: some View {
-        WorkspaceStatusGlyph(status: mark, isOnSelection: isSelected)
+    /// The same box a local row draws, raising the Cloud archive rather than the local one.
+    private var archiveButton: some View {
+        Button(action: onArchive) {
+            Image(systemName: "archivebox")
+                .font(Typo.caption)
+                .frame(width: SidebarMetrics.rowButton, height: SidebarMetrics.rowButton)
+                .contentShape(RoundedRectangle(cornerRadius: Metrics.cornerSmall))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isEmphasized ? Palette.textInverted : Palette.textSecondary)
+        .help("Archive this Cloud workspace")
+        .accessibilityLabel("Archive \(item.displayName)")
+    }
+
+    /// Whether other people can see it, which is the one thing about a Cloud workspace's row a
+    /// local one has no word for.
+    @ViewBuilder
+    private var sharingMark: some View {
+        let ink = isEmphasized ? Palette.textInverted : Palette.textTertiary
+        if !item.canOpen {
+            // A team owner or admin can see a private workspace exists, and archive it, without
+            // being able to open it.
+            Image(systemName: "lock")
+                .font(Typo.micro)
+                .foregroundStyle(ink)
+                .accessibilityLabel("Private to \(item.owner?.name ?? "its owner")")
+        } else if item.sharedWithTeam || item.role == "collaborator" {
+            Image(systemName: "person.2")
+                .font(Typo.micro)
+                .foregroundStyle(ink)
+                .accessibilityLabel(item.role == "collaborator" ? "Shared with you" : "Shared with your team")
+        }
     }
 }

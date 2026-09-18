@@ -886,7 +886,14 @@ struct SidebarView: View {
         Section {
             ForEach(app.cloud.items) { item in
                 let target = SidebarSelection.cloud(CloudWorkspaceID(item.id))
-                CloudWorkspaceRow(item: item, isSelected: listSelection == target)
+                CloudWorkspaceRow(item: item, isSelected: listSelection == target) {
+                    app.selection = target
+                    app.cloud.archiving = CloudWorkspaceID(item.id)
+                }
+                    // Indented to the section header's name the way a local workspace is indented
+                    // to its project's, in the shape where the local rows are indented at all, so
+                    // the marks and names of both sections stand in the same two columns.
+                    .padding(.leading, grouping == .projects ? SidebarMetrics.rowIndent : 0)
                     .tag(target)
                     .sidebarSelection(selectionStyle(for: target))
                     .selectionDisabled(!item.canOpen)
