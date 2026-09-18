@@ -34,6 +34,10 @@ struct ComposerPrompt<Footer: View>: View {
     /// every worktree on this Mac: see `MentionAddress.offersPeople`, which is the rule, and
     /// `PersonMentionMenu`, which is what opens when it says yes.
     var people: [ComposerAudience.Person] = []
+    /// What is answering in this conversation, so the mention menu can label the agent's own row
+    /// with it and find that row from `@claude` as well as from `@agent`. Nil in the create
+    /// window, which has no chat yet, and everywhere the menu lists files.
+    var runningAgent: AgentKind?
     /// Where an attached file is copied to, and what its stored path is relative to.
     var attachmentRoot: String
     /// Which bucket of `PromptAttachmentStore` this prompt is filling: a session id in a
@@ -228,14 +232,14 @@ struct ComposerPrompt<Footer: View>: View {
                 commands: slashResults(in: openMenu),
                 commandsAreLoaded: slashCatalog.isLoaded,
                 files: fileMatches,
-                people: peopleMatches(in: openMenu),
+                candidates: mentionCandidates(in: openMenu),
                 offersPeople: offersPeople(in: openMenu),
                 selectedIndex: menuIndex,
                 maxHeight: placement.menuHeight,
                 availableWidth: boxWidth,
                 onPickCommand: pick(command:),
                 onPickFile: pick(file:),
-                onPickPerson: pick(person:),
+                onPickCandidate: pick(candidate:),
                 onHighlight: { menuIndex = $0 }
             )
             .alignmentGuide(.top, computeValue: guide)
@@ -451,7 +455,7 @@ struct ComposerPrompt<Footer: View>: View {
     private var menuCount: Int {
         switch activeMenu {
         case .slash: slashResults(in: activeMenu).count
-        case .mention: offersPeople(in: activeMenu) ? peopleMatches(in: activeMenu).count : fileMatches.count
+        case .mention: offersPeople(in: activeMenu) ? mentionCandidates(in: activeMenu).count : fileMatches.count
         case .none: 0
         }
     }
@@ -463,18 +467,20 @@ struct ComposerPrompt<Footer: View>: View {
         return MentionAddress.offersPeople(token: token, draft: command.body, hasPeople: !people.isEmpty)
     }
 
-    /// Who the query matches, by handle or by name, in the order the machine listed them.
-    ///
-    /// Both, because somebody typing `@seb` is as likely to be reaching for the name they see in
-    /// the room as for the handle they have to type, and a menu that only matched handles would
-    /// look broken to the second kind of person.
-    private func peopleMatches(in menu: ComposerMenu) -> [ComposerAudience.Person] {
-        guard offersPeople(in: menu), let query = menu.query?.lowercased() else { return [] }
-        guard !query.isEmpty else { return people }
-        return people.filter {
-            $0.handle.lowercased().contains(query) || $0.name.lowercased().contains(query)
-        }
+    /// What the query matches: the agent, then whoever is named or handled like it. The ranking
+    /// and the matching are `MentionAddress.candidates`, in the core, because the web client's
+    /// menu shows the same rows in the same order.
+    private func mentionCandidates(in menu: ComposerMenu) -> [MentionCandidate] {
+        guard offersPeople(in: menu), let query = menu.query else { return [] }
+        return MentionAddress.candidates(
+            matching: query, people: people, runningAgent: runningAgent, agentName: agentName
+        )
     }
+
+    /// What the agent's row is called. Its own name where a chat is running one, and the plain
+    /// word where nothing has started yet, which is honest rather than a guess at which of the
+    /// three it will turn out to be.
+    private var agentName: String { runningAgent?.label ?? "Agent" }
 
     /// Which side of the box the floating panels open on, and how much room that side has.
     ///
@@ -600,11 +606,16 @@ struct ComposerPrompt<Footer: View>: View {
         isFocused = true
     }
 
-    /// Writes the handle in, in place of what was typed. The same replacement a file picks, over
+    /// Writes the mention in, in place of what was typed. The same replacement a file picks, over
     /// the same token, because the two menus differ in what they list and in nothing else.
-    private func pick(person: ComposerAudience.Person) {
+    ///
+    /// **The agent's row writes `@agent` whichever alias found it.** `@bloom` and `@claude` both
+    /// reach it and both are correct to type, but four spellings of one destination in the
+    /// transcripts a team reads back is the cost of letting the completion keep what was typed.
+    /// See `MentionCandidate.insertion`.
+    private func pick(candidate: MentionCandidate) {
         guard let token = activeMenu.mention else { return }
-        replace(token: token, with: "@\(person.handle) ")
+        replace(token: token, with: candidate.insertion)
     }
 
     private func pickHighlighted() {
@@ -614,9 +625,9 @@ struct ComposerPrompt<Footer: View>: View {
             guard results.indices.contains(menuIndex) else { return }
             pick(command: results[menuIndex].command)
         case .mention where offersPeople(in: activeMenu):
-            let matches = peopleMatches(in: activeMenu)
+            let matches = mentionCandidates(in: activeMenu)
             guard matches.indices.contains(menuIndex) else { return }
-            pick(person: matches[menuIndex])
+            pick(candidate: matches[menuIndex])
         case .mention:
             guard fileMatches.indices.contains(menuIndex) else { return }
             pick(file: fileMatches[menuIndex])

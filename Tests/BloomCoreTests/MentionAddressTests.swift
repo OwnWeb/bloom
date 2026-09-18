@@ -87,6 +87,45 @@ struct MentionAddressTests {
         #expect(MentionAddress.token(in: "@sebdd test") == "@sebdd")
     }
 
+    // MARK: - What the menu offers
+
+    private func rows(_ query: String, agent: AgentKind? = .claudeCode) -> [MentionCandidate] {
+        MentionAddress.candidates(
+            matching: query, people: Self.people, runningAgent: agent, agentName: agent?.label ?? "Agent"
+        )
+    }
+
+    /// The row somebody could not pick: `@bloom` addressed the agent perfectly well and the menu
+    /// said "Nobody here is called blo" while it was being typed.
+    @Test("The agent heads the list and answers to every name it has")
+    func theAgentIsARow() {
+        #expect(rows("").first == .agent(name: "Claude Code"))
+        #expect(rows("ag").first?.isAgent == true)
+        #expect(rows("bl").first?.isAgent == true)
+        #expect(rows("cla").first?.isAgent == true)
+        // The name it is labelled with, which is what somebody reads before they type.
+        #expect(rows("Claude").first?.isAgent == true)
+        // And not the one that is not running.
+        #expect(rows("codex", agent: .claudeCode).contains { $0.isAgent } == false)
+    }
+
+    @Test("Whichever name found it, picking the agent writes @agent")
+    func theAgentAlwaysWritesTheSameThing() {
+        #expect(rows("bl").first?.insertion == "@agent ")
+        #expect(rows("cla").first?.insertion == "@agent ")
+        #expect(rows("seb").first?.insertion == "@sebdd ")
+    }
+
+    @Test("People are matched on handle and on name both")
+    func peopleAreMatchedTwoWays() {
+        #expect(rows("seb") == [.person(Self.seb)])
+        #expect(rows("De Deyne") == [.person(Self.seb)])
+        #expect(rows("vanderbist") == [.person(Self.alex)])
+        // A query that names nobody at all is an empty menu, which the panel draws as a sentence
+        // rather than as a list with nothing in it.
+        #expect(rows("zz").isEmpty)
+    }
+
     // MARK: - Which menu an @ opens
 
     private func token(_ draft: String) -> ComposerMenu.Token {

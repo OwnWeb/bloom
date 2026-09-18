@@ -112,6 +112,39 @@ public enum MentionAddress {
         token == "agent" || token == "bloom" || AgentKind.allCases.map(alias(of:)).contains(token)
     }
 
+    /// The rows a mention menu shows for what has been typed so far.
+    ///
+    /// **The agent first**, because it is where most messages go and because a list that buried it
+    /// under three colleagues would make the commonest destination the hardest to reach. It is
+    /// matched on every token that addresses it and on the name it is labelled with, so `@ag`,
+    /// `@bl`, `@cla` and `@Claude` all find the same row.
+    ///
+    /// A person is matched on handle and on name both, because somebody typing `@seb` is as likely
+    /// to be reaching for the name they see in the room as for the handle they have to type, and a
+    /// menu that only matched handles would look broken to the second kind of person.
+    ///
+    /// - Parameter agentName: what to call the thing that is answering, which the core has no
+    ///   opinion about: `AgentKind.label` for a chat with one running, and whatever the caller
+    ///   says for a chat that has not started.
+    public static func candidates(
+        matching query: String,
+        people: [ComposerAudience.Person],
+        runningAgent: AgentKind?,
+        agentName: String
+    ) -> [MentionCandidate] {
+        let query = query.lowercased()
+        let agent = MentionCandidate.agent(name: agentName)
+        let matchesAgent = query.isEmpty
+            || agentTokens(runningAgent: runningAgent).contains { $0.hasPrefix(query) }
+            || agentName.lowercased().contains(query)
+        let matched = people.filter {
+            query.isEmpty
+                || $0.handle.lowercased().contains(query)
+                || $0.name.lowercased().contains(query)
+        }
+        return (matchesAgent ? [agent] : []) + matched.map(MentionCandidate.person)
+    }
+
     /// Whether a completion menu opened here offers people rather than files.
     ///
     /// Three conditions, and each of them is a rule somebody could get wrong on its own. It has to

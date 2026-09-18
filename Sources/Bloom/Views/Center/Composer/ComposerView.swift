@@ -173,6 +173,7 @@ struct ComposerView: View {
             isFocused: $isFocused,
             mentionRoot: transcript.cwd,
             people: transcript.cloud?.people ?? [],
+            runningAgent: transcript.cloud?.runningAgent,
             attachmentRoot: attachmentRoot,
             attachmentKey: transcript.session.id.rawValue,
             reviewComments: reviewComments,
