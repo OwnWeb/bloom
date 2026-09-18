@@ -6,6 +6,12 @@ import PackageDescription
 // dependency a manifest names whether or not the product being built uses it. A Linux build
 // that declared them would fail before compiling a line of our own. See
 // docs/REMOTE-WORKSPACES.md, "Where the code goes".
+//
+// **That is about building the package, and not about building one target.** Somebody read the
+// paragraph above, tried `swift build --target BloomCore` on Linux and expected it to be
+// impossible; resolution succeeds and the core compiles. The distinction is worth the sentence,
+// because "a Linux build fails before compiling a line" reads as "you cannot compile the core on
+// Linux", which is exactly the guard the `lint` job wants to run.
 #if os(Linux)
 import Foundation
 

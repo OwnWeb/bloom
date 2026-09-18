@@ -246,6 +246,12 @@ events. Then live events as they happen.
 | `sleeping` | nothing | see "Sleeping and waking" |
 | `closing` | a failure | the stream ends; act on the code |
 
+**Refuse at the edge, be liberal at the leaf.** A word the machine does not know is refused there,
+because an agent told it got what it asked for is the failure that matters; **a client draws an
+unknown one as the default rather than discarding the event**, because a client that goes silent
+over a word it has not learned goes blind the day a value is added. The two ends are deliberately
+not symmetric, and both halves of that were argued for by the people who own them.
+
 **`pane_requested` carries `placement`, `split` or `tab`, and absent means `tab`.** An agent asked
 to put a browser "next to this chat" had no way to say so and got a tab, which is a different thing:
 locally the two are different verbs, `pane_split` and `pane_open`. **A split belongs beside the pane
