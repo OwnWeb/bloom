@@ -24,6 +24,12 @@ What it does, in order:
    environment only, exactly as a real turn start carries a key. It is never printed, logged,
    passed as an argument or written to a file on either side.
 
+**This is a client of bloom-workspace like any other, so it reads the vectors rather than assuming.**
+Protocol/v1/vectors.json is what every reply actually looks like, and three assertions here have
+been wrong about the shape of one rather than about what the machine did: `accepted` carries only
+its kind, so asking whether a payload key is in it fails against a machine that did exactly the
+right thing. When adding an assertion about a reply, look the reply up there first.
+
 Environment:
   BLOOM_TEST_SPRITES_ORG  the organisation (default freek-van-der-herten)
   OPENSSL                 an OpenSSL 3 with Ed25519 (default /opt/homebrew/bin/openssl, then openssl)
