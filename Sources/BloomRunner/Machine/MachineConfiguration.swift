@@ -22,6 +22,17 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
     public var baseBranch: String
     public var name: String
     public var teamID: String?
+    /// Whether this workspace's setup scripts should run at all, which a person chose when they
+    /// created it.
+    ///
+    /// **Optional here, and deliberately not defaulted at the property.** The two states a reader
+    /// has to tell apart are `false` and *not written*, and a non-optional `Bool` with a default
+    /// collapses them into one. runbloom.app writes this key on every machine it bootstraps, so in
+    /// practice it is always there; a machine that meets a file without it is meeting a file
+    /// written by something older, and the safe reading of that is the behaviour everything had
+    /// before the key existed, which is to set up. **The writer always writes it, the reader never
+    /// assumes it was written.** `runsSetup` is what the rest of the runner asks.
+    public var runSetup: Bool?
 
     enum CodingKeys: String, CodingKey {
         case workspaceID = "workspace_id"
@@ -34,6 +45,7 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
         case repository, branch, name
         case baseBranch = "base_branch"
         case teamID = "team_id"
+        case runSetup = "run_setup"
     }
 
     public static let defaultPath = "/etc/bloom/workspace.json"
@@ -69,6 +81,9 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
             throw MachineConfigurationError("The workspace configuration names a branch git would refuse.")
         }
     }
+
+    /// Absent means yes. See `runSetup`.
+    public var runsSetup: Bool { runSetup ?? true }
 
     /// The host part of the public URL, which Vite and friends want on an allow list.
     public var publicHost: String { URL(string: publicURL)?.host ?? "" }

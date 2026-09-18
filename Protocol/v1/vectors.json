@@ -149,6 +149,7 @@
     "setup" : {
       "kind" : "setup",
       "setup" : {
+        "enabled" : true,
         "started_at" : "2026-09-17T09:40:02.500Z",
         "state" : "running",
         "step" : "prepare"
@@ -181,6 +182,7 @@
         "id" : "01k5bx7j9d3v2r8q6m4n0p1s2w",
         "name" : "Queue retries",
         "setup" : {
+          "enabled" : true,
           "finished_at" : "2026-09-17T09:40:02.500Z",
           "started_at" : "2026-09-17T09:40:02.500Z",
           "state" : "succeeded"
@@ -199,6 +201,7 @@
           "unreachable_since" : "2026-09-17T09:40:02.500Z"
         },
         "setup" : {
+          "enabled" : true,
           "finished_at" : "2026-09-17T09:40:02.500Z",
           "started_at" : "2026-09-17T09:40:02.500Z",
           "state" : "succeeded"
@@ -536,6 +539,7 @@
         "setup_output" : {
           "log" : "Installing\n",
           "setup" : {
+            "enabled" : true,
             "started_at" : "2026-09-17T09:40:02.500Z",
             "state" : "running",
             "step" : "setup"
@@ -690,6 +694,7 @@
             "id" : "01k5bx7j9d3v2r8q6m4n0p1s2w",
             "name" : "Queue retries",
             "setup" : {
+              "enabled" : true,
               "finished_at" : "2026-09-17T09:40:02.500Z",
               "started_at" : "2026-09-17T09:40:02.500Z",
               "state" : "succeeded"

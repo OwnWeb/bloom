@@ -58,7 +58,7 @@ extension WorkspaceRuntime {
 
     func setupRecord(_ workspace: Workspace) -> SetupRecord {
         SetupRecord(state: workspace.setupState.rawValue, step: setupStep, startedAt: setupStartedAt,
-                    finishedAt: setupFinishedAt, note: Self.failureNote(workspace))
+                    finishedAt: setupFinishedAt, note: Self.failureNote(workspace), isEnabled: runsSetup)
     }
 
     /// The tail of a failed run's log: enough for a client to say what went wrong in the sidebar

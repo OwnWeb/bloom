@@ -161,7 +161,7 @@ Changing the worktree (ability `files`, except where noted):
 | `revert_file` | `path`, `scope` | `accepted`: the file goes back, in the sense that scope has |
 | `discard_hunk` | `path`, `scope`, `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
 | `rename_workspace` | `name` | `accepted` |
-| `run_setup` | | `accepted` once setup has run again |
+| `run_setup` | | `accepted` once setup has run again. Sent for a workspace with `setup.enabled` false too: the person is asking for it by hand, which is the whole point of the key |
 | `run_script` (`terminal`) | `id` | `terminal`: the terminal it runs in |
 | `close_terminal` (`terminal`) | `name` | `accepted` |
 | `archive` (`share`) | `confirmation_id` | `accepted`, or a fresh `archive_preview` when the answer moved |
@@ -245,6 +245,15 @@ events. Then live events as they happen.
 | `workspace` | name, branch, pull request, `reporting` | replaces its copy |
 | `sleeping` | nothing | see "Sleeping and waking" |
 | `closing` | a failure | the stream ends; act on the code |
+
+**A workspace can be created with setup turned off, and `setup.enabled` is how a client knows.**
+It is false when somebody asked for no setup scripts at all: the repository is cloned and nothing
+else is run, no services are started, and `setup.state` settles at `skipped` with a note saying so.
+**`skipped` is then the ordinary outcome rather than something to fix**, so a client should offer to
+run setup rather than report that it failed to, and `run_setup` is how a person asks for it. The
+field is not named `run_setup` on purpose, because that is the method beside it and a field of that
+name would read as a command. It is absent only from a machine older than the key, and absent means
+enabled, which is what those machines do.
 
 **A client never has to guess what a new chat starts with.** `composer_defaults` on the workspace
 snapshot is what a chat that does not exist yet would open on, as the machine answers it: the

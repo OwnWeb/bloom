@@ -215,7 +215,7 @@ public actor MachineSetup {
         let interrupted = (try? await store.workspace(id: runtime.workspaceID))?.setupState == .running
         var succeeded = await cloneIfNeeded(environment: environment, log: log, continuing: interrupted)
         let scripts = MachineScripts.load(repo: layout.worktree)
-        if succeeded {
+        if succeeded, configuration.runsSetup {
             for problem in scripts.problems { await log.note(problem) }
             if !scripts.hasCloudSetup { await log.note(Self.noCloudSetupNote(hasSetupScript: scripts.setup != nil)) }
             let steps: [(String, ScriptLaunch?, Duration)] = [
@@ -226,11 +226,14 @@ public actor MachineSetup {
             for (name, launch, timeout) in steps where succeeded {
                 succeeded = await runScript(name, launch, timeout: timeout, environment: environment, log: log, continuing: interrupted)
             }
+        } else if succeeded {
+            await log.note(Self.setupNotAskedForNote(hasServices: !scripts.services.isEmpty))
         }
         if await interruptedByShutdown(log: log) { return false }
         await settle(log: log, succeeded: succeeded)
         guard succeeded else { return false }
         try? await store.setSetting(Self.completedSetting, "1")
+        guard configuration.runsSetup else { return true }
         await services.start(scripts.services, environment: environment)
         return true
     }
@@ -251,6 +254,14 @@ public actor MachineSetup {
         moved(to: "configuring git")
         await configureGit(environment: environment, log: log)
         let scripts = MachineScripts.load(repo: layout.worktree)
+        // A workspace that asked for no setup asks for none at every start, not only the first.
+        // `resume` is one of the three scripts, and a service is declared in the same settings file
+        // they are, so starting one here would run half of what was refused.
+        guard configuration.runsSetup else {
+            await log.note(Self.setupNotAskedForNote(hasServices: !scripts.services.isEmpty))
+            await settle(log: log, succeeded: true)
+            return true
+        }
         moved(to: "resume")
         let succeeded = await runScript("resume", scripts.resume, timeout: timeouts.resume, environment: environment, log: log, continuing: true)
         if await interruptedByShutdown(log: log) { return false }
@@ -302,6 +313,23 @@ public actor MachineSetup {
     /// `workspace` and would give every project the same database name.
     static func projectName(repository: String) -> String {
         WorkspaceScriptVariables.identifier(repository.split(separator: "/").last.map(String.init) ?? repository)
+    }
+
+    /// What somebody is told when the workspace itself asked for no setup.
+    ///
+    /// **A sentence rather than an empty log.** A workspace whose setup log is blank and whose
+    /// state is `skipped` reads as something that went wrong quietly, which is what a person
+    /// looking at a machine assumes about any silence. This says the machine did what it was asked
+    /// and where to go from here, and it names the services too, because a repository that
+    /// declares one and does not get it is the surprising half.
+    static func setupNotAskedForNote(hasServices: Bool) -> String {
+        let start = "This workspace was created with setup turned off, so the repository was cloned "
+            + "and nothing else was run."
+        let ending = " Open a terminal to set it up by hand, or create the workspace again with setup on."
+        return hasServices
+            ? start + " The services this project declares were not started either, because they "
+                + "expect what setup installs." + ending
+            : start + ending
     }
 
     /// What somebody is told before a repository with no Cloud workspace setup is set up anyway.

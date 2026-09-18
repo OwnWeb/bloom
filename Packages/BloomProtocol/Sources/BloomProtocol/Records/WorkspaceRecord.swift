@@ -86,19 +86,43 @@ public struct SetupRecord: Codable, Sendable, Hashable {
     /// The last lines of a failed run, so a client can say what went wrong without asking for the
     /// whole setup output. Nil while setup is going and when it succeeded.
     public var note: String?
+    /// Whether this workspace runs setup scripts at all. False is a workspace somebody created
+    /// asking for none, where `skipped` is the ordinary outcome rather than something to fix, and
+    /// a client should offer to run setup rather than report that it failed to.
+    ///
+    /// **`enabled` on the wire, not `run_setup`**, which is what the machine's own configuration
+    /// file calls the same fact. There is already a `run_setup` *method* in this protocol, meaning
+    /// run setup again now, and a field beside it with that name would read as a command rather
+    /// than as a property of the workspace.
+    public var isEnabled: Bool
 
-    public init(state: String, step: String? = nil, startedAt: Date? = nil, finishedAt: Date? = nil, note: String? = nil) {
+    public init(state: String, step: String? = nil, startedAt: Date? = nil, finishedAt: Date? = nil,
+                note: String? = nil, isEnabled: Bool = true) {
         self.state = state
         self.step = step
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.note = note
+        self.isEnabled = isEnabled
     }
 
     enum CodingKeys: String, CodingKey {
         case state, step, note
         case startedAt = "started_at"
         case finishedAt = "finished_at"
+        case isEnabled = "enabled"
+    }
+
+    /// Absent means yes, for the reason `MachineConfiguration.runSetup` gives: a client reading an
+    /// older machine's reply should see the behaviour that machine actually has.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        state = try container.decode(String.self, forKey: .state)
+        step = try container.decodeIfPresent(String.self, forKey: .step)
+        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+        finishedAt = try container.decodeIfPresent(Date.self, forKey: .finishedAt)
+        note = try container.decodeIfPresent(String.self, forKey: .note)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
     }
 }
 

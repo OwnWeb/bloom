@@ -75,6 +75,11 @@ public actor WorkspaceRuntime {
     let bridgeSocketPath: String?
     /// The `bloom-bridge` binary each agent's MCP configuration names. Nil also means no bridge.
     let bridgeShimPath: String?
+    /// Whether this workspace runs setup scripts at all, which a client is told so it can offer to
+    /// run setup rather than report that it failed to. Comes from the machine's configuration file,
+    /// read once at boot, so it cannot change under a running server. See
+    /// `MachineConfiguration.runSetup`; true everywhere that is not a machine.
+    let runsSetup: Bool
     var bridge: BridgeServer?
 
     public init(
@@ -87,8 +92,10 @@ public actor WorkspaceRuntime {
         publishing: RemotePublishing? = nil,
         runnerExitGrace: Duration = .seconds(6),
         bridgeSocketPath: String? = nil,
-        bridgeShimPath: String? = BridgeRegistration.shimPath()
+        bridgeShimPath: String? = BridgeRegistration.shimPath(),
+        runsSetup: Bool = true
     ) {
+        self.runsSetup = runsSetup
         self.bridgeSocketPath = bridgeSocketPath
         self.bridgeShimPath = bridgeShimPath
         self.publishing = publishing

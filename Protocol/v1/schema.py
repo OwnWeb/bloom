@@ -176,7 +176,9 @@ TERMINAL_FRAMES = {
 RECORDS = {
     "Error": obj({"code": S, "message": S}),
     "Author": obj({"user_id": S, "name": S}),
-    "Setup": obj({"state": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]}},
+    # `enabled` is required because the machine always writes it, and a client decodes its absence
+    # as true anyway: an older machine that does not know the key is one that always ran setup.
+    "Setup": obj({"state": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]}, "enabled": B},
                  {"step": S, "started_at": DATE, "finished_at": DATE, "note": S}),
     "SetupOutput": obj({"setup": ref("Setup"), "log": S}),
     "PullRequest": obj({"number": I, "url": S, "title": S, "state": S}),

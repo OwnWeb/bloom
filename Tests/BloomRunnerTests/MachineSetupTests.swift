@@ -25,12 +25,15 @@ struct MachineSetupTests {
         let gitConfig: String
 
         func setup(timeouts: MachineSetup.Timeouts = .standard, origin: String? = nil,
-                   stallAfter: TimeInterval = MachineSetup.stallAfter) throws -> MachineSetup {
+                   stallAfter: TimeInterval = MachineSetup.stallAfter, runSetup: Bool? = nil) throws -> MachineSetup {
+            // Written only when the test is about it, because the key being absent is the state
+            // every machine bootstrapped before it existed is in, and that has to keep working.
+            let runSetupKey = runSetup.map { ", \"run_setup\": \($0)" } ?? ""
             let configuration = try JSONDecoder().decode(MachineConfiguration.self, from: Data("""
             {"workspace_id": "01k5bx7j9d3v2r8q6m4n0p1s2w", "issuer": "https://runbloom.test", "jwks_url": "https://runbloom.test/jwks",
              "base_url": "https://runbloom.test", "workspace_secret": "secret", "allowed_origins": [],
              "public_url": "https://bloom-test.sprites.app", "repository": "spatie/example", "branch": "feature/queue",
-             "base_branch": "main", "name": "Queue"}
+             "base_branch": "main", "name": "Queue"\(runSetupKey)}
             """.utf8))
             let origin = origin ?? self.origin
             return MachineSetup(
@@ -157,6 +160,64 @@ struct MachineSetupTests {
         #expect(upstream.trimmingCharacters(in: .whitespacesAndNewlines) == "origin/feature/queue")
         // No scripts, and a clone is still a step.
         #expect(fixture.steps.all == ["clone", "finished"])
+        #expect(try await fixture.workspace().setupState == .succeeded)
+        await fixture.runtime.shutdown()
+    }
+
+    /// The key runbloom.app writes for a workspace somebody created with setup turned off.
+    @Test("a workspace that asked for no setup is cloned, and nothing else is run")
+    func setupTurnedOff() async throws {
+        let settings = Self.settings + """
+
+
+        [[services]]
+        name = "web"
+        command = 'echo started > "$ORDER_FILE.service"; sleep 30'
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings, ".bloom/setup.sh": Self.setupScript],
+                                        executables: [".bloom/setup.sh"])
+        try await fixture.setup(runSetup: false).run()
+
+        // The repository is there, which is the half that is not optional: a workspace without its
+        // own clone is not a workspace.
+        #expect(FileManager.default.fileExists(atPath: fixture.worktree + "/.bloom/settings.toml"))
+        #expect(fixture.steps.all == ["clone", "finished"])
+        #expect(fixture.order.isEmpty)
+        // A service is declared in the same file the scripts are, so starting one would run half
+        // of what was refused, against dependencies nothing installed.
+        #expect(await fixture.services.status.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fixture.orderFile + ".service"))
+
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupLog.contains("created with setup turned off"))
+        #expect(workspace.setupLog.contains("services this project declares were not started"))
+        #expect(try await fixture.store.setting(MachineSetup.completedSetting) == "1")
+        await fixture.runtime.shutdown()
+    }
+
+    /// The second start, and every one after it: `resume` is one of the three scripts, so a machine
+    /// that was told not to set up does not quietly start doing it at the next restart.
+    @Test("a workspace that asked for no setup runs nothing at the next start either, and says so")
+    func setupTurnedOffAtTheNextStart() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        try await fixture.setup(runSetup: false).run()
+        try await fixture.setup(runSetup: false).run()
+
+        #expect(fixture.order.isEmpty)
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupState == .skipped)
+        #expect(workspace.setupLog.contains("created with setup turned off"))
+        await fixture.runtime.shutdown()
+    }
+
+    /// The reader never assumes the writer wrote it. Every machine bootstrapped before the key
+    /// existed has a `workspace.json` without it, and setting up is what those machines do.
+    @Test("a configuration written before the key existed still sets up")
+    func setupWhenTheKeyIsAbsent() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        try await fixture.setup().run()
+
+        #expect(fixture.order == ["prepare", "resume"])
         #expect(try await fixture.workspace().setupState == .succeeded)
         await fixture.runtime.shutdown()
     }

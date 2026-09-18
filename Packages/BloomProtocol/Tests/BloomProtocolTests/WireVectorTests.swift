@@ -240,3 +240,28 @@ enum WireExamples {
         ("resize", .resize(columns: 120, rows: 40)),
     ]
 }
+
+/// What a client does with a reply from a machine older than a key it now reads.
+@Suite("Decoding a setup record")
+struct SetupRecordDecodingTests {
+    @Test("a setup record with no enabled key reads as enabled")
+    func absentEnabledIsTrue() throws {
+        let record = try JSONDecoder().decode(SetupRecord.self, from: Data(#"{"state": "succeeded"}"#.utf8))
+        #expect(record.isEnabled)
+    }
+
+    @Test("a setup record that says setup is off is read as off")
+    func statedEnabledIsKept() throws {
+        let record = try JSONDecoder().decode(SetupRecord.self, from: Data(#"{"state": "skipped", "enabled": false}"#.utf8))
+        #expect(!record.isEnabled)
+        #expect(record.state == "skipped")
+    }
+
+    /// The machine writes the key on every reply, which is the half that lets a client tell a
+    /// workspace with setup turned off from one whose setup has not been reached yet.
+    @Test("a setup record always encodes the key")
+    func alwaysEncoded() throws {
+        let data = try JSONEncoder().encode(SetupRecord(state: "pending"))
+        #expect(String(decoding: data, as: UTF8.self).contains("\"enabled\":true"))
+    }
+}

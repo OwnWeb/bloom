@@ -48,6 +48,9 @@
             "skipped"
           ]
         },
+        "enabled": {
+          "type": "boolean"
+        },
         "step": {
           "oneOf": [
             {
@@ -92,6 +95,7 @@
         }
       },
       "required": [
+        "enabled",
         "state"
       ],
       "additionalProperties": false
