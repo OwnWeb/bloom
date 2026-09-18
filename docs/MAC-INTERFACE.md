@@ -480,6 +480,234 @@ the same row kinds, and the difference that was found (a Cloud row's JSON re-enc
 so the row tests read it differently) is fixed at the source: see "Started with" above. A machine does send the init row: Freek's Bloom Cloud
 screenshots show it. **[checked]**
 
+## The sidebar, Home and the pull request band
+
+Written for the web, whose list and sidebar Freek called "very very empty". **None of this was
+seen**, as with the rest of this document: it is read from the code, and where it says how
+something looks, that is what the code draws rather than what anybody photographed.
+
+**Where the decisions live**, all pure and tested in the core unless marked otherwise: **[checked]**
+
+| Decision | Where |
+| --- | --- |
+| A local workspace's one-word state, in precedence order | `WorkspaceStatus.resolve` and `WorkspaceStatus.ofBranch`, `Sources/BloomCore/Model/WorkspaceStatus.swift` |
+| **A Cloud workspace's state, from runbloom.app's list item alone** | `CloudWorkspaceStatus` and `CloudSidebarMark.name(for:activity:)`, `Packages/BloomClient/Sources/BloomClient/Presentation/CloudWorkspaceStatus.swift` |
+| Which states get a mark in the sidebar | `SidebarMarkPolicy.drawsMark`, `Sources/BloomCore/Presentation/SidebarMarkPolicy.swift` |
+| The sidebar's two groupings, and the status sections | `SidebarGrouping`, `SidebarStatusGroup.of(_:unread:)`, `SidebarStatusListing.build` |
+| Home's filter, order, date headings and counts | `HomeList.build`, `HomeList.bucket(for:now:calendar:)`, `HomeList.summary`, `HomeScope`, `HomeOrder`, `HomeAge.short` |
+| Home's empty screens | `HomeEmptyState.resolve` |
+| The pull request band's headline, tone, detail and button | `PullRequest.status(local:)` and `PullRequestStatus`, `Sources/BloomCore/GitHub/PullRequestStatus.swift`; the checks sentence is `GitHub.rollup` |
+
+The glyph and colour for each state are the one thing that is a view: `symbol(for:)` and
+`tint(for:)` in `Sources/Bloom/Views/Sidebar/WorkspaceStatusGlyph.swift`, listed below.
+
+### The states, and the mark each one draws
+
+`WorkspaceStatus`, most urgent first. Two can be true at once (an agent running on a branch whose
+checks are red) and the row has room for one, so **the first that is true wins**: **[checked]**
+
+| State | Label | Mark | Colour | Mark in the sidebar |
+| --- | --- | --- | --- | --- |
+| `settingUp` | Setting up | small spinner | | yes |
+| `awaitingPermission` | Waiting on you | `questionmark.circle.fill` | waiting | yes |
+| `running` | Agent running | **the pulsing dot** | running (blue) | yes |
+| `setupFailed` | Setup failed | `exclamationmark.triangle.fill` | warning | yes |
+| `unread` | Unread | `circle.fill`, a size smaller | accent | yes |
+| `merged` | Merged | `arrow.triangle.merge` | merged (violet) | no |
+| `closed` | Pull request closed | `slash.circle` | tertiary | no |
+| `conflicted` | Merge conflicts | `exclamationmark.octagon.fill` | negative | yes |
+| `checksFailing` | Checks failing | `xmark.circle.fill` | negative | yes |
+| `checksRunning` | Checks running | `clock` | warning | no |
+| `checksPassed` | Checks passed | `checkmark.circle.fill` | positive | no |
+| `draft` | Draft pull request | `pencil` | tertiary | no |
+| `pullRequestOpen` | Pull request open | `arrow.triangle.pull` | accent | no |
+| `changed` | Has changes | `arrow.triangle.branch` | secondary | no |
+| `clean` | No changes | `circle.dotted` | tertiary | no |
+
+Two rules in the precedence are worth porting exactly:
+
+- **Waiting on you outranks running**, because it is the only state that gets worse the longer it
+  is left.
+- **Unread ranks below every pull request state.** A turn that merged its own pull request ends
+  unread, and the row must say "merged", not show a dot. The name still goes to medium weight
+  when a workspace is unread, so unread is never lost from the row.
+
+**The sidebar draws a mark only when something is happening or something is wanted**
+(`SidebarMarkPolicy`, the last column above). A resting row keeps an empty box of the same size so
+the names line up. **Home draws the mark for every state.**
+
+**A Cloud workspace uses the same states**, mapped from runbloom.app's list item by
+`CloudSidebarMark` so one column says one thing:
+
+- `setting_up`, `stopping` and `archiving` map to settingUp.
+- `setup_failed`, `error` and `blocked` (held by a team limit) map to setupFailed.
+- `waiting_for_input` maps to awaitingPermission, and `running` to running.
+- Idle or asleep falls to the branch: a pull request that is merged maps to merged, closed to
+  closed, any other state to pullRequestOpen. With no pull request it is unread if the item is
+  unread, then changed if the diff has files, else clean.
+
+**While a Cloud workspace is open, its machine's own stream overrides the poll** for running,
+waiting and setting up, because the poll said "running" for a turn that had already ended.
+**[checked]**
+
+### The sidebar row
+
+`Sources/Bloom/Views/Sidebar/WorkspaceRow.swift`, and `Sources/Bloom/Views/Cloud/CloudWorkspaceRow.swift`
+for a Cloud one, which is built from the same pieces. Left to right: **[checked]**
+
+1. **The mark**, in the icon column, by the rules above.
+2. **The name**, one line, truncated at the tail. **Medium weight when a turn finished and nobody
+   has read it.**
+3. **A colour dot**, if the owner gave the workspace a colour. Local only.
+4. *(space)*
+5. **A pin**, if pinned. Local only.
+6. **A red `× 2`**: how many of this turn's subagents failed. Only when there are failures.
+7. **The subagent chip, the `>3` in the screenshot**: a chevron and the number of subagents the
+   running turn has, in accent on a 12% accent capsule. It is a button that shows or hides their
+   rows under the workspace, and the chevron turns down while they are shown. It appears only while
+   a turn has subagents. It counts subagents, not crew. **Crew agents** (other agents started in
+   the same worktree, which outlive the turn) are rows of their own, indented under the
+   workspace, each with a dot and a name.
+8. **The diff stat, `+405 −4`, in quiet ink**, not green and red, because on a dozen rows the
+   colour made it the loudest thing in the pane. Shown only when there is a diff. Full colour is
+   kept for the hover card, Home and the inspector.
+9. **The project's tile**, only in the status grouping, where rows from different projects are
+   mixed.
+10. **Under the pointer**, items 6 to 9 fade out and an **archive button** takes their place.
+
+A Cloud row has **no colour dot, pin or subagent chip**. It adds **a lock** when the reader can see
+the workspace but not open it, or **a two-person mark** when it is shared with the team or with
+the reader. Its diff is `summary.diff`, shown when `files > 0`.
+
+**Hovering a row opens a card** (`WorkspaceHoverCardView`, decisions in `WorkspaceHoverCard`) with
+the branch, the diff in full colour, the pull request, its checks and the age. The row has no
+tooltip because the card replaces it.
+
+### The project row
+
+`Sources/Bloom/Views/Sidebar/RepoHeaderRow.swift`. Left to right: **[checked]**
+
+- **A chevron** that folds the project's workspaces away.
+- **The project's tile**, which becomes a **settings gear** under the pointer. The two are stacked
+  in the same box, so nothing moves.
+- **The name**, in the heading style, **one step bolder while any workspace in it is unread**.
+  That matters most when the project is folded, because the header is then the only thing left
+  saying so.
+- *(space)*
+- **A `+`** for a new workspace in this project. It is drawn quieter than the name and lights
+  under the pointer.
+- A right-click menu (new workspace, rename, settings, remove), and drag to reorder.
+- **A hidden project is drawn at reduced opacity. Its workspace rows are not dimmed**, because they
+  are real work.
+
+### How the sidebar is arranged
+
+Two groupings, chosen in the filter menu at the foot of the pane (`SidebarGrouping`). **Status is
+the default.** **[checked]**
+
+- **Status**: sections headed in small capitals with a count: **Needs you** (waiting on you, setup
+  failed), **Ready to read** (unread, **including an unread workspace whose mark shows a pull
+  request state**), **Working** (running, setting up), **Idle** (everything else). Empty sections
+  are not drawn. Idle is ordered most recently touched first, and can be folded once it has 4
+  rows. The other sections keep project order.
+- **Project**: each project's header with its workspaces under it, in an order the owner drags.
+- **Bloom Cloud workspaces** are a section of their own under the heading "Bloom Cloud
+  workspaces".
+- **The foot of the pane** holds Home, New and Ask Bloom as buttons, then the filter and the
+  legend (every state's mark and name, drawn from `WorkspaceStatus.allCases`).
+
+### Home
+
+`Sources/Bloom/Views/Home/HomeView.swift`, the centre pane when nothing is selected. **Every local
+workspace on this Mac, newest first, as one flat list under date headings.** It is not grouped by
+project, because the sidebar already does that. Top to bottom: **[checked]**
+
+1. **A strip**: a segmented control with **All** and **Archived**, each with its count, then a
+   project menu. Searching (Cmd+K) turns the chips into **Everything**, **Workspaces** and
+   **Transcripts**, and adds a removable chip holding the query. Under Archived only, a
+   **Recent / Largest** order control appears. Three other chips (Needs you, Running, Live) were
+   removed at Freek's request; the code says Needs you is the one to bring back if it is missed.
+2. **Date headings**, in the title style, **with no count on them**:
+   - Today, Yesterday, then "3 days ago" and so on up to a week.
+   - Last week, "2 weeks ago", "3 weeks ago".
+   - Earlier this month, then month names, with the year added for another year.
+
+   Searching or ordering by size removes the headings.
+3. **The rows**, two lines each (`HomeListRow`):
+   - **Leading**: the project's tile. Home is flat, so the project is what cannot be told from
+     anywhere else on the row.
+   - **Line one**: the name (medium weight if unread), then a pin if pinned.
+   - **Line two: the project's name, a slash and the branch.** This line was added because Freek
+     found the one-line rows "thin with a lot of air".
+   - **Trailing, three fixed-width columns so they line up down the list**:
+     - **The status mark**, for every state. An archive box instead for an archived workspace.
+     - **The diff stat in full colour**, 84 points wide. For an archived workspace this column
+       shows its size in bytes.
+     - **The age**, 34 points wide: "now", "5m", "3h", "2d", "3w", "4mo", "1y" (`HomeAge.short`).
+   - An archived row is greyed as a whole.
+   - There is no hover button. The right-click menu is the sidebar's.
+4. **A status bar at the foot** with one sentence about the whole list (`HomeList.summary`), for
+   example "42 workspaces in 3 projects · 30 live, 12 archived", or under Archived the bytes held
+   and the database size.
+5. **When the list is empty**, a centred message naming which of five empty states it is, with the
+   button that fixes it (`HomeEmptyState`).
+
+**Home lists local workspaces only on this branch**: `HomeView` does not read the Cloud list.
+**[checked]** So the Mac has no Cloud equivalent of Home to copy. The nearest thing is the
+sidebar's Cloud section with the rows described above.
+
+### The pull request band
+
+`Sources/Bloom/Views/Inspector/PullRequestBar.swift` and `PullRequestSummary.swift`. It is a strip
+one row tall across the top of the inspector column, the same for a local workspace and a Cloud
+one: a Cloud workspace's pull request is mapped into the same type (`CloudPullRequestMapping`).
+**[checked]**
+
+- **The whole strip is washed in the state's tone**: neutral (no wash), positive, negative,
+  warning or merged. It is a wash across the full width, not just a coloured word, so the state is
+  visible from across the room.
+- **Left: the badge**, "#498" in the tone's colour, linking to GitHub, and a "Draft" chip when it
+  is a draft.
+- **Middle: the headline, which is the state rather than the title**, in the tone's colour. Under
+  it, **a detail line** in caption size (the "1 check running" in the screenshot).
+- **Right: one button, chosen by the state** (`PullRequestStatus.remedy`): **Merge** (a split
+  button with the merge method), **Mark ready for review**, **Fix merge conflicts**, or **Push** /
+  **Commit and push**. Continue and Archive appear once it has merged. The button is replaced by
+  a spinner while an action is under way, and is disabled while the workspace's agent is mid turn
+  (`BranchActionAvailability`).
+- **With no pull request**, the strip offers to create one instead.
+- A right-click menu: Open on GitHub, Copy link, Share.
+
+The headline and tone, worst first (`PullRequest.status`):
+
+| Case | Headline | Tone | Button |
+| --- | --- | --- | --- |
+| merged | Merged | merged | (none) |
+| closed | Closed | neutral | (none) |
+| conflicts | Merge conflicts, "This branch conflicts with the base branch" | negative | Fix merge conflicts |
+| draft | Draft, with the checks sentence | neutral | Mark ready for review |
+| open, a required check failed | Checks failing | negative | Merge |
+| open, checks running or queued | Checks running / Checks queued | warning | Merge |
+| open, checks unreadable | GitHub's "checks unavailable" sentence | warning | Merge |
+| open, changes requested | Changes requested | warning | Merge |
+| open, review required | Waiting for review | warning | Merge |
+| open, otherwise | Ready to merge | positive | Merge |
+
+**Local work outranks a cheerful answer.** If the worktree has work GitHub does not (open, no
+conflicts), the button becomes Push or Commit and push. A positive headline also becomes **"Local
+changes"** in warning, with a detail such as "2 files to commit, 1 commit to push", because "Ready
+to merge" over unpushed work is the wrong answer rather than a slightly stale one. A Cloud
+workspace passes no local work (its strip is given `localWork: nil`), so this rule does not
+apply to it on the Mac.
+
+The detail line is the checks sentence from `GitHub.rollup`, in this order:
+
+1. "1 required check failed"
+2. "N checks running"
+3. "N checks queued"
+4. "N optional checks failed" (still positive)
+5. "N checks passed"
+
 ## What the wire would need, in the order it decides
 
 Anything here is the Runner's before it is the web's.
