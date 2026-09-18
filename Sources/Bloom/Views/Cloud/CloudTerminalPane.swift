@@ -9,8 +9,13 @@ struct CloudTerminalPane: View {
         let terminal = session.terminal
         VStack(spacing: 0) {
             switch terminal.state {
-            case .disconnected(let reason):
-                CloudNoticeStrip(text: "The terminal is disconnected\(reason.map { ": \($0)" } ?? "."). Type to reconnect.") {
+            case .ended(let reason):
+                // "Ended" rather than "disconnected", because it does not come back: a machine
+                // that restarts takes the shell, its command and its scrollback with it. What
+                // typing gets is a new shell in the same workspace, and the pane says so.
+                CloudNoticeStrip(
+                    text: "This terminal ended\(reason.map { ": \($0)" } ?? "."). Type to start a new one."
+                ) {
                     terminal.connect()
                 }
             case .refused(let reason):

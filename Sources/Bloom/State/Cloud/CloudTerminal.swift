@@ -17,8 +17,11 @@ final class CloudTerminal {
         case idle
         case connecting
         case connected
-        /// Closed by the machine. The sentence is its reason, when it gave one.
-        case disconnected(String?)
+        /// The shell ended. **Not "disconnected", because it does not come back.** A machine that
+        /// restarts its runner takes the whole process group with it, tmux included, so the shell,
+        /// whatever it was running and its scrollback are gone; reattaching by name gets a new
+        /// shell rather than the old one. Measured on a machine rather than reasoned about.
+        case ended(String?)
         /// Refused: no terminal ability, or access went away. Reconnecting will not help.
         case refused(String)
     }
@@ -51,7 +54,7 @@ final class CloudTerminal {
         Task { [weak self] in
             guard let self else { return }
             guard let token = await session.sessionToken() else {
-                state = .disconnected("This Cloud workspace is not ready for a terminal yet.")
+                state = .ended("This Cloud workspace is not ready for a terminal yet.")
                 return
             }
             guard token.allows("terminal") else {
@@ -76,7 +79,7 @@ final class CloudTerminal {
                 case .closed(let reason, let isRefusal):
                     self.socket = nil
                     self.refresher?.cancel()
-                    self.state = isRefusal ? .refused(reason ?? "The terminal was refused.") : .disconnected(reason)
+                    self.state = isRefusal ? .refused(reason ?? "The terminal was refused.") : .ended(reason)
                 }
             }
         }
@@ -101,6 +104,17 @@ final class CloudTerminal {
         state = .idle
     }
 
+    /// Writes the line that says where the old shell stopped, so the new one's first prompt is not
+    /// read as the old one carrying on. A rule and a sentence, in the terminal's own stream, which
+    /// is the only place the two are in the same order as what happened.
+    private func noteEnded() {
+        guard case .ended = state else { return }
+        let columns = max(20, min(size.columns, 100))
+        let rule = String(repeating: "─", count: columns)
+        let note = "\r\n\u{1B}[2m\(rule)\r\nThis terminal ended when the Cloud workspace restarted. What follows is a new shell.\u{1B}[0m\r\n"
+        view.feed(byteArray: ArraySlice(Array(note.utf8)))
+    }
+
     /// Clears a refusal so the next connect tries again, for after sharing or a sign in changed.
     func retry() {
         if case .refused = state { state = .idle }
@@ -109,9 +123,14 @@ final class CloudTerminal {
 
     private func input(_ bytes: ArraySlice<UInt8>) {
         guard let socket else {
-            // A keystroke into a closed terminal is what reopens it. The keystroke itself is not
-            // replayed: the shell redraws on reconnect, and a key pressed into a screen that was
-            // not there is not a key anybody meant.
+            // A keystroke into an ended terminal is what starts a new one. The keystroke itself is
+            // not replayed: what comes back is a fresh shell rather than the one that ended, and a
+            // key pressed at a screen that was not there is not a key anybody meant.
+            //
+            // What was on screen stays, because losing somebody's output helps nobody, so the
+            // boundary between the dead shell and the new one is drawn rather than implied. See
+            // `noteEnded`.
+            noteEnded()
             connect()
             return
         }
