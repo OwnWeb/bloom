@@ -648,11 +648,24 @@ struct RemoteWorkspaceRuntimeTests {
     func closingAChatSaysSo() async throws {
         let fixture = try await fixture()
         let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil)
+        // Read beside the test rather than in it, so an event that never comes is a failure that
+        // says what did come, not a suite that waits for ever: this hung the Linux job for thirty
+        // minutes the first time, with nothing in the log to say why.
+        let chats = Mutex<[ChatRecord]>([])
+        let reader = Task {
+            for await event in stream {
+                if case .chat(let chat) = event { chats.withLock { $0.append(chat) } }
+            }
+        }
         let reply = await fixture.runtime.respond(to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue)), as: Self.caller(Self.seb))
         #expect(reply.result == .accepted)
-        for await event in stream {
-            if case .chat(let chat) = event, chat.id == fixture.session.id.rawValue, chat.closedAt != nil { break }
+        // A cap on "never" rather than a measurement, well under the suite's own limit.
+        await waitUntil("a chat event saying the chat is closed", within: .seconds(30)) {
+            chats.withLock { $0 }.contains { $0.id == fixture.session.id.rawValue && $0.closedAt != nil }
         }
+        let seen = chats.withLock { $0 }
+        #expect(seen.contains { $0.closedAt != nil }, "chat events seen: \(seen.map { "\($0.id) \($0.state) closed=\($0.closedAt != nil)" })")
+        reader.cancel()
         await fixture.runtime.shutdown()
     }
 
