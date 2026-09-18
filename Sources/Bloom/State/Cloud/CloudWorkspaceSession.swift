@@ -60,6 +60,35 @@ final class CloudWorkspaceSession {
         self.cloud = cloud
     }
 
+    /// The account doing the reading, which is what decides whether a message is the reader's own.
+    /// See `MessageAuthorship.isFromSomebodyElse`, which is the only thing that should ask.
+    ///
+    /// **The signed in account, and there is a better answer this client cannot reach yet.** The
+    /// id wanted here is the one the token was minted for: the machine records exactly that in
+    /// `author.user_id`, and a caller has it from its first request, before any account object
+    /// exists. runbloom.app's session-token response does not carry it yet (`SessionToken` in
+    /// `BloomClient` decodes `token`, `expires_at`, `machine_url`, `awake` and `abilities`), so
+    /// the account is what there is.
+    ///
+    /// **The window that leaves, stated plainly so the next person knows what closing it is
+    /// worth**: between launch and the account arriving, in a workspace somebody else is in, the
+    /// reader's own messages read as somebody else's, which colours them as a teammate's and
+    /// captions them with their own name. A share-link guest is not a case: a preview token cannot
+    /// open a chat or send, so there are no guest-written messages whose ownership could be got
+    /// wrong.
+    ///
+    /// **What closes it: `user_id` on that response**, which the control server is adding. Read
+    /// the field into here; **do not decode the token for its `sub`**, even though the value is
+    /// the same one. The token is for the machine, and a client that parses it acquires an opinion
+    /// about its shape that everybody afterwards has to keep, which is a cost for nothing when the
+    /// field is handed over. It is called `user_id` rather than `subject` because that is already
+    /// what the member list and `author.user_id` call it, and the comparison this makes is against
+    /// `author.user_id`: one id, one name, everywhere it appears.
+    ///
+    /// **And it is not a field every client ought to use.** The web's account arrives server
+    /// rendered before the first paint, so the token's id would reach it later rather than
+    /// earlier. This is for a client that authenticates before it renders, which is this one and
+    /// only this one today.
     var readerID: String? { cloud.account?.id }
 
     #if DEBUG

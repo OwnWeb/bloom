@@ -56,17 +56,22 @@ public enum MessageAuthorship {
     ///   "you", because a message addressed to the person reading it is the one the caption is
     ///   most worth drawing for.
     ///
-    /// The mention as typed is the fallback, and it is a good one: somebody who has left the team
-    /// since, or who arrived in a snapshot this client has not fetched the members for, is still
-    /// `@sebdd` in the sentence that addressed them. A person this cannot name at all is drawn as
-    /// no addressee rather than as an empty half of a sentence.
+    /// Three answers, in order: "you" where it went to the reader, their name from the member
+    /// list, then the mention as typed. The last is a good fallback rather than a sad one:
+    /// somebody who has left the team since, or who arrived in a snapshot this client has not
+    /// fetched the members for, is still `@sebdd` in the sentence that addressed them.
+    ///
+    /// **And where none of the three can name them, "somebody else" rather than nothing.** The
+    /// caption is the only thing on screen saying the agent did not see a message: draw no
+    /// addressee and a message to a person looks exactly like a message to the agent, which is the
+    /// one confusion this feature cannot afford. A whole sentence beats half of one. The web
+    /// client argued this and it is right; the case is nearly unreachable either way, because the
+    /// machine writes `mention` on everything.
     public static func addressee(_ audience: MessageAudience?, names: [String: String]) -> String? {
         guard let audience, audience.kind == .person else { return nil }
-        if let userID = audience.userID, let name = names[userID], !clean(name).isEmpty {
-            return clean(name)
-        }
+        if let userID = audience.userID, !clean(names[userID]).isEmpty { return clean(names[userID]) }
         let mention = clean(audience.mention)
-        return mention.isEmpty ? nil : mention
+        return mention.isEmpty ? "somebody else" : mention
     }
 
     /// The caption above a bubble, or nil where it has none.

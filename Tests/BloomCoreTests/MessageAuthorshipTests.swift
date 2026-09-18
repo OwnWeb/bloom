@@ -105,9 +105,12 @@ struct MessageAuthorshipTests {
         #expect(MessageAuthorship.addressee(
             MessageAudience(kind: .person, userID: "u9", mention: "@sebdd"), names: Self.names
         ) == "@sebdd")
-        // And a person this cannot name at all is no addressee rather than half a sentence.
+        // And a person none of the three can name is still said to be a person, because the
+        // caption is the only thing saying the agent did not see this. Drawing nothing would make
+        // it look like a message to the agent.
         #expect(MessageAuthorship.addressee(
             MessageAudience(kind: .person, userID: "u9"), names: Self.names
-        ) == nil)
+        ) == "somebody else")
+        #expect(caption(to: "somebody else") == "To somebody else")
     }
 }
