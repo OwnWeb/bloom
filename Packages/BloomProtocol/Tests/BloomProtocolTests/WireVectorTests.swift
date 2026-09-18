@@ -329,6 +329,35 @@ struct OlderMachineDecodingTests {
         #expect(snapshot.workspace.name == "Queue")
     }
 
+    /// The same rule, two records over. **Found by asking where else it had not been applied**,
+    /// which is where four separate bugs came from in one day: a rule written for one case and not
+    /// carried to the next.
+    @Test("a workspace record with no services reads as none rather than throwing")
+    func workspaceWithoutServices() throws {
+        let json = #"""
+        {"id": "w1", "name": "Queue", "branch": "queue", "base_branch": "main",
+         "setup": {"state": "succeeded"}}
+        """#
+        let workspace = try JSONDecoder().decode(WorkspaceRecord.self, from: Data(json.utf8))
+
+        #expect(workspace.services.isEmpty)
+        #expect(workspace.setup.isEnabled, "and the setup record's own absent-means-true still holds")
+    }
+
+    /// Before the key existed, archiving always took the conversation with it, so that is what its
+    /// absence means.
+    @Test("an archive preview with no deletes_conversation reads as the answer that used to be true")
+    func archivePreviewWithoutTheKey() throws {
+        let json = #"""
+        {"confirmation_id": "c1", "has_uncommitted_changes": false, "untracked_files": [],
+         "unpushed_commits": 0, "detached_commits": 0, "is_agent_running": false,
+         "is_pull_request_merged": false, "created_at": "2026-09-18T10:00:00.000Z"}
+        """#
+        let preview = try WireJSON.decode(ArchivePreviewRecord.self, from: Data(json.utf8))
+
+        #expect(preview.deletesConversation)
+    }
+
     /// And a machine new enough to send it is read as it meant.
     @Test("a snapshot with members keeps them")
     func snapshotWithMembers() throws {

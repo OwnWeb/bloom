@@ -33,6 +33,22 @@ public struct WorkspaceRecord: Codable, Sendable, Hashable {
         case baseBranch = "base_branch"
         case pullRequest = "pull_request"
     }
+
+    /// `services` was added on 18 September 2026 and every machine in the field predates it, so it
+    /// is read as absent-means-none. See `WorkspaceSnapshotRecord.init(from:)` for the rule and
+    /// what it costs to miss: a required key here is not a workspace without services, it is a
+    /// workspace that will not open.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        branch = try container.decode(String.self, forKey: .branch)
+        baseBranch = try container.decode(String.self, forKey: .baseBranch)
+        setup = try container.decode(SetupRecord.self, forKey: .setup)
+        pullRequest = try container.decodeIfPresent(PullRequestRecord.self, forKey: .pullRequest)
+        reporting = try container.decodeIfPresent(ReportingRecord.self, forKey: .reporting)
+        services = try container.decodeIfPresent([ServiceRecord].self, forKey: .services) ?? []
+    }
 }
 
 /// The machine saying it cannot reach runbloom.app, which is the one failure nobody could see.

@@ -31,6 +31,22 @@ public struct ArchivePreviewRecord: Codable, Sendable, Hashable {
         self.createdAt = createdAt
     }
 
+    /// `deletes_conversation` was added after this record existed, and a machine that predates it
+    /// does not send it. The default is the answer that was true before the key: archiving took the
+    /// conversation with it. Same rule as `WorkspaceSnapshotRecord.init(from:)`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        confirmationID = try container.decode(String.self, forKey: .confirmationID)
+        hasUncommittedChanges = try container.decode(Bool.self, forKey: .hasUncommittedChanges)
+        untrackedFiles = try container.decode([String].self, forKey: .untrackedFiles)
+        unpushedCommits = try container.decode(Int.self, forKey: .unpushedCommits)
+        detachedCommits = try container.decode(Int.self, forKey: .detachedCommits)
+        isAgentRunning = try container.decode(Bool.self, forKey: .isAgentRunning)
+        isPullRequestMerged = try container.decode(Bool.self, forKey: .isPullRequestMerged)
+        deletesConversation = try container.decodeIfPresent(Bool.self, forKey: .deletesConversation) ?? true
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+    }
+
     enum CodingKeys: String, CodingKey {
         case confirmationID = "confirmation_id"
         case hasUncommittedChanges = "has_uncommitted_changes"
