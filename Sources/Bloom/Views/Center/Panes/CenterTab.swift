@@ -108,6 +108,7 @@ struct CenterTab: Identifiable, Hashable, Codable, Sendable {
         case .browser: PaneGlyph.browser
         case .review: PaneGlyph.review
         case .notes: PaneGlyph.notes
+        case .setup: PaneGlyph.setup
         }
     }
 

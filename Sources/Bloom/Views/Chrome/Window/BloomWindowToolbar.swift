@@ -60,7 +60,7 @@ struct BloomWindowToolbar: ToolbarContent {
         // of tab, which is why the strip below it is the app's own strip as well.
         if let id = app.selection.cloudWorkspaceID, app.selectedCloudWorkspace?.canOpen == true {
             ToolbarItem(placement: .primaryAction) {
-                CloudNewTabMenu(session: app.cloud.session(for: id))
+                NewTabMenu(model: app.cloud.session(for: id))
             }
         }
 

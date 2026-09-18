@@ -17,10 +17,6 @@ import SwiftUI
 struct CloudWorkspaceColumn: View {
     var id: CloudWorkspaceID
     @Environment(AppModel.self) private var app
-    /// The tab whose name field is open, owned here for the reason `CenterColumnView` owns the
-    /// local one: Rename Tab has to open a field on a strip that is not drawn yet.
-    @State private var renamingID: String?
-
     var body: some View {
         let item = app.cloud.item(id)
         if app.cloud.isSignedIn, item == nil, !app.cloud.items.isEmpty {
@@ -39,16 +35,11 @@ struct CloudWorkspaceColumn: View {
     @ViewBuilder
     private func workspace(_ session: CloudWorkspaceSession, item: CloudWorkspaceItem?) -> some View {
         VStack(spacing: 0) {
-            if TabStripVisibility.isShown(tabCount: session.entries.count, isRenaming: renamingID != nil) {
-                CloudTabStripView(session: session, renamingID: $renamingID)
-            }
             if let banner = shown(CloudConnectionBanner.of(session.phase), on: session) {
                 CloudBannerView(banner: banner, onDismiss: { app.cloud.dismiss(banner, for: session.id) }) {
                     take($0, on: session)
                 }
             }
-            // What setup is doing, which is the only account of a machine's first few minutes and
-            // the only way back from a setup that failed.
             // What the machine's last update attempt did, when that is worth saying. Above setup
             // because a workspace put back on an older version explains a setup that then behaved
             // oddly, and below the connection because nothing can be read at all until that is up.
@@ -70,26 +61,18 @@ struct CloudWorkspaceColumn: View {
             if let change = session.composerChange, change.chatID == session.selectedChatID?.rawValue {
                 CloudNoticeStrip(text: "\(change.name) changed this chat's settings.") { session.acknowledgeComposerChange() }
             }
-            content(session)
+            // The app's own centre column: the same strip, the same panes, the same splits, the
+            // same `+`. What a tool tab of this workspace draws is the one thing that differs, and
+            // the workspace hands that back itself. See `WorkspaceSurface.toolPane`.
+            CenterColumnView(model: session)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Palette.windowBackground)
-        .task(id: id) {
-            session.open()
-            await app.cloud.markRead(id)
-        }
         // A workspace nobody is looking at keeps what it read and lets go of its stream, which
         // would otherwise reconnect by itself after a dropped network and wake its machine.
-        // Rename Tab, from the menu bar, which opens a field on a strip this view owns. The same
-        // notification the local column hears, and `PaneContent.id` is the same string both strips
-        // file an open field under.
-        .onReceive(NotificationCenter.default.publisher(for: .bloomRenameTab)) { _ in
-            guard let selected = session.selectedTab else { return }
-            renamingID = selected.id
-        }
+        // Opening it, and the rename field the menu bar opens, are `CenterColumnView`'s now.
         .onChange(of: id) { previous, _ in
             app.cloud.existingSession(for: previous)?.suspend()
-            renamingID = nil
         }
         .onDisappear { app.cloud.existingSession(for: id)?.suspend() }
     }
@@ -120,23 +103,6 @@ struct CloudWorkspaceColumn: View {
         NSWorkspace.shared.open(app.cloud.runbloomPage(forWorkspace: session.id))
     }
 
-    @ViewBuilder
-    private func content(_ session: CloudWorkspaceSession) -> some View {
-        switch session.selectedTab {
-        case .chat, .none:
-            CloudChatArea(session: session)
-        case .tool(let id):
-            switch session.tabs.tools.first(where: { $0.id == id })?.kind {
-            case .terminal: CloudTerminalPane(session: session)
-            // The same file list the inspector column draws, over the same protocol. The diff
-            // beside it becomes the local review pane in the next slice; until then it is the same
-            // line view the local diff is drawn with.
-            case .changes: CloudReviewTab(session: session)
-            case .setup: CloudSetupLogView(session: session)
-            case .notes, .none: CloudChatArea(session: session)
-            }
-        }
-    }
 }
 
 /// A connection banner: a line and, where the banner offers one, its button.

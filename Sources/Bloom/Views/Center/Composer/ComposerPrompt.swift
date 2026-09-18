@@ -235,7 +235,7 @@ struct ComposerPrompt<Footer: View>: View {
         // again for each one. An unsplit centre column is now the same pane in every workspace, so
         // a composer that read its staged attachments in `onAppear` would read the first session's
         // and then draw them under every session the window visited afterwards. See
-        // `CenterPanesView.soloPane`.
+        // `CentrePaneMeasure.soloPane`.
         .task(id: attachmentKey) {
             PromptAttachmentStore.shared.load(sessionID: attachmentKey)
             adoptAttachmentsKeptBesideTheDraft()

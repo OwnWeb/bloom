@@ -22,8 +22,8 @@ import BloomCore
 /// The first three take their name and their glyph from `PaneKind` rather than spelling them out,
 /// because the pane's split submenus offer the same three and the two lists have to keep saying
 /// the same words.
-struct NewTabMenu: View {
-    let model: WorkspaceModel
+struct NewTabMenu<Model: WorkspaceSurface>: View {
+    let model: Model
 
     private var store: WorkspaceTabsStore { .shared }
 
@@ -37,8 +37,13 @@ struct NewTabMenu: View {
                 .keyboardShortcut("t", modifiers: .command)
             Button(PaneKind.terminal.title, systemImage: PaneKind.terminal.symbol, action: newTerminal)
                 .keyboardShortcut("t", modifiers: [.command, .shift])
-            Button(PaneKind.browser.title, systemImage: PaneKind.browser.symbol, action: newBrowser)
-                .keyboardShortcut("b", modifiers: [.command, .shift])
+            // Absent rather than greyed for a workspace with no browser of its own: a Cloud
+            // workspace's own app is its preview, which has a door of its own, and an item that
+            // could only ever refuse is an item that teaches nothing.
+            if model.supportsBrowserTabs {
+                Button(PaneKind.browser.title, systemImage: PaneKind.browser.symbol, action: newBrowser)
+                    .keyboardShortcut("b", modifiers: [.command, .shift])
+            }
             Divider()
             // **Never disabled, and it used to be**, on the argument that an empty review has
             // nothing to show. It has: the pane says what the worktree is being compared against
@@ -47,10 +52,17 @@ struct NewTabMenu: View {
             // item, which is how it was reported. The File menu's own Show Changes has been
             // enabled on any workspace all along, and the two saying different things about the
             // same tab was the other half of the confusion.
-            Button("Changes", systemImage: "doc.text") { FileReview.open(in: model) }
+            Button(PaneNaming.changes, systemImage: PaneGlyph.review) { model.openReview() }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
             // An empty note is exactly what somebody opening this is about to fix.
-            Button(CenterTab.notesTitle, systemImage: "note.text") { WorkspaceNotes.open(in: model) }
+            if model.supportsNotes {
+                Button(CenterTab.notesTitle, systemImage: PaneGlyph.notes) { model.openNotes() }
+            }
+            // The only tab a Cloud workspace has that a local one does not: what its machine did
+            // while it was starting. A local workspace's setup is a row in its transcript.
+            if model.supportsSetupTab {
+                Button(PaneNaming.setup, systemImage: PaneGlyph.setup) { model.openSetupLog() }
+            }
             runScriptItems
         } label: {
             Label("New Tab", systemImage: "plus")
@@ -76,7 +88,7 @@ struct NewTabMenu: View {
     /// shows its tab rather than starting a second copy. The words are `RunScriptMenuItem`.
     @ViewBuilder
     private var runScriptItems: some View {
-        let scripts = model.settings.runScripts
+        let scripts = model.runScripts
         if !scripts.isEmpty {
             let running = runningScripts()
             Divider()
@@ -88,7 +100,7 @@ struct NewTabMenu: View {
                         missingFile: missingFile(of: script)
                     )
                     Button {
-                        launcher.pick(script, in: model)
+                        model.pickRunScript(script)
                     } label: {
                         // A label and then a second text, which a menu draws as the title with
                         // its glyph and a subtitle under it.
@@ -107,14 +119,14 @@ struct NewTabMenu: View {
 
     /// The ids of the run scripts with a tab whose command is going.
     private func runningScripts() -> Set<String> {
-        Set(tabs.tabs(for: model.workspace.id).compactMap { tab in
+        Set(tabs.tabs(for: model.surfaceID).compactMap { tab in
             launcher.isRunning(tab) ? tab.runScriptID : nil
         })
     }
 
     private func missingFile(of script: RunScript) -> String? {
-        guard let file = model.settings.scriptFiles[.run(script.id)], file.isMissing else { return nil }
-        return file.path
+        guard let file = model.missingRunScriptFile(script) else { return nil }
+        return file
     }
 
     /// All three go through `NewPane`, which is the same door the pane's split submenus use, so a

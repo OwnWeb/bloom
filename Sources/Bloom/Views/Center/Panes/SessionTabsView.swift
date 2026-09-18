@@ -12,8 +12,19 @@ import BloomCore
 /// a workspace with one tab has no strip, however that tab is split, the way a Safari window with
 /// one tab has no tab bar. The `+` that used to end this row is `NewTabMenu`, in the title bar,
 /// which is what lets the row go.
-struct SessionTabsView: View {
-    @Bindable var model: WorkspaceModel
+/// The numbers and names the strip is drawn to, in a type of their own because a generic view may
+/// hold no stored static. Nothing about them is generic.
+private enum TabStripMeasure {
+    /// The space the tabs are measured in and the pointer is reported in. It is the row of tabs
+    /// itself, so it scrolls with them and the two sets of numbers cannot drift apart.
+    static let space = "bloom.tabStrip"
+    /// The centre column opens onto the reading ground, which settles both what a selected tab is
+    /// filled with and how far the track under it is sunk. See `TabPane`.
+    static let pane = TabPane.content
+}
+
+struct SessionTabsView<Model: WorkspaceSurface>: View {
+    let model: Model
     /// The tab whose name field is open. Owned by the column rather than by this view, because
     /// Rename Tab has to be able to open a field on a strip that is not drawn yet: the column
     /// hears the request, sets this, and the strip appears with the field already open.
@@ -25,7 +36,7 @@ struct SessionTabsView: View {
     /// Which tabs sweep. The column's to resolve, because the column's top edge carries the other
     /// half of the same answer when this strip is not drawn.
     var busy: BusySignalPlacement<PaneContent>
-    /// Which part of which pane a tab carried to a point in `CenterColumnView.space` would land in,
+    /// Which part of which pane a tab carried to a point in `CentreColumnMeasure.space` would land in,
     /// or nil for anywhere that would not take it. The column's to answer, because the panes are
     /// the column's.
     var landing: (PaneContent, CGPoint) -> PaneLanding?
@@ -42,7 +53,7 @@ struct SessionTabsView: View {
     /// one on every frame of a window resize, and each of those writes rebuilt this strip and
     /// every tab in it.
     @State private var spans = GeometryBox([PaneContent: TabStripDrag.Span]())
-    /// The strip's own vertical extent in `CenterColumnView.space`, which is how a carried tab
+    /// The strip's own vertical extent in `CentreColumnMeasure.space`, which is how a carried tab
     /// knows it has left the strip. A box for the same reason as `spans`.
     @State private var band = GeometryBox(0.0...0.0)
     /// The namespace the selection fill matches across, so moving the selection slides one
@@ -54,7 +65,7 @@ struct SessionTabsView: View {
 
     /// The space the tabs are measured in and the pointer is reported in. It is the row of tabs
     /// itself, so it scrolls with them and the two sets of numbers cannot drift apart.
-    private static let stripSpace = "bloom.tabStrip"
+    private var stripSpace: String { TabStripMeasure.space }
 
     private var tabs: CenterTabStore { .shared }
 
@@ -98,7 +109,7 @@ struct SessionTabsView: View {
         // is the moment after a tab is closed: aiming a scroll at an id that is no longer laid out
         // does nothing, and this says so rather than relying on that.
         let selectedID = selected.flatMap { entries.contains($0) ? AnyHashable($0.id) : nil }
-        return TabStrip(tabCount: entries.count, pane: Self.pane, selection: selectedID) {
+        return TabStrip(tabCount: entries.count, pane: pane, selection: selectedID) {
             EmptyView()
         } tabs: {
             HStack(spacing: 0) {
@@ -125,11 +136,11 @@ struct SessionTabsView: View {
                     }
                 }
             }
-            .coordinateSpace(.named(Self.stripSpace))
+            .coordinateSpace(.named(stripSpace))
         } append: {
         } trailing: {}
         .onGeometryChange(for: ClosedRange<Double>.self) { proxy in
-            let frame = proxy.frame(in: .named(CenterColumnView.space))
+            let frame = proxy.frame(in: .named(CentreColumnMeasure.space))
             return Double(frame.minY)...Double(frame.maxY)
         } action: {
             band.value = $0
@@ -148,16 +159,16 @@ struct SessionTabsView: View {
     /// The centre column opens onto the reading ground, which settles both what a selected tab is
     /// filled with and how far the track under it is sunk. See `TabPane`, which carries the
     /// measurements that used to live here.
-    private static let pane = TabPane.content
+    private var pane: TabPane { TabStripMeasure.pane }
 
     /// The conversation or the tool tab one entry of the strip stands for, and nil for an entry
     /// whose content has gone between the strip being derived and this being asked.
     private func session(_ id: SessionID) -> Session? {
-        model.sessions.first { $0.id == id }
+        model.chats.first { $0.id == id }
     }
 
     private func tool(_ id: String) -> CenterTab? {
-        tabs.tabs(for: model.workspace.id).first { $0.id == id }
+        tabs.tabs(for: model.surfaceID).first { $0.id == id }
     }
 
     // MARK: - Tabs
@@ -204,10 +215,10 @@ struct SessionTabsView: View {
         if let turn = TerminalSessionStore.shared.agentTurns[session.id], turn.isAwaitingPermission {
             return "questionmark.circle"
         }
-        if CenterTabStore.shared.terminal(for: session.id, in: model.workspace.id) != nil {
+        if CenterTabStore.shared.terminal(for: session.id, in: model.surfaceID) != nil {
             return PaneGlyph.agentMark(for: session.agentKind)
         }
-        return PaneGlyph.agentMark(for: session.agentKind, among: model.sessions.map(\.agentKind))
+        return PaneGlyph.agentMark(for: session.agentKind, among: model.chats.map(\.agentKind))
     }
 
     private func toolTab(
@@ -222,7 +233,7 @@ struct SessionTabsView: View {
             // is going. An ordinary terminal never does: nothing polls it, and a shell somebody ran
             // `ls` in is not a thing anybody is waiting on. See `WorkspaceTabsStore.busySignal`.
             isRunning: busy.showsInTab(content),
-            surface: Self.pane.surface,
+            surface: pane.surface,
             isRenaming: renamingID == tab.id,
             // What is on the tab, not what the tab is filed under. A browser showing "Spatie"
             // whose editor opened on "Browser" reads as the rename having gone to the wrong tab,
@@ -278,7 +289,7 @@ struct SessionTabsView: View {
     /// The run script a terminal tab was opened for, as the settings file states it now.
     private func runScript(of tab: CenterTab) -> RunScript? {
         guard let id = tab.runScriptID else { return nil }
-        return model.settings.runScripts.first { $0.id == id }
+        return model.runScript(id: id)
     }
 
     private func closeTitle(for tab: CenterTab) -> String {
@@ -287,6 +298,7 @@ struct SessionTabsView: View {
         case .browser: "Close browser"
         case .review: "Close the review"
         case .notes: "Close the notes"
+        case .setup: "Close the setup output"
         }
     }
 
@@ -371,8 +383,8 @@ struct SessionTabsView: View {
         StripDragTracking(
             content: content,
             carry: carry,
-            stripSpace: Self.stripSpace,
-            columnSpace: CenterColumnView.space,
+            stripSpace: stripSpace,
+            columnSpace: CentreColumnMeasure.space,
             isEnabled: isEnabled,
             onMeasure: { spans.value[content] = $0 },
             onChanged: { carried(content, $0, title: title, symbol: symbol) },
@@ -471,8 +483,8 @@ struct SessionTabsView: View {
             guard case .chat(let id) = entry else { return nil }
             return id
         }
-        guard let order = TabReorder.apply(drawn, to: model.sessions.map(\.id)) else { return }
-        model.reorderSessions(to: order)
+        guard let order = TabReorder.apply(drawn, to: model.chats.map(\.id)) else { return }
+        model.reorderChats(to: order)
     }
 
     private func reorderTools(within strip: [PaneContent]) {
@@ -480,9 +492,9 @@ struct SessionTabsView: View {
             guard case .tool(let id) = entry else { return nil }
             return id
         }
-        let stored = tabs.tabs(for: model.workspace.id).map(\.id)
+        let stored = tabs.tabs(for: model.surfaceID).map(\.id)
         guard let order = TabReorder.apply(drawn, to: stored) else { return }
-        tabs.reorder(order, in: model.workspace.id)
+        tabs.reorder(order, in: model.surfaceID)
     }
 
     // MARK: - Actions
@@ -498,24 +510,13 @@ struct SessionTabsView: View {
     }
 
     private func close(_ session: Session) {
-        CloseSessionAlert.shared.close(session, in: model)
+        model.closeChat(session)
     }
 
     private func commitRename(_ session: Session, to newTitle: String) {
         let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         renamingID = nil
-        guard !title.isEmpty, title != session.title, let store = app.store else { return }
-
-        let updated = session.with { $0.title = title }
-        if let index = model.sessions.firstIndex(where: { $0.id == session.id }) {
-            model.sessions[index] = updated
-        }
-        Task {
-            // The title alone. This value was read when the strip was drawn, and a running agent
-            // has been writing its own columns into that row since, one of which is the id
-            // `--resume` needs.
-            try? await store.updateSessionPreferences(id: session.id, title: title)
-            await model.reloadSessions()
-        }
+        guard !title.isEmpty, title != session.title else { return }
+        model.renameChat(session, to: title)
     }
 }

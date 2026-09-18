@@ -180,7 +180,7 @@ struct BloomCommands: Commands {
             // left in it.
             MenuCommand(.showChanges) {
                 if let cloud = model.selectedCloudSession {
-                    cloud.open(.changes)
+                    cloud.openReview()
                     return
                 }
                 guard let workspace = model.selectedModel else { return }
@@ -914,13 +914,23 @@ struct BloomCommands: Commands {
     /// What Cmd+W would close: the tab in front, or the pane of it the keyboard is in. See
     /// `TabClosure`, which is the rule and which the tests hold.
     private var closableTab: PaneContent? {
-        if let cloud = model.selectedCloudSession {
-            // A Cloud workspace's tabs have no panes to fold, so what is closable is what is in
-            // front, and the last chat stays: see `TabClosure`, which both kinds ask.
-            guard let selected = cloud.selectedTab else { return nil }
-            return cloud.entries.count > 1 || !selected.isChat ? selected : nil
-        }
+        // One rule for both kinds, asked of whichever workspace the window is on.
+        if let cloud = model.selectedCloudSession { return closableTab(of: cloud) }
         guard let workspace = model.selectedModel else { return nil }
+        return closableTab(of: workspace)
+    }
+
+    /// What Rename Tab would open a field on: the tab in front, when it is one that has a name to
+    /// change. The review and the notes are named after what they show, so a name written on
+    /// either would be a label the next reopen throws away. See `TabRenaming` in the core, which is
+    /// also what the tab's own menu asks.
+    private var renamableTab: PaneContent? {
+        if let cloud = model.selectedCloudSession { return renamableTab(of: cloud) }
+        guard let workspace = model.selectedModel else { return nil }
+        return renamableTab(of: workspace)
+    }
+
+    private func closableTab(of workspace: some WorkspaceSurface) -> PaneContent? {
         let tabs = WorkspaceTabsStore.shared
         guard let tab = tabs.selectedTab(in: workspace) else { return nil }
         return TabClosure.target(
@@ -929,20 +939,9 @@ struct BloomCommands: Commands {
         )
     }
 
-    /// What Rename Tab would open a field on: the tab in front, when it is one that has a name to
-    /// change. The review and the notes are named after what they show, so a name written on
-    /// either would be a label the next reopen throws away. See `TabRenaming` in the core, which is
-    /// also what the tab's own menu asks.
-    private var renamableTab: PaneContent? {
-        if let cloud = model.selectedCloudSession {
-            guard let selected = cloud.selectedTab else { return nil }
-            return TabRenaming.canRename(selected, tabKind: nil) ? selected : nil
-        }
-        guard let workspace = model.selectedModel else { return nil }
-        let tabs = WorkspaceTabsStore.shared
-        guard let selected = tabs.selectedTab(in: workspace) else { return nil }
-        let kind = CenterTabStore.shared.tabs(for: workspace.workspace.id)
-            .first { $0.id == selected.id }?.kind
+    private func renamableTab(of workspace: some WorkspaceSurface) -> PaneContent? {
+        guard let selected = WorkspaceTabsStore.shared.selectedTab(in: workspace) else { return nil }
+        let kind = CenterTabStore.shared.tabs(for: workspace.surfaceID).first { $0.id == selected.id }?.kind
         return TabRenaming.canRename(selected, tabKind: kind) ? selected : nil
     }
 

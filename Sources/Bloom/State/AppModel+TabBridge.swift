@@ -167,6 +167,11 @@ extension AppModel {
                 return .browser(
                     report(tab, number: number, name: centre.displayTitle(of: tab, in: model))
                 )
+
+            // A tab only a Cloud workspace has, and the bridge speaks for the workspaces on this
+            // Mac. An agent asking about one has asked about a tab that cannot be there.
+            case .setup:
+                return nil
             }
         }
     }

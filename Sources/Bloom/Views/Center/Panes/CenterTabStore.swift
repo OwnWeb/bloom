@@ -74,13 +74,13 @@ final class CenterTabStore {
     /// inconsistency, because `workspace_tab_select` takes back the title it handed out, so a tab
     /// reported as "Chat" that the person is looking at under "Untitled" is a name neither of them
     /// can use.
-    func title(of content: PaneContent, in model: WorkspaceModel) -> String {
+    func title(of content: PaneContent, in model: some WorkspaceSurface) -> String {
         switch content {
         case .chat(let sessionID):
-            let title = model.sessions.first { $0.id == sessionID }?.title ?? ""
+            let title = model.chats.first { $0.id == sessionID }?.title ?? ""
             return title.isEmpty ? PaneNaming.untitledChat : title
         case .tool(let id):
-            guard let tab = tabs(for: model.workspace.id).first(where: { $0.id == id }) else {
+            guard let tab = tabs(for: model.surfaceID).first(where: { $0.id == id }) else {
                 return PaneNaming.missingTab
             }
             return displayTitle(of: tab, in: model)
@@ -91,7 +91,7 @@ final class CenterTabStore {
     /// what they are: a strip of three tabs all called "Review" tells the reader nothing about
     /// which is which. A review takes the name of the file under the cursor, a browser the name of
     /// the page, and the chain behind the latter is `BrowserTabTitle`.
-    func displayTitle(of tab: CenterTab, in model: WorkspaceModel) -> String {
+    func displayTitle(of tab: CenterTab, in model: some WorkspaceSurface) -> String {
         switch tab.kind {
         case .browser:
             return BrowserTabTitle.title(
@@ -105,7 +105,7 @@ final class CenterTabStore {
             if tab.isPinnedToPath { return (tab.path as NSString).lastPathComponent }
             if model.changedFiles.contains(where: { $0.path == tab.path }) { return tab.title }
             return (tab.path as NSString).lastPathComponent
-        case .terminal, .notes:
+        case .terminal, .notes, .setup:
             return tab.title
         }
     }
@@ -399,7 +399,7 @@ final class CenterTabStore {
 
     /// Closes a tab and stops whatever it was running. Any pane showing it goes with it, and the
     /// tab it was a pane of settles around the gap. See `TabSurgery`.
-    func close(_ tab: CenterTab, in model: WorkspaceModel) async {
+    func close(_ tab: CenterTab, in model: some WorkspaceSurface) async {
         WorkspaceTabsStore.shared.prepareToClose(.tool(tab.id), in: model)
         apply(tabs(for: tab.workspaceID).filter { $0.id != tab.id }, to: tab.workspaceID)
         WorkspaceTabsStore.shared.forget(.tool(tab.id), workspaceID: tab.workspaceID)
@@ -418,6 +418,9 @@ final class CenterTabStore {
         // closing a window onto it, and the last keystroke was written before the tab went. See
         // `NotesPaneView`, which saves on the way out.
         case .notes:
+            break
+        // Nor does the setup log: it is the machine's, read again whenever the tab is drawn.
+        case .setup:
             break
         }
     }
@@ -517,6 +520,7 @@ final class CenterTabStore {
         case .browser: PaneNaming.browser
         case .review: CenterTab.reviewTitle
         case .notes: CenterTab.notesTitle
+        case .setup: PaneNaming.setup
         }
         return PaneNaming.nextTitle(base: base, taken: tabs.filter { $0.kind == kind }.map(\.title))
     }

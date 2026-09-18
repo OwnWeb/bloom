@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import BloomCore
@@ -34,6 +35,18 @@ enum ChangesRefresh {
 /// revert and a local shell are `WorkspaceCapabilities`, asked before they are offered.
 @MainActor
 protocol WorkspaceSurface: AnyObject, Observable {
+    /// What one of this workspace's tool tabs fills a pane with: a terminal, a page, the review or
+    /// the notes over a worktree on this Mac; the machine's own terminal, review and setup log for
+    /// a Cloud workspace. Everything around it, the strip, the panes, the splits, the menus, is one
+    /// view over both.
+    associatedtype ToolPane: View
+    @MainActor func toolPane(
+        for tab: CenterTab,
+        siblings: [PaneContent],
+        splitColumn: @escaping @MainActor (SplitAxis, PaneKind) -> Void,
+        paneMenu: (@MainActor () -> NSMenu)?
+    ) -> ToolPane
+
     /// What Edit mode in a diff shows. See `WorkspaceModel.editorPane(path:session:)` for why
     /// the workspace builds this view and the diff does not.
     associatedtype EditorPane: View
@@ -65,6 +78,60 @@ protocol WorkspaceSurface: AnyObject, Observable {
     /// Which chat the rest of the window is talking about, which selecting a tab adopts.
     var activeChat: Session? { get }
     var activeChatID: SessionID? { get set }
+
+    /// What the centre column does when it arrives on this workspace: a local one reads its
+    /// sessions and its settings, a Cloud one opens its connection and marks it read.
+    func onColumnAppear() async
+    /// The project's run scripts, which the `+` menu offers and whose autostart the column
+    /// settles. Empty where the workspace has no settings file on this Mac.
+    var runScripts: [RunScript] { get }
+    func considerRunScriptAutostart()
+    /// Runs one, or shows the tab it is already running in. See `RunScriptLauncher`.
+    func pickRunScript(_ script: RunScript)
+    /// The file a run script names and cannot find, for the menu row that says so. Nil when it is
+    /// there, and for a workspace whose scripts are not on this Mac to look for.
+    func missingRunScriptFile(_ script: RunScript) -> String?
+    /// Opening the three tabs the `+` offers besides a chat and a terminal. Each kind a workspace
+    /// does not have is absent from the menu rather than greyed: see `NewTabMenu`.
+    func openReview()
+    var supportsNotes: Bool { get }
+    func openNotes()
+    var supportsSetupTab: Bool { get }
+    func openSetupLog()
+    /// Re-reads the project's settings, for the moment somebody comes back to the window having
+    /// edited them elsewhere.
+    func refreshSettings()
+    /// What the column says above the panes about this workspace's settings: a run script asking
+    /// to start, a settings file that will not parse. A Cloud workspace has neither on this Mac.
+    associatedtype SettingsNotices: View
+    @MainActor func settingsNotices() -> SettingsNotices
+
+    /// Whether an agent is mid turn in this one chat, which is what lights its tab.
+    func isRunningChat(_ id: SessionID) -> Bool
+
+    /// The transcript of one chat, when this launch has built it. A lookup, never a build: a body
+    /// may not write observed state, which is what `prepareTranscript` is for.
+    func existingTranscript(for id: SessionID) -> TranscriptModel?
+    /// Builds it if it has not been built, from a task rather than from a body.
+    func prepareTranscript(for id: SessionID)
+
+    /// Makes a chat and answers what to put in front of the reader, or nil when it could not be
+    /// made. A local workspace writes a row and may start a CLI; a Cloud workspace asks its
+    /// machine. Nothing is placed before the thing exists: see `NewPane`.
+    func createChat(title: String?) async -> PaneContent?
+    /// Closing one, which asks what closing costs where there is anything to lose.
+    func closeChat(_ session: Session)
+    func renameChat(_ session: Session, to title: String)
+    /// The order the chats are in among themselves, after a drag in the strip. The interleaving of
+    /// chats and tools is the strip's own and is written by `WorkspaceTabsStore`.
+    func reorderChats(to order: [SessionID])
+    /// The project's run script of this id, for the tab a run script opened. Nil where the
+    /// workspace has no settings file on this Mac to read.
+    func runScript(id: String) -> RunScript?
+    /// Where a new browser tab opens, which is the workspace's own dev server when it has one.
+    func browserAddress() async -> String
+    /// Whether a browser tab is one of the kinds this workspace can open at all.
+    var supportsBrowserTabs: Bool { get }
 
     // MARK: A conversation in it
 

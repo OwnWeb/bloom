@@ -8,8 +8,8 @@ import BloomCore
 /// It used to own the dropping as well, a `.dropDestination` for a tab dragged out of the strip.
 /// A tab is carried by a gesture now rather than as a system drag, so there is no drop session to
 /// receive, and the column hit tests the panes instead. See `CenterColumnView.landing(for:at:)`.
-struct CenterPaneView: View {
-    @Bindable var model: WorkspaceModel
+struct CenterPaneView<Model: WorkspaceSurface>: View {
+    let model: Model
     /// The tab this pane belongs to, and nil when the workspace has no tab to be in at all. A
     /// pane belongs to a tab now rather than to the workspace, which is what stops picking a tab
     /// from rewriting whatever pane the user happened to be standing in.
@@ -54,7 +54,7 @@ struct CenterPaneView: View {
     private var waiting: PaneWait? {
         switch showing {
         case .chat(let sessionID):
-            if CenterTabStore.shared.terminal(for: sessionID, in: model.workspace.id) != nil { return nil }
+            if CenterTabStore.shared.terminal(for: sessionID, in: model.surfaceID) != nil { return nil }
             // The transcript exists, so the pane has a composer to draw and the wait belongs to
             // the transcript rather than to the pane. See `ChatPaneView.waiting`.
             //
@@ -62,13 +62,13 @@ struct CenterPaneView: View {
             // transcript on the next turn of the run loop, which is well inside the half second
             // either of them stays quiet for, so only one of the two is ever drawn.
             if model.existingTranscript(for: sessionID) != nil { return nil }
-            if model.sessions.contains(where: { $0.id == sessionID }) {
+            if model.chats.contains(where: { $0.id == sessionID }) {
                 return .conversation(sessionID)
             }
             // A pane restored from a saved arrangement can name a session before the store has
             // said whether it still exists. Unknown and not-asked-yet are different answers, and
             // only the second of them is a wait.
-            return model.hasReadSessions ? nil : .sessions(model.workspace.id)
+            return model.hasReadChats ? nil : .sessions(model.surfaceID)
         case .tool:
             // A terminal says so for itself while its shell starts, and a browser draws the page's
             // own progress. Neither is this pane's wait to announce.
@@ -76,8 +76,8 @@ struct CenterPaneView: View {
         case nil:
             // A workspace still running its setup script has a sentence of its own that says more
             // than a spinner would, so it is not a wait either.
-            guard !model.isRunningSetup, !model.hasReadSessions else { return nil }
-            return .sessions(model.workspace.id)
+            guard !model.isRunningSetup, !model.hasReadChats else { return nil }
+            return .sessions(model.surfaceID)
         }
     }
 
@@ -117,31 +117,27 @@ struct CenterPaneView: View {
     private var content: some View {
         // The first thing a tab switch rebuilds, and therefore the start of everything `TabProbe`
         // is timing. Off unless a probe run turned the trace on, and stamped once per timeline.
-        let _ = SwitchTrace.mark("pane.body", workspace: model.workspace.id)
-        let _ = SwitchTrace.markOnScreen("pane.body", workspace: model.workspace.id)
+        let _ = SwitchTrace.mark("pane.body", workspace: model.surfaceID.local)
+        let _ = SwitchTrace.markOnScreen("pane.body", workspace: model.surfaceID.local)
 
         switch showing {
         case .chat(let sessionID):
             // The lookup only, never `transcript(for:)`: building one writes observed state, and a
             // body may not do that. `prepare` below is where it is built.
-            if let terminal = CenterTabStore.shared.terminal(for: sessionID, in: model.workspace.id) {
-                if model.pendingCLILaunches.contains(sessionID) {
-                    cliSetup(terminal, sessionID: sessionID)
-                } else {
-                    ToolPaneView(
-                        model: model, tab: terminal, siblings: paneContents,
-                        splitColumn: { split($0, opening: $1) }, paneMenu: hostedMenu
-                    )
-                }
+            if let terminal = CenterTabStore.shared.terminal(for: sessionID, in: model.surfaceID) {
+                model.toolPane(
+                    for: terminal, siblings: paneContents,
+                    splitColumn: { split($0, opening: $1) }, paneMenu: hostedMenu
+                )
             } else if let transcript = model.existingTranscript(for: sessionID) {
                 ChatPaneView(transcript: transcript, model: model, pane: pane)
-            } else if model.sessions.contains(where: { $0.id == sessionID }) {
+            } else if model.chats.contains(where: { $0.id == sessionID }) {
                 // Nothing, rather than the `LoadingView` that used to be here. This branch is the
                 // gap between a session being known and its transcript being built, which is one
                 // turn of the run loop on almost every switch: a spinner drawn for it flickered.
                 // The wait is `waiting` above, and it is only drawn if it lasts.
                 waitingSurface
-            } else if !model.hasReadSessions {
+            } else if !model.hasReadChats {
                 // Same rule as the `nil` case below: a session this pane was restored pointing at
                 // is not missing until the store has been asked.
                 waitingSurface
@@ -150,13 +146,11 @@ struct CenterPaneView: View {
             }
 
         case .tool(let tabID):
-            if let tab = CenterTabStore.shared.tabs(for: model.workspace.id)
+            if let tab = CenterTabStore.shared.tabs(for: model.surfaceID)
                 .first(where: { $0.id == tabID }) {
-                ToolPaneView(
-                    model: model, tab: tab,
-                    siblings: paneContents,
-                    splitColumn: { split($0, opening: $1) },
-                    paneMenu: hostedMenu
+                model.toolPane(
+                    for: tab, siblings: paneContents,
+                    splitColumn: { split($0, opening: $1) }, paneMenu: hostedMenu
                 )
             } else {
                 emptyState
@@ -165,7 +159,7 @@ struct CenterPaneView: View {
         case nil:
             if model.isRunningSetup {
                 setupState
-            } else if !model.hasReadSessions {
+            } else if !model.hasReadChats {
                 // **Not `noConversationState`, and this is the bug that made a switch feel wrong
                 // rather than merely slow.** On the first visit of a launch the sessions have not
                 // been read yet, so `sessions.isEmpty` was true and the pane confidently said
@@ -173,7 +167,7 @@ struct CenterPaneView: View {
                 // long as the store took to answer. An empty list is not an answer until somebody
                 // has asked. See `WorkspaceModel.hasReadSessions`.
                 waitingSurface
-            } else if model.sessions.isEmpty {
+            } else if model.chats.isEmpty {
                 noConversationState
             } else {
                 emptyState
@@ -243,16 +237,6 @@ struct CenterPaneView: View {
 
     /// A fresh workspace runs its setup script before anything else, and that can take minutes on a
     /// large repository. Saying so beats an empty rectangle that looks like a failure.
-    private func cliSetup(_ terminal: CenterTab, sessionID: SessionID) -> some View {
-        TerminalView(
-            tab: TerminalTab(id: TerminalTabID(terminal.id), workspaceID: model.workspace.id, title: terminal.title),
-            workspace: model.workspace, repo: model.repo, port: model.port,
-            output: (model.sessions.first { $0.id == sessionID }?.agentKind ?? .claudeCode)
-                .interactiveSetupOutput(prompt: model.pendingCLIPrompts[sessionID], log: model.setupOutput)
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private var setupState: some View {
         EmptyStateView(
             glyph: "gearshape.2",

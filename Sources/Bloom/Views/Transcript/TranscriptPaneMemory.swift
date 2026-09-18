@@ -10,7 +10,7 @@ import BloomCore
 ///
 /// The pane id is half the key because a split tab can hold the same conversation twice, each half
 /// scrolled somewhere else. It is the pane's own string, which for an unsplit tab is the tab's id
-/// and therefore the session's uuid; `CenterPanesView.soloPane` is a `ForEach` identity and is
+/// and therefore the session's uuid; `CentrePaneMeasure.soloPane` is a `ForEach` identity and is
 /// never what a pane is called. A comment here said the opposite for months, and cost an
 /// afternoon: a probe read that key, found nothing, and was believed. See `TranscriptPaneState.Key`.
 ///

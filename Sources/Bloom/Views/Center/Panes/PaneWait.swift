@@ -16,7 +16,7 @@ import BloomCore
 enum PaneWait: Equatable, Sendable {
     /// The store has not yet said which conversations this workspace has. The first visit of a
     /// launch only, since `WorkspaceModel.hasReadSessions` stays true afterwards.
-    case sessions(WorkspaceID)
+    case sessions(WorkspaceSurfaceID)
     /// The conversation is known and its rows are not on screen yet: either this launch has never
     /// built its transcript, or the transcript exists and is still reading.
     case conversation(SessionID)

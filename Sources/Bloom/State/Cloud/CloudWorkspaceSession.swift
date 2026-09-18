@@ -21,11 +21,6 @@ final class CloudWorkspaceSession {
     private(set) var state = CloudWorkspaceState()
     private(set) var phase: WorkspaceConnection.Phase = .closed
     private(set) var abilities: [String] = []
-    /// This workspace's strip: its chats, the tool tabs opened beside them, their order and which
-    /// one is in front. The rules are `CloudTabs`, which are the local column's own.
-    var tabs = CloudTabs() {
-        didSet { if tabs != oldValue { saveTabs() } }
-    }
     /// The last command that failed where no dialog belongs, said once in a strip over the column,
     /// in runbloom.app's or the machine's own words and with the way back where there is one.
     var notice: CloudRefusalNotice?
@@ -50,6 +45,9 @@ final class CloudWorkspaceSession {
     @ObservationIgnored private(set) lazy var changes = CloudChanges(session: self)
     /// The branch's commits, read when the History tab is opened and a page at a time after that.
     @ObservationIgnored private(set) lazy var history = CloudHistory(session: self)
+    /// Which setup states this workspace has already shown the tab for, so it is revealed once per
+    /// state rather than on every event that repeats it.
+    @ObservationIgnored private var seenSetupStates: Set<String> = []
     /// What GitHub says about the branch, read from runbloom.app rather than from this Mac's gh.
     @ObservationIgnored private(set) lazy var github = CloudPullRequestReader(session: self)
     /// Where the reader had got to in each conversation, per pane, which is what a local workspace
@@ -60,7 +58,6 @@ final class CloudWorkspaceSession {
     init(id: CloudWorkspaceID, cloud: CloudWorkspaces) {
         self.id = id
         self.cloud = cloud
-        loadTabs()
     }
 
     var readerID: String? { cloud.account?.id }
@@ -70,9 +67,11 @@ final class CloudWorkspaceSession {
     /// The machine's chats, in the order it lists them, which is what the strip is built from.
     var chatIDs: [SessionID] { state.topLevelChats.map { SessionID($0.id) } }
 
-    var entries: [PaneContent] { tabs.entries(chats: chatIDs) }
-
-    var selectedTab: PaneContent? { tabs.selection(chats: chatIDs) }
+    /// The strip and the selection are `WorkspaceTabsStore`'s for both kinds of workspace, and the
+    /// tool tabs are rows in `CenterTabStore` keyed by this workspace. What was a `CloudTabs` of
+    /// its own is gone: the rules it held, which tabs there are, what they are called, what closing
+    /// one selects next, were already the local column's rules asked twice.
+    var selectedTab: PaneContent? { WorkspaceTabsStore.shared.selectedTab(in: self) }
 
     /// The chat in front, when the tab in front is one.
     var selectedChatID: SessionID? {
@@ -84,32 +83,33 @@ final class CloudWorkspaceSession {
     /// to show something already on screen.
     var isShowingSetup: Bool {
         guard case .tool(let id) = selectedTab else { return false }
-        return tabs.tools.first { $0.id == id }?.kind == .setup
+        return CenterTabStore.shared.tabs(for: surfaceID).first { $0.id == id }?.kind == .setup
     }
 
-    func title(of content: PaneContent) -> String {
-        tabs.title(of: content, chats: state.topLevelChats.map { CloudTabs.ChatTitle(id: SessionID($0.id), title: $0.title) })
-    }
-
-    /// Opens a tool tab of this kind, or reveals the one this workspace already has.
+    /// Opens the workspace's one tab of this kind, or brings it forward. One of each, the way a
+    /// local workspace has one review and one set of notes: a second terminal on the same machine
+    /// would be a second shell for the same person, which the machine does not offer.
     @discardableResult
-    func open(_ kind: CloudTabs.Tool.Kind, name: String? = nil, terminalName: String? = nil, scriptID: String? = nil) -> PaneContent {
-        tabs.open(
-            CloudTabs.Tool(kind: kind, name: name, terminalName: terminalName, scriptID: scriptID), chats: chatIDs
-        )
-    }
-
-    func select(_ content: PaneContent) {
-        tabs.select(content)
-        if case .tool(let id) = content, tabs.tools.first(where: { $0.id == id })?.kind == .changes {
-            Task { await changes.refresh() }
-        }
+    func open(_ kind: CenterTabKind) -> PaneContent {
+        let store = CenterTabStore.shared
+        let existing = store.tabs(for: surfaceID).first { $0.kind == kind }
+        let tab = existing ?? store.add(kind: kind, workspaceID: surfaceID)
+        let content = PaneContent.tool(tab.id)
+        WorkspaceTabsStore.shared.reveal(content, in: self)
+        if kind == .review { Task { await changes.refresh() } }
+        return content
     }
 
     /// Closes a tab. A chat is closed on the machine as well, because it is the machine's.
     func close(_ content: PaneContent) {
-        if let chatID = tabs.close(content, chats: chatIDs) {
-            Task { await closeChat(chatID) }
+        switch content {
+        case .chat(let id):
+            WorkspaceTabsStore.shared.prepareToClose(content, in: self)
+            WorkspaceTabsStore.shared.forget(content, workspaceID: surfaceID)
+            Task { await closeChat(id) }
+        case .tool(let id):
+            guard let tab = CenterTabStore.shared.tabs(for: surfaceID).first(where: { $0.id == id }) else { return }
+            Task { await CenterTabStore.shared.close(tab, in: self) }
         }
     }
 
@@ -117,26 +117,18 @@ final class CloudWorkspaceSession {
         switch content {
         case .chat(let id):
             Task { await run(.renameChat(chatID: id.rawValue, title: name), reporting: true) }
-        case .tool:
-            tabs.rename(content, to: name)
+        case .tool(let id):
+            guard let tab = CenterTabStore.shared.tabs(for: surfaceID).first(where: { $0.id == id }) else { return }
+            CenterTabStore.shared.rename(tab, to: name)
         }
     }
 
-    func reorder(_ drawn: [PaneContent]) {
-        tabs.reorder(drawn, chats: chatIDs)
-    }
-
-    private var tabsKey: String { "cloud.tabs.\(id.rawValue)" }
-
-    private func saveTabs() {
-        guard let data = try? JSONEncoder().encode(tabs) else { return }
-        UserDefaults.standard.set(data, forKey: tabsKey)
-    }
-
-    private func loadTabs() {
-        guard let data = UserDefaults.standard.data(forKey: tabsKey),
-              let stored = try? JSONDecoder().decode(CloudTabs.self, from: data) else { return }
-        tabs = stored
+    /// The setup tab, brought forward the first time a setup is running or has failed, so the one
+    /// account of a machine's first few minutes is in front of whoever opened the workspace.
+    func revealSetupIfNeeded() {
+        let state = state.setup?.state ?? ""
+        guard ["pending", "running", "failed"].contains(state), seenSetupStates.insert(state).inserted else { return }
+        open(.setup)
     }
 
     func allows(_ ability: String) -> Bool { abilities.contains(ability) }
@@ -201,8 +193,7 @@ final class CloudWorkspaceSession {
             }
         case .snapshot(let snapshot):
             state.absorb(snapshot)
-            tabs.noteChats(chatIDs)
-            tabs.revealSetupIfNeeded(state: state.setup?.state, chats: chatIDs)
+            revealSetupIfNeeded()
             for chat in state.chatOrder { forward(chat) }
         case .event(.stream(let chatID, let text, let snapshot)):
             let next = snapshot ? text : (streaming[chatID] ?? "") + text
@@ -213,15 +204,23 @@ final class CloudWorkspaceSession {
                 streaming[message.chatID] = ""
             }
             let consequence = state.apply(event)
-            if case .setup = event { tabs.revealSetupIfNeeded(state: state.setup?.state, chats: chatIDs) }
+            if case .setup = event { revealSetupIfNeeded() }
             switch consequence {
             case .newChat(let chatID):
-                tabs.noteChats(chatIDs)
-                if selectedTab == nil { tabs.select(.chat(SessionID(chatID))) }
+                // A chat somebody else started appears in the strip by itself, because the strip
+                // is derived from the machine's list. It is only selected when there is nothing in
+                // front, so a chat opened on another Mac cannot take the tab from under a reader.
+                if selectedTab == nil {
+                    WorkspaceTabsStore.shared.select(.chat(SessionID(chatID)), in: self)
+                }
             case .composerChanged(let chatID, let author):
                 if let author, author.userID != readerID { composerChange = (chatID, author.name) }
             case .reviewMoved:
-                if tabs.tool(kind: .changes) != nil { Task { await changes.refresh() } }
+                // Only while somebody has the review open: reading it is a request to the machine,
+                // and a machine trying to sleep should not be asked for a list nothing is drawing.
+                if CenterTabStore.shared.tabs(for: surfaceID).contains(where: { $0.kind == .review }) {
+                    Task { await changes.refresh() }
+                }
             default:
                 break
             }
@@ -317,8 +316,7 @@ final class CloudWorkspaceSession {
         }
         guard let result = await runForResult(.newChat(controls: controls)), case .chat(let chat) = result else { return }
         state.apply(.chat(chat))
-        tabs.noteChats(chatIDs)
-        tabs.select(.chat(SessionID(chat.id)))
+        WorkspaceTabsStore.shared.select(.chat(SessionID(chat.id)), in: self)
     }
 
     func closeChat(_ id: SessionID) async {
@@ -426,8 +424,7 @@ final class CloudWorkspaceSession {
             switch result {
             case .chat(let chat):
                 state.apply(.chat(chat))
-                tabs.noteChats(chatIDs)
-                tabs.select(.chat(SessionID(chat.id)))
+                WorkspaceTabsStore.shared.select(.chat(SessionID(chat.id)), in: self)
                 prompt.chatID = chat.id
                 cloud.hold(prompt)
             case .queued:

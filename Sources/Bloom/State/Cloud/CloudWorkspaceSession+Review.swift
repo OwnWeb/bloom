@@ -72,9 +72,78 @@ extension CloudWorkspaceSession: WorkspaceSurface {
         get { selectedChatID }
         set {
             guard let newValue else { return }
-            select(.chat(newValue))
+            WorkspaceTabsStore.shared.select(.chat(newValue), in: self)
         }
     }
+
+    /// Opening the connection is what wakes a sleeping machine, so it happens when the column
+    /// arrives on the workspace and not before.
+    func onColumnAppear() async {
+        open()
+        await cloud.markRead(id)
+    }
+
+    /// The machine has run scripts and they are not tabs here yet, so there is nothing for the
+    /// column to offer or to start.
+    var runScripts: [RunScript] { [] }
+    func considerRunScriptAutostart() {}
+    func refreshSettings() {}
+
+    func pickRunScript(_ script: RunScript) {}
+    func missingRunScriptFile(_ script: RunScript) -> String? { nil }
+
+    func openReview() { open(.review) }
+
+    /// Notes are not on the wire yet.
+    var supportsNotes: Bool { false }
+    func openNotes() {}
+
+    /// The only tab a Cloud workspace has that a local one does not: what its machine did while it
+    /// was starting, which is the only account of a machine's first few minutes.
+    var supportsSetupTab: Bool { true }
+    func openSetupLog() { open(.setup) }
+
+    /// Nothing: a Cloud workspace's settings file is on its machine, and what it says about setup
+    /// is the setup banner and the Setup tab rather than a strip over the panes.
+    func settingsNotices() -> EmptyView { EmptyView() }
+
+    func isRunningChat(_ id: SessionID) -> Bool {
+        state.chats[id.rawValue]?.isRunning == true
+    }
+
+    /// Made on first use, with its history read. See `CloudWorkspaceSession.transcript(for:)`.
+    func prepareTranscript(for id: SessionID) {
+        _ = transcript(for: id)
+    }
+
+    /// Asks the machine for a chat, and answers the tab to put in front once it has one.
+    func createChat(title: String?) async -> PaneContent? {
+        await newChat()
+        return selectedChatID.map(PaneContent.chat)
+    }
+
+    /// Closing a Cloud chat is the machine's `close_chat`, which is what `close(_:)` sends. There
+    /// is nothing to ask about first: the conversation is the machine's and closing it does not
+    /// throw away a worktree.
+    func closeChat(_ session: Session) {
+        close(.chat(session.id))
+    }
+
+    func renameChat(_ session: Session, to title: String) {
+        rename(.chat(session.id), to: title)
+    }
+
+    /// Nowhere to write it: the machine keeps the order of its own chats, and the interleaving of
+    /// chats and tools in the strip is written by `WorkspaceTabsStore` for both kinds.
+    func reorderChats(to order: [SessionID]) {}
+
+    /// The machine has run scripts, and they are not a tab kind here yet.
+    func runScript(id: String) -> RunScript? { nil }
+
+    /// A Cloud workspace's own app is its preview, which opens through the preview token rather
+    /// than by typing an address, so a browser tab is not one of the kinds its `+` offers.
+    func browserAddress() async -> String { "" }
+    var supportsBrowserTabs: Bool { false }
 
     // MARK: A conversation in it
 
@@ -152,7 +221,7 @@ extension CloudWorkspaceSession: WorkspaceSurface {
     /// workspace's own strip.
     func openFile(path: String, focusing: Bool) {
         changes.selectedPath = path
-        open(.changes)
+        open(.review)
     }
 
     var selectedFilePath: String? {
