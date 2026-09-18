@@ -50,6 +50,11 @@ struct CloudPreviewPane: View {
         .onChange(of: session.state.setup?.state) { _, _ in
             Task { await openIfReady() }
         }
+        // And the connection going live is the other. Nothing is fetched before it: see
+        // `openIfReady`.
+        .onChange(of: session.phase) { _, _ in
+            Task { await openIfReady() }
+        }
     }
 
     // MARK: - The bar
@@ -106,8 +111,13 @@ struct CloudPreviewPane: View {
                     glyph: "exclamationmark.triangle",
                     title: notice.title,
                     message: notice.message,
-                    actionTitle: notice.invitesRetry ? "Try again" : nil,
-                    action: notice.invitesRetry ? { Task { await openIfReady() } } : nil
+                    actionTitle: notice.invitesRetry ? (session.phase == .live ? "Try again" : "Wake") : nil,
+                    action: notice.invitesRetry ? {
+                        // Somebody asking for the app on a sleeping workspace IS the wake. The load
+                        // follows by itself when the connection goes live.
+                        if session.phase != .live { session.wake() }
+                        Task { await openIfReady() }
+                    } : nil
                 )
                 .background(Palette.surface)
             }
@@ -123,6 +133,7 @@ struct CloudPreviewPane: View {
     /// gateway answering for a port nobody is listening on, which is the white rectangle this was
     /// written for.
     private var notice: CloudPreviewReadiness.Notice? {
+        if session.phase != .live { return asleepNotice }
         if case .waiting(let waiting) = CloudPreviewReadiness.of(setup: session.state.setup) {
             return waiting
         }
@@ -139,12 +150,38 @@ struct CloudPreviewPane: View {
         return nil
     }
 
+    /// What the pane says while the workspace is not connected, which is short because the column's
+    /// own banner above it is already saying the rest.
+    ///
+    /// **A machine that is asleep is woken by being asked**, and this pane's load is a request to
+    /// the machine, so drawing it while the connection is down is this app deciding on somebody's
+    /// behalf to wake a machine and start the clock on it. It waits to be asked instead.
+    private var asleepNotice: CloudPreviewReadiness.Notice {
+        switch session.phase {
+        case .asleep, .notWaking:
+            CloudPreviewReadiness.Notice(
+                title: "This Cloud workspace is asleep",
+                message: "Its app is not running while it sleeps. Waking it starts it again.",
+                invitesRetry: true
+            )
+        default:
+            CloudPreviewReadiness.Notice(
+                title: "Not connected yet",
+                message: "The app appears here once Bloom has connected to this Cloud workspace.",
+                invitesRetry: false
+            )
+        }
+    }
+
     /// Asks for an address and loads it, unless setup says there is nothing to load yet.
     ///
     /// Nothing is fetched while setup is going: the exchange would succeed, the gateway would
     /// answer for a port nobody holds, and the pane would have spent a token to learn what the
     /// setup record already said.
     private func openIfReady() async {
+        // Nothing is asked of a machine that is not connected. The exchange is a request to it, and
+        // a request is what wakes a sleeping machine: see `asleepNotice`.
+        guard session.phase == .live else { return }
         guard case .serving = CloudPreviewReadiness.of(setup: session.state.setup) else { return }
         isOpening = true
         refusal = nil

@@ -236,6 +236,31 @@ struct EchoTransport: HTTPTransport {
         #expect(transport.requests(to: "/_bloom/v1/events").map { $0.value(forHTTPHeaderField: "Last-Event-ID") } == ["77", "80"])
     }
 
+    /// **The sentence about waking has an end.** A machine runbloom.app last saw asleep, asked and
+    /// not answering, said "this usually takes a few seconds" for as long as the window stayed
+    /// open. The connection keeps trying either way; what changes is that it stops promising.
+    @Test func aMachineThatDoesNotWakeIsSaidToNotHaveWoken() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken(awake: false)))
+        // Never answers, which is what a machine that is not coming back looks like from here.
+        transport.on("POST", "/_bloom/v1/rpc", .dropped())
+        transport.on("GET", "/_bloom/v1/events", .dropped())
+        let live = WorkspaceConnection(
+            workspaceID: "01k5ws", api: Fixtures.api(transport), machine: MachineClient(transport: transport),
+            sleep: { _ in await Task.yield() }
+        )
+        await live.open()
+        for await update in live.updates {
+            if case .phase(.notWaking) = update { break }
+        }
+        await live.close()
+        // Nothing is asserted here about the request that does the waking. Every test in this
+        // suite that gets a snapshot only passes because the connection asks the machine rather
+        // than only runbloom.app, which is the mechanism: a request to the machine URL is what
+        // wakes one, and a reserved wake is bookkeeping on the awake limit. Asserting it again
+        // here would be a race, because this harness's sleeps take no time at all.
+    }
+
     @Test func aStreamRefusedTwiceStops() async {
         let transport = FakeTransport()
         transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))

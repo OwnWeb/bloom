@@ -76,6 +76,17 @@ public struct CloudConnectionBanner: Sendable, Hashable {
             return nil
         case .connecting(waking: true):
             return CloudConnectionBanner(tone: .progress, title: "Waking this Cloud workspace…", message: "It was asleep. This usually takes a few seconds.")
+        case .notWaking:
+            // **The sentence above has an end now.** It said "this usually takes a few seconds"
+            // for as long as the window was open, over a machine that had been asked and had not
+            // come back, which is the same shape as a spinner that never stops. What wakes a
+            // machine is the request the connection is already making and repeating, so this says
+            // what is true, offers the two things worth doing, and keeps trying underneath.
+            return CloudConnectionBanner(
+                tone: .caution, title: "This Cloud workspace has not woken",
+                message: "It was asleep and has not answered since. Bloom keeps asking while this is open. runbloom.app says whether its machine is coming back.",
+                actions: [.retry, .runbloom]
+            )
         case .asleep:
             return CloudConnectionBanner(
                 tone: .caution, title: "This Cloud workspace is asleep",

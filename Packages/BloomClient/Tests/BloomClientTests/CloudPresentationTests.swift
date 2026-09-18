@@ -172,6 +172,16 @@ import Testing
         #expect(banner?.title.contains("Waking") == true)
     }
 
+    /// The other half of `wakingIsSaidInWords`: it stops being said after half a minute, and what
+    /// replaces it has both the truth and the two things worth doing.
+    @Test func aWakeThatHasNotHappenedStopsPromisingSeconds() {
+        let banner = CloudConnectionBanner.of(.notWaking(since: Date()))
+        #expect(banner?.tone == .caution)
+        #expect(banner?.title == "This Cloud workspace has not woken")
+        #expect(banner?.message?.contains("few seconds") != true)
+        #expect(banner?.actions == [.retry, .runbloom])
+    }
+
     @Test func aLimitThatClearsByItselfOffersNoButton() {
         let waiting = CloudConnectionBanner.of(.limited(LimitNotice(limit: "concurrent_machines", message: "Twenty running.")))
         #expect(waiting?.tone == .caution)

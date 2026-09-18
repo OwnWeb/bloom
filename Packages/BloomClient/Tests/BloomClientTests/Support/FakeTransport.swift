@@ -133,12 +133,14 @@ final class SleepLog: @unchecked Sendable {
 
     /// In seconds, with the two the notices are held for taken out.
     ///
-    /// `WorkspaceConnection` holds the waking notice for half a second and the retrying notice for
-    /// two, from tasks that race the loop, so a recorded 0.5 cannot be told from a retry of 0.5 and
-    /// a recorded 2 cannot be told from a retry of 2. Those two values are dropped rather than
-    /// guessed at, which leaves a sequence that is the backoff table and nothing else.
+    /// `WorkspaceConnection` holds the waking notice for half a second, the retrying notice for
+    /// two and the "it has not woken" notice for twenty, from tasks that race the loop, so a
+    /// recorded 0.5 cannot be told from a retry of 0.5 and a recorded 2 cannot be told from a
+    /// retry of 2. Those values are dropped rather than guessed at, which leaves a sequence that
+    /// is the backoff table and nothing else. Twenty is not in that table at all, which is
+    /// deliberate: see `WorkspaceConnection.wakingGrace`.
     var backoffSeconds: [Double] {
         asked.map { Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18 }
-            .filter { $0 != 0.5 && $0 != 2 }
+            .filter { $0 != 0.5 && $0 != 2 && $0 != 20 }
     }
 }

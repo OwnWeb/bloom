@@ -35,6 +35,15 @@ public actor WorkspaceConnection {
         case noAccess(String)
         /// The machine did not answer and the connection is trying again.
         case retrying(String)
+        /// Asked to wake and still not answering, long enough that "a few seconds" has stopped
+        /// being true. Still being retried: this is a sentence rather than a stop.
+        ///
+        /// **What wakes a machine is the request itself.** runbloom.app reserves a slot against the
+        /// awake limit and calls nothing: a paused machine answers in a fraction of a second and
+        /// answering is waking. So a client that has a token and is waiting for something else to
+        /// happen waits for ever, and this phase exists because the window was saying "this usually
+        /// takes a few seconds" over a machine that had been asked and had not come back.
+        case notWaking(since: Date)
 
         public var isConnecting: Bool {
             if case .connecting = self { true } else { false }
@@ -85,6 +94,9 @@ public actor WorkspaceConnection {
     private var token: SessionToken?
     private var tokenTask: Task<SessionToken, any Error>?
     private var streamTask: Task<Void, Never>?
+    /// The sentence a wake that is taking too long is about to raise, held for `wakingGrace`. It
+    /// outlives one attempt on purpose: a machine that has not woken is not woken by asking again.
+    private var wakeNotice: Task<Void, Never>?
     /// The banner a dropped connection is about to raise, held for `retryingNotice`.
     private var retryNotice: Task<Void, Never>?
     private var cursor: Int64?
@@ -115,6 +127,19 @@ public actor WorkspaceConnection {
     static let awakeTimeout: TimeInterval = 25
     /// How long a machine last seen asleep may take before the window says it is waking.
     static let wakingNotice: Duration = .milliseconds(500)
+
+    /// How long "this usually takes a few seconds" stays true.
+    ///
+    /// A cap on a sentence rather than a measurement of a machine: the first request after a pause
+    /// measured 4.5 seconds, so twenty is four times the ordinary case and still short enough that
+    /// somebody watching has not yet decided the app is broken. After it, the banner says the
+    /// workspace has not woken and offers the two things worth doing, and the connection carries on
+    /// trying underneath.
+    ///
+    /// **Not a value from `retryDelays`.** It is a hold on a notice rather than a backoff, and the
+    /// suite tells the two apart by the number: see `SleepLog.backoffSeconds`, which drops the
+    /// notice holds by value because they race the loop that does the waiting.
+    static let wakingGrace: Duration = .seconds(20)
 
     /// How long a connection that dropped may be gone before the window says so.
     ///
@@ -176,6 +201,8 @@ public actor WorkspaceConnection {
     public func suspend() {
         streamTask?.cancel()
         streamTask = nil
+        wakeNotice?.cancel()
+        wakeNotice = nil
         set(.closed)
     }
 
@@ -184,6 +211,8 @@ public actor WorkspaceConnection {
         streamTask = nil
         tokenTask?.cancel()
         tokenTask = nil
+        wakeNotice?.cancel()
+        wakeNotice = nil
         set(.closed)
         continuation.finish()
     }
@@ -314,7 +343,7 @@ public actor WorkspaceConnection {
         // Every phase that means "still trying, and here is why" survives the next attempt. What
         // is left to announce is a first connection, which is the only time `connecting` is news.
         switch phase {
-        case .retrying, .notReady, .limited: break
+        case .retrying, .notReady, .limited, .notWaking: break
         default: set(.connecting(waking: false))
         }
         let notice = Task { [sleep] in
@@ -373,6 +402,7 @@ public actor WorkspaceConnection {
         }
         notice.cancel()
         retryNotice?.cancel()
+        wakeNotice?.cancel()
         hasBeenAnswered = true
         refusedStreams = 0
         set(.live)
@@ -430,7 +460,22 @@ public actor WorkspaceConnection {
     /// asked about, is waking; one it saw awake is only slow, and says nothing new.
     private func noticeWaking() {
         guard case .connecting = phase else { return }
-        set(.connecting(waking: !(token?.awake ?? false)))
+        let waking = !(token?.awake ?? false)
+        set(.connecting(waking: waking))
+        guard waking else { return }
+        wakeNotice?.cancel()
+        wakeNotice = Task { [sleep] in
+            try? await sleep(Self.wakingGrace)
+            guard !Task.isCancelled else { return }
+            self.noticeNotWaking()
+        }
+    }
+
+    /// Half a minute of waking and still nothing. Said rather than waited out: see
+    /// `Phase.notWaking`.
+    private func noticeNotWaking() {
+        guard case .connecting(waking: true) = phase else { return }
+        set(.notWaking(since: now()))
     }
 
     /// Says the connection dropped, once it has been down long enough to be worth saying. A drop
