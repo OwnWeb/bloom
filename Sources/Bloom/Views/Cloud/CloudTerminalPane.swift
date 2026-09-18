@@ -35,7 +35,12 @@ struct CloudTerminalPane: View {
             CloudTerminalHost(view: terminal.view)
                 .padding(Metrics.spacingWide)
         }
-        .onAppear { terminal.connect() }
+        .onAppear {
+            terminal.connect()
+            // The look is read on the way in as well as at build time, so a scheme or a font
+            // changed in Settings while this pane was closed is what it comes back drawing.
+            terminal.view.applyLook()
+        }
     }
 }
 

@@ -13,6 +13,30 @@ final class CloudTerminalView: SwiftTerm.TerminalView, @preconcurrency TerminalV
     override init(frame: CGRect) {
         super.init(frame: frame, font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
         terminalDelegate = self
+        applyLook()
+    }
+
+    /// **The same settings the local terminal draws with**, which is what the owner asked for and
+    /// what cost nothing: his scheme, his font, his Ghostty configuration if he follows one. A
+    /// Cloud terminal is the same person in the same window doing the same thing, and a second set
+    /// of defaults would be a second thing to configure and a second thing to get out of step. See
+    /// `TerminalAppearance`.
+    func applyLook() {
+        let look = TerminalLook.current
+        applyBloomFont(
+            family: look.fontFamily(for: effectiveAppearance),
+            size: look.fontSize(for: effectiveAppearance),
+            lineHeight: look.typography.lineHeight
+        )
+        applyBloomColours()
+    }
+
+    /// A `theme = light:…,dark:…` follows the window rather than the app, so the pane is asked
+    /// again when the window it is in changes appearance. That is the whole of "it should follow
+    /// the window": a light pane in a dark window was never a choice anybody made.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyLook()
     }
 
     @available(*, unavailable)
