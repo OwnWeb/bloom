@@ -16,6 +16,12 @@ public struct CloudArchiveConfirmation: Sendable, Hashable {
 
     public static let conversationSentence = "The conversation is deleted with the Cloud workspace. It cannot be restored."
 
+    /// What is not lost, said as plainly as what is, so somebody archiving at the end of a day
+    /// knows what they still have. **There is no export, by decision rather than by omission**: an
+    /// archived Cloud workspace does not keep its conversation, and nothing here leaves room for
+    /// one. See "Decided by the owner" in docs/REMOTE-WORKSPACES.md.
+    public static let survivesSentence = "The branch stays on GitHub with everything pushed to it."
+
     public init(preview: ArchivePreviewRecord) {
         var losses = [Self.conversationSentence]
         if preview.isAgentRunning { losses.append("An agent is still working. It will be stopped.") }

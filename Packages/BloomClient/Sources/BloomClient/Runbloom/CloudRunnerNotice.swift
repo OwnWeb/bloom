@@ -16,6 +16,9 @@ public struct CloudRunnerNotice: Codable, Sendable, Hashable {
     public static let rolledBack = "update_rolled_back"
     /// It did not heal, and somebody should look.
     public static let failed = "update_failed"
+    /// Abandoned partway because the machine had to be stopped, by the kill switch or a team's cost
+    /// limit, so it may be on either version until it is next updated. A resting state.
+    public static let interrupted = "update_interrupted"
 
     public var kind: String
     public var message: String

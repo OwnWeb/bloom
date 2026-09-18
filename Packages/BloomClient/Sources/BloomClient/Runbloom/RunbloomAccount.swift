@@ -13,12 +13,17 @@ public struct RunbloomAccount: Codable, Sendable, Hashable {
     public var avatarURL: URL?
     public var currentTeamID: String?
     public var githubConnected: Bool
+    /// The GitHub login the account is connected with, which is what a new branch is prefixed
+    /// with, the same prefix a local workspace cuts. Nil when GitHub is not connected, and when
+    /// runbloom.app does not say; a branch then has no prefix rather than a guess at one.
+    public var githubLogin: String?
     public var agentKeys: [AgentKeyStatus]
     public var teams: [RunbloomTeam]
 
     public init(
         id: String, name: String, email: String, avatarURL: URL? = nil, currentTeamID: String? = nil,
-        githubConnected: Bool = false, agentKeys: [AgentKeyStatus] = [], teams: [RunbloomTeam] = []
+        githubConnected: Bool = false, githubLogin: String? = nil, agentKeys: [AgentKeyStatus] = [],
+        teams: [RunbloomTeam] = []
     ) {
         self.id = id
         self.name = name
@@ -26,6 +31,7 @@ public struct RunbloomAccount: Codable, Sendable, Hashable {
         self.avatarURL = avatarURL
         self.currentTeamID = currentTeamID
         self.githubConnected = githubConnected
+        self.githubLogin = githubLogin
         self.agentKeys = agentKeys
         self.teams = teams
     }
@@ -35,6 +41,7 @@ public struct RunbloomAccount: Codable, Sendable, Hashable {
         case avatarURL = "avatar_url"
         case currentTeamID = "current_team_id"
         case githubConnected = "github_connected"
+        case githubLogin = "github_login"
         case agentKeys = "agent_keys"
     }
 
@@ -46,8 +53,22 @@ public struct RunbloomAccount: Codable, Sendable, Hashable {
         avatarURL = try? c.decodeIfPresent(URL.self, forKey: .avatarURL)
         currentTeamID = try c.decodeIfPresent(String.self, forKey: .currentTeamID)
         githubConnected = try c.decodeIfPresent(Bool.self, forKey: .githubConnected) ?? false
+        githubLogin = try? c.decodeIfPresent(String.self, forKey: .githubLogin)
         agentKeys = try c.decodeIfPresent([AgentKeyStatus].self, forKey: .agentKeys) ?? []
         teams = try c.decodeIfPresent([RunbloomTeam].self, forKey: .teams) ?? []
+    }
+
+    /// What a new branch is prefixed with: the GitHub login, and nothing when there is none.
+    ///
+    /// **Never the display name.** It is editable into something that is not a valid ref at all, and
+    /// `freek/` on a branch GitHub knows as `freekmurze`'s is a quiet wrong answer that only shows up
+    /// on GitHub later. A bare slug is honest. A local workspace cuts `{githubLogin}/{sea-slug}`, so
+    /// this is what makes one person's two kinds of branch read the same.
+    public var branchPrefix: String? {
+        guard githubConnected, let login = githubLogin?.trimmingCharacters(in: .whitespaces), !login.isEmpty else {
+            return nil
+        }
+        return login.lowercased()
     }
 
     /// The teams that can hold Cloud workspaces, in the order runbloom.app listed them.

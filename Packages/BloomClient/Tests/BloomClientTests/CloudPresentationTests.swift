@@ -626,6 +626,18 @@ import Testing
         #expect(CloudConnectionBanner.ofRunner(nil) == nil)
     }
 
+    /// Interrupted is a resting state like the two outcomes: a machine switched off halfway through
+    /// an update may be on either version until it is next updated, and that does not end by itself.
+    @Test func anInterruptedUpdateRestsAndCanBePutAway() {
+        let banner = CloudConnectionBanner.ofRunner(CloudRunnerNotice(
+            kind: CloudRunnerNotice.interrupted,
+            message: "An update was interrupted, so this Cloud workspace may be on either version.", at: at
+        ))
+        #expect(banner?.tone == .caution)
+        #expect(banner?.title == "This Cloud workspace's update was interrupted")
+        #expect(banner?.dismissalKey != nil)
+    }
+
     @Test func aKindThisVersionDoesNotKnowIsStillSaid() {
         let banner = CloudConnectionBanner.ofRunner(CloudRunnerNotice(kind: "update_paused", message: "Something new.", at: at))
         #expect(banner?.message == "Something new.")

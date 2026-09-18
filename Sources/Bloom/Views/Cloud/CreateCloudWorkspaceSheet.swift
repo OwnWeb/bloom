@@ -181,13 +181,13 @@ struct CreateCloudWorkspaceSheet: View {
 
     /// An example that reads like this person's own branch, rather than somebody else's name.
     private var branchPlaceholder: String {
-        let example = CloudBranchName.suggestion(for: "queue retries", prefix: cloud.account?.name.split(separator: " ").first.map { $0.lowercased() })
+        let example = CloudBranchName.suggestion(for: "queue retries", prefix: cloud.account?.branchPrefix)
         return example.isEmpty ? "queue-retries" : example
     }
 
     private var suggestedBranch: String {
-        let first = cloud.account?.name.split(separator: " ").first.map { $0.lowercased() }
-        return CloudBranchName.suggestion(for: name, prefix: first)
+        // The GitHub login, as a local workspace's branch is prefixed, and no prefix without one.
+        CloudBranchName.suggestion(for: name, prefix: cloud.account?.branchPrefix)
     }
 
     private func loadProjects() async {

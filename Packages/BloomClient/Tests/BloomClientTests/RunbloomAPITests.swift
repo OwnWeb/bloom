@@ -338,4 +338,21 @@ import Testing
         }
     }
 
+    /// A branch is prefixed with the GitHub login, the same prefix a local workspace cuts, and
+    /// never with the display name, which can be edited into something that is not a valid ref.
+    @Test func aBranchIsPrefixedWithTheGitHubLoginAndNeverTheDisplayName() {
+        let connected = RunbloomAccount(id: "u", name: "Freek Van der Herten", email: "f@s.be", githubConnected: true, githubLogin: "FreekMurze")
+        #expect(connected.branchPrefix == "freekmurze")
+        #expect(CloudBranchName.suggestion(for: "queue retries", prefix: connected.branchPrefix) == "freekmurze/queue-retries")
+
+        // No login is no prefix, not a guess from the name.
+        let unknown = RunbloomAccount(id: "u", name: "Freek Van der Herten", email: "f@s.be", githubConnected: true)
+        #expect(unknown.branchPrefix == nil)
+        #expect(CloudBranchName.suggestion(for: "queue retries", prefix: unknown.branchPrefix) == "queue-retries")
+
+        // A login from an account whose GitHub is no longer connected is not used either.
+        let disconnected = RunbloomAccount(id: "u", name: "Freek", email: "f@s.be", githubConnected: false, githubLogin: "freekmurze")
+        #expect(disconnected.branchPrefix == nil)
+    }
+
 }

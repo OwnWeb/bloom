@@ -159,10 +159,21 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         let isFailure = notice.kind == CloudRunnerNotice.failed
         return CloudConnectionBanner(
             tone: isFailure ? .failure : .caution,
-            title: isFailure ? "This Cloud workspace could not be updated" : "This Cloud workspace was put back on an older version",
+            title: Self.runnerTitle(for: notice.kind),
             message: notice.message,
             dismissalKey: "runner:\(notice.kind):\(notice.at?.timeIntervalSince1970.rounded() ?? 0)"
         )
+    }
+
+    /// The heading over runbloom.app's own sentence. A kind this version does not know gets the
+    /// plainest heading there is, because its sentence says the rest.
+    private static func runnerTitle(for kind: String) -> String {
+        switch kind {
+        case CloudRunnerNotice.failed: "This Cloud workspace could not be updated"
+        case CloudRunnerNotice.rolledBack: "This Cloud workspace was put back on an older version"
+        case CloudRunnerNotice.interrupted: "This Cloud workspace's update was interrupted"
+        default: "Something happened while this Cloud workspace was being updated"
+        }
     }
 
     private static let stepNames = [
