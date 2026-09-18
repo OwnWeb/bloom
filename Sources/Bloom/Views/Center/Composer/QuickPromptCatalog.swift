@@ -117,4 +117,20 @@ final class QuickPromptCatalog {
         try? await store.deleteQuickPrompt(id: id)
         prompts.removeAll { $0.id == id }
     }
+
+    /// The built-ins that are not in the library, which is what the restore row offers.
+    ///
+    /// Derived rather than held, because it is a question about `prompts` and a second stored
+    /// copy of an answer to a question about a published list is the two-blues bug this app keeps
+    /// writing down. See `WorkspacePullRequests.set` for the fullest telling of it.
+    var missingBuiltIns: [QuickPromptSeed.Entry] { QuickPromptSeed.missing(from: prompts) }
+
+    /// Puts the missing built-ins back and republishes the library.
+    ///
+    /// The whole list comes back from the store rather than being appended to here, because the
+    /// insert chooses the sort order and a local append would guess at it.
+    func restoreBuiltIns(in store: Store?) async {
+        guard let store, let restored = try? await store.restoreBuiltInQuickPrompts() else { return }
+        prompts = restored
+    }
 }

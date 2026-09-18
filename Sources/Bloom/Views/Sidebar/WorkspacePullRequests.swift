@@ -88,7 +88,22 @@ final class WorkspacePullRequests {
         }
     }
 
-    private func refresh(_ workspace: Workspace, store: Store?) async {
+    /// One refresh, for a caller that wants an answer now rather than a loop.
+    ///
+    /// The checks watcher, which asks about workspaces no row is drawing and therefore no
+    /// `track` is covering. It goes through the same queue and the same generation check as a
+    /// row's own poll, which is the reason it is here rather than a second `GitHubBridge` call
+    /// somewhere else: two callers asking GitHub about the same branch at once is the burst of
+    /// concurrent `gh` processes this class exists to prevent.
+    ///
+    /// `maxAge` is zero rather than the shared 110 seconds. A row polls on its own clock and is
+    /// happy to share a recent answer; this caller is deciding whether to interrupt somebody, and
+    /// a cached reading would announce the state of the branch two minutes ago.
+    func refreshOnce(_ workspace: Workspace, store: Store?) async {
+        await refresh(workspace, store: store, maxAge: .zero)
+    }
+
+    private func refresh(_ workspace: Workspace, store: Store?, maxAge: Duration = WorkspacePullRequests.maxAge) async {
         // A worktree identical to its base has nothing to open a pull request for. Skipping it
         // is what keeps a project full of fresh workspaces from launching a process per row.
         //
@@ -109,7 +124,7 @@ final class WorkspacePullRequests {
         let lookup = Task { @MainActor in
             await previous.value
             guard !Task.isCancelled, self.generations[id, default: 0] == generation else { return }
-            let read = await GitHubBridge.readPullRequest(for: asked, maxAge: Self.maxAge)
+            let read = await GitHubBridge.readPullRequest(for: asked, maxAge: maxAge)
             guard !Task.isCancelled, self.generations[id, default: 0] == generation else { return }
             self.record(read, for: id)
             guard case .current(let fresh) = read else { return }

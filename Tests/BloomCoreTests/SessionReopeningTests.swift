@@ -2,8 +2,6 @@ import Testing
 import Foundation
 @testable import BloomCore
 
-private let locale = Locale(identifier: "en_US")
-
 private func chat(
     _ name: String,
     messages: Int = 1,
@@ -97,9 +95,31 @@ struct SessionReopeningTests {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let closed = chat("Chat 3", messages: 13_872, closedAt: now.addingTimeInterval(-2 * 3600))
 
-        let subtitle = SessionReopening.subtitle(closed, now: now, locale: locale)
+        let subtitle = SessionReopening.subtitle(closed, now: now)
 
         #expect(subtitle == "Claude Code \u{00B7} \(13_872.formatted()) messages \u{00B7} closed 2 hours ago")
+    }
+
+    /// **Every case the sentence has**, because it is written out by hand now rather than handed to
+    /// a formatter, and because the two `subtitle` tests only ever exercise two of them.
+    @Test("the age reads as a person would say it, at every distance")
+    func ageAtEveryDistance() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        func age(_ seconds: TimeInterval) -> String {
+            SessionReopening.age(of: now.addingTimeInterval(-seconds), from: now)
+        }
+
+        #expect(age(0) == "just now")
+        #expect(age(59) == "just now")
+        #expect(age(60) == "1 minute ago")
+        #expect(age(59 * 60) == "59 minutes ago")
+        #expect(age(3_600) == "1 hour ago")
+        #expect(age(2 * 3_600) == "2 hours ago")
+        #expect(age(86_400) == "yesterday")
+        #expect(age(2 * 86_400) == "2 days ago")
+        #expect(age(6 * 86_400) == "6 days ago")
+        #expect(age(7 * 86_400) == "last week")
+        #expect(age(14 * 86_400) == "2 weeks ago")
     }
 
     /// The count agrees with the number, which is the whole reason `Counted` exists.
@@ -109,7 +129,7 @@ struct SessionReopeningTests {
         let closed = chat("Chat 2", messages: 1, closedAt: now.addingTimeInterval(-60), agent: .codex)
 
         #expect(
-            SessionReopening.subtitle(closed, now: now, locale: locale)
+            SessionReopening.subtitle(closed, now: now)
                 == "Codex \u{00B7} 1 message \u{00B7} closed 1 minute ago"
         )
     }

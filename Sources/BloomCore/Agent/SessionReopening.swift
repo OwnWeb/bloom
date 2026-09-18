@@ -96,26 +96,51 @@ public enum SessionReopening {
     /// thousand of them carry a thousands separator. The order is what a reader weighs: the size
     /// is what decides whether this is the chat being looked for, and the age is what tells two
     /// chats of the same name apart.
-    public static func subtitle(_ chat: ClosedChat, now: Date, locale: Locale = .current) -> String {
+    public static func subtitle(_ chat: ClosedChat, now: Date) -> String {
         [
             chat.agentKind.label,
             Counted.of(chat.messageCount, "message"),
-            "closed " + age(of: chat.closedAt, from: now, locale: locale),
+            "closed " + age(of: chat.closedAt, from: now),
         ].joined(separator: " \u{00B7} ")
     }
 
-    /// "2 hours ago", "yesterday".
+    /// "2 hours ago", "yesterday", "last week".
     ///
-    /// Through `RelativeDateTimeFormatter` rather than `Date.formatted(.relative(...))`, which is
-    /// what the archived workspace row uses, for one reason: the format style is relative to
-    /// `Date.now` and takes no reference date, so nothing could pin the clock and the wording
-    /// could not be tested. The style and the locale are the row's, so the two read alike.
-    public static func age(of date: Date, from now: Date, locale: Locale = .current) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = locale
-        formatter.dateTimeStyle = .named
-        formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: now)
+    /// **Written out rather than formatted, because the formatter was Darwin only.** It was
+    /// `RelativeDateTimeFormatter`, which swift-corelibs-foundation does not have, so `BloomCore`
+    /// stopped building on Linux the moment this landed, and **every branch that compiles for
+    /// Linux failed on it regardless of what that branch changed**, because a pull request is
+    /// built as a merge with `main`. Today that is the server-runtime branches; `main`'s own CI
+    /// compiles Swift on macOS alone, which is why this reached `main` green.
+    ///
+    /// **Nothing local could have caught it, and that is the part worth knowing.** `make lint`
+    /// refuses a UI framework in the core, and a Darwin-only Foundation type is not a UI
+    /// framework. `make test` mirrors the core into a package with no app target, where this
+    /// compiles. `swift build` on a Mac never compiles for Linux at all. So the check was a CI job
+    /// on one set of branches, which is a twenty-minute round trip to learn something a compiler
+    /// could say in a second: compiling the core for Linux in the `lint` job is the mechanism that
+    /// cannot rot, and a list of type names is the one that can.
+    ///
+    /// **One implementation rather than one per platform**, which is the other half of the fix: two
+    /// would agree on the two cases the tests pin and drift everywhere else, and only one of them
+    /// would ever be read. There is no `locale` any more either. It was always `.current`, nothing
+    /// here varied by it, and Bloom writes British English throughout, so the parameter promised a
+    /// choice that did not exist.
+    ///
+    /// The reason for a reference date rather than `Date.formatted(.relative(...))` is unchanged
+    /// and is the reason this can be tested at all: that style is relative to `Date.now` and takes
+    /// no reference, so nothing could pin the clock.
+    public static func age(of date: Date, from now: Date) -> String {
+        let seconds = Int(now.timeIntervalSince(date).rounded())
+        guard seconds >= 60 else { return "just now" }
+        switch seconds {
+        case ..<3_600: return Counted.of(seconds / 60, "minute") + " ago"
+        case ..<86_400: return Counted.of(seconds / 3_600, "hour") + " ago"
+        case ..<172_800: return "yesterday"
+        case ..<604_800: return Counted.of(seconds / 86_400, "day") + " ago"
+        case ..<1_209_600: return "last week"
+        default: return Counted.of(seconds / 604_800, "week") + " ago"
+        }
     }
 
     /// What Edit > Undo is undoing, straight after a chat is closed.
