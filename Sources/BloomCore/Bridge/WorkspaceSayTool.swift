@@ -63,8 +63,8 @@ public struct WorkspaceSayTool: BridgeToolHandling {
             chat and starts a turn there, the way agent_say does for a subagent in your own \
             workspace, or waits for the turn that is running.
 
-            Name the workspace by the id workspace_list or workspace_start reports, or by its name \
-            when no other workspace shares it. To answer a message that reached you from another \
+            Name the workspace by the id workspace_start reports (or workspace_list, from a client \
+            of the owner's own), or by its name when no other workspace shares it. To answer a message that reached you from another \
             workspace, pass the id it names: your answer goes to the chat there that most recently \
             wrote to you.
 
@@ -99,8 +99,8 @@ public struct WorkspaceSayTool: BridgeToolHandling {
                 "workspace": .object([
                     "type": .string("string"),
                     "description": .string(
-                        "The workspace to send it to, by the id workspace_list reports, or by its "
-                            + "name when no other workspace shares it. To answer a message, the "
+                        "The workspace to send it to, by its id or by its name when no other "
+                            + "workspace shares it. To answer a message, the "
                             + "id it names."
                     ),
                 ]),
@@ -378,15 +378,15 @@ public enum WorkspaceSayTrouble: Error, Sendable, Equatable {
 
         case .noWorkspace:
             return """
-                workspace_say needs the 'workspace' to send it to. Call workspace_list and pass the \
-                id it reports, or pass the id named in the message you are answering.
+                workspace_say needs the 'workspace' to send it to: a workspace's name or id, or the \
+                id named in the message you are answering.
                 """
 
         case let .unknown(given, known):
             return """
                 Bloom has no active workspace called '\(given)'. Active workspaces: \
                 \(BridgeWorkspaceLookup.list(known)). Retrying with the same name will fail the \
-                same way, so pass an id workspace_list reports.
+                same way, so pass one of those.
                 """
 
         case let .ambiguous(given, ids):
