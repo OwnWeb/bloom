@@ -79,38 +79,39 @@ extension CloudWorkspaceSession {
     func settingsNotices() -> EmptyView { EmptyView() }
 
     /// A new Cloud workspace's first minutes, which is the only time it has more to say than the
-    /// pane does: its machine is setting itself up, and the first message typed at create is
-    /// waiting for it. Said with the message itself, because it is the one thing the reader did.
+    /// pane does: its machine is being made, and the first message typed at create is waiting for
+    /// it.
+    ///
+    /// **One notice, and the words are `CloudOpeningNotice`'s.** There were two here, and the
+    /// wrong one of the two won for the whole of the first minute: a machine that had not yet
+    /// reported a step fell through to a clock glyph over "Your first message is waiting", so the
+    /// screen somebody meets on their first Cloud workspace had the **queue** as its subject while
+    /// a machine was being made and a repository cloned. The message is a line underneath now
+    /// rather than the headline, because it is worth keeping and it is not what is happening.
     var emptyPaneNotice: PaneEmptyNotice? {
-        if isRunningSetup {
-            return PaneEmptyNotice(
-                glyph: PaneGlyph.setup,
-                title: "Setting up this Cloud workspace",
-                message: heldPrompt.map { "Your first message goes as soon as it is ready: “\($0.text)”" }
-                    ?? "It is cloning the repository and running the project's setup. This takes a few minutes the first time.",
-                progress: openingProgress
-            )
-        }
-        if let held = heldPrompt {
-            return PaneEmptyNotice(
-                glyph: "clock",
-                title: "Your first message is waiting",
-                message: "“\(held.text)” goes to the agent as soon as this Cloud workspace has started.",
-                progress: openingProgress
-            )
-        }
-        return nil
+        guard let notice = CloudOpeningNotice.of(
+            setup: state.setup, log: state.setupLog, heldPrompt: heldPrompt?.text
+        ) else { return nil }
+        return PaneEmptyNotice(
+            glyph: PaneGlyph.setup,
+            title: CloudOpeningNotice.title,
+            message: notice.message,
+            progress: notice.progress ?? connectionProgress
+        )
     }
 
-    /// What the connection is doing, for the line inside the notice above. Nil once it is live,
-    /// and nil for everything the banner over the column already states in full: a workspace that
-    /// is asleep, refused, archived or over a limit is not making progress towards anything.
-    private var openingProgress: String? {
+    /// What the connection is doing, for the moments the machine itself has said nothing.
+    ///
+    /// **Nothing the banner over the column already states in full**, which is a rule this had
+    /// written down three lines from where it was broken: `notReady` returned runbloom.app's own
+    /// sentence, which is exactly what the banner is showing, so "its machine is not ready yet,
+    /// and this will reconnect automatically once it is" appeared twice on one screen and made it
+    /// read as stalling rather than working. A workspace that is asleep, refused, archived or over
+    /// a limit is not making progress towards anything, and reconnecting is machinery talking
+    /// about itself.
+    private var connectionProgress: String? {
         switch phase {
-        case .connecting(let waking): waking ? "Waking the machine" : "Opening the workspace"
-        // runbloom.app's own sentence about why it is not ready, which is more than a spinner.
-        case .notReady(let message, _): message
-        case .retrying: "Reconnecting"
+        case .connecting(let waking): waking ? "Waking the machine" : nil
         default: nil
         }
     }

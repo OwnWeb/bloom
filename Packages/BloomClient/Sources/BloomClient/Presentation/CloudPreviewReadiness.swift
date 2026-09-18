@@ -74,6 +74,37 @@ public enum CloudPreviewReadiness: Equatable, Sendable {
         }
     }
 
+    /// The machine is starting the app, so nobody should be told to start it by hand.
+    ///
+    /// **This is the window `nothingAnswered` used to be shown in, and it was telling somebody to
+    /// do a thing that was already being done.** Setup reports its outcome once the services have
+    /// been LAUNCHED rather than once they are ready, deliberately: a service with a readiness
+    /// check has up to five minutes, and holding somebody's first prompt for five minutes to be
+    /// tidier about a caption is the worse trade. So there is a real window where setup has
+    /// succeeded, the proxy answers nothing, and the honest thing to say is what the machine is
+    /// waiting for.
+    ///
+    /// **The first service that is not running, rather than the one serving the app.** The service
+    /// holding it up is usually not the one on the port: a web service correctly `waiting` on a
+    /// database that has not come up is not the fact somebody needs. The machine writes a sentence
+    /// per service for a person to read ("Waiting for db.", the port-collision one), so this is its
+    /// words with the one thing a client can add: that nothing has to be done about it.
+    ///
+    /// Nil where every service is running, or where the project declares none. Then nothing is
+    /// coming that has not come, and `nothingAnswered` is the correct and useful answer.
+    public static func starting(services: [ServiceRecord]) -> Notice? {
+        guard let waiting = services.first(where: { $0.state != "running" }) else { return nil }
+        let said = waiting.message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return Notice(
+            title: "The app is not serving yet",
+            message: (said.isEmpty ? "Waiting for \(waiting.name)." : said)
+                + " The page appears here on its own when it is running.",
+            // The one state that fills in by itself, so a button to press would suggest the reader
+            // has to do something. The same reasoning as the setting-up notice above.
+            invitesRetry: false
+        )
+    }
+
     /// Setup is out of the way and the address was loaded, and what came back was not the app.
     ///
     /// The machine is up, its proxy answered, and there was nothing behind that proxy to answer

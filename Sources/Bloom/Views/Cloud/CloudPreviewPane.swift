@@ -151,7 +151,11 @@ struct CloudPreviewPane: View {
             )
         }
         if CloudPreviewReadiness.isSilent(status: browser.pageStatus) {
-            return CloudPreviewReadiness.nothingAnswered
+            // The machine's own account first, because for up to five minutes after setup says it
+            // succeeded the machine is starting the app and the sentence below tells the reader to
+            // go and do it themselves. See `CloudPreviewReadiness.starting(services:)`.
+            return CloudPreviewReadiness.starting(services: session.state.workspace?.services ?? [])
+                ?? CloudPreviewReadiness.nothingAnswered
         }
         return nil
     }

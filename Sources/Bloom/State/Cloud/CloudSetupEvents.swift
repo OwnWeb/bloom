@@ -40,6 +40,17 @@ enum CloudSetupEvents {
                 log: log
             )]
         }
+        // **`pending` is a row here and is nothing locally, for the same reason `skipped` is.** A
+        // local workspace is `pending` when it has a setup script it has not run, which is a state
+        // nobody is watching; a Cloud workspace is `pending` when its machine exists and has not
+        // said what it is doing yet, which is the first thing anybody ever sees of Cloud. Drawing
+        // nothing there is what made a new workspace look like nothing happening.
+        if state == .pending {
+            return [WorkspaceEvent(
+                id: "setup", kind: .setup, outcome: .running,
+                title: "Setting up", detail: "Waiting for the machine", log: log
+            )]
+        }
         guard var event = WorkspaceEvent.setup(
             state: state,
             log: log,
@@ -52,10 +63,21 @@ enum CloudSetupEvents {
         // The step, which is the one thing the machine knows and a worktree does not: the local
         // row shows the last line of the log while it runs, and "Cloning the repository" is a
         // better answer than whatever git last printed.
+        //
+        // **And an empty log under a named step is the ordinary case rather than a stall.** Two of
+        // the machine's seven steps normally print nothing, and it sets the step BEFORE it does
+        // the work, so a named step with no output is a promise it has already kept. Nothing is
+        // invented to fill that silence.
         if state == .running, let step = CloudConnectionBanner.stepName(setup.step) {
             // Capitalised because it stands as the row's one line rather than inside a sentence,
             // which is what the banner used it for.
-            event.detail = step.prefix(1).uppercased() + step.dropFirst()
+            let heading = String(step.prefix(1).uppercased() + step.dropFirst())
+            event.detail = heading
+            // What the machine has said beyond the step's own heading: a run starting again
+            // because the machine stopped mid-setup, or a step quiet long enough to be worth
+            // explaining. Its words rather than ours, because a parallel sentence here would be a
+            // second thing to keep in step for ever. See `SetupLogVoice`.
+            if let note = SetupLogVoice.newestNote(in: log, excluding: heading) { event.note = note }
         }
         // And the machine's own account of a failure, kept ahead of the generic instruction for
         // the same reason: it was written by the thing that failed.

@@ -55,6 +55,24 @@ public enum SetupLogVoice {
         return nil
     }
 
+    /// How many lines of this log the **project** printed, which is what "45 lines of output"
+    /// should have been counting.
+    ///
+    /// **Bloom's own narration is not output.** The machine writes a heading per step, a note when
+    /// a run starts again, a sentence when something goes quiet and one for the outcome, and a row
+    /// counting those told a reader their setup script had printed a dozen lines it never wrote.
+    /// The web client found the same counter doing the same thing.
+    ///
+    /// Blank lines are not counted either, for `LogTail.hasSomethingToShow`'s reason: a count is a
+    /// promise about what opening the disclosure will show, and trailing newlines show nothing.
+    public static func outputLines(in log: String) -> Int {
+        log.split(separator: "\n").reduce(into: 0) { count, line in
+            let text = String(line)
+            guard !isBloom(text), !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            count += 1
+        }
+    }
+
     /// A sentence with the things two spellings of it would differ by taken off: the case, the
     /// surrounding space, and a full stop at the end.
     private static func plain(_ text: String) -> String {

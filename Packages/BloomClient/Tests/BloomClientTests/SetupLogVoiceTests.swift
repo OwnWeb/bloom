@@ -1,5 +1,5 @@
 import Testing
-@testable import BloomCore
+@testable import BloomClient
 
 @Suite("Telling the machine's own words from a script's output")
 struct SetupLogVoiceTests {

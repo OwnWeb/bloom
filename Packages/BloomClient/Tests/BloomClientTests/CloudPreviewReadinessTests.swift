@@ -63,4 +63,27 @@ struct CloudPreviewReadinessTests {
         #expect(!message.contains("port "))
         #expect(message.contains("Start the app in its terminal"))
     }
+
+    /// The one place in the pane where it was telling somebody to fix something the machine was
+    /// in the middle of fixing.
+    @Test func aServiceStillComingUpIsSaidInTheMachinesOwnWords() {
+        let services = [
+            ServiceRecord(name: "db", state: "starting", message: "Waiting for db."),
+            ServiceRecord(name: "web", state: "waiting"),
+        ]
+        let notice = CloudPreviewReadiness.starting(services: services)
+        #expect(notice?.message == "Waiting for db. The page appears here on its own when it is running.")
+        // No Try again: it fills in by itself, and a button says the reader has something to do.
+        #expect(notice?.invitesRetry == false)
+        // A service with no sentence of its own is still named.
+        #expect(CloudPreviewReadiness.starting(services: [ServiceRecord(name: "queue", state: "waiting")])?
+            .message.hasPrefix("Waiting for queue.") == true)
+    }
+
+    /// Everything running and still nothing answering is the reader's own to fix, and so is a
+    /// project that declares no services at all.
+    @Test func nothingLeftToWaitForFallsThroughToTheOldSentence() {
+        #expect(CloudPreviewReadiness.starting(services: []) == nil)
+        #expect(CloudPreviewReadiness.starting(services: [ServiceRecord(name: "web", state: "running")]) == nil)
+    }
 }

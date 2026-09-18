@@ -355,7 +355,7 @@ public actor WorkspaceConnection {
         // This said `if case .retrying` and nothing else, so a machine that was still starting
         // went `notReady` -> `connecting` -> `notReady` on every pass of the loop, once every few
         // seconds for as long as it took. `connecting` draws no banner and `notReady` draws one,
-        // so what the owner watched was "Getting this Cloud workspace ready…" appearing and
+        // so what the owner watched was the not-ready banner appearing and
         // vanishing while nothing about the machine had changed. A screen that changes its mind
         // reads as an app that does not know what is happening, which is worse than a slow one.
         //

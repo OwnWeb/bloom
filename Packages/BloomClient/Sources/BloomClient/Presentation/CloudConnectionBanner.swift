@@ -95,7 +95,21 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         case .notReady(let message, _):
             // No button: what it is doing is the setup row at the head of the conversation, which
             // is already on screen behind this banner.
-            return CloudConnectionBanner(tone: .progress, title: "Getting this Cloud workspace ready…", message: message)
+            //
+            // **The centre's words, because this is the centre's state.** It said "Getting this
+            // Cloud workspace ready…" over a pane saying "Setting up your workspace", and two
+            // names for one state is what the owner spotted from across the room. The banner keeps
+            // the states only it can report; where it shares one, it shares the words.
+            //
+            // **And this banner says what it does about it, because the refusal no longer will.**
+            // runbloom.app's sentence used to end "and this will reconnect automatically once it
+            // is", which was true of every reader while every reader was a client that retries and
+            // became a promise nobody was keeping the moment a web page read it. So the refusal
+            // states the fact and each surface adds its own behaviour. This one keeps asking.
+            return CloudConnectionBanner(
+                tone: .progress, title: CloudOpeningNotice.title,
+                message: message + " Bloom opens it as soon as it is."
+            )
         case .limited(let notice):
             // A limit that clears by itself needs nobody; every other one is settled on runbloom.app,
             // by somebody who can raise it, so the way there is offered beside trying again.
