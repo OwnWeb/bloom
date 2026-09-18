@@ -53,16 +53,16 @@ struct TranscriptRowView: View, Equatable {
             // Both are the list's answer about the message above this one, so neither is visible
             // in the row and both change without anything on the row changing.
             && lhs.caption == rhs.caption
-            && lhs.isFromSomebodyElse == rhs.isFromSomebodyElse
+            && lhs.fill == rhs.fill
     }
 
     var row: TranscriptRow
     /// What this message says about who sent it and who it was for, or nil where it says nothing.
     /// Only the list can answer it: it depends on the message above. See `MessageAuthorship`.
     var caption: String?
-    /// Whether somebody other than the reader sent it, which is what the bubble's fill says. The
-    /// list answers it, because it is the only thing here that knows which account is reading.
-    var isFromSomebodyElse = false
+    /// Which fill the bubble carries and which side it sits on. The list answers it, because it is
+    /// the only thing here that knows which account is reading.
+    var fill: MessageAuthorship.BubbleFill = .own
     /// Which worktree the row's paths are relative to, and where a file chip opens. Read by a user
     /// turn's attachment chips and by the file chips in a tool row, and constant for a whole
     /// transcript, so it is handed down rather than looked up per row.
@@ -121,7 +121,7 @@ struct TranscriptRowView: View, Equatable {
                     reviewChips: review.chips,
                     home: home,
                     caption: caption,
-                    isFromSomebodyElse: isFromSomebodyElse
+                    fill: fill
                 )
             } else {
                 // Attachments reach the agent as paths in the prompt text, which is the only
@@ -136,7 +136,7 @@ struct TranscriptRowView: View, Equatable {
                     attachments: turn.paths,
                     home: home,
                     caption: caption,
-                    isFromSomebodyElse: isFromSomebodyElse
+                    fill: fill
                 )
             }
 

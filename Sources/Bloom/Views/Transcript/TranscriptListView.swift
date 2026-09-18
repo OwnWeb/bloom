@@ -626,8 +626,8 @@ struct TranscriptListView: View {
                     reader: readerID
                 )
                 : nil
-            let isFromSomebodyElse = MessageAuthorship.isFromSomebodyElse(
-                author: row.authorID, reader: readerID
+            let fill = MessageAuthorship.fill(
+                author: row.authorID, reader: readerID, audience: row.audience
             )
             if row.kind == .user {
                 previousAuthorID = row.authorID
@@ -673,7 +673,7 @@ struct TranscriptListView: View {
                 // A row whose label appears or disappears because the message above it changed is
                 // a row that has to be drawn again.
                 $0.combine(caption)
-                $0.combine(isFromSomebodyElse)
+                $0.combine(fill)
             }
             // Free, and no for the two kinds that make up most of a long session, so it is asked
             // here rather than inside the closure that runs per cell.
@@ -725,7 +725,7 @@ struct TranscriptListView: View {
                             TranscriptRowView(
                                 row: row,
                                 caption: caption,
-                                isFromSomebodyElse: isFromSomebodyElse,
+                                fill: fill,
                                 home: home,
                                 isExpanded: isExpanded,
                                 isNested: row.parentToolUseID != nil,

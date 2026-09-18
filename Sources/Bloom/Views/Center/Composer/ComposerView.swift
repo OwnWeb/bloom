@@ -166,6 +166,24 @@ struct ComposerView: View {
         }
     }
 
+    /// Where the next message would go **if it were sent now**, which is not the same as where the
+    /// last one went.
+    ///
+    /// **The tint has to arrive on the keystroke, not on the send.** The whole complaint this
+    /// answers is that addressing a person is invisible until afterwards, so a box that waited for
+    /// the audience to stick would be late by exactly one message: typing `@seb ` would leave the
+    /// composer its ordinary colour and the bubble would come out terracotta. The web client built
+    /// it this way first and was right; the same rule resolves both, in the core, so the two
+    /// windows cannot disagree about when the colour appears.
+    private var prospectiveAudience: ComposerAudience {
+        MentionAddress.audience(
+            for: transcript.draft,
+            people: transcript.cloud?.people ?? [],
+            runningAgent: transcript.cloud?.runningAgent,
+            current: transcript.audience
+        )
+    }
+
     private var composer: some View {
         ComposerPrompt(
             text: $transcript.draft,
@@ -173,6 +191,7 @@ struct ComposerView: View {
             isFocused: $isFocused,
             mentionRoot: transcript.cwd,
             people: transcript.cloud?.people ?? [],
+            isAddressingAPerson: prospectiveAudience.person != nil,
             runningAgent: transcript.cloud?.runningAgent,
             attachmentRoot: attachmentRoot,
             attachmentKey: transcript.session.id.rawValue,

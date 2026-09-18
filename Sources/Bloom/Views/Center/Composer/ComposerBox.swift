@@ -6,6 +6,17 @@ struct ComposerBox: ViewModifier {
     @Binding var isFocused: Bool
     var isFloating = false
     var isDropTarget = false
+    /// The fill the next message will carry, when that is not the ordinary one: terracotta while
+    /// the composer is addressed to a person.
+    ///
+    /// **The composer and the bubble it becomes are one object at two moments.** The owner's
+    /// complaint was that addressing a person is invisible until after the message has gone, and a
+    /// box that tints to the colour the bubble will be is the whole answer: what you see before you
+    /// press Return is what you get after. The design work that settled this caught itself
+    /// shipping a composer promising one colour and producing another, which is two objects
+    /// wearing one idea, so the value here is the same `Palette.directFill` the bubble uses rather
+    /// than a tint chosen to look like it.
+    var addressedTint: Color?
 
     @Environment(\.controlActiveState) private var activeState
     @Environment(\.colorSchemeContrast) private var contrast
@@ -36,7 +47,16 @@ struct ComposerBox: ViewModifier {
             padded
                 // One material for the whole composer. Its controls keep their ordinary styles,
                 // and completion menus are attached outside this modifier.
-                .glassEffect(.regular, in: shape)
+                .glassEffect(addressedTint.map { .regular.tint($0) } ?? .regular, in: shape)
+                // The border carries it as well as the material, because glass over a colour is a
+                // suggestion of that colour and this has to be unmistakable on the frame before
+                // somebody presses Return. Under the focus ring and the drop target, both of which
+                // are about what is happening now rather than where the message is going.
+                .overlay {
+                    if let addressedTint {
+                        shape.strokeBorder(addressedTint, lineWidth: 1).allowsHitTesting(false)
+                    }
+                }
                 .overlay {
                     shape.strokeBorder(
                         isDropTarget ? Palette.controlAccent : focusColour,
@@ -74,10 +94,12 @@ struct ComposerBox: ViewModifier {
 
 extension View {
     func composerBox(
-        isFocused: Binding<Bool>, isDropTarget: Bool = false, isFloating: Bool = false
+        isFocused: Binding<Bool>, isDropTarget: Bool = false, isFloating: Bool = false,
+        addressedTint: Color? = nil
     ) -> some View {
         modifier(ComposerBox(
-            isFocused: isFocused, isFloating: isFloating, isDropTarget: isDropTarget
+            isFocused: isFocused, isFloating: isFloating, isDropTarget: isDropTarget,
+            addressedTint: addressedTint
         ))
     }
 }

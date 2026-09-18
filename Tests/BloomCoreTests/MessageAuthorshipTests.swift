@@ -87,6 +87,34 @@ struct MessageAuthorshipTests {
         #expect(caption(to: "Seb De Deyne", after: nil, previousAddressee: "Seb De Deyne") == nil)
     }
 
+    // MARK: - Which fill a bubble carries
+
+    /// **The test two earlier attempts failed.** The address sticks, so a run of four messages to
+    /// Seb carries a mention on the first and nothing on the other three. Anything derived from
+    /// the typed text is therefore right once and wrong three times; this is read from the
+    /// audience the message was sent with, so the fifth message of a run looks like the first.
+    @Test("The fill survives a run, because it is read from the audience and not from the words")
+    func theFifthMessageLooksLikeTheFirst() {
+        let toSeb = MessageAudience(kind: .person, userID: "u2", mention: "@sebdd")
+        let follows = MessageAudience(kind: .person, userID: "u2")
+        #expect(MessageAuthorship.fill(author: nil, audience: toSeb) == .ownToPerson)
+        // No mention in the text at all, four messages later.
+        #expect(MessageAuthorship.fill(author: nil, audience: follows) == .ownToPerson)
+    }
+
+    /// **The fill answers a different question on each side and that is the owner's decision.**
+    /// Yours says who it went to; somebody else's says who it came from, whoever they wrote to.
+    @Test("Three fills, and the two sides are asked different questions")
+    func theTwoSidesAreAskedDifferentThings() {
+        let toSeb = MessageAudience(kind: .person, userID: "u2", mention: "@sebdd")
+        #expect(MessageAuthorship.fill(author: nil) == .own)
+        #expect(MessageAuthorship.fill(author: nil, audience: MessageAudience(kind: .agent)) == .own)
+        #expect(MessageAuthorship.fill(author: "u1", reader: "u1", audience: toSeb) == .ownToPerson)
+        // Somebody else's, addressed to a person, is still the one colour: theirs.
+        #expect(MessageAuthorship.fill(author: "u2", reader: "u1", audience: toSeb) == .somebodyElse)
+        #expect(MessageAuthorship.fill(author: "u2", reader: "u1") == .somebodyElse)
+    }
+
     // MARK: - Who the audience names
 
     @Test("The agent is not an addressee, which is what keeps a local transcript captionless")

@@ -43,13 +43,26 @@ struct UserTurnRowView: View {
     /// bubble in the caption's ink, the way Messages does it, and nil everywhere a Mac has one
     /// person at it. See `MessageAuthorship.caption`.
     var caption: String?
-    /// Whether somebody else sent it, which is what the fill says.
+    /// Which of the three fills this bubble carries, and with it which side it sits on.
     ///
-    /// **Separate from the name, because a teammate runbloom.app has no name for is still not
+    /// **Separate from the caption, because a teammate runbloom.app has no name for is still not
     /// you.** The owner read a nameless "hey" from somebody else as his own message: both bubbles
     /// were the accent fill, and the label that would have told him otherwise was an empty string.
-    /// The colour does not depend on knowing what to call them. See `PaletteInk.teammateFill`.
-    var isFromSomebodyElse = false
+    /// Neither the colour nor the side depends on knowing what to call anybody.
+    ///
+    /// The rule and the reason the fill means different things on the two sides are
+    /// `MessageAuthorship.BubbleFill`.
+    var fill: MessageAuthorship.BubbleFill = .own
+
+    private var isFromSomebodyElse: Bool { fill == .somebodyElse }
+
+    private var background: Color {
+        switch fill {
+        case .own: Palette.accentFill
+        case .ownToPerson: Palette.directFill
+        case .somebodyElse: Palette.teammateFill
+        }
+    }
 
     @Environment(AppModel.self) private var app
     /// The list's one value, set in `TranscriptListView`, rather than actions built per bubble:
@@ -157,7 +170,7 @@ struct UserTurnRowView: View {
                 }
                 .padding(.bottom, OutgoingBubbleShape.tailDrop)
                 .background(
-                    isFromSomebodyElse ? Palette.teammateFill : Palette.accentFill,
+                    background,
                     in: OutgoingBubbleShape(cornerRadius: Self.corner, tail: side)
                 )
                 // No stroke around the fill. A border on a filled shape is a control's outline,

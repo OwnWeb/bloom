@@ -45,6 +45,42 @@ public enum MessageAuthorship {
         return author != reader
     }
 
+    /// Which of the three fills a bubble carries.
+    ///
+    /// **The fill answers a different question on each side of the transcript, and that asymmetry
+    /// is a decision rather than an oversight.** On your own messages it says who it went to; on
+    /// somebody else's it says who it came from. The owner was asked directly and chose to keep
+    /// one colour for everything from other people: in a shared workspace the first thing to know
+    /// about somebody else's message is that it is theirs, and the first thing to know about your
+    /// own is which of the two things you were doing when you wrote it. **Do not tidy this into
+    /// one rule.**
+    ///
+    /// **And it must survive a run.** The address sticks, so four messages to Seb carry a mention
+    /// on the first and nothing on the other three. This is read from the audience the message was
+    /// sent with rather than from its text, so the fifth message of a run is coloured exactly like
+    /// the first. Two earlier attempts at this failed that test, one of them a chip drawn from the
+    /// typed mention.
+    public enum BubbleFill: Equatable, Sendable {
+        /// Yours, to Bloom. The accent, and the default this app has always drawn.
+        case own
+        /// Yours, to a person. Terracotta: see `PaletteInk.directFill`.
+        case ownToPerson
+        /// Somebody else's, whoever it was for. The teammate green.
+        case somebodyElse
+    }
+
+    /// - Parameters:
+    ///   - author: who wrote it, or nil for the reader's own.
+    ///   - reader: the account doing the reading. See `isFromSomebodyElse(author:reader:)`.
+    ///   - audience: who it was addressed to, which is nil for every message written before
+    ///     addressing existed and for every message in a workspace nobody shares.
+    public static func fill(
+        author: String?, reader: String? = nil, audience: MessageAudience? = nil
+    ) -> BubbleFill {
+        if isFromSomebodyElse(author: author, reader: reader) { return .somebodyElse }
+        return audience?.kind == .person ? .ownToPerson : .own
+    }
+
     /// What to call whoever a message was addressed to, or nil where the caption says nothing
     /// about it.
     ///

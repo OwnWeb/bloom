@@ -34,6 +34,9 @@ struct ComposerPrompt<Footer: View>: View {
     /// every worktree on this Mac: see `MentionAddress.offersPeople`, which is the rule, and
     /// `PersonMentionMenu`, which is what opens when it says yes.
     var people: [ComposerAudience.Person] = []
+    /// Whether the next message goes to a person rather than to Bloom, which tints the box to the
+    /// colour that message will be. See `ComposerBox.addressedTint`.
+    var isAddressingAPerson = false
     /// What is answering in this conversation, so the mention menu can label the agent's own row
     /// with it and find that row from `@claude` as well as from `@bloom`. Nil in the create
     /// window, which has no chat yet, and everywhere the menu lists files.
@@ -176,7 +179,8 @@ struct ComposerPrompt<Footer: View>: View {
         .composerBox(
             isFocused: $isFocused,
             isDropTarget: isDropTarget,
-            isFloating: isFloating
+            isFloating: isFloating,
+            addressedTint: isAddressingAPerson ? Palette.directFill : nil
         )
         // The editor takes the drops that land on the text itself; this takes the ones that land
         // on the chips, the footer and the padding, which is most of the box.

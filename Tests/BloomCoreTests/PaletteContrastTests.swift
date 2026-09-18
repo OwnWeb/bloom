@@ -125,6 +125,7 @@ struct PaletteContrastTests {
             ("accentFill", PaletteInk.accentFill),
             ("mergedFill", PaletteInk.mergedFill),
             ("teammateFill", PaletteInk.teammateFill),
+            ("directFill", PaletteInk.directFill),
         ] {
             for (appearance, isDark) in Self.appearances {
                 let ratio = Contrast.ratio(0xFFFFFF, ink.member(dark: isDark))
@@ -133,6 +134,29 @@ struct PaletteContrastTests {
                     "white on \(name), \(appearance): \(ratio.rounded(to: 2)) to 1"
                 )
             }
+        }
+    }
+
+    /// **Your own message to a person has to be told from your own message to Bloom at a glance**,
+    /// which is what a caption in small grey type was failing to do. The hue was chosen from twelve
+    /// candidates shown as runs beside the teal and then measured: this holds the two numbers, so
+    /// nobody nudges the hex without meeting them.
+    ///
+    /// The distance bar is `teammateFill`'s: the gap between `warning` and `negative`, which is
+    /// what this app already holds two fills a reader must never confuse to. `directFill` is far
+    /// past it, which is the point of picking the furthest apart thing that still carries white.
+    @Test("your own two bubbles are told apart by more than a caption")
+    func theDirectFillIsFarFromTheAccent() {
+        for (appearance, isDark) in Self.appearances {
+            let distance = Contrast.deltaE(
+                PaletteInk.directFill.member(dark: isDark), PaletteInk.accentFill.member(dark: isDark)
+            )
+            #expect(distance >= 30, "directFill against accentFill, \(appearance): \(distance.rounded(to: 1))")
+            // And from the fill it shares a transcript with, so three bubbles in one run are three.
+            let fromTeammate = Contrast.deltaE(
+                PaletteInk.directFill.member(dark: isDark), PaletteInk.teammateFill.member(dark: isDark)
+            )
+            #expect(fromTeammate >= 30, "directFill against teammateFill, \(appearance): \(fromTeammate.rounded(to: 1))")
         }
     }
 
