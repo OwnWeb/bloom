@@ -623,6 +623,7 @@ def main():
                 run_on(name, "cd ~/workspace && printf 'late\n' > late-arrival.txt", timeout=60)
                 moved = rpc(url, session(), {"kind": "archive", "confirmation_id": preview["confirmation_id"]})
                 assert "archive_preview" in moved, f"a stale confirmation archived the workspace: {moved}"
+                assert moved["archive_preview"]["confirmation_id"] != preview["confirmation_id"], "the same id came back"
                 step(f"a confirmation whose answer moved comes back as a fresh preview, untracked now "
                      f"{moved['archive_preview']['untracked_files']}")
                 assert "late-arrival.txt" in moved["archive_preview"]["untracked_files"]
@@ -632,7 +633,7 @@ def main():
                 step(f"the workspace is untouched by the refusal: {after_refusal['name']}")
 
                 accepted = rpc(url, session(), {"kind": "archive", "confirmation_id": moved["archive_preview"]["confirmation_id"]})
-                assert "accepted" in accepted, f"the fresh confirmation was refused: {accepted}"
+                assert accepted.get("kind") == "accepted", f"the fresh confirmation was refused: {accepted}"
                 step("archived with the confirmation that matches what is there now")
 
                 # The door is closed: nothing new starts on a machine runbloom.app is about to delete.
