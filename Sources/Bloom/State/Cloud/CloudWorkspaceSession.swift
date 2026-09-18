@@ -470,6 +470,33 @@ final class CloudWorkspaceSession {
     // MARK: The preview
 
     /// Opens the project's app in the browser, top level, through a single use preview token.
+    /// One preview address, checked, for a caller that will draw it rather than hand it to another
+    /// application.
+    ///
+    /// **A separate answer from `openPreview` because the failure goes somewhere else.** Opening in
+    /// a browser is a one-off, so a refusal is the column's notice strip; a pane that cannot open
+    /// keeps the sentence where the pane is, with something to press. The exchange itself is the
+    /// same and the safety check is the same, so they share this. See `CloudPreviewPane`.
+    func previewEntry() async -> PreviewEntry {
+        do {
+            let preview = try await cloud.api.previewToken(for: id.rawValue)
+            guard preview.isSafe(forMachine: await connection?.machineURL) else {
+                return .refused("runbloom.app gave a preview address that is not this Cloud workspace's, so Bloom did not open it.")
+            }
+            return .address(preview.enterURL)
+        } catch let refusal as RunbloomRefusal {
+            if refusal.isSharingInProgress || refusal.isMachineNotReady {
+                return .refused("\(refusal.message) Try again in a few seconds.")
+            }
+            if let limit = LimitNotice(refusal: refusal) {
+                return .refused("\(limit.message) \(limit.detail)")
+            }
+            return .refused(refusal.message)
+        } catch {
+            return .refused("runbloom.app could not be reached. \(error.localizedDescription)")
+        }
+    }
+
     func openPreview() async {
         do {
             let preview = try await cloud.api.previewToken(for: id.rawValue)

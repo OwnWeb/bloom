@@ -140,10 +140,12 @@ extension CloudWorkspaceSession {
     /// The machine has run scripts, and they are not a tab kind here yet.
     func runScript(id: String) -> RunScript? { nil }
 
-    /// A Cloud workspace's own app is its preview, which opens through the preview token rather
-    /// than by typing an address, so a browser tab is not one of the kinds its `+` offers.
+    /// A Cloud workspace's own app is its preview, and it opens through a token rather than an
+    /// address: the `+` offers the tab, and the pane asks for the address itself every time it
+    /// draws. So there is nothing to hand over here, and an empty one is what `NewPane` opens the
+    /// tab with. See `CloudPreviewPane`.
     func browserAddress() async -> String { "" }
-    var supportsBrowserTabs: Bool { false }
+    var supportsBrowserTabs: Bool { true }
 
     // MARK: A conversation in it
 

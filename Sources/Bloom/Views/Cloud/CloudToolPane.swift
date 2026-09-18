@@ -25,12 +25,17 @@ extension CloudWorkspaceSession {
             // same diff and the same composer under it. See `ReviewPaneView`.
             ReviewPaneView(model: self, tab: tab, siblings: siblings)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .browser, .notes, .setup:
-            // None of the three is a kind a Cloud workspace opens: its own app is the preview,
-            // which has its own door, notes are not on the wire, and setup is a row at the head of
-            // the conversation rather than a tab. A tab of any of them was written by another
-            // version of Bloom, so it says so rather than drawing an empty pane. `CenterTabStore`
-            // drops the setup ones on the way in, so this is the belt to that brace.
+        case .browser:
+            // The machine's own app, in a pane. Not the local browser tab: see `CloudPreviewPane`
+            // for why a window onto one machine cannot have an address bar.
+            CloudPreviewPane(session: self)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .notes, .setup:
+            // Neither is a kind a Cloud workspace opens: notes are not on the wire, and setup is a
+            // row at the head of the conversation rather than a tab. A tab of either was written by
+            // another version of Bloom, so it says so rather than drawing an empty pane.
+            // `CenterTabStore` drops the setup ones on the way in, so this is the belt to that
+            // brace.
             EmptyStateView(
                 glyph: "questionmark.square.dashed",
                 title: "Nothing to show",
