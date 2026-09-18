@@ -159,16 +159,8 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         }
     }
 
-    /// What a setup step is called in a sentence. The machine sends `clone`, `prepare`, `setup`,
-    /// `resume` or `services`, and a step it has not heard of is said as it stands rather than
-    /// dropped: a newer runner naming a new step is still telling somebody what it is doing.
-    public static func stepName(_ step: String?) -> String? {
-        guard let step, !step.isEmpty else { return nil }
-        return stepNames[step] ?? step
-    }
-
-    private static let stepNames = [
-        "clone": "cloning the repository", "prepare": "preparing the machine", "setup": "running the project's setup",
-        "resume": "resuming", "services": "starting the project's services",
-    ]
+    /// What a setup step is called in a sentence, which is `CloudSetupStep`'s one table rather
+    /// than a second copy of it. Kept as a name here because the transcript row and this banner
+    /// both ask for it by this name.
+    public static func stepName(_ step: String?) -> String? { CloudSetupStep.sentence(step) }
 }

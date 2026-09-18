@@ -417,6 +417,23 @@ import Testing
         #expect(CloudConnectionBanner.stepName("seeding") == "seeding")
         #expect(CloudConnectionBanner.stepName("") == nil)
         #expect(CloudConnectionBanner.stepName(nil) == nil)
+        // The two steps that used to be invisible, where a new workspace sat in `pending` through
+        // a call to runbloom.app and the whole of the git configuration.
+        #expect(CloudConnectionBanner.stepName("environment") == "reading the team's environment")
+        #expect(CloudConnectionBanner.stepName("git") == "configuring git")
+    }
+
+    /// The two registers are one table now. They had drifted on the words and, worse, on what to
+    /// do with a step this version has never heard of: one said it as it stands and the other went
+    /// quiet, so a machine on a newer runner would have named its step in the conversation and
+    /// said nothing in the sidebar.
+    @Test func bothRegistersOfAStepComeFromOneTable() {
+        #expect(CloudSetupStep.sentence("services") == "starting the project's services")
+        #expect(CloudSetupStep.short("services") == "starting services")
+        // The one that matters: an unknown step is said as it stands in BOTH.
+        #expect(CloudSetupStep.sentence("seeding") == "seeding")
+        #expect(CloudSetupStep.short("seeding") == "seeding")
+        #expect(CloudSetupStep.short(nil) == nil)
     }
 
     @Test func aSetupPageElsewhereIsNotOffered() throws {

@@ -82,7 +82,7 @@ public enum CloudWorkspaceStatus: Sendable, Hashable {
     public var phrase: String {
         switch self {
         case .settingUp(let step):
-            if let step, let name = Self.stepNames[step] { "Setting up: \(name)" } else { "Setting up" }
+            if let name = CloudSetupStep.short(step) { "Setting up: \(name)" } else { "Setting up" }
         case .setupFailed: "Setup failed"
         case .waiting(let kind):
             switch kind {
@@ -114,10 +114,6 @@ public enum CloudWorkspaceStatus: Sendable, Hashable {
         }
     }
 
-    private static let stepNames = [
-        "clone": "cloning", "prepare": "preparing", "setup": "running setup",
-        "resume": "resuming", "services": "starting services",
-    ]
 }
 
 /// The sidebar's own mark for a Cloud workspace's row, as the name of a `WorkspaceStatus`.
