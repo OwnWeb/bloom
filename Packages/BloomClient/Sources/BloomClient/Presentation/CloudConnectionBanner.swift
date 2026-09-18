@@ -103,6 +103,17 @@ public struct CloudConnectionBanner: Sendable, Hashable {
                 tone: notice.kind == .waiting ? .caution : .failure, title: notice.message, message: notice.detail,
                 actions: notice.kind == .waiting ? [] : [.runbloom, .retry]
             )
+        case .unavailable(let message):
+            // runbloom.app's own sentence as the heading, the way a limit's is: it knows whether
+            // the machine failed to build or is being deleted, and a heading of ours above it would
+            // be the second line saying the same thing. No Try Again, because the refusal behind
+            // this carried no retry hint, which is runbloom.app saying that asking again answers
+            // the same. See `WorkspaceConnection.Phase.unavailable`.
+            return CloudConnectionBanner(
+                tone: .failure, title: message,
+                message: "This Cloud workspace cannot be opened. runbloom.app has the rest of the story.",
+                actions: [.runbloom]
+            )
         case .archived:
             return CloudConnectionBanner(tone: .failure, title: "This Cloud workspace was archived", message: "It was deleted, with its conversation.")
         case .noAccess(let message):

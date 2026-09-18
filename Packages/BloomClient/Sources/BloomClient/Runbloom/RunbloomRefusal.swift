@@ -71,8 +71,13 @@ public struct RunbloomRefusal: Error, Sendable, Hashable, Codable {
     /// out. The app goes to its signed out state rather than showing this as a failure.
     public var isUnauthenticated: Bool { status == 401 || code == "unauthenticated" }
 
-    /// The machine is still being created or bootstrapped, or failed and is being replaced. Asking
-    /// again after `retry_after` is the whole of what a client does.
+    /// The machine is being created or bootstrapped, or a workspace being moved is pointing at a
+    /// new one. Asking again after `retry_after` is the whole of what a client does.
+    ///
+    /// **The progress case, and only that.** A machine whose build failed and one that is being
+    /// deleted are their own codes and carry no `retry_after`, which is what tells them apart from
+    /// this one: see `WorkspaceConnection.Phase.unavailable`. A machine that is asleep never
+    /// reaches any of them, because being asleep has nothing to do with being ready.
     public var isMachineNotReady: Bool { code == "machine_not_ready" }
 
     /// runbloom.app is telling the machine the workspace became shared, which takes a moment and is

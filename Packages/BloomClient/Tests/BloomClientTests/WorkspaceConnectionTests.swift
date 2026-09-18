@@ -261,6 +261,51 @@ struct EchoTransport: HTTPTransport {
         // here would be a race, because this harness's sleeps take no time at all.
     }
 
+    /// A machine whose build failed used to be drawn as "Reconnecting…" for ever, because an
+    /// unrecognised refusal fell through to the retry branch. The hint decides it now.
+    @Test func aRefusalWithNoRetryHintStopsRatherThanRetrying() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token",
+                     .json(#"{"code": "machine_failed", "message": "This workspace's machine could not be built."}"#, status: 409))
+        let live = WorkspaceConnection(
+            workspaceID: "01k5ws", api: Fixtures.api(transport), machine: MachineClient(transport: transport),
+            sleep: { _ in await Task.yield() }
+        )
+        await live.open()
+        for await update in live.updates {
+            if case .phase(.unavailable(let message)) = update {
+                #expect(message == "This workspace's machine could not be built.")
+                break
+            }
+        }
+        await live.close()
+        // Once. A stop is a stop, which is the whole difference from the retry branch it used to
+        // fall into.
+        #expect(transport.requests(to: "/session-token").count == 1)
+    }
+
+    /// And the other half of the rule: a refusal that carries a hint is still a wait.
+    @Test func aRefusalWithARetryHintIsStillAWait() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token",
+                     .json(#"{"code": "machine_not_ready", "message": "Starting.", "retry_after": 2}"#, status: 409),
+                     .json(Fixtures.sessionToken()))
+        transport.on("GET", "/_bloom/v1/events", .dropped())
+        let live = WorkspaceConnection(
+            workspaceID: "01k5ws", api: Fixtures.api(transport), machine: MachineClient(transport: transport),
+            sleep: { _ in await Task.yield() }
+        )
+        await live.open()
+        for await update in live.updates {
+            if case .phase(.notReady(let message, let retryAfter)) = update {
+                #expect(message == "Starting.")
+                #expect(retryAfter == 2)
+                break
+            }
+        }
+        await live.close()
+    }
+
     @Test func aStreamRefusedTwiceStops() async {
         let transport = FakeTransport()
         transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))

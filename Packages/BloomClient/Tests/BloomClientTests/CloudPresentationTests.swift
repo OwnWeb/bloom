@@ -182,6 +182,15 @@ import Testing
         #expect(banner?.actions == [.retry, .runbloom])
     }
 
+    /// The rule rather than a list: runbloom.app sends a retry hint where waiting is the answer,
+    /// so a refusal without one is an end and is drawn as one.
+    @Test func aRefusalWithNoRetryHintIsDrawnAsAnEnd() {
+        let banner = CloudConnectionBanner.of(.unavailable("This Cloud workspace's machine could not be built."))
+        #expect(banner?.tone == .failure)
+        #expect(banner?.title == "This Cloud workspace's machine could not be built.")
+        #expect(banner?.actions == [.runbloom], "asking again answers the same, so there is no Try Again")
+    }
+
     @Test func aLimitThatClearsByItselfOffersNoButton() {
         let waiting = CloudConnectionBanner.of(.limited(LimitNotice(limit: "concurrent_machines", message: "Twenty running.")))
         #expect(waiting?.tone == .caution)

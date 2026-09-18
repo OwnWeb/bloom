@@ -39,6 +39,15 @@ public actor WorkspaceConnection {
         case archived
         /// Access went away, or the account is signed out. Never retried.
         case noAccess(String)
+        /// runbloom.app answered, and its answer was an end: a machine whose build failed, one that
+        /// is being deleted or already gone, or anything else it refuses without a retry hint.
+        ///
+        /// **Told apart by the hint rather than by a list of codes.** runbloom.app sends
+        /// `retry_after` on the refusals where asking again can change the answer and leaves it off
+        /// where it cannot, so a terminal code added later needs nothing here. The sentence is
+        /// runbloom.app's own, because it knows which of its machine states this is and this does
+        /// not; grouping its states here is how two clients come to group them differently.
+        case unavailable(String)
         /// The machine did not answer and the connection is trying again.
         case retrying(String)
         /// Asked to wake and still not answering, long enough that "a few seconds" has stopped
@@ -567,8 +576,21 @@ public actor WorkspaceConnection {
             set(.noAccess(refusal.message))
             return .stop
         }
+        // **No retry hint means asking again will not change the answer, so draw an end rather
+        // than a wait.** The rule rather than a list of codes, on runbloom.app's own contract: it
+        // sends `retry_after` where waiting is the answer. A machine whose build failed used to
+        // fall through to `retrying` and be drawn as "Reconnecting…" for ever, which is the
+        // spinner-with-no-end shape in its last hiding place.
+        //
+        // Two statuses are waits whatever the body says, and they are the ones that are not a
+        // considered refusal at all: 429 means later by definition, and a 5xx is runbloom.app
+        // having trouble rather than answering.
+        if refusal.retryAfter == nil, refusal.status < 500, refusal.status != 429 {
+            set(.unavailable(refusal.message))
+            return .stop
+        }
         set(.retrying(refusal.message))
-        return .retry(after: nil)
+        return .retry(after: refusal.retryAfter.map(Double.init))
     }
 
     private func advance(_ value: Int64) {
