@@ -7,11 +7,16 @@ import PackageDescription
 // that declared them would fail before compiling a line of our own. See
 // docs/REMOTE-WORKSPACES.md, "Where the code goes".
 //
-// **That is about building the package, and not about building one target.** Somebody read the
-// paragraph above, tried `swift build --target BloomCore` on Linux and expected it to be
-// impossible; resolution succeeds and the core compiles. The distinction is worth the sentence,
-// because "a Linux build fails before compiling a line" reads as "you cannot compile the core on
-// Linux", which is exactly the guard the `lint` job wants to run.
+// **Challenged on 18 September 2026 and held.** The objection was that this is about building the
+// package rather than one target, and that `swift build --target BloomCore` on Linux gets 532 of
+// 534 files through. It does not mean what it looks like: **a missing module aborts at module
+// emit**, so the build stops at the first one and never reaches the rest, and **a partial failure
+// is not a progress bar.** A census with `swiftc -typecheck` against a real Linux toolchain found
+// eight frameworks missing across about twenty files (CoreGraphics, UniformTypeIdentifiers,
+// CryptoKit, IOKit, SQLite3, Darwin, CoreServices, Combine), and **the two that no source edit
+// can fix are the two this manifest answers**: the `SQLite3` system target below, and `swift-crypto`
+// standing in for CryptoKit. The first census said all eight were present, because it used
+// `swiftc -parse`, **which is a syntax pass that never resolves an import**.
 #if os(Linux)
 import Foundation
 
