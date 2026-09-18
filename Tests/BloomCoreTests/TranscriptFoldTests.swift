@@ -478,4 +478,26 @@ struct TranscriptFoldTests {
         let facts = [user(0), tool(1), tool(2), prose(3), footer(4), user(5), tool(6), tool(7)]
         #expect(TranscriptFold.folds(in: facts).resumeIndex == 6)
     }
+
+    /// The owner's screenshots, made the rule: the line a turn opens with stands above the group
+    /// and the work under it folds. `foldFact` marks it `featured` through
+    /// `TranscriptRowInk.isSessionStart`.
+    @Test("Started with stands above the turn's group rather than inside it")
+    func sessionStartStandsApart() {
+        var facts: [TranscriptFold.Fact] = [
+            .init(seq: 0, kind: .user),
+            .init(seq: 1, kind: .system, featured: true),
+        ]
+        for seq in 2..<12 { facts.append(.init(seq: seq, kind: .toolUse, toolUseID: "t\(seq)")) }
+        facts.append(.init(seq: 12, kind: .assistantText))
+
+        let folds = TranscriptFold.folds(in: facts)
+        #expect(folds.all.count == 1)
+        guard let work = folds.all.first else {
+            Issue.record("no group")
+            return
+        }
+        #expect(work.rows.first?.seq == 2)
+        #expect(TranscriptFold.hiddenIndices(work, revealed: [], drawn: 0..<facts.count).count == 10)
+    }
 }

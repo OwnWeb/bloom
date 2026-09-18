@@ -79,8 +79,10 @@ import Foundation
 ///    the one place a fold gives a row back, and it is an insertion at the live end of the work
 ///    rather than a rearrangement: the call was never on screen to be moved.
 /// 2. **The agent stopping, and a row carrying content of its own.** An `error` row is the agent
-///    exiting in a way it did not choose. Inline media and agent question cards are conversation
-///    content wearing activity rows' clothes. They remain visible, including answered questions,
+///    exiting in a way it did not choose. Inline media, agent question cards and a message sent to
+///    another workspace are conversation content wearing activity rows' clothes. The "Started
+///    with" line a turn opens with is held out the same way, so it stands above the turn's group
+///    rather than being its first hidden row: it says what the work under it ran with. They remain visible, including answered questions,
 ///    and divide the ordinary activity before and after them into separate compact groups.
 ///
 ///    **A failed tool call is not one of these, and it used to be.** This rule said that a failed
@@ -231,8 +233,9 @@ public enum TranscriptFold {
         /// **This settles a row rather than holding it out of the fold.** A failed call folds
         /// away with the ordinary work around it; see rule 2 for why it stopped being a boundary.
         public var failed: Bool
-        /// Deliberate content carried by an activity-shaped row, such as inline media or an agent
-        /// question card. It stays visible after settling and separates the log on either side.
+        /// Deliberate content carried by an activity-shaped row, such as inline media, an agent
+        /// question card, a sent workspace message or the line a turn starts with. It stays
+        /// visible after settling and separates the log on either side.
         public var featured: Bool
         /// What `TranscriptRowInk` says, which is that most `system` rows draw no view at all.
         public var drawsNothing: Bool

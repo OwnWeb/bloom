@@ -92,7 +92,8 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
             failed: isError || refusal != nil,
             featured: isQuestion
                 || MediaShowRow.isCall(payload) || CodexImageViewRow.isCall(payload)
-                || (kind == .toolUse && WorkspaceSayRow.isCall(payload)),
+                || (kind == .toolUse && WorkspaceSayRow.isCall(payload))
+                || TranscriptRowInk.isSessionStart(kind: kind, payload: payload),
             drawsNothing: TranscriptNoise.isHidden(self)
                 || TranscriptRowInk.drawsNothing(kind: kind, payload: payload),
             settled: settled,

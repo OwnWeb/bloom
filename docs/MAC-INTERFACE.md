@@ -351,25 +351,17 @@ out when its value is empty. **[checked]**
 at the start of every turn, and each one is stored and drawn. Checked against a copy of the Bloom
 Dev database: every user row is followed by an init row. **[checked]**
 
-**How it groups: differently in a local workspace and a Cloud one, and the Cloud behaviour is an
-accident.** **[checked]**
+**How it groups: it stands above the turn's group, never inside it**, in a local workspace and a
+Cloud one alike. **[checked]** The fold holds it out the way it holds out an image or a question
+(`Fact.featured`, set by `foldFact` from `TranscriptRowInk.isSessionStart`), so a turn reads
+"Started with", then "N actions" for the work, then the prose. The shared case is
+`sessionStartStandsApart` in `TranscriptFoldTests.swift`.
 
-- **Local:** the init row is activity, so it is the first row of the turn's group and folds into
-  "N actions" with the rest. It is only seen on its own in a turn that goes straight to prose.
-  Measured with the fold function itself on user, init, ten tool calls, prose, result: one group
-  spanning the init and the ten calls, all eleven hidden.
-- **Cloud:** "Started with" stays above the group, which is what both of Freek's Bloom Cloud
-  screenshots show. The cause is the payload's key order, not a rule. A Cloud row arrives as a JSON
-  object and `Message(cloudMessage:id:)` (`Sources/BloomCore/Remote/CloudClientRecords.swift`)
-  re-encodes it through `WireValue.data`, which sorts the keys. The CLI writes `"type":"system",
-  "subtype":"init"` first. Sorted, `"subtype"` lands behind `mcp_servers`, `slash_commands` and the
-  rest, far past the 256 bytes `TranscriptRowInk.drawsNothing` looks at. So the fold is told the row
-  draws nothing and leaves it out of the group, while the row view decodes the whole payload and
-  draws it anyway.
-
-**So there is no single rule to port yet.** Which of the two is right is a product decision, and the
-Mac should then do it on purpose, in both kinds of workspace, rather than by key order. Until that
-is decided the web should match the screenshots, as it plans to.
+This was Freek's screenshots made the rule. Before it, a Cloud workspace did it by accident and a
+local one folded the line away: a Cloud row's JSON was re-encoded with sorted keys, which pushed
+`"subtype":"init"` past the bytes the row test reads. Cloud rows are now re-encoded with the keys
+every row test depends on (`type`, `subtype`, `id`, `name`) where the CLI writes them
+(`CloudPayloadBytes`), so the same tests answer the same way for both kinds of workspace.
 
 ### The working line
 
@@ -479,9 +471,8 @@ rule 2 keeps conversation content on screen.
 - The reading position is remembered the same way, alongside.
 
 **Whether a Cloud transcript is drawn by the same code**: it is the same `TranscriptListView` over
-the same row kinds, with one difference found so far: a Cloud row's JSON is re-encoded with its keys
-sorted, and every rule that sniffs the start of a payload can answer differently for it. "Started
-with" above is the one that shows. A machine does send the init row: Freek's Bloom Cloud
+the same row kinds, and the difference that was found (a Cloud row's JSON re-encoded with sorted keys,
+so the row tests read it differently) is fixed at the source: see "Started with" above. A machine does send the init row: Freek's Bloom Cloud
 screenshots show it. **[checked]**
 
 ## What the wire would need, in the order it decides

@@ -39,7 +39,13 @@ extension Message {
     /// A transcript row off the wire. The payload goes back to the bytes the agent wrote: a row
     /// the server could not parse as JSON travels as a string, and is handed back as that text.
     public init(cloudMessage record: MessageRecord, id: Int64) {
-        let payload: Data = if case .string(let text) = record.payload { Data(text.utf8) } else { record.payload.data }
+        // Not `record.payload.data`, which sorts the keys and moves what every row test reads out of
+        // the bytes it reads. See `CloudPayloadBytes`.
+        let payload: Data = if case .string(let text) = record.payload {
+            Data(text.utf8)
+        } else {
+            CloudPayloadBytes.data(record.payload)
+        }
         self.init(
             id: id,
             sessionID: SessionID(record.chatID),
