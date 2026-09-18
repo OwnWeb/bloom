@@ -119,11 +119,28 @@ struct UserTurnRowView: View {
     /// in it rather than pressed against the side of it.
     static let padding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
 
+    /// Which side of the transcript this message sits on.
+    ///
+    /// **A bubble is a person's message and its side says whose: yours on the right, anybody
+    /// else's on the left.** The owner found this the way everybody would: a green bubble captioned
+    /// "Spatie Technical to you", hard against the right hand edge, which is where his own messages
+    /// go. Two signals disagreeing, and **position is the stronger one**: people read the side of
+    /// a transcript before they read a colour, which is why every messaging application there is
+    /// puts the other person on the left.
+    ///
+    /// **The agent is not a bubble at all**, so this is not three senders across two sides. It is
+    /// bubble against prose first, and then left against right inside the bubbles: an agent's reply
+    /// is unbubbled prose at the full measure, and a message relayed from another workspace is a
+    /// rule down the left in the colour of whoever spoke. See `CrewMessageRowView`, whose own note
+    /// states the half that makes all of this one rule: **the right hand side of this transcript
+    /// means the person reading it wrote the message**, and nothing else may borrow it.
+    private var side: HorizontalEdge { isFromSomebodyElse ? .leading : .trailing }
+
     var body: some View {
         HStack(spacing: 0) {
-            Spacer(minLength: Self.inset)
+            if side == .trailing { Spacer(minLength: Self.inset) }
 
-            VStack(alignment: .trailing, spacing: TranscriptLayout.tight) {
+            VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
                 if let caption {
                     Text(caption)
                         .font(Typo.caption)
@@ -132,8 +149,8 @@ struct UserTurnRowView: View {
                         // ran off the side of the pane would take the bubble's own measure with
                         // it. Capped at the bubble's width and wrapped rather than truncated: who
                         // a message was for is not a detail worth losing the end of.
-                        .frame(maxWidth: maxWidth, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: maxWidth, alignment: side == .leading ? .leading : .trailing)
+                        .multilineTextAlignment(side == .leading ? .leading : .trailing)
                 }
                 CappedWidth(width: maxWidth) {
                     bubble.padding(Self.padding)
@@ -141,7 +158,7 @@ struct UserTurnRowView: View {
                 .padding(.bottom, OutgoingBubbleShape.tailDrop)
                 .background(
                     isFromSomebodyElse ? Palette.teammateFill : Palette.accentFill,
-                    in: OutgoingBubbleShape(cornerRadius: Self.corner)
+                    in: OutgoingBubbleShape(cornerRadius: Self.corner, tail: side)
                 )
                 // No stroke around the fill. A border on a filled shape is a control's outline,
                 // and the fill already separates the turn from the ground in both appearances.
@@ -166,6 +183,8 @@ struct UserTurnRowView: View {
                 // the text view below is handed `Palette.bubbleTextSelection` as well.
                 .environment(\.colorScheme, .dark)
             }
+
+            if side == .leading { Spacer(minLength: Self.inset) }
         }
         .padding(.horizontal, TranscriptLayout.inset)
         .padding(.vertical, TranscriptLayout.inset)

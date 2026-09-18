@@ -2,17 +2,36 @@ import SwiftUI
 
 /// A single outline shared by sent and queued messages. The tail has its own layout space, so
 /// it never changes the text's padding or relies on drawing beyond the row's measured bounds.
+///
+/// **One set of curves, mirrored, rather than two sets to keep in step.** A message from somebody
+/// else sits on the left of the transcript, and its tail has to point the other way or the shape
+/// reads as flipped rather than placed. Hand writing the mirror image of nine control points is
+/// how the two sides come to differ by half a point at the next adjustment; reflecting the path
+/// about the middle of its own bounds cannot.
 struct OutgoingBubbleShape: InsettableShape {
     static let tailDrop: CGFloat = 5
 
     var cornerRadius: CGFloat
+    /// Which side the tail is on, which is which side of the transcript the bubble sits on.
+    var tail: HorizontalEdge = .trailing
     private var insetAmount: CGFloat = 0
 
-    init(cornerRadius: CGFloat) {
+    init(cornerRadius: CGFloat, tail: HorizontalEdge = .trailing) {
         self.cornerRadius = cornerRadius
+        self.tail = tail
     }
 
     func path(in bounds: CGRect) -> Path {
+        let drawn = trailingPath(in: bounds)
+        guard tail == .leading else { return drawn }
+        // x' = minX + maxX - x, which is a reflection about the vertical centre line of the same
+        // bounds, so the mirrored shape occupies exactly the rectangle the original did.
+        return drawn.applying(
+            CGAffineTransform(translationX: bounds.minX + bounds.maxX, y: 0).scaledBy(x: -1, y: 1)
+        )
+    }
+
+    private func trailingPath(in bounds: CGRect) -> Path {
         let rect = bounds.insetBy(dx: insetAmount, dy: insetAmount)
         guard rect.width > 0, rect.height > Self.tailDrop else { return Path() }
         let right = rect.maxX

@@ -89,14 +89,24 @@ struct PendingTurnRowView: View {
     /// the border is a border rather than a piece of text.
     private static let dots = StrokeStyle(lineWidth: Metrics.outline, dash: [2, 3])
 
+    /// Which side this one waits on, by the same rule the sent bubble follows: yours on the right,
+    /// anybody else's on the left. A queued message is the same message a moment earlier, so it
+    /// cannot be on the other side of the transcript from the one it becomes.
+    private var side: HorizontalEdge {
+        MessageAuthorship.isFromSomebodyElse(author: delivery.author?.userID, reader: reader)
+            ? .leading : .trailing
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            Spacer(minLength: Self.inset)
+            if side == .trailing { Spacer(minLength: Self.inset) }
 
-            VStack(alignment: .trailing, spacing: TranscriptLayout.tight) {
+            VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
                 if delivery.deliveredSeq == nil { bubble }
                 caption
             }
+
+            if side == .leading { Spacer(minLength: Self.inset) }
         }
         .padding(.horizontal, TranscriptLayout.inset)
         .padding(.vertical, TranscriptLayout.inset)
@@ -179,9 +189,9 @@ struct PendingTurnRowView: View {
             .padding(Self.padding)
         }
         .padding(.bottom, OutgoingBubbleShape.tailDrop)
-        .background(Palette.surfaceRaised, in: OutgoingBubbleShape(cornerRadius: Self.corner))
+        .background(Palette.surfaceRaised, in: OutgoingBubbleShape(cornerRadius: Self.corner, tail: side))
         .overlay {
-            OutgoingBubbleShape(cornerRadius: Self.corner)
+            OutgoingBubbleShape(cornerRadius: Self.corner, tail: side)
                 .strokeBorder(Palette.textTertiary, style: Self.dots)
         }
     }
