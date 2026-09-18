@@ -657,13 +657,13 @@ struct AgentRunnerCancellationRaceTests {
         let session = try await makeSession(store)
         let recorder = ProcessRecorder(shutdown: nil)
         let runner = AgentRunner(
-            // Far above the fake process's 300 ms, because what is under test is that the second
-            // turn waits rather than how long it waits. At the app's five seconds this failed on a
-            // loaded CI runner, where 6,455 tests share the machine and a task can wait that long
-            // to be scheduled; the failure was the runner's load, not the code's behaviour. Main
-            // reached for twenty seconds against the same flake; this keeps the longer bound,
-            // because it is only ever waited out when the behaviour under test is broken.
-            workspacePath: "/tmp/w", session: session, store: store, shutdownBudget: .seconds(60),
+            // Twenty seconds, and the ceiling above it is what picks the number rather than the
+            // delays below it. Six times the worst turn instrumented above, with room for the tail
+            // past five seconds; and **below the suite's own one minute time limit**, because a
+            // budget at or above that limit can never report its own failure: the harness's
+            // stopwatch fires first and the test dies of the time limit instead of throwing
+            // `previousRunStillExiting`, which is the sentence this pair of tests exists to prove.
+            workspacePath: "/tmp/w", session: session, store: store, shutdownBudget: .seconds(20),
             makeProcess: recorder.factory
         )
 
