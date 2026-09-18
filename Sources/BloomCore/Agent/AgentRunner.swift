@@ -464,6 +464,8 @@ public actor AgentRunner {
     /// the actor is safe: `finish` runs on it too and every sleep here is a suspension point.
     private func waitForCancelledRunToExit() async throws {
         guard handle.isCancelledRunStillAlive else { return }
+        isWaitingForPreviousRun = true
+        defer { isWaitingForPreviousRun = false }
 
         let deadline = ContinuousClock.now + shutdownBudget
         while ContinuousClock.now < deadline {
@@ -474,6 +476,17 @@ public actor AgentRunner {
     }
 
     private static let shutdownPollInterval = Duration.milliseconds(25)
+
+    /// Whether a turn the reader has already sent is being held while a cancelled run's process
+    /// finishes dying.
+    ///
+    /// A real phase of the runner rather than a fact kept for a test. Between Stop and the child
+    /// actually exiting there is a window of up to `shutdownBudget` in which a turn has been
+    /// accepted, nothing has been written to any process, and the reader is looking at a workspace
+    /// that appears to be doing nothing; if the child never exits, that turn ends in
+    /// `AgentRunnerError.previousRunStillExiting`, which is a sentence the reader does see.
+    /// Anything asking why a workspace looks stuck in that window wants this answer.
+    private(set) var isWaitingForPreviousRun = false
 
     private func start() {
         guard handle.current == nil else { return }
