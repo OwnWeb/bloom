@@ -230,14 +230,14 @@ struct CloudPreviewPane: View {
         switch session.phase {
         case .asleep, .notWaking:
             CloudPreviewReadiness.Notice(
-                title: "This Cloud workspace is asleep",
+                title: "This Bloom Cloud workspace is asleep",
                 message: "Its app is not running while it sleeps. Waking it starts it again.",
                 invitesRetry: true
             )
         default:
             CloudPreviewReadiness.Notice(
                 title: "Not connected yet",
-                message: "The app appears here once Bloom has connected to this Cloud workspace.",
+                message: "The app appears here once Bloom has connected to this Bloom Cloud workspace.",
                 invitesRetry: false
             )
         }

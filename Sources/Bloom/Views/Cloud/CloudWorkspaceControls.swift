@@ -43,8 +43,8 @@ struct CloudWorkspaceControls: ToolbarContent {
             Button("Share", systemImage: "person.2") { isSharing = true }
                 .help(
                     item?.role == "owner"
-                        ? "Share this Cloud workspace"
-                        : "Only the person who made this Cloud workspace can share it."
+                        ? "Share this Bloom Cloud workspace"
+                        : "Only the person who made this Bloom Cloud workspace can share it."
                 )
                 .disabled(item?.role != "owner")
                 .popover(isPresented: $isSharing, arrowEdge: .bottom) {

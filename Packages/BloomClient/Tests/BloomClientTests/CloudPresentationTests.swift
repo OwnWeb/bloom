@@ -184,7 +184,7 @@ import Testing
     @Test func aWakeThatHasNotHappenedStopsPromisingSeconds() {
         let banner = CloudConnectionBanner.of(.notWaking(since: Date()))
         #expect(banner?.tone == .caution)
-        #expect(banner?.title == "This Cloud workspace has not woken")
+        #expect(banner?.title == "This Bloom Cloud workspace has not woken")
         #expect(banner?.message?.contains("few seconds") != true)
         // How often, and that waiting is the whole of what is being asked of anybody.
         #expect(banner?.message?.contains("every half minute") == true)
@@ -538,7 +538,7 @@ import Testing
 
     @Test func aReadyTeamWithNoWorkspacesOffersCreatingOne() {
         let state = CloudEmptyState.noWorkspaces(isSignedIn: true, account: account([team(enabled: true, setup: complete)]), environment: environment)
-        #expect(state.title == "No Cloud workspaces yet")
+        #expect(state.title == "No Bloom Cloud workspaces yet")
         #expect(state.action == .createWorkspace)
         #expect(state.steps.isEmpty)
     }
@@ -566,7 +566,7 @@ import Testing
             isSignedIn: true, account: account([team(enabled: false, setup: TeamSetup(enabled: false, setupURL: URL(string: "https://runbloom.app/account/spatie")))]),
             environment: environment
         )
-        #expect(state.title == "Cloud workspaces are in early access")
+        #expect(state.title == "Bloom Cloud workspaces are in early access")
         #expect(state.action?.title == TeamSetupNotice.genericButtonTitle)
     }
 
@@ -592,7 +592,7 @@ import Testing
         let none = CloudEmptyState.nothingOpen(hasWorkspaces: false, isSignedIn: false, account: nil, environment: environment)
         #expect(none.action == .signIn)
         let some = CloudEmptyState.nothingOpen(hasWorkspaces: true, isSignedIn: true, account: nil, environment: environment)
-        #expect(some.title == "No Cloud workspace open")
+        #expect(some.title == "No Bloom Cloud workspace open")
         #expect(some.action == .createWorkspace)
     }
 }
@@ -674,7 +674,7 @@ import Testing
             message: "An update was interrupted, so this Cloud workspace may be on either version.", at: at
         ))
         #expect(banner?.tone == .caution)
-        #expect(banner?.title == "This Cloud workspace's update was interrupted")
+        #expect(banner?.title == "This Bloom Cloud workspace's update was interrupted")
         #expect(banner?.dismissalKey != nil)
     }
 

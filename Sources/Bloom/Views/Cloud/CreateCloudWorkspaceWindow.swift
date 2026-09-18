@@ -22,7 +22,7 @@ struct CreateCloudWorkspaceWindow: Scene {
     static let id = "create-cloud-workspace"
 
     var body: some Scene {
-        Window("New Cloud Workspace", id: Self.id) {
+        Window("New Bloom Cloud Workspace", id: Self.id) {
             CreateCloudWorkspaceView()
                 .environment(model)
                 // Cmd+W, and not Escape, for the reason `CreateWorkspaceWindow` gives: the

@@ -134,7 +134,7 @@ final class CloudPullRequestReader {
 
     /// Takes it out of draft. Answers nil, or what runbloom.app said, in its own words.
     func markReady() async -> String? {
-        guard let session else { return "This Cloud workspace is closed." }
+        guard let session else { return "This Bloom Cloud workspace is closed." }
         let cloud = session.cloud
         do {
             state = try await cloud.api.markPullRequestReady(session.id.rawValue)
@@ -150,7 +150,7 @@ final class CloudPullRequestReader {
     /// Merges it. The head commit is sent with the request, so a branch that moved under what the
     /// reader was looking at is refused rather than merged on trust.
     func merge(_ method: GitHub.MergeMethod) async -> String? {
-        guard let session else { return "This Cloud workspace is closed." }
+        guard let session else { return "This Bloom Cloud workspace is closed." }
         let cloud = session.cloud
         do {
             state = try await cloud.api.mergePullRequest(

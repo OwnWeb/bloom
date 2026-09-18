@@ -303,7 +303,7 @@ public actor WorkspaceConnection {
                 // grows and the whole thing stops at `commandBudget`.
                 let wait = Self.retryDelays[min(attempt - 1, Self.retryDelays.count - 1)]
                 guard now().addingTimeInterval(wait) < deadline else {
-                    throw .noAnswer("The Cloud workspace did not answer. \(lastProblem)")
+                    throw .noAnswer("The Bloom Cloud workspace did not answer. \(lastProblem)")
                 }
                 try? await sleep(.seconds(wait))
             case .failure(.refused(_, let error)):
@@ -312,7 +312,7 @@ public actor WorkspaceConnection {
                 throw .unreadable(detail)
             }
         }
-        throw .noAnswer("The Cloud workspace did not answer. \(lastProblem)")
+        throw .noAnswer("The Bloom Cloud workspace did not answer. \(lastProblem)")
     }
 
     /// A long poll waits on the machine before answering, so it gets that long on top.
@@ -406,7 +406,7 @@ public actor WorkspaceConnection {
             do {
                 let result = try await perform(.workspace)
                 guard case .workspace(let snapshot) = result else {
-                    noticeRetrying("The Cloud workspace answered with something other than itself.")
+                    noticeRetrying("The Bloom Cloud workspace answered with something other than itself.")
                     return .retry(after: nil)
                 }
                 advance(snapshot.cursor)

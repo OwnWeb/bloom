@@ -90,7 +90,7 @@ enum CloudSetupEvents {
     /// What the machine says was skipped, or our own sentence where it says nothing.
     private static func skipNote(_ setup: SetupRecord) -> String {
         let note = setup.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return note.isEmpty ? "This Cloud workspace was created without it." : note
+        return note.isEmpty ? "This Bloom Cloud workspace was created without it." : note
     }
 
     /// How long it ran, from the two timestamps the machine sends. Nil while it is still going,

@@ -21,9 +21,9 @@ public enum MachineFailure: Error, Sendable, Hashable {
     public var message: String {
         switch self {
         case .unauthenticated(let error): error.message
-        case .noAnswer(let detail): "The Cloud workspace did not answer. \(detail)"
+        case .noAnswer(let detail): "The Bloom Cloud workspace did not answer. \(detail)"
         case .refused(_, let error): error.message
-        case .unreadable(let detail): "The Cloud workspace answered in a way this version of Bloom cannot read. \(detail)"
+        case .unreadable(let detail): "The Bloom Cloud workspace answered in a way this version of Bloom cannot read. \(detail)"
         }
     }
 }

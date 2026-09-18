@@ -34,11 +34,11 @@ public struct WorkspaceCapabilities: Sendable, Hashable {
             case .managePullRequest:
                 "Only somebody who can push to this repository can merge its pull request or mark it ready for review."
             case .preview:
-                "This Cloud workspace has no preview yet. It appears once the project's own app is running on it."
+                "This Bloom Cloud workspace has no preview yet. It appears once the project's own app is running on it."
             case .editFiles:
-                "This Cloud workspace was opened without permission to change its files. Ask the agent to make the change instead."
+                "This Bloom Cloud workspace was opened without permission to change its files. Ask the agent to make the change instead."
             case .reviewComments:
-                "Notes on a diff are not built for a Cloud workspace yet. Say what you want changed in the chat instead."
+                "Notes on a diff are not built for a Bloom Cloud workspace yet. Say what you want changed in the chat instead."
             }
         }
     }

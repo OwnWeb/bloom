@@ -1275,7 +1275,7 @@ final class TranscriptModel {
         guard await cloud.cancelQueued(delivery.id) else {
             app.alert = BloomAlert(
                 title: "That message was not sent early",
-                message: "The Cloud workspace would not take it back out of the queue, so the turn that is running was left alone."
+                message: "The Bloom Cloud workspace would not take it back out of the queue, so the turn that is running was left alone."
             )
             return
         }
@@ -2698,7 +2698,7 @@ final class TranscriptModel {
             guard let data = try? Data(contentsOf: file) else {
                 return .refused(
                     title: "That file was not sent",
-                    sentence: "\((path as NSString).lastPathComponent) is not on this Mac any more, so nothing was sent to the Cloud workspace."
+                    sentence: "\((path as NSString).lastPathComponent) is not on this Mac any more, so nothing was sent to the Bloom Cloud workspace."
                 )
             }
             switch await cloud.upload(name: (path as NSString).lastPathComponent, data: data) {

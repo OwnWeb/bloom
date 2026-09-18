@@ -38,9 +38,9 @@ public struct MachineClient: Sendable {
             } catch {
                 throw .unreadable("Check for an update to Bloom.")
             }
-        case 401: throw .unauthenticated(Self.failure(data, fallback: WireError(.unauthenticated, "Your access to this Cloud workspace was refused.")))
+        case 401: throw .unauthenticated(Self.failure(data, fallback: WireError(.unauthenticated, "Your access to this Bloom Cloud workspace was refused.")))
         case 502, 503, 504: throw .noAnswer("It may still be waking up.")
-        default: throw .refused(status: response.statusCode, error: Self.failure(data, fallback: WireError(.internal, "The Cloud workspace refused the request (HTTP \(response.statusCode)).")))
+        default: throw .refused(status: response.statusCode, error: Self.failure(data, fallback: WireError(.internal, "The Bloom Cloud workspace refused the request (HTTP \(response.statusCode)).")))
         }
     }
 
@@ -70,7 +70,7 @@ public struct MachineClient: Sendable {
                     if body.count > 65_536 { break }
                 }
             } catch {}
-            let fallback = WireError(.internal, "The Cloud workspace refused its event stream (HTTP \(response.statusCode)).")
+            let fallback = WireError(.internal, "The Bloom Cloud workspace refused its event stream (HTTP \(response.statusCode)).")
             if response.statusCode == 401 { throw .unauthenticated(Self.failure(body, fallback: fallback)) }
             if [502, 503, 504].contains(response.statusCode) { throw .noAnswer("It may still be waking up.") }
             throw .refused(status: response.statusCode, error: Self.failure(body, fallback: fallback))

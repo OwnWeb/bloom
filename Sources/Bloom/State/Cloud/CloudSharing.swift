@@ -93,7 +93,7 @@ final class CloudSharing {
             problem = nil
         } catch let refusal as RunbloomRefusal {
             problem = refusal.code == "no_team_agent_key"
-                ? "\(refusal.message) A shared Cloud workspace runs every turn on the team's key, so the team needs one first."
+                ? "\(refusal.message) A shared Bloom Cloud workspace runs every turn on the team's key, so the team needs one first."
                 : refusal.message
         } catch {
             problem = "runbloom.app could not be reached. \(error.localizedDescription)"

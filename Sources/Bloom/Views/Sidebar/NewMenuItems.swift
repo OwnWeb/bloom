@@ -26,7 +26,7 @@ struct NewMenuItems: View {
         // Only while signed in to a Bloom account: a Mac that has never used one is not offered
         // something it would first have to go and find out about.
         if app.cloud.isSignedIn {
-            Button("New Cloud workspace…") { openWindow(id: CreateCloudWorkspaceWindow.id) }
+            Button("New Bloom Cloud workspace…") { openWindow(id: CreateCloudWorkspaceWindow.id) }
         }
         Button("New project…", action: onStartProject)
 

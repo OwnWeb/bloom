@@ -65,7 +65,7 @@ extension CloudWorkspaceSession {
     var gitHubReadiness: GitHubAvailability.State { .ready }
 
     var continueBlocker: String? {
-        "Carrying on in a new branch is not built for a Cloud workspace yet. Make another Cloud workspace from the same project."
+        "Carrying on in a new branch is not built for a Bloom Cloud workspace yet. Make another Bloom Cloud workspace from the same project."
     }
 
     func continueAfterMerge(_ pullRequest: PullRequest) async -> AppModel.ContinuationOutcome {
@@ -132,7 +132,7 @@ extension CloudWorkspaceSession {
     /// workspace: the machine has the worktree and the git credentials, the Mac has neither.
     private func ask(_ sentence: String) async -> String? {
         guard let chatID = selectedChatID ?? chatIDs.first else {
-            return "Open a chat in this Cloud workspace first."
+            return "Open a chat in this Bloom Cloud workspace first."
         }
         return await send(sentence, chatID: chatID).sentence
     }

@@ -143,10 +143,10 @@ public struct TeamSetupNotice: Sendable, Hashable {
         page = team.setup?.setupPage(on: environment, for: first)
         self.steps = steps.map(\.sentence)
         guard team.cloudWorkspacesEnabled else {
-            sentence = "Cloud workspaces are in early access, and \(team.name.isEmpty ? "this team" : team.name) is not in it yet."
+            sentence = "Bloom Cloud workspaces are in early access, and \(team.name.isEmpty ? "this team" : team.name) is not in it yet."
             return
         }
         guard !steps.isEmpty || team.setup?.isComplete == false else { return nil }
-        sentence = "\(team.name.isEmpty ? "This team" : team.name) needs a few things before it can create Cloud workspaces."
+        sentence = "\(team.name.isEmpty ? "This team" : team.name) needs a few things before it can create Bloom Cloud workspaces."
     }
 }

@@ -61,7 +61,7 @@ struct CloudSharePopover: View {
         VStack(alignment: .leading, spacing: 1) {
             Text("Share")
                 .font(Typo.heading)
-            Text(item?.displayName ?? "this Cloud workspace")
+            Text(item?.displayName ?? "this Bloom Cloud workspace")
                 .font(Typo.body)
                 .foregroundStyle(Palette.textSecondary)
                 .lineLimit(2)
@@ -98,7 +98,7 @@ struct CloudSharePopover: View {
                     removing = nil
                 }
             } message: {
-                Text("Their queued messages are cancelled, a turn they started is ended, and they are disconnected from this Cloud workspace straight away.")
+                Text("Their queued messages are cancelled, a turn they started is ended, and they are disconnected from this Bloom Cloud workspace straight away.")
             }
     }
 
@@ -188,7 +188,7 @@ struct CloudSharePopover: View {
                 Text("Cannot push")
                     .font(Typo.caption)
                     .foregroundStyle(Palette.warning)
-                    .help("They have no push access to the repository, or have not connected GitHub, so they cannot prompt in a shared Cloud workspace.")
+                    .help("They have no push access to the repository, or have not connected GitHub, so they cannot prompt in a shared Bloom Cloud workspace.")
             }
             if canChange, member.role != "owner" {
                 Button("Remove", systemImage: "xmark") { removing = member }
@@ -197,7 +197,7 @@ struct CloudSharePopover: View {
                     .controlSize(.small)
                     .foregroundStyle(Palette.textTertiary)
                     .disabled(!canChange || sharing.isBusy)
-                    .help("Remove \(member.user.name) from this Cloud workspace")
+                    .help("Remove \(member.user.name) from this Bloom Cloud workspace")
             }
         }
     }
@@ -218,7 +218,7 @@ struct CloudSharePopover: View {
                 .disabled(!canChange || sharing.isBusy)
             }
 
-            Text("Anyone with the link can open the project's app, an hour at a time. It stops working when you revoke it, when it expires, or when you can no longer share this Cloud workspace.")
+            Text("Anyone with the link can open the project's app, an hour at a time. It stops working when you revoke it, when it expires, or when you can no longer share this Bloom Cloud workspace.")
                 .font(Typo.caption)
                 .foregroundStyle(Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -61,7 +61,7 @@ public struct RunbloomRefusal: Error, Sendable, Hashable, Codable {
         switch status {
         case 401: "Sign in to your Bloom account again."
         case 403: "Your Bloom account cannot do that."
-        case 404: "That Cloud workspace is no longer there."
+        case 404: "That Bloom Cloud workspace is no longer there."
         case 429: "runbloom.app is busy. Try again in a moment."
         default: "runbloom.app could not answer (HTTP \(status)). Try again in a moment."
         }

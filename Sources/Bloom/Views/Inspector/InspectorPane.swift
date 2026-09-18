@@ -44,7 +44,7 @@ struct InspectorPane: View {
             EmptyStateView(
                 glyph: "sidebar.right",
                 title: "Nothing to show yet",
-                message: "This Cloud workspace has not opened. Its changes appear here when it does."
+                message: "This Bloom Cloud workspace has not opened. Its changes appear here when it does."
             )
         } else {
             EmptyStateView(

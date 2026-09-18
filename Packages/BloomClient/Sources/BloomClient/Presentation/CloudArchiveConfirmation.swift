@@ -14,7 +14,7 @@ public struct CloudArchiveConfirmation: Sendable, Hashable {
     /// Whether anything but the conversation would be lost, which is what makes the button red.
     public var isDestructive: Bool
 
-    public static let conversationSentence = "The conversation is deleted with the Cloud workspace. It cannot be restored."
+    public static let conversationSentence = "The conversation is deleted with the Bloom Cloud workspace. It cannot be restored."
 
     /// What is not lost, said as plainly as what is, so somebody archiving at the end of a day
     /// knows what they still have. **There is no export, by decision rather than by omission**: an

@@ -84,7 +84,7 @@ struct CloudWorkspaceRow: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(isEmphasized ? Palette.textInverted : Palette.textSecondary)
-        .help("Archive this Cloud workspace")
+        .help("Archive this Bloom Cloud workspace")
         .accessibilityLabel("Archive \(item.displayName)")
     }
 

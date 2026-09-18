@@ -26,16 +26,16 @@ public struct LimitNotice: Sendable, Hashable {
         switch limit {
         case "concurrent_machines":
             kind = .waiting
-            detail = "This carries on by itself once another Cloud workspace in your team goes to sleep."
+            detail = "This carries on by itself once another Bloom Cloud workspace in your team goes to sleep."
         case "monthly_usage":
             kind = .blocked
             detail = "A team owner can raise the monthly limit on runbloom.app, or it resets next month."
         case "total_machines":
             kind = .blocked
-            detail = "Archive a Cloud workspace your team no longer needs, or ask a team owner to raise the limit."
+            detail = "Archive a Bloom Cloud workspace your team no longer needs, or ask a team owner to raise the limit."
         case "kill_switch":
             kind = .blocked
-            detail = "Cloud workspaces are paused for everyone right now. They come back without anything to do on your side."
+            detail = "Bloom Cloud workspaces are paused for everyone right now. They come back without anything to do on your side."
         default:
             kind = .blocked
             detail = "Ask a team owner to look at the team's limits on runbloom.app."
@@ -49,6 +49,6 @@ public struct LimitNotice: Sendable, Hashable {
     }
 
     private static func fallback(_ limit: String) -> String {
-        limit == "concurrent_machines" ? "Your team has as many Cloud workspaces awake as it can." : "Your team reached a Cloud workspace limit."
+        limit == "concurrent_machines" ? "Your team has as many Bloom Cloud workspaces awake as it can." : "Your team reached a Bloom Cloud workspace limit."
     }
 }

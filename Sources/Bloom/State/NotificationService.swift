@@ -239,7 +239,7 @@ final class NotificationService {
         content.body = switch notice.kind {
         case .needsInput: notice.detail.isEmpty ? "The agent is waiting for you." : notice.detail
         case .finished: notice.detail.isEmpty ? "The agent finished its turn." : notice.detail
-        case .setupFailed: "Setting up this Cloud workspace failed. Open it to read the setup output."
+        case .setupFailed: "Setting up this Bloom Cloud workspace failed. Open it to read the setup output."
         }
         content.sound = .default
         content.threadIdentifier = "cloud." + notice.workspaceID

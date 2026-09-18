@@ -16,7 +16,7 @@ extension CloudWorkspaceSession: WorkspaceSurface {
     var surfaceID: WorkspaceSurfaceID { .cloud(id) }
 
     var surfaceName: String {
-        state.workspace?.name ?? cloud.item(id)?.displayName ?? "Cloud workspace"
+        state.workspace?.name ?? cloud.item(id)?.displayName ?? "Bloom Cloud workspace"
     }
 
     var surfaceBranch: String {

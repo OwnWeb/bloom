@@ -18,7 +18,7 @@ public enum CloudShareControls {
 
     /// Said once, above the two cards, rather than on each control that is dimmed.
     public static let othersCannotChange =
-        "Only the owner of this Cloud workspace can change who it is shared with."
+        "Only the owner of this Bloom Cloud workspace can change who it is shared with."
 
     /// How long a preview link has left, as a phrase to draw beside it.
     ///

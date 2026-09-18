@@ -41,7 +41,7 @@ struct AccountSettingsView: View {
     private var signedOut: some View {
         Section {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Cloud workspaces run in the cloud instead of on this Mac. They keep working while your Mac sleeps, and your team can open them too.")
+                Text("Bloom Cloud workspaces run in the cloud instead of on this Mac. They keep working while your Mac sleeps, and your team can open them too.")
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Sign in with your Bloom account to create and open them. Everything else in Bloom works without an account.")
                     .foregroundStyle(.secondary)
@@ -109,7 +109,7 @@ struct AccountSettingsView: View {
             Text("Signed in")
         } footer: {
             if !account.githubConnected {
-                Text("Connect GitHub on runbloom.app to prompt in a Cloud workspace. Pushes and pull requests are made as you.")
+                Text("Connect GitHub on runbloom.app to prompt in a Bloom Cloud workspace. Pushes and pull requests are made as you.")
             }
         }
 

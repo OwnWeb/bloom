@@ -201,7 +201,7 @@ public struct BrowserToolbar: Equatable, Sendable {
         return Control(
             symbol: "arrow.clockwise",
             name: "Reload",
-            help: surface == .machineApp ? "Ask the Cloud workspace for its app again" : "Reload this page",
+            help: surface == .machineApp ? "Ask the Bloom Cloud workspace for its app again" : "Reload this page",
             isEnabled: surface == .machineApp || destination != nil
         )
     }

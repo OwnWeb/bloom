@@ -61,11 +61,11 @@ final class CloudTerminal {
         Task { [weak self] in
             guard let self else { return }
             guard let token = await session.sessionToken() else {
-                state = .dropped("This Cloud workspace is not ready for a terminal yet.")
+                state = .dropped("This Bloom Cloud workspace is not ready for a terminal yet.")
                 return
             }
             guard token.allows("terminal") else {
-                state = .refused("Your access to this Cloud workspace does not include the terminal.")
+                state = .refused("Your access to this Bloom Cloud workspace does not include the terminal.")
                 return
             }
             let socket = TerminalSocket(machine: token.machineURL, name: TerminalSocket.name(for: session.readerID), token: token.token)

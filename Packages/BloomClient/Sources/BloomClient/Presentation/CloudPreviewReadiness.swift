@@ -54,7 +54,7 @@ public enum CloudPreviewReadiness: Equatable, Sendable {
         case "pending", "running":
             return .waiting(Notice(
                 title: "The app is not serving yet",
-                message: "This Cloud workspace is setting up. The page appears here on its own when setup has finished.",
+                message: "This Bloom Cloud workspace is setting up. The page appears here on its own when setup has finished.",
                 invitesRetry: false
             ))
         case "failed":
@@ -66,7 +66,7 @@ public enum CloudPreviewReadiness: Equatable, Sendable {
         case "skipped":
             return .waiting(Notice(
                 title: "The app is not serving",
-                message: "This Cloud workspace was created without running setup, so nothing was started. Run setup from the row at the top of the conversation, or start the app in the terminal.",
+                message: "This Bloom Cloud workspace was created without running setup, so nothing was started. Run setup from the row at the top of the conversation, or start the app in the terminal.",
                 invitesRetry: true
             ))
         default:
@@ -116,7 +116,7 @@ public enum CloudPreviewReadiness: Equatable, Sendable {
     /// it is.
     public static let nothingAnswered = Notice(
         title: "Nothing is serving the app",
-        message: "Setup has finished, but nothing answered on this Cloud workspace. Start the app in its terminal, then reload.",
+        message: "Setup has finished, but nothing answered on this Bloom Cloud workspace. Start the app in its terminal, then reload.",
         invitesRetry: true
     )
 

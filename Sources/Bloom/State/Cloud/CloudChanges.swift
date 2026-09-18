@@ -160,7 +160,7 @@ final class CloudChanges {
     /// What a machine that is too old to answer `commit_patch` gets said about it. Guarded on
     /// what the machine answers rather than on a version: an older one refuses the operation as
     /// an invalid request, and the day it is updated this sentence stops appearing by itself.
-    static let noCommitPatch = "This Cloud workspace is running a version that cannot read the"
+    static let noCommitPatch = "This Bloom Cloud workspace is running a version that cannot read the"
         + " diff of one commit. It can once the workspace has been updated."
 
     /// Nothing here throws away a commit, on either kind of workspace. The review's own controls
@@ -323,7 +323,7 @@ final class CloudChanges {
     /// One file's patch, read once per revision. Throws what the machine said, which is what the
     /// local read does with git's own message.
     func patch(for path: String) async throws -> String {
-        guard let session else { throw CloudReviewFailure(message: "This Cloud workspace is closed.") }
+        guard let session else { throw CloudReviewFailure(message: "This Bloom Cloud workspace is closed.") }
         if let commit { return try await patch(for: path, in: commit) }
         let scope = wireScope
         var cache = caches[scope] ?? CloudReviewCache()
@@ -347,7 +347,7 @@ final class CloudChanges {
     /// every other refusal is the machine's own words, since "this file did not change in that
     /// commit" is something a reader can act on and this Mac could not have worked out.
     private func patch(for path: String, in commit: BranchCommit) async throws -> String {
-        guard let session else { throw CloudReviewFailure(message: "This Cloud workspace is closed.") }
+        guard let session else { throw CloudReviewFailure(message: "This Bloom Cloud workspace is closed.") }
         if let held = commitPatches[CommitFile(sha: commit.sha, path: path)] { return held }
         do {
             let result = try await session.perform(.commitPatch(sha: commit.sha, path: path))
@@ -395,7 +395,7 @@ final class CloudChanges {
     /// Takes a file, or one hunk of it, back to what the review measured it against. Nil on
     /// success, or what the machine said. The machine does the git: it has the worktree.
     func revert(file: ChangedFile) async -> String? {
-        guard let session else { return "This Cloud workspace is closed." }
+        guard let session else { return "This Bloom Cloud workspace is closed." }
         guard commit == nil else { return Self.commitIsMade }
         do {
             _ = try await session.perform(.revertFile(path: file.path, scope: wireScope))
@@ -410,7 +410,7 @@ final class CloudChanges {
     /// The hunk is sent as its own patch, because that is how the machine recognises it: a hunk
     /// that has moved or changed since this diff was read is refused there rather than guessed at.
     func discard(hunk: DiffHunk, of file: ChangedFile) async -> String? {
-        guard let session else { return "This Cloud workspace is closed." }
+        guard let session else { return "This Bloom Cloud workspace is closed." }
         guard commit == nil else { return Self.commitIsMade }
         let whole: String
         do {

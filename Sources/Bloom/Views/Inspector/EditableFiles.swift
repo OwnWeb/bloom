@@ -72,7 +72,7 @@ struct MachineFiles: EditableFiles {
         do {
             let result = try await session.perform(.file(path: path))
             guard case .file(let record) = result else {
-                return .failure(.unreadable(path: path, reason: "The Cloud workspace answered with something else."))
+                return .failure(.unreadable(path: path, reason: "The Bloom Cloud workspace answered with something else."))
             }
             return .success(Self.file(key: key, record: record))
         } catch {
@@ -90,7 +90,7 @@ struct MachineFiles: EditableFiles {
                 .writeFile(path: path, text: text, revision: baseline.revision ?? "")
             )
             guard case .file(let record) = result else {
-                return .failure(.unwritable(path: path, reason: "The Cloud workspace answered with something else."))
+                return .failure(.unwritable(path: path, reason: "The Bloom Cloud workspace answered with something else."))
             }
             return .success(Self.file(key: baseline.path, record: record))
         } catch {

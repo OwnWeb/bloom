@@ -50,7 +50,7 @@ struct CloudArchiveSheet: View {
     @State private var phase: Phase?
     @State private var ask = Ask.asking
 
-    private var name: String { app.cloud.item(id)?.displayName ?? "this Cloud workspace" }
+    private var name: String { app.cloud.item(id)?.displayName ?? "this Bloom Cloud workspace" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.gutter) {
@@ -63,7 +63,7 @@ struct CloudArchiveSheet: View {
             // Open up a browser pane next to this chat". A name is not a word and does not go in
             // a sentence somebody else wrote.
             VStack(alignment: .leading, spacing: 1) {
-                Text("Archive this Cloud workspace?")
+                Text("Archive this Bloom Cloud workspace?")
                     .font(.headline)
                 Text(name)
                     .font(Typo.body)
@@ -140,7 +140,7 @@ struct CloudArchiveSheet: View {
             case .archived:
                 dismiss()
             case .moved(let fresh):
-                phase = .ready(fresh, failure: "Something changed in the Cloud workspace since this was checked. Read it again before archiving.")
+                phase = .ready(fresh, failure: "Something changed in the Bloom Cloud workspace since this was checked. Read it again before archiving.")
             case .failed(let message):
                 phase = .ready(confirmation, failure: message)
             }

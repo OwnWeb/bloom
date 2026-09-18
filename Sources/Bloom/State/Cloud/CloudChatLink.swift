@@ -127,5 +127,5 @@ final class CloudChatLink {
         return await session.run(.markRead(chatID: chatID.rawValue, seq: seq), reporting: false) == nil
     }
 
-    private static let closed = "This Cloud workspace is closed. Open it again to carry on."
+    private static let closed = "This Bloom Cloud workspace is closed. Open it again to carry on."
 }

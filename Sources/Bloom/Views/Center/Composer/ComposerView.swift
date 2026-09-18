@@ -568,7 +568,7 @@ struct ComposerView: View {
                 // workspace chat sends them looking for a thing they already have.
                 app.notice = BloomNotice(message: transcript.cloud == nil
                     ? "Use /btw in a workspace chat to open a side conversation."
-                    : "Side conversations are not available in a Cloud workspace yet.")
+                    : "Side conversations are not available in a Bloom Cloud workspace yet.")
                 return
             }
             // The command itself belongs to Bloom. Leave review comments on the main chat.

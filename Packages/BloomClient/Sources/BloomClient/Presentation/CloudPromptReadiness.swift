@@ -19,7 +19,7 @@ public struct CloudPromptReadiness: Sendable, Hashable {
     public init?(account: RunbloomAccount?, teamID: String, agent: String) {
         guard let account else { return nil }
         if !account.githubConnected {
-            sentence = "Connect GitHub on runbloom.app before prompting here. A Cloud workspace commits and pushes as you."
+            sentence = "Connect GitHub on runbloom.app before prompting here. A Bloom Cloud workspace commits and pushes as you."
             opensRunbloom = true
             return
         }

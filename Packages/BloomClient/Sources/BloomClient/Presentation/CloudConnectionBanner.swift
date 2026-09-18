@@ -81,7 +81,7 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         case .closed, .live, .connecting(waking: false):
             return nil
         case .connecting(waking: true):
-            return CloudConnectionBanner(tone: .progress, title: "Waking this Cloud workspace…", message: "It was asleep. This usually takes a few seconds.")
+            return CloudConnectionBanner(tone: .progress, title: "Waking this Bloom Cloud workspace…", message: "It was asleep. This usually takes a few seconds.")
         case .notWaking:
             // **The sentence above has an end now.** It said "this usually takes a few seconds"
             // for as long as the window was open, over a machine that had been asked and had not
@@ -89,7 +89,7 @@ public struct CloudConnectionBanner: Sendable, Hashable {
             // machine is the request the connection is already making and repeating, so this says
             // what is true, offers the two things worth doing, and keeps trying underneath.
             return CloudConnectionBanner(
-                tone: .caution, title: "This Cloud workspace has not woken",
+                tone: .caution, title: "This Bloom Cloud workspace has not woken",
                 // **"Nothing here needs doing" is the sentence somebody staring at this could not
                 // get anywhere**, and it is what makes the button modest rather than obligatory.
                 // "every half minute" is the backoff's own ceiling, where "keeps asking" gestured
@@ -102,7 +102,7 @@ public struct CloudConnectionBanner: Sendable, Hashable {
             )
         case .asleep:
             return CloudConnectionBanner(
-                tone: .caution, title: "This Cloud workspace is asleep",
+                tone: .caution, title: "This Bloom Cloud workspace is asleep",
                 message: "It went to sleep because nobody was using it. It wakes as soon as you do something in it.", actions: [.wake]
             )
         case .notReady(let message, _):
@@ -138,14 +138,14 @@ public struct CloudConnectionBanner: Sendable, Hashable {
             // the same. See `WorkspaceConnection.Phase.unavailable`.
             return CloudConnectionBanner(
                 tone: .failure, title: message,
-                message: "This Cloud workspace cannot be opened. runbloom.app has the rest of the story.",
+                message: "This Bloom Cloud workspace cannot be opened. runbloom.app has the rest of the story.",
                 actions: [.runbloom]
             )
         case .archived:
-            return CloudConnectionBanner(tone: .failure, title: "This Cloud workspace was archived", message: "It was deleted, with its conversation.")
+            return CloudConnectionBanner(tone: .failure, title: "This Bloom Cloud workspace was archived", message: "It was deleted, with its conversation.")
         case .noAccess(let message):
             return CloudConnectionBanner(
-                tone: .failure, title: "You cannot open this Cloud workspace", message: message, actions: [.runbloom, .retry]
+                tone: .failure, title: "You cannot open this Bloom Cloud workspace", message: message, actions: [.runbloom, .retry]
             )
         case .retrying(let message):
             // A dropped network, a machine that stopped answering, a server restart. It retries by
@@ -166,7 +166,7 @@ public struct CloudConnectionBanner: Sendable, Hashable {
     public static func ofRunner(_ notice: CloudRunnerNotice?) -> CloudConnectionBanner? {
         guard let notice, !notice.message.isEmpty else { return nil }
         if notice.isUnderway {
-            return CloudConnectionBanner(tone: .progress, title: "Putting this Cloud workspace back…", message: notice.message)
+            return CloudConnectionBanner(tone: .progress, title: "Putting this Bloom Cloud workspace back…", message: notice.message)
         }
         let isFailure = notice.kind == CloudRunnerNotice.failed
         return CloudConnectionBanner(
@@ -181,10 +181,10 @@ public struct CloudConnectionBanner: Sendable, Hashable {
     /// plainest heading there is, because its sentence says the rest.
     private static func runnerTitle(for kind: String) -> String {
         switch kind {
-        case CloudRunnerNotice.failed: "This Cloud workspace could not be updated"
-        case CloudRunnerNotice.rolledBack: "This Cloud workspace was put back on an older version"
-        case CloudRunnerNotice.interrupted: "This Cloud workspace's update was interrupted"
-        default: "Something happened while this Cloud workspace was being updated"
+        case CloudRunnerNotice.failed: "This Bloom Cloud workspace could not be updated"
+        case CloudRunnerNotice.rolledBack: "This Bloom Cloud workspace was put back on an older version"
+        case CloudRunnerNotice.interrupted: "This Bloom Cloud workspace's update was interrupted"
+        default: "Something happened while this Bloom Cloud workspace was being updated"
         }
     }
 

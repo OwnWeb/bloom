@@ -309,7 +309,7 @@ struct CreateCloudWorkspaceView: View {
         .pickerStyle(.segmented)
         .fixedSize()
         .tint(Palette.controlAccent)
-        .help("A Cloud workspace starts with a chat. Its terminal is a tab of the workspace itself.")
+        .help("A Bloom Cloud workspace starts with a chat. Its terminal is a tab of the workspace itself.")
     }
 
     private var chatBox: some View {
@@ -345,9 +345,15 @@ struct CreateCloudWorkspaceView: View {
         }
     }
 
-    /// What the window is willing to promise about the name and the branch, which for a Cloud
-    /// workspace is the whole of it: nothing renames itself afterwards, so the two derived names
-    /// are worth showing before Create rather than after.
+    /// What is worth saying under the box: why Create failed, or that the team has no key for the
+    /// agent its first turn would run with.
+    ///
+    /// **Not the derived name and branch any more.** They were drawn here as two lines of text the
+    /// moment anything was typed, on the argument that a Cloud workspace does not rename itself
+    /// afterwards, and what the owner saw was a workspace name and a branch built out of a half
+    /// typed sentence running off both edges of the sheet. He asked for it to go. The local sheet
+    /// never had this line: it draws a branch chip where a name is being derived and deliberately
+    /// nothing where a model will write the name.
     @ViewBuilder
     private var statusRow: some View {
         HStack(spacing: Metrics.spacingSmall) {
@@ -356,17 +362,16 @@ struct CreateCloudWorkspaceView: View {
                     .font(Typo.caption)
                     .foregroundStyle(Palette.negative)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if !task.isEmpty {
-                Text(derivedName)
+            } else if !task.isEmpty, let problem = CloudBranchName.problem(derivedBranch) {
+                // The one job the removed preview did that is still worth doing: Create is off
+                // while the branch this message would make is not a branch git accepts, and a
+                // button that is off for no reason on screen reads as broken. Said only when it is
+                // the case, which a message of ordinary words never is.
+                Text(problem)
                     .font(Typo.caption)
-                    .foregroundStyle(Palette.textSecondary)
-                    .lineLimit(1)
-                Text(derivedBranch)
-                    .font(Typo.caption)
-                    .monospaced()
-                    .foregroundStyle(Palette.textTertiary)
-                    .lineLimit(1)
-            } else if let notice = agentKeyNotice {
+                    .foregroundStyle(Palette.negative)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if task.isEmpty, let notice = agentKeyNotice {
                 Text(notice)
                     .font(Typo.caption)
                     .foregroundStyle(Palette.textSecondary)
@@ -388,10 +393,14 @@ struct CreateCloudWorkspaceView: View {
     /// sentence a local workspace has no equivalent for.
     private var consequence: some View {
         VStack(alignment: .leading, spacing: Metrics.spacingTight) {
-            Text("Creates a Cloud workspace on a machine runbloom.app runs, on its own branch.")
+            // **What it does and what to expect, and not how it is built.** It said "on a machine
+            // runbloom.app runs" and "the machine is made and set up first", which is Bloom
+            // describing its own plumbing to somebody who wanted to make a workspace. What is left
+            // is what they will see: how long, and that the message they typed is not lost.
+            Text("Creates a Bloom Cloud workspace.")
             Text(runsSetup
-                 ? "The machine is made and set up first, which takes a few minutes, and your first message goes as soon as it is ready."
-                 : "The machine is made and the repository cloned, which takes a minute. The project's setup is not run, so nothing waits for it.")
+                 ? "Your first message goes as soon as it is ready, which takes a few minutes."
+                 : "It is ready in about a minute, without running the project's setup.")
         }
         .font(Typo.caption)
         .foregroundStyle(Palette.textTertiary)
@@ -414,14 +423,14 @@ struct CreateCloudWorkspaceView: View {
             TeamSetupNoticeView(notice: teamNotice, environment: cloud.environment)
         } else if cloud.account?.githubConnected == false {
             step(
-                "Connect GitHub before creating one. A Cloud workspace clones the repository and pushes as you.",
+                "Connect GitHub before creating one. A Bloom Cloud workspace clones the repository and pushes as you.",
                 action: .connectGitHub
             )
         } else if let problem = projectsState.problem {
             EmptyStateView(glyph: "exclamationmark.triangle", title: "Could not read your projects", message: problem)
         } else if !projectsState.isLoading, projects.isEmpty {
             step(
-                "This team has no projects yet. A project is a GitHub repository a Cloud workspace can be created for.",
+                "This team has no projects yet. A project is a GitHub repository a Bloom Cloud workspace can be created for.",
                 action: .addProject
             )
         }
@@ -433,7 +442,7 @@ struct CreateCloudWorkspaceView: View {
         }
         return VStack(alignment: .leading, spacing: Metrics.spacingWide) {
             if notices.isEmpty {
-                Text("Cloud workspaces are in early access, and none of your teams is in it yet.")
+                Text("Bloom Cloud workspaces are in early access, and none of your teams is in it yet.")
                     .foregroundStyle(Palette.textSecondary)
             }
             ForEach(notices, id: \.self) { TeamSetupNoticeView(notice: $0, environment: cloud.environment) }

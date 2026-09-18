@@ -20,7 +20,7 @@ public struct CloudEmptyState: Sendable, Hashable {
             switch self {
             case .signIn: "Sign in to your Bloom account"
             case .open(_, let title): title
-            case .createWorkspace: "Create your first Cloud workspace"
+            case .createWorkspace: "Create your first Bloom Cloud workspace"
             }
         }
     }
@@ -47,18 +47,18 @@ public struct CloudEmptyState: Sendable, Hashable {
     public static func noWorkspaces(isSignedIn: Bool, account: RunbloomAccount?, environment: RunbloomEnvironment) -> CloudEmptyState {
         guard isSignedIn else {
             return CloudEmptyState(
-                title: "Cloud workspaces",
-                sentence: "A Cloud workspace runs in the cloud instead of on this Mac, so it keeps working while your Mac sleeps and your team can open it too.",
+                title: "Bloom Cloud workspaces",
+                sentence: "A Bloom Cloud workspace runs in the cloud instead of on this Mac, so it keeps working while your Mac sleeps and your team can open it too.",
                 action: .signIn
             )
         }
         guard let account else {
-            return CloudEmptyState(title: "Cloud workspaces", sentence: "Reading your account from runbloom.app…")
+            return CloudEmptyState(title: "Bloom Cloud workspaces", sentence: "Reading your account from runbloom.app…")
         }
         // A team that is ready is the one to create in, whatever the others are missing.
         if account.teams.contains(where: \.isReadyForCloudWorkspaces) {
             return CloudEmptyState(
-                title: "No Cloud workspaces yet",
+                title: "No Bloom Cloud workspaces yet",
                 sentence: "Create one for a repository and a branch, and its agent starts work on a machine of its own.",
                 action: .createWorkspace
             )
@@ -66,14 +66,14 @@ public struct CloudEmptyState: Sendable, Hashable {
         let notices = account.teams.compactMap { TeamSetupNotice(team: $0, environment: environment) }
         guard let notice = notices.first else {
             return CloudEmptyState(
-                title: "Cloud workspaces",
-                sentence: "None of your teams can create Cloud workspaces yet. runbloom.app says what each of them needs.",
+                title: "Bloom Cloud workspaces",
+                sentence: "None of your teams can create Bloom Cloud workspaces yet. runbloom.app says what each of them needs.",
                 action: .open(environment.origin.appending(path: "account"), title: TeamSetupNotice.genericButtonTitle)
             )
         }
         let isEarlyAccess = account.teams.allSatisfy { !$0.cloudWorkspacesEnabled }
         return CloudEmptyState(
-            title: isEarlyAccess ? "Cloud workspaces are in early access" : "One more step first",
+            title: isEarlyAccess ? "Bloom Cloud workspaces are in early access" : "One more step first",
             sentence: notice.sentence,
             steps: notice.steps,
             action: .open(notice.page, title: notice.buttonTitle)
@@ -87,7 +87,7 @@ public struct CloudEmptyState: Sendable, Hashable {
     ) -> CloudEmptyState {
         guard hasWorkspaces else { return noWorkspaces(isSignedIn: isSignedIn, account: account, environment: environment) }
         return CloudEmptyState(
-            title: "No Cloud workspace open",
+            title: "No Bloom Cloud workspace open",
             sentence: "Choose one in the sidebar to read its conversation, or create another.",
             action: .createWorkspace
         )
@@ -97,7 +97,7 @@ public struct CloudEmptyState: Sendable, Hashable {
     /// owners and administrators see for somebody else's private workspace.
     public static func privateWorkspace(ownerName: String?) -> CloudEmptyState {
         CloudEmptyState(
-            title: "This Cloud workspace is private",
+            title: "This Bloom Cloud workspace is private",
             sentence: "It belongs to \(ownerName ?? "somebody else"), and only they and the people they share it with can open it. You can still archive it.",
             action: nil
         )
@@ -106,7 +106,7 @@ public struct CloudEmptyState: Sendable, Hashable {
     /// A Cloud workspace the list no longer holds: archived here, archived by somebody else, or
     /// gone from a team this account left.
     public static let missingWorkspace = CloudEmptyState(
-        title: "That Cloud workspace is gone",
+        title: "That Bloom Cloud workspace is gone",
         sentence: "It was archived, or it is no longer shared with you. Its machine and its conversation went with it.",
         action: .createWorkspace
     )

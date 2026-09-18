@@ -422,7 +422,7 @@ final class CloudWorkspaceSession {
     /// resumes the connection first.
     func perform(_ operation: WorkspaceOperation, commandID: String = UUID().uuidString.lowercased()) async throws(WorkspaceConnection.CommandFailure) -> OperationResult {
         if connection == nil { open() }
-        guard let connection else { throw .noAnswer("This Cloud workspace is closed.") }
+        guard let connection else { throw .noAnswer("This Bloom Cloud workspace is closed.") }
         return try await connection.perform(operation, commandID: commandID)
     }
 
@@ -611,8 +611,8 @@ final class CloudWorkspaceSession {
         if !lost.isEmpty {
             notice = CloudRefusalNotice(
                 message: lost.count == 1
-                    ? "\(lost[0]) could not be sent to this Cloud workspace, so your first message does not name it."
-                    : "These files could not be sent to this Cloud workspace, so your first message does not name them: \(lost.joined(separator: ", "))",
+                    ? "\(lost[0]) could not be sent to this Bloom Cloud workspace, so your first message does not name it."
+                    : "These files could not be sent to this Bloom Cloud workspace, so your first message does not name them: \(lost.joined(separator: ", "))",
                 code: nil
             )
         }
@@ -700,7 +700,7 @@ final class CloudWorkspaceSession {
         do {
             let preview = try await cloud.api.previewToken(for: id.rawValue)
             guard preview.isSafe(forMachine: await connection?.machineURL) else {
-                return .refused("runbloom.app gave a preview address that is not this Cloud workspace's, so Bloom did not open it.")
+                return .refused("runbloom.app gave a preview address that is not this Bloom Cloud workspace's, so Bloom did not open it.")
             }
             return .address(preview.enterURL)
         } catch let refusal as RunbloomRefusal {
@@ -721,7 +721,7 @@ final class CloudWorkspaceSession {
             let preview = try await cloud.api.previewToken(for: id.rawValue)
             guard preview.isSafe(forMachine: await connection?.machineURL) else {
                 notice = CloudRefusalNotice(
-                    message: "runbloom.app gave a preview address that is not this Cloud workspace's, so Bloom did not open it.", code: nil
+                    message: "runbloom.app gave a preview address that is not this Bloom Cloud workspace's, so Bloom did not open it.", code: nil
                 )
                 return
             }

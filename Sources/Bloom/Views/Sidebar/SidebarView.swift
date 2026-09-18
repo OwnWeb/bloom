@@ -931,7 +931,7 @@ struct SidebarView: View {
             // the two doors it duplicated are both still open. The dock's New menu offers New Cloud
             // Workspace beside New Workspace, the File menu carries the same item, and the section's
             // own empty state has the button while there is nothing in it.
-            Text("Cloud workspaces")
+            Text("Bloom Cloud workspaces")
                 .bold()
                 .accessibilityAddTraits(.isHeader)
         }
