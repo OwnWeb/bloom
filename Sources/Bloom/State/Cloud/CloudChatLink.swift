@@ -1,6 +1,7 @@
 import BloomClient
 import BloomCore
 import BloomProtocol
+import Foundation
 
 /// What a Cloud chat's `TranscriptModel` asks its machine to do, and nothing else.
 ///
@@ -38,6 +39,34 @@ final class CloudChatLink {
     func send(_ text: String) async -> CloudSendOutcome {
         guard let session else { return .failed(Self.closed) }
         return await session.send(text, chatID: chatID)
+    }
+
+    /// Puts a file on the machine and answers the path an agent standing in its worktree reads it
+    /// from, or the sentence saying why it is not there.
+    ///
+    /// **A Cloud chat's attachment crosses a network, which a local one does not.** The composer
+    /// writes a path into the draft and the agent opens it, and that works on this Mac because the
+    /// file was copied into the very worktree the agent stands in. A machine's agent stands
+    /// somewhere else, so the bytes go over the connection when the turn does, and the machine
+    /// says where it put them. See `TranscriptModel.uploading` and `AttachmentDraft.mapping`.
+    func upload(name: String, data: Data) async -> Upload {
+        guard let session else { return .refused(Self.closed) }
+        do {
+            let result = try await session.perform(.uploadFile(name: name, data: data))
+            guard case .text(let path) = result else {
+                return .refused("The machine did not say where it put \(name).")
+            }
+            return .at(path)
+        } catch {
+            return .refused(error.message)
+        }
+    }
+
+    /// Where the machine put a file, or why it did not take it.
+    enum Upload {
+        /// The path an agent on that machine reads it from, relative to its worktree.
+        case at(String)
+        case refused(String)
     }
 
     func stop() async {

@@ -2456,10 +2456,26 @@ final class TranscriptModel {
     }
 
     /// `submit`, for a chat whose queue is on its machine.
-    private func submitToCloud(_ body: String, through cloud: CloudChatLink, sourceDraft: String?) async -> Bool {
-        guard !body.isEmpty else { return false }
-        let submittedDraft = SubmittedDraft.matching(current: draft, message: body, source: sourceDraft)
+    private func submitToCloud(_ text: String, through cloud: CloudChatLink, sourceDraft: String?) async -> Bool {
+        guard !text.isEmpty else { return false }
+        let submittedDraft = SubmittedDraft.matching(current: draft, message: text, source: sourceDraft)
         if submittedDraft != nil { draft = "" }
+
+        // The files go before the words do, because the words name where the files will be. A
+        // refusal puts the draft back exactly as a refused send does, which is the one behaviour
+        // this must share with the send below: somebody who attached a screenshot and got an
+        // apology has lost nothing but the press.
+        let body: String
+        switch await uploading(text, through: cloud) {
+        case .sent(let rewritten):
+            body = rewritten
+        case .refused(let title, let sentence):
+            draft = PendingMessageReturn.draft(taking: [Delivery(targetSessionID: session.id, body: text)], into: draft)
+            composerFocusRequests += 1
+            app.alert = BloomAlert(title: title, message: sentence)
+            return false
+        }
+
         let delivery = Delivery(targetSessionID: session.id, body: body)
         messageArrivals.sent(delivery.id)
         // The echo only when nothing is ahead of it, which is when the machine will start it at
@@ -2478,6 +2494,63 @@ final class TranscriptModel {
         composerFocusRequests += 1
         app.alert = BloomAlert(title: outcome.title, message: sentence)
         return false
+    }
+
+    /// What became of a Cloud turn's files.
+    enum CloudUpload {
+        /// The turn, with every file named where the machine put it.
+        case sent(String)
+        /// Nothing went. The reason, in the machine's words where it has any.
+        case refused(title: String, sentence: String)
+    }
+
+    /// Puts every file this turn names on the machine, and answers the turn with their new paths.
+    ///
+    /// **Read out of the text rather than out of the store**, which is what makes this work for a
+    /// turn composed anywhere: a message typed in the box, a quick prompt fired into it, a review
+    /// with comments. A path under `.bloom/attachments` is recognisable as Bloom's own copy from
+    /// the text alone, which is the property `AttachmentDraft` was built on, so the sentence is
+    /// the whole record of what this turn carries.
+    ///
+    /// **A file that cannot go stops the turn.** The local rule is the opposite, and rightly so:
+    /// there a path that no longer resolves is taken out of the sentence, because the file was
+    /// deleted by somebody and the words are still worth sending. Here the file is the point.
+    /// Somebody who drags a screenshot in and presses Return is asking about the screenshot, and a
+    /// turn that arrives without it spends a real one on the machine answering the wrong question.
+    /// So the words come back to the composer with the reason, and pressing Return again is the
+    /// whole of the retry.
+    private func uploading(_ text: String, through cloud: CloudChatLink) async -> CloudUpload {
+        let parsed = AttachmentDraft.parse(text)
+        let paths = Array(Set(parsed.paths))
+        guard !paths.isEmpty else { return .sent(text) }
+
+        let root = AttachmentStaging.directory(draftID: session.id.rawValue)
+        var moved: [String: String] = [:]
+        for path in paths {
+            let file = URL(filePath: (root as NSString).appendingPathComponent(path))
+            guard let data = try? Data(contentsOf: file) else {
+                return .refused(
+                    title: "That file was not sent",
+                    sentence: "\((path as NSString).lastPathComponent) is not on this Mac any more, so nothing was sent to the Cloud workspace."
+                )
+            }
+            switch await cloud.upload(name: (path as NSString).lastPathComponent, data: data) {
+            case .at(let remote):
+                moved[path] = remote
+            case .refused(let sentence):
+                return .refused(title: "That file was not sent", sentence: sentence)
+            }
+        }
+
+        // The staged copies have served their purpose the moment the machine has them, and they
+        // are in the temporary directory rather than in a worktree somebody works in, so they go.
+        // Only after every one of them arrived: a turn that is coming back to the composer has to
+        // be sendable again by pressing Return.
+        for path in moved.keys {
+            try? FileManager.default.removeItem(atPath: (root as NSString).appendingPathComponent(path))
+        }
+        PromptAttachmentStore.shared.clear(sessionID: session.id.rawValue)
+        return .sent(parsed.mapping { moved[$0] })
     }
 
     private func answerOnCloud(requestID: String, decision: PermissionDecision, through cloud: CloudChatLink) async {

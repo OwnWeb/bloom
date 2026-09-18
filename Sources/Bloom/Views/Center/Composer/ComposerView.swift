@@ -119,13 +119,26 @@ struct ComposerView: View {
         .padding(.bottom, ComposerLayout.bottomInset)
     }
 
+    /// Where an attached file is copied to, which is not the same place in the two kinds of chat.
+    ///
+    /// A local chat copies into its own worktree, because that is where the agent stands and a
+    /// relative path inside it is the one reference every agent can open. A Cloud chat has no
+    /// worktree on this Mac, so it copies into the staging directory the create window already
+    /// uses, laid out exactly like a worktree: `.bloom/attachments/<id>/<name>`. The file crosses
+    /// when the turn does, and the machine answers with the path it saved it at. See
+    /// `TranscriptModel.uploading`.
+    private var attachmentRoot: String {
+        guard transcript.cloud != nil else { return transcript.cwd }
+        return AttachmentStaging.directory(draftID: transcript.session.id.rawValue)
+    }
+
     private var composer: some View {
         ComposerPrompt(
             text: $transcript.draft,
             caret: $caret,
             isFocused: $isFocused,
             mentionRoot: transcript.cwd,
-            attachmentRoot: transcript.cwd,
+            attachmentRoot: attachmentRoot,
             attachmentKey: transcript.session.id.rawValue,
             reviewComments: reviewComments,
             onRemoveReviewComment: remove(reviewComment:),
@@ -148,13 +161,7 @@ struct ComposerView: View {
                 queues: transcript.queuesNextMessage,
                 canSend: canSend,
                 project: transcript.cwd,
-                // A file on this Mac means nothing to an agent on a machine, and uploading one is
-                // not in the first Cloud release, so a Cloud chat says so rather than attaching a
-                // path the agent cannot open.
-                onAttach: {
-                    guard transcript.cloud != nil else { return actions.attach() }
-                    app.notice = BloomNotice(message: "Attaching files to a Cloud workspace chat is not available yet. Paste the text instead.")
-                },
+                onAttach: actions.attach,
                 onQuickPrompt: { fire($0, insert: actions.insert) },
                 // Read off the workspace model, which is where the Workspace menu reads its run
                 // scripts from: one parse of the settings file serves both. Nil model, no project.
@@ -487,12 +494,16 @@ struct ComposerView: View {
         // and a file that fails it is taken out of the sentence rather than sent as a path to
         // nothing.
         let worktree = transcript.cwd
+        // Where the files themselves are, which for a Cloud chat is the staging directory rather
+        // than the worktree: see `attachmentRoot`. The check below is about a file on this Mac
+        // either way, so it asks the root the composer copied into.
+        let root = attachmentRoot
         let sourceDraft = transcript.draft
         let draftText = AttachmentDraft
             .parse(sourceDraft, paths: attachments.map(\.path))
             .keeping { path in
                 FileManager.default.fileExists(
-                    atPath: PromptAttachment.sent(path: path).url(in: worktree).path
+                    atPath: PromptAttachment.sent(path: path).url(in: root).path
                 )
             }
 
@@ -505,7 +516,7 @@ struct ComposerView: View {
         // names those paths, and deleting them out from under it would break the one thing they
         // were for.
         PromptAttachmentStore.shared.settle(
-            sent: draftText, sessionID: transcript.session.id.rawValue, workspace: worktree
+            sent: draftText, sessionID: transcript.session.id.rawValue, workspace: root
         )
         caret = 0
         let transcript = transcript
