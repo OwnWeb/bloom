@@ -630,58 +630,6 @@ def main():
                 wait_for("health answers again", lambda: https(url, path="/_bloom/health")[0] == 200, 180, interval=3)
                 step("restarted; whatever was still in memory is gone with the process")
 
-            if arguments.archive:
-                # The one thing here a person cannot undo, on a machine with work worth losing.
-                # Everything else in this file is rehearsed because it is fiddly; this is rehearsed
-                # because it is final.
-                step("archive, with real work in the worktree")
-                run_on(name, "cd ~/workspace && "
-                             "printf 'a line nobody committed\n' >> README.md && "
-                             "printf 'scratch\n' > notes-for-nobody.txt && "
-                             "git add -A README.md && git -c user.email=t@t -c user.name=T commit -q -m 'Work in hand' && "
-                             "printf 'and one more\n' >> README.md && "
-                             "git log --oneline -1 && git status --short", timeout=180)
-
-                preview = rpc(url, session(), {"kind": "archive_preview"})["archive_preview"]
-                step(f"preview: uncommitted {preview['has_uncommitted_changes']}, untracked {preview['untracked_files']}, "
-                     f"unpushed {preview['unpushed_commits']}, detached {preview['detached_commits']}, "
-                     f"agent running {preview['is_agent_running']}")
-                assert preview["has_uncommitted_changes"], "the edit made after the commit is not reported"
-                assert "notes-for-nobody.txt" in preview["untracked_files"], preview["untracked_files"]
-                assert preview["unpushed_commits"] >= 1, "the commit nobody pushed is not reported"
-
-                # The answer moves under the reader, which is the case this confirmation exists for.
-                run_on(name, "cd ~/workspace && printf 'late\n' > late-arrival.txt", timeout=60)
-                moved = rpc(url, session(), {"kind": "archive", "confirmation_id": preview["confirmation_id"]})
-                assert "archive_preview" in moved, f"a stale confirmation archived the workspace: {moved}"
-                assert moved["archive_preview"]["confirmation_id"] != preview["confirmation_id"], "the same id came back"
-                step(f"a confirmation whose answer moved comes back as a fresh preview, untracked now "
-                     f"{moved['archive_preview']['untracked_files']}")
-                assert "late-arrival.txt" in moved["archive_preview"]["untracked_files"]
-
-                # And nothing was stopped by the refusal: the workspace still answers and still works.
-                after_refusal = rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]
-                step(f"the workspace is untouched by the refusal: {after_refusal['name']}")
-
-                accepted = rpc(url, session(), {"kind": "archive", "confirmation_id": moved["archive_preview"]["confirmation_id"]})
-                assert accepted.get("kind") == "accepted", f"the fresh confirmation was refused: {accepted}"
-                step("archived with the confirmation that matches what is there now")
-
-                # The door is closed: nothing new starts on a machine runbloom.app is about to delete.
-                chat = rpc(url, session(), {"kind": "workspace"})["workspace"]["chats"][0]["id"]
-                status, _, body = https(url, "POST", "/_bloom/v1/rpc", token=session(), body={
-                    "protocol": "bloom-workspace", "version": 1, "command_id": secrets.token_hex(8),
-                    "operation": {"kind": "send", "chat_id": chat, "text": "After the end"},
-                })
-                refused = json.loads(body).get("error", {})
-                step(f"a prompt sent after the archive is refused: {refused.get('code')} {refused.get('message', '')[:80]!r}")
-                assert refused, "a prompt was accepted on an archived workspace"
-
-                # And the work is still on the disk, because the machine never deletes anything:
-                # runbloom.app holds the provider token and deletes the machine itself.
-                left = run_on(name, "cd ~/workspace && git status --short && git log --oneline -1", timeout=60)
-                step(f"the worktree is untouched by the archive: {' | '.join(left.split(chr(10))[:4])}")
-
             if arguments.terminal:
                 # A dropped connection is what a person meets: a laptop sleeping, a tunnel dying, a
                 # token expiring. The shell is meant to outlive it, and nothing here had ever
@@ -829,6 +777,60 @@ def main():
                 assert any(r["path"].endswith("/start") for r in recorded), "no turn start"
                 wait_for("the turn is ended with runbloom.app", lambda: [r for r in requests() if r["method"] == "DELETE"], 120)
                 step("turn registered, started and ended with the fake runbloom.app")
+
+            # Last, and it has to be last: archiving shuts the door on the machine, so a
+            # terminal or a turn asked for after it is refused by design.
+            if arguments.archive:
+                # The one thing here a person cannot undo, on a machine with work worth losing.
+                # Everything else in this file is rehearsed because it is fiddly; this is rehearsed
+                # because it is final.
+                step("archive, with real work in the worktree")
+                run_on(name, "cd ~/workspace && "
+                             "printf 'a line nobody committed\n' >> README.md && "
+                             "printf 'scratch\n' > notes-for-nobody.txt && "
+                             "git add -A README.md && git -c user.email=t@t -c user.name=T commit -q -m 'Work in hand' && "
+                             "printf 'and one more\n' >> README.md && "
+                             "git log --oneline -1 && git status --short", timeout=180)
+
+                preview = rpc(url, session(), {"kind": "archive_preview"})["archive_preview"]
+                step(f"preview: uncommitted {preview['has_uncommitted_changes']}, untracked {preview['untracked_files']}, "
+                     f"unpushed {preview['unpushed_commits']}, detached {preview['detached_commits']}, "
+                     f"agent running {preview['is_agent_running']}")
+                assert preview["has_uncommitted_changes"], "the edit made after the commit is not reported"
+                assert "notes-for-nobody.txt" in preview["untracked_files"], preview["untracked_files"]
+                assert preview["unpushed_commits"] >= 1, "the commit nobody pushed is not reported"
+
+                # The answer moves under the reader, which is the case this confirmation exists for.
+                run_on(name, "cd ~/workspace && printf 'late\n' > late-arrival.txt", timeout=60)
+                moved = rpc(url, session(), {"kind": "archive", "confirmation_id": preview["confirmation_id"]})
+                assert "archive_preview" in moved, f"a stale confirmation archived the workspace: {moved}"
+                assert moved["archive_preview"]["confirmation_id"] != preview["confirmation_id"], "the same id came back"
+                step(f"a confirmation whose answer moved comes back as a fresh preview, untracked now "
+                     f"{moved['archive_preview']['untracked_files']}")
+                assert "late-arrival.txt" in moved["archive_preview"]["untracked_files"]
+
+                # And nothing was stopped by the refusal: the workspace still answers and still works.
+                after_refusal = rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]
+                step(f"the workspace is untouched by the refusal: {after_refusal['name']}")
+
+                accepted = rpc(url, session(), {"kind": "archive", "confirmation_id": moved["archive_preview"]["confirmation_id"]})
+                assert accepted.get("kind") == "accepted", f"the fresh confirmation was refused: {accepted}"
+                step("archived with the confirmation that matches what is there now")
+
+                # The door is closed: nothing new starts on a machine runbloom.app is about to delete.
+                chat = rpc(url, session(), {"kind": "workspace"})["workspace"]["chats"][0]["id"]
+                status, _, body = https(url, "POST", "/_bloom/v1/rpc", token=session(), body={
+                    "protocol": "bloom-workspace", "version": 1, "command_id": secrets.token_hex(8),
+                    "operation": {"kind": "send", "chat_id": chat, "text": "After the end"},
+                })
+                refused = json.loads(body).get("error", {})
+                step(f"a prompt sent after the archive is refused: {refused.get('code')} {refused.get('message', '')[:80]!r}")
+                assert refused, "a prompt was accepted on an archived workspace"
+
+                # And the work is still on the disk, because the machine never deletes anything:
+                # runbloom.app holds the provider token and deletes the machine itself.
+                left = run_on(name, "cd ~/workspace && git status --short && git log --oneline -1", timeout=60)
+                step(f"the worktree is untouched by the archive: {' | '.join(left.split(chr(10))[:4])}")
 
             if reader.error:
                 raise RuntimeError(f"the event stream failed: {reader.error}")
