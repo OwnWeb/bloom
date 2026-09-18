@@ -1,13 +1,17 @@
 import Foundation
 
 /// The one workspace this server holds, as a client draws its header.
+///
+/// **No pull request.** It had a `pull_request` field that nothing on the machine ever filled, and
+/// a Mac fallback reading it that therefore never had a value. A pull request is runbloom.app's
+/// knowledge, read through its GitHub App, and a client asks there; a second, possibly stale copy
+/// from the machine's own `gh` is what was decided against on 18 September 2026.
 public struct WorkspaceRecord: Codable, Sendable, Hashable {
     public var id: String
     public var name: String
     public var branch: String
     public var baseBranch: String
     public var setup: SetupRecord
-    public var pullRequest: PullRequestRecord?
     /// Present only when there is something wrong to say about the machine's own reporting. See
     /// `ReportingRecord`.
     public var reporting: ReportingRecord?
@@ -16,14 +20,12 @@ public struct WorkspaceRecord: Codable, Sendable, Hashable {
     public var services: [ServiceRecord]
 
     public init(id: String, name: String, branch: String, baseBranch: String, setup: SetupRecord,
-                pullRequest: PullRequestRecord? = nil, reporting: ReportingRecord? = nil,
-                services: [ServiceRecord] = []) {
+                reporting: ReportingRecord? = nil, services: [ServiceRecord] = []) {
         self.id = id
         self.name = name
         self.branch = branch
         self.baseBranch = baseBranch
         self.setup = setup
-        self.pullRequest = pullRequest
         self.reporting = reporting
         self.services = services
     }
@@ -31,7 +33,6 @@ public struct WorkspaceRecord: Codable, Sendable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, name, branch, setup, reporting, services
         case baseBranch = "base_branch"
-        case pullRequest = "pull_request"
     }
 
     /// `services` was added on 18 September 2026 and every machine in the field predates it, so it
@@ -45,7 +46,6 @@ public struct WorkspaceRecord: Codable, Sendable, Hashable {
         branch = try container.decode(String.self, forKey: .branch)
         baseBranch = try container.decode(String.self, forKey: .baseBranch)
         setup = try container.decode(SetupRecord.self, forKey: .setup)
-        pullRequest = try container.decodeIfPresent(PullRequestRecord.self, forKey: .pullRequest)
         reporting = try container.decodeIfPresent(ReportingRecord.self, forKey: .reporting)
         services = try container.decodeIfPresent([ServiceRecord].self, forKey: .services) ?? []
     }
@@ -78,20 +78,6 @@ public struct ReportingRecord: Codable, Sendable, Hashable {
     enum CodingKeys: String, CodingKey {
         case shed
         case unreachableSince = "unreachable_since"
-    }
-}
-
-public struct PullRequestRecord: Codable, Sendable, Hashable {
-    public var number: Int
-    public var url: String
-    public var title: String
-    public var state: String
-
-    public init(number: Int, url: String, title: String, state: String) {
-        self.number = number
-        self.url = url
-        self.title = title
-        self.state = state
     }
 }
 

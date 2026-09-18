@@ -201,9 +201,8 @@ RECORDS = {
     "Setup": obj({"state": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]}},
                  {"step": S, "started_at": DATE, "finished_at": DATE, "note": S, "enabled": B}),
     "SetupOutput": obj({"setup": ref("Setup"), "log": S}),
-    "PullRequest": obj({"number": I, "url": S, "title": S, "state": S}),
     "Workspace": obj({"id": S, "name": S, "branch": S, "base_branch": S, "setup": ref("Setup")},
-                     {"pull_request": ref("PullRequest"), "reporting": ref("Reporting"),
+                     {"reporting": ref("Reporting"),
                       "services": array(ref("Service"))}),
     # A service that never started says so here and nowhere else. Empty for a project with none.
     "Service": obj({"name": S, "state": S, "restarts": I}, {"message": S, "http": B}),
@@ -348,7 +347,6 @@ def validate(value, schema, root, path="$", seen=None):
 # vector for one of these would be an example of a value the machine cannot produce, which is the
 # fake this check exists to stop, so the honest thing is to name it here instead.
 NEVER_SENT = {
-    "Workspace.pull_request": "declared, and nothing on the machine fills it; the pull_request operation answers the URL",
 }
 
 

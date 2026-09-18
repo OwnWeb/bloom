@@ -132,30 +132,6 @@
       ],
       "additionalProperties": false
     },
-    "PullRequest": {
-      "type": "object",
-      "properties": {
-        "number": {
-          "type": "integer"
-        },
-        "url": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "state": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "number",
-        "state",
-        "title",
-        "url"
-      ],
-      "additionalProperties": false
-    },
     "Workspace": {
       "type": "object",
       "properties": {
@@ -173,16 +149,6 @@
         },
         "setup": {
           "$ref": "#/$defs/Setup"
-        },
-        "pull_request": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/PullRequest"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "reporting": {
           "oneOf": [
