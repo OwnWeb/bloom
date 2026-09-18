@@ -1058,6 +1058,15 @@ deletes it, so its absence is the normal case. Nothing read from it decides whet
 is the account of a machine that is failing, evidence for a person rather than an input. Change the
 shape and two readers change with it.
 
+**The four review scopes.** `branch` is the merge base to the worktree, which is what the inspector
+shows; `uncommitted` is HEAD to the worktree, staged and unstaged together, which is what a person
+reads before committing; `staged` is HEAD to the index, what a commit would take; `unstaged` is the
+index to the worktree, what it would leave behind. Files git has never seen belong to `unstaged`
+and never to `staged`, because they are in neither the index nor a commit. A file read in `staged`
+or `unstaged` carries that layer. Reverting a file and discarding a hunk take `branch` or
+`uncommitted` only: what discard means inside one layer (unstage it, or throw the worktree's copy
+away) is the window's decision, and the machine will not guess at it.
+
 **A rollback says so twice:** to the service's log, which the provider keeps at
 `/.sprite/logs/services/bloom.log` with a timestamp per line, and by appending to
 `/var/tmp/bloom-update.log`, which outlives the marker and any rotation. The marker only ever

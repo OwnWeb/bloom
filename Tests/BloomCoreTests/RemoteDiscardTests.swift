@@ -93,6 +93,38 @@ struct RemoteDiscardTests {
         #expect(after.contains("staged change"), "The staged one stays")
     }
 
+    @Test("the staged and unstaged scopes read the two sides of the index, and carry their layer")
+    func stagedAndUnstagedScopes() async throws {
+        let (repo, workspace) = try await fixture()
+        defer { repo.cleanUp() }
+        var lines = (1...20).map { "line \($0)" }
+        lines[0] = "staged change"
+        try repo.write("queue.txt", lines.joined(separator: "\n") + "\n")
+        try await Shell.check("git", ["add", "queue.txt"], cwd: repo.path)
+        lines[19] = "unstaged change"
+        try repo.write("queue.txt", lines.joined(separator: "\n") + "\n")
+        try repo.write("fresh.txt", "never seen\n")
+
+        let staged = try await RemoteReview.changes(workspace: workspace, scope: .staged)
+        #expect(staged.map(\.path) == ["queue.txt"], "What a commit would take, and nothing untracked")
+        #expect(staged.first?.layer == .staged)
+
+        let unstaged = try await RemoteReview.changes(workspace: workspace, scope: .unstaged)
+        #expect(Set(unstaged.map(\.path)) == ["queue.txt", "fresh.txt"], "What a commit would leave behind")
+        #expect(unstaged.first(where: { $0.path == "queue.txt" })?.layer == .unstaged)
+
+        // The patches are the two sides of the index rather than the same diff twice.
+        let stagedPatch = try await RemoteReview.patch(workspace: workspace, path: "queue.txt", scope: .staged)
+        #expect(stagedPatch.contains("+staged change") && !stagedPatch.contains("+unstaged change"))
+        let unstagedPatch = try await RemoteReview.patch(workspace: workspace, path: "queue.txt", scope: .unstaged)
+        #expect(unstagedPatch.contains("+unstaged change") && !unstagedPatch.contains("+staged change"))
+
+        // Discarding is not offered for one layer, and says so rather than guessing which half.
+        await #expect(throws: RemoteFailure.self) {
+            try await RemoteDiscard.revertFile(workspace: workspace, path: "queue.txt", scope: .staged)
+        }
+    }
+
     @Test("a hunk that no longer matches the file is refused rather than guessed at")
     func staleHunkIsRefused() async throws {
         let (repo, workspace) = try await fixture()

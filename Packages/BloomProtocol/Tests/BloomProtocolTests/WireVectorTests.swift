@@ -124,6 +124,8 @@ enum WireExamples {
         ("file", .file(path: "README.md")),
         ("download", .download(path: "storage/logs/laravel.log")),
         ("review_snapshot", .reviewSnapshot(scope: .branch, knownRevision: nil, wait: true)),
+        ("review_snapshot_staged", .reviewSnapshot(scope: .staged, knownRevision: nil, wait: false)),
+        ("review_patch_unstaged", .reviewPatch(path: "app/Queue.php", scope: .unstaged, knownRevision: nil)),
         ("review_patch", .reviewPatch(path: "README.md", scope: .uncommitted, knownRevision: "revision-1")),
         ("run_scripts", .runScripts),
         ("notes", .notes),

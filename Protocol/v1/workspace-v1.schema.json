@@ -1267,7 +1267,9 @@
             "scope": {
               "enum": [
                 "branch",
-                "uncommitted"
+                "uncommitted",
+                "staged",
+                "unstaged"
               ]
             },
             "wait": {
@@ -1303,7 +1305,9 @@
             "scope": {
               "enum": [
                 "branch",
-                "uncommitted"
+                "uncommitted",
+                "staged",
+                "unstaged"
               ]
             },
             "known_revision": {
@@ -1669,7 +1673,9 @@
             "scope": {
               "enum": [
                 "branch",
-                "uncommitted"
+                "uncommitted",
+                "staged",
+                "unstaged"
               ]
             }
           },
@@ -1692,7 +1698,9 @@
             "scope": {
               "enum": [
                 "branch",
-                "uncommitted"
+                "uncommitted",
+                "staged",
+                "unstaged"
               ]
             },
             "patch": {

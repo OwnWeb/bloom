@@ -9,7 +9,18 @@ import Foundation
 /// "it does not" is the answer a person can act on. The match is the hunk's header and every one of
 /// its lines, so a hunk that grew, shrank or moved is refused rather than guessed at.
 public enum RemoteDiscard {
+    /// Reverting and discarding take the two scopes a client reads a whole file's diff from. The
+    /// staged and unstaged scopes are for reading: what "discard" means in each of them (unstage,
+    /// or throw the worktree's copy away) is a decision for the window that offers the button, and
+    /// offering it here before that decision is made would be guessing at it.
+    static func requireWholeFileScope(_ scope: BloomProtocol.DiffScope) throws {
+        guard scope == .branch || scope == .uncommitted else {
+            throw RemoteFailure.invalid("Discarding reads the branch or uncommitted comparison, not one staging layer.")
+        }
+    }
+
     public static func revertFile(workspace: Workspace, path: String, scope: BloomProtocol.DiffScope) async throws {
+        try requireWholeFileScope(scope)
         let (file, base) = try await find(workspace: workspace, path: path, scope: scope)
         guard file.change != .untracked else {
             throw RemoteFailure.invalid("This file is not tracked by git, so there is nothing to put back. Delete it instead.")
@@ -18,6 +29,7 @@ public enum RemoteDiscard {
     }
 
     public static func discardHunk(workspace: Workspace, path: String, scope: BloomProtocol.DiffScope, patch: String) async throws {
+        try requireWholeFileScope(scope)
         let (file, base) = try await find(workspace: workspace, path: path, scope: scope)
         guard let wanted = hunk(in: patch) else {
             throw RemoteFailure.invalid("That is not one hunk of a patch.")

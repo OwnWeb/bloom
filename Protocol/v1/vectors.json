@@ -917,12 +917,32 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "review_patch_unstaged" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "review_patch",
+        "path" : "app/Queue.php",
+        "scope" : "unstaged"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "review_snapshot" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
         "kind" : "review_snapshot",
         "scope" : "branch",
         "wait" : true
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "review_snapshot_staged" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "review_snapshot",
+        "scope" : "staged",
+        "wait" : false
       },
       "protocol" : "bloom-workspace",
       "version" : 1

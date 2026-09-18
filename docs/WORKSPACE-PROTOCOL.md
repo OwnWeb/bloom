@@ -99,7 +99,7 @@ Reading (ability `view`):
 | `files` | | `files`: every path git tracks or would track |
 | `file` | `path` | `file`: text and `revision` |
 | `download` | `path` | `download`: bytes, up to 8 MB |
-| `review_snapshot` | `scope` (`branch` or `uncommitted`), `known_revision`, `wait` | `review_snapshot`: `revision`, and `files` unless you already had that revision |
+| `review_snapshot` | `scope` (`branch`, `uncommitted`, `staged` or `unstaged`), `known_revision`, `wait` | `review_snapshot`: `revision`, and `files` unless you already had that revision |
 | `review_patch` | `path`, `scope`, `known_revision` | `review_patch`: `revision`, and `patch` unless you already had it |
 | `run_scripts` | | `run_scripts` |
 | `history` | `limit`, `before` | `history`: `commits` (newest first, each with `pushed` when the branch has a remote) and `has_more` |
@@ -138,8 +138,8 @@ Changing the worktree (ability `files`, except where noted):
 | `push` | | `accepted` |
 | `create_pull_request` | `title`, `body`, `draft` | `text`: the pull request's URL |
 | `save_notes` | `text` | `accepted` |
-| `revert_file` | `path`, `scope` | `accepted`: the file goes back to what the diff was measured against |
-| `discard_hunk` | `path`, `scope`, `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
+| `revert_file` | `path`, `scope` (`branch` or `uncommitted`) | `accepted`: the file goes back to what the diff was measured against |
+| `discard_hunk` | `path`, `scope` (`branch` or `uncommitted`), `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
 | `rename_workspace` | `name` | `accepted` |
 | `run_setup` | | `accepted` once setup has run again |
 | `run_script` (`terminal`) | `id` | `terminal`: the terminal it runs in |

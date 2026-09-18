@@ -253,7 +253,12 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
 /// has not been committed.
 public enum DiffScope: String, Codable, Sendable, Hashable, CaseIterable {
     case branch
+    /// Everything not committed, staged and unstaged together, measured against HEAD.
     case uncommitted
+    /// HEAD to the index: what a commit would take.
+    case staged
+    /// The index to the worktree: what a commit would leave behind.
+    case unstaged
 }
 
 /// An answer to a permission prompt, a question or a plan.

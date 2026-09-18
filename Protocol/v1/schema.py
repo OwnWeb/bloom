@@ -75,7 +75,7 @@ def plain(required=None, optional=None):
     return (required or {}, optional or {})
 
 
-SCOPE = {"enum": ["branch", "uncommitted"]}
+SCOPE = {"enum": ["branch", "uncommitted", "staged", "unstaged"]}
 
 OPERATIONS = {
     "workspace": plain(),
