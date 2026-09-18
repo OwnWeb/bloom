@@ -388,19 +388,17 @@ def main():
                 # what a keystroke sent too early falls into.
                 run_on(name, "printf 'sleep 3\\n' >> ~/.bashrc", timeout=60)
                 terminal = rpc(url, session(), {"kind": "run_script", "id": "probe"})["terminal"]["name"]
-                try:
-                    wait_for("the run script's shell is running", lambda: "probe-shell-" in
-                             run_on(name, "cat ~/probe-shell.txt 2>/dev/null || true", timeout=60), 180, interval=5)
-                except RuntimeError:
-                    print(run_on(name, f"{tmux} list-sessions 2>&1 | head; echo ---; "
-                                       f"{tmux} capture-pane -p -t \"$({tmux} list-sessions -F '#{{session_name}}' "
-                                       f"2>/dev/null | head -1)\" 2>&1 | tail -n 20", timeout=60),
-                          file=sys.stderr)
-                    raise
-                shell_before = run_on(name, "cat ~/probe-shell.txt", timeout=60).strip()
-                sessions_before = run_on(name, f"{tmux} list-sessions 2>/dev/null | wc -l", timeout=60).strip()
-
-                step(f"restarting the service under it, as an update does ({terminal}, {shell_before})")
+                # The shell itself, by its pid, rather than by anything it printed: a release without
+                # the run-script fix never runs the command, and what is measured here is whether the
+                # shell survives the restart.
+                # `|| true` on both: after a restart the socket may be gone, and "gone" is an
+                # answer worth printing rather than an exception to raise.
+                panes = (f"{{ {tmux} list-panes -a -F '#{{session_name}} #{{pane_pid}}' 2>&1 || true; }}; "
+                         "echo '--- tmux processes:'; pgrep -a tmux | head -3 || true; "
+                         "echo '--- sockets:'; ls ${TMUX_TMPDIR:-/tmp}/tmux-$(id -u) 2>&1 || true")
+                shell_before = wait_for("the terminal's shell exists",
+                                        lambda: (run_on(name, panes, timeout=60).strip() or None), 120, interval=5)
+                step(f"restarting the service under it, as an update does ({terminal}; {shell_before.splitlines()})")
                 run_on(name, "sprite-env services restart bloom", timeout=120)
                 wait_for("health answers again", lambda: https(url, path="/_bloom/health")[0] == 200, 180, interval=3)
 
@@ -409,9 +407,12 @@ def main():
                 step(f"the queue kept the prompt: {bool(kept)} ({[p.get('state') for p in kept]})")
                 retried = rpc(url, session(), {"kind": "send", "chat_id": chat["id"], "text": "Wait for me"}, command_id=command_id)
                 step(f"the same command id answers {retried.get('prompt_id') == prompt_id and 'the same prompt' or retried}")
-                shell_after = run_on(name, "cat ~/probe-shell.txt", timeout=60).strip()
-                sessions_after = run_on(name, f"{tmux} list-sessions 2>/dev/null | wc -l", timeout=60).strip()
-                step(f"the terminal's shell: before {shell_before} / after {shell_after}, tmux sessions {sessions_before} -> {sessions_after}")
+                shell_after = run_on(name, panes, timeout=60).strip()
+                before_pane = [line for line in shell_before.splitlines() if "script-" in line]
+                after_pane = [line for line in shell_after.splitlines() if "script-" in line]
+                step(f"the terminal's shell survived: {bool(after_pane) and before_pane == after_pane}")
+                step("before: " + " | ".join(shell_before.splitlines()))
+                step("after: " + " | ".join(shell_after.splitlines()))
                 local(proxy_port, "POST", "/test/refuse-starts", None)
 
             if arguments.update:

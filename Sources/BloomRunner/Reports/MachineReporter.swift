@@ -29,6 +29,9 @@ public actor MachineReporter {
     private var meter: RemoteUsageMeter?
     private var diff = RemoteSummary.Diff(files: 0, additions: 0, deletions: 0)
     private var pullRequest: RemoteSummary.PullRequest?
+    /// Nil until something measures it, and nil again when it cannot be measured: the summary
+    /// leaves the fields out rather than sending zeroes.
+    private var atStake: RemoteWorkAtStake?
     private(set) var awake = false
     private(set) var leaseUntil: Date?
 
@@ -75,6 +78,13 @@ public actor MachineReporter {
         changed(slow: true)
     }
 
+    /// What would be lost if the machine went now. A measurement that failed is nil, not zeroes.
+    public func setAtStake(_ measured: RemoteWorkAtStake?) {
+        guard measured != atStake else { return }
+        atStake = measured
+        changed(slow: true)
+    }
+
     public func setPullRequest(_ pullRequest: RemoteSummary.PullRequest?) {
         guard pullRequest != self.pullRequest else { return }
         self.pullRequest = pullRequest
@@ -110,7 +120,7 @@ public actor MachineReporter {
         do {
             let revision = try await nextRevision()
             let summary = try await runtime.summary(revision: revision, observedAt: now(), version: version, awake: awake,
-                                                    leaseUntil: leaseUntil, diff: diff, pullRequest: pullRequest)
+                                                    leaseUntil: leaseUntil, diff: diff, pullRequest: pullRequest, atStake: atStake)
             guard summary.content != lastSent?.content else { return }
             await delivery.submitSummary(try WireJSON.encode(summary))
             lastSent = summary

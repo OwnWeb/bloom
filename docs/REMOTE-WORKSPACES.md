@@ -836,6 +836,15 @@ and its builder confirmed them.
   `workspace_secret` and `allowed_origins`. Ids on every wire to runbloom.app are lowercase ULIDs.
 - **The release margin is runbloom.app's configuration** (five seconds there), not a number this
   document fixes.
+- **The summary carries what is at stake, and leaves it out when it does not know.** `uncommitted`,
+  `untracked` and `unpushed_commits` are counts measured beside the diff, from one `git status` and
+  one `rev-list`, so the archive confirmation can say "7 files not pushed" rather than warning in
+  the same words every time. They are apart from `diff` because `diff` measures against the merge
+  base and adds pushed commits, unpushed commits, uncommitted changes and untracked files into one
+  number: above zero on nearly every workspace, and zero on a branch whose commits cancel out
+  against the base, which is the confidently wrong answer. When git cannot be asked the three keys
+  are absent rather than zero, because a zero reads as "nothing at stake" and somebody will archive
+  on the strength of it. See `RemoteWorkAtStake`.
 - **The machine API payloads are runbloom.app's**, recorded under "Machine API payloads" in its
   design document: `turns` takes `kind`, `session_token`, `chat_id` and `agent`; `start` answers
   `agent_keys` (per agent: `key`, `identity`, `source`) and `environment`, or the limit refusal, or

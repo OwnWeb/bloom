@@ -46,6 +46,9 @@ public actor WorktreeMeasurements {
                 files: files.count, additions: files.reduce(0) { $0 + $1.additions }, deletions: files.reduce(0) { $0 + $1.deletions }
             ))
         }
+        // Two git calls, on the same slow schedule as the diff, and nil rather than zeroes when
+        // git cannot be asked. The archive confirmation reads these to say how much is at stake.
+        await reporter.setAtStake(await RemoteWorkAtStake.measure(workspace: workspace))
         let now = Date()
         guard lastPullRequestCheck.map({ now.timeIntervalSince($0) >= Self.pullRequestInterval }) ?? true else { return }
         lastPullRequestCheck = now
