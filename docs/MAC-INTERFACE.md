@@ -9,8 +9,8 @@ Cloud workspace has it at all, and what the wire would need for the web to have 
 - **[checked]** read in the code while writing this, with the file named.
 - **[unsure]** believed but not verified here. Check before building on it.
 
-Nothing in this document is recalled without a mark. **One `[unsure]` remains, and it is a real
-unknown rather than an unread one**: whether a running machine's `result` rows carry the payload
+Nothing in this document is recalled without a mark. **Outside the transcript section, one
+`[unsure]` remains, and it is a real unknown rather than an unread one**: whether a running machine's `result` rows carry the payload
 the context gauge parses, which only a live machine can answer. A confident wrong entry costs the web more
 than an honest "unsure", which is the whole reason the marks are here.
 
@@ -249,6 +249,225 @@ both clients.
   are on `WorkspaceSurface` with defaults that answer an empty list, so a Cloud workspace gets no
   section at all rather than a greyed one. **[checked]** A machine learning to reopen a chat is one
   implementation rather than a second menu.
+
+## The transcript: groups, the opening line, the working line, the footer
+
+Written for the web to port the Mac's transcript rather than rebuild it from a screenshot. **The
+same caveat as the rest of this document, and more so here: none of it was seen.** The rows are
+drawn in an AppKit table, so an offscreen render gives placeholders, and this describes the code.
+Where Freek's screenshot and the code seem to disagree it says so rather than choosing.
+
+**Where the decisions live.** The grouping is a pure function in the core, with tests, and the web
+should port that rather than the view:
+
+- `Sources/BloomCore/Transcript/TranscriptFold.swift`: `TranscriptFold.folds(in:extending:)`
+  builds the groups, `TranscriptFold.hiddenIndices(_:revealed:drawn:)` decides what a collapsed
+  group hides, `TranscriptFold.refoldedAtLiveEnd(_:in:)` decides when an opened group closes
+  itself again, and `TranscriptFold.Fact` is the only thing it reads about a row. Its header is the
+  full rationale and is worth reading whole. **[checked]**
+- The tests are the cases to share: `Tests/BloomCoreTests/TranscriptFoldTests.swift`,
+  `TranscriptFoldErrorTests.swift`, `TranscriptFoldQuestionTests.swift`,
+  `TranscriptFoldAdoptionTests.swift` and `TranscriptFoldCacheTests.swift`. **[checked]** that they
+  exist; what each case covers is in the files.
+- How a stored row becomes a `Fact` is `TranscriptRow.foldFact(seq:isFresh:)` at the top of
+  `Sources/Bloom/State/TranscriptModel.swift`. **[checked]**
+- A tool call's one line (glyph, label, detail, colour role, chips) is
+  `ToolPresenter.present(name:input:worktree:)` in `Sources/BloomCore/Agent/ToolPresenter.swift`,
+  returning a `ToolPresentation`. Also pure, also in the core. **[checked]**
+- The turn's end is `TurnEnding.of`, `TurnDuration.wholeSeconds`, `TurnFailure.of` (all in
+  `Sources/BloomCore/Agent/`) and `TurnAnswer.text` (`Sources/BloomCore/Transcript/`). **[checked]**
+
+### What makes a group
+
+**Consecutive grey activity folds into one group, and anything a person should read breaks it.**
+`Fact.isActivity`: **[checked]**
+
+- **Activity, which can fold:** tool calls, thinking, permission asks, and `system` rows that draw
+  something (the "Started with" line, a compaction boundary). Rate limit notices and hook events
+  are dropped before this, so they neither fold nor break (`TranscriptNoise`).
+- **Boundaries, which never fold:** a user's message, a crew message (another agent talking),
+  assistant prose, and the turn's `result` row. A background task's notification that opened a
+  turn is a boundary too (`Fact.opensTurn`).
+- **Prose closes the group above it as "answered", and activity after the prose starts a new
+  group.** So one turn with prose in the middle is two groups, and the prose stays between them.
+- **Things that stay visible and split the group in two, without breaking the turn:** an `error`
+  row (the agent process dying), a question card (`AskUserQuestion`), and an inline image (a
+  successful `media_show`, or Codex's image viewer). Answered questions too. The activity either
+  side becomes two separate groups (`Fact.mustShow`, and the loop in `close(hasAnswer:)`).
+- **A failed tool call does not split a group, on purpose.** It used to, and a run came out as "7
+  actions", error, "42 actions", error. It folds like any other call, and the collapsed line gives
+  no sign that it hides one. The header's rule 2 says why.
+- **A long pause does not break a group.** Nothing in the fold reads time, apart from the one
+  second described below.
+
+**Sizes.** A group gets its entry in the list from 2 rows (`leastWork`), but only draws a line and
+hides anything from 3 hidden rows (`leastHidden`). With fewer than three to hide, the rows are
+simply shown and no group line is drawn. **[checked]**
+
+**What a collapsed group still shows** (`hiddenIndices`): **[checked]**
+
+- **A tool call whose result has not come back stays visible below the group line**, and completed
+  calls after it still fold. Except that **a call younger than one second folds as though it had
+  settled** (`freshCall`), so quick reads and greps never flash up as their own row and jump into
+  the count. Only a call still running after a second is drawn on its own.
+- **A permission ask nobody has answered is never hidden**, however new.
+- **A row the reader opened, or navigated to** (a search hit, the row a session was opened on)
+  stops the fold there: rows from it onwards stay visible.
+
+**A running group stays folded while it grows**, with the count going up. If the reader opened a
+group that is still live and another row arrives while they are at the live end, **it folds itself
+again** so the newest row stays in view. Scrolled away from the end, their open group stays open
+(`refoldedAtLiveEnd`). **[checked]**
+
+**Subagents are one row.** Every row a subagent produces (tools, thinking, its prose) leaves the
+list. The `Agent`/`Task` call that started it stands for all of it and shows "· 42 actions"
+after its description, counted the way a group counts. What still surfaces from inside a subagent,
+indented under a hairline: a question it is stopped on, an image it showed, it dying, a row the
+reader navigated to. Clicking the call's title opens the subagent's own pane; its chevron opens the
+brief and the result. **[checked]** (`Folds.absorbs`, `Folds.actions(underCall:)`, `ToolRowHeader`)
+
+**The group line itself** (`Sources/Bloom/Views/Transcript/TranscriptFoldRowView.swift`): a
+disclosure chevron, then **the count inside a small filled circle** (18 points, tertiary ink at 16%
+opacity behind a semibold micro number, `TranscriptGlyph` with `transcriptFoldCount` set), then the
+word "actions" in tertiary ink. Nothing else: no tool names, no durations, no failure mark, by
+decision. Collapsed, the number is how many rows it hides; opened, it is how many rows the group
+has. The whole line is the toggle. **[checked]** One small bug the code admits to: it always says
+"actions", so a count of one would read "1 actions", and the helper that would fix it
+(`TranscriptFold.label(hiding:)`) is not called yet. With `leastHidden` at 3 a collapsed line never
+says 1.
+
+**Opened**, the rows are drawn in place under the line, each as its own row, exactly as they would
+be with no group. There is no separate "expanded group" design. **[checked]**
+
+### The "Started with" line
+
+`Sources/Bloom/Views/Transcript/SessionStartRowView.swift`. A bolt glyph (`bolt.horizontal.circle`),
+"Started with" in secondary ink, then **two chips: the model and the permission mode**, each shown
+by the name the composer's own pickers use (`ComposerOption.label`, `PermissionMode.label(on:)`),
+so "Opus 5" and "Bypass permissions" rather than `opus-5` and `bypassPermissions`. A chip is left
+out when its value is empty. **[checked]**
+
+**When it appears: at every turn, not once per session.** The CLI writes a `system`/`init` line
+at the start of every turn, and each one is stored and drawn. Checked against a copy of the Bloom
+Dev database: every user row is followed by an init row. **[checked]**
+
+**How it groups: it is activity, so it is the first row of the turn's group** (`isActivity`
+counts a `system` row that draws, and nothing treats the init differently). So by the code, in
+a turn that does real work it is folded into "N actions" with the rest, and it is only seen on its
+own in a turn that goes straight to prose (one row, too few to fold). **[unsure] This disagrees
+with Freek's screenshot**, which has "Started with" above a collapsed "10 actions". Either the
+screenshot is a case the code handles in a way I have not found, or it was taken on a build that
+differs from this branch. Worth one look at a real turn before the web copies either version.
+
+### The working line
+
+`Sources/Bloom/Views/Transcript/StreamingRowView.swift`, drawn at the foot of the transcript
+while a turn runs and nothing is streaming yet. **[checked]**
+
+- **The glyph is the pulsing running dot** (`ActivityDot`, `Palette.running`, the blue), and the
+  text beside it is in secondary ink rather than blue.
+- **The text is the CLI's own status**, first letter capitalised, with "requesting" rewritten to
+  "Waiting for model". Before any status: "Working" once the agent is running, "Starting" while the
+  message is still being sent. "Waiting on you" when a permission ask is open.
+- **While a tool is streaming its call**: a gear glyph in running blue and "Running" plus the
+  tool's readable name, so an MCP call reads "Running Bloom: workspace say" rather than the wire
+  name (`MCPToolName.readable`).
+- **Compaction** gets a breathing glyph in tertiary ink instead of the blue dot, because it is
+  housekeeping rather than work for you.
+- **A retry run replaces the line** with the retry row.
+- **Once text or thinking streams in, the line goes** and the streaming prose or thinking takes its
+  place, in the same columns the stored row will use, so nothing moves when it is saved.
+
+### The end of a turn
+
+`Sources/Bloom/Views/Transcript/TurnFooterView.swift`, drawn in place of the `result` row.
+**[checked]**
+
+- A hairline rule, inset to the text column, tight to the line under it.
+- **The duration**: "Completed in 9s", "Failed after 1m 4s", "Stopped after 12s". Whole seconds,
+  then minutes and seconds (`TurnDuration.wholeSeconds`).
+- **No mark for an ordinary finish.** A glyph appears before the duration only for the other three
+  endings: a raised hand in warning colour for "calls were denied", a red exclamation for failed, a
+  stop symbol in secondary ink for stopped (never red, since nothing went wrong).
+- **The files the turn changed**, as chips with the counts, as many as fit (up to six, then fewer,
+  then "3 files"), with "+N more".
+- **A copy button, "Copy this answer"**, copying the turn's answer text (`TurnAnswer.text`),
+  disabled when there is none.
+- Under the line, only when there is something to say: what denied calls mean and which setting
+  denied them, the CLI's own words for a failure (prefixed "The agent said:"), what the agent left
+  running in the background, and a note that the turn recovered from retries.
+- Cost is deliberately not shown.
+
+### Tool rows by kind
+
+One line each, closed by default: **glyph, label, detail, chips, then an outcome word and the
+duration at the right** (`ToolRowHeader`). The label is secondary ink, the detail tertiary and set
+in monospace only when it is a literal (a path or a command). The glyph takes the row's colour role
+(`ToolTint`: neutral, accent, positive, negative, warning), or red when the call errored and
+amber when it was refused. The outcome word is "error" in red, or the refusal's label in amber. The
+duration is short: "340ms", "2.4s". **[checked]**
+
+The label and glyph per tool are in `ToolPresenter.shape`, and the common ones are: **[checked]**
+
+| Tool | Glyph | Label | Detail and chips | Colour role |
+| --- | --- | --- | --- | --- |
+| Read | `doc.text` | "Read", or "Read 40 lines" | file name; chips for the file, "from 120", pages | accent |
+| Write | `square.and.pencil` | "Write" | file name; file chip, "86 lines" | positive |
+| Edit, MultiEdit | `pencil.line` | "Edit" | file name; file chip | positive |
+| Bash | `terminal` | the description Claude writes for the command, else "Bash" | the command on one line, a leading `cd` into the worktree hidden; a "background" chip | neutral |
+| Glob | `magnifyingglass` | "Find files" | the pattern | accent |
+| Grep | `text.magnifyingglass` | "Search" | the pattern | accent |
+| Agent, Task | `person.2` | "Agent: type" | the description, then "· N actions" | warning |
+| TodoWrite | `checklist` | "Todos" | | neutral |
+| WebFetch, WebSearch | `globe`, `magnifyingglass.circle` | "Fetch", "Web search" | | accent |
+| anything unknown, MCP tools | `wrench.and.screwdriver` and others | a readable name | | neutral |
+
+**Opened**, a row shows its input then its result (`ToolDetailView`, `ToolInputView`,
+`ToolResultView`): **[checked]**
+
+- **Bash**: the command in a code block with a copy button, chips for timeout and "runs in the
+  background", then the output.
+- **Edit and MultiEdit: a before and after of each replacement** (`ToolReplacementView`), not a
+  unified diff.
+- **Write**: the path, then the whole content in a code block tinted with the diff's added colour.
+- **Read**: the path, then the output.
+- **Grep, Glob**: the pattern in a code block, chips for "in path", "matching glob" and the output
+  mode.
+- **Agent, Task**: the description and the brief as prose with "Copy the brief"; the run itself
+  opens in its own pane.
+- **TodoWrite**: the todo list drawn as a list. **ExitPlanMode**: the plan as prose.
+- **Anything else**: the input as pretty-printed JSON.
+- **The result** is monospace, secondary ink (red for an error), behind a thin rule on the left, cut
+  at 500 lines with a "Show all" / "Show less" link (`TextCap.lineCap`, `TextFold.title`).
+- **A refusal** replaces the result with a sentence saying why and what would allow it.
+
+**Thinking** is its own row: a sparkle glyph, "Thinking" in italic, and the first line of the
+thinking in tertiary italic while closed; opened, the whole text. It is activity, so it folds.
+**[checked]** (`ThinkingRowView`)
+
+**Rows that are content rather than activity**: a successful `media_show` is drawn as its caption
+in body prose, the image or video, then its path in tertiary caption ink with a photo or film
+icon and a small menu (Open, Download). It never folds, and it splits a group. **[checked]**
+(`MediaShowRowView`) A `workspace_say` that sent something is drawn as the message
+it sent; **by the fold code it is an ordinary tool call and folds with the rest**, although a
+comment beside its drawing says it is never folded. **[unsure]** which of the two is intended.
+
+### What is remembered
+
+**[checked]** (`TranscriptListView`, `TranscriptPaneMemory`)
+
+- **Which groups the reader opened and which tool rows they opened are remembered per session for
+  as long as the app is running**, so a tab switch or looking at the changes and coming back does
+  not close them. Keyed by the sequence number of the group's first row, and by the row.
+- **Not across a relaunch**, on purpose: reopening a workspace should not restore forty open rows.
+- **A new turn does not close anything the reader opened in an earlier turn.** Only a live group
+  the reader opened closes itself, and only while they are at the live end (above).
+- The reading position is remembered the same way, alongside.
+
+**Whether a Cloud transcript is drawn by the same code**: it is the same `TranscriptListView` over
+the same row kinds, so everything above applies to a Cloud workspace on the Mac. **[unsure]**
+whether a machine's rows carry the `system`/`init` line at all, which decides whether "Started
+with" appears in a Cloud workspace.
 
 ## What the wire would need, in the order it decides
 
