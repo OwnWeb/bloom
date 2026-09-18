@@ -347,6 +347,25 @@ public struct WorkspaceSayRecord: Sendable, Hashable {
     }
 }
 
+/// Whether a stored tool call is a `workspace_say`, answered without decoding it.
+///
+/// **So a sent message is never counted into "N actions".** The chat that sent it draws it as a
+/// bubble, which is conversation content wearing an activity row's clothes, and `TranscriptFold`
+/// keeps those on screen (its rule 2) the way it keeps `media_show`. It was not on that list and
+/// folded away with the reads around it, while the comment where it is drawn said it never folds.
+/// Asked from the call's arrival rather than once it has succeeded, for `MediaShowRow`'s reason: a
+/// row that became visible after being hidden would be the fold rearranging itself.
+public enum WorkspaceSayRow {
+    private static let probeLength = 1_024
+    /// The end of the tool's name and its closing quote, so any server prefix matches, which is
+    /// what `WorkspaceSayRecord.isWorkspaceSay` accepts as well.
+    private static let marker = Data("__\(WorkspaceSayTool.name)\"".utf8)
+
+    public static func isCall(_ payload: Data) -> Bool {
+        payload.prefix(probeLength).range(of: marker) != nil
+    }
+}
+
 /// Why `workspace_say` would not send, in terms a model can act on.
 public enum WorkspaceSayTrouble: Error, Sendable, Equatable {
     case noMessage

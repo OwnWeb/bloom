@@ -291,8 +291,8 @@ should port that rather than the view:
 - **Prose closes the group above it as "answered", and activity after the prose starts a new
   group.** So one turn with prose in the middle is two groups, and the prose stays between them.
 - **Things that stay visible and split the group in two, without breaking the turn:** an `error`
-  row (the agent process dying), a question card (`AskUserQuestion`), and an inline image (a
-  successful `media_show`, or Codex's image viewer). Answered questions too. The activity either
+  row (the agent process dying), a question card (`AskUserQuestion`), an inline image (a
+  `media_show`, or Codex's image viewer), and a message sent with `workspace_say`. Answered questions too. The activity either
   side becomes two separate groups (`Fact.mustShow`, and the loop in `close(hasAnswer:)`).
 - **A failed tool call does not split a group, on purpose.** It used to, and a run came out as "7
   actions", error, "42 actions", error. It folds like any other call, and the collapsed line gives
@@ -351,13 +351,25 @@ out when its value is empty. **[checked]**
 at the start of every turn, and each one is stored and drawn. Checked against a copy of the Bloom
 Dev database: every user row is followed by an init row. **[checked]**
 
-**How it groups: it is activity, so it is the first row of the turn's group** (`isActivity`
-counts a `system` row that draws, and nothing treats the init differently). So by the code, in
-a turn that does real work it is folded into "N actions" with the rest, and it is only seen on its
-own in a turn that goes straight to prose (one row, too few to fold). **[unsure] This disagrees
-with Freek's screenshot**, which has "Started with" above a collapsed "10 actions". Either the
-screenshot is a case the code handles in a way I have not found, or it was taken on a build that
-differs from this branch. Worth one look at a real turn before the web copies either version.
+**How it groups: differently in a local workspace and a Cloud one, and the Cloud behaviour is an
+accident.** **[checked]**
+
+- **Local:** the init row is activity, so it is the first row of the turn's group and folds into
+  "N actions" with the rest. It is only seen on its own in a turn that goes straight to prose.
+  Measured with the fold function itself on user, init, ten tool calls, prose, result: one group
+  spanning the init and the ten calls, all eleven hidden.
+- **Cloud:** "Started with" stays above the group, which is what both of Freek's Bloom Cloud
+  screenshots show. The cause is the payload's key order, not a rule. A Cloud row arrives as a JSON
+  object and `Message(cloudMessage:id:)` (`Sources/BloomCore/Remote/CloudClientRecords.swift`)
+  re-encodes it through `WireValue.data`, which sorts the keys. The CLI writes `"type":"system",
+  "subtype":"init"` first. Sorted, `"subtype"` lands behind `mcp_servers`, `slash_commands` and the
+  rest, far past the 256 bytes `TranscriptRowInk.drawsNothing` looks at. So the fold is told the row
+  draws nothing and leaves it out of the group, while the row view decodes the whole payload and
+  draws it anyway.
+
+**So there is no single rule to port yet.** Which of the two is right is a product decision, and the
+Mac should then do it on purpose, in both kinds of workspace, rather than by key order. Until that
+is decided the web should match the screenshots, as it plans to.
 
 ### The working line
 
@@ -449,8 +461,10 @@ thinking in tertiary italic while closed; opened, the whole text. It is activity
 in body prose, the image or video, then its path in tertiary caption ink with a photo or film
 icon and a small menu (Open, Download). It never folds, and it splits a group. **[checked]**
 (`MediaShowRowView`) A `workspace_say` that sent something is drawn as the message
-it sent; **by the fold code it is an ordinary tool call and folds with the rest**, although a
-comment beside its drawing says it is never folded. **[unsure]** which of the two is intended.
+it sent, a bubble headed "To" the workspace, and **it never folds and splits a group like an
+image does** (`WorkspaceSayRow.isCall`, read by `foldFact`). **[checked]** It used to fold into "N
+actions" while a comment said otherwise; the fold was the one that was wrong, because its own
+rule 2 keeps conversation content on screen.
 
 ### What is remembered
 
@@ -465,9 +479,10 @@ comment beside its drawing says it is never folded. **[unsure]** which of the tw
 - The reading position is remembered the same way, alongside.
 
 **Whether a Cloud transcript is drawn by the same code**: it is the same `TranscriptListView` over
-the same row kinds, so everything above applies to a Cloud workspace on the Mac. **[unsure]**
-whether a machine's rows carry the `system`/`init` line at all, which decides whether "Started
-with" appears in a Cloud workspace.
+the same row kinds, with one difference found so far: a Cloud row's JSON is re-encoded with its keys
+sorted, and every rule that sniffs the start of a payload can answer differently for it. "Started
+with" above is the one that shows. A machine does send the init row: Freek's Bloom Cloud
+screenshots show it. **[checked]**
 
 ## What the wire would need, in the order it decides
 

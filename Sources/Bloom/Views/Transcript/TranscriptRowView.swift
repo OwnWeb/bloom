@@ -300,7 +300,8 @@ struct TranscriptRowView: View, Equatable {
     ///
     /// The name is checked before the result is decoded, so every other tool row pays one string
     /// comparison. Read from the result payload directly rather than through `toolResult`, which is
-    /// only decoded for an open row, because this row is the message and is never folded.
+    /// only decoded for an open row, because this row is the message and is never opened. Nor is it
+    /// counted into a turn's "N actions": see `WorkspaceSayRow`.
     private func sentWorkspaceMessage(_ use: AgentToolUse) -> WorkspaceSayRecord? {
         guard WorkspaceSayRecord.isWorkspaceSay(use.name),
               let payload = row.resultPayload, !row.isError, row.refusal == nil,
