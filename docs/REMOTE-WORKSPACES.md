@@ -1110,6 +1110,29 @@ there; it never asks which kind of workspace it has. An action that cannot work 
 greyed, with that sentence, and with the honest equivalent beside it: GitHub where a local
 workspace offers the Finder, the workspace's own terminal where it offers a shell in a folder.
 
+**And the test that catches what a capability cannot: is this a question about a workspace, or a
+question about this Mac's disk?** Ask it of every question a shared view asks, one at a time, when a
+view is converted. A capability is a thing a workspace cannot do, declared and answered by the
+workspace; this is the other half, where a view asks something the local implementation can answer
+and the Cloud one can only answer wrongly, and nothing declares it. Two bugs came out of the review
+pane's conversion by asking it. `ReviewPaneView` handed `editorKey` to `FileManager.fileExists`,
+which for a Cloud workspace is a synthetic `cloud:<id>/<path>` and so reported every file as gone:
+a question about the disk, asked of a workspace that has none, and one that would have drawn
+something slightly wrong rather than crashed and been very hard to trace back. The empty
+conversation said "the setup script is still running", which is a worktree's sentence and not true
+of a machine that is still cloning.
+
+`editorKey` is the shape of the underlying fault and is worth stating on its own: it is a path for a
+local workspace and an opaque key for a Cloud one, so anything treating it as a path is wrong for
+half the workspaces, and nothing in the type system says so. The other reader of it in a shared view
+is `AllFilesReviewView`, which hands it to `SourceEditorState.file(_:)`. That one is harmless for a
+reason that can be stated rather than harmless because nothing broke: a Cloud key matches no editor
+state, so the scroll falls back to the file's own anchor. Two ways to finish this. Audit the rest of
+the protocol for any member whose value means one thing locally and another in the cloud, which is
+the same trap wherever it appears. Better, give that key its own type, so `FileManager` will not
+take one and the bug cannot be written; that is a change for after this branch merges, and it
+retires the rule instead of asking everyone to hold it.
+
 **The diff is `DiffView` on both sides.** The hunks, the expanders, the whitespace fold, the find
 bar, Viewed and Discard are one view over the protocol. Three things are asked for only where they
 can work, and each says so where the control would be rather than disappearing: the in-place editor
