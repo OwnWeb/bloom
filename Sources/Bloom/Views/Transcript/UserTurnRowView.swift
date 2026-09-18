@@ -39,9 +39,17 @@ struct UserTurnRowView: View {
     var reviewChips: [ReviewTurnRecord.Chip] = []
     /// Which worktree those paths are relative to, and which review the chips open into.
     var home: TranscriptHome
-    /// Who sent it, in a Cloud workspace, when it was not the reader. Drawn over the bubble, in the
-    /// caption's ink, and nil everywhere a Mac has one person at it.
+    /// Who sent it, in a Cloud workspace, when it was not the reader and this is the first of
+    /// their run. Drawn over the bubble in the caption's ink, the way Messages does it, and nil
+    /// everywhere a Mac has one person at it. See `MessageAuthorship.showsName`.
     var authorName: String?
+    /// Whether somebody else sent it, which is what the fill says.
+    ///
+    /// **Separate from the name, because a teammate runbloom.app has no name for is still not
+    /// you.** The owner read a nameless "hey" from somebody else as his own message: both bubbles
+    /// were the accent fill, and the label that would have told him otherwise was an empty string.
+    /// The colour does not depend on knowing what to call them. See `PaletteInk.teammateFill`.
+    var isFromSomebodyElse = false
 
     @Environment(AppModel.self) private var app
     /// The list's one value, set in `TranscriptListView`, rather than actions built per bubble:
@@ -125,7 +133,10 @@ struct UserTurnRowView: View {
                     bubble.padding(Self.padding)
                 }
                 .padding(.bottom, OutgoingBubbleShape.tailDrop)
-                .background(Palette.accentFill, in: OutgoingBubbleShape(cornerRadius: Self.corner))
+                .background(
+                    isFromSomebodyElse ? Palette.teammateFill : Palette.accentFill,
+                    in: OutgoingBubbleShape(cornerRadius: Self.corner)
+                )
                 // No stroke around the fill. A border on a filled shape is a control's outline,
                 // and the fill already separates the turn from the ground in both appearances.
                 //

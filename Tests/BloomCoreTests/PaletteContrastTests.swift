@@ -121,7 +121,11 @@ struct PaletteContrastTests {
     /// exactly this reason, and the doc comments on them state ratios this now re-checks.
     @Test("white on a fill clears the text floor")
     func fillsCarryTheirLabel() {
-        for (name, ink) in [("accentFill", PaletteInk.accentFill), ("mergedFill", PaletteInk.mergedFill)] {
+        for (name, ink) in [
+            ("accentFill", PaletteInk.accentFill),
+            ("mergedFill", PaletteInk.mergedFill),
+            ("teammateFill", PaletteInk.teammateFill),
+        ] {
             for (appearance, isDark) in Self.appearances {
                 let ratio = Contrast.ratio(0xFFFFFF, ink.member(dark: isDark))
                 #expect(
@@ -157,6 +161,30 @@ struct PaletteContrastTests {
             #expect(
                 apart >= bar,
                 "workspaceMessageFill against accentFill, \(appearance): \(apart.rounded(to: 1)) against \(bar.rounded(to: 1))"
+            )
+        }
+    }
+
+    /// A teammate's message in a shared Cloud workspace is not the owner's bubble in another
+    /// green, and it is held to the same bar the workspace message fill is held to: the distance
+    /// between the two meaning colours this app most deliberately draws apart.
+    ///
+    /// The bar is the point rather than the number. The first green tried was `accentFill` with
+    /// the blue pulled out of it, which measured 27.3 and looked fine on screen, and it is exactly
+    /// the kind of near miss that comes back when somebody reads a hex without a reason attached.
+    /// See `PaletteInk.teammateFill`.
+    @Test("a teammate's message is not the owner's bubble in another colour")
+    func teammateMessagesAreTheirOwnBubble() {
+        for (appearance, isDark) in Self.appearances {
+            let bar = Contrast.deltaE(
+                PaletteInk.warning.member(dark: isDark), PaletteInk.negative.member(dark: isDark)
+            )
+            let apart = Contrast.deltaE(
+                PaletteInk.teammateFill.member(dark: isDark), PaletteInk.accentFill.member(dark: isDark)
+            )
+            #expect(
+                apart >= bar,
+                "teammateFill against accentFill, \(appearance): \(apart.rounded(to: 1)) against \(bar.rounded(to: 1))"
             )
         }
     }

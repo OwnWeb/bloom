@@ -554,6 +554,10 @@ struct TranscriptListView: View {
             ))
         }
 
+        // Who spoke last, so a run of messages from one person is labelled once. Nil is the
+        // reader's own, which is every message in a workspace nobody shares.
+        var previousAuthorID: String?
+
         for index in drawnRows.indices {
             let row = drawnRows[index]
             // A turn's working, drawn as one line and whatever of it still has to be on screen.
@@ -598,6 +602,15 @@ struct TranscriptListView: View {
                 index: index, seq: row.seq, parent: row.parentToolUseID, revealed: revealed
             ) { continue }
             guard !TranscriptNoise.isHidden(row) else { continue }
+            // Who spoke before this one, for the label above a teammate's bubble. Tracked as the
+            // list is walked, because it is the one thing a row cannot answer about itself, and
+            // measured against the previous MESSAGE rather than the previous row: an agent
+            // answering in between does not make the same person a new speaker. See
+            // `MessageAuthorship`.
+            let showsAuthorName = row.kind == .user && MessageAuthorship.showsName(
+                author: row.authorID, previousAuthor: previousAuthorID, name: row.authorName
+            )
+            if row.kind == .user { previousAuthorID = row.authorID }
             // How much work the subagent this call started has done. In the key below, so a child
             // landing redraws this row where it stands instead of putting a row in the list.
             let subagentActions = row.kind == .toolUse ? folds.actions(underCall: row.refID) : nil
@@ -635,6 +648,9 @@ struct TranscriptListView: View {
                 $0.combine(recovered != nil)
                 $0.combine(closesTranscript)
                 $0.combine(stillRunning)
+                // A row whose label appears or disappears because the message above it changed is
+                // a row that has to be drawn again.
+                $0.combine(showsAuthorName)
             }
             // Free, and no for the two kinds that make up most of a long session, so it is asked
             // here rather than inside the closure that runs per cell.
@@ -685,6 +701,7 @@ struct TranscriptListView: View {
                         AnyView(
                             TranscriptRowView(
                                 row: row,
+                                showsAuthorName: showsAuthorName,
                                 home: home,
                                 isExpanded: isExpanded,
                                 isNested: row.parentToolUseID != nil,

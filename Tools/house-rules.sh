@@ -325,6 +325,10 @@ id_type_allowed_names=(
   processID         # a pid, as text
   bundleID          # macOS, not Bloom
   ownerID           # a split pane, which is the layout's namespace and not a row
+  authorID          # runbloom.app's account for whoever wrote a message, as `AuthorRecord`
+                    # spells it. Never a Bloom row: it is compared with the reader's own id and
+                    # with the previous message's, and looked up in nothing
+  previousAuthorID  # the same id, one message earlier, for labelling a run of them
   stagingDraftID    # a composer draft's attachment folder under the temporary directory, and the
                     # bucket key PromptAttachmentStore holds it by. Never a row, and its own copy
                     # lives in BloomClient, which cannot import the typed ids at all

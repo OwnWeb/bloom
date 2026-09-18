@@ -44,7 +44,14 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
     var permissionNote = ""
     /// Who wrote a user row in a Cloud workspace, when it was somebody other than the reader. Nil
     /// everywhere else, which is every local row: a Mac has one person at it.
+    ///
+    /// The name may be empty where the account has none, and an empty label is drawn as no label:
+    /// see `UserTurnRowView`. The colour of the bubble does not depend on it, which is what stops
+    /// a nameless teammate from being read as yourself.
     var authorName: String?
+    /// Which account that was, for telling one run of messages from the next. The name would
+    /// nearly always do and is the wrong key: two people called Freek are two people.
+    var authorID: String?
 
     init(message: Message) {
         id = message.id
@@ -55,6 +62,7 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
         durationMS = message.durationMS
         refID = message.refID
         authorName = message.author?.name
+        authorID = message.author?.userID
     }
 
     /// This row in the only terms `TranscriptFold` cares about.
