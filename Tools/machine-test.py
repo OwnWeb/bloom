@@ -542,6 +542,12 @@ def main():
 
             # What a chat that does not exist yet would start with, which a client cannot work out
             # for itself: it needs the repository's settings file and the agents this machine runs.
+            # Strict on purpose: a check that steps aside when the field is missing is a check that
+            # stops running. A release old enough not to have it is a deliberate choice by whoever
+            # passed --from-release, so the failure says that rather than reading as a bug.
+            assert "composer_defaults" in snapshot, (
+                f"this workspace snapshot has no composer_defaults, so {version} predates it. "
+                "Run against a release that carries it, or against a package built from this branch.")
             defaults = snapshot["composer_defaults"]
             step(f"composer defaults before any chat: {defaults['agent']} {defaults['model']} "
                  f"{defaults['effort']} {defaults['permission_mode']}")
