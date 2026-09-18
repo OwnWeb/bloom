@@ -21,7 +21,10 @@ The machine's own records outlive the window, so nothing is lost by waiting:
     brought back twice before the wrapper gave up reads as three.
   * `/_bloom/health` is the version answering now, which is what `runner_version` should agree with.
 
-Read-only by construction: every command here is a read, and none of them writes to the machine.
+**Read-only by construction, and safe to run on somebody else's machine without reading all seven
+reads first**: every command is a read, none writes, none restarts anything, and none needs a token.
+On a machine with no Bloom Runner on it, each read says what it found rather than concluding
+anything, so the output cannot be mistaken for a verdict about an update that never happened.
 """
 
 import argparse
