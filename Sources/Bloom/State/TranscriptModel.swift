@@ -2546,6 +2546,14 @@ final class TranscriptModel {
         // it rather than being stripped here, because the machine takes it off the text it hands
         // the model and nowhere else, so an agent asked "@agent run the tests" reads "run the
         // tests" while the transcript keeps what was typed. See `MentionAddress`.
+        //
+        // **Worked out before the message leaves, from the value that then sticks, and in that
+        // order.** The web client shipped the other order and found it the hard way: the audience
+        // was updated after the send, so `@seb hello` went to the agent and the NEXT message went
+        // to Seb, with a right banner, a right menu, a sent message and a cleared box. The only
+        // thing on screen that said anything was wrong was a missing caption. One value, moved
+        // first, and the record derived from it rather than from the draft a second time.
+        let previousAudience = audience
         let named = MentionAddress.mentioned(in: body, people: cloud.people, runningAgent: cloud.runningAgent)
         audience = named ?? audience
         let record = Self.record(for: audience, mention: named == nil ? nil : MentionAddress.token(in: body))
@@ -2561,6 +2569,11 @@ final class TranscriptModel {
         // is exactly what nobody can promise. What the machine really did is in the transcript,
         // which is why the sentence sends the reader there.
         if sending?.id == delivery.id { sending = nil }
+        // **A mode entered by a message that did not go does not stick.** The words come back with
+        // their `@seb` still on the front, so pressing Return again addresses the same person and
+        // the state follows the box; leaving the composer addressed to somebody the machine has
+        // just refused would point every plain message after it at the same refusal.
+        audience = previousAudience
         // The words come back to the composer in both cases, because losing them is worse than
         // either answer. What differs is what the person is told: see `CloudSendOutcome`.
         draft = PendingMessageReturn.draft(taking: [delivery], into: draft)
