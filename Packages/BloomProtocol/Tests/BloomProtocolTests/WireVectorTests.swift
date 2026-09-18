@@ -133,6 +133,7 @@ enum WireExamples {
         ("review_patch_unstaged", .reviewPatch(path: "app/Queue.php", scope: .unstaged, knownRevision: nil)),
         ("review_patch", .reviewPatch(path: "README.md", scope: .uncommitted, knownRevision: "revision-1")),
         ("run_scripts", .runScripts),
+        ("quick_prompts", .quickPrompts),
         ("notes", .notes),
         ("pull_request", .pullRequest),
         ("archive_preview", .archivePreview),
@@ -215,6 +216,19 @@ enum WireExamples {
         ("review_snapshot_unchanged", .reviewSnapshot(ReviewSnapshotRecord(revision: "revision-2", files: nil))),
         ("review_patch", .reviewPatch(PatchSnapshotRecord(revision: "file-revision", patch: "diff --git a/README.md b/README.md\n"))),
         ("run_scripts", .runScripts(scripts: [RunScriptRecord(id: "tests", name: "Tests", command: "composer test")])),
+        // A worked example of everything a menu has to draw: a prompt that composes in the chat on
+        // screen, one that opens a new chat, and the sentence for one that was left out. **No
+        // `send_immediately` on any of them**, and there never will be: see `QuickPromptRecord`.
+        ("quick_prompts", .quickPrompts(prompts: [
+            QuickPromptRecord(id: "explain changes", name: "Explain changes", prompt: "Explain what changed on this branch and why.",
+                              symbol: "text.magnifyingglass", isNewChat: false, source: ".bloom/settings.toml"),
+            QuickPromptRecord(id: "release notes", name: "Release notes", prompt: "Draft release notes for the commits since the last tag.",
+                              symbol: "\u{1F4DD}", isNewChat: true, source: ".bloom/settings.toml"),
+        ], issues: [
+            SettingsIssueRecord(source: ".bloom/settings.toml",
+                                message: "Quick prompt \u{201C}Deploy\u{201D} will not send on its own: send_immediately is not supported in a shared settings file.",
+                                line: 14),
+        ])),
         ("text", .text("https://github.com/spatie/example/pull/12")),
         ("chat", .chat(chat)),
         ("queued", .queued(promptID: "delivery-1")),

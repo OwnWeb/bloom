@@ -1132,6 +1132,64 @@
       ],
       "additionalProperties": false
     },
+    "QuickPrompt": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "new_chat": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "new_chat",
+        "prompt",
+        "source",
+        "symbol"
+      ],
+      "additionalProperties": false
+    },
+    "SettingsIssue": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "line": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "message",
+        "source"
+      ],
+      "additionalProperties": false
+    },
     "Terminal": {
       "type": "object",
       "properties": {
@@ -1533,6 +1591,18 @@
           "properties": {
             "kind": {
               "const": "run_scripts"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "quick_prompts"
             }
           },
           "required": [
@@ -2327,6 +2397,32 @@
           "required": [
             "kind",
             "scripts"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "quick_prompts"
+            },
+            "prompts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/QuickPrompt"
+              }
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SettingsIssue"
+              }
+            }
+          },
+          "required": [
+            "issues",
+            "kind",
+            "prompts"
           ],
           "additionalProperties": false
         },

@@ -122,6 +122,7 @@ Reading (ability `view`):
 | `review_snapshot` | `scope` (`branch`, `uncommitted`, `staged` or `unstaged`), `known_revision`, `wait` | `review_snapshot`: `revision`, and `files` unless you already had that revision |
 | `review_patch` | `path`, `scope`, `known_revision` | `review_patch`: `revision`, and `patch` unless you already had it |
 | `run_scripts` | | `run_scripts` |
+| `quick_prompts` | | `quick_prompts`: the project's `prompts` (`id`, `name`, `prompt`, `symbol`, `new_chat`, `source`) and the `issues` with them |
 | `history` | `limit`, `before` | `history`: `commits` (newest first, each with `pushed` when the branch has a remote) and `has_more` |
 | `commit_files` | `sha` | `commit_files`: that commit's own changed files |
 | `commit_patch` | `sha`, `path` | `review_patch`: the file's diff inside that commit, refused when the commit or the file is not in it |
@@ -555,6 +556,31 @@ answer wins; a second gets `already_answered`, and the `questions` event that fo
 
 `set_composer` is last writer wins. The `composer` event says who changed it; show that when it was
 somebody else. A chat that has messages keeps its agent: to change agents, open a new chat.
+
+**Quick prompts come from two places, and the machine answers for one.** The person's own are in
+their client's database and are that client's to show. The project's are `[[quick_prompts]]` in the
+repository's settings files, which only the machine can read, and `quick_prompts` answers with
+them, read by the Mac's loader so the two menus cannot disagree about a file.
+
+- **Ask when the menu opens, not once.** The file is read again on every call and nothing is
+  pushed, so an edit in the workspace, a pull, or an agent rewriting the file is in the next menu.
+  Quick prompts are the same for every reader, so this could have been the snapshot; it is a call
+  because a snapshot is fetched once and the file is not.
+- **A project prompt never sends.** Put `prompt` in the composer for the person to read. There is
+  no `send_immediately` on the wire: the machine refuses it on the way in and says so in `issues`,
+  because these are words whoever last edited a committed file wrote, and an agent with the run of
+  the worktree acts on them the moment they are sent.
+- **`new_chat`** opens a new chat for the words, titled with `name`. Where a new chat cannot be
+  opened, compose in the one on screen.
+- **`symbol`** is always one Bloom draws: an SF Symbol name from Bloom's picker, or one emoji. A web
+  client that cannot draw the first needs its own mapping or a fallback glyph.
+- **`id`** is the name trimmed and lowercased, stable across reads and unique in one answer, so a
+  highlighted row stays highlighted when the menu is read again.
+- **`issues`** are sentences about the project's prompts only, each with its `source` relative to
+  the worktree and a `line` when the parser had one: a prompt left out, one that will not send on
+  its own, a file that would not parse and took its prompts with it.
+- **A machine older than this call answers 400 `invalid_request`.** Treat that as no project
+  prompts.
 
 ### Review
 

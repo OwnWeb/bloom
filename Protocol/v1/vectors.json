@@ -520,6 +520,38 @@
       },
       "version" : 1
     },
+    "quick_prompts" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "issues" : [
+          {
+            "line" : 14,
+            "message" : "Quick prompt “Deploy” will not send on its own: send_immediately is not supported in a shared settings file.",
+            "source" : ".bloom/settings.toml"
+          }
+        ],
+        "kind" : "quick_prompts",
+        "prompts" : [
+          {
+            "id" : "explain changes",
+            "name" : "Explain changes",
+            "new_chat" : false,
+            "prompt" : "Explain what changed on this branch and why.",
+            "source" : ".bloom/settings.toml",
+            "symbol" : "text.magnifyingglass"
+          },
+          {
+            "id" : "release notes",
+            "name" : "Release notes",
+            "new_chat" : true,
+            "prompt" : "Draft release notes for the commits since the last tag.",
+            "source" : ".bloom/settings.toml",
+            "symbol" : "📝"
+          }
+        ]
+      },
+      "version" : 1
+    },
     "review_patch" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "result" : {
@@ -1064,6 +1096,14 @@
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
         "kind" : "push"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "quick_prompts" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "quick_prompts"
       },
       "protocol" : "bloom-workspace",
       "version" : 1

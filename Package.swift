@@ -38,6 +38,7 @@ let linuxTests: [String] = [
     "RemoteUsageMeterTests.swift",
     "RemoteBridgeTests.swift",
     "RemoteProjectSettingsTests.swift",
+    "RemoteQuickPromptsTests.swift",
     "RemoteReviewCacheTests.swift",
     "RemoteReviewLifecycleTests.swift",
     "RemoteDiscardTests.swift",

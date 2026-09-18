@@ -12,6 +12,9 @@ extension WorkspaceRuntime {
             let workspace = try await workspace()
             let settings = SettingsLoader.load(repo: workspace.path)
             return .runScripts(scripts: settings.runScripts.map { RunScriptRecord(id: $0.id, name: $0.name, command: $0.command) })
+        case .quickPrompts:
+            // Read on every call rather than kept, so an edit to the file is in the next menu.
+            return RemoteQuickPrompts.answer(repo: try await workspace().path)
         case .notes:
             return .text(try await store.note(workspaceID: workspaceID)?.body ?? "")
         case .saveNotes(let text):

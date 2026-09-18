@@ -23,6 +23,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case reviewSnapshot(scope: DiffScope, knownRevision: String?, wait: Bool)
     case reviewPatch(path: String, scope: DiffScope, knownRevision: String?)
     case runScripts
+    /// The project's quick prompts, read off the checkout on this call. See `QuickPromptRecord`.
+    case quickPrompts
     /// The branch's commits, newest first. `before` is a sha to page from, exclusive.
     case history(limit: Int?, before: String?)
     /// One commit's changed files, for a History row somebody opened.
@@ -66,7 +68,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     public var mutates: Bool {
         switch self {
         case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
-             .runScripts, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes, .pullRequest,
+             .runScripts, .quickPrompts, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes, .pullRequest,
              .archivePreview: false
         default: true
         }
@@ -107,6 +109,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .reviewSnapshot: "review_snapshot"
         case .reviewPatch: "review_patch"
         case .runScripts: "run_scripts"
+        case .quickPrompts: "quick_prompts"
         case .notes: "notes"
         case .pullRequest: "pull_request"
         case .archivePreview: "archive_preview"
@@ -168,6 +171,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
             self = .reviewPatch(path: try c.decode(String.self, forKey: .path), scope: try c.decode(DiffScope.self, forKey: .scope),
                                 knownRevision: try c.decodeIfPresent(String.self, forKey: .knownRevision))
         case "run_scripts": self = .runScripts
+        case "quick_prompts": self = .quickPrompts
         case "notes": self = .notes
         case "pull_request": self = .pullRequest
         case "archive_preview": self = .archivePreview
@@ -213,7 +217,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         try Tagged.encode(kind: kind, to: encoder)
         var c = encoder.container(keyedBy: Keys.self)
         switch self {
-        case .workspace, .setupOutput, .files, .runScripts, .notes, .pullRequest, .archivePreview, .push, .runSetup: break
+        case .workspace, .setupOutput, .files, .runScripts, .quickPrompts, .notes, .pullRequest, .archivePreview, .push, .runSetup: break
         case .transcript(let chatID, let afterSeq, let limit):
             try c.encode(chatID, forKey: .chatID); try c.encode(afterSeq, forKey: .afterSeq); try c.encodeIfPresent(limit, forKey: .limit)
         case .composer(let chatID): try c.encodeIfPresent(chatID, forKey: .chatID)

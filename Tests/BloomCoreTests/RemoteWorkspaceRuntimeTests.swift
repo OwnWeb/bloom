@@ -146,6 +146,29 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// **Asked for, not pushed**, so what has to hold is that the answer is the file as it is now:
+    /// somebody edits it in the workspace and opens the menu again.
+    @Test("quick_prompts reads the checkout on every call, and a viewer may ask")
+    func quickPromptsFollowTheFile() async throws {
+        let fixture = try await fixture()
+        let viewer = Self.caller(Self.seb, abilities: ["view"])
+        let file = (fixture.workspace.path as NSString).appendingPathComponent(".bloom/settings.toml")
+        try FileManager.default.createDirectory(atPath: (file as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+
+        func names() async -> [String]? {
+            let reply = await fixture.runtime.respond(to: CommandRequest(.quickPrompts), as: viewer)
+            guard case .quickPrompts(let prompts, _) = reply.result else { return nil }
+            return prompts.map(\.name)
+        }
+
+        #expect(await names() == [], "no settings file is an empty menu, not an error")
+        try "[[quick_prompts]]\nname = \"Tests\"\nprompt = \"Run the tests.\"\n".write(toFile: file, atomically: true, encoding: .utf8)
+        #expect(await names() == ["Tests"])
+        try "[[quick_prompts]]\nname = \"Lint\"\nprompt = \"Run the linter.\"\n".write(toFile: file, atomically: true, encoding: .utf8)
+        #expect(await names() == ["Lint"])
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a turn the machine restarted under ends with a row saying so, not with silence")
     func aRestartUnderATurnIsExplained() async throws {
         let first = try await fixture()
