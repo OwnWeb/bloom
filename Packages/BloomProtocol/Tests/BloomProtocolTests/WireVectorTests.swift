@@ -142,6 +142,11 @@ enum WireExamples {
         ("mark_read", .markRead(chatID: "chat-1", seq: 4)),
         ("set_composer", .setComposer(chatID: "chat-1", controls: controls)),
         ("send", .send(chatID: "chat-1", text: "Run the tests")),
+        // The same call addressed to somebody rather than to the agent. **Absent means the agent**,
+        // so the vector above is what an installed client keeps sending and it keeps working.
+        ("send_to_a_person", .send(chatID: "chat-1", text: "@sebdd can you look at the migration?",
+                                   audience: AudienceRecord(kind: "person", userID: "01k5bx7j9d3v2r8q6m4n0p1s2u",
+                                                            mention: "@sebdd"))),
         ("cancel_queued", .cancelQueued(chatID: "chat-1", promptID: "delivery-1")),
         ("stop", .stop(chatID: "chat-1")),
         ("answer_allow_once", .answer(chatID: "chat-1", requestID: "ask-1", answer: .allowOnce)),
@@ -218,6 +223,13 @@ enum WireExamples {
 
     static let events: [(String, WorkspaceEvent)] = [
         ("message", .message(message)),
+        // A message one person wrote to another. **The agent is never given this**, now or on any
+        // later replay; see `AudienceRecord`. The mention travels resolved rather than re-parsed.
+        ("message_to_a_person", .message(MessageRecord(
+            cursor: 120, chatID: "chat-1", seq: 6, kind: "user",
+            payload: .object(["type": .string("user"), "message": .object(["role": .string("user")])]),
+            author: author, createdAt: date,
+            audience: AudienceRecord(kind: "person", userID: nameless.userID, mention: "@sebdd")))),
         // The same message from somebody with no display name, which is the case a client has to
         // draw from the address instead. See `AuthorRecord.label`.
         ("message_from_a_nameless_author", .message(MessageRecord(

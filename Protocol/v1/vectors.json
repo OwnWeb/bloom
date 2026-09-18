@@ -110,6 +110,32 @@
         "seq" : 5
       }
     },
+    "message_to_a_person" : {
+      "kind" : "message",
+      "message" : {
+        "audience" : {
+          "kind" : "person",
+          "mention" : "@sebdd",
+          "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2u"
+        },
+        "author" : {
+          "email" : "freek@spatie.be",
+          "name" : "Freek",
+          "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+        },
+        "chat_id" : "chat-1",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "cursor" : 120,
+        "kind" : "user",
+        "payload" : {
+          "message" : {
+            "role" : "user"
+          },
+          "type" : "user"
+        },
+        "seq" : 6
+      }
+    },
     "pane_requested" : {
       "chat_id" : "chat-1",
       "kind" : "pane_requested",
@@ -1129,6 +1155,21 @@
         "chat_id" : "chat-1",
         "kind" : "send",
         "text" : "Run the tests"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "send_to_a_person" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "audience" : {
+          "kind" : "person",
+          "mention" : "@sebdd",
+          "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2u"
+        },
+        "chat_id" : "chat-1",
+        "kind" : "send",
+        "text" : "@sebdd can you look at the migration?"
       },
       "protocol" : "bloom-workspace",
       "version" : 1

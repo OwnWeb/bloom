@@ -38,6 +38,24 @@ struct RemoteWorkspaceRuntimeTests {
         RemoteCaller(author: author, abilities: abilities, sessionToken: "token-for-\(author.userID)")
     }
 
+    /// **Refused rather than stored when the machine cannot vouch for the id.** Writing a message
+    /// addressed to somebody nobody has confirmed exists is addressing the wrong person, done
+    /// convincingly, which is the failure mentions exist to prevent.
+    @Test("a message to a person is refused while this machine does not know who the team is")
+    func addressingSomebodyUnknown() async throws {
+        let fixture = try await fixture()
+        let audience = AudienceRecord(kind: "person", userID: "user-seb", mention: "@sebdd")
+
+        await #expect(throws: RemoteFailure.self) {
+            _ = try await fixture.runtime.send(fixture.session.id.rawValue, text: "@sebdd yours",
+                                               audience: audience, as: Self.caller(.init(userID: "u1", name: "Freek")))
+        }
+        // Nothing was written, so nothing can be read back as though it had been sent.
+        let messages = try await fixture.store.messages(sessionID: fixture.session.id)
+        #expect(messages.isEmpty)
+        await fixture.runtime.shutdown()
+    }
+
     /// What the machine found under a step travels in the summary, so runbloom.app decides on an
     /// observation rather than on the age of a field.
     @Test("the summary carries what is alive under the setup step, and loses it when setup ends")

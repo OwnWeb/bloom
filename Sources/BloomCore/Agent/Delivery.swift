@@ -85,6 +85,10 @@ public struct Delivery: Identifiable, Sendable, Hashable {
     /// Who asked, in a Cloud workspace. Copied onto the user row when the delivery is claimed, so
     /// the transcript names the person without looking the queue up again. See `MessageAuthor`.
     public var author: MessageAuthor?
+    /// The mention that addressed this to the agent, `@agent` or `@claude`, when somebody typed
+    /// one. Kept so the transcript can draw it and **removed from what the agent is handed**: it
+    /// is asked "Fix the server", not "@agent Fix the server". See `sent`.
+    public var audienceMention: String?
     /// The turn runbloom.app registered for this prompt, which is what starting it asks a key for.
     /// Nil outside a Cloud workspace.
     public var remoteTurnID: String?
@@ -106,10 +110,12 @@ public struct Delivery: Identifiable, Sendable, Hashable {
         interactionMode: InteractionMode? = nil,
         providerTurnID: String? = nil,
         author: MessageAuthor? = nil,
+        audienceMention: String? = nil,
         remoteTurnID: String? = nil,
         block: DeliveryBlock? = nil
     ) {
         self.author = author
+        self.audienceMention = audienceMention
         self.remoteTurnID = remoteTurnID
         self.block = block
         self.state = state ?? (deliveredAt == nil ? .pending : .accepted)
@@ -164,7 +170,10 @@ public struct Delivery: Identifiable, Sendable, Hashable {
     ///
     /// The drain asks this rather than reaching for `body`, which is the whole of the fix: one
     /// place decides which of the two renderings goes to the model.
-    public var sent: String { crewMessage?.sent ?? body }
+    public var sent: String {
+        if let crew = crewMessage?.sent { return crew }
+        return MessageAudience.textForAgent(body, mention: audienceMention)
+    }
 
     public var isPending: Bool { state == .pending || state == .uncertain }
 

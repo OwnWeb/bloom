@@ -45,7 +45,8 @@ extension Message {
         MessageRecord(
             cursor: id, chatID: sessionID.rawValue, seq: seq, kind: kind.rawValue,
             payload: WireValue.parse(payload) ?? .string(String(decoding: payload, as: UTF8.self)),
-            author: author?.record, createdAt: createdAt, durationMS: durationMS, refID: refID
+            author: author?.record, createdAt: createdAt, durationMS: durationMS, refID: refID,
+            audience: audience?.record
         )
     }
 }

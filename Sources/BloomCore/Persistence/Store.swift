@@ -1204,6 +1204,23 @@ public actor Store {
                     try db.execute("ALTER TABLE messages ADD COLUMN author_email TEXT;")
                 }
             },
+            // Who a message was addressed to. Nullable, and nil means the agent, which is every row
+            // written before mentions existed and every row a Mac writes. **The kind is what the
+            // transcript is filtered by**, so it is a column rather than something derived from the
+            // mention text: a row whose audience has to be parsed out of its own body is a row that
+            // will one day be parsed wrong and handed to an agent.
+            { db in
+                let messages = Set(try db.query("PRAGMA table_info(messages);").compactMap { $0.string("name") })
+                for column in ["audience_kind", "audience_user_id", "audience_mention"] where !messages.contains(column) {
+                    try db.execute("ALTER TABLE messages ADD COLUMN \(column) TEXT;")
+                }
+                // A queued prompt keeps the mention that addressed it, so the row it becomes can
+                // draw it and the agent can be handed the text without it.
+                let deliveries = Set(try db.query("PRAGMA table_info(deliveries);").compactMap { $0.string("name") })
+                if !deliveries.contains("audience_mention") {
+                    try db.execute("ALTER TABLE deliveries ADD COLUMN audience_mention TEXT;")
+                }
+            },
         ]
 
         let current = Int(try db.readUserVersion())
@@ -2378,7 +2395,9 @@ public actor Store {
         payload: Data,
         durationMS: Int? = nil,
         refID: String? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        author: MessageAuthor? = nil,
+        audience: MessageAudience? = nil
     ) throws -> Message {
         var lastError: Error?
         for _ in 0..<Self.seqAllocationAttempts {
@@ -2392,7 +2411,9 @@ public actor Store {
                         payload: payload,
                         createdAt: createdAt,
                         durationMS: durationMS,
-                        refID: refID
+                        refID: refID,
+                        author: author,
+                        audience: audience
                     )
                     message.id = try insert(message)
                     return message
@@ -2424,8 +2445,9 @@ public actor Store {
         let id = try db.run(
             """
             INSERT INTO messages (session_id, seq, kind, payload, created_at, duration_ms, ref_id,
-                                  author_user_id, author_name, author_email)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  author_user_id, author_name, author_email,
+                                  audience_kind, audience_user_id, audience_mention)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(message.sessionID), .int(Int64(message.seq)), .text(message.kind.rawValue),
@@ -2435,6 +2457,9 @@ public actor Store {
                 message.author.map { .text($0.userID) } ?? .null,
                 message.author.map { .text($0.name) } ?? .null,
                 message.author?.email.map { .text($0) } ?? .null,
+                message.audience.map { .text($0.kind.rawValue) } ?? .null,
+                message.audience?.userID.map { .text($0) } ?? .null,
+                message.audience?.mention.map { .text($0) } ?? .null,
             ]
         )
         // Here rather than in a trigger, and here rather than in a task afterwards: this is the
@@ -2856,8 +2881,8 @@ public actor Store {
             INSERT INTO deliveries
                 (id, target_session_id, source_workspace_id, kind, verdict, body, crew_payload,
                  created_at, delivered_at, delivered_seq, delivery_state, interaction_mode, provider_turn_id,
-                 author_user_id, author_name, author_email, remote_turn_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 author_user_id, author_name, author_email, audience_mention, remote_turn_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(delivery.id),
@@ -2876,6 +2901,7 @@ public actor Store {
                 delivery.author.map { .text($0.userID) } ?? .null,
                 delivery.author.map { .text($0.name) } ?? .null,
                 delivery.author?.email.map { .text($0) } ?? .null,
+                delivery.audienceMention.map { .text($0) } ?? .null,
                 delivery.remoteTurnID.map { .text($0) } ?? .null,
             ]
         )
@@ -2900,7 +2926,8 @@ public actor Store {
                 let next = try nextSeqLocked(sessionID: delivery.targetSessionID)
                 _ = try insert(Message(sessionID: delivery.targetSessionID, seq: next,
                     kind: delivery.crewPayload == nil ? .user : .crew, payload: payload,
-                    createdAt: delivery.createdAt, author: delivery.author))
+                    createdAt: delivery.createdAt, author: delivery.author,
+                    audience: delivery.audienceMention.map { MessageAudience(kind: .agent, mention: $0) }))
                 seq = next
             }
             try db.run("UPDATE deliveries SET delivery_state = 'claimed', delivered_seq = ? WHERE id = ?", [
@@ -3966,6 +3993,7 @@ public actor Store {
             interactionMode: row.string("interaction_mode").flatMap(InteractionMode.init(rawValue:)),
             providerTurnID: row.string("provider_turn_id"),
             author: author(from: row),
+            audienceMention: row.string("audience_mention"),
             remoteTurnID: row.string("remote_turn_id"),
             block: row.string("blocked_limit").map { DeliveryBlock(limit: $0, message: row.string("blocked_message") ?? "") }
         )
@@ -4160,8 +4188,14 @@ public actor Store {
             createdAt: row.date("created_at") ?? Date(),
             durationMS: row.int("duration_ms").map(Int.init),
             refID: row.string("ref_id"),
-            author: Self.author(from: row)
+            author: Self.author(from: row),
+            audience: Self.audience(from: row)
         )
+    }
+
+    private static func audience(from row: Row) -> MessageAudience? {
+        guard let kind = row.string("audience_kind").flatMap(MessageAudience.Kind.init(rawValue:)) else { return nil }
+        return MessageAudience(kind: kind, userID: row.string("audience_user_id"), mention: row.string("audience_mention"))
     }
 
     private static func author(from row: Row) -> MessageAuthor? {

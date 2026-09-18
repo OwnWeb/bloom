@@ -52,6 +52,41 @@ struct RemoteBridgeTests {
         return Fixture(store: store, workspace: workspace, orchestrator: orchestrator, runtime: runtime, agents: agents)
     }
 
+    /// **The rule the whole mentions feature rests on.** `chat_read` is the only way an agent can
+    /// read a transcript, so it is the only place a message addressed to a person could leak, and a
+    /// leak here is the feature not existing.
+    @Test("an agent reading a chat is not shown a message addressed to a person")
+    func chatReadHidesMessagesToPeople() async throws {
+        let fixture = try await fixture()
+        let payload = { (text: String) in Data(JSONValue.object([
+            "type": .string("user"),
+            "message": .object(["role": .string("user"), "content": .array([
+                .object(["type": .string("text"), "text": .string(text)]),
+            ])]),
+        ]).compactJSON.utf8) }
+        _ = try await fixture.store.appendNext(sessionID: fixture.orchestrator.id, kind: .user,
+                                               payload: payload("for the agent"))
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.orchestrator.id, kind: .user, payload: payload("@sebdd this bit is yours"),
+            audience: MessageAudience(kind: .person, userID: "user-seb", mention: "@sebdd")
+        )
+
+        let toolbox = fixture.runtime.bridgeToolbox()
+        let handler = try #require(toolbox.handler(named: "chat_read", for: .workspace))
+        let identity = BridgeIdentity(sessionID: fixture.orchestrator.id, workspaceID: fixture.workspace.id, role: .workspace)
+        let answer = await handler.call(
+            MCPRequest(id: .integer(1), method: "chat_read",
+                       params: .object(["chat": .string(fixture.orchestrator.id.rawValue)])),
+            as: identity, store: fixture.store
+        )
+
+        #expect(answer.text.contains("for the agent"))
+        #expect(!answer.text.contains("this bit is yours"))
+        // And nothing says a message was left out: a marker invites the agent to ask what it missed.
+        #expect(!answer.text.lowercased().contains("hidden"))
+        await fixture.runtime.shutdown()
+    }
+
     @Test("only the tools about this one workspace are offered, and only to agents working in it")
     func theToolList() async throws {
         let fixture = try await fixture()

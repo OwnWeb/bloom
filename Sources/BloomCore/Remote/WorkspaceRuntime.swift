@@ -65,6 +65,10 @@ public actor WorkspaceRuntime {
     /// What an agent on this machine is told about where it is running. Nil off a machine. See
     /// `BridgeBriefing`.
     let briefing: String?
+    /// Whether an id somebody wants to address belongs to this team, asked of runbloom.app through
+    /// the machine. **Answers `unknown` off a machine and before the list has ever arrived**, which
+    /// is refused rather than guessed at. See `MemberLookup`.
+    let lookUpMember: @Sendable (String) async -> MemberLookup
     /// The project's services as the machine is running them. Empty everywhere that is not a
     /// machine, which is every Mac. See `ServiceRecord`.
     var services: [ServiceRecord] = []
@@ -102,8 +106,10 @@ public actor WorkspaceRuntime {
         bridgeSocketPath: String? = nil,
         bridgeShimPath: String? = BridgeRegistration.shimPath(),
         runsSetup: Bool = true,
-        briefing: String? = nil
+        briefing: String? = nil,
+        lookUpMember: @escaping @Sendable (String) async -> MemberLookup = { _ in .unknown }
     ) {
+        self.lookUpMember = lookUpMember
         self.briefing = briefing
         self.runsSetup = runsSetup
         self.bridgeSocketPath = bridgeSocketPath
@@ -284,7 +290,7 @@ public actor WorkspaceRuntime {
             try await store.updateLastReadSeq(sessionID: try chatID.sessionID, seq: seq)
             return .accepted
         case .setComposer(let chatID, let controls): try await setComposer(chatID, controls: controls, as: caller); return .accepted
-        case .send(let chatID, let text): return .queued(promptID: try await send(chatID, text: text, as: caller).rawValue)
+        case .send(let chatID, let text, let audience): return try await send(chatID, text: text, audience: audience, as: caller)
         case .cancelQueued(let chatID, let promptID):
             try await queue().cancel(DeliveryID(promptID), sessionID: try chatID.sessionID)
             return .accepted

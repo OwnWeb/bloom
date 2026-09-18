@@ -266,6 +266,37 @@ string, so the two could not have been compared even if it had arrived. A client
 a refresh path on it, which therefore never ran. **An event nothing emits is worse than no event**:
 it reads as a mechanism, and the client that trusts it has no symptom to debug.
 
+## Addressing a message
+
+**`send` takes an optional `audience`, and absent means the agent**, so a client that has never
+heard of this keeps working. It is `{"kind": "agent"}` or `{"kind": "person", "user_id": "…"}`,
+**always by id and never by a typed name**: addressing by display name sends to the wrong person the
+day two people share one. A `kind` the machine does not know is refused rather than read as the
+agent.
+
+**A message addressed to a person does not become a turn.** It is not queued, it sends no queue
+event, it does not change the chat's state, it does not interrupt whatever the agent is doing, and
+`send` answers `accepted` rather than `queued`: there is no prompt to wait for.
+
+**And the agent is never given it.** Not filtered at the client, not marked and passed on, and not
+included by any later replay or compaction: `chat_read`, the only way an agent can read a
+transcript, leaves these rows out. **The agent is told nothing about the gap**, because a "messages
+not shown" marker invites it to ask what it missed. **This is a property of the protocol rather than
+of one implementation**, so a client may rely on it and a machine may not weaken it.
+
+**The mention travels resolved, in `audience.mention`, and is never re-parsed.** It is the text that
+was typed, `@sebdd` or `@agent`, and it is **always a prefix**, so its extent is its own length and
+there are no offsets to disagree about; two clients that each hunt for the `@` will differ the first
+time somebody types `@seb.dd`, and an offset computed in UTF-16 code units by one client and
+graphemes by another puts a highlight in two places. **The machine strips the mention from what the
+agent reads** and nowhere else: the agent is asked "Fix the server", not "@agent Fix the server",
+while the stored row keeps what was typed because the bubble draws it. A client must not strip it
+early.
+
+**The machine refuses an audience it cannot vouch for**, and says which of the two it is: the person
+is not a member of this team, or this machine has not been told who the team is yet. Both are
+refusals rather than a stored guess.
+
 **Every message has an author, and drawing it is one rule: the name if it is not empty, the email
 if it is, and "somebody" if neither.** `AuthorRecord` carries `user_id`, `name` and an optional
 `email`, and **`name` may be empty**, because not everybody has a display name. An empty name drawn

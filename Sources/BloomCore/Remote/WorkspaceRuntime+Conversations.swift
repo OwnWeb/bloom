@@ -226,7 +226,11 @@ extension WorkspaceRuntime {
         await events.publish(.composer(chatID: chatID, controls: controls.record, changedBy: caller.author?.record))
     }
 
-    func send(_ chatID: String, text: String, as caller: RemoteCaller) async throws -> DeliveryID {
+    /// **Two different acts behind one call.** A message to the agent is queued and becomes a turn;
+    /// a message to a person is written into the transcript and becomes nothing, because the whole
+    /// of what `@seb` means is that this one is not for the agent. They answer differently on
+    /// purpose: `queued` with a prompt id, or `accepted` with no turn to wait for.
+    func send(_ chatID: String, text: String, audience stated: AudienceRecord?, as caller: RemoteCaller) async throws -> OperationResult {
         let id = try chatID.sessionID
         guard stopping[id] == nil else { throw RemoteFailure(.busy, "This conversation is being stopped.") }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -234,9 +238,59 @@ extension WorkspaceRuntime {
         guard body.utf8.count <= 1_048_576 else { throw RemoteFailure(.tooLarge, "This message is larger than 1 MB.") }
         let session = try await storedSession(id)
         guard session.archivedAt == nil else { throw RemoteFailure(.unavailable, "This conversation is closed.") }
+        var audience: MessageAudience?
+        if let stated {
+            // An audience this machine does not understand is refused rather than read as the
+            // agent: a newer client's kind quietly handed to the agent is the one outcome this
+            // whole feature exists to prevent.
+            guard let known = MessageAudience(stated) else {
+                throw RemoteFailure.invalid("This machine does not know how to address a \(stated.kind).")
+            }
+            audience = known
+        }
+        if let audience, audience.isPrivateToPeople {
+            return try await sendToPerson(body, audience: audience, session: session, as: caller)
+        }
         try await requireInstalled(session.agentKind)
         _ = try await workspace()
-        return try await queue().enqueue(body, session: session, caller: caller)
+        let delivery = try await queue().enqueue(body, session: session, caller: caller, mention: audience?.mention)
+        return .queued(promptID: delivery.rawValue)
+    }
+
+    /// A message addressed to somebody with access to this workspace.
+    ///
+    /// **It does not interrupt the agent, become a turn, or touch the queue.** It is a row in the
+    /// transcript and nothing else: the chat's state does not change, no queue event is sent, and
+    /// whatever the agent is doing carries on. The row carries its audience so that a reader
+    /// arriving tomorrow colours it, and so that **the one place the transcript is handed to an
+    /// agent can leave it out**; see `ChatReadTool`.
+    private func sendToPerson(
+        _ body: String, audience: MessageAudience, session: Session, as caller: RemoteCaller
+    ) async throws -> OperationResult {
+        guard let userID = audience.userID, !userID.isEmpty else {
+            throw RemoteFailure.invalid("A message to a person has to name which person.")
+        }
+        // **Refused rather than stored when this machine cannot say.** Addressing the wrong person
+        // is the failure this feature is about, and a message written to an id nobody has vouched
+        // for is exactly that, delivered convincingly.
+        switch await lookUpMember(userID) {
+        case .member:
+            break
+        case .notAMember:
+            throw RemoteFailure.invalid("That person does not have access to this workspace.")
+        case .unknown:
+            throw RemoteFailure(.unavailable, "This machine has not been told who is on this team yet, "
+                + "so it cannot address anybody. Try again in a moment.")
+        }
+        let payload = JSONValue.object([
+            "type": .string("user"),
+            "message": .object(["role": .string("user"), "content": .array([
+                .object(["type": .string("text"), "text": .string(body)]),
+            ])]),
+        ]).compactJSON
+        _ = try await store.appendNext(sessionID: session.id, kind: .user, payload: Data(payload.utf8),
+                                       author: caller.author, audience: audience)
+        return .accepted
     }
 
     /// Pauses the chat's queue and stops its turn. Anybody who can prompt can stop.
