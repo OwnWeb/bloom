@@ -89,6 +89,34 @@ enum TabStoreProbe {
         let storedOrder = defaults.data(forKey: stripKey).flatMap { try? JSONDecoder().decode([PaneContent].self, from: $0) }
         check(storedOrder?.isEmpty == false, "the strip order was not written, or will not read back")
 
+        // What the orphan sweep sees, which is the check with a shell at stake.
+        //
+        // The sweep kills every tmux session whose pane id nothing enumerates, and what enumerates
+        // them is `TerminalPaneCensus`, reading the same defaults key this store writes. The store
+        // is keyed by the workspace now rather than by the worktree, so the question is whether the
+        // census still finds the list and whether the name a shell is forked under is byte for byte
+        // the name the sweep builds. Both are asked here rather than argued.
+        let census = TerminalPaneCensus.census(of: [workspaceID], in: defaults)
+        check(census.doubtful.isEmpty, "the sweep is in doubt about a workspace whose list it has just read")
+        let panes = TerminalSplitStore.shared.panes(of: terminal.id)
+        check(
+            census.panes == Set(panes.isEmpty ? [terminal.id] : panes),
+            "the sweep would name \(census.panes) where the terminal tab has \(panes)"
+        )
+        for pane in census.panes {
+            let swept = TmuxSessions.sessionName(workspaceID: workspaceID, paneID: pane)
+            let forked = TmuxSessions.sessionName(workspaceID: workspaceID, paneID: pane)
+            check(swept == forked && swept.contains(workspaceID.rawValue), "a shell's name and the swept name differ")
+        }
+
+        // And a Cloud workspace's tabs are invisible to it, which is what stops a machine's tab
+        // list being read as a worktree's and a local shell being spared or swept for the wrong
+        // reason. Its key is namespaced; the census reads only the bare one.
+        let cloudID = WorkspaceSurfaceID.cloud(CloudWorkspaceID(workspaceID.rawValue))
+        _ = tabs.add(kind: .terminal, workspaceID: cloudID)
+        let again = TerminalPaneCensus.census(of: [workspaceID], in: defaults)
+        check(again.panes == census.panes, "a Cloud workspace's tabs reached the orphan sweep")
+
         // What a relaunch does with all three, as far as it can be done in one process: the stores
         // are singletons, so this reads the bytes the way `restore` does rather than building them
         // again. A real relaunch is still worth one pass by a person; see the note in the report.
