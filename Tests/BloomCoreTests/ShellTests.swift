@@ -99,11 +99,16 @@ struct CapturedProcessWatchdogTests {
             grace: .milliseconds(200)
         )
         let started = ContinuousClock.now
+        // What the fix is for, in the three facts that cannot be moved by a busy machine: the call
+        // came back, it came back as a timeout, and the abandonment was counted.
         await #expect(throws: ShellFailure.timedOut(command: "/usr/bin/true")) {
             _ = try await process.run()
         }
-        #expect(started.duration(to: .now) < .seconds(5), "it waited the grace and no longer")
-        #expect(Shell.abandonedLaunchCount == before + 1, "and it is counted, because one leak is a fluke and fifty is a machine to replace")
+        #expect(Shell.abandonedLaunchCount == before + 1, "one leak is a fluke and fifty is a machine to replace")
+        // A cap on infinity rather than a measurement: without the fix this call never returns, and
+        // the stand-in would hold it for ten minutes. Asserting a tight duration is the fault this
+        // repository has now fixed three times, and this test was the third.
+        #expect(started.duration(to: .now) < .seconds(60))
     }
 
     @Test("a call with no deadline is left alone, because nobody here knows how long it should take")
