@@ -296,6 +296,9 @@ private struct WorkspaceScopedTool: BridgeToolHandling {
     let workspaceID: WorkspaceID
 
     var tool: BridgeTool { wrapped.tool }
+    /// Forwarded, or the wrapped tool's narrowing is lost and a machine's listing sends agents to
+    /// tools it does not have, which is what the listing test caught the first time.
+    func tool(offering offered: Set<String>) -> BridgeTool { wrapped.tool(offering: offered) }
     var roles: Set<BridgeRole> { wrapped.roles.intersection([.workspace]) }
 
     func call(_ request: MCPRequest, as identity: BridgeIdentity, store: Store) async -> BridgeToolResult {
