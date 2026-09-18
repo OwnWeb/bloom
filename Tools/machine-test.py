@@ -573,6 +573,16 @@ def main():
             assert setup.get("enabled") is True, f"setup did not say it was enabled: {setup}"
             step(f"setup {setup['state']}, enabled")
 
+            # The services this project declares, as the machine is running them. A service that
+            # never started is invisible without this, so its absence from the record is the bug
+            # worth catching here rather than on somebody's machine.
+            drawn = rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]["services"]
+            assert isinstance(drawn, list), f"the workspace record has no services list: {drawn}"
+            for service in drawn:
+                assert service["state"] in ("waiting", "starting", "running", "not_ready", "crashed", "stopped"), service
+            listed = ", ".join(s["name"] + " " + s["state"] for s in drawn)
+            step("services: " + (listed or "(none declared)"))
+
             # Reading is not human input; a rename is, so it starts the presence lease and the hold.
             rpc(url, session(), {"kind": "rename_workspace", "name": "Machine test, renamed"})
             tasks = wait_for("the machine holds itself awake", lambda: (lambda text: text if "bloom-runner" in text else None)(

@@ -240,11 +240,22 @@ events. Then live events as they happen.
 | `composer` | a chat's controls and `changed_by` | replaces its copy, and may say who changed it |
 | `setup` | setup's state and step | replaces its copy |
 | `setup_output` | new output | appends it to the log |
-| `review` | a revision number | asks `review_snapshot` again |
+| `review` | a revision number | **no machine sends this today**; see below |
 | `presence` | who has the workspace open | replaces its copy |
 | `workspace` | name, branch, pull request, `reporting` | replaces its copy |
 | `sleeping` | nothing | see "Sleeping and waking" |
 | `closing` | a failure | the stream ends; act on the code |
+
+**Knowing when the diff changed is the waiting `review_snapshot` call, not the `review` event.**
+Ask with the `revision` you hold and `wait` true: the machine answers at once with a new `revision`
+and `files` when the diff has moved, and after about fifteen seconds with the same `revision` and no
+`files` when it has not, which is the signal to ask again. **The `review` event is declared in this
+protocol and no machine has ever sent one.** Nothing constructs it: the case and its decoder are the
+only two places it appears in the whole of Bloom. Its `revision` is also an integer where the
+snapshot's is a string, because the snapshot's is a digest of the changed files and the base, so
+even if it did arrive the two could not be compared. **A client that refreshes on it is writing a
+path that never runs**, which one has already done. It is listed here because it exists on the wire
+and a strict decoder has to tolerate it; it is not a mechanism to build on.
 
 **The workspace record carries the project's services, and a client should draw them.** One entry
 per `[[services]]` the repository declares, each with its `state` (`waiting`, `starting`, `running`,
