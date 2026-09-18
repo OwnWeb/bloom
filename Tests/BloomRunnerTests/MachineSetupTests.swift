@@ -396,7 +396,18 @@ struct MachineSetupTests {
 
         let workspace = try await fixture.workspace()
         #expect(workspace.setupLog.contains("Setup has been in prepare for"), "\(workspace.setupLog.suffix(400))")
-        #expect(workspace.setupLog.contains("restarting this machine's server clears it"))
+        // **What it says next is the verdict's, and the verdict is only readable where `/proc` is.**
+        // On a machine, `sleep 4` is alive and the sentence says so and advises nothing; on a Mac
+        // there is nothing to read, and the advice is given because not knowing and knowing nothing
+        // is alive are answered the same way. Asserting one wording here would have been asserting
+        // which platform the suite runs on, and the Linux job said so within the hour.
+        let sentence = workspace.setupLog
+        #if os(Linux)
+        #expect(sentence.contains("still working") || sentence.contains("waiting on something"))
+        #expect(!sentence.contains("restarting this machine's server"), "nothing needs restarting while it runs")
+        #else
+        #expect(sentence.contains("restarting this machine's server clears it"))
+        #endif
         // The step finished on its own, so the sentence is a warning rather than a verdict.
         #expect(workspace.setupState == .succeeded)
     }
