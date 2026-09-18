@@ -144,6 +144,12 @@ struct TranscriptRowView: View, Equatable {
                 ProseRowView(text: text)
             }
 
+        case .media:
+            // Only a Bloom Cloud machine writes this row, and a local workspace's transcript never
+            // holds one: here the same picture is drawn from the `media_show` call itself. The
+            // Cloud client draws it from the copy the row names; see `SharedMedia`.
+            EmptyView()
+
         case .thinking:
             if let text = thinkingText, !text.isEmpty {
                 ThinkingRowView(text: text, isExpanded: isExpanded, onToggle: onToggle)

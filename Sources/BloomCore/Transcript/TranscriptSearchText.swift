@@ -73,10 +73,11 @@ public enum TranscriptSearchText {
     /// words in them. `permissionAsk` is a second copy of a tool call that is already indexed from
     /// its own row, and indexing it again would put the same workspace in the list twice.
     /// `crew` is prose somebody read in their own window, so it is indexed like the rest of it.
+    /// `media` is a second copy of a `media_show` call whose caption is indexed from the call.
     public static func isIndexed(_ kind: MessageKind) -> Bool {
         switch kind {
         case .user, .assistantText, .thinking, .toolUse, .toolResult, .error, .crew: true
-        case .result, .system, .notice, .permissionAsk: false
+        case .result, .system, .notice, .permissionAsk, .media: false
         }
     }
 

@@ -585,6 +585,11 @@ public enum MessageKind: String, Sendable, Codable, CaseIterable {
     /// A row of this kind holds both renderings, so the window draws what a person reads and the
     /// model still got what it was handed.
     case crew
+    /// An image or a video an agent on a Bloom Cloud machine showed with `media_show`, copied where
+    /// a client can fetch it. The payload is a `SharedMedia`. On a Mac the same tool draws straight
+    /// from the agent's call, because the file is on the same disk as the window; a machine's file
+    /// is not, so the machine writes down where its copy is. See `MachineMediaShowTool`.
+    case media
 }
 
 public struct Message: Identifiable, Sendable, Hashable, Codable {

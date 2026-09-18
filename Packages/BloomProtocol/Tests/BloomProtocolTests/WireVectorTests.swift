@@ -288,6 +288,16 @@ enum WireExamples {
                                             error: "Queue paused. Send a message to resume."))),
         // A tool call carries the tool's own id as `ref_id`, which its result names; the turn's
         // closing row carries how long the turn took.
+        // A picture an agent showed with `media_show` on a machine. The payload names a copy in the
+        // worktree's ignored scratch folder, fetched with `download`: never the bytes themselves.
+        ("message_media", .message(MessageRecord(
+            cursor: 123, chatID: "chat-1", seq: 9, kind: "media",
+            payload: .object([
+                "path": .string(".bloom/scratch/media/5f1d3c0e9a7b2e4f6c8d0a1b3c5e7f9a2b4d6e8f0a1c3e5b7d9f1a3c5e7b9d1f.png"),
+                "name": .string("login.png"), "caption": .string("The login page after the fix"),
+                "kind": .string("image"), "mime": .string("image/png"), "bytes": .number(48213),
+            ]),
+            createdAt: date))),
         ("message_tool_use", .message(MessageRecord(
             cursor: 121, chatID: "chat-1", seq: 7, kind: "toolUse",
             payload: .object(["type": .string("tool_use"), "id": .string("toolu_01"), "name": .string("Bash")]),

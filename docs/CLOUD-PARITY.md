@@ -209,8 +209,54 @@ a Mac-only role for the person's own client, not an agent.
 | `workspace_merge` | no | yes, through runbloom.app's GitHub App | a machine's own `gh` has no token that may merge |
 | `workspace_tabs`, `workspace_tab_select` | no | as a request, like `request_pane` | the window is a client's |
 | `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `pane_list` | `request_pane` only | as requests | the window is a client's |
-| `reveal`, `media_show` | no | as requests | the window is a client's |
+| `media_show` | yes, since 19 September 2026 | | see "Showing a picture" below |
+| `reveal` | no | as a request | the window is a client's |
 | `browser_*` (twelve tools) | no | only with a headless browser on the machine | large; the Mac's are a `WKWebView` in its window |
 | `terminal_start`, `terminal_read`, `terminal_write`, `terminal_send_key` | no | yes | the machine already has tmux terminals and the protocol already attaches to them |
 | `project_list`, `project_add`, `project_hide`, `project_unhide` | no | no | a machine holds one project |
 | `quick_prompt_list`, `_create`, `_update`, `_delete` | no | the project's, read only | the person's own live on their client; `quick_prompts` answers the project's |
+
+### Showing a picture
+
+Freek, on 19 September 2026: "could we somehow add support for showing generated images and such.
+locally we can do it and it's super handy."
+
+**On a Mac**, `media_show` draws the file straight from the agent's call, because the file and the
+window are on one disk. **On a machine they are not**, so `media_show` copies the file into the
+worktree's git-ignored `.bloom/scratch/media/`, named by its SHA-256, and writes a `media` row into
+the chat naming the copy. A client fetches it with `download`.
+
+- **Authorised as everything else is**: `download` takes a session token for this workspace with
+  `view`, is confined to the worktree by the descriptor walk every file read uses, and carries at
+  most 8 MB. Showing a picture adds no door.
+- **A reference in the row, never the bytes.** The row is `path`, `name`, `caption`, `kind`, `mime`
+  and `bytes`; see "Media" in `docs/WORKSPACE-PROTOCOL.md`.
+- **Types from the bytes, not the name**: PNG, JPEG, GIF, WebP, AVIF, MP4, MOV and WebM, up to 8 MB.
+  A file named `.png` that is really something else is refused, so showing something is never a way
+  to hand a viewer a file that is not a picture. SVG is refused because it can carry script.
+- **Copied, not pointed at**, so a later screenshot at the same path does not change a picture that
+  was already shown.
+
+### `agent-browser` on a machine
+
+**Not deliberately absent: nothing puts it there.** The machine image is the provider's own, with
+`claude`, `codex`, `gh`, `git`, `tmux`, `node`, `python` and `go`, and Bloom installs only
+`bloom-runner` on top. `agent-browser` is an npm command that fetches its own Chromium on first use,
+and Chromium needs system libraries the image may not have.
+
+**It is cheap in code and not free per machine.** A Sprite cannot be created from another's
+checkpoint, so every workspace would download and install a browser from nothing, which is time
+and disk on every create for a tool most turns never use. Three places it could go, cheapest first:
+
+1. **A project's own `prepare` script**, for projects that want it. Works today, costs only the
+   projects that ask, and `cloud_setup`'s guide can say how.
+2. **Installed in the background after setup by `bloom-runner`**, pinned to one version, so a
+   machine has it a minute after it is ready and nobody waits for it.
+3. **At machine creation, by runbloom.app's bootstrap**, which puts it on the critical path of
+   every create.
+
+The recommendation is 2, measured first on a real machine for its time and disk, with 1 documented
+meanwhile. It carries no new risk: an agent on a machine can already run any program, and a headless
+browser reaches nothing the machine's network could not. **Together with `media_show`, it is the
+screenshot loop Freek uses on a Mac**: `agent-browser` takes the picture, `media_show` puts it in
+the chat.

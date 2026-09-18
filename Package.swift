@@ -31,6 +31,7 @@ let linuxTests: [String] = [
     "CodexTranslationTests.swift",
     "DiffParserTests.swift",
     "GitTests.swift",
+    "MachineMediaShowTests.swift",
     "PermissionAskTests.swift",
     "PlanApprovalTests.swift",
     "ProcessLaunchTests.swift",

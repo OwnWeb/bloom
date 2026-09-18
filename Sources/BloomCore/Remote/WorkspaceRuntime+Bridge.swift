@@ -77,6 +77,8 @@ extension WorkspaceRuntime {
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.sayToCrew(name, text: text, callerID: sessionID, workspaceID: workspaceID)
             },
+            // Reaches only the store and the worktree, so no seam: see `MachineMediaShowTool`.
+            MachineMediaShowTool(),
             CloudWorkspaceStartTool { [weak self] order, sessionID, _ in
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.startCloudWorkspace(order, sessionID: sessionID)
