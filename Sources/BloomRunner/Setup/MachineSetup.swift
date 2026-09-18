@@ -449,13 +449,13 @@ public actor MachineSetup {
         // A shutdown cancels this task, which ends `lines` and with it sends SIGTERM. A script that
         // ignores it would hold shutdown until its step timeout, up to an hour, so it gets the
         // same grace as the watchdog gives and is then killed.
-        let status = await withTaskCancellationHandler {
+        let ending = await withTaskCancellationHandler {
             do {
                 for try await line in lines { await log.append(line) }
             } catch {
                 await log.append("[bloom] \(error)")
             }
-            return await process.exitStatus
+            return await process.ending
         } onCancel: {
             process.terminate()
             Task {
@@ -468,12 +468,17 @@ public actor MachineSetup {
             await log.note("This step took longer than \(Self.minutes(timeout)) and was stopped.")
             return false
         }
-        if status != 0 {
+        if !ending.isSuccess {
             // Named, because a workspace's own summary shows the last lines of this and "exited
             // with status 1" alone does not say which of three scripts it was.
-            await log.note(step.map { "The \($0) script exited with status \(status)." } ?? "Exited with status \(status).")
+            //
+            // **And how it ended rather than only its number.** A script killed by SIGPIPE was
+            // reported as "exited with status 13", because Foundation puts the signal in
+            // `terminationStatus`; somebody read that as the script's own verdict and spent twenty
+            // actions rebuilding by hand what setup should have done. See `ProcessEnding`.
+            await log.note(step.map { "The \($0) script \(ending.sentence)." } ?? "The script \(ending.sentence).")
         }
-        return status == 0
+        return ending.isSuccess
     }
 
     static func minutes(_ duration: Duration) -> String {

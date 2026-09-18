@@ -24,6 +24,11 @@ public final class StreamingProcess: Sendable {
         var stderrBuffer = Data()
         var exitWaiters: [CheckedContinuation<Int32, Never>] = []
         var status: Int32?
+        /// Whether `status` is a signal number rather than an exit code. Foundation puts the
+        /// signal in `terminationStatus` on Linux rather than 128 plus it, so the number alone
+        /// cannot be read: 13 is a script saying 13 or a script killed by SIGPIPE, and those are
+        /// different events with different owners. See `ProcessEnding`.
+        var wasSignalled = false
         /// Whether stdin may still be written to. A decision, and not the same thing as the
         /// descriptor being gone: a write that met a dead child sets this without closing a
         /// handle another writer may be holding.
@@ -220,6 +225,7 @@ public final class StreamingProcess: Sendable {
         #endif
 
         process.terminationHandler = { [weak self] process in
+            self?.state.withLock { $0.wasSignalled = process.terminationReason == .uncaughtSignal }
             self?.settle(status: process.terminationStatus, deadline: nil)
         }
 
@@ -383,6 +389,20 @@ public final class StreamingProcess: Sendable {
             await withCheckedContinuation { continuation in
                 register(continuation)
             }
+        }
+    }
+
+    /// How it ended, which a status on its own cannot say.
+    ///
+    /// **A setup script reported as "exited with status 13" had been killed by SIGPIPE**, and that
+    /// sentence reads as the script's own verdict on itself. It sent somebody off to rebuild by
+    /// hand what setup should have done, because a number that looks like an exit code is acted on
+    /// as one. Foundation on Linux puts the signal number in `terminationStatus`, so the caller
+    /// cannot tell without `terminationReason`, which is what this carries.
+    public var ending: ProcessEnding {
+        get async {
+            let status = await exitStatus
+            return state.withLock { $0.wasSignalled } ? .signalled(status) : .exited(status)
         }
     }
 
