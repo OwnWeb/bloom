@@ -925,20 +925,15 @@ struct SidebarView: View {
                 }
             }
         } header: {
-            HStack {
-                Text("Cloud workspaces")
-                    .bold()
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                Button {
-                    openWindow(id: CreateCloudWorkspaceWindow.id)
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.borderless)
-                .help("New Cloud Workspace")
-                .accessibilityLabel("New Cloud Workspace")
-            }
+            // The heading alone, at the owner's asking: "we don't need that small + there". A
+            // project's `+` earns its place because a project is the thing a workspace is made in
+            // and there is one per row; this section has one heading for the whole of Cloud, and
+            // the two doors it duplicated are both still open. The dock's New menu offers New Cloud
+            // Workspace beside New Workspace, the File menu carries the same item, and the section's
+            // own empty state has the button while there is nothing in it.
+            Text("Cloud workspaces")
+                .bold()
+                .accessibilityAddTraits(.isHeader)
         }
     }
 

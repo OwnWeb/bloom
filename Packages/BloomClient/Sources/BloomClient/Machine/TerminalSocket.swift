@@ -19,6 +19,15 @@ public actor TerminalSocket {
     private var isClosed = false
     public nonisolated let events: AsyncStream<Event>
     private let continuation: AsyncStream<Event>.Continuation
+    /// The auth frame, on the wire, as a thing every other send waits for.
+    ///
+    /// **The machine closes the socket the moment any other text frame arrives first**, with "Send
+    /// an auth frame first", and that is what a Cloud terminal did every time: `init` started a
+    /// task to send the auth frame and the pane, one line later, asked the actor to `resize` for
+    /// the size it had just measured. Two tasks, one actor, no order between them, and the resize
+    /// won often enough to be always. Nothing on the wire can go before this now, because every
+    /// path out of this actor awaits it, and the value says whether it got there at all.
+    private let authenticated: Task<Bool, Never>
 
     /// Opens the socket and authenticates. Output starts arriving on `events` straight away.
     public init(machine: URL, name: String, token: String, session: URLSession = .shared) {
@@ -27,7 +36,15 @@ public actor TerminalSocket {
         (events, continuation) = AsyncStream.makeStream(of: Event.self, bufferingPolicy: .bufferingNewest(4_096))
         task.resume()
         let task = task
-        Task { await self.start(token: token, task: task) }
+        authenticated = Task {
+            do {
+                try await task.send(.string(Self.text(.auth(token: token))))
+                return true
+            } catch {
+                return false
+            }
+        }
+        Task { await self.start(task: task) }
     }
 
     /// The address of a terminal. A name is letters, digits, hyphens and underscores, up to 64.
@@ -50,11 +67,9 @@ public actor TerminalSocket {
         return allowed.isEmpty ? "shell" : "shell-" + String(allowed.prefix(40))
     }
 
-    private func start(token: String, task: URLSessionWebSocketTask) async {
-        do {
-            try await task.send(.string(Self.text(.auth(token: token))))
-        } catch {
-            finish(reason: MachineClient.describe(error), isRefusal: false)
+    private func start(task: URLSessionWebSocketTask) async {
+        guard await authenticated.value else {
+            finish(reason: "The terminal could not be opened.", isRefusal: false)
             return
         }
         while !isClosed {
@@ -73,18 +88,19 @@ public actor TerminalSocket {
     }
 
     public func send(_ bytes: Data) async {
-        guard !isClosed else { return }
+        guard await authenticated.value, !isClosed else { return }
         try? await task.send(.data(bytes))
     }
 
     public func resize(columns: Int, rows: Int) async {
-        guard !isClosed, columns > 0, rows > 0 else { return }
+        guard columns > 0, rows > 0 else { return }
+        guard await authenticated.value, !isClosed else { return }
         try? await task.send(.string(Self.text(.resize(columns: columns, rows: rows))))
     }
 
     /// Hands the socket a fresh token before the one it opened with runs out.
     public func reauthenticate(token: String) async {
-        guard !isClosed else { return }
+        guard await authenticated.value, !isClosed else { return }
         try? await task.send(.string(Self.text(.reauth(token: token))))
     }
 

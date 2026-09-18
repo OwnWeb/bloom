@@ -977,8 +977,16 @@ final class TranscriptModel {
     }
 
     /// Whether this delivery is at the front of an idle queue and can be attempted now.
+    ///
+    /// **Never for a Cloud chat, because there is nothing here to attempt it with.** Its queue is
+    /// the machine's, `drain` returns at its own `store != nil` guard, and `retryPending` calls
+    /// `drain`: the button was drawn on local-queue questions that happen to be true and then did
+    /// nothing at all when pressed. The owner met that under a prompt of his that had stopped
+    /// moving, which is the worst place for a control that cannot act. What the machine offers
+    /// instead belongs on the machine's own verbs, and the caption is where the reason goes.
     func canRetry(_ delivery: Delivery) -> Bool {
-        pendingDeliveries.first?.id == delivery.id
+        guard cloud == nil else { return false }
+        return pendingDeliveries.first?.id == delivery.id
             && dispatchingDeliveryID != delivery.id && drainState == .idle
             && deliveryHold.allowsDelivery(on: session.agentKind)
     }

@@ -193,10 +193,18 @@ final class CloudWorkspaceSession {
                 // Not awaited: this loop is what drains the stream, and the opening prompt can take
                 // a minute on a machine that is still waking.
                 Task { await sendOpeningPromptIfHeld() }
-                // A review tab restored from a previous launch was never opened by anybody this
-                // time, so nothing has asked the machine what changed. A local workspace has the
-                // poll in `AppModel` for this; a Cloud one has the moment its connection comes up.
-                if hasReviewTab { Task { await changes.refresh() } }
+                // What changed, once, on the way up.
+                //
+                // **Not gated on a review tab any more, and the gate was a bug.** It was, on the
+                // argument that a machine trying to sleep should not be asked for a list nothing
+                // is drawing. But the inspector's Changes tab draws that list too and asks nobody
+                // for it: a local workspace has `AppModel`'s poll behind it, and a Cloud one had
+                // only the review tab, so somebody sitting in the inspector with no review tab
+                // open watched "Reading the worktree" spin for ever. The workspace whose
+                // connection has just gone live is one somebody is looking at, so the read is
+                // wanted; what stays gated is asking AGAIN, which is what the `reviewMoved` event
+                // does.
+                Task { await changes.refresh() }
             }
             if case .archived = next {
                 Task { await cloud.refresh(id) }

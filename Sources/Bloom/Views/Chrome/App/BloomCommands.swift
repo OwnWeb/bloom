@@ -94,6 +94,11 @@ struct BloomCommands: Commands {
             //
             // No key equivalent. It is the rarer of the two ways to start a workspace and the item
             // alone is what was missing.
+            MenuCommand(.newCloudWorkspace) {
+                openWindow(id: CreateCloudWorkspaceWindow.id)
+            }
+            .disabled(!model.cloud.isSignedIn)
+
             MenuCommand(.newWorkspaceFromPullRequest) {
                 NotificationCenter.default.post(
                     name: .bloomNewWorkspace, object: nil,

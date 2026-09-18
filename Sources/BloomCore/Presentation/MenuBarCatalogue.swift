@@ -60,6 +60,13 @@ public enum MenuBarCatalogue {
 
         MenuBarItem(.newWorkspace, in: .file, "New Workspace…", key: .command("n"), availability: .needsProject),
         MenuBarItem(.newWorkspaceFromPullRequest, in: .file, "New Workspace from Pull Request…", availability: .needsProject),
+        // Beside the two above, because it starts the same kind of thing somewhere else. It is
+        // here at all because the small `+` on the sidebar's Cloud heading came off at the owner's
+        // asking, and the dock's New menu should not be the only door: "New Workspace…" is in File
+        // and its Cloud sibling belongs in the same place. Greyed until somebody signs in to a
+        // Bloom account, which is a fact the core cannot hold, hence `sometimes`. No key
+        // equivalent: Cmd+N is the local one and this is the rarer of the two.
+        MenuBarItem(.newCloudWorkspace, in: .file, "New Cloud Workspace…", availability: .sometimes),
         // The conversation above every project, started again. It existed only as a toolbar button
         // that appears while Ask Bloom is open, which is a control you have to already be looking
         // at to find: the owner asked whether Bloom could clear an Ask conversation at all, and it
@@ -213,6 +220,7 @@ public enum MenuBarAction: String, CaseIterable, Sendable {
 
     case newWorkspace
     case newWorkspaceFromPullRequest
+    case newCloudWorkspace
     case newAskConversation
     case projectSettings
     case newSession
