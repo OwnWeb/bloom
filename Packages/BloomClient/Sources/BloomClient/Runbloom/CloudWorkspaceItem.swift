@@ -30,6 +30,10 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
     /// What happened when the machine last tried to update itself, when that is worth saying. Nil
     /// almost always. See `CloudRunnerNotice`.
     public var runnerNotice: CloudRunnerNotice?
+    /// The web address a person opens to be in this workspace, when runbloom.app said. It is
+    /// runbloom.app's route to state, never built here from a team slug and an id. Nil from a
+    /// server older than the field. `cloud_workspace_start` hands it to the agent that asked.
+    public var url: String?
 
     public init(
         id: String, teamID: String, name: String, project: ProjectReference? = nil, branch: String, baseBranch: String = "main",
@@ -74,6 +78,7 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         case createdAt = "created_at"
         case archivedAt = "archived_at"
         case runnerNotice = "runner_notice"
+        case url
     }
 
     public init(from decoder: any Decoder) throws {
@@ -99,6 +104,7 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         // Read tolerantly, for the reason the summary is: a notice this version cannot read must
         // not cost the whole list.
         runnerNotice = try? c.decodeIfPresent(CloudRunnerNotice.self, forKey: .runnerNotice)
+        url = try? c.decodeIfPresent(String.self, forKey: .url)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -120,6 +126,7 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(createdAt.map(RunbloomDate.init), forKey: .createdAt)
         try c.encodeIfPresent(archivedAt.map(RunbloomDate.init), forKey: .archivedAt)
         try c.encodeIfPresent(runnerNotice, forKey: .runnerNotice)
+        try c.encodeIfPresent(url, forKey: .url)
     }
 
     /// The name to draw: the summary's title once the machine has named the workspace, which is

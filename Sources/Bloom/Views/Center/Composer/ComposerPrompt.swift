@@ -37,6 +37,12 @@ struct ComposerPrompt<Footer: View>: View {
     /// Whether the next message goes to a person rather than to Bloom, which tints the box to the
     /// colour that message will be. See `ComposerBox.addressedTint`.
     var isAddressingAPerson = false
+    /// Who the next message is for, when it is a person: the name on the "To" chip where the words
+    /// start. Nil whenever the message goes to Bloom.
+    var addressedName: String?
+    /// Sends the composer back to Bloom, for the button on the line across the top of the box.
+    /// Nil where there is nobody else to write to, which is everywhere but a shared Cloud chat.
+    var onWriteToBloom: (() -> Void)?
     /// What is answering in this conversation, so the mention menu can label the agent's own row
     /// with it and find that row from `@claude` as well as from `@bloom`. Nil in the create
     /// window, which has no chat yet, and everywhere the menu lists files.
@@ -140,6 +146,10 @@ struct ComposerPrompt<Footer: View>: View {
         let guide = floatingGuide(isBelow: placement.isBelow, typedLineBottom: typedLineBottom)
 
         return VStack(alignment: .leading, spacing: Metrics.spacingWide) {
+            if isAddressingAPerson, let onWriteToBloom {
+                ComposerAddressLine(onWriteToBloom: onWriteToBloom)
+            }
+
             if !reviewComments.isEmpty {
                 ChipFlow(spacing: Metrics.spacingSmall, lineSpacing: Metrics.spacingSmall) {
                     ForEach(reviewComments) { comment in
@@ -152,8 +162,14 @@ struct ComposerPrompt<Footer: View>: View {
                 }
             }
 
-            if let name = draft.name {
-                HStack(alignment: .top, spacing: Metrics.spacingSmall) {
+            // One branch whether or not a chip leads, so the editor is the same view before and
+            // after `@seb ` or `/command ` is typed: two branches swapped as a chip appeared
+            // would rebuild the text view under the caret.
+            HStack(alignment: .top, spacing: Metrics.spacingSmall) {
+                if let addressedName {
+                    ComposerAddressChip(name: addressedName)
+                }
+                if let name = draft.name {
                     SlashCommandChip(
                         name: name,
                         command: named,
@@ -167,10 +183,8 @@ struct ComposerPrompt<Footer: View>: View {
                         },
                         onHover: { isCommandPreviewed = $0 }
                     )
-
-                    promptEditor(attachments: attachments)
                 }
-            } else {
+
                 promptEditor(attachments: attachments)
             }
 
@@ -484,7 +498,9 @@ struct ComposerPrompt<Footer: View>: View {
     /// What the agent's row is called. Its own name where a chat is running one, and the plain
     /// word where nothing has started yet, which is honest rather than a guess at which of the
     /// three it will turn out to be.
-    private var agentName: String { runningAgent?.label ?? "Agent" }
+    /// "Bloom" whatever is answering: the owner addresses the agent as Bloom, and `@claude` still
+    /// finds this row through the running agent's alias. It used to be the agent picker's label.
+    private var agentName: String { "Bloom" }
 
     /// Which side of the box the floating panels open on, and how much room that side has.
     ///

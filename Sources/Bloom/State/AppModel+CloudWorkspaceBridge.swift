@@ -54,9 +54,10 @@ extension AppModel {
                 team: team, project: project, name: name, branch: branch,
                 baseBranch: order.baseBranch ?? project.defaultBranch, prompt: prompt, runSetup: order.runSetup
             ), selecting: false)
-            // No url yet. The web route is runbloom.app's to say, and a client that built it from
-            // a team slug and an id would be guessing at somebody else's routing.
-            return .started(StartedCloudWorkspace(id: item.id, name: item.name, state: item.state))
+            // The address runbloom.app gave, passed through. Absent from an older server, and then
+            // absent here too rather than built from a team slug and an id: it is somebody else's
+            // routing.
+            return .started(StartedCloudWorkspace(id: item.id, name: item.name, state: item.state, url: item.url))
         } catch let refusal as RunbloomRefusal {
             return .refused(LimitNotice(refusal: refusal).map { "\($0.message) \($0.detail)" } ?? refusal.message)
         } catch {

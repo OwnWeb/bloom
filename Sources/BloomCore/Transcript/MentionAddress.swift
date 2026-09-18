@@ -95,6 +95,22 @@ public enum MentionAddress {
         return nil
     }
 
+    /// The draft with the mention at its head taken off, for the button that sends the composer back
+    /// to Bloom.
+    ///
+    /// **The button has to do what typing `@bloom` does, and the draft is half of that.** Setting
+    /// the audience alone would leave `@seb` at the front of the box, and the draft names a person
+    /// before the audience is asked, so the box would stay terracotta and the next message would
+    /// still go to Seb. Only the mention and the one space after it go; whatever was written after
+    /// them is the message and stays.
+    public static func withoutMention(_ draft: String) -> String {
+        guard let token = token(in: draft) else { return draft }
+        let leading = draft.prefix { $0 == " " || $0 == "\n" || $0 == "\t" }
+        var rest = draft.dropFirst(leading.count + token.count)
+        if rest.first == " " { rest = rest.dropFirst() }
+        return String(rest)
+    }
+
     /// The literal mention at the head of a draft, or nil where there is none.
     ///
     /// **Only at the start**, which is every example there is of this feature and is what keeps

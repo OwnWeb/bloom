@@ -39,7 +39,7 @@ struct MentionMenuGallery: View {
             matching: query,
             people: people,
             runningAgent: .claudeCode,
-            agentName: AgentKind.claudeCode.label
+            agentName: "Bloom"
         )
     }
 

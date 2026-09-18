@@ -166,4 +166,18 @@ struct MentionAddressTests {
             token: token("@Sources/Bloom"), draft: "@Sources/Bloom", hasPeople: true
         ))
     }
+
+    /// The composer's "Write to @bloom" button. Setting the audience alone would leave `@seb` at
+    /// the head of the draft, which names Seb before the audience is asked.
+    @Test("Write to @bloom takes the mention off and keeps the message")
+    func withoutMention() {
+        #expect(MentionAddress.withoutMention("@seb can you look") == "can you look")
+        #expect(MentionAddress.withoutMention("  @seb") == "")
+        #expect(MentionAddress.withoutMention("@seb") == "")
+        #expect(MentionAddress.withoutMention("look at @seb") == "look at @seb")
+        #expect(MentionAddress.withoutMention("@freek.spatie.be hello") == "@freek.spatie.be hello")
+        #expect(MentionAddress.mentioned(
+            in: MentionAddress.withoutMention("@seb hello"), people: Self.people, runningAgent: nil
+        ) == nil)
+    }
 }
