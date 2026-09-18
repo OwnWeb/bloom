@@ -71,6 +71,19 @@ rather than against the line you wrote. Lift it: `let moved = flow.advance()` an
 `#expect(moved)`. This has cost two separate agents an hour each, on `TranscriptRowHeights` and on
 `OnboardingFlow`, and it is the sort of thing nobody deduces twice.
 
+**Never assert a wall clock duration, and never sleep for something another task must do first.**
+Assert what happened: the call returned, it returned that error, the counter moved, the subscriber
+was registered before the event was sent. Where a bound is genuinely needed, make it a ceiling of
+thirty or sixty seconds and say in a comment that it is a cap on infinity rather than a
+measurement, because what it guards against is not "slow", it is "never". The macOS runner shares a
+machine with six and a half thousand tests and the same suite has measured between 47 and 65
+seconds on one commit, so a number taken from a run on your own Mac is a description of that Mac.
+The test before writing one is: **what would this number have to be wrong by for the code to be
+broken?** If the answer is "any amount, it never returns at all", the number is a ceiling and should
+be large; if there is no answer, something else should be asserted instead. This was written after
+producing the fourth instance in one night, an hour after fixing the third, which is how a careful
+person gets it wrong.
+
 **A green `make test` does not mean the app compiles.** The mirror has no app target, so the
 core suite has stayed green while `Sources/Bloom` was broken, four times, every one of them a
 widened enum leaving a switch in a view non-exhaustive. Run `make build` before committing
