@@ -5,6 +5,7 @@
 # Pass --changes-review-only to check history and staging in invisible windows, without input events.
 # Pass --review-fold-only to check that ticking a file folds it and that the row controls line up.
 # Pass --tab-store-only to check what a workspace's tabs are written as and what comes back.
+# Pass --cloud-terminal-only to check what a Cloud terminal shows after the machine reattaches it.
 # Set BLOOM_PROBE_VERBOSE=1 to print the probe's own log on a passing run as well as a failing
 # one, which is how a check that only goes wrong on someone else's machine is read.
 set -euo pipefail

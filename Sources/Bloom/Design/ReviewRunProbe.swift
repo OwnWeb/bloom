@@ -50,6 +50,17 @@ enum ReviewRunProbe {
             exit(failures.isEmpty ? 0 : 1)
         }
 
+        if CommandLine.arguments.contains("--cloud-terminal-only") {
+            progress("Checking what a Cloud terminal shows after the machine reattaches it")
+            await CloudTerminalProbe.run(check: check)
+            let result: JSONValue = .object([
+                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
+                "terminal": .string(CloudTerminalProbe.summary),
+            ])
+            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         if CommandLine.arguments.contains("--changes-review-only"),
            let directory = ProbeHarness.value(for: "--review-run-probe") {
             await ChangesReviewProbe.run(directory: directory, check: check)

@@ -1031,7 +1031,17 @@ the coordinator.
   banners. A token is only sent to an HTTPS machine address (plain HTTP only on loopback), and a
   preview only opens on its own machine's host. A machine's shell cannot write this Mac's clipboard.
 - **Each person gets a terminal of their own,** named `shell-<user id>`, because a terminal is a
-  turn with its opener's keys and GitHub identity. A keystroke into a closed terminal reconnects it.
+  turn with its opener's keys and GitHub identity. A keystroke into a closed terminal reconnects it,
+  and reattaching by name answers with one frame that is clear screen, cursor home, then the pane as
+  it stands, so a client feeds it as it is and never appends it to what it was showing. The shell
+  behind it survives a socket that disappears with no close frame, which is a laptop closing, and
+  does not survive the workspace restarting, which takes tmux with it; one closed socket looks the
+  same either way, so the app says the connection stopped rather than guessing at the shell, and the
+  redraw is what answers it. `reauth` swaps a token on a live socket, so a long session does not
+  break when one expires. Nothing is written into the stream to mark a reconnection: the clear
+  screen takes anything written there off the screen and out of the scrollback, which
+  `CloudTerminalProbe` measures, and is also why there is nothing stale for a new prompt to be
+  confused with.
 - **Left out of the first Cloud release on the Mac:** attaching files to a Cloud chat (the composer
   says so), Steer (a shared queue is first come, first served), and handing the queue back to the
   composer on Stop, since it may hold other people's messages. Edit on a queued prompt takes back

@@ -17,11 +17,18 @@ final class CloudTerminal {
         case idle
         case connecting
         case connected
-        /// The shell ended. **Not "disconnected", because it does not come back.** A machine that
-        /// restarts its runner takes the whole process group with it, tmux included, so the shell,
-        /// whatever it was running and its scrollback are gone; reattaching by name gets a new
-        /// shell rather than the old one. Measured on a machine rather than reasoned about.
-        case ended(String?)
+        /// The socket went away, which is **not** the same as the shell going away, and from here
+        /// there is no telling which happened.
+        ///
+        /// Both measured on a machine rather than reasoned about. A socket that disappears with no
+        /// close frame, which is a laptop closing, leaves the shell running: same pid afterwards,
+        /// and what it had written still on its pane. A machine that restarts its runner takes the
+        /// whole process group with it, tmux included, so that shell, whatever it was running and
+        /// its scrollback are gone and reattaching by name gets a new one. The client sees one
+        /// closed socket either way, so it says the connection stopped and does not guess at the
+        /// shell. What comes back says which it was: the machine's reattach frame is a redraw of
+        /// the pane as it stands, so it is either the work as it was left or a fresh prompt.
+        case dropped(String?)
         /// Refused: no terminal ability, or access went away. Reconnecting will not help.
         case refused(String)
     }
@@ -54,7 +61,7 @@ final class CloudTerminal {
         Task { [weak self] in
             guard let self else { return }
             guard let token = await session.sessionToken() else {
-                state = .ended("This Cloud workspace is not ready for a terminal yet.")
+                state = .dropped("This Cloud workspace is not ready for a terminal yet.")
                 return
             }
             guard token.allows("terminal") else {
@@ -79,7 +86,7 @@ final class CloudTerminal {
                 case .closed(let reason, let isRefusal):
                     self.socket = nil
                     self.refresher?.cancel()
-                    self.state = isRefusal ? .refused(reason ?? "The terminal was refused.") : .ended(reason)
+                    self.state = isRefusal ? .refused(reason ?? "The terminal was refused.") : .dropped(reason)
                 }
             }
         }
@@ -104,17 +111,6 @@ final class CloudTerminal {
         state = .idle
     }
 
-    /// Writes the line that says where the old shell stopped, so the new one's first prompt is not
-    /// read as the old one carrying on. A rule and a sentence, in the terminal's own stream, which
-    /// is the only place the two are in the same order as what happened.
-    private func noteEnded() {
-        guard case .ended = state else { return }
-        let columns = max(20, min(size.columns, 100))
-        let rule = String(repeating: "─", count: columns)
-        let note = "\r\n\u{1B}[2m\(rule)\r\nThis terminal ended when the Cloud workspace restarted. What follows is a new shell.\u{1B}[0m\r\n"
-        view.feed(byteArray: ArraySlice(Array(note.utf8)))
-    }
-
     /// Clears a refusal so the next connect tries again, for after sharing or a sign in changed.
     func retry() {
         if case .refused = state { state = .idle }
@@ -123,14 +119,18 @@ final class CloudTerminal {
 
     private func input(_ bytes: ArraySlice<UInt8>) {
         guard let socket else {
-            // A keystroke into an ended terminal is what starts a new one. The keystroke itself is
-            // not replayed: what comes back is a fresh shell rather than the one that ended, and a
-            // key pressed at a screen that was not there is not a key anybody meant.
+            // A keystroke into a dropped terminal is what reconnects it. The keystroke itself is
+            // not replayed: what comes back may be a fresh shell rather than the one that stopped,
+            // and a key pressed at a screen that was not there is not a key anybody meant.
             //
-            // What was on screen stays, because losing somebody's output helps nobody, so the
-            // boundary between the dead shell and the new one is drawn rather than implied. See
-            // `noteEnded`.
-            noteEnded()
+            // Nothing is written into the stream to mark the join, and that is measured rather
+            // than assumed. A rule and a sentence used to go here, so that a new shell's first
+            // prompt could not be read as the old one carrying on; the machine's reattach frame
+            // begins by clearing the screen, which took the line off the screen AND out of the
+            // scrollback every time. See `CloudTerminalProbe`. The clear is also what makes the
+            // line unnecessary: nothing of the old screen is left for a new prompt to be confused
+            // with. What has to be said is said in the pane's own strip, where the machine cannot
+            // erase it.
             connect()
             return
         }

@@ -9,12 +9,14 @@ struct CloudTerminalPane: View {
         let terminal = session.terminal
         VStack(spacing: 0) {
             switch terminal.state {
-            case .ended(let reason):
-                // "Ended" rather than "disconnected", because it does not come back: a machine
-                // that restarts takes the shell, its command and its scrollback with it. What
-                // typing gets is a new shell in the same workspace, and the pane says so.
+            case .dropped(let reason):
+                // What is said is the connection stopping, because that is the whole of what this
+                // Mac knows. The shell behind it survives a socket that disappears and does not
+                // survive the workspace restarting, and one closed socket looks the same either
+                // way: see `CloudTerminal.State.dropped`. Reconnecting answers it, since the
+                // machine redraws the pane as it stands.
                 CloudNoticeStrip(
-                    text: "This terminal ended\(reason.map { ": \($0)" } ?? "."). Type to start a new one."
+                    text: "This terminal disconnected\(reason.map { ": \($0)" } ?? "."). Type to reconnect."
                 ) {
                     terminal.connect()
                 }
