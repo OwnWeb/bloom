@@ -39,9 +39,17 @@ bloom_codesign_identity() {
 }
 
 # Says what the fallback costs, once, where the build says what it did.
+#
+# **A locked login keychain looks exactly like having no certificate.** `security
+# find-identity` reads the keychain, so a Mac whose keychain has not been unlocked
+# since boot answers with nothing and this falls silently back to ad-hoc, which is
+# the one case where the fallback is wrong rather than merely unfortunate: the
+# certificate is right there. That is why the note names it.
 bloom_codesign_note() {
   [[ "$1" == "-" ]] || return 0
-  print -r -- "==> ad-hoc signed: no Developer ID certificate on this Mac."
-  print -r -- "    Every build is a different application to the keychain, so the Bloom"
-  print -r -- "    account token has to be allowed again after each install."
+  print -r -- "==> ad-hoc signed: no Developer ID certificate was found on this Mac."
+  print -r -- "    Every build is then a different application to the keychain, so the"
+  print -r -- "    Bloom account token has to be allowed again after each install."
+  print -r -- "    If there is a certificate, the login keychain may be locked: unlock it"
+  print -r -- "    and build again for a signature the keychain will go on trusting."
 }
