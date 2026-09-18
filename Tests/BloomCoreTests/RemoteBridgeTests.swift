@@ -70,6 +70,11 @@ struct RemoteBridgeTests {
             sessionID: fixture.orchestrator.id, kind: .user, payload: payload("@sebdd this bit is yours"),
             audience: MessageAudience(kind: .person, userID: "user-seb", mention: "@sebdd")
         )
+        // **The message after the addressed one, with no audience at all.** This is the shape the
+        // feature is actually about: the address stuck for one message, the next one went to the
+        // agent as normal, and the agent still never saw the one in between.
+        _ = try await fixture.store.appendNext(sessionID: fixture.orchestrator.id, kind: .user,
+                                               payload: payload("carry on"))
 
         let toolbox = fixture.runtime.bridgeToolbox()
         let handler = try #require(toolbox.handler(named: "chat_read", for: .workspace))
@@ -81,7 +86,9 @@ struct RemoteBridgeTests {
         )
 
         #expect(answer.text.contains("for the agent"))
+        #expect(answer.text.contains("carry on"))
         #expect(!answer.text.contains("this bit is yours"))
+        #expect(!answer.text.contains("@sebdd"))
         // And nothing says a message was left out: a marker invites the agent to ask what it missed.
         #expect(!answer.text.lowercased().contains("hidden"))
         await fixture.runtime.shutdown()

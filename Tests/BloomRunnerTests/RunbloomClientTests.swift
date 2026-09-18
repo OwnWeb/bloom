@@ -46,6 +46,36 @@ struct RunbloomClientTests {
         }
     }
 
+    /// The body runbloom.app actually answers with, written out rather than re-encoded, because
+    /// what is being tested is that the two sides agree about the shape.
+    @Test func membersAreReadWithTheirHandles() async throws {
+        try await Self.withFake { fake, client in
+            fake.membersBody = """
+            {"members": [
+              {"user_id": "01k5bx7j9d3v2r8q6m4n0p1s2t", "name": "Freek Van der Herten", "handle": "freek"},
+              {"user_id": "01k5bx7j9d3v2r8q6m4n0p1s2u", "name": "Sebastian De Deyne", "handle": "sebdd"}
+            ]}
+            """
+            let members = try await client.members()
+
+            #expect(members.map(\.handle) == ["freek", "sebdd"])
+            #expect(members.first?.userID == "01k5bx7j9d3v2r8q6m4n0p1s2t")
+            #expect(members.first?.name == "Freek Van der Herten")
+            let request = try #require(fake.requests.first)
+            #expect(request.method == "GET")
+            #expect(request.path == "/members")
+        }
+    }
+
+    /// A team with nobody in it yet, and a machine that has never asked, must not look the same.
+    @Test func anEmptyMemberListIsStillAnAnswer() async throws {
+        try await Self.withFake { fake, client in
+            fake.membersBody = #"{"members": []}"#
+            let members = try await client.members()
+            #expect(members.isEmpty)
+        }
+    }
+
     @Test func aTurnIsRegisteredWithTheTokenChatAndAgent() async throws {
         try await Self.withFake { fake, client in
             let turn = try await client.registerTurn(kind: .turn, chatID: "chat-1", agent: .claudeCode, sessionToken: "jwt.for.prompter")

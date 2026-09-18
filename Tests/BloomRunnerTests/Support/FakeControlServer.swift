@@ -30,6 +30,12 @@ final class FakeControlServer: Sendable {
 
         static let noContent = Scripted(status: 204, body: nil)
 
+        /// A body written out as it arrives on the wire, for a test about a shape rather than a
+        /// value: re-encoding it here would test this fake's encoder.
+        static func raw(_ status: Int, _ body: String) -> Scripted {
+            Scripted(status: status, body: body)
+        }
+
         static func json(_ status: Int, _ object: [String: Any]) -> Scripted {
             let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
             return Scripted(status: status, body: String(decoding: data, as: UTF8.self))
@@ -65,6 +71,7 @@ final class FakeControlServer: Sendable {
         var requests: [RecordedRequest] = []
         var jwks: Data?
         var environment: [String: String] = [:]
+        var membersBody = #"{"members": []}"#
         var starts: [String: Scripted] = [:]
         var defaultStart = Scripted.grant()
         var scripted: [String: [Scripted]] = [:]
@@ -147,6 +154,13 @@ final class FakeControlServer: Sendable {
         set { state.withLock { $0.environment = newValue } }
     }
 
+    /// The members answer as runbloom.app writes it, set by a test as raw JSON so the shape is the
+    /// one being tested rather than one this fake re-encodes.
+    var membersBody: String {
+        get { state.withLock { $0.membersBody } }
+        set { state.withLock { $0.membersBody = newValue } }
+    }
+
     /// How `start` answers for this turn, every time it is asked.
     func setStart(turnID: String, response: Scripted) {
         state.withLock { $0.starts[turnID] = response }
@@ -210,6 +224,10 @@ final class FakeControlServer: Sendable {
             return .noContent
         case ("GET", ["environment"]):
             return .json(200, ["environment": environment])
+        case ("GET", ["members"]):
+            return .raw(200, membersBody)
+        case ("POST", ["addressed"]):
+            return .json(200, ["ok": true])
         case ("POST", ["turns"]):
             let number = state.withLock { state in
                 state.turnsRegistered += 1
