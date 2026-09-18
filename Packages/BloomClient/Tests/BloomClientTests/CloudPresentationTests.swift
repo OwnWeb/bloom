@@ -47,6 +47,27 @@ import Testing
         #expect(CloudWorkspaceStatus(item: awake) == .idle)
     }
 
+    /// **A spinner that outlived its turn.** runbloom.app's summary said `running`, the turn ended
+    /// on the machine, and nothing told the summary: the sidebar span beside a conversation that
+    /// had already answered. The stream carried the event that ended it, so while the stream is
+    /// open the stream is believed.
+    @Test func aLiveMachineOutranksAStaleSummary() {
+        let item = CloudWorkspaceItem(id: "a", teamID: "t", name: "n", branch: "b", state: "running")
+        #expect(CloudWorkspaceStatus(item: item) == .running, "the poll still says so")
+        #expect(CloudWorkspaceStatus(item: item, activity: .idle) == .asleep || CloudWorkspaceStatus(item: item, activity: .idle) == .idle)
+        #expect(CloudSidebarMark.name(for: item, activity: .idle) != "running")
+        #expect(CloudSidebarMark.name(for: item, activity: nil) == "running", "no stream, no opinion")
+    }
+
+    /// And the other direction: a machine that has started a turn the poll has not seen yet says so
+    /// at once rather than a poll's interval later.
+    @Test func aLiveMachineIsBelievedBeforeTheSummaryCatchesUp() {
+        let item = CloudWorkspaceItem(id: "a", teamID: "t", name: "n", branch: "b", state: "idle")
+        #expect(CloudSidebarMark.name(for: item, activity: .running) == "running")
+        #expect(CloudSidebarMark.name(for: item, activity: .settingUp(step: "clone")) == "settingUp")
+        #expect(CloudSidebarMark.name(for: item, activity: .waiting(kind: "permission")) == "awaitingPermission")
+    }
+
     @Test func setupSaysWhichStep() {
         let item = CloudWorkspaceItem(id: "a", teamID: "t", name: "n", branch: "b", state: "setting_up",
                                       summary: CloudWorkspaceSummary(setup: .init(state: "running", step: "prepare")))

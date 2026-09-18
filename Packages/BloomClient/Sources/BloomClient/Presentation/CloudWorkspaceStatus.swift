@@ -20,6 +20,50 @@ public enum CloudWorkspaceStatus: Sendable, Hashable {
     case asleep
     case archiving
 
+    /// What the machine itself is doing, for a workspace whose connection is open.
+    ///
+    /// **Two witnesses, and this one wins while it is listening.** runbloom.app's summary is a poll:
+    /// it said `running` for a turn that had already finished and nothing told it otherwise, so the
+    /// owner watched a sidebar spinner beside a conversation that had answered him and gone quiet.
+    /// The machine's own stream knows the turn ended because it carried the event that ended it.
+    ///
+    /// Only the activity is taken from it. Whether there is a pull request, whether anybody has
+    /// read the last turn and whether the branch has changes are the summary's to answer, because
+    /// they are true of a workspace nobody has open and the stream says nothing about them.
+    public enum Activity: Sendable, Hashable {
+        case running
+        case waiting(kind: String)
+        case settingUp(step: String?)
+        case idle
+    }
+
+    /// The status as the machine's own stream tells it, with the summary answering everything the
+    /// stream does not. Nil activity is a workspace nobody has open, which is the poll's to
+    /// describe alone.
+    public init(item: CloudWorkspaceItem, activity: Activity?) {
+        guard let activity else {
+            self.init(item: item)
+            return
+        }
+        switch activity {
+        case .running: self = .running
+        case .waiting(let kind): self = .waiting(kind: kind)
+        case .settingUp(let step): self = .settingUp(step: step)
+        case .idle:
+            // The machine says nothing is happening, so the row falls to what the workspace IS
+            // rather than to what the poll last saw it doing. Archiving and the refusals stay the
+            // summary's, because they are runbloom.app's own facts and the machine does not carry
+            // them.
+            switch item.state {
+            case "archiving", "archived": self = .archiving
+            case "blocked": self = .blocked
+            case "setup_failed": self = .setupFailed
+            case "error": self = .error
+            default: self = item.isAwake ? .idle : .asleep
+            }
+        }
+    }
+
     public init(item: CloudWorkspaceItem) {
         switch item.state {
         case "setting_up": self = .settingUp(step: item.summary?.setup?.step)
@@ -84,8 +128,8 @@ public enum CloudWorkspaceStatus: Sendable, Hashable {
 /// has to be the same rule or one column says two things. The app turns the name into the value
 /// with `WorkspaceStatus(rawValue:)`, which is what the name is taken from.
 public enum CloudSidebarMark {
-    public static func name(for item: CloudWorkspaceItem) -> String {
-        switch CloudWorkspaceStatus(item: item) {
+    public static func name(for item: CloudWorkspaceItem, activity: CloudWorkspaceStatus.Activity? = nil) -> String {
+        switch CloudWorkspaceStatus(item: item, activity: activity) {
         case .settingUp, .stopping, .archiving: "settingUp"
         // Held by a team limit is nothing running and nothing about to, until somebody raises it:
         // the shape of a setup that failed rather than of an idle row.

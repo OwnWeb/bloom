@@ -17,7 +17,7 @@ extension WorkspaceStatus {
     /// The precedence is `CloudSidebarMark`'s, beside the records and under test; this is the one
     /// line that turns its answer back into the type. A name this version does not know reads as
     /// a workspace with nothing to say rather than as no row at all.
-    init(cloudItem item: CloudWorkspaceItem) {
-        self = WorkspaceStatus(rawValue: CloudSidebarMark.name(for: item)) ?? .clean
+    init(cloudItem item: CloudWorkspaceItem, activity: CloudWorkspaceStatus.Activity? = nil) {
+        self = WorkspaceStatus(rawValue: CloudSidebarMark.name(for: item, activity: activity)) ?? .clean
     }
 }

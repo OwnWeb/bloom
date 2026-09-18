@@ -17,14 +17,26 @@ struct CloudWorkspaceRow: View {
     /// the conversation goes with it. See `CloudArchiveSheet`.
     var onArchive: () -> Void = {}
 
+    @Environment(AppModel.self) private var app
     @Environment(\.backgroundProminence) private var backgroundProminence
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
+    /// What the machine says it is doing, while its stream is open to say. Nil sends both readings
+    /// below back to runbloom.app's poll, which is all there is for a workspace nobody has open.
+    ///
+    /// **This is the fix for a spinner that outlived its turn.** The poll had said `running`, the
+    /// turn ended on the machine, and nothing told the poll: the row span beside a conversation
+    /// that had already answered him. Two witnesses, and the one that carried the event that ended
+    /// the turn is the one to believe. See `CloudWorkspaceSession.sidebarActivity`.
+    private var activity: CloudWorkspaceStatus.Activity? {
+        app.cloud.existingSession(for: CloudWorkspaceID(item.id))?.sidebarActivity
+    }
+
     /// What the machine is doing, in the sentence VoiceOver reads for the row.
-    private var status: CloudWorkspaceStatus { CloudWorkspaceStatus(item: item) }
+    private var status: CloudWorkspaceStatus { CloudWorkspaceStatus(item: item, activity: activity) }
     /// The same fact in the sidebar's own vocabulary, for the mark. See `CloudSidebarMark`.
-    private var mark: WorkspaceStatus { WorkspaceStatus(cloudItem: item) }
+    private var mark: WorkspaceStatus { WorkspaceStatus(cloudItem: item, activity: activity) }
 
     private var isEmphasized: Bool { backgroundProminence == .increased }
 

@@ -42,4 +42,25 @@ extension CloudWorkspaceSession: WorkspaceSurface {
     var isRunning: Bool {
         state.chats.values.contains { $0.isRunning }
     }
+
+    /// What this machine is doing, for the sidebar, or nil while there is no live stream to say.
+    ///
+    /// **Nil is the honest answer for a connection that is not listening**, and it is what sends
+    /// the row back to runbloom.app's poll. A workspace nobody has open is the poll's to describe;
+    /// one whose stream is open is described by the stream, because the poll said `running` for a
+    /// turn that had already ended and nothing told it otherwise. See `CloudWorkspaceStatus.init`.
+    var sidebarActivity: CloudWorkspaceStatus.Activity? {
+        guard phase == .live else { return nil }
+        if let setup = state.setup, ["pending", "running"].contains(setup.state) {
+            return .settingUp(step: setup.step)
+        }
+        // The kind a question is drawn as is the summary's word for it, and the stream carries the
+        // ask itself rather than a label, so what the stream answers is that there IS one. The
+        // summary's kind is used when it has one, which keeps the row's sentence what it was.
+        if state.chats.values.contains(where: { !$0.questions.isEmpty }) {
+            return .waiting(kind: cloud.item(id)?.summary?.waiting?.kind ?? "question")
+        }
+        if isRunning { return .running }
+        return .idle
+    }
 }
