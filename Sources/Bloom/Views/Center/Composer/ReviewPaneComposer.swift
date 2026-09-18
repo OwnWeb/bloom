@@ -40,7 +40,6 @@ struct ReviewPaneComposer<Model: WorkspaceSurface>: View {
 
     private func choose(_ id: SessionID) {
         guard model.reviewDestinationID != id else { return }
-        var model = model
         model.reviewDestinationID = id
         model.prepareTranscript(for: id)
     }
