@@ -80,7 +80,8 @@ SCOPE = {"enum": ["branch", "uncommitted", "staged", "unstaged"]}
 OPERATIONS = {
     "workspace": plain(),
     "transcript": plain({"chat_id": S, "after_seq": I}, {"limit": I}),
-    "composer": plain({"chat_id": S}),
+    # No `chat_id` asks what a chat that does not exist yet would start with.
+    "composer": plain({}, {"chat_id": S}),
     "setup_output": plain(),
     "files": plain(),
     "history": plain({}, {"limit": I, "before": S}),
@@ -198,8 +199,8 @@ RECORDS = {
                              "output_style": S, "codex_context_window": I}, {"codex_fast_mode": B}),
     "Model": obj({"agent": S, "id": S, "label": S, "efforts": array(S), "is_default": B}, {"default_effort": S}),
     "SlashCommand": obj({"name": S, "description": S}),
-    "Composer": obj({"chat_id": S, "controls": ref("ComposerControls"), "available_agents": array(S), "models": array(ref("Model")),
-                     "commands": array(ref("SlashCommand")), "output_styles": array(S)}),
+    "Composer": obj({"controls": ref("ComposerControls"), "available_agents": array(S), "models": array(ref("Model")),
+                     "commands": array(ref("SlashCommand")), "output_styles": array(S)}, {"chat_id": S}),
     "ChangedFile": obj({"path": S, "change": {"enum": ["added", "modified", "deleted", "renamed", "copied", "untracked"]},
                         "additions": I, "deletions": I, "is_binary": B},
                        {"old_path": S, "content_revision": S,
@@ -221,7 +222,8 @@ RECORDS = {
     "RunScript": obj({"id": S, "name": S, "command": S}),
     "Terminal": obj({"name": S, "title": S}),
     "Presence": obj({"user_id": S, "name": S}, {"last_input_at": DATE}),
-    "WorkspaceSnapshot": obj({"workspace": ref("Workspace"), "chats": array(ref("Chat")), "presence": array(ref("Presence")), "cursor": I}),
+    "WorkspaceSnapshot": obj({"workspace": ref("Workspace"), "chats": array(ref("Chat")), "presence": array(ref("Presence")),
+                              "cursor": I, "composer_defaults": ref("ComposerControls")}),
 }
 
 

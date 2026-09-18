@@ -13,7 +13,9 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     // Reading the workspace
     case workspace
     case transcript(chatID: String, afterSeq: Int, limit: Int?)
-    case composer(chatID: String)
+    /// A chat's composer, or with no `chat_id` what a chat that does not exist yet would start
+    /// with, together with the choices a client can offer before making one.
+    case composer(chatID: String?)
     case setupOutput
     case files
     case file(path: String)
@@ -147,7 +149,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case "transcript":
             self = .transcript(chatID: try c.decode(String.self, forKey: .chatID), afterSeq: try c.decodeIfPresent(Int.self, forKey: .afterSeq) ?? -1,
                                limit: try c.decodeIfPresent(Int.self, forKey: .limit))
-        case "composer": self = .composer(chatID: try c.decode(String.self, forKey: .chatID))
+        case "composer": self = .composer(chatID: try c.decodeIfPresent(String.self, forKey: .chatID))
         case "setup_output": self = .setupOutput
         case "files": self = .files
         case "history":
@@ -212,7 +214,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .workspace, .setupOutput, .files, .runScripts, .notes, .pullRequest, .archivePreview, .push, .runSetup: break
         case .transcript(let chatID, let afterSeq, let limit):
             try c.encode(chatID, forKey: .chatID); try c.encode(afterSeq, forKey: .afterSeq); try c.encodeIfPresent(limit, forKey: .limit)
-        case .composer(let chatID), .closeChat(let chatID), .stop(let chatID): try c.encode(chatID, forKey: .chatID)
+        case .composer(let chatID): try c.encodeIfPresent(chatID, forKey: .chatID)
+        case .closeChat(let chatID), .stop(let chatID): try c.encode(chatID, forKey: .chatID)
         case .file(let path), .download(let path): try c.encode(path, forKey: .path)
         case .history(let limit, let before):
             try c.encodeIfPresent(limit, forKey: .limit); try c.encodeIfPresent(before, forKey: .before)

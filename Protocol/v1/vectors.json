@@ -319,6 +319,53 @@
       },
       "version" : 1
     },
+    "composer_for_a_new_chat" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "composer" : {
+          "available_agents" : [
+            "claude",
+            "codex"
+          ],
+          "commands" : [
+            {
+              "description" : "Review the branch",
+              "name" : "review"
+            }
+          ],
+          "controls" : {
+            "agent" : "claude",
+            "codex_context_window" : 0,
+            "effort" : "high",
+            "fast_mode" : false,
+            "interaction_mode" : "build",
+            "model" : "claude-opus-5",
+            "output_style" : "default",
+            "permission_mode" : "acceptEdits"
+          },
+          "models" : [
+            {
+              "agent" : "codex",
+              "default_effort" : "medium",
+              "efforts" : [
+                "low",
+                "medium",
+                "high"
+              ],
+              "id" : "gpt-5.5",
+              "is_default" : true,
+              "label" : "GPT-5.5"
+            }
+          ],
+          "output_styles" : [
+            "default",
+            "Explanatory"
+          ]
+        },
+        "kind" : "composer"
+      },
+      "version" : 1
+    },
     "download" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "result" : {
@@ -619,6 +666,16 @@
               "updated_at" : "2026-09-17T09:40:02.500Z"
             }
           ],
+          "composer_defaults" : {
+            "agent" : "claude",
+            "codex_context_window" : 0,
+            "effort" : "high",
+            "fast_mode" : false,
+            "interaction_mode" : "build",
+            "model" : "claude-opus-5",
+            "output_style" : "default",
+            "permission_mode" : "acceptEdits"
+          },
           "cursor" : 118,
           "presence" : [
             {
@@ -781,6 +838,14 @@
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
         "chat_id" : "chat-1",
+        "kind" : "composer"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "composer_for_a_new_chat" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
         "kind" : "composer"
       },
       "protocol" : "bloom-workspace",

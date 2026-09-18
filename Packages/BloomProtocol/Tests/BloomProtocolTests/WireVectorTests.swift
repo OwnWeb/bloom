@@ -112,6 +112,7 @@ enum WireExamples {
         ("workspace", .workspace),
         ("transcript", .transcript(chatID: "chat-1", afterSeq: 3, limit: 200)),
         ("composer", .composer(chatID: "chat-1")),
+        ("composer_for_a_new_chat", .composer(chatID: nil)),
         ("setup_output", .setupOutput),
         ("files", .files),
         ("history", .history(limit: 50, before: nil)),
@@ -159,10 +160,16 @@ enum WireExamples {
     static let results: [(String, OperationResult)] = [
         ("accepted", .accepted),
         ("workspace", .workspace(WorkspaceSnapshotRecord(workspace: workspace, chats: [chat],
-                                                          presence: [PresenceRecord(userID: author.userID, name: author.name, lastInputAt: date)], cursor: 118))),
+                                                          presence: [PresenceRecord(userID: author.userID, name: author.name, lastInputAt: date)], cursor: 118,
+                                                          composerDefaults: controls))),
         ("transcript", .transcript(TranscriptRecord(chat: chat, messages: [message], hasMore: false, questions: [question], busy: true,
                                                     streamingText: "Running", queue: queue))),
         ("composer", .composer(ComposerRecord(chatID: "chat-1", controls: controls, availableAgents: ["claude", "codex"],
+            models: [ModelRecord(agent: "codex", id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium", isDefault: true)],
+            commands: [SlashCommandRecord(name: "review", description: "Review the branch")], outputStyles: ["default", "Explanatory"]))),
+        // The same answer about a chat nobody has made yet, which is what `composer` with no
+        // `chat_id` asks: no `chat_id` comes back either.
+        ("composer_for_a_new_chat", .composer(ComposerRecord(chatID: nil, controls: controls, availableAgents: ["claude", "codex"],
             models: [ModelRecord(agent: "codex", id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium", isDefault: true)],
             commands: [SlashCommandRecord(name: "review", description: "Review the branch")], outputStyles: ["default", "Explanatory"]))),
         ("setup_output", .setupOutput(SetupOutputRecord(setup: SetupRecord(state: "running", step: "setup", startedAt: date), log: "Installing\n"))),

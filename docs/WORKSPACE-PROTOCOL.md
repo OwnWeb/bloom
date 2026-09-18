@@ -99,9 +99,9 @@ Reading (ability `view`):
 
 | Kind | Fields | Result |
 | --- | --- | --- |
-| `workspace` | | `workspace`: the workspace, its chats, who is present, and the newest transcript `cursor` |
+| `workspace` | | `workspace`: the workspace, its chats, who is present, the newest transcript `cursor`, and `composer_defaults` |
 | `transcript` | `chat_id`, `after_seq` (-1 for the start), `limit` (at most 500) | `transcript`: rows after `after_seq`, `has_more`, questions, `busy`, `streaming_text`, the queue |
-| `composer` | `chat_id` | `composer`: its controls, the agents installed on the machine, models, slash commands, output styles |
+| `composer` | `chat_id`, or none for a chat that does not exist yet | `composer`: its controls, the agents installed on the machine, models, slash commands, output styles |
 | `setup_output` | | `setup_output`: setup's state and the whole log so far |
 | `files` | | `files`: every path git tracks or would track |
 | `file` | `path` | `file`: text and `revision` |
@@ -232,6 +232,15 @@ events. Then live events as they happen.
 | `workspace` | name, branch, pull request, `reporting` | replaces its copy |
 | `sleeping` | nothing | see "Sleeping and waking" |
 | `closing` | a failure | the stream ends; act on the code |
+
+**A client never has to guess what a new chat starts with.** `composer_defaults` on the workspace
+snapshot is what a chat that does not exist yet would open on, as the machine answers it: the
+repository's own settings file, then the built-in fallbacks, with the backend moved to one this
+machine actually runs. Reading it is how the first chat in a workspace is opened on the right values
+rather than on a client's idea of them. `composer` with **no** `chat_id` answers the same values
+with the choices beside them (agents, models, slash commands, output styles), which is what a create
+window needs to let somebody change them before anything exists; that answer carries no `chat_id`
+either. Both come from one place on the machine, so they cannot disagree.
 
 **`reporting` on the workspace record is the machine saying it cannot reach runbloom.app.** It is
 absent almost always, and present with `unreachable_since` (when contact was lost) and `shed` (how

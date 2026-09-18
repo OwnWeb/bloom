@@ -601,9 +601,6 @@
     "Composer": {
       "type": "object",
       "properties": {
-        "chat_id": {
-          "type": "string"
-        },
         "controls": {
           "$ref": "#/$defs/ComposerControls"
         },
@@ -630,11 +627,20 @@
           "items": {
             "type": "string"
           }
+        },
+        "chat_id": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "available_agents",
-        "chat_id",
         "commands",
         "controls",
         "models",
@@ -1071,10 +1077,14 @@
         },
         "cursor": {
           "type": "integer"
+        },
+        "composer_defaults": {
+          "$ref": "#/$defs/ComposerControls"
         }
       },
       "required": [
         "chats",
+        "composer_defaults",
         "cursor",
         "presence",
         "workspace"
@@ -1132,11 +1142,17 @@
               "const": "composer"
             },
             "chat_id": {
-              "type": "string"
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
-            "chat_id",
             "kind"
           ],
           "additionalProperties": false

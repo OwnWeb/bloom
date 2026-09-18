@@ -98,11 +98,28 @@ public struct WorkspaceSnapshotRecord: Codable, Sendable, Hashable {
     /// The newest transcript cursor at the time of reading, so a client can open the event stream
     /// from exactly here without missing or repeating a row.
     public var cursor: Int64
+    /// **What a chat that does not exist yet would start with**, as the machine would answer it.
+    ///
+    /// Without this the first chat in a workspace is always started from a guess: `new_chat`
+    /// requires `controls`, and `composer` can only be asked about a chat that already has an id.
+    /// Two clients guessed differently, which is how a protocol drifts. It is here rather than
+    /// behind a call of its own because it arrives with everything else a client already reads and
+    /// costs no round trip; the choices to go with it (models, commands, output styles) stay on
+    /// `composer`, because discovering those costs a subprocess and a walk of the filesystem and
+    /// this record is read on every connect.
+    public var composerDefaults: ComposerControlsRecord
 
-    public init(workspace: WorkspaceRecord, chats: [ChatRecord], presence: [PresenceRecord], cursor: Int64) {
+    public init(workspace: WorkspaceRecord, chats: [ChatRecord], presence: [PresenceRecord], cursor: Int64,
+                composerDefaults: ComposerControlsRecord) {
         self.workspace = workspace
         self.chats = chats
         self.presence = presence
         self.cursor = cursor
+        self.composerDefaults = composerDefaults
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case workspace, chats, presence, cursor
+        case composerDefaults = "composer_defaults"
     }
 }

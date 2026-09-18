@@ -14,7 +14,46 @@ extension WorkspaceRuntime {
             chats.append(session.record(lastSeq: try await store.nextSeq(sessionID: session.id) - 1))
         }
         return WorkspaceSnapshotRecord(workspace: workspace.record(setup: setupRecord(workspace), reporting: reporting), chats: chats,
-                                       presence: presence.records, cursor: cursor)
+                                       presence: presence.records, cursor: cursor,
+                                       composerDefaults: try await newChatControls().record)
+    }
+
+    /// What a chat that does not exist yet would start with, as this machine would answer it.
+    ///
+    /// **A client cannot work this out.** `new_chat` requires the controls, `composer` used to
+    /// require a chat, and neither the repository's settings file nor the list of agents actually
+    /// installed on the machine is visible from the other side of the network. Two clients guessed
+    /// differently, one from a pinned wire vector and one from the Mac's own settings, which is
+    /// exactly how a protocol drifts.
+    ///
+    /// **Only the repository's files are read**, never the machine's home directory ones, for the
+    /// reason `RemoteProjectSettings` gives about scripts: on a server the home directory belongs
+    /// to the image rather than to anybody, so a `~/.bloom/settings.toml` that happens to be in it
+    /// must not decide what a person's chats open on. Above the repository sits nothing but the
+    /// built-in fallbacks, because the Settings screen those rules layer in is on a Mac and there
+    /// is no Mac here.
+    func newChatControls() async throws -> ComposerControls {
+        let workspace = try await workspace()
+        var repo = SettingsLoader.load(repo: workspace.path)
+        repo.homeDefaultModel = nil
+        repo.homeDefaultEffort = nil
+        var defaults = ComposerDefaults.resolve(repo: repo, app: AppDefaults())
+        let installed = await installedAgents()
+        // A default naming an agent this machine does not run would be a default nothing can start,
+        // and `new_chat` would refuse it. The model has to move with the backend, so it comes from
+        // what the machine lists for the agent it lands on; that costs a subprocess, and only this
+        // branch pays it.
+        if !installed.isEmpty, !installed.contains(defaults.backend), let fallback = installed.first {
+            defaults.backend = fallback
+            defaults.permissionMode = defaults.permissionMode.nearest(on: fallback)
+            defaults.interactionMode = defaults.interactionMode.nearest(on: fallback)
+            let listed = await models(workspace.path).filter { $0.agent == fallback.wireName }
+            if let chosen = listed.first(where: \.isDefault) ?? listed.first {
+                defaults.model = chosen.id
+                defaults.effort = chosen.defaultEffort ?? chosen.efforts.first ?? defaults.effort
+            }
+        }
+        return ComposerControls(defaults: defaults, isFastMode: false, outputStyle: OutputStyle.defaultName)
     }
 
     func setupRecord(_ workspace: Workspace) -> SetupRecord {
@@ -93,13 +132,20 @@ extension WorkspaceRuntime {
         )
     }
 
-    func composer(_ chatID: String) async throws -> ComposerRecord {
-        let session = try await storedSession(try chatID.sessionID)
+    /// A chat's composer, or the one a new chat would get when `chatID` is nil. The choices are the
+    /// same either way; only where the values come from differs.
+    func composer(_ chatID: String?) async throws -> ComposerRecord {
+        let controls: ComposerControls
+        if let chatID {
+            controls = try await self.controls(for: try await storedSession(try chatID.sessionID))
+        } else {
+            controls = try await newChatControls()
+        }
         let workspace = try await workspace()
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return ComposerRecord(
             chatID: chatID,
-            controls: try await controls(for: session).record,
+            controls: controls.record,
             availableAgents: await installedAgents().map(\.wireName),
             models: await models(workspace.path),
             commands: SlashCommandIndex.discover(home: home, project: workspace.path).map { SlashCommandRecord(name: $0.name, description: $0.detail) },

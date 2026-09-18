@@ -43,8 +43,13 @@ public struct ComposerControlsRecord: Codable, Sendable, Hashable {
 }
 
 /// A chat's composer and the choices the server can offer it.
+///
+/// `chatID` is absent when this answers `composer` with no `chat_id`, which asks what a chat that
+/// does not exist yet would start with. A client that wants to offer the choices before anything is
+/// created reads that; a client that only wants the values has them on the workspace snapshot
+/// already.
 public struct ComposerRecord: Codable, Sendable, Hashable {
-    public var chatID: String
+    public var chatID: String?
     public var controls: ComposerControlsRecord
     /// The agents installed on this machine that can run a chat.
     public var availableAgents: [String]
@@ -52,7 +57,7 @@ public struct ComposerRecord: Codable, Sendable, Hashable {
     public var commands: [SlashCommandRecord]
     public var outputStyles: [String]
 
-    public init(chatID: String, controls: ComposerControlsRecord, availableAgents: [String], models: [ModelRecord], commands: [SlashCommandRecord], outputStyles: [String]) {
+    public init(chatID: String?, controls: ComposerControlsRecord, availableAgents: [String], models: [ModelRecord], commands: [SlashCommandRecord], outputStyles: [String]) {
         self.chatID = chatID
         self.controls = controls
         self.availableAgents = availableAgents
