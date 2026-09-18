@@ -178,7 +178,7 @@ extension WorkspaceRuntime {
             }
             let name = "script-" + UUID().uuidString.lowercased().prefix(8)
             // tmux runs it as the session's command; typing it in raced the shell's own start.
-            let attachment = try await terminals().attach(name: String(name), owner: caller.author?.userID, command: script.command)
+            let attachment = try await terminals().attach(name: String(name), owner: caller.author?.userID, runScript: script.command)
             await attachment.close()
             return .terminal(TerminalRecord(name: String(name), title: script.name))
         case .closeTerminal(let name):

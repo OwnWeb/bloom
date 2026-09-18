@@ -57,7 +57,7 @@ public actor RemoteTerminals {
     /// else attaching by name would act as them. `owner` nil is the server's own, such as the
     /// shell a run script is typed into, which anybody may open.
     @discardableResult
-    /// `command` is run by tmux as the session's own command when the session is created, with a
+    /// `runScript` is run by tmux as the session's own command when the session is created, with a
     /// login shell left behind it.
     ///
     /// **Not typed into the shell.** A run script used to be sent as keystrokes the moment the
@@ -67,7 +67,7 @@ public actor RemoteTerminals {
     /// not run. Measured on a Sprite with a three second `.bashrc`. Handing the command to tmux
     /// removes the race rather than waiting longer for it.
     public func ensureSession(name: String, environment: [String: String] = [:], owner: String? = nil,
-                              personal: Set<String> = [], command runScript: String? = nil) async throws -> String {
+                              personal: Set<String> = [], runScript: String? = nil) async throws -> String {
         guard !closed else { throw RemoteFailure.shuttingDown }
         try Self.validate(name: name)
         for key in environment.keys where !Self.isValidVariableName(key) {
@@ -144,10 +144,10 @@ public actor RemoteTerminals {
     /// Attaches to a terminal, creating its session first when there is none.
     public func attach(
         name: String, environment: [String: String] = [:], owner: String? = nil, personal: Set<String> = [],
-        command runScript: String? = nil, columns: Int = 80, rows: Int = 24
+        runScript: String? = nil, columns: Int = 80, rows: Int = 24
     ) async throws -> RemoteTerminalAttachment {
         let session = try await ensureSession(name: name, environment: environment, owner: owner, personal: personal,
-                                              command: runScript)
+                                              runScript: runScript)
         guard !closed else { throw RemoteFailure.shuttingDown }
         guard attachments.count < Self.attachmentLimit else {
             throw RemoteFailure(.unavailable, "Too many terminal connections are open.")

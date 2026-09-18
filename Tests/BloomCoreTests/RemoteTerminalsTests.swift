@@ -164,7 +164,7 @@ struct RemoteTerminalsTests {
         let terminals = RemoteTerminals(workspaceID: WorkspaceID("fixture"), worktree: repo.path, databasePath: databasePath)
         do {
             let marker = repo.path + "/ran.txt"
-            let attachment = try await terminals.attach(name: "script", owner: "freek", command: "printf ran > \(marker)")
+            let attachment = try await terminals.attach(name: "script", owner: "freek", runScript: "printf ran > \(marker)")
             await attachment.close()
             await waitUntil("the run script ran", within: .seconds(20)) {
                 FileManager.default.fileExists(atPath: marker)

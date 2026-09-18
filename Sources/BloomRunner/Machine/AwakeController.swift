@@ -28,20 +28,28 @@ public actor AwakeController {
     private let reporter: MachineReporter
     private let now: @Sendable () -> Date
 
-    private(set) var holding = false
+    /// Where the machine is in holding itself awake. One value rather than four flags, because the
+    /// flags could say two things at once: holding and shut down, releasing with `released` still
+    /// owed. Every transition below reads and writes this and nothing else.
+    enum Phase: Equatable {
+        /// No hold, and nothing owed to runbloom.app.
+        case asleep
+        /// A hold is taken, `awake` is recorded, and a `released` is owed.
+        case awake
+        /// `released` is recorded and the last reports are going out; the hold is still held.
+        case releasing
+        /// Final. Nothing is held after this and no report is sent.
+        case shutDown
+    }
+
+    private(set) var phase: Phase = .asleep
+    var holding: Bool { phase == .awake || phase == .releasing }
     private var lastRenewal: Date?
     private var lastUsageReport: Date?
     private var lastSample: Date?
     private var lastStreamClosedAt: Date?
     private var openStreams = 0
     private var loop: Task<Void, Never>?
-    private var releasing = false
-    /// Apart from `releasing`, because a release in flight ends by clearing that, and shutdown
-    /// must stay shut.
-    private var isShutDown = false
-    /// Whether `released` has been reported since the last hold, because runbloom.app adds its
-    /// margin once per `released` and a second one for the same pause would bill it twice.
-    private var releaseReported = true
     private var onWake: @Sendable () async -> Void = {}
 
     public init(host: any MachineHost, runtime: WorkspaceRuntime, reporter: MachineReporter, now: @escaping @Sendable () -> Date = Date.init) {
@@ -87,7 +95,7 @@ public actor AwakeController {
     func tick() async {
         // A tick that was already running when shutdown began must not send a report after the
         // final one, which would leave runbloom.app's last word from this boot without `released`.
-        guard loop != nil, !releasing, !isShutDown else { return }
+        guard loop != nil, phase != .releasing, phase != .shutDown else { return }
         let date = now()
         if lastSample.map({ date.timeIntervalSince($0) >= RemoteUsageMeter.sampleInterval }) ?? true {
             lastSample = date
@@ -99,7 +107,7 @@ public actor AwakeController {
             }
         }
         guard loop != nil else { return }
-        if holding, lastUsageReport.map({ date.timeIntervalSince($0) >= Self.usageReportInterval }) ?? true {
+        if phase == .awake, lastUsageReport.map({ date.timeIntervalSince($0) >= Self.usageReportInterval }) ?? true {
             lastUsageReport = date
             await reporter.sendUsage(includingDisk: false)
         }
@@ -107,12 +115,12 @@ public actor AwakeController {
     }
 
     func evaluate() async {
-        guard !releasing, !isShutDown else { return }
+        guard phase == .asleep || phase == .awake else { return }
         let decision = await decide()
-        guard !releasing, !isShutDown else { return }
+        guard phase == .asleep || phase == .awake else { return }
         if decision.holds {
             await hold(reason: decision.reasons[0], leaseUntil: decision.leaseUntil)
-        } else if holding {
+        } else if phase == .awake {
             await release()
         }
     }
@@ -129,20 +137,19 @@ public actor AwakeController {
 
     private func hold(reason: RemoteAwakePolicy.Reason, leaseUntil: Date?) async {
         let date = now()
-        if !holding {
+        if phase == .asleep {
             do {
                 try await host.hold(for: Self.holdLength)
             } catch {
                 return
             }
-            // Shutdown began while the hold was being made. Its final report already said
-            // `released`, so this hold is let go again rather than outliving the process.
-            guard !isShutDown else {
-                try? await host.release()
+            // Shutdown began while the hold was being made. Its final report already went out, so
+            // this hold is let go again rather than outliving the process.
+            guard phase == .asleep else {
+                if phase == .shutDown { try? await host.release() }
                 return
             }
-            holding = true
-            releaseReported = false
+            phase = .awake
             lastRenewal = date
             lastUsageReport = date
             await reporter.record(.awake(reason, at: date))
@@ -157,13 +164,11 @@ public actor AwakeController {
 
     /// Everything that must reach anybody goes first, then the streams close, then the hold goes.
     func release() async {
-        releasing = true
-        defer { releasing = false }
-        let date = now()
-        if !releaseReported {
-            releaseReported = true
-            await reporter.record(.released(at: date))
-        }
+        guard phase == .awake else { return }
+        // `released` once per hold: runbloom.app adds its margin per `released`, and a second one
+        // for the same pause would bill it twice. Leaving `.awake` is what records it.
+        phase = .releasing
+        await reporter.record(.released(at: now()))
         await reporter.setAwake(false, leaseUntil: nil)
         await reporter.postSummaryNow()
         await reporter.sendUsage(includingDisk: true)
@@ -172,8 +177,8 @@ public actor AwakeController {
         // meanwhile must not have the machine paused under it, so the answer is asked again
         // right before the hold goes.
         let second = await decide()
-        if second.holds, !isShutDown {
-            releaseReported = false
+        if second.holds, phase == .releasing {
+            phase = .awake
             lastUsageReport = now()
             await reporter.record(.awake(second.reasons[0], at: now()))
             await reporter.setAwake(true, leaseUntil: second.leaseUntil)
@@ -184,28 +189,25 @@ public actor AwakeController {
         // and a `holding` left true with `released` already reported would skip the next `awake`
         // and send this whole release again every tick.
         try? await host.release()
-        holding = false
+        if phase == .releasing { phase = .asleep }
         lastRenewal = nil
     }
 
     /// Shutting down: the same order as a release, whether or not anything was held.
     public func shutdown() async {
         stop()
-        isShutDown = true
         // A release in flight is sending the same reports; let it finish rather than interleave.
-        while releasing {
+        while phase == .releasing {
             try? await Task.sleep(for: .milliseconds(50))
         }
-        releasing = true
-        if !releaseReported {
-            releaseReported = true
-            await reporter.record(.released(at: now()))
-        }
+        // Checked and set with no suspension between, so nothing can take a hold in the gap.
+        let owed = phase == .awake
+        phase = .shutDown
+        if owed { await reporter.record(.released(at: now())) }
         await reporter.setAwake(false, leaseUntil: nil)
         await reporter.postSummaryNow()
         await reporter.sendUsage(includingDisk: true)
         _ = await reporter.flush(timeout: Self.releaseFlushTimeout)
         try? await host.release()
-        holding = false
     }
 }

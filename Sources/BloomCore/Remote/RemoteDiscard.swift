@@ -22,14 +22,15 @@ public enum RemoteDiscard {
         guard let wanted = hunk(in: patch) else {
             throw RemoteFailure.invalid("That is not one hunk of a patch.")
         }
-        // The layer's own patch, so a staged hunk is matched against HEAD to index rather than
-        // against the worktree, which is the comparison the client was reading.
-        let current = try await Git.patch(worktree: workspace.path, base: base, file: file, scope: scope.git(file: file))
+        // The same comparison the client read its hunk from: `review_patch` measures uncommitted
+        // work against HEAD as one diff, staged and unstaged together, so that is what a hunk is
+        // matched against and reversed in (the worktree, and the index where it applies).
+        let current = try await Git.patch(worktree: workspace.path, base: base, file: file, scope: .all)
         guard let match = DiffParser.parse(current).flatMap(\.hunks).first(where: { same($0, wanted) }) else {
             throw RemoteFailure(.conflict, "This part of the file has changed since it was read. Refresh the diff and try again.")
         }
         do {
-            try await Git.discardHunk(match, of: file, worktree: workspace.path, base: base, scope: scope.git(file: file))
+            try await Git.discardHunk(match, of: file, worktree: workspace.path, base: base, scope: .all)
         } catch let refusal as HunkDiscardRefusal {
             throw RemoteFailure(.conflict, sentence(for: refusal))
         }
@@ -42,11 +43,9 @@ public enum RemoteDiscard {
     ) async throws -> (ChangedFile, String) {
         try RemoteReview.validateRelativePath(path)
         let base = try await RemoteReview.base(workspace: workspace, scope: scope)
-        // Uncommitted work is read with its staging layers, because a discard writes the worktree,
-        // the index or both depending on which layer the hunk came from.
-        let files = scope == .uncommitted
-            ? try await Git.changedFiles(worktree: workspace.path, base: base, scope: .uncommitted)
-            : try await RemoteReview.changes(workspace: workspace, base: base)
+        // The list the review shows, one row per path. A list split by staging layer would name a
+        // file changed in both twice, and the first of them is not the diff the client read.
+        let files = try await RemoteReview.changes(workspace: workspace, base: base)
         guard let file = files.first(where: { $0.path == path }) else {
             throw RemoteFailure.notFound("This file has no changes in the selected scope. Refresh the file list.")
         }
@@ -77,13 +76,5 @@ public enum RemoteDiscard {
         case .changed: "This part of the file has changed since it was read. Refresh the diff and try again."
         case .doesNotApply(let detail): detail.isEmpty ? "Git would not put this hunk back." : "Git would not put this hunk back: \(detail)"
         }
-    }
-}
-
-extension BloomProtocol.DiffScope {
-    /// The comparison git is asked for. `uncommitted` keeps the file's own staging layer, which is
-    /// what decides whether a discard writes the worktree, the index or both.
-    func git(file: ChangedFile) -> BloomCore.DiffScope {
-        self == .uncommitted ? .uncommitted : .all
     }
 }

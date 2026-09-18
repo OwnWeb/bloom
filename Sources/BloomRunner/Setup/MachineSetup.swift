@@ -196,18 +196,13 @@ public actor MachineSetup {
         // unbound variable before it reaches anything a machine could not do. On a machine the
         // clone is both the worktree and the repository root, and there is one workspace, so the
         // pair carry the same path.
-        for (key, value) in [
-            ("IS_LOCAL", "0"),
-            ("WORKSPACE_NAME", configuration.branch.replacingOccurrences(of: "/", with: "-")),
-            ("WORKSPACE_ID", configuration.workspaceID),
-            ("WORKSPACE_PATH", layout.worktree),
-            ("ROOT_PATH", layout.worktree),
-            ("PROJECT_NAME", Self.projectName(repository: configuration.repository)),
-            ("DEFAULT_BRANCH", configuration.baseBranch),
-            ("PORT", String(layout.appPort)),
-        ] {
-            for prefix in WorkspaceManager.environmentPrefixes { environment["\(prefix)_\(key)"] = value }
-        }
+        let variables = WorkspaceScriptVariables(
+            isLocal: false, workspaceName: WorkspaceScriptVariables.workspaceName(branch: configuration.branch),
+            workspaceID: configuration.workspaceID, workspacePath: layout.worktree,
+            projectName: Self.projectName(repository: configuration.repository), rootPath: layout.worktree,
+            defaultBranch: configuration.baseBranch, port: layout.appPort
+        )
+        environment.merge(variables.environment) { _, script in script }
         environment["BLOOM_PUBLIC_URL"] = configuration.publicURL
         environment["BLOOM_PUBLIC_HOST"] = configuration.publicHost
         environment["BLOOM_APP_PORT"] = String(layout.appPort)
@@ -224,10 +219,10 @@ public actor MachineSetup {
         return environment
     }
 
-    /// A project name a script can paste into a database or container name, from `owner/name`.
+    /// The repository's own name rather than the clone's folder, which on a machine is always
+    /// `workspace` and would give every project the same database name.
     static func projectName(repository: String) -> String {
-        let name = repository.split(separator: "/").last.map(String.init) ?? repository
-        return String(name.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "_" })
+        WorkspaceScriptVariables.identifier(repository.split(separator: "/").last.map(String.init) ?? repository)
     }
 
     /// What somebody is told before a repository with no Cloud workspace setup is set up anyway.

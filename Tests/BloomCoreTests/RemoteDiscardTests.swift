@@ -61,6 +61,38 @@ struct RemoteDiscardTests {
         #expect(after.contains("second change"), "The other hunk is untouched")
     }
 
+    @Test("a hunk from a file changed both staged and unstaged is discarded from the diff the client read")
+    func discardAcrossLayers() async throws {
+        let (repo, workspace) = try await fixture()
+        defer { repo.cleanUp() }
+        var lines = (1...20).map { "line \($0)" }
+        lines[0] = "staged change"
+        try repo.write("queue.txt", lines.joined(separator: "\n") + "\n")
+        try await Shell.check("git", ["add", "queue.txt"], cwd: repo.path)
+        lines[19] = "unstaged change"
+        try repo.write("queue.txt", lines.joined(separator: "\n") + "\n")
+
+        // What a client reads: one diff against HEAD with both changes in it.
+        let patch = try await RemoteReview.patch(workspace: workspace, path: "queue.txt", scope: .uncommitted)
+        let hunks = DiffParser.parse(patch).flatMap(\.hunks)
+        #expect(hunks.count == 2)
+        let last = try #require(hunks.last)
+        let text = "@@ -\(last.oldStart),\(last.oldCount) +\(last.newStart),\(last.newCount) @@\n"
+            + last.lines.map { line in
+                switch line.kind {
+                case .addition: "+" + line.text
+                case .deletion: "-" + line.text
+                case .context: " " + line.text
+                case .noNewline: "\\" + line.text
+                }
+            }.joined(separator: "\n") + "\n"
+
+        try await RemoteDiscard.discardHunk(workspace: workspace, path: "queue.txt", scope: .uncommitted, patch: text)
+        let after = try #require(repo.read("queue.txt"))
+        #expect(after.contains("line 20"), "The unstaged hunk went")
+        #expect(after.contains("staged change"), "The staged one stays")
+    }
+
     @Test("a hunk that no longer matches the file is refused rather than guessed at")
     func staleHunkIsRefused() async throws {
         let (repo, workspace) = try await fixture()
