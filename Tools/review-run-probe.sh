@@ -4,6 +4,8 @@
 # Pass --review-navigation-only to check file jumps without sending any input events.
 # Pass --changes-review-only to check history and staging in invisible windows, without input events.
 # Pass --review-fold-only to check that ticking a file folds it and that the row controls line up.
+# Set BLOOM_PROBE_VERBOSE=1 to print the probe's own log on a passing run as well as a failing
+# one, which is how a check that only goes wrong on someone else's machine is read.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -92,6 +94,8 @@ except subprocess.TimeoutExpired:
     raise
 report = pathlib.Path(root, 'result.json').read_text()
 print(report)
+if os.environ.get('BLOOM_PROBE_VERBOSE'):
+    print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
 if not json.loads(report)['passed']:
     if os.environ.get('RUNNER_TEMP'):
         evidence = pathlib.Path(os.environ['RUNNER_TEMP'], 'bloom-review-probe')
