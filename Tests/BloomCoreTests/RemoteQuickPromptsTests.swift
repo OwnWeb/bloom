@@ -28,7 +28,7 @@ struct RemoteQuickPromptsTests {
             [[quick_prompts]]
             name = "  Explain changes "
             prompt = "Explain what changed on this branch."
-            symbol = "text.magnifyingglass"
+            symbol = "doc.text"
 
             [[quick_prompts]]
             name = "Release notes"
@@ -40,7 +40,7 @@ struct RemoteQuickPromptsTests {
         #expect(read.prompts.map(\.name) == ["Explain changes", "Release notes"])
         #expect(read.prompts.map(\.id) == ["explain changes", "release notes"])
         #expect(read.prompts.map(\.isNewChat) == [false, true])
-        #expect(read.prompts.first?.symbol == "text.magnifyingglass")
+        #expect(read.prompts.first?.symbol == "doc.text")
         #expect(read.prompts.allSatisfy { $0.source == ".bloom/settings.toml" },
                 "the machine's absolute path means nothing on the other side of the network")
         #expect(read.issues.isEmpty)
@@ -66,6 +66,22 @@ struct RemoteQuickPromptsTests {
         #expect(read.issues.contains { $0.message.contains("send_immediately") })
         #expect(read.issues.contains { $0.message.contains("has no name") })
         #expect(read.issues.allSatisfy { $0.source == ".bloom/settings.toml" && $0.line != nil })
+    }
+
+    /// **A symbol outside Bloom's list arrives as the default**, so a client is never handed a name
+    /// it has to guess about, and the person is told which one was swapped.
+    @Test("a symbol Bloom does not offer arrives as the default, with a sentence")
+    func unknownSymbolIsTheDefault() throws {
+        let root = try repo([".bloom/settings.toml": """
+            [[quick_prompts]]
+            name = "Search"
+            prompt = "Find where this is used."
+            symbol = "text.magnifyingglass"
+            """])
+        let read = try answer(root)
+
+        #expect(read.prompts.map(\.symbol) == [QuickPrompt.defaultSymbol])
+        #expect(read.issues.map(\.message).contains { $0.contains("text.magnifyingglass") })
     }
 
     /// A menu that explained run scripts would be explaining something it does not show.

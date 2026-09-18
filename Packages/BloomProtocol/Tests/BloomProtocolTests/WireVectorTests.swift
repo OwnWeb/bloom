@@ -221,7 +221,7 @@ enum WireExamples {
         // `send_immediately` on any of them**, and there never will be: see `QuickPromptRecord`.
         ("quick_prompts", .quickPrompts(prompts: [
             QuickPromptRecord(id: "explain changes", name: "Explain changes", prompt: "Explain what changed on this branch and why.",
-                              symbol: "text.magnifyingglass", isNewChat: false, source: ".bloom/settings.toml"),
+                              symbol: "doc.text", isNewChat: false, source: ".bloom/settings.toml"),
             QuickPromptRecord(id: "release notes", name: "Release notes", prompt: "Draft release notes for the commits since the last tag.",
                               symbol: "\u{1F4DD}", isNewChat: true, source: ".bloom/settings.toml"),
         ], issues: [

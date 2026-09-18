@@ -538,7 +538,7 @@
             "new_chat" : false,
             "prompt" : "Explain what changed on this branch and why.",
             "source" : ".bloom/settings.toml",
-            "symbol" : "text.magnifyingglass"
+            "symbol" : "doc.text"
           },
           {
             "id" : "release notes",
