@@ -27,6 +27,13 @@ public enum WorkspaceSurfaceID: Hashable, Sendable, Codable {
         return nil
     }
 
+    /// The other half, for the readers that are about a machine: the setup at the head of a
+    /// transcript is the first.
+    public var cloudID: CloudWorkspaceID? {
+        if case .cloud(let id) = self { return id }
+        return nil
+    }
+
     /// Read back from a key, which is how a stored record names the workspace it belongs to.
     public init(storageKey: String) {
         if let id = storageKey.strippingCloudPrefix {

@@ -230,6 +230,10 @@ struct BloomApp: App {
         // code being described can be read while the task is written. See the scene.
         CreateWorkspaceWindow(model: model)
 
+        // Where a Cloud workspace is started. The same window as the one above, with the same
+        // parts in the same places: see the scene, and `CreateCloudWorkspaceView`.
+        CreateCloudWorkspaceWindow(model: model)
+
         // Where a project is started, a window for the same reason and at the owner's asking. One
         // of these rather than one per project: it is not about a project yet. See the scene.
         StartProjectWindow(model: model)

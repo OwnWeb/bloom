@@ -75,8 +75,11 @@ struct CenterPaneView<Model: WorkspaceSurface>: View {
             return nil
         case nil:
             // A workspace still running its setup script has a sentence of its own that says more
-            // than a spinner would, so it is not a wait either.
-            guard !model.isRunningSetup, !model.hasReadChats else { return nil }
+            // than a spinner would, so it is not a wait either. Nor is one with an empty-pane
+            // notice: that is the workspace saying something about this exact moment, and both
+            // are centred in this pane, so drawing the two printed one through the other. A
+            // notice that wants a spinner carries it itself. See `PaneEmptyNotice.progress`.
+            guard !model.isRunningSetup, !model.hasReadChats, model.emptyPaneNotice == nil else { return nil }
             return .sessions(model.surfaceID)
         }
     }
@@ -160,7 +163,7 @@ struct CenterPaneView<Model: WorkspaceSurface>: View {
             if let notice = model.emptyPaneNotice {
                 EmptyStateView(
                     glyph: notice.glyph, title: notice.title, message: notice.message,
-                    actionTitle: notice.actionTitle, action: notice.action
+                    actionTitle: notice.actionTitle, action: notice.action, progress: notice.progress
                 )
                 .background(Palette.surface)
             } else if model.isRunningSetup {

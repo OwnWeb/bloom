@@ -23,6 +23,7 @@ import BloomCore
 /// custom label away and draws only the indicator, which is why it rendered as a lone letter.
 struct SidebarView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.isSidebarFolded) private var isSidebarFolded
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The window's undo manager. Only a view can see it, and `AppModel` is where the archive
@@ -930,7 +931,7 @@ struct SidebarView: View {
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button {
-                    app.cloud.isCreating = true
+                    openWindow(id: CreateCloudWorkspaceWindow.id)
                 } label: {
                     Image(systemName: "plus")
                 }

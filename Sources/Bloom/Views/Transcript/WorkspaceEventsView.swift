@@ -32,13 +32,17 @@ struct WorkspaceEventsView: View, Equatable {
     /// through a storage box and is never stale, and the one stored value they reach, the
     /// transcript, cannot change without the workspace changing, which is compared here.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.workspaceID == rhs.workspaceID
+        lhs.surfaceID == rhs.surfaceID
             && lhs.isRunning == rhs.isRunning
             && lhs.isFirstThing == rhs.isFirstThing
             && lhs.paneHeight == rhs.paneHeight
     }
 
-    var workspaceID: WorkspaceID
+    /// The workspace whose setup this is, of either kind. A local one's events come from its
+    /// model's memoised timeline; a Cloud one's from the machine's last setup record and the log
+    /// it has streamed. See `CloudSetupEvents` for why a machine's setup is a row here rather than
+    /// a tab of its own.
+    var surfaceID: WorkspaceSurfaceID
     /// Whether a setup run is in flight, as the pane above already knows it. The stored state
     /// catches up a moment later, when the workspace row is next read.
     var isRunning: Bool
@@ -67,11 +71,34 @@ struct WorkspaceEventsView: View, Equatable {
 
     @Environment(AppModel.self) private var app
 
-    private var model: WorkspaceModel? { app.existingModel(for: workspaceID) }
+    /// The local workspace behind this feed, and nil for a Cloud one. What it is still for is the
+    /// two actions only a worktree has: ignoring a failure, and stopping a run.
+    private var model: WorkspaceModel? {
+        surfaceID.local.flatMap { app.existingModel(for: $0) }
+    }
 
+    private var session: CloudWorkspaceSession? {
+        surfaceID.cloudID.flatMap { app.cloud.existingSession(for: $0) }
+    }
+
+    /// Read here rather than in `TranscriptListView`, for both kinds and for the same reason: a
+    /// setup script flushes several times a second, and a list that read the log would re-run its
+    /// `ForEach` over every row in the session on every flush. Observation redraws this view alone.
     private var events: [WorkspaceEvent] {
-        guard let model else { return [] }
-        return model.timeline(isRunningSetup: isRunning)
+        if let model { return model.timeline(isRunningSetup: isRunning) }
+        guard let session else { return [] }
+        return CloudSetupEvents.events(setup: session.state.setup, log: session.state.setupLog)
+    }
+
+    /// Running setup again, which both kinds can do and each does its own way: a worktree asks
+    /// first, because it is about to run a script on this Mac, and a machine is told.
+    private var runSetupAgain: (@MainActor () -> Void)? {
+        if let model {
+            guard model.canRunSetup else { return nil }
+            return { @MainActor in SetupRunAlert.shared.ask(model) }
+        }
+        guard let session, session.allows("files") else { return nil }
+        return { @MainActor in Task { await session.run(.runSetup) } }
     }
 
     var body: some View {
@@ -87,6 +114,7 @@ struct WorkspaceEventsView: View, Equatable {
                     isFirstThing: isFirstThing,
                     paneHeight: paneHeight,
                     model: model,
+                    runSetupAgain: runSetupAgain,
                     onShowLogEnd: onShowLogEnd
                 )
             }
@@ -128,6 +156,9 @@ struct WorkspaceEventRow: View {
     /// See `WorkspaceEventsView.paneHeight`, and `tailCap`.
     var paneHeight: CGFloat = 0
     var model: WorkspaceModel?
+    /// What the Run setup again link does, or nil where this reader may not. Handed in rather than
+    /// taken off the model, because a Cloud workspace has no model here and does have the verb.
+    var runSetupAgain: (@MainActor () -> Void)?
     /// See `endID`, and `WorkspaceEventsView.onShowLogEnd`.
     var onShowLogEnd: (@MainActor (Bool) -> Void)?
 
@@ -489,8 +520,8 @@ struct WorkspaceEventRow: View {
                     //
                     // Not hidden from accessibility the way its neighbour is. Nothing else on this
                     // row does what it does, so there is no second announcement of it to prefer.
-                    if showsRunSetupAgain, let model {
-                        Button("Run setup again") { SetupRunAlert.shared.ask(model) }
+                    if showsRunSetupAgain, let runSetupAgain {
+                        Button("Run setup again", action: runSetupAgain)
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                             .font(Typo.caption)
@@ -547,7 +578,7 @@ struct WorkspaceEventRow: View {
     /// with a line saying what it went looking for, so the worst case is an explanation rather than
     /// a wrong answer.
     private var showsRunSetupAgain: Bool {
-        event.kind == .setup && [.failed, .ignored].contains(event.outcome) && model?.canRunSetup == true
+        event.kind == .setup && [.failed, .ignored].contains(event.outcome) && runSetupAgain != nil
     }
 
     /// Whether this row offers to dismiss the failure. Not gated on a setup script existing, since

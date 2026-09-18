@@ -138,7 +138,11 @@ final class TranscriptModel {
     /// One value rather than the whole workspace, because those two fields are all a row has ever
     /// read off it. See `TranscriptHome`.
     var home: TranscriptHome {
-        TranscriptHome(workspaceID: workspace?.id, worktree: cwd)
+        TranscriptHome(
+            workspaceID: workspace?.id,
+            surfaceID: workspace.map { .local($0.id) } ?? cloud?.workspaceID.map { .cloud($0) },
+            worktree: cwd
+        )
     }
 
     /// The row as the app holds it now. The snapshot above goes stale the moment automatic

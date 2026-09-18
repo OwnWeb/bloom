@@ -124,7 +124,12 @@ final class CenterTabStore {
             tabsByWorkspace[workspaceID] = []
             return
         }
-        tabsByWorkspace[workspaceID] = restored
+        // A tab kind nothing opens any more is dropped rather than drawn. `setup` was a Cloud
+        // workspace's own tab for a day; a machine's setup is a row at the head of its transcript
+        // now, where a local workspace's has always been. The kind itself stays in `CenterTabKind`
+        // so that a list written while it existed still decodes: a `CenterTab` whose `kind` cannot
+        // be read would throw, and a throw takes the whole array with it, terminals and all.
+        tabsByWorkspace[workspaceID] = restored.filter { $0.kind != .setup }
     }
 
     /// `title` is only passed by a caller that has a better name than "Terminal 3", which today

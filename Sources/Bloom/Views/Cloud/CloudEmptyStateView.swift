@@ -14,6 +14,7 @@ struct CloudEmptyStateView: View {
     var state: CloudEmptyState
     var isCompact = false
     @Environment(AppModel.self) private var app
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -73,7 +74,7 @@ struct CloudEmptyStateView: View {
         case .open(let page, _):
             NSWorkspace.shared.open(page ?? app.cloud.environment.origin.appending(path: "account"))
         case .createWorkspace:
-            app.cloud.isCreating = true
+            openWindow(id: CreateCloudWorkspaceWindow.id)
         }
     }
 }

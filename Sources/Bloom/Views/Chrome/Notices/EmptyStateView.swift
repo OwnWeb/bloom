@@ -13,26 +13,40 @@ struct EmptyStateView: View {
     let message: String
     let actionTitle: String?
     let action: (() -> Void)?
+    /// Something still happening while this is on screen, drawn as a spinner and a line under the
+    /// message. Nil for the empty states that are a settled answer, which is most of them.
+    let progress: String?
 
     init(
         glyph: String,
         title: String,
         message: String,
         actionTitle: String? = nil,
-        action: (() -> Void)? = nil
+        action: (() -> Void)? = nil,
+        progress: String? = nil
     ) {
         self.glyph = glyph
         self.title = title
         self.message = message
         self.actionTitle = actionTitle
         self.action = action
+        self.progress = progress
     }
 
     var body: some View {
         ContentUnavailableView {
             Label(title, systemImage: glyph)
         } description: {
-            Text(message)
+            VStack(spacing: Metrics.spacingWide) {
+                Text(message)
+                if let progress {
+                    HStack(spacing: Metrics.spacingSmall) {
+                        ProgressView().controlSize(.small)
+                        Text(progress)
+                    }
+                    .foregroundStyle(Palette.textTertiary)
+                }
+            }
         } actions: {
             if let actionTitle, let action {
                 Button(actionTitle, action: action)

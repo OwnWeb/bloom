@@ -58,11 +58,6 @@ struct NewTabMenu<Model: WorkspaceSurface>: View {
             if model.supportsNotes {
                 Button(CenterTab.notesTitle, systemImage: PaneGlyph.notes) { model.openNotes() }
             }
-            // The only tab a Cloud workspace has that a local one does not: what its machine did
-            // while it was starting. A local workspace's setup is a row in its transcript.
-            if model.supportsSetupTab {
-                Button(PaneNaming.setup, systemImage: PaneGlyph.setup) { model.openSetupLog() }
-            }
             runScriptItems
         } label: {
             Label("New Tab", systemImage: "plus")

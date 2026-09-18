@@ -20,6 +20,10 @@ final class CloudChatLink {
     /// The signed in person, whose own messages carry no name.
     var readerID: String? { session?.readerID }
 
+    /// The workspace this chat is in, so its transcript can draw the machine's setup at its head
+    /// the way a local transcript draws a worktree's. Nil once the workspace has been closed.
+    var workspaceID: CloudWorkspaceID? { session?.id }
+
     /// The chat's controls as the machine last said, which carry the fields a `Session` does not.
     var controls: ComposerControls? {
         session?.state.chats[chatID.rawValue]?.controls.flatMap(ComposerControls.cloud)

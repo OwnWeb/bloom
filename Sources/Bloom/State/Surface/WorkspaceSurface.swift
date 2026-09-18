@@ -117,8 +117,6 @@ protocol WorkspaceSurface: AnyObject, Observable {
     func openReview()
     var supportsNotes: Bool { get }
     func openNotes()
-    var supportsSetupTab: Bool { get }
-    func openSetupLog()
     /// Re-reads the project's settings, for the moment somebody comes back to the window having
     /// edited them elsewhere.
     func refreshSettings()

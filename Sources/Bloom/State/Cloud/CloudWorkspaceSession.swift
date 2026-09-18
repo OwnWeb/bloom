@@ -45,9 +45,6 @@ final class CloudWorkspaceSession {
     @ObservationIgnored private(set) lazy var changes = CloudChanges(session: self)
     /// The branch's commits, read when the History tab is opened and a page at a time after that.
     @ObservationIgnored private(set) lazy var history = CloudHistory(session: self)
-    /// Which setup states this workspace has already brought the tab forward for. See
-    /// `SetupTabReveal`, which is where the rule is, under test.
-    @ObservationIgnored private var setupReveal = SetupTabReveal()
     /// The chat somebody pointed the review's composer at, when they picked one. See
     /// `WorkspaceSurface.reviewDestination`.
     var chosenReviewDestination: SessionID?
@@ -96,13 +93,6 @@ final class CloudWorkspaceSession {
         return nil
     }
 
-    /// Whether the setup output is the tab in front, which is what stops the setup banner offering
-    /// to show something already on screen.
-    var isShowingSetup: Bool {
-        guard case .tool(let id) = selectedTab else { return false }
-        return CenterTabStore.shared.tabs(for: surfaceID).first { $0.id == id }?.kind == .setup
-    }
-
     /// Opens the workspace's one tab of this kind, or brings it forward. One of each, the way a
     /// local workspace has one review and one set of notes: a second terminal on the same machine
     /// would be a second shell for the same person, which the machine does not offer.
@@ -138,13 +128,6 @@ final class CloudWorkspaceSession {
             guard let tab = CenterTabStore.shared.tabs(for: surfaceID).first(where: { $0.id == id }) else { return }
             CenterTabStore.shared.rename(tab, to: name)
         }
-    }
-
-    /// The setup tab, brought forward the first time a setup is running or has failed, so the one
-    /// account of a machine's first few minutes is in front of whoever opened the workspace.
-    func revealSetupIfNeeded() {
-        guard setupReveal.shouldReveal(for: state.setup?.state) else { return }
-        open(.setup)
     }
 
     func allows(_ ability: String) -> Bool { abilities.contains(ability) }
@@ -220,7 +203,6 @@ final class CloudWorkspaceSession {
             }
         case .snapshot(let snapshot):
             state.absorb(snapshot)
-            revealSetupIfNeeded()
             for chat in state.chatOrder { forward(chat) }
         case .event(.stream(let chatID, let text, let snapshot)):
             let next = snapshot ? text : (streaming[chatID] ?? "") + text
@@ -231,7 +213,6 @@ final class CloudWorkspaceSession {
                 streaming[message.chatID] = ""
             }
             let consequence = state.apply(event)
-            if case .setup = event { revealSetupIfNeeded() }
             switch consequence {
             case .newChat(let chatID):
                 // A chat somebody else started appears in the strip by itself, because the strip

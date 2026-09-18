@@ -1177,6 +1177,19 @@ before anybody types it.
 The protocol is `WorkspaceSurface` now rather than `WorkspaceReviewSurface`: it stopped being about
 the review the moment the band, the checks and the chat were written against it.
 
+**Setup is part of the conversation, in both kinds of workspace.** It had a tab of its own here for
+one day, on the argument that it is the one thing a Cloud workspace has and a local one does not.
+The owner put the two side by side and settled it: locally the setup output is a row at the head of
+the transcript, where the reader already is, and a tab only one kind of workspace has is exactly the
+feeling this whole section exists to remove. So the machine's setup goes through the same
+`WorkspaceEvent` the local one does, drawn by the same row, in the same place in the reading order,
+with the same disclosure over the log and the same Run setup again beside a failure. What the
+machine knows and a worktree does not is used inside that row rather than as a reason to keep a
+pane: the named step while it runs, and the last lines of a failure without asking for the whole
+log. The banner that offered to show the tab went with it, and `CenterTabKind.setup` stays only so
+that a tab list written while the tab existed still decodes; the store drops those tabs on the way
+in.
+
 **A Cloud workspace has no header bar of its own.** Its name is the window's title, its branch and
 its pull request are the title bar's band (`PullRequestBar`, over the protocol), and its `+` is the
 toolbar's, exactly as a local workspace's are. A bar above the tabs saying all three again was the

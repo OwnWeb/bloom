@@ -48,13 +48,6 @@ struct CloudWorkspaceColumn: View {
                     take($0, on: session)
                 }
             }
-            if let banner = shown(CloudConnectionBanner.ofSetup(
-                session.state.setup, isWatching: session.isShowingSetup, canRunSetup: session.allows("files")
-            ), on: session) {
-                CloudBannerView(banner: banner, onDismiss: { app.cloud.dismiss(banner, for: session.id) }) {
-                    take($0, on: session)
-                }
-            }
             if let notice = session.notice {
                 CloudNoticeStrip(notice: notice, onOpenRunbloom: { openRunbloom(for: session) }) { session.notice = nil }
             }
@@ -90,10 +83,6 @@ struct CloudWorkspaceColumn: View {
         switch action {
         case .wake, .retry: session.wake()
         case .runbloom: openRunbloom(for: session)
-        case .watchSetup: session.open(.setup)
-        case .runSetupAgain:
-            session.open(.setup)
-            Task { await session.run(.runSetup) }
         }
     }
 

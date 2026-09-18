@@ -67,10 +67,6 @@ extension WorkspaceModel {
 
     func openNotes() { WorkspaceNotes.open(in: self) }
 
-    /// A local workspace's setup output is a row in its transcript, where the reader already is.
-    var supportsSetupTab: Bool { false }
-    func openSetupLog() {}
-
     func settingsNotices() -> WorkspaceSettingsNotices {
         WorkspaceSettingsNotices(model: self)
     }

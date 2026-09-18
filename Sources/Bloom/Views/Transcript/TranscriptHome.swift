@@ -19,16 +19,23 @@ struct TranscriptHome: Hashable {
     /// draws and previews as it always did but opens nothing, because there is no pane to open it
     /// in.
     var workspaceID: WorkspaceID?
+    /// The workspace of either kind this conversation is in, which is what the setup row at the
+    /// head of the transcript is drawn for. A Cloud chat has one of these and no `workspaceID`,
+    /// because the things that field is for are a worktree's: a file chip to open, a subagent to
+    /// run in it. See `WorkspaceEventsView`.
+    var surfaceID: WorkspaceSurfaceID?
     /// The directory the paths in this conversation are relative to.
     var worktree: String
 
-    init(workspaceID: WorkspaceID? = nil, worktree: String = "") {
+    init(workspaceID: WorkspaceID? = nil, surfaceID: WorkspaceSurfaceID? = nil, worktree: String = "") {
         self.workspaceID = workspaceID
+        self.surfaceID = surfaceID ?? workspaceID.map { .local($0) }
         self.worktree = worktree
     }
 
     init(_ workspace: Workspace) {
         self.workspaceID = workspace.id
+        self.surfaceID = .local(workspace.id)
         self.worktree = workspace.path
     }
 }

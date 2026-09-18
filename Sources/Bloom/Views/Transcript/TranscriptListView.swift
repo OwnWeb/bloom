@@ -502,12 +502,12 @@ struct TranscriptListView: View {
         // A workspace's setup script, its worktree events and its opening prompt. All three are
         // things a worktree has. Ask Bloom uses this opening entry only for the space below the
         // title bar, since it has no setup information: see `TranscriptHome`.
-        if let workspaceID = home.workspaceID {
+        if let surfaceID = home.surfaceID {
             out.append(TranscriptTableEntry(
                 id: .setup,
                 contentKey: TranscriptContentKey {
                     $0.combine("setup")
-                    $0.combine(workspaceID)
+                    $0.combine(surfaceID.storageKey)
                     $0.combine(isRunningSetup)
                     $0.combine(transcript.hasNothingToShow)
                     $0.combine(Int(paneHeight))
@@ -527,7 +527,7 @@ struct TranscriptListView: View {
                                 .frame(height: TranscriptLayout.topSpace)
                                 .accessibilityHidden(true)
                             WorkspaceEventsView(
-                                workspaceID: workspaceID,
+                                surfaceID: surfaceID,
                                 isRunning: isRunningSetup,
                                 // Nothing said yet AND nothing waiting to be said. Once there is a
                                 // bubble on screen, "You can ask for something now" is answered by

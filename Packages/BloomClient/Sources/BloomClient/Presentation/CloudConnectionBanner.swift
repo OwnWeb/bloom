@@ -34,17 +34,13 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         case runbloom
         /// Show the setup output, which is the only account of what a machine is doing before its
         /// first chat exists.
-        case watchSetup
         /// Run the project's setup scripts again on the machine.
-        case runSetupAgain
 
         public var title: String {
             switch self {
             case .wake: "Wake"
             case .retry: "Try Again"
             case .runbloom: "Open runbloom.app"
-            case .watchSetup: "Watch Setup"
-            case .runSetupAgain: "Run Setup Again"
             }
         }
     }
@@ -86,7 +82,9 @@ public struct CloudConnectionBanner: Sendable, Hashable {
                 message: "It went to sleep because nobody was using it. It wakes as soon as you do something in it.", actions: [.wake]
             )
         case .notReady(let message, _):
-            return CloudConnectionBanner(tone: .progress, title: "Getting this Cloud workspace ready…", message: message, actions: [.watchSetup])
+            // No button: what it is doing is the setup row at the head of the conversation, which
+            // is already on screen behind this banner.
+            return CloudConnectionBanner(tone: .progress, title: "Getting this Cloud workspace ready…", message: message)
         case .limited(let notice):
             // A limit that clears by itself needs nobody; every other one is settled on runbloom.app,
             // by somebody who can raise it, so the way there is offered beside trying again.
@@ -104,43 +102,6 @@ public struct CloudConnectionBanner: Sendable, Hashable {
             // A dropped network, a machine that stopped answering, a server restart. It retries by
             // itself with a backoff, and the button is for somebody who does not want to wait.
             return CloudConnectionBanner(tone: .caution, title: "Reconnecting…", message: message, actions: [.retry])
-        }
-    }
-
-    /// What setup is doing, for a workspace whose machine has not finished starting or whose setup
-    /// failed. Nil once setup has succeeded or where the project has no setup to run.
-    ///
-    /// - Parameters:
-    ///   - isWatching: whether the setup output is already on screen, which is the one case where
-    ///     offering to show it would be a button that does nothing.
-    ///   - canRunSetup: whether this person's token carries the ability to run it again.
-    public static func ofSetup(_ setup: SetupRecord?, isWatching: Bool, canRunSetup: Bool) -> CloudConnectionBanner? {
-        guard let setup else { return nil }
-        switch setup.state {
-        case "pending":
-            return CloudConnectionBanner(
-                tone: .progress, title: "Setting up this Cloud workspace…",
-                message: "It is cloning the repository and running the project's setup. This takes a few minutes the first time.",
-                actions: isWatching ? [] : [.watchSetup]
-            )
-        case "running":
-            let step = Self.stepNames[setup.step ?? ""] ?? setup.step
-            return CloudConnectionBanner(
-                tone: .progress, title: step.map { "Setting up this Cloud workspace: \($0)" } ?? "Setting up this Cloud workspace…",
-                message: "It takes a few minutes the first time. You can watch what it is doing, and anything you send waits until it is done.",
-                actions: isWatching ? [] : [.watchSetup]
-            )
-        case "failed":
-            var actions: [Action] = isWatching ? [] : [.watchSetup]
-            if canRunSetup { actions.append(.runSetupAgain) }
-            return CloudConnectionBanner(
-                tone: .failure, title: "Setting up this Cloud workspace failed",
-                message: "The setup output says what went wrong. Fix it in the project's setup script, then run setup again, or archive this workspace and make another. The Setup tab keeps the whole of it.",
-                actions: actions,
-                dismissalKey: "setup-failed:\(setup.finishedAt?.timeIntervalSince1970.rounded() ?? 0)"
-            )
-        default:
-            return nil
         }
     }
 
@@ -174,6 +135,14 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         case CloudRunnerNotice.interrupted: "This Cloud workspace's update was interrupted"
         default: "Something happened while this Cloud workspace was being updated"
         }
+    }
+
+    /// What a setup step is called in a sentence. The machine sends `clone`, `prepare`, `setup`,
+    /// `resume` or `services`, and a step it has not heard of is said as it stands rather than
+    /// dropped: a newer runner naming a new step is still telling somebody what it is doing.
+    public static func stepName(_ step: String?) -> String? {
+        guard let step, !step.isEmpty else { return nil }
+        return stepNames[step] ?? step
     }
 
     private static let stepNames = [

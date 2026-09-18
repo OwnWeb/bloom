@@ -39,4 +39,14 @@ struct PaneEmptyNotice {
     var message: String
     var actionTitle: String?
     var action: (@MainActor () -> Void)?
+    /// What is happening while this is on screen, drawn as one line inside the notice.
+    ///
+    /// **Inside it, because the alternative was two centred blocks printed through each other.**
+    /// A Cloud workspace being made has a notice to draw ("your first message is waiting") and, for
+    /// the same minutes, nothing the pane can draw at all, which is what `CenterPaneView`'s own
+    /// wait is about. Both were centred in the same pane, so "Opening the workspace…" was printed
+    /// character by character through "Your first message is waiting" and neither could be read.
+    /// The workspace's own words win, and the progress joins them rather than competing: see
+    /// `CenterPaneView.waiting`, which now stands aside for a workspace that has something to say.
+    var progress: String?
 }
