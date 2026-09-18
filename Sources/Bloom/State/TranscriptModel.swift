@@ -2531,13 +2531,20 @@ final class TranscriptModel {
             return false
         }
 
+        // Who this one is for. **`@agent` is the only mention that can resolve today**, because
+        // nobody can be addressed until the machine is told who is on the team, and that is the
+        // control server's half. It is worth carrying all the same: the machine takes the mention
+        // off the text it hands the model, so an agent asked "@agent run the tests" reads "run the
+        // tests" while the transcript keeps what was typed. See `MentionAddress` and
+        // `AudienceRecord`.
+        let audience = Self.audience(of: body, through: cloud)
         let delivery = Delivery(targetSessionID: session.id, body: body)
         messageArrivals.sent(delivery.id)
         // The echo only when nothing is ahead of it, which is when the machine will start it at
         // once; otherwise the queue event that follows draws it where it waits.
         if !queuesNextMessage { sending = delivery }
         jumpToLiveEnd()
-        let outcome = await cloud.send(body)
+        let outcome = await cloud.send(body, audience: audience)
         guard let sentence = outcome.sentence else { return true }
         // The echo goes either way: it said the turn had started, and for the unknown case that
         // is exactly what nobody can promise. What the machine really did is in the transcript,
@@ -2606,6 +2613,26 @@ final class TranscriptModel {
         }
         PromptAttachmentStore.shared.clear(sessionID: session.id.rawValue)
         return .sent(parsed.mapping { moved[$0] })
+    }
+
+    /// The audience a draft names, as the wire carries it, or nil where it names nobody.
+    ///
+    /// Nil rather than "the agent" for a message with no mention, and the difference is not
+    /// cosmetic: absent means the agent on the wire as well, so an unaddressed message is sent the
+    /// way every message has always been sent, and the day somebody can be addressed the sticky
+    /// audience is what fills this in. See `MentionAddress.mentioned`.
+    private static func audience(of body: String, through cloud: CloudChatLink) -> AudienceRecord? {
+        guard let mention = MentionAddress.token(in: body),
+              let named = MentionAddress.mentioned(
+                  in: body, people: cloud.people, runningAgent: cloud.runningAgent
+              )
+        else { return nil }
+        switch named {
+        case .agent:
+            return AudienceRecord(kind: AudienceRecord.agent, mention: mention)
+        case .person(let person):
+            return AudienceRecord(kind: AudienceRecord.person, userID: person.id.rawValue, mention: mention)
+        }
     }
 
     private func answerOnCloud(requestID: String, decision: PermissionDecision, through cloud: CloudChatLink) async {

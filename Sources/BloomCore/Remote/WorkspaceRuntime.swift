@@ -267,7 +267,17 @@ public actor WorkspaceRuntime {
             try await store.updateLastReadSeq(sessionID: try chatID.sessionID, seq: seq)
             return .accepted
         case .setComposer(let chatID, let controls): try await setComposer(chatID, controls: controls, as: caller); return .accepted
-        case .send(let chatID, let text): return .queued(promptID: try await send(chatID, text: text, as: caller).rawValue)
+        case .send(let chatID, let text, let audience):
+            // **Refused rather than ignored, and this branch is not where it is honoured.** The
+            // machine's half of addressing a message to a person is on the server branch, which
+            // owns this runtime; what matters here is that a runner built from this one cannot
+            // quietly hand the agent a message meant for somebody else, which is the single
+            // outcome the whole feature exists to prevent. Absent, or the agent, is every message
+            // Bloom has ever sent.
+            if let audience, audience.kind != "agent" {
+                throw RemoteFailure.invalid("This Cloud workspace is running a version that cannot address a message to a person.")
+            }
+            return .queued(promptID: try await send(chatID, text: text, as: caller).rawValue)
         case .cancelQueued(let chatID, let promptID):
             try await queue().cancel(DeliveryID(promptID), sessionID: try chatID.sessionID)
             return .accepted

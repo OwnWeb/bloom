@@ -50,10 +50,10 @@ public enum MentionAddress {
     /// audience on a typo would send a message to the wrong reader and say nothing about it.
     public static func audience(
         for draft: String,
-        people: [MessageAudience.Person],
+        people: [ComposerAudience.Person],
         runningAgent: AgentKind?,
-        current: MessageAudience
-    ) -> MessageAudience {
+        current: ComposerAudience
+    ) -> ComposerAudience {
         mentioned(in: draft, people: people, runningAgent: runningAgent) ?? current
     }
 
@@ -68,8 +68,8 @@ public enum MentionAddress {
     /// A mention that names nobody is nil too: it is a word somebody typed, and rewriting the
     /// audience on a typo would send a message to the wrong reader without saying so.
     public static func mentioned(
-        in draft: String, people: [MessageAudience.Person], runningAgent: AgentKind?
-    ) -> MessageAudience? {
+        in draft: String, people: [ComposerAudience.Person], runningAgent: AgentKind?
+    ) -> ComposerAudience? {
         guard let token = token(in: draft) else { return nil }
         let name = String(token.dropFirst())
         if agentTokens(runningAgent: runningAgent).contains(name) { return .agent }

@@ -36,10 +36,21 @@ final class CloudChatLink {
 
     /// Whether it went, did not go, or nobody knows. See `CloudSendOutcome`, which is where the
     /// third answer is argued.
-    func send(_ text: String) async -> CloudSendOutcome {
+    func send(_ text: String, audience: AudienceRecord? = nil) async -> CloudSendOutcome {
         guard let session else { return .failed(Self.closed) }
-        return await session.send(text, chatID: chatID)
+        return await session.send(text, chatID: chatID, audience: audience)
     }
+
+    /// Everybody this workspace's messages may be addressed to, other than the reader.
+    ///
+    /// **Empty until the machine is told who is on the team**, which is the control server's half
+    /// and is not built yet. Empty is what makes the rest honest rather than half working: no
+    /// handle resolves, so no message is addressed to a person, so nothing is drawn as one and
+    /// nothing is sent that the machine would refuse. See `MentionAddress`.
+    var people: [ComposerAudience.Person] { [] }
+
+    /// What is answering in this chat, for `@claude` beside `@agent`.
+    var runningAgent: AgentKind? { controls?.agentKind }
 
     /// Puts a file on the machine and answers the path an agent standing in its worktree reads it
     /// from, or the sentence saying why it is not there.

@@ -1,6 +1,11 @@
 import Foundation
 
-/// Who a message is for.
+/// Who the composer is addressed to, and who a person typing can name.
+///
+/// **The composer's half of `MessageAudience`, which is the message's.** The stored message keeps
+/// an account id, because that is who it went to and a handle can change hands; the box somebody is
+/// typing in needs the name and the handle as well, to say "You are writing to Seb" and to offer
+/// him in a menu. Same fact, two shapes, and the id is what they agree on.
 ///
 /// **A prompt has had one audience since Bloom existed, and it was never written down because
 /// there was nothing else it could be.** In a shared Cloud workspace there is: `@seb` at the start
@@ -13,7 +18,7 @@ import Foundation
 /// audience rather than setting it for one message, which is the part of this feature that is
 /// hardest to guess from a description and is exactly what a person means by "it remembers who I
 /// was talking to".
-public enum MessageAudience: Equatable, Hashable, Sendable, Codable {
+public enum ComposerAudience: Equatable, Hashable, Sendable, Codable {
     /// The workspace's agent, which is every message Bloom has ever sent.
     case agent
     /// Somebody else who can open this workspace. The agent never sees it.

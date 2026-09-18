@@ -422,9 +422,13 @@ final class CloudWorkspaceSession {
     }
 
     /// Queues a message. Nil when the machine took it.
-    func send(_ text: String, chatID: SessionID) async -> CloudSendOutcome {
+    /// - Parameter audience: who it is for, or nil for the agent, which is every message Bloom has
+    ///   sent until now. A mention is carried rather than stripped: the machine takes it off the
+    ///   text it hands the agent and nowhere else, so the transcript keeps what was typed and can
+    ///   colour it. See `AudienceRecord`.
+    func send(_ text: String, chatID: SessionID, audience: AudienceRecord? = nil) async -> CloudSendOutcome {
         do {
-            _ = try await perform(.send(chatID: chatID.rawValue, text: text))
+            _ = try await perform(.send(chatID: chatID.rawValue, text: text, audience: audience))
             return .sent
         } catch {
             return CloudSendOutcome(failure: error)
