@@ -18,6 +18,12 @@ import SwiftUI
 /// changes what that card is about; "Who can see the app" holds the link and its own caveat. The
 /// sentence about the agent key is word for word what it was, because its meaning is exact and was
 /// argued over. The link's caveat keeps every clause it had, in two sentences rather than one.
+///
+/// **Only the owner may change any of it, and the popover says so rather than being refused.**
+/// Everybody else gets the same two cards with the controls dimmed and one line above them, which
+/// is `CloudShareControls`. A link that exists says how much of its hour is left, from the same
+/// place, because "an hour at a time" in the caption is about links in general and a link in front
+/// of somebody is about to be sent or not.
 struct CloudSharePopover: View {
     var workspaceID: CloudWorkspaceID
     var item: CloudWorkspaceItem?
@@ -51,6 +57,14 @@ struct CloudSharePopover: View {
             .lineLimit(1)
             .truncationMode(.tail)
 
+        // Said once, above the controls it explains. See `CloudShareControls`.
+        if !canChange {
+            Text(CloudShareControls.othersCannotChange)
+                .font(Typo.caption)
+                .foregroundStyle(Palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
         people(sharing)
         preview(sharing)
 
@@ -75,6 +89,10 @@ struct CloudSharePopover: View {
             }
     }
 
+    /// Whether this account may change any of it, which is what dims every control below rather
+    /// than letting runbloom.app refuse one after it was pressed.
+    private var canChange: Bool { CloudShareControls.canChange(role: item?.role) }
+
     // MARK: - Who can work in it
 
     /// The team by name where the account knows it, and "the team" where it does not: a switch
@@ -95,7 +113,7 @@ struct CloudSharePopover: View {
                 ))
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .disabled(sharing.isBusy || sharing.members == nil)
+                .disabled(!canChange || sharing.isBusy || sharing.members == nil)
             }
 
             // Word for word what it was. See the head of this file.
@@ -109,7 +127,7 @@ struct CloudSharePopover: View {
                 ForEach(members.members) { member in
                     person(member, in: sharing)
                 }
-                if !sharing.addable.isEmpty {
+                if canChange, !sharing.addable.isEmpty {
                     Menu {
                         ForEach(sharing.addable) { candidate in
                             Button(candidate.name) { Task { await sharing.add(candidate) } }
@@ -120,7 +138,7 @@ struct CloudSharePopover: View {
                     .menuStyle(.borderlessButton)
                     .controlSize(.small)
                     .fixedSize()
-                    .disabled(sharing.isBusy)
+                    .disabled(!canChange || sharing.isBusy)
                 }
             }
         }
@@ -149,13 +167,13 @@ struct CloudSharePopover: View {
                     .foregroundStyle(Palette.warning)
                     .help("They have no push access to the repository, or have not connected GitHub, so they cannot prompt in a shared Cloud workspace.")
             }
-            if member.role != "owner" {
+            if canChange, member.role != "owner" {
                 Button("Remove", systemImage: "xmark") { removing = member }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .controlSize(.small)
                     .foregroundStyle(Palette.textTertiary)
-                    .disabled(sharing.isBusy)
+                    .disabled(!canChange || sharing.isBusy)
                     .help("Remove \(member.user.name) from this Cloud workspace")
             }
         }
@@ -174,7 +192,7 @@ struct CloudSharePopover: View {
                     }
                 }
                 .controlSize(.small)
-                .disabled(sharing.isBusy)
+                .disabled(!canChange || sharing.isBusy)
             }
 
             Text("Anyone with the link can open the project's app, an hour at a time. It stops working when you revoke it, when it expires, or when you can no longer share this Cloud workspace.")
@@ -187,11 +205,21 @@ struct CloudSharePopover: View {
                     Image(systemName: "link")
                         .font(Typo.caption)
                         .foregroundStyle(Palette.textTertiary)
-                    Text(share.url.absoluteString)
-                        .font(Typo.caption)
-                        .monospaced()
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(share.url.absoluteString)
+                            .font(Typo.caption)
+                            .monospaced()
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        // The caption above says a link lasts an hour. What a reader wants from
+                        // one that exists is how much of that hour is left, which decides whether
+                        // it is worth sending. See `CloudShareControls.expiry`.
+                        if let expiry = CloudShareControls.expiry(of: share) {
+                            Text(expiry)
+                                .font(Typo.caption)
+                                .foregroundStyle(Palette.textTertiary)
+                        }
+                    }
                     Spacer(minLength: Metrics.spacingSmall)
                     Button(copiedShareID == share.id ? "Copied" : "Copy") { copy(share) }
                         .buttonStyle(.borderless)
@@ -199,7 +227,7 @@ struct CloudSharePopover: View {
                     Button("Revoke") { Task { await sharing.revoke(share) } }
                         .buttonStyle(.borderless)
                         .controlSize(.small)
-                        .disabled(sharing.isBusy)
+                        .disabled(!canChange || sharing.isBusy)
                 }
             }
         }
