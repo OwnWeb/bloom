@@ -907,12 +907,21 @@ struct SidebarView: View {
                     .lineLimit(3)
                     .selectionDisabled()
             } else if app.cloud.items.isEmpty {
-                // Not a line of grey text. A first run lands here with nothing to click, so the
-                // section says what is true and carries the one thing to do next. See
-                // `CloudEmptyState`.
-                CloudEmptyStateView(state: app.cloud.emptyState, isCompact: true)
-                    .selectionDisabled()
-                    .moveDisabled(true)
+                if app.cloud.emptyState.action == .createWorkspace {
+                    // Everything is in place and there is simply nothing yet, which is what an
+                    // empty project says, in the same quiet line: the header's `+` makes one, so
+                    // the notice needs no second button.
+                    SidebarEmptyNoticeRow(isFiltered: false)
+                        .selectionDisabled()
+                        .moveDisabled(true)
+                } else {
+                    // Something is in the way, signing in or finishing setup on runbloom.app, which
+                    // an empty project never has. So the section says what is true and carries the
+                    // one thing to do next. See `CloudEmptyState`.
+                    CloudEmptyStateView(state: app.cloud.emptyState, isCompact: true)
+                        .selectionDisabled()
+                        .moveDisabled(true)
+                }
             }
         } header: {
             HStack {

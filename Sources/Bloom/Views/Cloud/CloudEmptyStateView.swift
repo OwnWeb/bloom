@@ -30,21 +30,23 @@ struct CloudEmptyStateView: View {
         }
     }
 
+    /// In the sidebar's own register: the names' size and the quiet ink the empty project notice
+    /// uses, starting on the names' column, so it reads as part of the list rather than as a card
+    /// dropped into it. `.callout` was a size of its own that nothing else in the pane uses.
     private var compact: some View {
-        VStack(alignment: .leading, spacing: Metrics.spacingWide) {
+        VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
             Text(state.title)
-                .font(.callout.weight(.medium))
+                .fontWeight(.medium)
             Text(message)
-                .font(.callout)
-                .foregroundStyle(Palette.textSecondary)
+                .foregroundStyle(Palette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
             if let action = state.action {
                 Button(action.title) { take(action) }
                     .linkButton()
-                    .font(.callout)
             }
         }
-        .padding(.vertical, Metrics.spacingWide)
+        .padding(.vertical, Metrics.spacingSmall)
+        .padding(.leading, SidebarMetrics.rowIndent)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
