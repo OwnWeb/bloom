@@ -255,6 +255,31 @@ class Terminal:
                 continue
             return opcode, payload
 
+    def until_pattern(self, pattern, timeout=20):
+        """Reads until `pattern` matches, and answers the match.
+
+        **A terminal echoes what you type**, so waiting for a plain word finds the command line
+        rather than its output: `echo shell-is-$$` puts `shell-is-$$` on the screen the instant it
+        is typed, and a test that stopped there would read no pid at all. Patterns that only the
+        output can satisfy are the way to tell the two apart.
+        """
+        seen, deadline = b"", time.time() + timeout
+        while time.time() < deadline:
+            found = re.search(pattern, seen)
+            if found:
+                return found
+            try:
+                opcode, payload = self.read(timeout=max(1, deadline - time.time()))
+            except (TimeoutError, socket.timeout):
+                break
+            if opcode is None:
+                raise RuntimeError(f"the terminal closed while waiting for {pattern!r}: {payload!r}; read {seen[-300:]!r}")
+            seen += payload
+        found = re.search(pattern, seen)
+        if found:
+            return found
+        raise RuntimeError(f"{pattern!r} never matched; read {seen[-400:]!r}")
+
     def until(self, needle, timeout=20):
         """Reads output until `needle` shows up, and answers everything read."""
         seen, deadline = b"", time.time() + timeout
@@ -664,11 +689,12 @@ def main():
                 step("a terminal, and what a dropped connection costs")
                 first = Terminal(url, "scratch", session())
                 first.send("echo shell-is-$$\n")
-                seen = first.until(b"shell-is-")
-                pid = re.search(rb"shell-is-(\d+)", seen)
-                step(f"the shell answers, pid {pid.group(1).decode() if pid else '?'}")
-                first.send("printf 'written before the drop\\n' > ~/terminal-probe.txt; echo marker-one\n")
-                first.until(b"marker-one")
+                pid = first.until_pattern(rb"shell-is-(\d+)").group(1)
+                step(f"the shell answers, pid {pid.decode()}")
+                # The write has to have happened before the socket goes, so this waits for output
+                # that only the finished command can produce rather than for its own echo.
+                first.send("printf 'written before the drop\\n' > ~/terminal-probe.txt; echo wrote-$$\n")
+                first.until_pattern(rb"wrote-\d+")
 
                 # The drop itself: the socket goes without a close frame, which is what a network
                 # failure looks like and is not what a tidy client would send.
@@ -685,27 +711,24 @@ def main():
                     replayed = b""
                 step(f"the reconnection is sent {len(replayed)} bytes of the pane at once: {replayed[:80]!r}")
                 second.send("echo shell-is-$$\n")
-                again = second.until(b"shell-is-")
-                pid_again = re.search(rb"shell-is-(\d+)", again)
-                same = bool(pid and pid_again and pid.group(1) == pid_again.group(1))
-                step(f"the shell survived the drop: {same} ({pid_again.group(1).decode() if pid_again else '?'})")
-                assert same, "the shell did not survive a dropped connection"
+                pid_again = second.until_pattern(rb"shell-is-(\d+)").group(1)
+                step(f"the shell survived the drop: {pid == pid_again} ({pid_again.decode()})")
+                assert pid == pid_again, "the shell did not survive a dropped connection"
                 second.send("cat ~/terminal-probe.txt\n")
-                second.until(b"written before the drop")
+                second.until_pattern(rb"written before the drop")
                 step("and what it wrote before the drop is still there")
 
                 # A token that is about to expire is replaced on the open socket rather than by
                 # reconnecting, which is the whole point of `reauth`.
                 second.send(json.dumps({"kind": "reauth", "token": session()}), opcode=1)
-                second.send("echo after-the-reauth\n")
-                second.until(b"after-the-reauth")
+                second.send("echo after-the-reauth-$$\n")
+                second.until_pattern(rb"after-the-reauth-\d+")
                 step("reauth on the open socket keeps the shell")
 
                 second.send(json.dumps({"kind": "resize", "columns": 100, "rows": 30}), opcode=1)
                 time.sleep(1)
                 second.send("echo cols-$(tput cols)\n")
-                sized = second.until(b"cols-")
-                step(f"resize reaches the pty: {re.search(rb'cols-(\d+)', sized).group(0).decode()}")
+                step(f"resize reaches the pty: {second.until_pattern(rb'cols-(\d+)').group(0).decode()}")
 
                 # Each connection is a turn registered with runbloom.app, and the one that dropped
                 # has to have been ended, or it counts against the team until runbloom.app gives up.
