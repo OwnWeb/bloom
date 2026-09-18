@@ -34,11 +34,15 @@ public struct WorkspaceHTTPServer: Sendable {
         /// The project's services as the supervisor has them, for the page somebody sees when the
         /// preview has nothing to show.
         public var services: @Sendable () async -> [ServiceSupervisor.Status]
+        /// Where the preview proxies, so the page that says the app is not answering can say what
+        /// port it read.
+        public var appPort: Int
 
         public init(runtime: WorkspaceRuntime, verifier: TokenVerifier, gate: any RemoteTurnGate, control: any MachineControl,
                     store: Store, allowedOrigins: [String], version: String, streams: EventStreams = EventStreams(),
                     terminals: TerminalConnections = TerminalConnections(), gitCredentials: GitCredentials? = nil,
-                    services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] }) {
+                    services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] },
+                    appPort: Int = 3000) {
             self.runtime = runtime
             self.verifier = verifier
             self.gate = gate
@@ -50,6 +54,7 @@ public struct WorkspaceHTTPServer: Sendable {
             self.terminals = terminals
             self.gitCredentials = gitCredentials
             self.services = services
+            self.appPort = appPort
         }
     }
 
@@ -83,7 +88,8 @@ public struct WorkspaceHTTPServer: Sendable {
         EventStreamRoute.register(on: router, runtime: dependencies.runtime, verifier: dependencies.verifier, streams: streams)
         ControlRoutes.register(on: router, verifier: dependencies.verifier, control: dependencies.control)
         PreviewRoutes.register(on: router, verifier: dependencies.verifier, sessions: PreviewSessions(store: dependencies.store, revocations: dependencies.verifier.revocations),
-                               runtime: dependencies.runtime, services: dependencies.services)
+                               runtime: dependencies.runtime, services: dependencies.services,
+                               appPort: dependencies.appPort)
         if let credentials = dependencies.gitCredentials {
             GitCredentialRoute.register(on: router, secret: credentials.secret, repository: credentials.repository,
                                         runtime: dependencies.runtime, liveTerminalTurn: { [terminals] in await terminals.liveTurn(terminal: $0) },

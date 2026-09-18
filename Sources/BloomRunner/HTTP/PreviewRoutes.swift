@@ -15,8 +15,34 @@ import Hummingbird
 enum PreviewRoutes {
     static let cookieName = "__Host-bloom-preview"
 
+    /// What to say about ports on the page somebody sees when the preview is empty.
+    ///
+    /// Nothing when the app's port is listening, because then the port is not the problem and a
+    /// paragraph about it is noise over whatever is. The variable is named rather than the number
+    /// alone: every script this machine runs is handed `BLOOM_APP_PORT`, so a project that reads it
+    /// cannot be on the wrong port, and a project that hard-codes one can be told which to change.
+    static func portAdvice(appPort: Int, listening: [Int]) -> [String] {
+        guard !listening.contains(appPort) else { return [] }
+        var lines = ["", "The preview reads port \(appPort), and nothing is listening there."]
+        // Bloom's own ports are not an answer to "where is your app", and offering them as one
+        // would send somebody to proxy the preview at itself.
+        let others = listening.filter { $0 != appPort && !Self.ownPorts.contains($0) }
+        if others.isEmpty {
+            lines.append("Nothing else is listening either, so the app has not started yet.")
+        } else {
+            lines.append("Something is listening on \(others.map(String.init).joined(separator: ", ")).")
+            lines.append("Serve the app on \(appPort), which every script is handed as BLOOM_APP_PORT.")
+        }
+        return lines
+    }
+
+    /// The ports Bloom itself holds on a machine: the public one Caddy answers and the runner's own.
+    static let ownPorts: Set<Int> = [8080, 8081]
+
     static func register(on router: Router<WorkspaceRequestContext>, verifier: TokenVerifier, sessions: PreviewSessions,
-                         runtime: WorkspaceRuntime, services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] }) {
+                         runtime: WorkspaceRuntime, services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] },
+                         appPort: Int = 3000,
+                         listening: @escaping @Sendable () -> [Int] = { ListeningPorts.current() }) {
         // What Caddy shows instead of its own 502 when the project's app is not listening. A person
         // who opens the preview and sees a bare gateway error has no way to find out that the app
         // crashed at boot; the supervisor knows, so it says so. Only somebody who got past the
@@ -30,6 +56,12 @@ enum PreviewRoutes {
             guard let cookie = Self.cookie(in: request), await sessions.subject(for: cookie) != nil else {
                 return Self.plain(lines.joined(separator: "\n") + "\n")
             }
+            // The port contract, said out loud, because it is the likeliest reason to be here and
+            // the one nothing else states. A project that serves on its own port gets a preview
+            // that says the app is not answering, which is true and leaves somebody to deduce that
+            // there is an agreed port at all: one workspace served on 8091 while the preview read
+            // 3000, and an agent built a second proxy to bridge them.
+            lines.append(contentsOf: portAdvice(appPort: appPort, listening: listening()))
             let statuses = await services()
             if statuses.isEmpty {
                 lines.append("No services are configured in .bloom/settings.toml, so nothing was started for it.")

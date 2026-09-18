@@ -138,7 +138,8 @@ public enum ServeCommand {
             gitCredentials: .init(secret: localSecret, repository: configuration.repository) { repository, operation, turn in
                 try await client.gitCredentials(repository: repository, operation: operation, turnID: turn)
             },
-            services: { await services.status }
+            services: { await services.status },
+            appPort: layout.appPort
         ))
 
         let caddy = CaddySupervisor(layout: layout, publicURL: configuration.publicURL)

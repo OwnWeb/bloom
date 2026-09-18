@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import BloomCore
 @testable import BloomRunner
 
 @Suite("The Caddyfile in front of the machine")
@@ -77,5 +78,55 @@ struct CaddyConfigurationTests {
         #expect(text.contains("reverse_proxy 127.0.0.1:9002 {"))
         #expect(text.contains("header_up X-Forwarded-Proto http\n"))
         #expect(text.contains(#"output file "/data dir/caddy/access.log""#))
+    }
+}
+
+/// What somebody is told when the preview is empty, which is the likeliest thing they will ever
+/// read from this machine.
+@Suite("The preview's port advice")
+struct PreviewPortAdviceTests {
+    @Test("a project serving somewhere else is told which port the preview reads and where to move")
+    func namesBothPorts() {
+        // The workspace that started this: the app on 8091, the preview reading 3000.
+        let lines = PreviewRoutes.portAdvice(appPort: 3000, listening: [8080, 8081, 8091])
+        let text = lines.joined(separator: "\n")
+        #expect(text.contains("reads port 3000"))
+        #expect(text.contains("8091"), "the port their app is actually on")
+        #expect(text.contains("BLOOM_APP_PORT"), "named, because every script is handed it")
+        #expect(!text.contains("8080") && !text.contains("8081"),
+                "Bloom's own ports are not an answer to where the app is")
+    }
+
+    @Test("nothing to say when the app's port is listening")
+    func silentWhenThePortIsRight() {
+        #expect(PreviewRoutes.portAdvice(appPort: 3000, listening: [3000, 8080]).isEmpty,
+                "then the port is not the problem and a paragraph about it is noise")
+    }
+
+    @Test("a machine with nothing up says that instead of offering a port")
+    func nothingListening() {
+        let text = PreviewRoutes.portAdvice(appPort: 3000, listening: [8080, 8081]).joined(separator: "\n")
+        #expect(text.contains("has not started yet"))
+        #expect(!text.contains("Serve the app on"), "there is nowhere to point them")
+    }
+}
+
+@Suite("Listening ports")
+struct ListeningPortsTests {
+    @Test("only sockets in LISTEN are read, and the port comes out of the hex")
+    func parsesTheProcTable() {
+        // Two rows from a real /proc/net/tcp: one listening on 8080 (1F90), one established.
+        let table = """
+          sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+           0: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000  00000000  1000        0 22330 1
+           1: 0100007F:1F91 0100007F:C350 01 00000000:00000000 00:00000000  00000000  1000        0 22331 1
+           2: 0100007F:1F99 00000000:0000 0A 00000000:00000000 00:00000000  00000000  1000        0 32251 1
+        """
+        #expect(ListeningPorts.parse(table) == [8080, 8089])
+    }
+
+    @Test("a table that is not there answers nothing rather than throwing")
+    func missingFilesAreEmpty() {
+        #expect(ListeningPorts.current(paths: ["/no/such/file"]).isEmpty)
     }
 }

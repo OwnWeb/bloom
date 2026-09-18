@@ -365,6 +365,15 @@ link is `https://runbloom.app/share/<id>`: runbloom.app checks the share is live
 preview token for `sub: "share:<id>"` and redirects to the exchange, which sets a cookie lasting
 one hour rather than eight. There is no long-lived share token.
 
+**A project that serves on its own port is told so.** The preview proxies to `BLOOM_APP_PORT`,
+which every script is handed, and a project whose dev server listens elsewhere used to get a page
+saying the app was not answering: true, and no help at all, because nothing said there was an agreed
+port. One workspace served on 8091 while the preview read 3000, and an agent spent twenty-odd
+actions building a second proxy to bridge them. The unavailable page now names the port it reads,
+says nothing is listening there, and lists the ports that are, leaving out Bloom's own so nobody is
+sent to proxy the preview at itself. The ports come from `/proc/net/tcp`, not from running `ss`: it
+is an HTTP handler, and a subprocess in one is a hang waiting to happen.
+
 ## Setup
 
 Every create is cold. A Sprite cannot start from another's checkpoint, and phase 1 has no pool of
