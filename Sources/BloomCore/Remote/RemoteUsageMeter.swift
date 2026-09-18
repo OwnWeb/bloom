@@ -117,6 +117,9 @@ public struct UsageEvent: Codable, Sendable, Hashable {
     public var turnID: String?
     public var userID: String?
     public var agent: String?
+    /// How many of something this one event stands for. Only `reports_shed` uses it, and it is
+    /// cumulative there, so a shed report saying "14" and a later one saying "17" agree.
+    public var count: Int?
 
     public static func awake(_ reason: RemoteAwakePolicy.Reason, at date: Date) -> Self {
         Self(kind: "awake", at: date, reason: reason.rawValue)
@@ -135,7 +138,14 @@ public struct UsageEvent: Codable, Sendable, Hashable {
 
     public static func turnFinished(turnID: String, at date: Date) -> Self { Self(kind: "turn_finished", at: date, turnID: turnID) }
 
-    public init(kind: String, at: Date, reason: String? = nil, outcome: String? = nil, turnID: String? = nil, userID: String? = nil, agent: String? = nil) {
+    /// Reports thrown away rather than held for ever, so runbloom.app knows its account of this
+    /// machine has a hole in it rather than believing the quiet hours were quiet.
+    public static func reportsShed(_ total: Int, at date: Date) -> Self {
+        Self(kind: "reports_shed", at: date, count: total)
+    }
+
+    public init(kind: String, at: Date, reason: String? = nil, outcome: String? = nil, turnID: String? = nil,
+                userID: String? = nil, agent: String? = nil, count: Int? = nil) {
         self.kind = kind
         self.at = at
         self.reason = reason
@@ -143,10 +153,11 @@ public struct UsageEvent: Codable, Sendable, Hashable {
         self.turnID = turnID
         self.userID = userID
         self.agent = agent
+        self.count = count
     }
 
     enum CodingKeys: String, CodingKey {
-        case kind, at, reason, outcome, agent
+        case kind, at, reason, outcome, agent, count
         case turnID = "turn_id"
         case userID = "user_id"
     }

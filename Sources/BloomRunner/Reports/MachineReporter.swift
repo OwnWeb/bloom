@@ -32,6 +32,8 @@ public actor MachineReporter {
     /// Nil until something measures it, and nil again when it cannot be measured: the summary
     /// leaves the fields out rather than sending zeroes.
     private var atStake: RemoteWorkAtStake?
+    /// The shed count already told to runbloom.app, so one hole is reported once.
+    private var reportedShed = 0
     private(set) var awake = false
     private(set) var leaseUntil: Date?
 
@@ -161,6 +163,14 @@ public actor MachineReporter {
 
     public func sendUsage(includingDisk: Bool) async {
         await loadMeterOnce()
+        // Reports thrown away for want of anywhere to put them, told to runbloom.app as an event of
+        // its own, so its account of this machine has a marked hole rather than a quiet one. The
+        // count is cumulative, so a `reports_shed` that is itself shed is covered by the next.
+        let shed = await delivery.status.shed
+        if shed > reportedShed {
+            reportedShed = shed
+            meter?.record(.reportsShed(shed, at: now()))
+        }
         // Several reports in a row when more events are waiting than one report may carry, taken
         // with no suspension between, so a record cannot land between two of them out of order.
         var reports: [UsageReport] = []

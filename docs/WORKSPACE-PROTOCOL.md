@@ -229,9 +229,17 @@ events. Then live events as they happen.
 | `setup_output` | new output | appends it to the log |
 | `review` | a revision number | asks `review_snapshot` again |
 | `presence` | who has the workspace open | replaces its copy |
-| `workspace` | name, branch, pull request | replaces its copy |
+| `workspace` | name, branch, pull request, `reporting` | replaces its copy |
 | `sleeping` | nothing | see "Sleeping and waking" |
 | `closing` | a failure | the stream ends; act on the code |
+
+**`reporting` on the workspace record is the machine saying it cannot reach runbloom.app.** It is
+absent almost always, and present with `unreachable_since` (when contact was lost) and `shed` (how
+many unsent usage reports it has had to throw away) when there is something wrong to say. A client
+should show it: the workspace is working, and what is being done in it is not being recorded
+anywhere else. Everything else that fails between a machine and runbloom.app already fails in front
+of somebody; this one is silent without it. `events.workspace_not_reporting` in the vectors is the
+shape.
 
 ### Keeping a stream's token fresh
 

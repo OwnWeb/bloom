@@ -163,6 +163,16 @@
               "type": "null"
             }
           ]
+        },
+        "reporting": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Reporting"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -171,6 +181,29 @@
         "id",
         "name",
         "setup"
+      ],
+      "additionalProperties": false
+    },
+    "Reporting": {
+      "type": "object",
+      "properties": {
+        "shed": {
+          "type": "integer"
+        },
+        "unreachable_since": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "shed"
       ],
       "additionalProperties": false
     },

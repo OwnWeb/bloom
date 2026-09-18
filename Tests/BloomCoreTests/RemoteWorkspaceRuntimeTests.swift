@@ -97,6 +97,31 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("a machine that cannot reach runbloom.app says so on the workspace it serves")
+    func reportingIsOnTheWorkspaceRecord() async throws {
+        let fixture = try await fixture()
+        let caller = Self.caller(Self.freek)
+        guard case .workspace(let quiet)? = await fixture.runtime.respond(to: CommandRequest(.workspace), as: caller).result else {
+            Issue.record("no workspace"); return
+        }
+        #expect(quiet.workspace.reporting == nil, "nothing to say is said with nothing")
+
+        let lost = Date(timeIntervalSince1970: 1_700_000_000)
+        await fixture.runtime.reportingChanged(ReportingRecord(unreachableSince: lost, shed: 2))
+        guard case .workspace(let worried)? = await fixture.runtime.respond(to: CommandRequest(.workspace), as: caller).result else {
+            Issue.record("no workspace"); return
+        }
+        #expect(worried.workspace.reporting?.unreachableSince == lost)
+        #expect(worried.workspace.reporting?.shed == 2)
+
+        await fixture.runtime.reportingChanged(nil)
+        guard case .workspace(let calm)? = await fixture.runtime.respond(to: CommandRequest(.workspace), as: caller).result else {
+            Issue.record("no workspace"); return
+        }
+        #expect(calm.workspace.reporting == nil, "and it goes away again when contact comes back")
+        await fixture.runtime.shutdown()
+    }
+
     @Test("another protocol version is refused with its own code")
     func versionsAreChecked() async throws {
         let fixture = try await fixture()

@@ -82,6 +82,8 @@ class FakeRunbloom(http.server.ThreadingHTTPServer):
         self.requests = []
         self.grant = None
         self.refusal = None
+        self.refuse_reports = False
+        self.refused_reports = 0
         self.turns = 0
         self.lock = threading.Lock()
 
@@ -111,6 +113,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.test_api(method, body)
         if self.headers.get("Authorization") != f"Bearer {server.secret}":
             return self.answer(401, b'{"code":"invalid_workspace_secret","message":"no"}')
+        # Before the recording, so a test can tell a report that arrived from one that was only
+        # attempted. This is how an outage is staged: 503 is retryable, so the machine keeps it.
+        if self.path.endswith(("/summary", "/usage")):
+            with server.lock:
+                refusing = server.refuse_reports
+                if refusing:
+                    server.refused_reports += 1
+            if refusing:
+                return self.answer(503, b'{"code":"unavailable","message":"staged outage"}')
         parsed = json.loads(body) if body else None
         with server.lock:
             # Never the grant's contents: the recording is what a test reads back and prints.
@@ -142,6 +153,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return self.answer(204)
 
     def test_api(self, method, body):
+        if self.path == "/test/refuse-reports" and method == "POST":
+            with self.server.lock:
+                self.server.refuse_reports = bool(json.loads(body).get("refuse")) if body else False
+                refused = self.server.refused_reports
+            return self.answer(200, json.dumps({"refused": refused}).encode())
         if self.path == "/test/refuse-starts" and method == "POST":
             with self.server.lock:
                 self.server.refusal = json.loads(body) if body else None

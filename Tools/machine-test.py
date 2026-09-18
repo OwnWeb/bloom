@@ -103,7 +103,29 @@ def free_port():
         return probe.getsockname()[1]
 
 
+# The machine whose URL the provider may put back behind its own sign-in, set once by main. A
+# global because it is one machine per run and every caller of https() would otherwise carry it.
+MACHINE = None
+
+
 def https(url, method="GET", path="/", token=None, body=None, headers=None, timeout=60):
+    for attempt in range(2):
+        status, received, body_read = request(url, method, path, token, body, headers, timeout)
+        # The provider has been seen to put a URL asked for as public back behind its own sign-in,
+        # minutes after answering for it: the machine redirects to sprites.dev/auth and every call
+        # after that reads as a failure of ours. Asking again once is the whole fix, and it has
+        # cost a run to learn.
+        if attempt == 0 and status in (301, 302, 303, 307, 308) and "sprites.dev/auth" in received.get("location", ""):
+            if MACHINE:
+                step("the provider put the URL back behind its sign-in; asking for public again")
+                sprite(MACHINE, "url", "update", "--auth", "public", check=False)
+                time.sleep(5)
+                continue
+        return status, received, body_read
+    return status, received, body_read
+
+
+def request(url, method, path, token, body, headers, timeout):
     parsed = urllib.parse.urlparse(url)
     connection = http.client.HTTPSConnection(parsed.hostname, timeout=timeout, context=ssl.create_default_context())
     sent = dict(headers or {})
@@ -224,6 +246,9 @@ def main():
     parser.add_argument("--restart", action="store_true",
                         help="what survives the service restart an update causes: the queue, a terminal's shell, "
                              "and what a retried command id answers")
+    parser.add_argument("--outage", type=float, metavar="MINUTES", nargs="?", const=22.0,
+                        help="stage a runbloom.app outage of this many minutes and measure what the machine "
+                             "queues, what its memory does, what it says, and whether the backlog drains after")
     parser.add_argument("--update", action="store_true",
                         help="also move the machine to another release through control/update, and back from a broken one")
     parser.add_argument("--keep", action="store_true", help="do not delete the machine, for looking at it afterwards")
@@ -235,7 +260,8 @@ def main():
                else arguments.from_release.removeprefix("runner-v").removeprefix("v"))
     grant = credential_for_live_turn() if arguments.live else None
 
-    name = "bloomtest-" + secrets.token_hex(4)
+    global MACHINE
+    name = MACHINE = "bloomtest-" + secrets.token_hex(4)
     workspace = "01k5" + "".join(secrets.choice("0123456789abcdefghjkmnpqrstvwxyz") for _ in range(22))
     secret = secrets.token_hex(32)
     processes = []
@@ -415,6 +441,53 @@ def main():
                 step("after: " + " | ".join(shell_after.splitlines()))
                 local(proxy_port, "POST", "/test/refuse-starts", None)
 
+            if arguments.outage:
+                # What a machine that cannot reach runbloom.app actually does, measured rather than
+                # reasoned about: the reports are refused with 503, which is retryable, so they are
+                # kept rather than dropped, and the process is watched while they pile up.
+                step(f"staging a runbloom.app outage of {arguments.outage:g} minutes")
+                pid = run_on(name, "pgrep -f 'bloom-runner(-exec)? serve' | head -1", timeout=60).strip()
+                resident = lambda: int(run_on(name, f"awk '/VmRSS/ {{print $2}}' /proc/{pid}/status", timeout=60).split()[0])  # noqa: E731
+                before_rss = resident()
+                before_delivered = len([r for r in requests() if r["path"].endswith(("/summary", "/usage"))])
+                local(proxy_port, "POST", "/test/refuse-reports", {"refuse": True})
+                started = time.time()
+                samples = []
+                while time.time() - started < arguments.outage * 60:
+                    # Something a person would be doing, so the machine stays awake and the reports
+                    # it owes are the reports of a workspace in use rather than an idle one.
+                    rpc(url, session(), {"kind": "rename_workspace", "name": f"Outage {int(time.time() - started)}s"})
+                    samples.append((round(time.time() - started), resident()))
+                    step(f"  {samples[-1][0]:>4}s  rss {samples[-1][1]} kB  "
+                         f"refused {json.loads(local(proxy_port, 'POST', '/test/refuse-reports', {'refuse': True})[1])['refused']}")
+                    time.sleep(120)
+                refused = json.loads(local(proxy_port, "POST", "/test/refuse-reports", {"refuse": True})[1])["refused"]
+                after_rss = resident()
+                step(f"outage over: rss {before_rss} kB to {after_rss} kB ({after_rss - before_rss:+d} kB), "
+                     f"{refused} reports refused")
+
+                # What the machine said about it, to anybody at all.
+                said = run_on(name, r"grep -icE 'runbloom|unreachable|report' /.sprite/logs/services/bloom.log || true", timeout=60)
+                step(f"lines in the service log mentioning runbloom, unreachable or report: {said.strip()}")
+                state = rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]
+                step(f"what a client reading the workspace can see about it: {json.dumps({k: v for k, v in state.items() if 'report' in k or 'control' in k or 'reach' in k})}")
+
+                step("runbloom.app comes back")
+                local(proxy_port, "POST", "/test/refuse-reports", {"refuse": False})
+                delivered = wait_for("the backlog drains", lambda: (lambda n: n if n > before_delivered else None)(
+                    len([r for r in requests() if r["path"].endswith(("/summary", "/usage"))])), 180, interval=5)
+                time.sleep(20)
+                arrived = [r for r in requests() if r["path"].endswith(("/summary", "/usage"))][before_delivered:]
+                usage = [r["body"] for r in arrived if r["path"].endswith("/usage")]
+                step(f"after the outage: {len(arrived)} reports arrived, {len(usage)} of them usage, "
+                     f"sequences {[u.get('sequence') for u in usage]}")
+                step(f"summaries arrived: {len(arrived) - len(usage)} (replace-latest, so one is the whole owed state)")
+
+                # And what a restart does to whatever is still owed.
+                run_on(name, "sprite-env services restart bloom", timeout=120)
+                wait_for("health answers again", lambda: https(url, path="/_bloom/health")[0] == 200, 180, interval=3)
+                step("restarted; whatever was still in memory is gone with the process")
+
             if arguments.update:
                 # Releases are laid out under /opt/bloom beforehand, so the bootstrap takes them as
                 # already downloaded: what this measures is the restart, the new process saying it
@@ -497,7 +570,7 @@ def main():
                                        timeout=60).split()
                         print(f"{key} in the agent's environment matches what was sent: {expected in found} ({len(found)} processes)", file=sys.stderr)
                     print(redacted(run_on(name, "command -v claude; ls -la ~/.local/bin 2>/dev/null | head; "
-                                                "sprite-env services logs bloom 2>/dev/null | tail -n 60", timeout=60))[-6000:], file=sys.stderr)
+                                                "tail -n 60 /.sprite/logs/services/bloom.log 2>/dev/null", timeout=60))[-6000:], file=sys.stderr)
                     raise
                 step(f"the agent answered in chat {answer[0]['message']['chat_id']}")
                 recorded = requests()
@@ -511,8 +584,7 @@ def main():
         except BaseException:
             if created:
                 try:
-                    print(run_on(name, "tail -n 80 ~/.bloom/services/*.log 2>/dev/null; "
-                                       "sprite-env services logs bloom 2>/dev/null | tail -n 80", timeout=60)[-6000:], file=sys.stderr)
+                    print(run_on(name, "tail -n 80 /.sprite/logs/services/bloom.log 2>/dev/null", timeout=60)[-6000:], file=sys.stderr)
                 except Exception:  # noqa: BLE001
                     pass
             raise

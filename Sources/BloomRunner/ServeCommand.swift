@@ -1,8 +1,10 @@
 import AsyncHTTPClient
 import BloomCore
+import BloomProtocol
 import Foundation
 import Hummingbird
 import ServiceLifecycle
+import Synchronization
 
 /// `bloom-runner serve`: everything a machine runs, put together once.
 ///
@@ -59,7 +61,26 @@ public enum ServeCommand {
             bridgeSocketPath: layout.dataDirectory + "/bridge.sock"
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()
-        let delivery = ReportDelivery(sender: .init(client: client))
+        // What the machine says about its own reporting goes two ways here, because the two readers
+        // are different people: to the workspace record, so anybody looking at the workspace sees
+        // that what they are doing is not being recorded, and to the log with the queue's depth,
+        // for whoever reads a machine afterwards. The third reader is runbloom.app, which is told
+        // about shedding by `MachineReporter` in the next report it can send.
+        let shedSoFar = Mutex(0)
+        let delivery = ReportDelivery(sender: .init(client: client), observer: { status in
+            await runtime.reportingChanged(status.record)
+            let newlyShed = shedSoFar.withLock { shed -> Int in
+                defer { shed = status.shed }
+                return status.shed - shed
+            }
+            if newlyShed > 0 {
+                note("shed \(newlyShed) unsent usage report(s); \(status.queued) queued, \(status.queuedBytes) bytes")
+            }
+            if let since = status.unreachableSince {
+                note("runbloom.app unreachable since \(WireDate.string(from: since)); "
+                     + "\(status.queued) report(s) queued, \(status.queuedBytes) bytes")
+            }
+        })
         let reporter = MachineReporter(runtime: runtime, store: store, delivery: delivery, host: host, version: version)
         let awake = AwakeController(host: host, runtime: runtime, reporter: reporter)
         let machineEnvironment = MachineEnvironment { try await client.environment() }

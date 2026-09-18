@@ -494,6 +494,40 @@ report until the machine is deleted, and checks machine state against the provid
 own, because anyone with root on the machine could stop or falsify these reports. The reports are
 for showing usage and enforcing limits early, not the only source of truth.
 
+### When runbloom.app cannot be reached
+
+Everything else that can go wrong between a machine and runbloom.app fails in front of somebody. A
+prompt that cannot start pauses its chat with a sentence; a push with no credential says so. Reports
+fail quietly, because nobody is waiting on one, which is why this is the only part of the
+arrangement that used to be unbounded and invisible at the same time.
+
+**Measured first, on a machine.** A workspace in use posts a usage report every five minutes while
+it is held awake, and one summary whenever something a person would notice changes. A quiet report
+is 209 bytes, one carrying twenty turns is 2.5 kB, and the largest runbloom.app will accept is
+145 kB (`RemoteUsageMeter.eventsPerReport`, a thousand events). So an hour of outage on a busy
+machine is about 30 kB and a day is under a megabyte: the memory was never the emergency. The
+silence was.
+
+**The backlog is capped at four megabytes and sheds its oldest.** That is a fortnight of a quiet
+machine or a day and a half of a busy one. What goes first is the oldest report, because the
+counters are cumulative and the newest one carries the totals: what a workspace cost stays right,
+and what is lost is the account of which turns made up the oldest hours.
+`RemoteUsageMeter.record` already sheds its oldest events at two thousand for the same reason, and
+this is the same rule one layer up. **A summary is never shed**, because there is only ever one:
+it is replace-latest, so a newer one simply takes the older one's place.
+
+**And the machine says so, to three different readers.** The workspace record carries `reporting`
+with `unreachable_since` and `shed` whenever there is something wrong to say, so a client can tell
+the person sitting in the workspace that what they are doing is not being recorded, and since when.
+The service log gets a line with the queue's depth in bytes, for whoever reads a machine
+afterwards. And runbloom.app is told about shedding as a `reports_shed` event, whose `count` is
+cumulative, once it can be reached again: a hole in its account of a machine should be a hole it
+knows about rather than hours that merely look quiet.
+
+Nothing here is restart-proof, and that is deliberate. An unsent report dies with the process,
+because the counters it carries are cumulative and the next report from the same boot covers them;
+only its events are lost, which is the same loss shedding accepts.
+
 ## Limits
 
 runbloom.app enforces per-team limits at three points: creating a workspace, issuing a workspace

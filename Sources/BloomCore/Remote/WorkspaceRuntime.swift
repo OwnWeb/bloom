@@ -53,6 +53,9 @@ public actor WorkspaceRuntime {
     var publishedSetup: SetupRecord?
     var publishedWorkspace: WorkspaceRecord?
     var publishedSetupLogLength = 0
+    /// What the machine can say about reaching runbloom.app, set by whoever is failing to reach it.
+    /// Nil is the normal case and draws nothing. See `ReportingRecord`.
+    var reporting: ReportingRecord?
     /// Which setup step is running, for the setup record. Set by the machine's setup runner.
     var setupStep: String?
     var setupStartedAt: Date?

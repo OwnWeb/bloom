@@ -218,6 +218,11 @@ enum WireExamples {
         ("review", .review(revision: 7)),
         ("presence", .presence([PresenceRecord(userID: author.userID, name: author.name, lastInputAt: nil)])),
         ("workspace", .workspace(workspace)),
+        // The same record while the machine cannot reach runbloom.app, which is the only time it
+        // carries `reporting` and the shape a client draws that warning from.
+        ("workspace_not_reporting", .workspace(WorkspaceRecord(
+            id: workspace.id, name: workspace.name, branch: workspace.branch, baseBranch: workspace.baseBranch,
+            setup: workspace.setup, reporting: ReportingRecord(unreachableSince: date, shed: 3)))),
         ("sleeping", .sleeping),
         ("closing", .closing(WireError(.tokenExpired, "The session token expired."))),
     ]

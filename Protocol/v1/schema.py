@@ -179,7 +179,10 @@ RECORDS = {
                  {"step": S, "started_at": DATE, "finished_at": DATE, "note": S}),
     "SetupOutput": obj({"setup": ref("Setup"), "log": S}),
     "PullRequest": obj({"number": I, "url": S, "title": S, "state": S}),
-    "Workspace": obj({"id": S, "name": S, "branch": S, "base_branch": S, "setup": ref("Setup")}, {"pull_request": ref("PullRequest")}),
+    "Workspace": obj({"id": S, "name": S, "branch": S, "base_branch": S, "setup": ref("Setup")},
+                     {"pull_request": ref("PullRequest"), "reporting": ref("Reporting")}),
+    # Present only when the machine has something wrong to say about reaching runbloom.app.
+    "Reporting": obj({"shed": I}, {"unreachable_since": DATE}),
     "Chat": obj({"id": S, "title": S, "agent": S, "model": S, "effort": S, "permission_mode": S, "interaction_mode": S,
                  "state": S, "last_seq": I, "created_at": DATE, "updated_at": DATE}, {"parent_chat_id": S}),
     "Message": obj({"cursor": I, "chat_id": S, "seq": I, "kind": S, "payload": ANY, "created_at": DATE},

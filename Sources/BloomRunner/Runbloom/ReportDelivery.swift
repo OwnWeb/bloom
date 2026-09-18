@@ -1,3 +1,5 @@
+import BloomCore
+import BloomProtocol
 import Foundation
 
 /// Gets summaries and usage reports to runbloom.app, eventually, without anybody waiting on it.
@@ -15,7 +17,38 @@ import Foundation
 ///
 /// One worker at a time sends, so a report is never in flight twice and usage cannot overtake
 /// itself.
+///
+/// **The backlog is capped, and it sheds the oldest.** An outage is bounded by nothing else here:
+/// a machine held awake posts a usage report every five minutes for as long as the outage lasts,
+/// and a queue that grew for a week would be a machine dying of its own reporting. The cap is in
+/// bytes because memory is in bytes, and at the measured sizes (209 bytes for a quiet report, 2.5
+/// kB for one carrying twenty turns, 145 kB for the largest runbloom.app will accept) four
+/// megabytes is a fortnight of a quiet machine or a day and a half of a busy one. Past that the
+/// oldest goes, because the counters are cumulative and the newest report carries the totals:
+/// what is lost is the account of which turns made up the oldest hours, never what the workspace
+/// cost. `RemoteUsageMeter.record` already sheds its oldest events the same way and for the same
+/// reason. Every shedding is counted, said to whoever is looking at the workspace, and told to
+/// runbloom.app in a `reports_shed` event once it can be reached, so a hole is a known hole.
 public actor ReportDelivery {
+    /// Four megabytes of unsent usage. See the note above for what that is in days.
+    public static let maximumQueuedBytes = 4 << 20
+
+    /// What the machine can say about its own reporting, which is the one failure here that
+    /// otherwise shows nowhere. Handed to whoever wants to publish or log it, on every change.
+    public struct Status: Sendable, Hashable {
+        public var unreachableSince: Date?
+        public var queued: Int
+        public var queuedBytes: Int
+        public var shed: Int
+
+        /// Nil while everything is in touch and nothing has been shed, which is the normal case
+        /// and the one a client should draw nothing for.
+        public var record: ReportingRecord? {
+            guard unreachableSince != nil || shed > 0 else { return nil }
+            return ReportingRecord(unreachableSince: unreachableSince, shed: shed)
+        }
+    }
+
     /// The two sends, as closures so the delivery rules are testable without HTTP.
     public struct Sender: Sendable {
         public var summary: @Sendable (Data) async throws -> Void
@@ -35,12 +68,23 @@ public actor ReportDelivery {
     private let initialDelay: Duration
     private let maximumDelay: Duration
     private let sleep: @Sendable (Duration) async throws -> Void
+    private let observer: @Sendable (Status) async -> Void
+    private let now: @Sendable () -> Date
 
     private var summary: Data?
     /// Bumped by every submitted summary, so a send that finishes after a newer one arrived clears
     /// nothing: the newer one is still owed.
     private var summaryRevision = 0
     private var usage: [Data] = []
+
+    private var queuedBytes = 0
+    /// When contact was lost, which is the moment of the last report that got through, or this
+    /// server's start when none ever has. Set on the first failure worth retrying, cleared by the
+    /// next success, so a flap of one report does not read as an outage that never ended.
+    private var unreachableSince: Date?
+    private var lastReachedAt: Date
+    private var shed = 0
+    private var announced: Status?
 
     private var delay: Duration
     private var worker: Task<Void, Never>?
@@ -54,12 +98,17 @@ public actor ReportDelivery {
         sender: Sender,
         initialDelay: Duration = .seconds(1),
         maximumDelay: Duration = .seconds(60),
-        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        now: @escaping @Sendable () -> Date = Date.init,
+        observer: @escaping @Sendable (Status) async -> Void = { _ in }
     ) {
         self.sender = sender
         self.initialDelay = initialDelay
         self.maximumDelay = maximumDelay
         self.sleep = sleep
+        self.now = now
+        self.observer = observer
+        lastReachedAt = now()
         delay = initialDelay
     }
 
@@ -73,7 +122,20 @@ public actor ReportDelivery {
     public func submitUsage(_ body: Data) {
         guard !isShutDown else { return }
         usage.append(body)
+        queuedBytes += body.count
+        // The oldest first, and only as many as the cap needs: a report is only ever whole, so
+        // this sheds reports rather than trimming one.
+        while queuedBytes > Self.maximumQueuedBytes, usage.count > 1 {
+            queuedBytes -= usage.removeFirst().count
+            shed += 1
+        }
         startWorker()
+    }
+
+    /// What this has to say about itself, for a client and for the log.
+    public var status: Status {
+        Status(unreachableSince: unreachableSince, queued: usage.count + (summary == nil ? 0 : 1),
+               queuedBytes: queuedBytes, shed: shed)
     }
 
     /// Whether anything is still owed to runbloom.app.
@@ -160,8 +222,9 @@ public actor ReportDelivery {
                 failed = true
                 break
             }
-            usage.removeFirst()
+            if !usage.isEmpty { queuedBytes -= usage.removeFirst().count }
         }
+        await announce()
         return failed
     }
 
@@ -170,19 +233,41 @@ public actor ReportDelivery {
     private func outcome(of send: @Sendable () async throws -> Void) async -> Outcome {
         do {
             try await send()
+            reached()
             return .delivered
         } catch let error as RunbloomError where error.isTerminal {
             // The workspace is archived or its secret revoked: nothing this machine says will be
             // heard again, so it stops saying it rather than retrying for the rest of its life.
+            // runbloom.app answered, so this is being reached: the silence is deliberate.
+            reached()
             summary = nil
             usage.removeAll()
+            queuedBytes = 0
             isShutDown = true
             return .dropped
         } catch let error as RunbloomError where !error.isWorthRetrying {
+            reached()
             return .dropped
         } catch {
+            // The first failure since the last success is when contact was lost, which is that
+            // success, not now: an outage that began while nothing was being sent still began then.
+            if unreachableSince == nil { unreachableSince = lastReachedAt }
             return .retry
         }
+    }
+
+    /// runbloom.app answered, whatever it said.
+    private func reached() {
+        lastReachedAt = now()
+        unreachableSince = nil
+    }
+
+    /// Tells the observer, once per change rather than once per attempt.
+    private func announce() async {
+        let current = status
+        guard current != announced else { return }
+        announced = current
+        await observer(current)
     }
 
     private func resume(_ id: UUID, with delivered: Bool) {

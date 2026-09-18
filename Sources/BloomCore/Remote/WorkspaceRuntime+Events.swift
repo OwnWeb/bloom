@@ -28,7 +28,7 @@ extension WorkspaceRuntime {
     private func openEvents(_ subscription: RemoteEventHub.Subscription, after cursor: Int64?) async throws -> AsyncStream<WorkspaceEvent> {
         var opening: [WorkspaceEvent] = []
         let workspace = try await workspace()
-        opening.append(.workspace(workspace.record(setup: setupRecord(workspace))))
+        opening.append(.workspace(workspace.record(setup: setupRecord(workspace), reporting: reporting)))
         opening.append(.setup(setupRecord(workspace)))
         for id in try await chatIDs() {
             let session = try await storedSession(id)
@@ -157,7 +157,7 @@ extension WorkspaceRuntime {
             publishedQuestions.removeValue(forKey: id)
         }
         guard let workspace = try await store.workspace(id: workspaceID) else { return }
-        let record = workspace.record(setup: setupRecord(workspace))
+        let record = workspace.record(setup: setupRecord(workspace), reporting: reporting)
         if publishedWorkspace != record {
             let first = publishedWorkspace == nil
             publishedWorkspace = record
@@ -244,6 +244,16 @@ extension WorkspaceRuntime {
         holdsPromptsForSetup = true
         try? await refreshPublishedState(publishing: true)
         await report(starting ? .setupStarted(step: step) : .setupStep(step))
+    }
+
+    /// The machine has, or has not, been able to reach runbloom.app. Publishing it is the whole
+    /// point: an outage that nobody can see is the one failure here with no symptom, because a
+    /// prompt that cannot start pauses its chat with a sentence and a report that cannot be sent
+    /// says nothing at all.
+    public func reportingChanged(_ record: ReportingRecord?) async {
+        guard record != reporting else { return }
+        reporting = record
+        try? await refreshPublishedState(publishing: true)
     }
 
     /// Setup finished, however it ended, and the prompts that waited for it may go: a failed setup

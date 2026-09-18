@@ -186,6 +186,24 @@
           "state" : "succeeded"
         }
       }
+    },
+    "workspace_not_reporting" : {
+      "kind" : "workspace",
+      "workspace" : {
+        "base_branch" : "main",
+        "branch" : "freek/queue-retries",
+        "id" : "01k5bx7j9d3v2r8q6m4n0p1s2w",
+        "name" : "Queue retries",
+        "reporting" : {
+          "shed" : 3,
+          "unreachable_since" : "2026-09-17T09:40:02.500Z"
+        },
+        "setup" : {
+          "finished_at" : "2026-09-17T09:40:02.500Z",
+          "started_at" : "2026-09-17T09:40:02.500Z",
+          "state" : "succeeded"
+        }
+      }
     }
   },
   "replies" : {
