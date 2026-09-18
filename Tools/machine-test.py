@@ -439,8 +439,15 @@ def main():
                 # Through stdin, the way runbloom.app runs it (`bash -s -- install …`), rather than
                 # through the provider's file API, which has hung for tens of minutes on files of
                 # any size. Nothing here needs that API, so nothing here uses it.
-                run_on(name, f"bash -s -- install {version} {checksum} {arguments.from_release} 2>&1 | tail -n 5",
+                # `pipefail`, and then a look at what is actually on the disk. Without the first,
+                # `| tail` answers for the pipeline and a failed install is silent: a run against a
+                # release whose asset was still uploading installed nothing, said nothing, and was
+                # found ten minutes later as "executable file not found" in the service's log.
+                run_on(name, "set -o pipefail; "
+                             f"bash -s -- install {version} {checksum} {arguments.from_release} 2>&1 | tail -n 5",
                        stdin=(HERE / "bootstrap-machine.sh").read_text(), timeout=900)
+                installed = run_on(name, "ls -l /opt/bloom/current/bin/ 2>&1 | head -5", timeout=60)
+                assert "bloom-runner" in installed, f"nothing was installed: {installed}"
             else:
                 step("installing the package as runbloom.app does")
                 install_by_upload(name, scratch, package, version)
@@ -611,11 +618,17 @@ def main():
                 # What the machine said about it, to anybody at all.
                 said = run_on(name, r"grep -icE 'runbloom|unreachable|report' /.sprite/logs/services/bloom.log || true", timeout=60)
                 step(f"lines in the service log mentioning runbloom, unreachable or report: {said.strip()}")
+                # The half of the fix a person meets. Before it existed this printed an empty object
+                # after twenty-two minutes of a workspace in use being recorded nowhere.
                 state = rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]
-                step(f"what a client reading the workspace can see about it: {json.dumps({k: v for k, v in state.items() if 'report' in k or 'control' in k or 'reach' in k})}")
+                step(f"what a client reading the workspace can see about it: {json.dumps(state.get('reporting'))}")
+                assert (state.get("reporting") or {}).get("unreachable_since"), \
+                    "the machine does not say it has been out of touch"
 
                 step("runbloom.app comes back")
                 local(proxy_port, "POST", "/test/refuse-reports", {"refuse": False})
+                # And it stops saying it, which is the other half: an outage that ended should not
+                # read as one that never did.
                 delivered = wait_for("the backlog drains", lambda: (lambda n: n if n > before_delivered else None)(
                     len([r for r in requests() if r["path"].endswith(("/summary", "/usage"))])), 180, interval=5)
                 time.sleep(20)
@@ -624,6 +637,10 @@ def main():
                 step(f"after the outage: {len(arrived)} reports arrived, {len(usage)} of them usage, "
                      f"sequences {[u.get('sequence') for u in usage]}")
                 step(f"summaries arrived: {len(arrived) - len(usage)} (replace-latest, so one is the whole owed state)")
+                recovered = rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]
+                step(f"and the workspace stops saying it: {json.dumps(recovered.get('reporting'))}")
+                assert not (recovered.get("reporting") or {}).get("unreachable_since"), \
+                    "the machine still says it is out of touch after the reports got through"
 
                 # And what a restart does to whatever is still owed.
                 run_on(name, "sprite-env services restart bloom", timeout=120)
