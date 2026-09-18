@@ -557,12 +557,19 @@ answer wins; a second gets `already_answered`, and the `questions` event that fo
 `set_composer` is last writer wins. The `composer` event says who changed it; show that when it was
 somebody else. A chat that has messages keeps its agent: to change agents, open a new chat.
 
-**A model's own efforts and fast tier are on its record.** `models` lists Codex's, each with the
-`efforts` it takes and its `default_effort`, which differ by model; Claude's efforts are the
-agent's and are not listed. `fast_tier` names the service tier that makes a model fast, from the
-same model list and without starting a turn. **Absent means no fast mode**, which is also what a
-machine older than the field sends. A project's Codex configuration can still turn fast mode off,
-and that is not on the wire yet.
+**A model's own efforts and fast tier are on its record.** `models` lists Codex's and Claude
+Code's, each with the `efforts` it takes; Codex's also carry a `default_effort`. `fast_tier` names
+the service tier that makes a Codex model fast, from the same model list and without starting a
+turn. **Absent means no fast mode**, which is also what a machine older than the field sends, and
+it is always absent on a Claude Code model, whose fast mode is a switch on the chat. A project's
+Codex configuration can still turn fast mode off, and that is not on the wire yet.
+
+**Claude Code's list is the `claude` CLI's own**, read from its `initialize` answer, and it depends
+on who asks. A machine asks without an account, because it holds no key outside a turn, and the
+CLI then leaves out models an account unlocks: **Fable is absent from a machine's list, and that is
+not a bug.** A chat can still be set to a model the list does not carry; the list is what the machine
+can vouch for, not everything that will run. `[1m]` variants such as `opus[1m]` are their own model
+ids, and `is_default` marks the one the CLI recommends.
 
 **Quick prompts come from two places, and the machine answers for one.** The person's own are in
 their client's database and are that client's to show. The project's are `[[quick_prompts]]` in the
