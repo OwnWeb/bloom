@@ -419,7 +419,10 @@ emit_app_intents_metadata
 #
 # The pre-rename spelling is still read, so a shell profile or CI job that exports
 # BATON_CODESIGN_IDENTITY keeps producing a signed build rather than silently dropping to ad-hoc.
-SIGN_IDENTITY="${BLOOM_CODESIGN_IDENTITY:-${BATON_CODESIGN_IDENTITY:--}}"
+# `${0:A:h}` rather than `dirname $0`, because these scripts have already cd'd to the
+# repository root by this line and a relative path would resolve against the wrong one.
+source "${0:A:h}/codesign-identity.sh"
+SIGN_IDENTITY="$(bloom_codesign_identity)"
 codesign --force --deep --sign "$SIGN_IDENTITY" "$APP" >/dev/null 2>&1 || true
 if [[ "$SIGN_IDENTITY" == "-" ]]; then
   echo "==> ad-hoc signed: App Intents will be listed in Shortcuts but will not run."

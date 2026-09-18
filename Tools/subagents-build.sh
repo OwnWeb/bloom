@@ -292,7 +292,14 @@ cp -R "$BUILT" "$DEST"
 # it, and macOS kills a bundle whose signature no longer matches its contents. A
 # swallowed failure would surface three steps down as "launched, but no process
 # is running from ...", which is true and says nothing about the cause.
-if ! signing="$(codesign --force --deep --sign "${BLOOM_CODESIGN_IDENTITY:-${BATON_CODESIGN_IDENTITY:--}}" "$DEST" 2>&1)"; then
+# The identity, which is a stable one wherever this Mac has one: see
+# Tools/codesign-identity.sh, which is about the keychain rather than Gatekeeper.
+# `${0:A:h}` rather than `dirname $0`, because these scripts have already cd'd to the
+# repository root by this line and a relative path would resolve against the wrong one.
+source "${0:A:h}/codesign-identity.sh"
+SIGN_IDENTITY="$(bloom_codesign_identity)"
+bloom_codesign_note "$SIGN_IDENTITY"
+if ! signing="$(codesign --force --deep --sign "$SIGN_IDENTITY" "$DEST" 2>&1)"; then
   print -ru2 -- "$signing"
   print -ru2 -- "==> re-signing $DEST failed, so it would not launch. The bundle is"
   print -ru2 -- "    on disk and broken; fix the signing identity and run this again."

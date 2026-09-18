@@ -38,7 +38,13 @@ struct EmptyStateView: View {
             Label(title, systemImage: glyph)
         } description: {
             VStack(spacing: Metrics.spacingWide) {
+                // Wrapped rather than clipped. `ContentUnavailableView` lays its description out
+                // in a column of its own and will cut a long sentence off mid-word, which the
+                // owner met on the Cloud empty state: "A Cloud workspace runs in the cloud instead
+                // of on…". A sentence cut in half reads as a bug, and this one is the first thing
+                // somebody meets before they have signed in.
                 Text(message)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let progress {
                     HStack(spacing: Metrics.spacingSmall) {
                         ProgressView().controlSize(.small)

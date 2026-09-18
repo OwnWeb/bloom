@@ -38,6 +38,7 @@ struct CloudEmptyStateView: View {
         VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
             Text(state.title)
                 .fontWeight(.medium)
+                .fixedSize(horizontal: false, vertical: true)
             Text(message)
                 .foregroundStyle(Palette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)

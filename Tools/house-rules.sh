@@ -91,6 +91,7 @@ echo "==> the app is called Bloom"
 baton_allowed=(
   '*PROTOCOL.md'                                    # quotes a recorded session
   '*build.sh'                                       # BATON_CODESIGN_IDENTITY, kept working on purpose
+  'Tools/codesign-identity.sh'                      # the same variable, now resolved in one place
   '*fixtures/'                                      # recorded sessions, byte for byte
   'Sources/BloomCore/Persistence/LegacyDatabase.swift'          # reads the old app's database
   'Sources/BloomCore/Persistence/LegacyDefaults.swift'          # reads the old app's preferences
