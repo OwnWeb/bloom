@@ -717,10 +717,15 @@ def main():
                 started = time.time()
                 released_at = None
                 paused_at = None
+                # Only what is reported from here on. Every summary before the machine was first
+                # held awake says `awake: false` too, and counting those reads the setup that
+                # happened ten minutes ago as the release that has not happened yet.
+                seen_before = len(requests())
                 while time.time() - started < arguments.sleep * 60 and not paused_at:
                     time.sleep(20)
                     if released_at is None:
-                        asleep = [r for r in requests() if r["path"].endswith("/summary") and r["body"].get("awake") is False]
+                        asleep = [r for r in requests()[seen_before:]
+                                  if r["path"].endswith("/summary") and r["body"].get("awake") is False]
                         if asleep:
                             released_at = time.time()
                             step(f"  {round(released_at - started):>4}s  the runner let its hold go (summary says awake false)")
