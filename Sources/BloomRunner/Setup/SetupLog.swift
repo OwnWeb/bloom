@@ -18,6 +18,7 @@ actor SetupLog {
     private let workspaceID: WorkspaceID
     private let directory: String
     private var log = ""
+    private var notes: [String] = []
     private var began = false
     private var stepFile: CappedLogFile?
     private var dirty = false
@@ -77,8 +78,14 @@ actor SetupLog {
 
     /// A line for the row's log only, such as why a step was skipped.
     func note(_ line: String) {
+        notes.append(line)
         add("[bloom] " + line)
     }
+
+    /// The notes on their own, for a run that is filed as skipped: the note replaces the log there,
+    /// and **the whole log is the wrong thing to replace it with** now that naming the first phase
+    /// means every run has a line or two in it before anything is decided.
+    var noteText: String { notes.joined(separator: "\n") }
 
     func finish(succeeded: Bool) async {
         close()
@@ -95,7 +102,7 @@ actor SetupLog {
         let text = log
         _ = try? await store.update(workspaceID: workspaceID) { row in
             row.apply(.runProgressed(log: text))
-            row.apply(.runInterrupted)
+            row.apply(.runInterrupted(.machineStopped))
         }
     }
 
@@ -146,6 +153,9 @@ actor SetupLog {
 
     static func title(_ step: String) -> String {
         switch step {
+        case "environment": "Reading the team's environment."
+        case "git": "Configuring git."
+        case "services": "Starting the project's services."
         case "clone": "Cloning the repository."
         case "prepare": "Running the prepare script."
         case "setup": "Running the setup script."

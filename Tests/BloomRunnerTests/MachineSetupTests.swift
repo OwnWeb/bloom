@@ -120,7 +120,7 @@ struct MachineSetupTests {
         await setup.run()
 
         #expect(fixture.order == ["prepare", "setup", "resume"])
-        #expect(fixture.steps.all == ["clone", "prepare", "setup", "resume", "finished"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "prepare", "setup", "resume", "finished"])
         let branch = try SetupTestSupport.bash("git rev-parse --abbrev-ref HEAD", in: fixture.worktree)
         #expect(branch.trimmingCharacters(in: .whitespacesAndNewlines) == "feature/queue")
         let base = try SetupTestSupport.bash("git rev-parse HEAD origin/main", in: fixture.worktree).split(separator: "\n")
@@ -159,8 +159,36 @@ struct MachineSetupTests {
         let upstream = try SetupTestSupport.bash("git rev-parse --abbrev-ref @{upstream}", in: fixture.worktree)
         #expect(upstream.trimmingCharacters(in: .whitespacesAndNewlines) == "origin/feature/queue")
         // No scripts, and a clone is still a step.
-        #expect(fixture.steps.all == ["clone", "finished"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "finished"])
         #expect(try await fixture.workspace().setupState == .succeeded)
+        await fixture.runtime.shutdown()
+    }
+
+    /// **The phase before any work used to be invisible**, so a brand new workspace said pending
+    /// with no step through a call to runbloom.app and the whole git configuration, which is where
+    /// the one measured hang sat. It is two steps now, and they are the first thing anybody sees.
+    @Test("the first thing a new workspace shows is the phase before the clone")
+    func theFirstPhaseIsNamed() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        try await fixture.setup().run()
+
+        #expect(fixture.steps.all.prefix(3) == ["environment", "git", "clone"])
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupLog.hasPrefix("[bloom] Reading the team's environment."))
+        #expect(workspace.setupLog.contains("[bloom] Configuring git."))
+        await fixture.runtime.shutdown()
+    }
+
+    /// Seeing the same steps twice reads as a fault unless something says otherwise.
+    @Test("a machine that stopped mid setup says so when it starts again")
+    func sayingItIsStartingAgain() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        // A row left `running` is what an interrupted machine leaves behind.
+        _ = try await fixture.store.update(workspaceID: fixture.runtime.workspaceID) { $0.apply(.runStarted) }
+
+        try await fixture.setup().run()
+
+        #expect(try await fixture.workspace().setupLog.contains("Starting again: this machine stopped"))
         await fixture.runtime.shutdown()
     }
 
@@ -181,7 +209,7 @@ struct MachineSetupTests {
         // The repository is there, which is the half that is not optional: a workspace without its
         // own clone is not a workspace.
         #expect(FileManager.default.fileExists(atPath: fixture.worktree + "/.bloom/settings.toml"))
-        #expect(fixture.steps.all == ["clone", "finished"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "finished"])
         #expect(fixture.order.isEmpty)
         // A service is declared in the same file the scripts are, so starting one would run half
         // of what was refused, against dependencies nothing installed.
@@ -259,7 +287,7 @@ struct MachineSetupTests {
         let fixture = try await fixture(files: [".bloom/settings.toml": settings])
         try await fixture.setup().run()
 
-        #expect(fixture.steps.all == ["clone", "setup", "failed"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "setup", "failed"])
         #expect(fixture.order.isEmpty)
         let workspace = try await fixture.workspace()
         #expect(workspace.setupState == .failed)
@@ -404,12 +432,14 @@ struct MachineSetupTests {
         try await fixture.setup().run()
 
         #expect(fixture.order == ["prepare", "setup", "resume", "resume"])
-        #expect(fixture.steps.all == ["clone", "prepare", "setup", "resume", "finished", "resume", "finished"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "prepare", "setup", "resume", "services", "finished", "resume", "services", "finished"])
         let workspace = try await fixture.workspace()
         #expect(workspace.setupState == .succeeded)
-        // The first setup's account stays, with the resume after it.
+        // The first setup's account stays, with the resume after it, and the services it started
+        // last: the log ends where the machine's work does rather than where its scripts do.
         #expect(workspace.setupLog.contains("setup says hello"))
-        #expect(workspace.setupLog.hasSuffix("[bloom] Running the resume script.\n"))
+        #expect(workspace.setupLog.contains("[bloom] Running the resume script."))
+        #expect(workspace.setupLog.hasSuffix("[bloom] Started 1 service. Whether each is ready is on the workspace itself.\n"))
         #expect(await SetupTestSupport.eventually { await fixture.services.status.first?.state == .running })
         await fixture.services.stopAll()
         await fixture.runtime.shutdown()
@@ -445,7 +475,7 @@ struct MachineSetupTests {
         try await fixture.setup().run()
 
         #expect(fixture.order == ["resume"])
-        #expect(fixture.steps.all == ["clone", "resume", "finished"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "resume", "finished"])
         let workspace = try await fixture.workspace()
         #expect(workspace.setupState == .succeeded)
         #expect(workspace.setupLog.contains("names .bloom/not-committed.sh as the prepare script"))

@@ -252,19 +252,27 @@ public actor MachineSetup {
         isRunning = true
         defer { isRunning = false }
 
-        moved(to: "reading the team's environment")
-        await machineEnvironment.refresh()
-        let environment = await scriptEnvironment()
         let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
         currentLog = log
         defer { currentLog = nil; activity = nil }
-        // Named because this is where the one measured hang sat, before any step exists to blame.
-        moved(to: "configuring git")
-        await configureGit(environment: environment, log: log)
-
         // A run the machine was stopped in the middle of left its output in the row; a person
         // watching setup should see this run added to it rather than the first attempt vanishing.
         let interrupted = (try? await store.workspace(id: runtime.workspaceID))?.setupState == .running
+
+        // **The first two are steps, and they did not used to be.** Before this, a brand new
+        // workspace said `pending` with no step through a call to runbloom.app and the whole of
+        // the git configuration, so **the first thing anybody saw of a Cloud workspace was nothing
+        // happening**, and this is the phase the one measured eighteen-minute hang sat in. A
+        // phase with no name is a phase nobody can be told about.
+        await begin("environment", log: log, continuing: interrupted)
+        if interrupted { await log.note(Self.startingAgainNote) }
+        await machineEnvironment.refresh()
+        let environment = await scriptEnvironment()
+        await log.endStep()
+        await begin("git", log: log, continuing: interrupted)
+        await configureGit(environment: environment, log: log)
+        await log.endStep()
+
         var succeeded = await cloneIfNeeded(environment: environment, log: log, continuing: interrupted)
         let scripts = MachineScripts.load(repo: layout.worktree)
         if succeeded, configuration.runsSetup {
@@ -283,12 +291,38 @@ public actor MachineSetup {
         }
         try? await store.setSetting(Self.skippedSetting, configuration.runsSetup ? "0" : "1")
         if await interruptedByShutdown(log: log) { return false }
+        if succeeded {
+            // Set whether or not the scripts ran: a workspace that asked for no setup has finished
+            // its sequence exactly as much as one that ran three scripts, and the next start must
+            // resume rather than begin again.
+            try? await store.setSetting(Self.completedSetting, "1")
+            if configuration.runsSetup {
+                await startServices(scripts.services, environment: environment, log: log, continuing: interrupted)
+            }
+        }
         await settle(log: log, succeeded: succeeded)
-        guard succeeded else { return false }
-        try? await store.setSetting(Self.completedSetting, "1")
-        guard configuration.runsSetup else { return true }
-        await services.start(scripts.services, environment: environment)
-        return true
+        return succeeded
+    }
+
+    /// Starting the project's services, as a step of its own **before** setup is reported finished.
+    ///
+    /// **"Setup succeeded" used to be said while nothing was running yet.** The services were
+    /// started after the outcome, and a service with a readiness check has up to five minutes, so
+    /// the ordinary first impression was a workspace that said it was ready beside a preview that
+    /// was blank, with nothing on screen to explain the gap. Launching them inside a step closes
+    /// the part that is honestly closable: **this waits for them to be launched, not for them to be
+    /// ready**, because prompts are held until setup finishes and holding somebody's first prompt
+    /// for five minutes to be tidier about a caption would be the worse trade. Readiness after that
+    /// is on the workspace record, service by service.
+    private func startServices(
+        _ services: [RemoteProjectSettings.Service], environment: [String: String], log: SetupLog, continuing: Bool
+    ) async {
+        guard !services.isEmpty else { return }
+        await begin("services", log: log, continuing: continuing)
+        await self.services.start(services, environment: environment)
+        await log.note("Started \(services.count == 1 ? "1 service" : "\(services.count) services"). "
+            + "Whether each is ready is on the workspace itself.")
+        await log.endStep()
     }
 
     /// `resume` with fresh environment, then the services.
@@ -327,10 +361,9 @@ public actor MachineSetup {
                 let resumed = await runScript("resume", scripts.resume, timeout: timeouts.resume,
                                               environment: environment, log: log, continuing: true)
                 if await interruptedByShutdown(log: log) { return false }
-                if await log.hasBegun { await settle(log: log, succeeded: resumed) }
-                guard resumed else { return false }
-                await services.start(scripts.services, environment: environment)
-                return true
+                if resumed { await startServices(scripts.services, environment: environment, log: log, continuing: true) }
+                await settle(log: log, succeeded: resumed)
+                return resumed
             }
             await log.note(Self.setupNotAskedForNote(hasServices: !scripts.services.isEmpty))
             await settle(log: log, succeeded: true)
@@ -339,10 +372,12 @@ public actor MachineSetup {
         moved(to: "resume")
         let succeeded = await runScript("resume", scripts.resume, timeout: timeouts.resume, environment: environment, log: log, continuing: true)
         if await interruptedByShutdown(log: log) { return false }
-        if await log.hasBegun { await settle(log: log, succeeded: succeeded) }
-        guard succeeded else { return false }
-        await services.start(scripts.services, environment: environment)
-        return true
+        // Started before the outcome is reported, and inside a step, for the reason in
+        // `startServices`: "setup succeeded" beside a blank preview is the machine saying something
+        // untrue at the moment somebody is looking hardest.
+        if succeeded { await startServices(scripts.services, environment: environment, log: log, continuing: true) }
+        await settle(log: log, succeeded: succeeded)
+        return succeeded
     }
 
     /// Stops the services and starts them again with the environment as it is now, for when
@@ -410,6 +445,10 @@ public actor MachineSetup {
             : start + ending
     }
 
+    /// Said when a machine picks setup up again after stopping in the middle of it, so that seeing
+    /// the same steps twice reads as an explanation rather than as a fault.
+    static let startingAgainNote = "Starting again: this machine stopped while it was setting up."
+
     /// What the one machine in the middle is told: setup turned off, and setup already run.
     static let setupRanBeforeNote =
         "This workspace was created with setup turned off, but it was set up anyway before this "
@@ -440,15 +479,34 @@ public actor MachineSetup {
 
     /// The row's state and the runtime's record both say how it ended. A sequence where nothing
     /// ran is filed as skipped, as the Mac files a workspace with no setup script.
+    /// **"Did anything run" is asked of the steps, not of the log.** It used to be `log.hasBegun`,
+    /// which was the same question while the first thing to write to the log was the clone. Naming
+    /// the environment and git phases made every run begin the log, so that proxy would have filed
+    /// every skipped run as a finished one. What is being asked is whether any *work* happened, so
+    /// it is tracked where the work is.
     private func settle(log: SetupLog, succeeded: Bool) async {
-        if await log.hasBegun {
+        if didWork {
             await log.finish(succeeded: succeeded)
         } else {
-            let notes = await log.text.trimmingCharacters(in: .newlines)
+            // **Closed first, then filed.** The row is `running` by now, because the phases before
+            // any work are steps of their own, and `runSkipped` is refused from `running` for a
+            // reason that still holds where it was written: on the Mac, reaching it from there
+            // means filing a live process as a run that never happened. So the run is ended
+            // honestly and then recorded as having done nothing, which is two events and two true
+            // statements rather than one weakened rule.
+            // Only if it was opened. On a later start nothing names a step before this, so the row
+            // is still `pending` and finishing it would be refused, which is a recorded bug rather
+            // than a harmless no-op.
+            if await log.hasBegun { await log.finish(succeeded: true) }
+            let notes = await log.noteText.trimmingCharacters(in: .newlines)
             _ = try? await store.update(workspaceID: runtime.workspaceID) { $0.apply(.runSkipped(note: notes.isEmpty ? nil : notes)) }
         }
         await runtime.setupFinished(succeeded: succeeded)
     }
+
+    /// Whether this sequence did anything a person would call setting up: a clone, or a script.
+    /// Reading the environment and configuring git are preparation and happen on every start.
+    private var didWork = false
 
     private func begin(_ step: String, log: SetupLog, continuing: Bool) async {
         moved(to: step)
@@ -486,6 +544,7 @@ public actor MachineSetup {
         let completed = (try? await store.setting(Self.completedSetting)) == "1"
         if FileManager.default.fileExists(atPath: worktree + "/.git") && (cloned || completed) { return true }
         await begin("clone", log: log, continuing: continuing)
+        didWork = true
         // Only an earlier attempt of this step has written here. Prompts wait for setup, so before
         // the clone is marked finished there is no work of anybody's in it to lose.
         try? FileManager.default.removeItem(atPath: worktree)
@@ -533,6 +592,7 @@ public actor MachineSetup {
             return true
         }
         await begin(step, log: log, continuing: continuing)
+        didWork = true
         let succeeded = await runProcess(command.executable, command.arguments, directory: layout.worktree, timeout: timeout,
                                          environment: environment, log: log, step: step)
         await log.endStep()

@@ -1823,7 +1823,7 @@ public actor Store {
     /// here, and the line it appends is `SetupEvent.runInterrupted.note`. Add a state to
     /// `SetupState` and this picks it up; change the table and this follows.
     public func recoverInterruptedSetups() throws {
-        let event = SetupEvent.runInterrupted
+        let event = SetupEvent.runInterrupted(.appStopped)
         var sources: [SetupState] = []
         var destination: SetupState?
         for state in SetupState.allCases {

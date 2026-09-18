@@ -187,12 +187,12 @@ struct StoreTests {
 
         try await store.recoverInterruptedSetups()
 
-        let outcome = state.transition(on: .runInterrupted)
+        let outcome = state.transition(on: .runInterrupted(.appStopped))
         let stored = try #require(try await store.workspace(id: workspace.id))
         #expect(stored.setupState == (outcome.destination ?? state))
         // The note is the event's own, so the SQL and `Workspace.apply` cannot come to describe the
         // same interruption in two different sentences.
-        let note = try #require(SetupEvent.runInterrupted.note)
+        let note = try #require(SetupEvent.runInterrupted(.appStopped).note)
         #expect(stored.setupLog.contains(note) == outcome.moves)
     }
 
