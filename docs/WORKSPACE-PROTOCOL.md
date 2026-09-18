@@ -10,6 +10,19 @@ The Swift types in `Packages/BloomProtocol` are the source. `WireVectorTests` fa
 encoding to the checked-in vectors, and `python3 Protocol/v1/schema.py --check` fails when the
 schema stops describing them or stops listing a kind they decode. Both run in CI.
 
+**A client decodes what a machine sends permissively; the schema is what holds the machine.** Every
+field added here arrives on the machines before it arrives on all of them: a Cloud workspace updates
+when runbloom.app tells it to, and one that has been asleep for a fortnight is still running the
+release it went to sleep on. So a client that refuses to decode a snapshot because a field it did
+not have last month is missing has turned an absent default into an unopenable workspace, which is
+a far worse failure than the one it was avoiding. **Treat an added field as optional when reading,
+whatever the Swift type says, and do without it when it is not there.**
+
+Nothing is loosened on the other side by that. The schema lists the field as required, the checked
+vectors carry it, and `Tools/machine-test.py` reads it off a real machine on every run and fails by
+name when it is absent, so a machine that stops sending one is caught by three things that are not a
+client's decoder. Strict about what a machine must send, forgiving about what an older one did not.
+
 One thing a client reads that the schema cannot describe is the inside of a transcript row.
 `message.payload` is opaque to this protocol and is **always a Claude Code `stream-json` line**,
 whatever agent ran the turn: Codex and Grok are translated into that shape before a row is written,

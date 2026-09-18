@@ -1,5 +1,6 @@
 import BloomProtocol
 import Foundation
+import Synchronization
 
 /// The one Cloud workspace a machine holds: its chats, their agents and queue, its worktree, and
 /// everyone with it open.
@@ -421,7 +422,36 @@ public actor WorkspaceRuntime {
     }
 
     public static let installedAgents: AgentDiscovery = {
-        AgentCatalog.installedKinds().filter(\.canRunWorkspaces)
+        let found = AgentCatalog.installedKinds().filter(\.canRunWorkspaces)
+        if let note = missingAgentsNote(found: found, path: Shell.environment()["PATH"] ?? ""),
+           saidWhichAgentsAreMissing.withLock({ said -> Bool in
+               defer { said = true }
+               return !said
+           }) {
+            FileHandle.standardError.write(Data("bloom-runner: \(note)\n".utf8))
+        }
+        return found
+    }
+
+    /// Set the first time something was actually missing, so this is one line in a machine's life
+    /// rather than one per `composer` call. Untouched while every agent resolves, so a machine that
+    /// loses one later still says so once.
+    private static let saidWhichAgentsAreMissing = Mutex(false)
+
+    /// What to say when an agent this image is expected to carry does not resolve, or nil when they
+    /// all do.
+    ///
+    /// **No debugger will ever attach to a machine here** (see docs/REMOTE-WORKSPACES.md), so what
+    /// the machine says about itself is the only forensics there will be. One Cloud workspace was
+    /// seen answering `["claude", "codex"]` while another from the same release thirty seconds later
+    /// answered `["claude", "codex", "grok"]`, and nothing anywhere recorded which name was looked
+    /// for or where, which is the difference between a fixable fact and a workspace that
+    /// inexplicably cannot run an agent. It is not on the wire and there is no operation for it: a
+    /// client has `available_agents`, and this is for whoever reads the machine afterwards.
+    static func missingAgentsNote(found: [AgentKind], path: String) -> String? {
+        let missing = AgentKind.allCases.filter { $0.canRunWorkspaces && !found.contains($0) }
+        guard !missing.isEmpty else { return nil }
+        return "no \(missing.map(\.executableName).joined(separator: ", ")) on PATH=\(path)"
     }
 
     public static let liveModels: ModelDiscovery = { _ in
