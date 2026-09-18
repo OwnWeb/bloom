@@ -192,8 +192,19 @@ extension Delivery {
 /// What the foot of a Cloud chat's queue says, which is the machine's queue rather than this
 /// Mac's, so none of `DeliveryHold`'s local reasons apply.
 public enum CloudQueueCaption {
-    public static func sentence(first: Delivery?, isRunning: Bool, isAwaitingAnswer: Bool, queueError: String?) -> String? {
+    /// - Parameter isSettingUp: whether the machine is still making itself, which the workspace
+    ///   snapshot says without anybody asking the queue. **The first thing the owner met on a new
+    ///   Cloud workspace was a message of his sitting under nothing at all**: the machine had
+    ///   accepted it, the queue held it with no error, and every other branch here is about a
+    ///   reason the machine gave. Setup is a reason nobody has to give, because the summary already
+    ///   carries it, and "still starting" is the true answer for the minutes it takes.
+    public static func sentence(
+        first: Delivery?, isRunning: Bool, isAwaitingAnswer: Bool, queueError: String?, isSettingUp: Bool = false
+    ) -> String? {
         guard let first else { return nil }
+        if isSettingUp, first.block == nil, first.state != .uncertain {
+            return "This Cloud workspace is still setting up. Your message goes to the agent as soon as it is ready."
+        }
         if let block = first.block {
             let tail = block.clearsByItself
                 ? "It goes by itself once another Cloud workspace in your team goes to sleep."

@@ -104,6 +104,15 @@ final class TokenLog: @unchecked Sendable {
     var forced: [Bool] { lock.withLock { values } }
 }
 
+/// Every phase a connection reported, in order, collected off the stream so a test can assert
+/// what it did NOT say as well as what it did.
+final class PhaseLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [WorkspaceConnection.Phase] = []
+    func record(_ phase: WorkspaceConnection.Phase) { lock.withLock { values.append(phase) } }
+    var phases: [WorkspaceConnection.Phase] { lock.withLock { values } }
+}
+
 /// Every wait a connection asks for, in the order it asked, and none of them taken.
 ///
 /// **What a backoff can be tested on is what it asked for, not how long it took.** Waiting out the

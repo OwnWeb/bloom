@@ -130,6 +130,44 @@ import Testing
         await connection.close()
     }
 
+    /// **The banner appeared and vanished every few seconds while nothing changed**, which the
+    /// owner reported as a workspace that "sometimes goes away and comes back". A machine that is
+    /// still being made refuses every attempt, and each attempt announced itself as a new
+    /// connection first: `notReady` draws a banner, `connecting` draws none, so the loop blinked it
+    /// on and off for as long as the machine took. A phase that already says "still trying, and
+    /// here is why" now survives the next attempt.
+    ///
+    /// The phases are collected in a task of their own and the wait is on the transport, because
+    /// with the fix in place there is nothing left to wait for on the stream: the whole point is
+    /// that no further phase is yielded. A test that awaited one would hang for exactly the reason
+    /// it is testing.
+    @Test func aMachineStillStartingSaysSoOnceRatherThanBlinking() async throws {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token",
+                     .json(#"{"code": "machine_not_ready", "message": "Still starting.", "retry_after": 5}"#, status: 409))
+        let connection = connection(transport)
+        let log = PhaseLog()
+        let watcher = Task { [connection] in
+            for await update in connection.updates {
+                if case .phase(let phase) = update { log.record(phase) }
+            }
+        }
+        await connection.open()
+        // A ceiling on infinity rather than a measurement: the loop retries as fast as the injected
+        // sleep allows, and what is being waited for is three attempts rather than an interval. A
+        // machine that never retried would sit here for two seconds and then fail on the count.
+        for _ in 0..<2_000 {
+            if transport.requests(to: "/session-token").count >= 3 { break }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        await connection.close()
+        watcher.cancel()
+
+        let starting = log.phases.filter { if case .notReady = $0 { true } else { false } }
+        #expect(transport.requests(to: "/session-token").count >= 3, "the loop did not try again")
+        #expect(starting.count == 1, "the banner came and went: \(log.phases)")
+    }
+
     @Test func anArchivedWorkspaceStops() async throws {
         let transport = FakeTransport()
         transport.on("POST", "/session-token", .json(#"{"code": "workspace_archived", "message": "Archived."}"#, status: 409))
@@ -211,6 +249,27 @@ struct EchoTransport: HTTPTransport {
             }
         }
         #expect(transport.requests(to: "/_bloom/v1/events").count == 2)
+    }
+
+    /// And the other half of the same rule: a workspace this connection has already had a stream
+    /// from is reconnecting, not starting, whatever runbloom.app says while the two catch up.
+    @Test func aWorkspaceThatHasBeenLiveDoesNotGoBackToStarting() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()),
+                     .json(#"{"code": "machine_not_ready", "message": "Still starting.", "retry_after": 2}"#, status: 409))
+        transport.on("GET", "/_bloom/v1/events", stream([.message(Records.message(3, cursor: 90))]), .dropped())
+        let live = connection(transport)
+        await live.open()
+        var phases: [WorkspaceConnection.Phase] = []
+        for await update in live.updates {
+            guard case .phase(let phase) = update else { continue }
+            phases.append(phase)
+            if case .retrying = phase { break }
+            if case .notReady = phase { break }
+        }
+        await live.close()
+        #expect(phases.contains(.live))
+        #expect(!phases.contains { if case .notReady = $0 { true } else { false } }, "went back to starting: \(phases)")
     }
 
     @Test func aSuspendedConnectionKeepsItsCursor() async {

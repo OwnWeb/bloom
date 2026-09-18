@@ -186,6 +186,11 @@ protocol WorkspaceSurface: AnyObject, Observable {
     var changesError: String? { get }
     var hasReadChanges: Bool { get }
     var isLoadingChanges: Bool { get }
+    /// Whether there is not yet a worktree for the changes to be read from, which is a Cloud
+    /// workspace whose machine is still setting itself up. A local workspace has its worktree
+    /// before it has a row in the sidebar, so it answers false and the lists draw as they always
+    /// did. See `CloudChanges.refresh` for the error this replaced.
+    var isPreparingChanges: Bool { get }
     /// Bumped whenever the files could have moved, so a pane holding a diff knows to read again.
     var changesGeneration: Int { get }
     func refreshChanges(_ reason: ChangesRefresh) async
@@ -385,6 +390,7 @@ extension WorkspaceSurface {
 
     /// The reader asked, which is what nearly every call site means.
     func refreshChanges() async { await refreshChanges(.requested) }
+    var isPreparingChanges: Bool { false }
 
     func openFile(path: String) { openFile(path: path, focusing: false) }
 

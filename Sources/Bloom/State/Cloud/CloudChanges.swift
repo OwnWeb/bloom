@@ -115,6 +115,18 @@ final class CloudChanges {
 
     func refresh(quietly: Bool = false) async {
         guard let session else { return }
+        // **Nothing to read while the machine is still making the worktree, so nothing is asked.**
+        //
+        // The owner's new workspace put "`git` exited 128: '.invalid' is not a valid branch name"
+        // in the inspector, in place of the calm and true "Nothing has changed on this branch yet".
+        // The client cannot produce that string and neither can the runner's own sources: it is
+        // git's, raised on the machine while it resolves a repository that is being cloned as the
+        // question arrives. A question asked before there is anything to answer it with gets an
+        // answer about the asking, and an error in front of a person is worse than a wait.
+        //
+        // So the state of setup is the gate. `hasRead` deliberately stays false, which is what the
+        // inspector draws its own sentence from: see `isSettingUp`.
+        guard !session.isRunningSetup else { return }
         if let commit { await refreshCommit(commit, quietly: quietly); return }
         let scope = wireScope
         var cache = caches[scope] ?? CloudReviewCache()

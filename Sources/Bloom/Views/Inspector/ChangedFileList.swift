@@ -193,7 +193,16 @@ struct ChangedFileList<Model: WorkspaceSurface>: View {
     private var empty: some View {
         // "Nobody has looked yet" first, because an empty list before git has answered is not an
         // answer. See `WorkspaceModel.hasReadChanges`.
-        if model.isLoadingChanges || !model.hasReadChanges {
+        if model.isPreparingChanges {
+            // Nothing has been asked for, because there is nothing to ask yet: the machine is
+            // still making the worktree. A spinner would promise something is on its way.
+            EmptyStateView(
+                glyph: PaneGlyph.setup,
+                title: "Nothing to read yet",
+                message: "This Cloud workspace is still setting up. Its changes appear once it has finished."
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.isLoadingChanges || !model.hasReadChanges {
             LoadingView("Reading the worktree")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let problem = model.changesError {

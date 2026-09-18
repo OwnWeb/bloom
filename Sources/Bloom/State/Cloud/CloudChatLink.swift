@@ -24,6 +24,10 @@ final class CloudChatLink {
     /// the way a local transcript draws a worktree's. Nil once the workspace has been closed.
     var workspaceID: CloudWorkspaceID? { session?.id }
 
+    /// Whether the machine is still making itself, which is why a queued message is not moving.
+    /// See `CloudQueueCaption.sentence`.
+    var isSettingUp: Bool { session?.isRunningSetup == true }
+
     /// The chat's controls as the machine last said, which carry the fields a `Session` does not.
     var controls: ComposerControls? {
         session?.state.chats[chatID.rawValue]?.controls.flatMap(ComposerControls.cloud)

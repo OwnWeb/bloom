@@ -80,6 +80,9 @@ struct CreateCloudWorkspaceView: View {
     /// Empty for the project's own default, which is what the chip says when nothing is typed.
     @State private var baseBranch = ""
     @State private var isEditingBase = false
+    /// Whether the machine runs the project's setup. The same choice the local window offers, in
+    /// the same words, with the same default.
+    @State private var runsSetup = true
     @State private var isCreating = false
     @State private var failure: String?
     /// The bucket the composer's attachments would go in. A Cloud chat cannot take one yet and
@@ -145,6 +148,13 @@ struct CreateCloudWorkspaceView: View {
                     .padding(Metrics.gutter)
             } else {
                 composer
+                // The local window's own control, drawn where it draws it: under the box and above
+                // the sentence. Shown always rather than only for a project with a setup script,
+                // because this Mac cannot see the repository to know whether there is one.
+                WorkspaceSetupOption(isEnabled: $runsSetup)
+                    .disabled(isCreating)
+                    .padding(.horizontal, Metrics.gutter)
+                    .padding(.bottom, Metrics.spacingWide)
                 consequence
             }
         }
@@ -378,7 +388,9 @@ struct CreateCloudWorkspaceView: View {
     private var consequence: some View {
         VStack(alignment: .leading, spacing: Metrics.spacingTight) {
             Text("Creates a Cloud workspace on a machine runbloom.app runs, on its own branch.")
-            Text("The machine is made and set up first, which takes a few minutes, and your first message goes as soon as it is ready.")
+            Text(runsSetup
+                 ? "The machine is made and set up first, which takes a few minutes, and your first message goes as soon as it is ready."
+                 : "The machine is made and the repository cloned, which takes a minute. The project's setup is not run, so nothing waits for it.")
         }
         .font(Typo.caption)
         .foregroundStyle(Palette.textTertiary)
@@ -477,7 +489,8 @@ struct CreateCloudWorkspaceView: View {
         failure = nil
         let request = CloudWorkspaces.CreateRequest(
             team: team, project: project, name: derivedName, branch: derivedBranch,
-            baseBranch: base, prompt: prompt, controls: controlsWereChosen ? controls : nil
+            baseBranch: base, prompt: prompt, runSetup: runsSetup,
+            controls: controlsWereChosen ? controls : nil
         )
         Task {
             defer { isCreating = false }

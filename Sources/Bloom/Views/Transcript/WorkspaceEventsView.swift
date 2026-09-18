@@ -521,7 +521,10 @@ struct WorkspaceEventRow: View {
                     // Not hidden from accessibility the way its neighbour is. Nothing else on this
                     // row does what it does, so there is no second announcement of it to prefer.
                     if showsRunSetupAgain, let runSetupAgain {
-                        Button("Run setup again", action: runSetupAgain)
+                        // "Again" only where there was a first time. A workspace created without
+                        // setup has not run it, and offering to run it "again" is the sort of
+                        // small lie that makes somebody doubt the rest of the sentence.
+                        Button(event.outcome == .skipped ? "Run setup" : "Run setup again", action: runSetupAgain)
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                             .font(Typo.caption)
@@ -578,7 +581,7 @@ struct WorkspaceEventRow: View {
     /// with a line saying what it went looking for, so the worst case is an explanation rather than
     /// a wrong answer.
     private var showsRunSetupAgain: Bool {
-        event.kind == .setup && [.failed, .ignored].contains(event.outcome) && runSetupAgain != nil
+        event.kind == .setup && [.failed, .ignored, .skipped].contains(event.outcome) && runSetupAgain != nil
     }
 
     /// Whether this row offers to dismiss the failure. Not gated on a setup script existing, since

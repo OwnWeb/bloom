@@ -21,6 +21,19 @@ enum CloudSetupEvents {
     /// machine has no merges or renames of Bloom's own to report.
     static func events(setup: SetupRecord?, log: String) -> [WorkspaceEvent] {
         guard let setup, let state = SetupState(rawValue: setup.state) else { return [] }
+        // **Skipped is a row here and is nothing locally**, which is not an inconsistency: a local
+        // workspace skips setup when the project has no script, which is most of them and is not
+        // worth a line. A machine skips it because somebody unticked the box in the create window,
+        // and that is worth saying, because the alternative is a workspace that looks exactly like
+        // one whose setup happened to do nothing. The row carries Run setup, which is what makes
+        // "not now" different from "never".
+        if state == .skipped {
+            return [WorkspaceEvent(
+                id: "setup", kind: .setup, outcome: .skipped,
+                title: "Setup was not run",
+                detail: "This Cloud workspace was created without it."
+            )]
+        }
         guard var event = WorkspaceEvent.setup(
             state: state,
             log: log,

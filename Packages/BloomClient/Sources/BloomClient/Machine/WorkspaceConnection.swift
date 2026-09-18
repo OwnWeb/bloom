@@ -302,7 +302,21 @@ public actor WorkspaceConnection {
     }
 
     private func connectOnce() async -> Outcome {
-        if case .retrying = phase {} else { set(.connecting(waking: false)) }
+        // **An attempt that is one of many does not announce itself as a new one.**
+        //
+        // This said `if case .retrying` and nothing else, so a machine that was still starting
+        // went `notReady` -> `connecting` -> `notReady` on every pass of the loop, once every few
+        // seconds for as long as it took. `connecting` draws no banner and `notReady` draws one,
+        // so what the owner watched was "Getting this Cloud workspace ready…" appearing and
+        // vanishing while nothing about the machine had changed. A screen that changes its mind
+        // reads as an app that does not know what is happening, which is worse than a slow one.
+        //
+        // Every phase that means "still trying, and here is why" survives the next attempt. What
+        // is left to announce is a first connection, which is the only time `connecting` is news.
+        switch phase {
+        case .retrying, .notReady, .limited: break
+        default: set(.connecting(waking: false))
+        }
         let notice = Task { [sleep] in
             try await sleep(Self.wakingNotice)
             self.noticeWaking()
@@ -476,6 +490,16 @@ public actor WorkspaceConnection {
     private func outcome(for refusal: RunbloomRefusal) -> Outcome {
         if refusal.isMachineNotReady || refusal.isSharingInProgress {
             let wait = max(2, refusal.retryAfter ?? 5)
+            // **Readiness does not go backwards inside a session.** A workspace this connection has
+            // already had a stream from is not starting, whatever a refusal from runbloom.app says
+            // while the two of them catch up: it is reconnecting, and saying "still starting" to
+            // somebody who has been reading the conversation for ten minutes is a lie with a
+            // spinner on it. `hasBeenAnswered` is cleared when the machine says it is going to
+            // sleep, which is the one case where starting again is the truth.
+            if hasBeenAnswered {
+                noticeRetrying(refusal.message)
+                return .retry(after: Double(wait))
+            }
             set(.notReady(message: refusal.message, retryAfter: wait))
             return .retry(after: Double(wait))
         }

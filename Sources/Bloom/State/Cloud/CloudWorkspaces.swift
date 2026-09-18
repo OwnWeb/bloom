@@ -354,6 +354,10 @@ final class CloudWorkspaces {
         var branch: String
         var baseBranch: String?
         var prompt: String
+        /// Whether the machine runs the project's setup. False is the create window's box
+        /// unticked, and it means the workspace is usable at once rather than after a step nobody
+        /// asked for. See `CreateCloudWorkspace.runSetup`.
+        var runSetup = true
         /// What the first turn runs with, when somebody chose it in the create window. Nil means
         /// "whatever the machine would open a chat with", which is the better answer and is not
         /// known until the machine exists. See `PendingOpeningPrompt.controls`.
@@ -364,7 +368,10 @@ final class CloudWorkspaces {
     func create(_ request: CreateRequest) async throws -> CloudWorkspaceItem {
         let item = try await api.createCloudWorkspace(team: request.team.id, request: CreateCloudWorkspace(
             project: request.project.id, name: request.name, branch: request.branch,
-            baseBranch: request.baseBranch.flatMap { $0.isEmpty ? nil : $0 }
+            baseBranch: request.baseBranch.flatMap { $0.isEmpty ? nil : $0 },
+            // Sent only when it is false, so the body a default create posts is the one it has
+            // always posted and a server that has not learned the field yet is not handed one.
+            runSetup: request.runSetup ? nil : false
         ))
         let prompt = request.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !prompt.isEmpty {

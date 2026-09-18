@@ -865,7 +865,8 @@ final class TranscriptModel {
     var holdSentence: String? {
         if cloud != nil {
             return CloudQueueCaption.sentence(
-                first: pendingDeliveries.first, isRunning: isRunning, isAwaitingAnswer: isAwaitingPermission, queueError: cloudQueueError
+                first: pendingDeliveries.first, isRunning: isRunning, isAwaitingAnswer: isAwaitingPermission,
+                queueError: cloudQueueError, isSettingUp: cloud?.isSettingUp == true
             )
         }
         if history.isCapturing || history.isFinalisingTurn { return "Saving this turn's file changes." }

@@ -204,16 +204,27 @@ public struct CreateCloudWorkspace: Codable, Sendable, Hashable {
     public var branch: String
     /// Nil takes the project's default branch.
     public var baseBranch: String?
+    /// Whether the machine runs the project's setup at all.
+    ///
+    /// **Nil, and therefore absent from the body, means it does**, which is what every caller
+    /// before this field meant and what the server does with a body that does not carry it. Only a
+    /// person who unticks the box in the create window sends anything, and what they send is
+    /// `false`: a workspace that is usable the moment it is cloned, whose setup record is
+    /// `skipped` rather than pending, and which nothing waits for. `run_setup` over RPC still runs
+    /// it later, because "not now" and "never" are different answers.
+    public var runSetup: Bool?
 
-    public init(project: String, name: String, branch: String, baseBranch: String? = nil) {
+    public init(project: String, name: String, branch: String, baseBranch: String? = nil, runSetup: Bool? = nil) {
         self.project = project
         self.name = name
         self.branch = branch
         self.baseBranch = baseBranch
+        self.runSetup = runSetup
     }
 
     enum CodingKeys: String, CodingKey {
         case project, name, branch
         case baseBranch = "base_branch"
+        case runSetup = "run_setup"
     }
 }
