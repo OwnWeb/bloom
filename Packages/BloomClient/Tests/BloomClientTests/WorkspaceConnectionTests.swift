@@ -227,6 +227,45 @@ struct EchoTransport: HTTPTransport {
         #expect(transport.requests(to: "/_bloom/v1/events").last?.value(forHTTPHeaderField: "Last-Event-ID") == "90")
     }
 
+    /// **A session token lives minutes and an open workspace lives hours, so a stream closing
+    /// because the token ran out is the ordinary case rather than an edge one.** The machine says
+    /// `closing` with `token_expired` and the client reopens at once, from its cursor and with a
+    /// token it fetches again, and no banner is raised for it: nothing was missed and
+    /// there is nothing for a reader to do. The web client handled the event, reopened nothing, and
+    /// went deaf with its composer still accepting messages, which is the worst shape a live view
+    /// can fail in.
+    @Test func aStreamClosedByAnExpiredTokenReopensAtOnceFromItsCursor() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken("old")), .json(Fixtures.sessionToken("new")))
+        transport.on("GET", "/_bloom/v1/events",
+                     stream([.message(Records.message(3, cursor: 90)), .closing(WireError(.tokenExpired, "Expired."))]),
+                     stream([.sleeping]))
+        let live = connection(transport)
+        await live.open()
+        // Nothing calls `resume` here, which is the whole assertion: the second stream is the
+        // client's own doing, and it starts where the first one stopped.
+        for await update in live.updates where update == .phase(.asleep) { break }
+        let events = transport.requests(to: "/_bloom/v1/events")
+        #expect(events.map { $0.value(forHTTPHeaderField: "Last-Event-ID") } == ["77", "90"])
+    }
+
+    /// And the reopen is a loop rather than a handler, which is the second half of the same bug: a
+    /// machine that is down or asleep refuses the attempt the expiry provoked, and one refused
+    /// attempt must not become permanent silence. The third answer here is the machine back again.
+    @Test func aReopenThatFailsIsTriedAgainRatherThanLeavingTheStreamShut() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on("GET", "/_bloom/v1/events",
+                     stream([.message(Records.message(3, cursor: 90)), .closing(WireError(.tokenExpired, "Expired."))]),
+                     .dropped(),
+                     stream([.sleeping]))
+        let live = connection(transport)
+        await live.open()
+        for await update in live.updates where update == .phase(.asleep) { break }
+        #expect(transport.requests(to: "/_bloom/v1/events").count == 3)
+        #expect(transport.requests(to: "/_bloom/v1/events").last?.value(forHTTPHeaderField: "Last-Event-ID") == "90")
+    }
+
     /// The disappearance this most often meets is a runner restarting itself, about eight seconds.
     /// A command has to outlive it: three attempts a second apart gave up after five, which
     /// guaranteed a prompt sent in that window failed seconds before the machine came back.
