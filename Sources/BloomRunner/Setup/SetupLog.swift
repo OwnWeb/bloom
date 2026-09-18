@@ -107,7 +107,13 @@ actor SetupLog {
         stepFile = nil
     }
 
+    /// When something was last written here, for the stall watchdog: a `setup` script that prints
+    /// for twenty minutes is working, and a watchdog that called that a stall would say so four
+    /// times about a machine doing exactly what it should.
+    private(set) var lastWriteAt = Date()
+
     private func add(_ line: String) {
+        lastWriteAt = Date()
         log += line + "\n"
         // Trimmed to three quarters rather than to the limit, so a log at the cap is not copied
         // whole again for every line that follows.

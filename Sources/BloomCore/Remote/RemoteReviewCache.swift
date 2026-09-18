@@ -158,7 +158,7 @@ public actor RemoteReviewCache {
         let task = Task {
             try Task.checkCancellation()
             let base = try await RemoteReview.base(workspace: workspace, scope: scope)
-            let files = try await RemoteReview.changes(workspace: workspace, base: base)
+            let files = try await RemoteReview.changes(workspace: workspace, base: base, scope: scope)
             var revisions: [String: String] = [:]
             for file in files { revisions[file.path] = Self.fileRevision(file, workspace: workspace, base: base) }
             var snapshot = Snapshot(revision: "", files: files, contentRevisions: revisions, base: base,
@@ -218,7 +218,7 @@ public actor RemoteReviewCache {
                     try await workers.acquire()
                     do {
                         try Task.checkCancellation()
-                        let text = try await RemoteReview.patch(workspace: workspace, file: file, base: value.base)
+                        let text = try await RemoteReview.patch(workspace: workspace, file: file, base: value.base, scope: scope)
                         await workers.release()
                         return text
                     } catch {

@@ -10,6 +10,13 @@ The Swift types in `Packages/BloomProtocol` are the source. `WireVectorTests` fa
 encoding to the checked-in vectors, and `python3 Protocol/v1/schema.py --check` fails when the
 schema stops describing them or stops listing a kind they decode. Both run in CI.
 
+One thing a client reads that the schema cannot describe is the inside of a transcript row.
+`message.payload` is opaque to this protocol and is **always a Claude Code `stream-json` line**,
+whatever agent ran the turn: Codex and Grok are translated into that shape before a row is written,
+so one renderer draws all three. [stored-payloads.json](../Protocol/v1/stored-payloads.json) is a
+real Codex turn and a real Grok turn after that translation, written out of the translators
+themselves, and `StoredPayloadVectorTests` fails when they stop producing it.
+
 ## Where a client finds a workspace
 
 A client never finds a machine by itself. It signs in to runbloom.app, lists Cloud workspaces there
@@ -92,14 +99,14 @@ Reading (ability `view`):
 
 | Kind | Fields | Result |
 | --- | --- | --- |
-| `workspace` | | `workspace`: the workspace, its chats, who is present, and the newest transcript `cursor` |
+| `workspace` | | `workspace`: the workspace, its chats, who is present, the newest transcript `cursor`, and `composer_defaults` |
 | `transcript` | `chat_id`, `after_seq` (-1 for the start), `limit` (at most 500) | `transcript`: rows after `after_seq`, `has_more`, questions, `busy`, `streaming_text`, the queue |
-| `composer` | `chat_id` | `composer`: its controls, the agents installed on the machine, models, slash commands, output styles |
+| `composer` | `chat_id`, or none for a chat that does not exist yet | `composer`: its controls, the agents installed on the machine, models, slash commands, output styles |
 | `setup_output` | | `setup_output`: setup's state and the whole log so far |
 | `files` | | `files`: every path git tracks or would track |
 | `file` | `path` | `file`: text and `revision` |
 | `download` | `path` | `download`: bytes, up to 8 MB |
-| `review_snapshot` | `scope` (`branch` or `uncommitted`), `known_revision`, `wait` | `review_snapshot`: `revision`, and `files` unless you already had that revision |
+| `review_snapshot` | `scope` (`branch`, `uncommitted`, `staged` or `unstaged`), `known_revision`, `wait` | `review_snapshot`: `revision`, and `files` unless you already had that revision |
 | `review_patch` | `path`, `scope`, `known_revision` | `review_patch`: `revision`, and `patch` unless you already had it |
 | `run_scripts` | | `run_scripts` |
 | `history` | `limit`, `before` | `history`: `commits` (newest first, each with `pushed` when the branch has a remote) and `has_more` |
@@ -138,7 +145,7 @@ Changing the worktree (ability `files`, except where noted):
 | `push` | | `accepted` |
 | `create_pull_request` | `title`, `body`, `draft` | `text`: the pull request's URL |
 | `save_notes` | `text` | `accepted` |
-| `revert_file` | `path`, `scope` | `accepted`: the file goes back to what the diff was measured against |
+| `revert_file` | `path`, `scope` | `accepted`: the file goes back, in the sense that scope has |
 | `discard_hunk` | `path`, `scope`, `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
 | `rename_workspace` | `name` | `accepted` |
 | `run_setup` | | `accepted` once setup has run again |
@@ -148,6 +155,15 @@ Changing the worktree (ability `files`, except where noted):
 
 `push` and `create_pull_request` act as the person who sent them: the machine registers a short turn
 under their token for the one command, so GitHub sees them rather than the machine.
+
+**What `revert_file` and `discard_hunk` do is the scope's, and both meanings are git's own**, so a
+client has to label the control with the one that matches. In `branch` and `uncommitted` the change
+goes back to the baseline the reader is comparing against. In `staged` it is `git restore --staged`:
+the change leaves the index, the worktree keeps it, and nothing anybody wrote is destroyed, so the
+button says Unstage. In `unstaged` it is `git restore`, throwing the worktree's copy away, which is
+the only thing it can mean there and the only one of the four scopes where work is actually lost.
+A file is looked up in the scope's own list, so a file staged and then put back in the worktree is
+reachable in `staged` and in no other scope.
 
 ### Failure codes
 
@@ -213,9 +229,26 @@ events. Then live events as they happen.
 | `setup_output` | new output | appends it to the log |
 | `review` | a revision number | asks `review_snapshot` again |
 | `presence` | who has the workspace open | replaces its copy |
-| `workspace` | name, branch, pull request | replaces its copy |
+| `workspace` | name, branch, pull request, `reporting` | replaces its copy |
 | `sleeping` | nothing | see "Sleeping and waking" |
 | `closing` | a failure | the stream ends; act on the code |
+
+**A client never has to guess what a new chat starts with.** `composer_defaults` on the workspace
+snapshot is what a chat that does not exist yet would open on, as the machine answers it: the
+repository's own settings file, then the built-in fallbacks, with the backend moved to one this
+machine actually runs. Reading it is how the first chat in a workspace is opened on the right values
+rather than on a client's idea of them. `composer` with **no** `chat_id` answers the same values
+with the choices beside them (agents, models, slash commands, output styles), which is what a create
+window needs to let somebody change them before anything exists; that answer carries no `chat_id`
+either. Both come from one place on the machine, so they cannot disagree.
+
+**`reporting` on the workspace record is the machine saying it cannot reach runbloom.app.** It is
+absent almost always, and present with `unreachable_since` (when contact was lost) and `shed` (how
+many unsent usage reports it has had to throw away) when there is something wrong to say. A client
+should show it: the workspace is working, and what is being done in it is not being recorded
+anywhere else. Everything else that fails between a machine and runbloom.app already fails in front
+of somebody; this one is silent without it. `events.workspace_not_reporting` in the vectors is the
+shape.
 
 ### Keeping a stream's token fresh
 

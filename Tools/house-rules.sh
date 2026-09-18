@@ -356,6 +356,7 @@ id_type_allowed_properties=(
   'Sources/BloomCore/Agent/Delivery.swift:remoteTurnID'               # runbloom.app's turn, a ULID it assigns
   'Sources/Bloom/State/Cloud/CloudSharing.swift:teamID'               # runbloom.app's team, a ULID it assigns
   'Sources/BloomCore/Model/MessageAuthor.swift:userID'                # runbloom.app's user, the token's sub
+  'Sources/BloomCore/Workspace/WorkspaceScriptVariables.swift:workspaceID' # a value handed to a script, a Mac's or runbloom.app's
   'Sources/BloomCore/Remote/RemoteEventHub.swift:userID'              # the same user, holding an event stream open
   'Sources/BloomRunner/HTTP/EventStreams.swift:userID'                # the same user, on the server's side of the stream
   'Sources/BloomRunner/HTTP/ControlRoutes.swift:userID'               # runbloom.app's user, named in a revoke

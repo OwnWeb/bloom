@@ -151,6 +151,37 @@ struct RemoteTerminalsTests {
         #expect(RemoteTerminalDaemon.panesBlockMaintenance("garbage", children: { _ in "" }))
     }
 
+    @Test func aRunScriptRunsEvenWhenTheShellIsSlowToStart() async throws {
+        guard Shell.which("tmux") != nil else { return }
+        let repo = try await TempRepo()
+        let databasePath = TestScratch.unique("terminal-run-script") + "/bloom.sqlite"
+        try FileManager.default.createDirectory(atPath: (databasePath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let configuration = ((databasePath as NSString).deletingLastPathComponent as NSString).appendingPathComponent("tmux.conf")
+        // A shell that takes two seconds to be ready, which is what a machine with a profile that
+        // sources anything looks like. Keystrokes sent at creation fall into it and are lost.
+        try (TmuxSessions.configuration(defaultShell: "/bin/sh") + "\nset -g default-command 'sleep 2; exec /bin/sh'\n")
+            .write(toFile: configuration, atomically: true, encoding: .utf8)
+        let terminals = RemoteTerminals(workspaceID: WorkspaceID("fixture"), worktree: repo.path, databasePath: databasePath)
+        do {
+            let marker = repo.path + "/ran.txt"
+            let attachment = try await terminals.attach(name: "script", owner: "freek", runScript: "printf ran > \(marker)")
+            await attachment.close()
+            await waitUntil("the run script ran", within: .seconds(20)) {
+                FileManager.default.fileExists(atPath: marker)
+            }
+            #expect(FileManager.default.fileExists(atPath: marker),
+                    "tmux runs the command itself, so no keystroke can be sent before the shell is reading")
+            // And the shell is still there afterwards, so somebody can read the output and carry on.
+            let reattached = try await terminals.attach(name: "script", owner: "freek")
+            await reattached.close()
+        } catch {
+            await terminals.shutdown()
+            throw error
+        }
+        try? await terminals.closeAll()
+        await terminals.shutdown()
+    }
+
     @Test func sharingEndsOnlyTheShellsHoldingPersonalCredentials() async throws {
         guard Shell.which("tmux") != nil else { return }
         let repo = try await TempRepo()

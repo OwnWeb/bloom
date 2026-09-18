@@ -80,7 +80,7 @@ extension WorkspaceRuntime {
     /// supply; the diff and pull request are measured on their own, slower, schedule.
     public func summary(
         revision: Int64, observedAt: Date, version: String, awake: Bool, leaseUntil: Date?,
-        diff: RemoteSummary.Diff, pullRequest: RemoteSummary.PullRequest?
+        diff: RemoteSummary.Diff, pullRequest: RemoteSummary.PullRequest?, atStake: RemoteWorkAtStake?
     ) async throws -> RemoteSummary {
         let workspace = try await workspace()
         var chats: [RemoteSummary.Chat] = []
@@ -119,7 +119,9 @@ extension WorkspaceRuntime {
                     authorUserID: message.author?.userID, excerpt: Self.excerpt(ChatTranscriptPage.content(of: message)), at: message.createdAt
                 )
             },
-            waiting: waiting, runningSince: runningSince, diff: diff, pullRequest: pullRequest, chats: chats,
+            waiting: waiting, runningSince: runningSince, diff: diff,
+            uncommitted: atStake?.uncommitted, untracked: atStake?.untracked, unpushedCommits: atStake?.unpushedCommits,
+            pullRequest: pullRequest, chats: chats,
             presentUserIDs: presence.connected.sorted()
         )
     }

@@ -111,12 +111,20 @@ public struct RemoteSummary: Codable, Sendable, Hashable {
     public var waiting: Waiting?
     public var runningSince: Date?
     public var diff: Diff
+    /// What exists only on this machine, measured apart from `diff` and left out of the payload
+    /// entirely when it could not be measured. A zero here would read as "nothing at stake" to the
+    /// archive confirmation, which is the one place that must never guess. See `RemoteWorkAtStake`.
+    public var uncommitted: Int?
+    public var untracked: Int?
+    public var unpushedCommits: Int?
     public var pullRequest: PullRequest?
     public var chats: [Chat]
     public var presentUserIDs: [String]
 
     enum CodingKeys: String, CodingKey {
         case revision, title, branch, state, awake, setup, waiting, diff, chats
+        case uncommitted, untracked
+        case unpushedCommits = "unpushed_commits"
         case observedAt = "observed_at"
         case bloomRunnerVersion = "bloom_runner_version"
         case baseBranch = "base_branch"
@@ -146,6 +154,11 @@ public struct RemoteSummary: Codable, Sendable, Hashable {
         try container.encodeOrNull(waiting, forKey: .waiting)
         try container.encodeOrNull(runningSince, forKey: .runningSince)
         try container.encode(diff, forKey: .diff)
+        // `encodeIfPresent`, not `encodeOrNull` as everything else here: for these three, a missing
+        // key is the message. Null or zero would both be read as an answer.
+        try container.encodeIfPresent(uncommitted, forKey: .uncommitted)
+        try container.encodeIfPresent(untracked, forKey: .untracked)
+        try container.encodeIfPresent(unpushedCommits, forKey: .unpushedCommits)
         try container.encodeOrNull(pullRequest, forKey: .pullRequest)
         try container.encode(chats, forKey: .chats)
         try container.encode(presentUserIDs, forKey: .presentUserIDs)

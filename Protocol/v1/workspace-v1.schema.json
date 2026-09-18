@@ -163,6 +163,16 @@
               "type": "null"
             }
           ]
+        },
+        "reporting": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Reporting"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -171,6 +181,29 @@
         "id",
         "name",
         "setup"
+      ],
+      "additionalProperties": false
+    },
+    "Reporting": {
+      "type": "object",
+      "properties": {
+        "shed": {
+          "type": "integer"
+        },
+        "unreachable_since": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "shed"
       ],
       "additionalProperties": false
     },
@@ -568,9 +601,6 @@
     "Composer": {
       "type": "object",
       "properties": {
-        "chat_id": {
-          "type": "string"
-        },
         "controls": {
           "$ref": "#/$defs/ComposerControls"
         },
@@ -597,11 +627,20 @@
           "items": {
             "type": "string"
           }
+        },
+        "chat_id": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "available_agents",
-        "chat_id",
         "commands",
         "controls",
         "models",
@@ -1038,10 +1077,14 @@
         },
         "cursor": {
           "type": "integer"
+        },
+        "composer_defaults": {
+          "$ref": "#/$defs/ComposerControls"
         }
       },
       "required": [
         "chats",
+        "composer_defaults",
         "cursor",
         "presence",
         "workspace"
@@ -1099,11 +1142,17 @@
               "const": "composer"
             },
             "chat_id": {
-              "type": "string"
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
-            "chat_id",
             "kind"
           ],
           "additionalProperties": false
@@ -1267,7 +1316,9 @@
             "scope": {
               "enum": [
                 "branch",
-                "uncommitted"
+                "uncommitted",
+                "staged",
+                "unstaged"
               ]
             },
             "wait": {
@@ -1303,7 +1354,9 @@
             "scope": {
               "enum": [
                 "branch",
-                "uncommitted"
+                "uncommitted",
+                "staged",
+                "unstaged"
               ]
             },
             "known_revision": {
@@ -1669,7 +1722,9 @@
             "scope": {
               "enum": [
                 "branch",
-                "uncommitted"
+                "uncommitted",
+                "staged",
+                "unstaged"
               ]
             }
           },
@@ -1692,7 +1747,9 @@
             "scope": {
               "enum": [
                 "branch",
-                "uncommitted"
+                "uncommitted",
+                "staged",
+                "unstaged"
               ]
             },
             "patch": {

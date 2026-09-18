@@ -97,6 +97,104 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("a turn the machine restarted under ends with a row saying so, not with silence")
+    func aRestartUnderATurnIsExplained() async throws {
+        let first = try await fixture()
+        // A turn in flight when the process goes: an update restarts the service and kills the
+        // whole process group, so the row that would have closed this turn is never written.
+        _ = try await first.store.upsert(first.session.with { $0.state = .running })
+        await first.runtime.shutdown()
+
+        // The server starting again on the same database, which is what the machine does.
+        let second = WorkspaceRuntime(
+            store: first.store, workspaceID: first.workspace.id, gate: UngatedTurns(),
+            makeRunner: { session, _, store, environment, _ in first.runners.make(session: session, store: store, environment: environment) },
+            installedAgents: { [.claudeCode] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50)
+        )
+        try await second.start()
+
+        let messages = try await first.store.messages(sessionID: first.session.id)
+        let row = try #require(messages.last)
+        #expect(row.kind == .error)
+        let exit = AgentExit.decode(row.payload)
+        #expect(exit.summary == WorkspaceRuntime.restartedSentence, "the row says what happened")
+        #expect(exit.title == "Turn stopped", "rather than reading as the agent's own failure")
+        let session = try #require(try await first.store.session(id: first.session.id))
+        #expect(session.state.isMidTurn == false, "and the chat stops claiming to be running")
+
+        // Idempotent: a second start writes nothing, or every restart would add a row.
+        let again = WorkspaceRuntime(
+            store: first.store, workspaceID: first.workspace.id, gate: UngatedTurns(),
+            makeRunner: { session, _, store, environment, _ in first.runners.make(session: session, store: store, environment: environment) },
+            installedAgents: { [.claudeCode] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50)
+        )
+        try await again.start()
+        let afterSecondStart = try await first.store.messages(sessionID: first.session.id)
+        #expect(afterSecondStart.count == messages.count)
+        await second.shutdown()
+        await again.shutdown()
+    }
+
+    @Test("a client can learn what a chat would start with before any chat exists")
+    func composerDefaultsWithoutAChat() async throws {
+        let fixture = try await fixture()
+        let caller = Self.caller(Self.freek)
+
+        // On the snapshot, so the first chat in a workspace is not started from a guess.
+        guard case .workspace(let snapshot)? = await fixture.runtime.respond(to: CommandRequest(.workspace), as: caller).result else {
+            Issue.record("no workspace"); return
+        }
+        #expect(snapshot.chats.count == 1)
+        #expect(!snapshot.composerDefaults.agent.isEmpty)
+        #expect(!snapshot.composerDefaults.model.isEmpty)
+
+        // And the same values through `composer` with no chat, which carries the choices too.
+        guard case .composer(let offered)? = await fixture.runtime.respond(to: CommandRequest(.composer(chatID: nil)), as: caller).result else {
+            Issue.record("no composer"); return
+        }
+        #expect(offered.chatID == nil, "there is no chat to name")
+        #expect(offered.controls == snapshot.composerDefaults, "one answer, two places to read it")
+        #expect(offered.availableAgents.isEmpty == false)
+
+        // A chat started on them is started on exactly what was offered, which is the property the
+        // two clients were each guessing at.
+        guard case .chat(let made)? = await fixture.runtime.respond(
+            to: CommandRequest(.newChat(controls: snapshot.composerDefaults)), as: caller).result else {
+            Issue.record("no chat"); return
+        }
+        guard case .composer(let settled)? = await fixture.runtime.respond(
+            to: CommandRequest(.composer(chatID: made.id)), as: caller).result else {
+            Issue.record("no composer"); return
+        }
+        #expect(settled.controls == snapshot.composerDefaults)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a machine that cannot reach runbloom.app says so on the workspace it serves")
+    func reportingIsOnTheWorkspaceRecord() async throws {
+        let fixture = try await fixture()
+        let caller = Self.caller(Self.freek)
+        guard case .workspace(let quiet)? = await fixture.runtime.respond(to: CommandRequest(.workspace), as: caller).result else {
+            Issue.record("no workspace"); return
+        }
+        #expect(quiet.workspace.reporting == nil, "nothing to say is said with nothing")
+
+        let lost = Date(timeIntervalSince1970: 1_700_000_000)
+        await fixture.runtime.reportingChanged(ReportingRecord(unreachableSince: lost, shed: 2))
+        guard case .workspace(let worried)? = await fixture.runtime.respond(to: CommandRequest(.workspace), as: caller).result else {
+            Issue.record("no workspace"); return
+        }
+        #expect(worried.workspace.reporting?.unreachableSince == lost)
+        #expect(worried.workspace.reporting?.shed == 2)
+
+        await fixture.runtime.reportingChanged(nil)
+        guard case .workspace(let calm)? = await fixture.runtime.respond(to: CommandRequest(.workspace), as: caller).result else {
+            Issue.record("no workspace"); return
+        }
+        #expect(calm.workspace.reporting == nil, "and it goes away again when contact comes back")
+        await fixture.runtime.shutdown()
+    }
+
     @Test("another protocol version is refused with its own code")
     func versionsAreChecked() async throws {
         let fixture = try await fixture()
@@ -338,6 +436,39 @@ struct RemoteWorkspaceRuntimeTests {
         let activity = await fixture.runtime.activity()
         #expect(activity.turnsRunning == 2)
         #expect(activity.questionWaitingSince == nil)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a long backlog is replayed in order, a page at a time, and each row once")
+    func backlogIsReplayedInPages() async throws {
+        let fixture = try await fixture()
+        // More rows than one page, so the replay has to walk: it used to read the whole backlog
+        // into one array before the stream answered, which is a machine's memory for a client's
+        // reconnection.
+        var ids: [Int64] = []
+        for index in 1...450 {
+            let row = try await fixture.store.appendNext(sessionID: fixture.session.id, kind: .assistantText,
+                                                        payload: Data(#"{"text":"row \#(index)"}"#.utf8))
+            ids.append(row.id)
+        }
+        let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: ids.first)
+        var iterator = stream.makeAsyncIterator()
+        var replayed: [Int64] = []
+        while let event = await iterator.next() {
+            if let cursor = event.cursor { replayed.append(cursor) }
+            if replayed.count == ids.count - 1 { break }
+        }
+        #expect(replayed == Array(ids.dropFirst()), "Every row after the cursor, in order, once each")
+
+        // And a row written after the stream opened arrives from the live side, not the replay.
+        let fresh = try await fixture.store.appendNext(sessionID: fixture.session.id, kind: .assistantText,
+                                                       payload: Data(#"{"text":"after"}"#.utf8))
+        while let event = await iterator.next() {
+            if let cursor = event.cursor {
+                #expect(cursor == fresh.id)
+                break
+            }
+        }
         await fixture.runtime.shutdown()
     }
 

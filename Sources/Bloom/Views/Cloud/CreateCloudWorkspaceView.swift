@@ -70,6 +70,13 @@ struct CreateCloudWorkspaceView: View {
     @State private var contentHeight = ComposerTextEditor.lineHeight
     @State private var controls = ComposerControls()
     @State private var loadedControls = false
+    /// Whether the controls below the box were changed by the person rather than resolved for
+    /// them. **This is what the machine's own defaults are weighed against.** No machine exists
+    /// while this window is open, so what it shows is this Mac's choice; the machine answers a
+    /// better one a couple of minutes later, having read the repository's settings file and the
+    /// agents in its image. A value nobody touched should give way to that. A value somebody
+    /// picked should not. See `PendingOpeningPrompt.controls`.
+    @State private var controlsWereChosen = false
     /// Empty for the project's own default, which is what the chip says when nothing is typed.
     @State private var baseBranch = ""
     @State private var isEditingBase = false
@@ -299,7 +306,10 @@ struct CreateCloudWorkspaceView: View {
         ) { actions in
             ComposerFooterView(
                 controls: controls,
-                onChange: { controls = $0 },
+                onChange: {
+                    controls = $0
+                    controlsWereChosen = true
+                },
                 canSend: canCreate,
                 intent: .create,
                 // Fixed width, chosen for this row with its words on. See `width`.
@@ -459,7 +469,7 @@ struct CreateCloudWorkspaceView: View {
         failure = nil
         let request = CloudWorkspaces.CreateRequest(
             team: team, project: project, name: derivedName, branch: derivedBranch,
-            baseBranch: base, prompt: prompt, controls: controls
+            baseBranch: base, prompt: prompt, controls: controlsWereChosen ? controls : nil
         )
         Task {
             defer { isCreating = false }

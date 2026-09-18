@@ -13,7 +13,12 @@ import Foundation
 public struct PendingOpeningPrompt: Codable, Sendable, Hashable {
     public var workspaceID: String
     public var text: String
-    public var controls: ComposerControlsRecord
+    /// What the person chose in the create window, or nil for "whatever the machine would open
+    /// with". Nil is the ordinary case: the window shows this Mac's defaults because no machine
+    /// exists yet to ask, and only a deliberate change is worth carrying past the machine's own
+    /// answer. See `WorkspaceSnapshotRecord.composerDefaults`, which is better than a guess
+    /// because it has read the repository's settings file and the agents in the image.
+    public var controls: ComposerControlsRecord?
     /// The id the `new_chat` for it is sent with, kept so a retry after a relaunch opens one chat.
     public var chatCommandID: String
     /// The chat that command made, once it answered.
@@ -22,7 +27,7 @@ public struct PendingOpeningPrompt: Codable, Sendable, Hashable {
     public var sendCommandID: String
     public var createdAt: Date
 
-    public init(workspaceID: String, text: String, controls: ComposerControlsRecord, createdAt: Date = Date()) {
+    public init(workspaceID: String, text: String, controls: ComposerControlsRecord?, createdAt: Date = Date()) {
         self.workspaceID = workspaceID
         self.text = text
         self.controls = controls
@@ -34,9 +39,11 @@ public struct PendingOpeningPrompt: Codable, Sendable, Hashable {
     /// The operation to send next: a chat of its own first, then the prompt into it. A new machine
     /// has no chat until somebody opens one, and opening one under a kept command id is what keeps
     /// a retry from opening two.
-    public var nextOperation: (operation: WorkspaceOperation, commandID: String) {
+    /// - Parameter defaults: what to open the chat with when nobody chose. The machine's own
+    ///   answer where it gave one, and this Mac's clamped choice otherwise.
+    public func nextOperation(defaults: ComposerControlsRecord) -> (operation: WorkspaceOperation, commandID: String) {
         if let chatID { return (.send(chatID: chatID, text: text), sendCommandID) }
-        return (.newChat(controls: controls), chatCommandID)
+        return (.newChat(controls: controls ?? defaults), chatCommandID)
     }
 
     /// Prompts older than a day are dropped rather than sent: a workspace that took that long to

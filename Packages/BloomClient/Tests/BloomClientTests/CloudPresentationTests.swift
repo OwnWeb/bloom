@@ -56,15 +56,24 @@ import Testing
 
 @Suite struct PendingOpeningPromptTests {
     private let controls = ComposerControlsRecord(agent: "claude", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits", interactionMode: "build")
+    /// What the machine would open a new chat with, which is a different answer from the one above.
+    private let machine = ComposerControlsRecord(agent: "codex", model: "gpt-5.5", effort: "medium", permissionMode: "auto", interactionMode: "build")
 
     @Test func opensAChatFirstThenSendsIntoIt() {
         var prompt = PendingOpeningPrompt(workspaceID: "w", text: "Fix the queue", controls: controls)
-        let first = prompt.nextOperation
+        let first = prompt.nextOperation(defaults: machine)
         #expect(first.operation == .newChat(controls: controls))
         #expect(first.commandID == prompt.chatCommandID)
         prompt.chatID = "c1"
-        #expect(prompt.nextOperation.operation == .send(chatID: "c1", text: "Fix the queue"))
-        #expect(prompt.nextOperation.commandID == prompt.sendCommandID)
+        #expect(prompt.nextOperation(defaults: machine).operation == .send(chatID: "c1", text: "Fix the queue"))
+        #expect(prompt.nextOperation(defaults: machine).commandID == prompt.sendCommandID)
+    }
+
+    /// The ordinary case: nobody changed the controls in the create window, so the chat opens with
+    /// what the machine says a new chat opens with rather than with a guess made before it existed.
+    @Test func aPromptThatChoseNothingOpensWithTheMachinesOwnAnswer() {
+        let prompt = PendingOpeningPrompt(workspaceID: "w", text: "Fix the queue", controls: nil)
+        #expect(prompt.nextOperation(defaults: machine).operation == .newChat(controls: machine))
     }
 
     @Test func survivesBeingWrittenAndDropsStaleOnes() {

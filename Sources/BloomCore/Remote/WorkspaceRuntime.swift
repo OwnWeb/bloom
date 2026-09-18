@@ -53,6 +53,9 @@ public actor WorkspaceRuntime {
     var publishedSetup: SetupRecord?
     var publishedWorkspace: WorkspaceRecord?
     var publishedSetupLogLength = 0
+    /// What the machine can say about reaching runbloom.app, set by whoever is failing to reach it.
+    /// Nil is the normal case and draws nothing. See `ReportingRecord`.
+    var reporting: ReportingRecord?
     /// Which setup step is running, for the setup record. Set by the machine's setup runner.
     var setupStep: String?
     var setupStartedAt: Date?
@@ -106,6 +109,7 @@ public actor WorkspaceRuntime {
     public func start() async throws {
         guard observation == nil else { return }
         try startBridge()
+        try await recoverInterruptedTurns()
         publishedCursor = try await store.latestMessageID(workspaceID: workspaceID)
         try await refreshPublishedState(publishing: false)
         try await queue().restore(sessions: chatIDs())
@@ -116,6 +120,42 @@ public actor WorkspaceRuntime {
             }
         }
     }
+
+    /// A turn that was running when this server stopped is not running now, and the transcript
+    /// would otherwise stop in the middle of a sentence.
+    ///
+    /// **An update is a restart.** `control/update` moves the symlink and restarts the service,
+    /// which kills the whole process group, agent and all, and the provider does the same when it
+    /// moves a machine. Everything about that is handled: runbloom.app is told the turn ended, the
+    /// queue keeps whatever had not gone yet, and the chat stops claiming to be running because
+    /// `SessionLifecycle`'s `appRelaunched` row says where a mid-turn state goes. None of it is
+    /// visible. What a person sees is an agent that was working a moment ago and now is not, with
+    /// nothing in the transcript between the two, and the honest reading of that is "Bloom lost my
+    /// turn and said nothing".
+    ///
+    /// So one row per chat, in the place every other failure of a turn is drawn. Written before
+    /// `publishedCursor` is read, so it is part of the state a client is handed when it connects
+    /// rather than an event arriving out of nowhere a moment later.
+    func recoverInterruptedTurns() async throws {
+        let interrupted = try await store.sessions(workspaceID: workspaceID)
+            .filter { $0.state.isMidTurn && $0.archivedAt == nil }
+        guard !interrupted.isEmpty else { return }
+        // The same pass the Mac makes at launch, out of the same transition table, so the two
+        // cannot drift: a machine has one workspace, so there is nothing else here for it to move.
+        try await store.resetRunningSessions()
+        let row = AgentError.serverRestarted(message: Self.restartedSentence)
+        for session in interrupted {
+            _ = try? await store.appendNext(sessionID: session.id, kind: .error, payload: row.raw)
+        }
+    }
+
+    /// Said to somebody whose turn a restart ended. It names the machine rather than the agent,
+    /// because the agent did nothing wrong, and it says what survived, because that is the first
+    /// thing anybody wants to know.
+    static let restartedSentence =
+        "This Cloud workspace's server restarted while the agent was working, so the turn ended "
+        + "here. Everything it had already written is above, and its changes are still in the "
+        + "workspace."
 
     // MARK: - Commands
 

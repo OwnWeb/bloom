@@ -494,6 +494,48 @@ report until the machine is deleted, and checks machine state against the provid
 own, because anyone with root on the machine could stop or falsify these reports. The reports are
 for showing usage and enforcing limits early, not the only source of truth.
 
+### When runbloom.app cannot be reached
+
+Everything else that can go wrong between a machine and runbloom.app fails in front of somebody. A
+prompt that cannot start pauses its chat with a sentence; a push with no credential says so. Reports
+fail quietly, because nobody is waiting on one, which is why this is the only part of the
+arrangement that used to be unbounded and invisible at the same time.
+
+**Measured first, on a machine.** A workspace in use posts a usage report every five minutes while
+it is held awake, and one summary whenever something a person would notice changes. A quiet report
+is 209 bytes, one carrying twenty turns is 2.5 kB, and the largest runbloom.app will accept is
+145 kB (`RemoteUsageMeter.eventsPerReport`, a thousand events). So an hour of outage on a busy
+machine is about 30 kB and a day is under a megabyte: the memory was never the emergency. The
+silence was.
+
+**The backlog is capped at four megabytes and sheds its oldest.** At the sizes above that is ten
+weeks of a quiet machine, six days of a busy one, and two and a half hours of one reporting at the
+ceiling, all of them longer than a machine stays awake. What goes first is the oldest report,
+because the counters are cumulative and the newest one carries the totals: what a workspace cost
+stays right, and what is lost is the account of which turns made up the oldest hours.
+`RemoteUsageMeter.record` already sheds its oldest events at two thousand for the same reason, and
+this is the same rule one layer up. **A summary is never shed**, because there is only ever one:
+it is replace-latest, so a newer one simply takes the older one's place.
+
+**And the machine says so, to three different readers.** The workspace record carries `reporting`
+with `unreachable_since` and `shed` whenever there is something wrong to say, so a client can tell
+the person sitting in the workspace that what they are doing is not being recorded, and since when.
+The service log gets a line with the queue's depth in bytes, for whoever reads a machine
+afterwards. And runbloom.app is told about shedding as a `reports_shed` event, whose `count` is
+cumulative, once it can be reached again: a hole in its account of a machine should be a hole it
+knows about rather than hours that merely look quiet.
+
+Nothing here is restart-proof, and that is deliberate. An unsent report dies with the process,
+because the counters it carries are cumulative and the next report from the same boot covers them;
+only its events are lost, which is the same loss shedding accepts.
+
+**Measured on a machine**, with `machine-test.py --outage`: twenty-two minutes of refused reports
+while the workspace was in use took the server from 59.8 MB resident to 62.3 MB, most of that in
+the first two minutes and none of it the queue, which held four reports. When runbloom.app came
+back, every one of them arrived, in order, with contiguous sequences, and the one owed summary with
+them. Before this change the service log said nothing about any of it and a client could read
+nothing about it either, which is the whole reason `reporting` exists.
+
 ## Limits
 
 runbloom.app enforces per-team limits at three points: creating a workspace, issuing a workspace
@@ -592,8 +634,14 @@ sprite-env services create bloom --cmd /opt/bloom/current/bin/bloom-runner --arg
 The command never changes, because creating a service under an existing name keeps the old
 definition. Updating is therefore the same exec for a newer version, which moves the symlink and
 restarts the service, run by runbloom.app only when the summary says the workspace is idle and the
-reported version differs. If the new version does not answer `/_bloom/health` within 20 s the
-symlink goes back.
+reported version differs. The script does not put the symlink back itself: the restart it asks for
+kills it. Two things undo a release that will not start, and both write the same symlink, so
+running both is harmless. The machine's own half is the start wrapper (below). runbloom.app's half
+is polling `/_bloom/health` and reaching in through the provider when the machine has not healed
+itself, which is the case the machine cannot see about itself. **Never delete
+`/opt/bloom/<previous version>`:** both reverts point the symlink at a directory that is already
+there and download nothing, which is what makes them work when the network or the disk is the
+problem.
 
 ## Archive and restore
 
@@ -830,6 +878,18 @@ and its builder confirmed them.
   `workspace_secret` and `allowed_origins`. Ids on every wire to runbloom.app are lowercase ULIDs.
 - **The release margin is runbloom.app's configuration** (five seconds there), not a number this
   document fixes.
+- **The summary carries what is at stake, and leaves it out when it does not know.** `uncommitted`,
+  `untracked` and `unpushed_commits` are counts measured beside the diff, from one `git status` and
+  one `rev-list`, so the archive confirmation can say "7 files not pushed" rather than warning in
+  the same words every time. They are apart from `diff` because `diff` measures against the merge
+  base and adds pushed commits, unpushed commits, uncommitted changes and untracked files into one
+  number: above zero on nearly every workspace, and zero on a branch whose commits cancel out
+  against the base, which is the confidently wrong answer. When git cannot be asked the three keys
+  are absent rather than zero, because a zero reads as "nothing at stake" and somebody will archive
+  on the strength of it. **A branch with no remote at all counts every commit as unpushed**, which
+  overstates rather than understates: this number exists to stop somebody throwing work away, so
+  being wrong upwards is the direction to be wrong in, and a change that makes it exact by
+  sometimes answering zero would be a worse number. See `RemoteWorkAtStake`.
 - **The machine API payloads are runbloom.app's**, recorded under "Machine API payloads" in its
   design document: `turns` takes `kind`, `session_token`, `chat_id` and `agent`; `start` answers
   `agent_keys` (per agent: `key`, `identity`, `source`) and `environment`, or the limit refusal, or
@@ -874,7 +934,8 @@ and its builder confirmed them.
   archive's root) into `/opt/bloom/<version>`, links `/opt/bloom/current`, and creates the `bloom`
   service running `/opt/bloom/current/bin/bloom-runner serve` with no arguments, which reads
   `/etc/bloom/workspace.json`. `control/update` does not run that again: the machine installs the
-  release with `bin/bootstrap-machine.sh update`, restarts its service and rolls back itself. A
+  release with `bin/bootstrap-machine.sh update` and restarts its service; the start wrapper and
+  runbloom.app are what undo a release that will not come up. A
   release must publish the archive and a `.sha256` beside it in `sha256sum` format, or machine
   creation fails. Control calls time out after 15 seconds on runbloom.app's side, so each answers
   before doing slow work.
@@ -1188,19 +1249,35 @@ branch and nothing else; the other two `Start with` segments, because a machine 
 of this Mac's and its terminal is a tab of the workspace itself; and a branch menu, because a
 project answers with its default branch and no list, so the base is a chip with a field behind it.
 
-**What a first turn runs with is chosen on this Mac until the machine says otherwise, and that is
-permanent rather than a stopgap.** A client cannot learn what a chat would open with until a chat
-exists: `new_chat` demands controls, and `composer` used to need a `chat_id`. Runner `test.9`
-answers both, with `composer_defaults` on the workspace snapshot and a `composer` that takes no
-chat id, and the machine's answer is the better one because it has read the repository's own
-`.bloom/settings.toml` and clamped to the agents installed in the image, neither of which a client
-can see. **When that answer arrives it belongs to the workspace and not to a chat.** This Mac keys
-composer state by chat id, and a reply with no chat id under a synthesised key would collide with a
-real chat the day the machine shortens its ids, which would show somebody the wrong settings and is
-the sort of bug nobody would go looking for. And the local choice stays as the fallback: a machine
-on an older runner answers without defaults for as long as such a machine exists, and a create
-window that only works against the newest release is one that fails for the person whose workspace
-has been asleep for a fortnight.
+**What a first turn runs with is the machine's answer, and this Mac's only until there is one.** A
+client could not learn what a chat would open with until a chat existed: `new_chat` demands
+controls, and `composer` needed a `chat_id`. Runner `test.9` answers both, with `composer_defaults`
+on the workspace snapshot and a `composer` that takes no chat id, and the machine's answer is the
+better one because it has read the repository's own `.bloom/settings.toml` and clamped to the agents
+installed in its image, neither of which a client can see. **It belongs to the workspace and not to
+a chat.** This Mac keys composer state by chat id, and a reply with no chat id under a synthesised
+key would collide with a real chat the day the machine shortens its ids, which would show somebody
+another chat's settings and is the sort of bug nobody goes looking for. So it is a property of
+`CloudWorkspaceState` beside the chats rather than a row among them.
+
+The create window is the one place that cannot ask, because no machine exists while it is open. So
+it shows this Mac's choice, and **only a deliberate change is carried**: `PendingOpeningPrompt`
+holds nil for "whatever the machine would open with", and the first turn is opened with the
+machine's own defaults a couple of minutes later. A value nobody touched gives way to the better
+answer; a value somebody picked does not. New Chat in a workspace that already exists takes the
+chat in front's controls, and the machine's defaults when there is no chat in front.
+
+And the local choice stays as the fallback rather than being retired: a machine on an older runner
+answers without defaults for as long as such a machine exists. The snapshot's field is required in
+the schema and optional in what this client accepts, which is the asymmetry a client owes a server:
+a machine made before the field existed and not yet updated would otherwise not be openable at all,
+rather than merely missing a default.
+
+**`available_agents` is a fact about one machine at one moment.** Two machines created from the same
+release thirty seconds apart answered with different lists, which is being looked at and is not the
+client's to explain. What follows from it either way is that this list is never cached across
+workspaces and never drawn as the agents Bloom supports: it is what that machine can run, asked of
+that machine, and it is allowed to differ from the machine beside it.
 
 The protocol is `WorkspaceSurface` now rather than `WorkspaceReviewSurface`: it stopped being about
 the review the moment the band, the checks and the chat were written against it.
@@ -1337,6 +1414,34 @@ and nothing has happened since, and `idle` otherwise. A chat carries the same wo
 workspace that says `running` long after the agent went quiet is a bug worth reporting: the machine
 sends a fresh summary a moment after a chat goes idle.
 
+**A machine stuck in setup answers everything you ask it except the one thing that matters.** This
+was measured, not imagined. On one fresh Sprite the first subprocess of the server's life, a
+`git config` run before any setup step exists, spawned a child that exited within a second, was
+never reaped, and `Process.run()` never returned. For eighteen minutes that machine answered
+`/_bloom/health`, served RPC, held a summary saying `setting_up`, and when the service was finally
+restarted wound down cleanly in eighteen milliseconds. The workspace was never cloned and nothing
+anywhere said so. So **health, RPC and a summary are not evidence that a machine is working**, and
+two things now exist because of it.
+
+- **A launch that never returns is abandoned.** `Shell.run(timeout:)` used to cover only the reading
+  loop; the launch before it had no deadline of ours. It now gets the caller's timeout plus fifteen
+  seconds, after which the worker thread is left where it is and the call fails.
+  `Shell.abandonedLaunchCount` counts those, because one is a fluke and fifty is a machine to
+  replace rather than to keep restarting.
+- **Setup says when it has stopped moving.** Every five minutes a step goes with no output and no
+  change, the machine writes a line into the setup log a person is watching, and into the service
+  log. Output counts as progress, so an hour-long `setup` script that is printing is never called a
+  stall. It says so and does nothing else: restarting the machine's server clears that hang, and
+  the side that should act on it is runbloom.app, which can see a machine from outside.
+
+**No debugger will ever attach to a hung Bloom Runner on this provider.** `gdb` installs on a Sprite
+and then fails with `ptrace: Inappropriate ioctl for device`; there is no `kernel.yama.ptrace_scope`
+to relax, because the sandbox does not implement `ptrace` at all, and `/proc/<pid>/syscall` is empty
+for the same reason. What is left is `/proc/<pid>/task/*/wchan`, the kernel stacks under
+`/proc/<pid>/task/*/stack` as root, and the process table. Do not spend an hour finding this out:
+**what the machine says about itself is the only forensics there will ever be**, which is the whole
+argument for the watchdog above.
+
 **A project with no Cloud workspace setup is told so before anything runs.** A repository with no
 `.bloom` settings file and no `prepare`, `resume` or `[[services]]` has nothing written for a
 machine, so the setup log opens with what to add and a warning that the project's existing setup
@@ -1371,6 +1476,53 @@ Bloom's GitHub App is installed for it) rather than leaving git's own message al
 project's services and how each ended: `vite: crashed after 3 restarts. Exited with status 1.` A
 service that keeps crashing is restarted with a growing wait, so this page is the quickest way to
 tell "the app never started" from "the app is slow".
+
+**A release that will not start is undone at the next start, not by the script that asked for it.**
+`sprite-env services restart bloom` ends the script that called it, so the loop in
+`bootstrap-machine.sh` that was meant to watch the health check never runs during a real update.
+Measured on a Sprite: a service whose process exits at once is restarted for ever, about once a
+minute (`restart_count` 1, 2, 8, 12 over seven minutes). So `bin/bloom-runner` in the package is a
+small start wrapper, with the binary beside it as `bin/bloom-runner-exec`, and the service's command
+is unchanged. Before it execs, a `serve` reads `/var/tmp/bloom-update-pending`: the second start
+that still finds the version it names current puts `current` back to the version before it. One
+start is not a failure, because a machine can restart for its own reasons; and a rollback that
+cannot be done (the old release gone, the symlink unwritable) execs the new version anyway, because
+a machine answering wrongly can be looked at and a machine answering nothing cannot. Rolling back
+from outside, through the provider, is runbloom.app's half and covers a machine that is wedged for
+reasons no script on it could see.
+
+**`/var/tmp/bloom-update-pending` is a contract, not a scratch file.** `bootstrap-machine.sh update`
+writes three lines before it restarts the service: the version asked for, the version to go back to
+(a bare version; older bootstraps wrote an absolute path and readers still take one), and how many
+starts have seen it. The start wrapper counts those starts, and runbloom.app reads the same file in
+the exec it makes when it reaches into a machine that has not healed, so a bad night reads as "19
+starts on 0.2.0, going back to 0.1.9" rather than as silence. A runner that gets as far as listening
+deletes it, so its absence is the normal case. Nothing read from it decides whether to roll back: it
+is the account of a machine that is failing, evidence for a person rather than an input. Change the
+shape and two readers change with it.
+
+**The four review scopes.** `branch` is the merge base to the worktree, which is what the inspector
+shows; `uncommitted` is HEAD to the worktree, staged and unstaged together, which is what a person
+reads before committing; `staged` is HEAD to the index, what a commit would take; `unstaged` is the
+index to the worktree, what it would leave behind. Files git has never seen belong to `unstaged`
+and never to `staged`, because they are in neither the index nor a commit. A file read in `staged`
+or `unstaged` carries that layer.
+
+**Reverting a file and discarding a hunk work in all four, and mean what git means in each.** In
+`branch` and `uncommitted` the change goes back to the baseline being compared against. In `staged`
+it is `git restore --staged`, so the change leaves the index and the worktree keeps it: nothing
+anybody wrote is destroyed, and the client says Unstage rather than Discard. In `unstaged` it is
+`git restore`, throwing the worktree's copy away, which is the only thing the word can mean there
+and the only one of the four where work is lost. A person who knows git is not surprised and a
+person who does not is not robbed, which is why the two ordinary git meanings were taken rather
+than one invented meaning covering both. `HunkDiscard.Intent` is where that choice lives in the
+code, rather than in a comment, because the word on the button has to follow it.
+
+**A rollback says so twice:** to the service's log, which the provider keeps at
+`/.sprite/logs/services/bloom.log` with a timestamp per line, and by appending to
+`/var/tmp/bloom-update.log`, which outlives the marker and any rotation. The marker only ever
+describes the attempt in hand, so the second one is what lets a machine say it has rolled back twice
+this week. (There is no `sprite-env services logs` subcommand; the log is a file.)
 
 **Telling a provider outage from a Bloom Runner problem.** They look different from the app:
 

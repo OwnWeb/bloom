@@ -354,8 +354,9 @@ final class CloudWorkspaces {
         var branch: String
         var baseBranch: String?
         var prompt: String
-        /// What the first turn runs with, chosen in the create window. Nil for a caller with no
-        /// window to choose in, which takes `openingControls` instead.
+        /// What the first turn runs with, when somebody chose it in the create window. Nil means
+        /// "whatever the machine would open a chat with", which is the better answer and is not
+        /// known until the machine exists. See `PendingOpeningPrompt.controls`.
         var controls: ComposerControls?
     }
 
@@ -367,12 +368,14 @@ final class CloudWorkspaces {
         ))
         let prompt = request.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !prompt.isEmpty {
-            // What the window chose, clamped the way `openingControls` clamps its own answer: a
-            // machine runs Claude Code or Codex, so anything else would be a picker that lied.
-            let chosen: ComposerControls
-            if let controls = request.controls { chosen = controls } else { chosen = await openingControls() }
-            let controls = [AgentKind.claudeCode, .codex].contains(chosen.agentKind) ? chosen : ComposerControls(hasWorktree: true)
-            hold(PendingOpeningPrompt(workspaceID: item.id, text: prompt, controls: controls.cloudRecord))
+            // Only a deliberate choice is carried. Nothing chosen is held as nothing, so the turn
+            // opens with what the machine says a new chat opens with rather than with a guess made
+            // before the machine existed. A choice is still clamped, because a machine runs Claude
+            // Code or Codex and anything else would be a picker that lied.
+            let chosen = request.controls.map {
+                [AgentKind.claudeCode, .codex].contains($0.agentKind) ? $0 : ComposerControls(hasWorktree: true)
+            }
+            hold(PendingOpeningPrompt(workspaceID: item.id, text: prompt, controls: chosen?.cloudRecord))
         }
         watching.insert(item.id)
         items.insert(item, at: 0)

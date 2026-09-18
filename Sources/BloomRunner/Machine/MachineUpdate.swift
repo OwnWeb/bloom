@@ -3,12 +3,14 @@ import Foundation
 
 /// Moving the machine to another Bloom Runner release, when runbloom.app asks.
 ///
-/// **Detached, because it restarts the process that started it.** The bootstrap script downloads
-/// and verifies the release, moves `/opt/bloom/current`, and restarts the `bloom` service, which
-/// ends this process; started as a child it would be killed with its parent halfway through. So it
-/// runs in a session of its own, and rolls the symlink back itself if the new version does not
-/// answer `/_bloom/health`. See `Tools/bootstrap-machine.sh` and docs/REMOTE-WORKSPACES.md,
-/// "Installing and updating bloom-runner".
+/// **Detached, so it gets as far as the restart.** The bootstrap script downloads and verifies the
+/// release, moves `/opt/bloom/current`, and restarts the `bloom` service. Started as a child it
+/// would die with this process the moment the download finished; in a session of its own it lives
+/// until the restart, which then ends it along with everything else the service started (measured:
+/// the provider's restart takes tmux too, `setsid` or not). So it does not watch what happens next,
+/// and it does not roll anything back. The start wrapper in `bin/bloom-runner` does that at the next
+/// start, and runbloom.app does it through the provider when the machine has not healed. See
+/// `Tools/runner-start.sh` and docs/REMOTE-WORKSPACES.md, "Installing and updating bloom-runner".
 enum MachineUpdate {
     static let script = "/opt/bloom/current/bin/bootstrap-machine.sh"
     /// Where the script's output goes. It outlives this process, so nothing here can report a

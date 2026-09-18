@@ -112,6 +112,7 @@ enum WireExamples {
         ("workspace", .workspace),
         ("transcript", .transcript(chatID: "chat-1", afterSeq: 3, limit: 200)),
         ("composer", .composer(chatID: "chat-1")),
+        ("composer_for_a_new_chat", .composer(chatID: nil)),
         ("setup_output", .setupOutput),
         ("files", .files),
         ("history", .history(limit: 50, before: nil)),
@@ -124,6 +125,8 @@ enum WireExamples {
         ("file", .file(path: "README.md")),
         ("download", .download(path: "storage/logs/laravel.log")),
         ("review_snapshot", .reviewSnapshot(scope: .branch, knownRevision: nil, wait: true)),
+        ("review_snapshot_staged", .reviewSnapshot(scope: .staged, knownRevision: nil, wait: false)),
+        ("review_patch_unstaged", .reviewPatch(path: "app/Queue.php", scope: .unstaged, knownRevision: nil)),
         ("review_patch", .reviewPatch(path: "README.md", scope: .uncommitted, knownRevision: "revision-1")),
         ("run_scripts", .runScripts),
         ("notes", .notes),
@@ -157,10 +160,16 @@ enum WireExamples {
     static let results: [(String, OperationResult)] = [
         ("accepted", .accepted),
         ("workspace", .workspace(WorkspaceSnapshotRecord(workspace: workspace, chats: [chat],
-                                                          presence: [PresenceRecord(userID: author.userID, name: author.name, lastInputAt: date)], cursor: 118))),
+                                                          presence: [PresenceRecord(userID: author.userID, name: author.name, lastInputAt: date)], cursor: 118,
+                                                          composerDefaults: controls))),
         ("transcript", .transcript(TranscriptRecord(chat: chat, messages: [message], hasMore: false, questions: [question], busy: true,
                                                     streamingText: "Running", queue: queue))),
         ("composer", .composer(ComposerRecord(chatID: "chat-1", controls: controls, availableAgents: ["claude", "codex"],
+            models: [ModelRecord(agent: "codex", id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium", isDefault: true)],
+            commands: [SlashCommandRecord(name: "review", description: "Review the branch")], outputStyles: ["default", "Explanatory"]))),
+        // The same answer about a chat nobody has made yet, which is what `composer` with no
+        // `chat_id` asks: no `chat_id` comes back either.
+        ("composer_for_a_new_chat", .composer(ComposerRecord(chatID: nil, controls: controls, availableAgents: ["claude", "codex"],
             models: [ModelRecord(agent: "codex", id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium", isDefault: true)],
             commands: [SlashCommandRecord(name: "review", description: "Review the branch")], outputStyles: ["default", "Explanatory"]))),
         ("setup_output", .setupOutput(SetupOutputRecord(setup: SetupRecord(state: "running", step: "setup", startedAt: date), log: "Installing\n"))),
@@ -216,6 +225,11 @@ enum WireExamples {
         ("review", .review(revision: 7)),
         ("presence", .presence([PresenceRecord(userID: author.userID, name: author.name, lastInputAt: nil)])),
         ("workspace", .workspace(workspace)),
+        // The same record while the machine cannot reach runbloom.app, which is the only time it
+        // carries `reporting` and the shape a client draws that warning from.
+        ("workspace_not_reporting", .workspace(WorkspaceRecord(
+            id: workspace.id, name: workspace.name, branch: workspace.branch, baseBranch: workspace.baseBranch,
+            setup: workspace.setup, reporting: ReportingRecord(unreachableSince: date, shed: 3)))),
         ("sleeping", .sleeping),
         ("closing", .closing(WireError(.tokenExpired, "The session token expired."))),
     ]

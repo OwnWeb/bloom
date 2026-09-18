@@ -657,8 +657,14 @@ struct AgentRunnerCancellationRaceTests {
         let session = try await makeSession(store)
         let recorder = ProcessRecorder(shutdown: nil)
         let runner = AgentRunner(
-            workspacePath: "/tmp/w", session: session, store: store,
-            shutdownBudget: .seconds(20), makeProcess: recorder.factory
+            // Far above the fake process's 300 ms, because what is under test is that the second
+            // turn waits rather than how long it waits. At the app's five seconds this failed on a
+            // loaded CI runner, where 6,455 tests share the machine and a task can wait that long
+            // to be scheduled; the failure was the runner's load, not the code's behaviour. Main
+            // reached for twenty seconds against the same flake; this keeps the longer bound,
+            // because it is only ever waited out when the behaviour under test is broken.
+            workspacePath: "/tmp/w", session: session, store: store, shutdownBudget: .seconds(60),
+            makeProcess: recorder.factory
         )
 
         try await runner.send("one")

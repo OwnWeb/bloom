@@ -103,7 +103,9 @@ extension Answer {
 }
 
 extension Workspace {
-    func record(setup: SetupRecord, pullRequest: PullRequestRecord? = nil) -> WorkspaceRecord {
-        WorkspaceRecord(id: id.rawValue, name: name, branch: branch, baseBranch: baseBranch, setup: setup, pullRequest: pullRequest)
+    func record(setup: SetupRecord, pullRequest: PullRequestRecord? = nil,
+                reporting: ReportingRecord? = nil) -> WorkspaceRecord {
+        WorkspaceRecord(id: id.rawValue, name: name, branch: branch, baseBranch: baseBranch, setup: setup,
+                        pullRequest: pullRequest, reporting: reporting)
     }
 }

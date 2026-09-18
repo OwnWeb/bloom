@@ -314,11 +314,15 @@ final class CloudWorkspaceSession {
         guard !isOpeningChat else { return }
         isOpeningChat = true
         defer { isOpeningChat = false }
+        // The chat in front, because a second chat is usually more of the same, and the machine's
+        // own defaults otherwise. Never this Mac's where the machine has an answer: it has read the
+        // repository's settings file and knows which agents are in its image, and neither is
+        // visible from here.
         let controls: ComposerControlsRecord
         if let current = selectedChatID.flatMap({ state.chats[$0.rawValue]?.controls }) {
             controls = current
         } else {
-            controls = await cloud.openingControls().cloudRecord
+            controls = await openingDefaults()
         }
         guard let result = await runForResult(.newChat(controls: controls)), case .chat(let chat) = result else { return }
         state.apply(.chat(chat))
@@ -393,6 +397,13 @@ final class CloudWorkspaceSession {
 
     // MARK: The opening prompt
 
+    /// What a new chat on this machine opens with: the machine's own answer where it gave one,
+    /// and this Mac's choice, clamped to the agents a machine runs, where it did not.
+    func openingDefaults() async -> ComposerControlsRecord {
+        if let defaults = state.composerDefaults { return defaults }
+        return await cloud.openingControls().cloudRecord
+    }
+
     /// The prompt typed when this workspace was created, if it has not gone yet.
     var heldPrompt: PendingOpeningPrompt? { cloud.pendingPrompts.prompts[id.rawValue] }
 
@@ -402,9 +413,15 @@ final class CloudWorkspaceSession {
         guard var prompt = heldPrompt, !isSendingOpeningPrompt else { return }
         isSendingOpeningPrompt = true
         defer { isSendingOpeningPrompt = false }
+        // What the chat opens with when nobody chose in the create window: the machine's own
+        // answer, which knows the repository's settings file and the agents in its image, and this
+        // Mac's clamped choice for a machine too old to have one. Read once, here, because the
+        // snapshot has landed by the time this runs: `sendOpeningPromptIfHeld` is called when the
+        // connection goes live.
+        let defaults = await openingDefaults()
         var attempts = 0
         while true {
-            let next = prompt.nextOperation
+            let next = prompt.nextOperation(defaults: defaults)
             let result: OperationResult
             do {
                 result = try await perform(next.operation, commandID: next.commandID)

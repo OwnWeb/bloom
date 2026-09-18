@@ -63,6 +63,23 @@ public enum Shell {
         spawns.load(ordering: .relaxed)
     }
 
+    /// Launches given up on because `Process.run()` never returned. See `CapturedProcess.launchGrace`.
+    ///
+    /// **A leak that can happen once can happen fifty times**, and a machine that has abandoned
+    /// several worker threads inside Foundation is a machine to replace rather than one to keep
+    /// restarting. It is counted here rather than logged and forgotten so that a watchdog, a probe
+    /// or a person can ask, and so that the difference between "this happened once at startup" and
+    /// "this is happening all night" is a number rather than a guess.
+    private static let abandoned = Atomic<Int>(0)
+
+    static func countAbandonedLaunch() {
+        abandoned.add(1, ordering: .relaxed)
+    }
+
+    public static var abandonedLaunchCount: Int {
+        abandoned.load(ordering: .relaxed)
+    }
+
     /// This process's environment with the PATH above merged in, worked out once.
     ///
     /// It used to be rebuilt per spawn: the whole process environment copied, PATH split, about 45

@@ -19,12 +19,25 @@
 #    the one given. The tag is v<version> or runner-v<version> (a runner-only test release) and
 #    nothing else, so it can only ever name this version in this repository.
 # 2. Unpack it into /opt/bloom/<version>, and point /opt/bloom/current at that.
-# 3. On install, create the `bloom` service once. On update, restart it, and if the new version
-#    does not answer /_bloom/health within 20 seconds, point the symlink back and restart again.
+# 3. On install, create the `bloom` service once. On update, restart it and wait to see the new
+#    version answer /_bloom/health. It does not put the symlink back itself: the restart it asks
+#    for kills this script, so a revert written here would be a revert nobody runs.
+#
+# **Two things undo a release that will not start, and this is neither of them.** The machine's own
+# half is the start wrapper in bin/bloom-runner, which the supervisor re-runs about once a minute
+# and which goes back to the previous version on the second start that still finds the new one
+# current (Tools/runner-start.sh). The control plane's half is runbloom.app, which polls health and
+# reaches in through the provider when the machine has not healed itself. Both write the same
+# symlink and both are safe to run twice. If a third ever arrives, say so here.
 #
 # **The service's command never changes**, because creating a service under a name that exists
 # silently keeps the old definition (measured on a Sprite). It always runs
 # /opt/bloom/current/bin/bloom-runner, and an update moves the symlink underneath it.
+#
+# **Never delete /opt/bloom/<previous version>.** Both reverts above put the symlink back to a
+# directory that is already on the machine, downloading nothing, which is what makes them work when
+# the network or the disk is what went wrong. Anything added here that prunes old versions has to
+# keep at least the one `current` pointed at before the last update.
 #
 # Environment, for development and tests only:
 #   BLOOM_RELEASE_BASE  where releases are downloaded from (default the bloom repository on GitHub)
@@ -83,12 +96,32 @@ if [[ ! -x "$target/bin/bloom-runner" ]]; then
   sudo_if_needed mv "$target.partial" "$target"
 fi
 
+# The version, not the path `readlink` gives: the marker is read by the start wrapper and by
+# runbloom.app, and one convention for both beats two writers and every reader taking either.
 previous=""
-[[ -L "$prefix/current" ]] && previous="$(readlink "$prefix/current")"
+[[ -L "$prefix/current" ]] && previous="$(basename "$(readlink "$prefix/current")")"
 
 # A new symlink moved over the old one with rename, so there is never a moment with none.
-sudo_if_needed ln -sfn "$target" "$prefix/current.next"
-sudo_if_needed mv -T "$prefix/current.next" "$prefix/current"
+#
+# Three ways to ask for that one rename, because the flag that spells it is not the same everywhere
+# and `mv` without it moves the new link *into* the directory the old one points at: `-T` is GNU's,
+# `-h` is BSD's, and `os.replace` is the rename itself, from a python3 the machine already has. Only
+# if all three are missing does it fall back to `ln -sfn`, which unlinks and re-creates and so has a
+# moment with no `current` at all. Nothing we ship to reaches that line; it is there so an image
+# none of us has tried still ends up pointing somewhere.
+point_current_at() {
+  sudo_if_needed ln -sfn "$1" "$prefix/current.next"
+  if sudo_if_needed mv -T "$prefix/current.next" "$prefix/current" 2>/dev/null ||
+    sudo_if_needed mv -h "$prefix/current.next" "$prefix/current" 2>/dev/null ||
+    sudo_if_needed python3 -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' \
+      "$prefix/current.next" "$prefix/current" 2>/dev/null; then
+    return 0
+  fi
+  sudo_if_needed rm -f "$prefix/current.next"
+  sudo_if_needed ln -sfn "$1" "$prefix/current"
+}
+
+point_current_at "$target"
 
 if [[ "$action" == "install" ]]; then
   # The whole name, so a service called bloom-something does not count as this one.
@@ -108,7 +141,13 @@ fi
 # In /var/tmp rather than beside the versions, because /opt is root's and the server deleting it is
 # the machine's own user.
 marker="${BLOOM_UPDATE_MARKER:-/var/tmp/bloom-update-pending}"
-printf '%s\n%s\n' "$version" "$previous" > "$marker"
+# Three lines: the version asked for, the version to go back to, and how many starts have seen this
+# marker. The start wrapper in bin/bloom-runner counts those and gives up on the release that does
+# not come up (Tools/runner-start.sh), and runbloom.app reads the same file when it reaches into a
+# machine that has not healed, so that a bad night reads as "19 starts on 0.2.0, going back to
+# 0.1.9" rather than as silence. Changing this shape changes what that reader sees. Its absence is
+# the normal case, not an error.
+printf '%s\n%s\n0\n' "$version" "$previous" > "$marker"
 "$service_tool" services restart bloom >/dev/null 2>&1 &
 for _ in $(seq 1 20); do
   if [[ ! -e "$marker" ]]; then
@@ -123,11 +162,7 @@ for _ in $(seq 1 20); do
   sleep 1
 done
 
-rm -f "$marker"
-if [[ -n "$previous" ]]; then
-  sudo_if_needed ln -sfn "$previous" "$prefix/current.next"
-  sudo_if_needed mv -T "$prefix/current.next" "$prefix/current"
-  "$service_tool" services restart bloom
-  fail "$version did not answer $health_url within 20 seconds; went back to $previous"
-fi
-fail "$version did not answer $health_url within 20 seconds, and there was nothing to go back to"
+# Not seen to come up. The marker stays: it is what the start wrapper counts, and deleting it here
+# would take away the machine's own way back. See the note at the head of this file about who
+# reverts.
+fail "$version did not answer $health_url within 20 seconds; the machine goes back to $previous at its next start"

@@ -51,6 +51,7 @@ api() {
 now="$(date -u +%s)"
 token=""
 swept=0
+left=0
 # A machine the provider will not delete would otherwise be found again on every pass.
 passes=0
 while true; do
@@ -72,8 +73,26 @@ while true; do
     if (( dry_run )); then
       print -r -- "would delete $name"
     else
-      api "/v1/sprites/$name" -- -X DELETE >/dev/null
-      print -r -- "deleted $name"
+      # Deleted is a thing to confirm, not a thing to be told. A machine the provider reported as
+      # destroyed has come back into the list, and a Sprite holding a clone of somebody's
+      # repository that we believe is gone is both a bill and a copy of their code.
+      confirmed=0
+      for attempt in 1 2 3; do
+        api "/v1/sprites/$name" -- -X DELETE >/dev/null || true
+        sleep 2
+        if ! api "/v1/sprites?prefix=$name&max_results=10" |
+            python3 -c 'import json,sys; print("\n".join(s["name"] for s in json.load(sys.stdin).get("sprites", [])))' |
+            grep -qx "$name"; then
+          confirmed=1
+          break
+        fi
+      done
+      if (( confirmed )); then
+        print -r -- "deleted $name"
+      else
+        print -r -- "COULD NOT DELETE $name: it is still in the list after three attempts"
+        left=$((left + 1))
+      fi
     fi
     swept=$((swept + 1))
   done
@@ -91,3 +110,7 @@ while true; do
 done
 
 print -r -- "$swept test machine(s) older than $minimum_age seconds in $organisation."
+if (( left )); then
+  print -r -- "$left of them are still there. Look at them by hand: the provider said they were deleted."
+  exit 1
+fi

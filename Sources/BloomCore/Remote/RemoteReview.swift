@@ -22,31 +22,61 @@ public enum RemoteReview {
 
     public static func changes(workspace: Workspace, scope: BloomProtocol.DiffScope) async throws -> [ChangedFile] {
         let base = try await base(workspace: workspace, scope: scope)
-        return try await changes(workspace: workspace, base: base)
+        return try await changes(workspace: workspace, base: base, scope: scope)
     }
 
     /// What a scope measures from, resolved now. The branch scope is the merge base the Mac's
-    /// inspector uses; uncommitted is `HEAD`, which includes whatever is staged.
+    /// inspector uses; the other three are all measured from `HEAD`, and differ in which side of
+    /// the index they compare with.
     static func base(workspace: Workspace, scope: BloomProtocol.DiffScope) async throws -> String {
         switch scope {
         case .branch: try await Git.baseline(workspace.baseBranch, in: workspace.path)
-        case .uncommitted: try await Git.check(["rev-parse", "--verify", "HEAD"], in: workspace.path).trimmed
+        case .uncommitted, .staged, .unstaged: try await Git.check(["rev-parse", "--verify", "HEAD"], in: workspace.path).trimmed
         }
     }
 
-    static func changes(workspace: Workspace, base: String) async throws -> [ChangedFile] {
+    /// The `git diff` arguments a scope is, and whether files git has never seen belong in it.
+    ///
+    /// Staged is HEAD to the index, which is what a commit would take; unstaged is the index to the
+    /// worktree, which is what a commit would leave behind. Untracked files are in neither the
+    /// index nor a commit, so they sit with the unstaged side, and never with the staged one.
+    static func comparison(scope: BloomProtocol.DiffScope, base: String) -> (arguments: [String], includesUntracked: Bool) {
+        switch scope {
+        case .branch, .uncommitted: ([base], true)
+        case .staged: (["--cached", base], false)
+        case .unstaged: ([], true)
+        }
+    }
+
+    static func changes(workspace: Workspace, base: String,
+                        scope: BloomProtocol.DiffScope = .branch) async throws -> [ChangedFile] {
         let worktree = workspace.path
+        let comparison = comparison(scope: scope, base: base)
         async let nameStatusRead = Git.checkRaw(
-            ["diff", "--no-ext-diff", "--no-textconv", "--name-status", "-M", "-z", base, "--"], in: worktree
+            ["diff", "--no-ext-diff", "--no-textconv", "--name-status", "-M", "-z"] + comparison.arguments + ["--"], in: worktree
         )
         async let numstatRead = Git.checkRaw(
-            ["diff", "--no-ext-diff", "--no-textconv", "--numstat", "-M", "-z", base, "--"], in: worktree
+            ["diff", "--no-ext-diff", "--no-textconv", "--numstat", "-M", "-z"] + comparison.arguments + ["--"], in: worktree
         )
         async let untrackedRead = Git.checkRaw(["ls-files", "--others", "--exclude-standard", "-z"], in: worktree)
 
         let changeByPath = Git.parseNameStatus(try await nameStatusRead.stdout)
         var byPath = Git.parseNumstat(try await numstatRead.stdout, changes: changeByPath)
-        for record in Git.nulRecords(try await untrackedRead.stdout) {
+        // The layer is the scope's, since these scopes are the layers: a client showing staged and
+        // unstaged side by side reads it rather than working it out from which call it made.
+        let layer: ChangeLayer? = switch scope {
+        case .staged: .staged
+        case .unstaged: .unstaged
+        case .branch, .uncommitted: nil
+        }
+        if let layer {
+            for (path, file) in byPath {
+                var file = file
+                file.layer = layer
+                byPath[path] = file
+            }
+        }
+        for record in comparison.includesUntracked ? Git.nulRecords(try await untrackedRead.stdout) : [] {
             let path = String(decoding: record, as: UTF8.self)
             guard !path.isEmpty, byPath[path] == nil else { continue }
             let summary = untrackedSummary(path: path, worktree: worktree)
@@ -80,14 +110,18 @@ public enum RemoteReview {
     public static func patch(workspace: Workspace, path: String, scope: BloomProtocol.DiffScope) async throws -> String {
         try validateRelativePath(path)
         let base = try await base(workspace: workspace, scope: scope)
-        let files = try await changes(workspace: workspace, base: base)
+        // The scope's own list, not the whole comparison's. A file staged and then put back in the
+        // worktree is in the staged list and in no other, so looking it up in the wrong one answers
+        // "no changes in the selected scope" about a file the client is looking at.
+        let files = try await changes(workspace: workspace, base: base, scope: scope)
         guard let file = files.first(where: { $0.path == path }) else {
             throw RemoteFailure.notFound("This file has no changes in the selected scope. Refresh the file list.")
         }
-        return try await patch(workspace: workspace, file: file, base: base)
+        return try await patch(workspace: workspace, file: file, base: base, scope: scope)
     }
 
-    static func patch(workspace: Workspace, file: ChangedFile, base: String) async throws -> String {
+    static func patch(workspace: Workspace, file: ChangedFile, base: String,
+                      scope: BloomProtocol.DiffScope = .branch) async throws -> String {
         let path = file.path
         try validateRelativePath(path)
         let arguments: [String]
@@ -102,8 +136,8 @@ public enum RemoteReview {
             if oldSize.ok, let bytes = Int(oldSize.trimmed), bytes > fileLimit {
                 throw RemoteFailure(.tooLarge, "The original file is larger than 2 MB. Review it on the server.")
             }
-            arguments = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color",
-                         "-M", base, "--"] + (file.oldPath.map { [$0, path] } ?? [path])
+            arguments = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "-M"]
+                + comparison(scope: scope, base: base).arguments + ["--"] + (file.oldPath.map { [$0, path] } ?? [path])
         }
         let paths = file.oldPath.map { [$0, path] } ?? [path]
         let snapshot = try RemoteDiffWorktree(workspace: workspace, paths: paths)

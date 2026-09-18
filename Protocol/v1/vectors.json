@@ -186,6 +186,24 @@
           "state" : "succeeded"
         }
       }
+    },
+    "workspace_not_reporting" : {
+      "kind" : "workspace",
+      "workspace" : {
+        "base_branch" : "main",
+        "branch" : "freek/queue-retries",
+        "id" : "01k5bx7j9d3v2r8q6m4n0p1s2w",
+        "name" : "Queue retries",
+        "reporting" : {
+          "shed" : 3,
+          "unreachable_since" : "2026-09-17T09:40:02.500Z"
+        },
+        "setup" : {
+          "finished_at" : "2026-09-17T09:40:02.500Z",
+          "started_at" : "2026-09-17T09:40:02.500Z",
+          "state" : "succeeded"
+        }
+      }
     }
   },
   "replies" : {
@@ -262,6 +280,53 @@
             "codex"
           ],
           "chat_id" : "chat-1",
+          "commands" : [
+            {
+              "description" : "Review the branch",
+              "name" : "review"
+            }
+          ],
+          "controls" : {
+            "agent" : "claude",
+            "codex_context_window" : 0,
+            "effort" : "high",
+            "fast_mode" : false,
+            "interaction_mode" : "build",
+            "model" : "claude-opus-5",
+            "output_style" : "default",
+            "permission_mode" : "acceptEdits"
+          },
+          "models" : [
+            {
+              "agent" : "codex",
+              "default_effort" : "medium",
+              "efforts" : [
+                "low",
+                "medium",
+                "high"
+              ],
+              "id" : "gpt-5.5",
+              "is_default" : true,
+              "label" : "GPT-5.5"
+            }
+          ],
+          "output_styles" : [
+            "default",
+            "Explanatory"
+          ]
+        },
+        "kind" : "composer"
+      },
+      "version" : 1
+    },
+    "composer_for_a_new_chat" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "composer" : {
+          "available_agents" : [
+            "claude",
+            "codex"
+          ],
           "commands" : [
             {
               "description" : "Review the branch",
@@ -601,6 +666,16 @@
               "updated_at" : "2026-09-17T09:40:02.500Z"
             }
           ],
+          "composer_defaults" : {
+            "agent" : "claude",
+            "codex_context_window" : 0,
+            "effort" : "high",
+            "fast_mode" : false,
+            "interaction_mode" : "build",
+            "model" : "claude-opus-5",
+            "output_style" : "default",
+            "permission_mode" : "acceptEdits"
+          },
           "cursor" : 118,
           "presence" : [
             {
@@ -768,6 +843,14 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "composer_for_a_new_chat" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "composer"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "create_pull_request" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
@@ -917,12 +1000,32 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "review_patch_unstaged" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "review_patch",
+        "path" : "app/Queue.php",
+        "scope" : "unstaged"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "review_snapshot" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
         "kind" : "review_snapshot",
         "scope" : "branch",
         "wait" : true
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "review_snapshot_staged" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "review_snapshot",
+        "scope" : "staged",
+        "wait" : false
       },
       "protocol" : "bloom-workspace",
       "version" : 1

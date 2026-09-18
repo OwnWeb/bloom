@@ -18,12 +18,13 @@ extension Git {
     /// `--whitespace=nowarn` because a repository with `apply.whitespace=error` would otherwise
     /// refuse to put back the trailing space somebody's old line had.
     public static func discardHunk(
-        _ hunk: DiffHunk, of file: ChangedFile, worktree: String, base: String, scope: DiffScope
+        _ hunk: DiffHunk, of file: ChangedFile, worktree: String, base: String, scope: DiffScope,
+        intent: HunkDiscard.Intent = .discard
     ) async throws {
         let availability = HunkDiscard.availability(
             file: file, scope: scope, ignoringWhitespace: false, agentIsRunning: false
         )
-        guard availability == .enabled, let targets = HunkDiscard.targets(for: file.layer) else {
+        guard availability == .enabled, let targets = HunkDiscard.targets(for: file.layer, intent: intent) else {
             throw HunkDiscardRefusal.notOffered
         }
 

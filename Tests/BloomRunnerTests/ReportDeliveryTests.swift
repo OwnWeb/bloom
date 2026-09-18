@@ -23,6 +23,10 @@ struct ReportDeliveryTests {
         var delays: [Duration] { state.withLock { $0.delays } }
 
         func fail(_ errors: (any Error & Sendable)...) {
+            fail(contentsOf: errors)
+        }
+
+        func fail(contentsOf errors: [any Error & Sendable]) {
             state.withLock { $0.failures.append(contentsOf: errors) }
         }
 
@@ -103,6 +107,55 @@ struct ReportDeliveryTests {
         #expect(delivered)
         #expect(recorder.usage == ["1", "2", "3"])
         #expect(recorder.attempts == 5)
+    }
+
+    @Test("an outage is bounded: the queue caps, sheds its oldest, and says so")
+    func theBacklogIsCapped() async {
+        let recorder = Recorder()
+        recorder.fail(contentsOf: Array(repeating: Self.down, count: 200))
+        let delivery = ReportDelivery(sender: recorder.sender, sleep: recorder.instantSleep)
+        // Reports of a realistic size, enough of them to pass a cap made small for this test.
+        let report = Self.data(String(repeating: "x", count: 2_048))
+        for _ in 0..<(ReportDelivery.maximumQueuedBytes / report.count + 8) {
+            await delivery.submitUsage(report)
+        }
+
+        let full = await delivery.status
+        #expect(full.queuedBytes <= ReportDelivery.maximumQueuedBytes, "the queue is bounded")
+        #expect(full.shed > 0, "and what went over the cap was shed rather than kept")
+        #expect(full.queued > 0, "the newest are what is kept, because the counters are cumulative")
+    }
+
+    @Test("the machine knows since when it has been unable to reach runbloom.app")
+    func unreachableSinceIsTheLastSuccess() async {
+        let recorder = Recorder()
+        let clock = Mutex(Date(timeIntervalSince1970: 1_700_000_000))
+        let statuses = Mutex([ReportDelivery.Status]())
+        let delivery = ReportDelivery(
+            sender: recorder.sender, sleep: recorder.instantSleep,
+            now: { clock.withLock { $0 } },
+            observer: { status in statuses.withLock { $0.append(status) } }
+        )
+
+        // One that gets through. That moment is when contact was last had.
+        await delivery.submitUsage(Self.data("1"))
+        #expect(await delivery.flush(timeout: .seconds(5)))
+        let reachedAt = clock.withLock { $0 }
+        #expect(await delivery.status.unreachableSince == nil)
+
+        // Then an outage that starts later. What it says is when contact was lost, not now, and it
+        // is read out of what was announced rather than out of the live state, because the retries
+        // are instant here and the outage is over before an assertion could look at it.
+        clock.withLock { $0 += 600 }
+        recorder.fail(Self.down, Self.down, Self.down)
+        await delivery.submitUsage(Self.data("2"))
+        #expect(await delivery.flush(timeout: .seconds(5)))
+        #expect(statuses.withLock { $0.compactMap(\.unreachableSince).first } == reachedAt)
+
+        // And the report that got through cleared it, so a flap does not read as an outage that
+        // never ended.
+        #expect(await delivery.status.unreachableSince == nil)
+        #expect(statuses.withLock { $0.last?.unreachableSince } == nil)
     }
 
     @Test func backoffDoublesFromOneSecondToAMinute() async {

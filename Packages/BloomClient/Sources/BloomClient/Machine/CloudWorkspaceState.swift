@@ -20,6 +20,19 @@ public struct CloudWorkspaceState: Sendable, Hashable {
     /// Chat ids in the order the workspace listed them, with chats created later at the end.
     public var chatOrder: [String] = []
     public var presence: [PresenceRecord] = []
+    /// What a chat that does not exist yet would open with, as this machine answers it.
+    ///
+    /// **On the workspace, not under a chat, and that is the point rather than a detail.** The
+    /// machine answers `composer` for a new chat with no `chat_id` at all, because there is no chat
+    /// to name. Filing it under a made-up key would collide with a real chat the day the machine
+    /// shortens its ids, and the collision would show somebody another chat's settings, which is
+    /// the sort of bug nobody goes looking for. It is a property of the workspace because that is
+    /// what it is about.
+    ///
+    /// Nil for a machine too old to send it, which is a fallback rather than a failure: see
+    /// `WorkspaceSnapshotRecord.composerDefaults`.
+    public var composerDefaults: ComposerControlsRecord?
+
     public var setup: SetupRecord?
     public var setupLog = ""
     /// Bumped by a `review` event; the review asks for a new snapshot when it moves.
@@ -42,6 +55,7 @@ public struct CloudWorkspaceState: Sendable, Hashable {
         apply(.workspace(snapshot.workspace))
         for chat in snapshot.chats { upsert(chat) }
         presence = snapshot.presence
+        if let defaults = snapshot.composerDefaults { composerDefaults = defaults }
         advance(to: snapshot.cursor)
     }
 
