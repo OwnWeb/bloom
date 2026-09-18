@@ -4,6 +4,7 @@
 # Pass --review-navigation-only to check file jumps without sending any input events.
 # Pass --changes-review-only to check history and staging in invisible windows, without input events.
 # Pass --review-fold-only to check that ticking a file folds it and that the row controls line up.
+# Pass --tab-store-only to check what a workspace's tabs are written as and what comes back.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

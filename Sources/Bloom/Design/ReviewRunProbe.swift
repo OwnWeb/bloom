@@ -38,6 +38,17 @@ enum ReviewRunProbe {
             exit(failures.isEmpty ? 0 : 1)
         }
 
+        if CommandLine.arguments.contains("--tab-store-only"),
+           let directory = ProbeHarness.value(for: "--review-run-probe") {
+            progress("Checking what a workspace's tabs are stored as, and what comes back")
+            await TabStoreProbe.run(directory: directory, check: check)
+            let result: JSONValue = .object([
+                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
+            ])
+            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         if CommandLine.arguments.contains("--changes-review-only"),
            let directory = ProbeHarness.value(for: "--review-run-probe") {
             await ChangesReviewProbe.run(directory: directory, check: check)
