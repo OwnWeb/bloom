@@ -492,6 +492,41 @@ final class TranscriptModel {
 
     private var store: Store? { cloud == nil ? app.store : nil }
 
+    /// Where an unsent draft is kept, which is **this Mac's database for both kinds of chat**.
+    ///
+    /// `store` above is nil for a Cloud chat on purpose: its rows, its queue and its questions are
+    /// the machine's, and every local read and write switches off without a branch at each one. **A
+    /// draft is the exception, because it is not the machine's.** It is what this person has typed
+    /// and not sent, on this Mac, and nobody else has any business seeing it; the same argument
+    /// that keeps a Cloud attachment staged here until the turn takes it.
+    ///
+    /// It was nil for a Cloud chat as well until now, so `saveDraft` returned at its first line
+    /// and half-written messages died with the launch.
+    ///
+    /// The `drafts` table is keyed by session id and holds no reference to anything, so a Cloud
+    /// chat's id sits in it beside a local session's without either knowing. Both are ids nothing
+    /// else mints.
+    private var draftStore: Store? { app.store }
+
+    /// Whether the saved draft has been looked for, so a chat opened, left and come back to does
+    /// not read it again over what has since been typed.
+    @ObservationIgnored private var hasReadDraft = false
+
+    /// Reads a Cloud chat's saved draft, once per launch.
+    ///
+    /// A local chat reads its own in `load()`, which a Cloud transcript never runs: it arrives
+    /// already loaded, because its rows come from the machine rather than from a read. So this is
+    /// called from the composer's own preparation, which is the moment a chat comes on screen.
+    ///
+    /// **It never writes over what is in the box.** The task that calls it runs when the chat is
+    /// shown, which is also true of a chat somebody has already typed into and switched away from.
+    func loadCloudDraft() async {
+        guard cloud != nil, !hasReadDraft, let store = draftStore else { return }
+        hasReadDraft = true
+        guard draft.isEmpty, let saved = try? await store.draft(sessionID: session.id), !saved.isEmpty else { return }
+        draft = saved
+    }
+
     // MARK: - Loading
 
     func load() async {
@@ -1430,7 +1465,7 @@ final class TranscriptModel {
     }
 
     func saveDraft() async {
-        guard let store else { return }
+        guard let store = draftStore else { return }
         try? await store.saveDraft(sessionID: session.id, body: draft)
     }
 

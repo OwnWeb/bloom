@@ -12,6 +12,12 @@ Cloud workspace has it at all, and what the wire would need for the web to have 
 Nothing in this document is recalled without a mark. A confident wrong entry costs the web more
 than an honest "unsure", which is the whole reason the marks are here.
 
+**And one mark that covers the whole document: none of this was seen.** It describes what the code
+does, not what the window looks like. A conversation row and a terminal are drawn through AppKit,
+so an offscreen render gives SwiftUI's placeholder rather than the view, and a capture of a real
+window needs the display, which belongs to whoever is sitting at it. **Everything here is read
+rather than observed**, including the places where it says how something reads to a person.
+
 ## The composer's footer, left to right
 
 `Sources/Bloom/Views/Center/Composer/ComposerFooterView.swift` is the row. It is written against
@@ -152,9 +158,10 @@ web does not port a control the Mac does not show.
 - **Slash commands.** `SlashCommandCatalog.load(workspacePath:)` reads them off a path on disk, so
   they are **local only** and there is nothing on the wire for them. **[checked]**
 - **Review comments** ride with the next message as chips. Cloud has them. **[checked]**
-- **The draft.** Saved per session through `Store.saveDraft`. **A Cloud chat has no store, so
-  `saveDraft` returns immediately and a Cloud draft does not survive a launch.** **[checked]** This
-  is a small real gap on the Mac side, not just the web's.
+- **The draft.** Saved per session through `Store.saveDraft`, **and a Cloud chat's is kept in this
+  Mac's database too**, because a draft is not the machine's: it is what this person has typed and
+  not sent. It used to be dropped, because `store` answers nil for a Cloud chat and `saveDraft`
+  returned at its first line. **[checked]**
 
 ## The terminal, on both sides
 

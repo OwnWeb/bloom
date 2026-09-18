@@ -811,6 +811,10 @@ struct ComposerView: View {
             SwitchTrace.markOnScreen("composer.prepared", workspace: transcript.workspace?.id)
         }
         isFocused = true
+        // Before the caret is placed, or a Cloud chat's saved draft arrives behind a caret that
+        // was put at the end of an empty box. A local chat has already read its own in `load()`
+        // and this answers at once for it.
+        await transcript.loadCloudDraft()
         caret = (transcript.draft as NSString).length
 
         // A Cloud chat's controls are its machine's, set by whoever wrote last. Nothing on this Mac
