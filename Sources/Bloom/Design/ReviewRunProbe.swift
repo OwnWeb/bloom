@@ -33,6 +33,7 @@ enum ReviewRunProbe {
             await ReviewFoldProbe.run(directory: directory, check: check)
             let result: JSONValue = .object([
                 "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
+                "fold": .string(ReviewFoldProbe.summary),
             ])
             if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
             exit(failures.isEmpty ? 0 : 1)
