@@ -26,6 +26,15 @@ extension SwiftTerm.TerminalView {
         installColors(theme.ansiColors().map(SwiftTerm.Color.init))
         nativeForegroundColor = theme.foreground.map(NSColor.init) ?? .labelColor
         nativeBackgroundColor = theme.background.map(NSColor.init) ?? .textBackgroundColor
+        // **The view's own layer carries the ground as well, because SwiftTerm does not paint all
+        // of its bounds.** Rows are drawn to the width left over after the scroller's lane, and
+        // only the part-row gap at the bottom is filled across the full width, so the strip the
+        // scroller sits in is never painted and shows whatever is behind the view. In a pane with
+        // no inset that is the window: a cream terminal with a white channel down its right hand
+        // side. One line here rather than a colour on each host, so the two terminals cannot end
+        // up with two answers to it.
+        wantsLayer = true
+        layer?.backgroundColor = nativeBackgroundColor.cgColor
         let background = nativeBackgroundColor.usingColorSpace(.deviceRGB)
         for scroller in subviews.compactMap({ $0 as? NSScroller }) {
             scroller.knobStyle = (background?.brightnessComponent ?? 1) < 0.5 ? .light : .dark

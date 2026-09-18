@@ -204,13 +204,28 @@ public actor WorkspaceConnection {
     }
 
     /// Opens again after the machine slept, or after a limit or a failure a person chose to retry.
-    public func resume() {
+    ///
+    /// - Parameter announcing: whether this attempt is one somebody asked for, and so is news.
+    ///
+    /// **A press is not one of many, and that is the whole of why this parameter exists.**
+    /// `connectOnce` deliberately keeps `retrying`, `notReady`, `limited` and `notWaking` across
+    /// an attempt, because an automatic pass of the loop announcing itself made the banner appear
+    /// and vanish every few seconds while nothing had changed. That rule is right about the loop
+    /// and wrong about a person: a press is the only attempt in the sequence anybody is waiting
+    /// on, so it says so, and the owner pressed Try Again on a machine that had not woken and
+    /// watched nothing happen at all.
+    ///
+    /// Announcing is `connecting(waking: true)`, which is a banner that already exists, draws a
+    /// spinner and carries no button, so the control that was pressed goes away while the attempt
+    /// runs and comes back if it fails. No new state, no timer, and nothing to keep in step.
+    public func resume(announcing: Bool = false) {
         switch phase {
         case .live, .connecting, .retrying, .notReady: return
         default: break
         }
         streamTask?.cancel()
         streamTask = nil
+        if announcing { set(.connecting(waking: true)) }
         open()
     }
 
@@ -362,7 +377,10 @@ public actor WorkspaceConnection {
         // Every phase that means "still trying, and here is why" survives the next attempt. What
         // is left to announce is a first connection, which is the only time `connecting` is news.
         switch phase {
-        case .retrying, .notReady, .limited, .notWaking: break
+        // `connecting` is in this list for the other half of the same rule: an attempt somebody
+        // asked for has already announced itself in `resume(announcing:)`, and overwriting it here
+        // with `waking: false` would take the banner away on the frame after they pressed.
+        case .connecting, .retrying, .notReady, .limited, .notWaking: break
         default: set(.connecting(waking: false))
         }
         let notice = Task { [sleep] in

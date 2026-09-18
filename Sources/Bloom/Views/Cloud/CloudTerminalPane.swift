@@ -32,8 +32,13 @@ struct CloudTerminalPane: View {
             case .idle, .connected:
                 EmptyView()
             }
+            // **No inset, so the terminal's own ground reaches all four edges of the pane.** It
+            // had eight points all round, and what showed through them was the pane behind it: a
+            // cream terminal sitting on a white page like a card, rather than the pane being a
+            // terminal. The local pane keeps four points because its panes can be split and a
+            // prompt flush against a divider reads as broken; a Cloud workspace has one terminal
+            // and no divider to sit against. See `TerminalSplitView.paneInset`.
             CloudTerminalHost(view: terminal.view)
-                .padding(Metrics.spacingWide)
         }
         .onAppear {
             terminal.connect()

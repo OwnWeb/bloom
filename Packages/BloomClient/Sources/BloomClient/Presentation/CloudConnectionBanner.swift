@@ -30,6 +30,11 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         case wake
         /// Try the connection again, after a network failure or a refusal that may have lifted.
         case retry
+        /// The same act as `retry` where Bloom is **already** asking by itself, which is a
+        /// different sentence: nothing was abandoned, so there is nothing to try again. What the
+        /// press buys is skipping the wait before the next automatic attempt, which is at most
+        /// half a minute. See `WorkspaceConnection.resume(announcing:)`.
+        case askNow
         /// Open runbloom.app, where limits, keys, GitHub and early access are settled.
         case runbloom
         /// Show the setup output, which is the only account of what a machine is doing before its
@@ -40,6 +45,7 @@ public struct CloudConnectionBanner: Sendable, Hashable {
             switch self {
             case .wake: "Wake"
             case .retry: "Try Again"
+            case .askNow: "Ask now"
             case .runbloom: "Open runbloom.app"
             }
         }
@@ -84,8 +90,15 @@ public struct CloudConnectionBanner: Sendable, Hashable {
             // what is true, offers the two things worth doing, and keeps trying underneath.
             return CloudConnectionBanner(
                 tone: .caution, title: "This Cloud workspace has not woken",
-                message: "It was asleep and has not answered since. Bloom keeps asking while this is open. runbloom.app says whether its machine is coming back.",
-                actions: [.retry, .runbloom]
+                // **"Nothing here needs doing" is the sentence somebody staring at this could not
+                // get anywhere**, and it is what makes the button modest rather than obligatory.
+                // "every half minute" is the backoff's own ceiling, where "keeps asking" gestured
+                // at the fact and answered neither how often nor whether to wait. And runbloom.app
+                // is a thing to do when it is worth doing rather than a fact about how Bloom is
+                // put together: the old sentence said where the answer lives, which is not an
+                // answer to "is this coming back".
+                message: "It was asleep and has not answered. Bloom is still asking, every half minute. Nothing here needs doing. If it never comes back, runbloom.app says what happened to its machine.",
+                actions: [.askNow, .runbloom]
             )
         case .asleep:
             return CloudConnectionBanner(
@@ -137,7 +150,9 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         case .retrying(let message):
             // A dropped network, a machine that stopped answering, a server restart. It retries by
             // itself with a backoff, and the button is for somebody who does not want to wait.
-            return CloudConnectionBanner(tone: .caution, title: "Reconnecting…", message: message, actions: [.retry])
+            // Asking rather than trying again, for `askNow`'s reason: the connection is already
+            // reconnecting on a backoff, so nothing was given up.
+            return CloudConnectionBanner(tone: .caution, title: "Reconnecting…", message: message, actions: [.askNow])
         }
     }
 

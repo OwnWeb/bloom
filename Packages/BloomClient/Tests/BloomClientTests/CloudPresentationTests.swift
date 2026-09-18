@@ -157,7 +157,9 @@ import Testing
         #expect(banner?.tone == .caution)
         #expect(banner?.title == "Reconnecting…")
         #expect(banner?.message == "The connection closed.")
-        #expect(banner?.actions == [.retry])
+        // Asking rather than trying again: the connection never stopped reconnecting, so there is
+        // nothing to try a second time. See `CloudConnectionBanner.Action.askNow`.
+        #expect(banner?.actions == [.askNow])
         #expect(banner?.dismissalKey == nil, "a workspace that cannot be reached is not a banner to hide")
     }
 
@@ -174,12 +176,31 @@ import Testing
 
     /// The other half of `wakingIsSaidInWords`: it stops being said after half a minute, and what
     /// replaces it has both the truth and the two things worth doing.
+    ///
+    /// **And it says what Bloom is doing rather than where the answer lives.** The owner pressed
+    /// this banner's button and watched nothing happen, and the sentence beside it told him that
+    /// "runbloom.app says whether its machine is coming back", which is a fact about how Bloom is
+    /// put together rather than an answer to "is this coming back".
     @Test func aWakeThatHasNotHappenedStopsPromisingSeconds() {
         let banner = CloudConnectionBanner.of(.notWaking(since: Date()))
         #expect(banner?.tone == .caution)
         #expect(banner?.title == "This Cloud workspace has not woken")
         #expect(banner?.message?.contains("few seconds") != true)
-        #expect(banner?.actions == [.retry, .runbloom])
+        // How often, and that waiting is the whole of what is being asked of anybody.
+        #expect(banner?.message?.contains("every half minute") == true)
+        #expect(banner?.message?.contains("Nothing here needs doing") == true)
+        #expect(banner?.actions == [.askNow, .runbloom])
+    }
+
+    /// **Ask now, because Bloom never stopped asking.** "Try Again" is right where something was
+    /// given up and wrong where the app is already looping: what the press buys is skipping the
+    /// wait before the next automatic attempt, which is at most half a minute.
+    @Test func theButtonSaysWhatThePressBuys() {
+        #expect(CloudConnectionBanner.Action.askNow.title == "Ask now")
+        #expect(CloudConnectionBanner.Action.retry.title == "Try Again")
+        // A sleeping workspace is the one where nothing is happening by itself, so its button is
+        // the only mover and keeps its own word.
+        #expect(CloudConnectionBanner.of(.asleep)?.actions == [.wake])
     }
 
     /// The rule rather than a list: runbloom.app sends a retry hint where waiting is the answer,

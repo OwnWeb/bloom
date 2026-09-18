@@ -82,6 +82,9 @@ struct CloudWorkspaceColumn: View {
     private func take(_ action: CloudConnectionBanner.Action, on session: CloudWorkspaceSession) {
         switch action {
         case .wake, .retry: session.wake()
+        // Announced, because this is the one where Bloom is already asking and the screen would
+        // otherwise show nothing at all for the press. See `WorkspaceConnection.resume(announcing:)`.
+        case .askNow: session.wake(announcing: true)
         case .runbloom: openRunbloom(for: session)
         }
     }

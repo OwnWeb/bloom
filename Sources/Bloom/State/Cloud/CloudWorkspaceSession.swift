@@ -199,9 +199,12 @@ final class CloudWorkspaceSession {
     }
 
     /// Wakes a machine that went to sleep, on the next thing somebody does.
-    func wake() {
+    ///
+    /// - Parameter announcing: whether somebody asked for this one, which makes it worth saying so
+    ///   on screen. See `WorkspaceConnection.resume(announcing:)`.
+    func wake(announcing: Bool = false) {
         guard let connection else { return open() }
-        Task { await connection.resume() }
+        Task { await connection.resume(announcing: announcing) }
     }
 
     /// Closes the stream of a workspace that is no longer on screen, keeping everything it read.
