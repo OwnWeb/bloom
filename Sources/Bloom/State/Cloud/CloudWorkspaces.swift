@@ -429,15 +429,37 @@ final class CloudWorkspaces {
 
     /// What archiving would lose. The machine is asked when it can be, which wakes it; runbloom.app's
     /// last summary speaks for a machine that cannot answer or a reader who cannot open it.
-    func archiveConfirmation(_ id: CloudWorkspaceID) async -> CloudArchiveConfirmation {
-        let summary = item(id)?.summary
+    /// What runbloom.app's last summary says would be lost, which is known at once and without
+    /// anybody's machine. The sheet draws this immediately, so Archive is never disabled while
+    /// something else is being asked. See `CloudArchiveSheet`.
+    func archiveConfirmationFromSummary(_ id: CloudWorkspaceID) -> CloudArchiveConfirmation {
+        CloudArchiveConfirmation(summary: item(id)?.summary)
+    }
+
+    /// What the machine itself says would be lost, when it answers inside the bound. Nil when there
+    /// is no machine to ask or it did not answer in time.
+    ///
+    /// **Bounded, because somebody is standing in front of a dialog.** `perform` is built for a
+    /// runner restarting under an open window and keeps trying for a couple of minutes, which is
+    /// right for a prompt and wrong for a question whose answer only enriches a sentence: the
+    /// dialog sat on "Checking what would be lost…" with Archive disabled, on a machine that was
+    /// never going to answer, which is the state somebody most wants to archive out of. Five
+    /// seconds is a cap on a person waiting rather than a measurement of a machine.
+    func machineArchivePreview(_ id: CloudWorkspaceID, within limit: Duration = .seconds(5)) async -> CloudArchiveConfirmation? {
         guard let item = item(id), item.canOpen, !["setting_up", "setup_failed", "error"].contains(item.state) else {
-            return CloudArchiveConfirmation(summary: summary)
+            return nil
         }
-        guard let result = try? await session(for: id).perform(.archivePreview), case .archivePreview(let preview) = result else {
-            return CloudArchiveConfirmation(summary: summary)
+        let ask = Task { () -> CloudArchiveConfirmation? in
+            guard let result = try? await self.session(for: id).perform(.archivePreview),
+                  case .archivePreview(let preview) = result else { return nil }
+            return CloudArchiveConfirmation(preview: preview)
         }
-        return CloudArchiveConfirmation(preview: preview)
+        let bound = Task {
+            try? await Task.sleep(for: limit)
+            ask.cancel()
+        }
+        defer { bound.cancel() }
+        return await ask.value
     }
 
     /// Archives with a confirmation the person accepted: on the machine first when it was asked,

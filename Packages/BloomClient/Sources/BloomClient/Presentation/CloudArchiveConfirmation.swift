@@ -22,6 +22,27 @@ public struct CloudArchiveConfirmation: Sendable, Hashable {
     /// one. See "Decided by the owner" in docs/REMOTE-WORKSPACES.md.
     public static let survivesSentence = "The branch stays on GitHub with everything pushed to it."
 
+    /// What the sheet says when the machine could not be asked at all.
+    ///
+    /// **Unreachable is a normal path here rather than an error.** A machine that will not answer
+    /// is exactly when somebody wants out of the workspace, and archiving is runbloom.app's work:
+    /// it needs no machine and never did. So the sheet says what it could not find out, and
+    /// archives.
+    public static let unaskedSentence =
+        "The machine did not answer, so this is what runbloom.app last heard about it. Archiving stops and deletes it anyway."
+
+    /// The sheet's question, which is a name with a question mark after it unless the name already
+    /// ends in one.
+    ///
+    /// "Archive What is in this project??" is what appending without looking produces, and the
+    /// workspace was named by whoever typed the prompt. Punctuation nobody wrote is not ours to
+    /// add twice.
+    public static func question(archiving name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trimmed.last, "?!.…".contains(last) else { return "Archive \(trimmed)?" }
+        return "Archive \(trimmed)"
+    }
+
     public init(preview: ArchivePreviewRecord) {
         var losses = [Self.conversationSentence]
         if preview.isAgentRunning { losses.append("An agent is still working. It will be stopped.") }
