@@ -14,6 +14,12 @@ extension CloudWorkspaceSession {
     /// The machine's chats, in the order it keeps them, as the app's own `Session`. Crew members an
     /// agent started are left out the same way a local workspace leaves them out of its strip:
     /// `topLevelChats` is the machine's own answer to that question.
+    /// The staging directory for this chat, laid out as a worktree is. See
+    /// `WorkspaceSurface.attachmentRoot`.
+    func attachmentRoot(for chat: SessionID) -> String {
+        AttachmentStaging.directory(draftID: chat.rawValue)
+    }
+
     var chats: [Session] {
         state.topLevelChats.map(Session.init(cloudChat:))
     }

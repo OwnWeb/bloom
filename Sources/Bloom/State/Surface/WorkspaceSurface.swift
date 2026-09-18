@@ -167,6 +167,16 @@ protocol WorkspaceSurface: AnyObject, Observable {
     /// attaching one, the project's quick prompts, its run scripts. Nil where there is no worktree,
     /// and the composer offers those the way it does for Ask Bloom, which has none either.
     var composerWorkspace: WorkspaceModel? { get }
+    /// Where a file attached to this chat is copied to, and what the path written into the draft is
+    /// relative to.
+    ///
+    /// **The one thing an attachment needs that the two kinds answer differently.** A local chat
+    /// copies into its own worktree, because that is where the agent stands and a relative path
+    /// inside it is the one reference every agent can open. A Cloud chat has no worktree on this
+    /// Mac, so it copies into a staging directory laid out exactly like one and the file crosses
+    /// when the turn does. Everything above that, the chip, the undo, the sentence, the survival of
+    /// a relaunch, is the same code for both. See `TranscriptModel.uploading`.
+    func attachmentRoot(for chat: SessionID) -> String
     /// What is missing before a turn in this chat could start, said before anything is typed
     /// rather than as a refusal a minute later. Nil when nothing is.
     func composerNotice(for transcript: TranscriptModel) -> ChatComposerNotice?

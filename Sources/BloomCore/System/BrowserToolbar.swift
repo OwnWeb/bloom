@@ -69,13 +69,23 @@ public struct BrowserToolbar: Equatable, Sendable {
         /// where a reader looks to find out where they are.
         public var hasAddressField: Bool { self == .tab }
 
-        /// Whether the camera and the area comment are there.
+        /// Whether the camera is there: a screenshot of this page, on the composer's next turn.
         ///
-        /// They are not, on a machine: both end in an attachment on the composer's draft, by way
-        /// of a file written into the workspace's worktree, and a Cloud workspace has no worktree
-        /// on this Mac. Left out rather than drawn dead, which is the rule for the whole of this
-        /// enum: a control that can never be pressed is worse than one that is not there.
-        public var hasPageCapture: Bool { self == .tab }
+        /// **It is, on a machine, now that a file can cross.** It was not, and the reason given was
+        /// that a screenshot is a file written into the workspace's worktree and a Cloud workspace
+        /// has none on this Mac. That stopped being true when attachments learned to stage on this
+        /// Mac and upload when the turn goes: the bytes take the same road a dragged screenshot
+        /// takes, and the owner works by screenshot, so this was the first control he would have
+        /// reached for.
+        public var hasPageCapture: Bool { true }
+
+        /// Whether dragging over part of the page to comment on it is there.
+        ///
+        /// Not on a machine yet, and it is a bigger thing than the camera: the region is drawn on a
+        /// canvas over the page, the comment travels with the image, and the review gutter it
+        /// belongs beside is itself not built for a Cloud workspace. Left out rather than drawn
+        /// dead, which is the rule for the whole of this enum.
+        public var hasRegionComment: Bool { self == .tab }
 
         /// Whether the system share sheet is there.
         ///

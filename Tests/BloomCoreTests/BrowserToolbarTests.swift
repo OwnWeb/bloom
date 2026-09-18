@@ -209,14 +209,22 @@ struct BrowserToolbarTests {
 
     // MARK: - The same bar over a machine
 
-    @Test("A machine's pane has no field, no camera and no share sheet, and says why in one place")
+    @Test("A machine's pane has no field, no area comment and no share sheet, and says why in one place")
     func whatAMachinesPaneLeavesOut() {
         #expect(BrowserToolbar.Surface.tab.hasAddressField)
-        #expect(BrowserToolbar.Surface.tab.hasPageCapture)
+        #expect(BrowserToolbar.Surface.tab.hasRegionComment)
         #expect(BrowserToolbar.Surface.tab.hasSystemSharing)
         #expect(!BrowserToolbar.Surface.machineApp.hasAddressField)
-        #expect(!BrowserToolbar.Surface.machineApp.hasPageCapture)
+        #expect(!BrowserToolbar.Surface.machineApp.hasRegionComment)
         #expect(!BrowserToolbar.Surface.machineApp.hasSystemSharing)
+    }
+
+    /// The camera crossed over the day a file could: a screenshot is staged on this Mac and
+    /// uploaded when the turn goes, so the pane over a machine takes one too.
+    @Test("Both panes have the camera")
+    func theCameraIsOnBoth() {
+        #expect(BrowserToolbar.Surface.tab.hasPageCapture)
+        #expect(BrowserToolbar.Surface.machineApp.hasPageCapture)
     }
 
     @Test("Reload and Open in Default Browser are live on a machine before any page has loaded")

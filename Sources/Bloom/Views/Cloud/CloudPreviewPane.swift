@@ -38,6 +38,10 @@ struct CloudPreviewPane: View {
     /// the page can report. Nil unless the last exchange was refused.
     @State private var refusal: CloudPreviewReadiness.Notice?
     @State private var isOpening = false
+    /// A screenshot already on its way to the composer, so the camera goes quiet rather than
+    /// attaching the same page twice. The local pane keeps the same flag for the same reason.
+    @State private var isCapturing = false
+    @Environment(AppModel.self) private var app
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,7 +71,8 @@ struct CloudPreviewPane: View {
                 canGoBack: browser?.canGoBack ?? false,
                 canGoForward: browser?.canGoForward ?? false,
                 isLoading: browser?.isLoading ?? isOpening,
-                loadProgress: browser?.loadProgress ?? 0
+                loadProgress: browser?.loadProgress ?? 0,
+                isCapturing: isCapturing
             ),
             address: .constant(shownAddress),
             isRingVisible: false,
@@ -78,6 +83,7 @@ struct CloudPreviewPane: View {
             goToHistory: { step in browser?.go(back: step) },
             reloadOrStop: { Task { await openIfReady() } },
             openInBrowser: { Task { await session.openPreview() } },
+            capture: capture,
             viewport: Binding(
                 get: { browser?.viewport ?? BrowserViewport() },
                 set: { browser?.viewport = $0 }
@@ -148,6 +154,45 @@ struct CloudPreviewPane: View {
             return CloudPreviewReadiness.nothingAnswered
         }
         return nil
+    }
+
+    // MARK: - A picture of the app, into the conversation beside it
+
+    /// The same screenshot the local browser's camera takes, into the same composer.
+    ///
+    /// **The bytes never touch a worktree on either kind of workspace, which is why this works at
+    /// all.** `ComposerHandoff` writes them where the workspace says attachments go, which for a
+    /// Cloud chat is the staging directory, and the turn uploads them to the machine when it goes.
+    /// So the picture of an app running on a machine is sent to the agent on that machine, and
+    /// nothing about the road it takes is particular to this pane.
+    private func capture() {
+        guard !isCapturing, let browser else { return }
+        isCapturing = true
+        Task {
+            defer { isCapturing = false }
+            let data: Data
+            do {
+                data = try await browser.snapshot()
+            } catch {
+                app.alert = BloomAlert(
+                    title: "That page could not be captured", message: error.readableMessage
+                )
+                return
+            }
+            // Named after the page, avoiding what the chat is already carrying, exactly as the
+            // local pane names its own.
+            let taken = Set(
+                PromptAttachmentStore.shared
+                    .attachments(for: (session.activeChat?.id ?? session.chats.first?.id)?.rawValue ?? "")
+                    .map(\.filename)
+            )
+            let name = BrowserSnapshot.filename(for: browser.displayAddress, avoiding: taken)
+            let outcome = await ComposerHandoff.attach(
+                [.image(data, format: .png, named: name)], to: session
+            )
+            guard let failure = outcome.failure else { return }
+            app.alert = BloomAlert(title: "That screenshot was not attached", message: failure)
+        }
     }
 
     /// What the pane says while the workspace is not connected, which is short because the column's

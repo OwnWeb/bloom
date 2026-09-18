@@ -195,23 +195,26 @@ struct BrowserToolbarView: View {
     }
 
     /// The camera and the area comment, which are the two controls that end in an attachment on
-    /// the composer's draft.
+    /// the composer's draft. A machine's pane has the first and not yet the second: see
+    /// `BrowserToolbar.Surface`.
     private var captureGroup: some View {
         actionGroup {
             pageAction(toolbar.screenshot, action: capture)
-            Hairline(axis: .vertical)
-            // The style goes on the label, as in `BrowserToolbarButton`. Set on the button,
-            // `.accessoryBar` read it as the primary level and drew the glyph a level below,
-            // which is how a live Comment button came out in the grey of a disabled one.
-            Button(action: captureRegion) {
-                Label(isReviewing ? "Done" : "Comment", systemImage: isReviewing ? "checkmark" : "text.bubble")
-                    .labelStyle(.iconOnly)
-                    .foregroundStyle(commentInk)
+            if toolbar.surface.hasRegionComment {
+                Hairline(axis: .vertical)
+                // The style goes on the label, as in `BrowserToolbarButton`. Set on the button,
+                // `.accessoryBar` read it as the primary level and drew the glyph a level below,
+                // which is how a live Comment button came out in the grey of a disabled one.
+                Button(action: captureRegion) {
+                    Label(isReviewing ? "Done" : "Comment", systemImage: isReviewing ? "checkmark" : "text.bubble")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(commentInk)
+                }
+                .buttonStyle(.accessoryBar)
+                .frame(width: pageActionWidth, height: Metrics.controlHeight)
+                .disabled(!isCommentEnabled)
+                .help(isReviewing ? "Finish reviewing this page" : "Drag over part of this page to leave a comment")
             }
-            .buttonStyle(.accessoryBar)
-            .frame(width: pageActionWidth, height: Metrics.controlHeight)
-            .disabled(!isCommentEnabled)
-            .help(isReviewing ? "Finish reviewing this page" : "Drag over part of this page to leave a comment")
         }
     }
 

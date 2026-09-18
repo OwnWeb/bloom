@@ -9,6 +9,8 @@ import BloomCore
 extension WorkspaceModel {
 
     var chats: [Session] { sessions }
+    /// The worktree itself: the agent is standing in it. See `WorkspaceSurface.attachmentRoot`.
+    func attachmentRoot(for chat: SessionID) -> String { workspace.path }
     var hasReadChats: Bool { hasReadSessions }
     var activeChat: Session? { activeSession }
     /// The sidebar's and the inspector's notion of the conversation in front, which is a stored

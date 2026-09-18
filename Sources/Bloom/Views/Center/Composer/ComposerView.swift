@@ -119,17 +119,14 @@ struct ComposerView: View {
         .padding(.bottom, ComposerLayout.bottomInset)
     }
 
-    /// Where an attached file is copied to, which is not the same place in the two kinds of chat.
-    ///
-    /// A local chat copies into its own worktree, because that is where the agent stands and a
-    /// relative path inside it is the one reference every agent can open. A Cloud chat has no
-    /// worktree on this Mac, so it copies into the staging directory the create window already
-    /// uses, laid out exactly like a worktree: `.bloom/attachments/<id>/<name>`. The file crosses
-    /// when the turn does, and the machine answers with the path it saved it at. See
-    /// `TranscriptModel.uploading`.
+    /// Where an attached file is copied to, which the workspace answers rather than this view:
+    /// see `WorkspaceSurface.attachmentRoot`. Nil model is Ask Bloom, which has no workspace and
+    /// no worktree, and whose composer attaches into the transcript's own directory.
     private var attachmentRoot: String {
-        guard transcript.cloud != nil else { return transcript.cwd }
-        return AttachmentStaging.directory(draftID: transcript.session.id.rawValue)
+        if let model { return model.attachmentRoot(for: transcript.session.id) }
+        // A Cloud chat has no `WorkspaceModel` here at all: its composer is handed a transcript and
+        // a link to its machine. The link asks the workspace the same question.
+        return transcript.cloud?.attachmentRoot ?? transcript.cwd
     }
 
     private var composer: some View {

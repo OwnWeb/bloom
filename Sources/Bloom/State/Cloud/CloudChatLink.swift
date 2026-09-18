@@ -57,6 +57,10 @@ final class CloudChatLink {
         return await session.upload(name: name, data: data)
     }
 
+    /// Where a file attached to this chat waits until the turn takes it, which is the workspace's
+    /// answer rather than this link's. See `WorkspaceSurface.attachmentRoot`.
+    var attachmentRoot: String { session?.attachmentRoot(for: chatID) ?? "" }
+
     func stop() async {
         await session?.run(.stop(chatID: chatID.rawValue))
     }
