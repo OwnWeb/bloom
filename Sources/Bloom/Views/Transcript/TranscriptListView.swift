@@ -787,19 +787,31 @@ struct TranscriptListView: View {
                 }
                 let review = ReviewTurn.split(sending.body)
                 let turn = AttachmentTrailer.split(sending.body)
+                // **The echo is the same message as the bubble it becomes, so it is the same
+                // colour.** It defaulted to the accent, so a message addressed to a person went
+                // terracotta composer, teal echo, terracotta bubble: the colour disappeared for
+                // the second somebody was watching hardest. Read from the audience it was sent
+                // with, which is already settled by the time this is drawn, and through the one
+                // rule rather than by asking the same question a second way.
+                let sentTo = MessageAuthorship.fill(
+                    author: nil,
+                    audience: MessageAudience(kind: transcript.audience.isAgent ? .agent : .person)
+                )
                 return AnyView(
                     Group {
                         if let review {
                             UserTurnRowView(
                                 text: review.message,
                                 reviewChips: review.chips,
-                                home: transcript.home
+                                home: transcript.home,
+                                fill: sentTo
                             )
                         } else {
                             UserTurnRowView(
                                 text: turn.body,
                                 attachments: turn.paths,
-                                home: transcript.home
+                                home: transcript.home,
+                                fill: sentTo
                             )
                         }
                     }
