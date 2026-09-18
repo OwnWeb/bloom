@@ -135,4 +135,44 @@ import Testing
         #expect(state.setupLog.utf8.count <= CloudWorkspaceState.setupLogLimit)
         #expect(state.setupLog.hasSuffix("tail"))
     }
+
+    // MARK: - A turn ending is what makes a workspace's changes stale
+
+    private static func chat(_ id: String, state: String) -> ChatRecord {
+        ChatRecord(
+            id: id, title: "Work", agent: "claude", model: "opus", effort: "medium",
+            permissionMode: "default", interactionMode: "chat", state: state, lastSeq: 0,
+            createdAt: Date(timeIntervalSince1970: 0), updatedAt: Date(timeIntervalSince1970: 0)
+        )
+    }
+
+    /// The bug this exists for: the agent wrote a file, the turn ended, and the inspector went on
+    /// saying "No changes yet" because nothing had asked the machine again.
+    @Test func aChatLeavingRunningSaysTheTurnEnded() {
+        var state = CloudWorkspaceState()
+        state.apply(.chat(Self.chat("c1", state: "idle")))
+        state.apply(.chat(Self.chat("c1", state: "running")))
+
+        #expect(state.apply(.chat(Self.chat("c1", state: "idle"))) == .turnEnded(chatID: "c1"))
+    }
+
+    /// Stopping to ask counts, because whatever the agent wrote before the question is written.
+    @Test func stoppingToAskCountsAsWell() {
+        var state = CloudWorkspaceState()
+        state.apply(.chat(Self.chat("c1", state: "idle")))
+        state.apply(.chat(Self.chat("c1", state: "running")))
+
+        #expect(state.apply(.chat(Self.chat("c1", state: "waiting"))) == .turnEnded(chatID: "c1"))
+    }
+
+    /// And nothing else does, so the pane is not asking a machine for a list on every heartbeat.
+    @Test func aChatThatWasNotRunningEndsNoTurn() {
+        var state = CloudWorkspaceState()
+        // The first sight of a chat is a new chat, whatever state it is in.
+        #expect(state.apply(.chat(Self.chat("c1", state: "running"))) == .newChat("c1"))
+        // Still running, so nothing ended.
+        #expect(state.apply(.chat(Self.chat("c1", state: "running"))) == .none)
+        state.apply(.chat(Self.chat("c1", state: "idle")))
+        #expect(state.apply(.chat(Self.chat("c1", state: "idle"))) == .none)
+    }
 }

@@ -90,6 +90,12 @@ public struct CloudWorkspaceState: Sendable, Hashable {
         case composerChanged(chatID: String, by: AuthorRecord?)
         /// A chat this client had not seen appeared, so its history should be read.
         case newChat(String)
+        /// A chat stopped running, which is the moment its workspace's changes went stale.
+        ///
+        /// Running to anything else, including waiting for an answer: an agent that stops to ask a
+        /// question has already written whatever it wrote before asking, and the reader looking at
+        /// the question is the one most likely to look at the diff next.
+        case turnEnded(chatID: String)
     }
 
     @discardableResult
@@ -106,8 +112,10 @@ public struct CloudWorkspaceState: Sendable, Hashable {
             chats[chatID, default: CloudChatState(id: chatID)].appendStreaming(text, snapshot: snapshot)
         case .chat(let record):
             let isNew = chats[record.id]?.chat == nil
+            let wasRunning = chats[record.id]?.chat?.state == "running"
             upsert(record)
             if isNew { return .newChat(record.id) }
+            if wasRunning, record.state != "running" { return .turnEnded(chatID: record.id) }
         case .queue(let queue):
             chats[queue.chatID, default: CloudChatState(id: queue.chatID)].queue = queue
         case .questions(let chatID, let questions):

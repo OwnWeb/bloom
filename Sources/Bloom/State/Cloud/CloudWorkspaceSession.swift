@@ -232,9 +232,22 @@ final class CloudWorkspaceSession {
             case .composerChanged(let chatID, let author):
                 if let author, author.userID != readerID { composerChange = (chatID, author.name) }
             case .reviewMoved:
-                // Only while somebody has the review open: reading it is a request to the machine,
-                // and a machine trying to sleep should not be asked for a list nothing is drawing.
-                if hasReviewTab { Task { await changes.refresh() } }
+                // **Ungated, and the gate was the second half of the same bug as the one above.**
+                // It read "only while somebody has the review open", on the argument that a
+                // machine trying to sleep should not be asked for a list nothing is drawing. Two
+                // things are wrong with that. The inspector's Changes tab draws the same list and
+                // is not a review tab, so a workspace whose agent had just written a file sat in
+                // front of the owner saying "No changes yet" while the machine and runbloom.app
+                // both said one file had changed. And the argument itself does not hold: this
+                // event arrives over an open stream from a machine that has just done the work,
+                // so there is no sleeping machine to spare.
+                Task { await changes.refresh(quietly: changes.hasRead) }
+            case .turnEnded:
+                // A workspace that has just had files written to it is the definition of one whose
+                // changes are stale. The `review` event above is the machine volunteering that,
+                // and this is the same read asked for by something this Mac can see for itself, so
+                // the pane is right even on a machine that sends no review event for the edit.
+                Task { await changes.refresh(quietly: changes.hasRead) }
             default:
                 break
             }

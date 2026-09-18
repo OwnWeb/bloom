@@ -36,7 +36,16 @@ final class CloudChanges {
     var selectedLayer: ChangeLayer?
     /// Which of the inspector's tabs this workspace is on, and whether its review is showing every
     /// file. The local model keeps the same two facts; they are per workspace and not per window.
-    var inspectorTab: InspectorTab = .changes
+    ///
+    /// Coming back to Changes asks again, which is the "read when looked at" half of the policy at
+    /// the head of this file. A local workspace has a poll behind its list and this has events, and
+    /// an event that arrived while the reader was on Checks changed a list nobody was drawing.
+    var inspectorTab: InspectorTab = .changes {
+        didSet {
+            guard inspectorTab == .changes, oldValue != .changes else { return }
+            Task { await refresh(quietly: hasRead) }
+        }
+    }
     var showsAllFiles = false
     /// What the review pane last drew per file, so walking back to a file it has already read
     /// costs no request. The local model holds the same cache for the same reason.

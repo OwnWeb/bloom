@@ -23,7 +23,20 @@ extension CloudWorkspaceSession {
         return state.workspace?.pullRequest.map { PullRequest(cloudRecord: $0, branch: surfaceBranch) }
     }
 
-    var hasKnownChanges: Bool { !changedFiles.isEmpty }
+    /// Whether this branch is known to have anything on it, which is what decides between "Target
+    /// main" and "Nothing has changed on this branch yet" above the file list.
+    ///
+    /// **Two witnesses, because one of them can be stale and the other cannot see uncommitted
+    /// work.** The file list is what the machine answered when it was last asked, and runbloom.app
+    /// polls a summary carrying the same diff stat a local workspace reads off its own disk. The
+    /// local surface says `!changedFiles.isEmpty || workspace.hasDiff` for exactly this reason, and
+    /// this is that sentence with the Cloud half of each: an empty list that has not been refreshed
+    /// since before the agent wrote a file said "nothing has changed" over a summary that said one
+    /// file had.
+    var hasKnownChanges: Bool {
+        if !changedFiles.isEmpty { return true }
+        return (cloud.item(id)?.summary?.diff?.files ?? 0) > 0
+    }
 
     /// From runbloom.app, which asks GitHub with its own App rather than with this Mac's `gh`.
     /// Nil when it could not be asked at all.
