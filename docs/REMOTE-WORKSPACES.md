@@ -1174,6 +1174,34 @@ opened from, and for a Cloud workspace is nothing, because a side conversation i
 the same worktree. A sentence above the composer says what runbloom.app would refuse a turn for
 before anybody types it.
 
+**And a Cloud workspace is started in the same window a local one is.** It was a modal sheet with a
+four row form in it, Project, Name, Branch, From, and a First message box under them, which asks
+somebody to fill in a record; the local window asks what you want to work on and derives the record
+from it. The owner put the two side by side and that was the whole of his verdict. So the Cloud one
+is `CreateWorkspaceView`'s window: the same band across the top, the same `Start with`, the same
+question, the same composer with its own controls and Create inside it, and the same closing
+sentence with one more under it, because a machine has to be made and set up before a first message
+can go and a worktree does not. The name and the branch are derived from the first line of the task
+rather than demanded, by the rule the local namer falls back to when no model answers. Three things
+are left out rather than greyed: `Open existing branch…`, because runbloom.app creates from a base
+branch and nothing else; the other two `Start with` segments, because a machine has no browser tab
+of this Mac's and its terminal is a tab of the workspace itself; and a branch menu, because a
+project answers with its default branch and no list, so the base is a chip with a field behind it.
+
+**What a first turn runs with is chosen on this Mac until the machine says otherwise, and that is
+permanent rather than a stopgap.** A client cannot learn what a chat would open with until a chat
+exists: `new_chat` demands controls, and `composer` used to need a `chat_id`. Runner `test.9`
+answers both, with `composer_defaults` on the workspace snapshot and a `composer` that takes no
+chat id, and the machine's answer is the better one because it has read the repository's own
+`.bloom/settings.toml` and clamped to the agents installed in the image, neither of which a client
+can see. **When that answer arrives it belongs to the workspace and not to a chat.** This Mac keys
+composer state by chat id, and a reply with no chat id under a synthesised key would collide with a
+real chat the day the machine shortens its ids, which would show somebody the wrong settings and is
+the sort of bug nobody would go looking for. And the local choice stays as the fallback: a machine
+on an older runner answers without defaults for as long as such a machine exists, and a create
+window that only works against the newest release is one that fails for the person whose workspace
+has been asleep for a fortnight.
+
 The protocol is `WorkspaceSurface` now rather than `WorkspaceReviewSurface`: it stopped being about
 the review the moment the band, the checks and the chat were written against it.
 
