@@ -172,7 +172,8 @@ struct RemoteTerminalsTests {
             #expect(FileManager.default.fileExists(atPath: marker),
                     "tmux runs the command itself, so no keystroke can be sent before the shell is reading")
             // And the shell is still there afterwards, so somebody can read the output and carry on.
-            #expect(try await terminals.attach(name: "script", owner: "freek") != nil)
+            let reattached = try await terminals.attach(name: "script", owner: "freek")
+            await reattached.close()
         } catch {
             await terminals.shutdown()
             throw error
