@@ -3479,6 +3479,37 @@ public actor Store {
         return try quickPrompts()
     }
 
+    /// Puts back the built-in quick prompts that are not in the library.
+    ///
+    /// **Asked for, never automatic**, which is the rule `QuickPromptSeed` opens with: a list
+    /// reconciled on every launch is a list that resurrects what somebody deleted. This is the
+    /// other side of that rule, and it exists because without it a deleted built-in was gone for
+    /// this database for good with nothing anywhere saying so.
+    ///
+    /// It inserts and never updates. A built-in the owner has edited is not missing, so it is not
+    /// touched; one they renamed is missing and comes back beside the renamed copy, which
+    /// `QuickPromptSeed.missing` argues is the right way round.
+    ///
+    /// The seed version is deliberately left alone. It records how far the automatic seeding has
+    /// got, this is not that, and writing it here would mean a restore on an old database quietly
+    /// marking newer built-ins as already offered.
+    ///
+    /// Returns the whole library afterwards, so the caller redraws from one answer rather than
+    /// reading again.
+    @discardableResult
+    public func restoreBuiltInQuickPrompts(now: Date = Date()) throws -> [QuickPrompt] {
+        try db.transaction {
+            let missing = QuickPromptSeed.missing(from: try quickPrompts())
+            guard !missing.isEmpty else { return try quickPrompts() }
+            var order = try nextQuickPromptOrder()
+            for entry in missing {
+                try insertQuickPromptRow(entry.prompt(sortOrder: order, now: now))
+                order += 1
+            }
+            return try quickPrompts()
+        }
+    }
+
     private func nextQuickPromptOrder() throws -> Int {
         let highest = try db.query("SELECT COALESCE(MAX(sort_order), -1) AS m FROM quick_prompt")
             .first?.int("m") ?? -1

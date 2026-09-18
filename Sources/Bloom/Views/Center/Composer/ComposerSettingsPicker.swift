@@ -232,10 +232,18 @@ private struct ComposerSettingsPanel: View {
 
                 // Last, and only on the backend that has one. It is the coarsest of the five and
                 // the one changed least often, and it is the only one that costs a reconnect when
-                // it changes, which is `CodexRunner.applyContextWindowChange`'s business rather
-                // than something this row explains.
+                // it changes.
+                //
+                // **The reconnect is still not this row's business and the grants are.** Codex
+                // being restarted is invisible and harmless, because the thread resumes; what a
+                // person meets is a permission they already granted being asked again, with
+                // nothing anywhere connecting that to the picker they touched. A tooltip rather
+                // than a line, for `ArchivedWorkspaceFootprint.contents`'s reason: the row is one
+                // line of a narrow panel and has no room for a sentence. The words are
+                // `CodexContextWindow.changeConsequence`.
                 if controls.offersContextWindow {
                     settingRow("Context window") { contextWindowPicker }
+                        .help(CodexContextWindow.changeConsequence)
                 }
             }
             .padding(Metrics.gutter)
