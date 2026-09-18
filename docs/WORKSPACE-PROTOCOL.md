@@ -392,6 +392,15 @@ error page, which a project running its own proxy on the previewed port makes un
 is empty for a project that declares no services, and `workspace_not_reporting` in the vectors shows
 the three shapes together.
 
+**Every line the machine writes into the setup log itself begins `[bloom] `, and every other line is
+the script's own output.** A client can draw the two differently on that alone: the step headings
+(`[bloom] Cloning the repository.`), the notes (a settings problem, a run starting again, why
+nothing ran) and the outcome sentences are Bloom speaking; everything else is what the project
+printed. **Two of the six steps normally print nothing at all** (reading the team's environment and
+configuring git are usually silent, and so is starting the services beyond one line), so **an empty
+log under a named step is the ordinary case rather than a sign that nothing is happening**. The step
+is the state; the log is the detail.
+
 **A workspace can be created with setup turned off, and `setup.enabled` is how a client knows.**
 It is false when somebody asked for no setup scripts at all: the repository is cloned and nothing
 else is run, no services are started, and `setup.state` settles at `skipped` with a note saying so.
