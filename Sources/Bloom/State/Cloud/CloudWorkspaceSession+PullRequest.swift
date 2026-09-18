@@ -69,7 +69,7 @@ extension CloudWorkspaceSession {
     var gitHubReadiness: GitHubAvailability.State { .ready }
 
     var continueBlocker: String? {
-        "Carrying on in a new branch is not built for a Bloom Cloud workspace yet. Make another Bloom Cloud workspace from the same project."
+        "Carrying on in a new branch is not built for a Bloom Cloud workspace yet. Make another one from the same project."
     }
 
     func continueAfterMerge(_ pullRequest: PullRequest) async -> AppModel.ContinuationOutcome {

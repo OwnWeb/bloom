@@ -78,7 +78,7 @@ public struct SessionToken: Codable, Sendable, Hashable {
 
     static let unsafeMachineURL = RunbloomRefusal(
         status: 200, code: "unsafe_machine_url",
-        message: "runbloom.app gave an address for this Bloom Cloud workspace that is not secure, so Bloom did not connect to it."
+        message: "runbloom.app gave an address for this workspace that is not secure, so Bloom did not connect to it."
     )
 
     /// Whether this token should be replaced before it is used again: within a minute of its

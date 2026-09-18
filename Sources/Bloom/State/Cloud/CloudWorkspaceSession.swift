@@ -700,7 +700,7 @@ final class CloudWorkspaceSession {
         do {
             let preview = try await cloud.api.previewToken(for: id.rawValue)
             guard preview.isSafe(forMachine: await connection?.machineURL) else {
-                return .refused("runbloom.app gave a preview address that is not this Bloom Cloud workspace's, so Bloom did not open it.")
+                return .refused("runbloom.app gave a preview address that is not this workspace's, so Bloom did not open it.")
             }
             return .address(preview.enterURL)
         } catch let refusal as RunbloomRefusal {
@@ -721,7 +721,7 @@ final class CloudWorkspaceSession {
             let preview = try await cloud.api.previewToken(for: id.rawValue)
             guard preview.isSafe(forMachine: await connection?.machineURL) else {
                 notice = CloudRefusalNotice(
-                    message: "runbloom.app gave a preview address that is not this Bloom Cloud workspace's, so Bloom did not open it.", code: nil
+                    message: "runbloom.app gave a preview address that is not this workspace's, so Bloom did not open it.", code: nil
                 )
                 return
             }

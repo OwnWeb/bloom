@@ -23,7 +23,7 @@ public enum MachineFailure: Error, Sendable, Hashable {
         case .unauthenticated(let error): error.message
         case .noAnswer(let detail): "The Bloom Cloud workspace did not answer. \(detail)"
         case .refused(_, let error): error.message
-        case .unreadable(let detail): "The Bloom Cloud workspace answered in a way this version of Bloom cannot read. \(detail)"
+        case .unreadable(let detail): "This workspace answered in a way this version of Bloom cannot read. \(detail)"
         }
     }
 }

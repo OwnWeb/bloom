@@ -30,7 +30,7 @@ public enum CloudSendOutcome: Sendable, Hashable {
         case .sent: nil
         case .failed(let message): message
         case .unknown(let message):
-            "Bloom does not know whether that message was sent: the Bloom Cloud workspace restarted while"
+            "Bloom does not know whether that message was sent: the workspace restarted while"
                 + " it was being handed over. It has paused this chat and left the message in the"
                 + " composer. Read the conversation before sending it again. \(message)"
         }

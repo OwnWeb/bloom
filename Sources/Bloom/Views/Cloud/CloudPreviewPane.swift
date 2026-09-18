@@ -237,7 +237,7 @@ struct CloudPreviewPane: View {
         default:
             CloudPreviewReadiness.Notice(
                 title: "Not connected yet",
-                message: "The app appears here once Bloom has connected to this Bloom Cloud workspace.",
+                message: "The app appears here once Bloom has connected to this workspace.",
                 invitesRetry: false
             )
         }
