@@ -93,7 +93,11 @@ public struct SetupRecord: Codable, Sendable, Hashable {
     /// **`enabled` on the wire, not `run_setup`**, which is what the machine's own configuration
     /// file calls the same fact. There is already a `run_setup` *method* in this protocol, meaning
     /// run setup again now, and a field beside it with that name would read as a command rather
-    /// than as a property of the workspace.
+    /// than as a property of the workspace. The machine's own configuration file calls the same
+    /// fact `run_setup`, and that is right there: a file is read once and obeyed, so the key is a
+    /// property in the place it is written. `MachineConfiguration.runSetup` carries this from the
+    /// other end. **Two audiences, two words, on purpose**, and both ends say so, because an
+    /// inconsistency with no defence beside it is one somebody helpfully removes later.
     public var isEnabled: Bool
 
     public init(state: String, step: String? = nil, startedAt: Date? = nil, finishedAt: Date? = nil,

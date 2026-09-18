@@ -252,7 +252,8 @@ else is run, no services are started, and `setup.state` settles at `skipped` wit
 **`skipped` is then the ordinary outcome rather than something to fix**, so a client should offer to
 run setup rather than report that it failed to, and `run_setup` is how a person asks for it. The
 field is not named `run_setup` on purpose, because that is the method beside it and a field of that
-name would read as a command. It is absent only from a machine older than the key, and absent means
+name would read as a command. The machine's own configuration file does call it `run_setup`, which
+is right where it is written: a file is read once and obeyed, so the key is a property there. It is absent only from a machine older than the key, and absent means
 enabled, which is what those machines do.
 
 **A client never has to guess what a new chat starts with.** `composer_defaults` on the workspace

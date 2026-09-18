@@ -567,7 +567,11 @@ def main():
 
             setup = wait_for("setup finishes", lambda: (lambda s: s if s["state"] in ("succeeded", "failed", "skipped") else None)(
                 rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]["setup"]), 600, interval=5)
-            step(f"setup {setup['state']}")
+            # The machine always writes this, so its absence is a runner that has stopped saying
+            # whether the workspace runs setup at all, and a client reading absence as "enabled"
+            # would then be right by luck. A machine created by this test always has it on.
+            assert setup.get("enabled") is True, f"setup did not say it was enabled: {setup}"
+            step(f"setup {setup['state']}, enabled")
 
             # Reading is not human input; a rename is, so it starts the presence lease and the hold.
             rpc(url, session(), {"kind": "rename_workspace", "name": "Machine test, renamed"})

@@ -32,6 +32,15 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
     /// written by something older, and the safe reading of that is the behaviour everything had
     /// before the key existed, which is to set up. **The writer always writes it, the reader never
     /// assumes it was written.** `runsSetup` is what the rest of the runner asks.
+    ///
+    /// **The same fact is `setup.enabled` on the wire, and the difference is deliberate.** This
+    /// file is configuration a machine reads once and obeys, where `run_setup` is a property and
+    /// reads as one. The snapshot a client gets describes what is true right now, and it sits
+    /// beside a `run_setup` *method* meaning run setup again: a noun that looks like a verb, next
+    /// to that verb, is the collision that has already misled a client in this codebase. Neither
+    /// name is wrong at its own end, and matching them would buy consistency at the price of a
+    /// worse meaning on one side. See `SetupRecord.isEnabled`, which says this from the other end
+    /// so that whoever finds the inconsistency finds its reason with it.
     public var runSetup: Bool?
 
     enum CodingKeys: String, CodingKey {
