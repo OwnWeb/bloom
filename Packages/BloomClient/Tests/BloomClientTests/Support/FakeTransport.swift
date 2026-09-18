@@ -24,6 +24,11 @@ final class FakeTransport: HTTPTransport, @unchecked Sendable {
     private var recorded: [URLRequest] = []
 
     func on(_ method: String, _ suffix: String, _ answers: Answer...) {
+        on(method, suffix, answers: answers)
+    }
+
+    /// The same, for a script built rather than written out: ten refusals and then the machine back.
+    func on(_ method: String, _ suffix: String, answers: [Answer]) {
         lock.withLock { routes.append(Route(method: method, suffix: suffix, answers: answers)) }
     }
 
@@ -97,4 +102,34 @@ final class TokenLog: @unchecked Sendable {
     private var values: [Bool] = []
     func record(_ force: Bool) { lock.withLock { values.append(force) } }
     var forced: [Bool] { lock.withLock { values } }
+}
+
+/// Every wait a connection asks for, in the order it asked, and none of them taken.
+///
+/// **What a backoff can be tested on is what it asked for, not how long it took.** Waiting out the
+/// real delays would put the wall clock in the assertion, where a busy machine can move it; the
+/// durations themselves cannot be moved by anything except somebody editing the table.
+final class SleepLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Duration] = []
+    var asked: [Duration] { lock.withLock { values } }
+
+    /// The sleep to hand a connection: records the duration and returns at once.
+    var sleep: @Sendable (Duration) async throws -> Void {
+        { [self] duration in
+            lock.withLock { values.append(duration) }
+            await Task.yield()
+        }
+    }
+
+    /// In seconds, with the two the notices are held for taken out.
+    ///
+    /// `WorkspaceConnection` holds the waking notice for half a second and the retrying notice for
+    /// two, from tasks that race the loop, so a recorded 0.5 cannot be told from a retry of 0.5 and
+    /// a recorded 2 cannot be told from a retry of 2. Those two values are dropped rather than
+    /// guessed at, which leaves a sequence that is the backoff table and nothing else.
+    var backoffSeconds: [Double] {
+        asked.map { Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18 }
+            .filter { $0 != 0.5 && $0 != 2 }
+    }
 }

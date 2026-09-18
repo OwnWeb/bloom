@@ -266,6 +266,30 @@ struct EchoTransport: HTTPTransport {
         #expect(transport.requests(to: "/_bloom/v1/events").last?.value(forHTTPHeaderField: "Last-Event-ID") == "90")
     }
 
+    /// **And the waits it goes round with are the table, in order, settling rather than growing.**
+    /// Asserted from what the loop asked for, because a test that waited out the real delays would
+    /// have put the wall clock in the assertion and a busy machine could move it. What this catches
+    /// is the only way those numbers realistically go wrong: somebody reordering or truncating
+    /// `retryDelays`, which would shorten the gap the whole schedule exists to survive.
+    @Test func aStreamThatKeepsFailingBacksOffThroughTheTableAndSettlesAtThirty() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on("GET", "/_bloom/v1/events", answers: Array(repeating: .dropped(), count: 10) + [stream([.sleeping])])
+        let waits = SleepLog()
+        let live = WorkspaceConnection(
+            workspaceID: "01k5ws", api: Fixtures.api(transport),
+            machine: MachineClient(transport: EchoTransport(inner: transport, result: .workspace(Records.workspace(cursor: 77)))),
+            sleep: waits.sleep
+        )
+        await live.open()
+        for await update in live.updates where update == .phase(.asleep) { break }
+        // Ten refusals ask for ten waits, of which 0.5 and 2 are dropped with the notice holds
+        // they cannot be told apart from, leaving these eight. See `SleepLog.backoffSeconds`. The
+        // wait after them belongs to the stream that finally opened, which refreshes its token a
+        // minute before it expires and is no part of a backoff.
+        #expect(Array(waits.backoffSeconds.prefix(8)) == [1, 3, 5, 8, 13, 21, 30, 30])
+    }
+
     /// The disappearance this most often meets is a runner restarting itself, about eight seconds.
     /// A command has to outlive it: three attempts a second apart gave up after five, which
     /// guaranteed a prompt sent in that window failed seconds before the machine came back.
