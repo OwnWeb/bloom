@@ -37,6 +37,15 @@ struct InspectorPane: View {
         } else if let cloud {
             InspectorView(model: cloud)
                 .id(cloud.id)
+        } else if app.selection.cloudWorkspaceID != nil {
+            // A Cloud workspace is selected and there is no session to draw over: the list has not
+            // arrived yet, or this account cannot open it. Either way something IS selected, and
+            // saying nothing is says the opposite of what the window next to it says.
+            EmptyStateView(
+                glyph: "sidebar.right",
+                title: "Nothing to show yet",
+                message: "This Cloud workspace has not opened. Its changes appear here when it does."
+            )
         } else {
             EmptyStateView(
                 glyph: "sidebar.right",

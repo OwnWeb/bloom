@@ -44,12 +44,17 @@ public enum CloudPreviewReadiness: Equatable, Sendable {
     /// has not told us about setup, not a machine which is known not to have run it, and refusing
     /// to load on the strength of a fact nobody stated is how a pane comes to be wrong about a
     /// workspace that works.
+    ///
+    /// **"Setting up" rather than "still setting up".** The word says the same thing in a tone that
+    /// implies something has gone on too long, and on a workspace four seconds old it is simply
+    /// wrong. It earns its place where there is a real contrast with what somebody expected, which
+    /// is why "an agent is still working" stays in the archive sheet and this one lost it.
     public static func of(setup: SetupRecord?) -> CloudPreviewReadiness {
         switch setup?.state {
         case "pending", "running":
             return .waiting(Notice(
                 title: "The app is not serving yet",
-                message: "This Cloud workspace is still setting up. The page appears here on its own when setup has finished.",
+                message: "This Cloud workspace is setting up. The page appears here on its own when setup has finished.",
                 invitesRetry: false
             ))
         case "failed":

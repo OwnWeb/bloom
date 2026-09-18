@@ -12,7 +12,7 @@ struct CloudPreviewReadinessTests {
                 Issue.record("\(state) should hold the page back")
                 return
             }
-            #expect(notice.message.contains("still setting up"))
+            #expect(notice.message.contains("is setting up"))
             #expect(notice.invitesRetry == false)
         }
     }

@@ -199,7 +199,7 @@ struct ChangedFileList<Model: WorkspaceSurface>: View {
             EmptyStateView(
                 glyph: PaneGlyph.setup,
                 title: "Nothing to read yet",
-                message: "This Cloud workspace is still setting up. Its changes appear once it has finished."
+                message: "This Cloud workspace is setting up. Its changes appear once it has finished."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.isLoadingChanges || !model.hasReadChanges {
