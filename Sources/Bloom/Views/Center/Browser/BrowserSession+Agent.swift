@@ -15,7 +15,23 @@ import BloomCore
 extension BrowserSession {
     /// Bloom's own content world. See `BrowserAgentScript` for why the scripts are not run in the
     /// page's.
-    private static var agentWorld: WKContentWorld { .world(name: BrowserAgentScript.worldName) }
+    ///
+    /// **Held, and that is the whole of why references worked.** `WKContentWorld.world(name:)`
+    /// caches its worlds weakly: ask for a name nothing is holding and you are given a NEW world
+    /// with an empty global object, under the name you asked for. This was a computed property, so
+    /// every tool call created its own world, `globalThis.__bloomAgent` was undefined in each of
+    /// them, and **every reference `browser_snapshot` handed out was rejected by the next
+    /// `browser_click`, `browser_fill` or `browser_press`**, with a message blaming a navigation
+    /// that had not happened. The whole of the agent browser was read-only and nothing said so.
+    ///
+    /// Measured on a bare `WKWebView` with these exact scripts, one variable changed: the same
+    /// snapshot and the same click through a fresh `world(name:)` each time answered "missing"
+    /// three times out of three, and through a world held in a `let` answered "clicked" three
+    /// times out of three.
+    ///
+    /// A `let` on the type, rather than one per session, because the world is per process and
+    /// naming it twice would be the same trap again from a different direction.
+    private static let agentWorld = WKContentWorld.world(name: BrowserAgentScript.worldName)
 
     /// The size a pane nobody has drawn is laid out at: a laptop's browser window, which is what
     /// most responsive layouts are designed around.
