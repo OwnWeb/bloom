@@ -150,3 +150,41 @@ struct ServiceSupervisorTests {
         #expect(ServiceSupervisor.fileName("queue worker") == "queue-worker")
     }
 }
+
+/// The port contract, said when it is broken rather than only in a variable nobody read.
+@Suite("A service that cannot have its port")
+struct ReservedPortAdviceTests {
+    static let reserved = [(port: 8080, holder: "the preview proxy"), (port: 8081, holder: "Bloom Runner itself")]
+
+    /// The real output from `there-there.app`'s `app` service, which crash-looped every second
+    /// against Bloom Runner's own port with nobody told why.
+    @Test("a collision with one of ours names the port and what has it")
+    func collisionWithOurs() throws {
+        let output = """
+        WARN  Unable to respect the `PHP_CLI_SERVER_WORKERS` environment variable without the `--no-reload` flag.
+        Failed to listen on 127.0.0.1:8081 (reason: Address already in use)
+        [bloom] Exited with status 1. Starting again in 1 s.
+        """
+        let advice = try #require(ServiceSupervisor.portAdvice(in: output, reserved: Self.reserved))
+
+        #expect(advice.contains("8081"))
+        #expect(advice.contains("Bloom Runner itself"))
+        #expect(advice.contains("BLOOM_RESERVED_PORTS"))
+        #expect(advice.contains("BLOOM_APP_PORT"))
+    }
+
+    /// Two of a project's own services fighting over a port is not something Bloom knows about, and
+    /// a machine that explained it would be making things up.
+    @Test("a collision that is not with one of ours is not ours to explain")
+    func collisionWithSomethingElse() {
+        let output = "Failed to listen on 127.0.0.1:5173 (reason: Address already in use)"
+
+        #expect(ServiceSupervisor.portAdvice(in: output, reserved: Self.reserved) == nil)
+    }
+
+    @Test("a service that exited for any other reason gets no port advice")
+    func ordinaryFailure() {
+        #expect(ServiceSupervisor.portAdvice(in: "PHP Fatal error: unexpected end of file", reserved: Self.reserved) == nil)
+        #expect(ServiceSupervisor.portAdvice(in: "", reserved: Self.reserved) == nil)
+    }
+}

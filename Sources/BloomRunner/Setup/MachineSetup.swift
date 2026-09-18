@@ -329,6 +329,10 @@ public actor MachineSetup {
         environment["BLOOM_PUBLIC_URL"] = configuration.publicURL
         environment["BLOOM_PUBLIC_HOST"] = configuration.publicHost
         environment["BLOOM_APP_PORT"] = String(layout.appPort)
+        // The other half of the port contract: which numbers are already taken. A project that
+        // picks one of these crash-loops with `Address already in use`, and until this existed
+        // there was nowhere it could have read them from.
+        environment["BLOOM_RESERVED_PORTS"] = layout.reservedPorts.map { String($0.port) }.joined(separator: ",")
         environment["BLOOM_WORKSPACE_ID"] = configuration.workspaceID
         environment["BLOOM_BRANCH"] = configuration.branch
         environment["BLOOM_REPOSITORY"] = configuration.repository

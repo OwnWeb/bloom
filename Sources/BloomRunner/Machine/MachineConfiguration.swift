@@ -137,4 +137,16 @@ public struct MachineLayout: Sendable, Hashable {
     }
 
     public var databasePath: String { dataDirectory + "/bloom.sqlite" }
+
+    /// The ports a project may not have, and what has them.
+    ///
+    /// **A project discovers these by colliding with them.** `there-there.app` asked its `app`
+    /// service for 8081, which is Bloom Runner's own port, and got `Address already in use` in a
+    /// log nobody was reading, a crash loop every second, and a preview that showed a white
+    /// rectangle. Nothing on the machine had ever said which numbers were taken, exactly as
+    /// nothing said which port the preview reads until `BLOOM_APP_PORT` was written down. The
+    /// machine knew both the whole time.
+    public var reservedPorts: [(port: Int, holder: String)] {
+        [(publicPort, "the preview proxy"), (serverPort, "Bloom Runner itself")]
+    }
 }

@@ -62,6 +62,8 @@ public actor ServiceSupervisor {
         var service: RemoteProjectSettings.Service
         var state: State = .waiting
         var restarts = 0
+        /// Whether the reserved-port sentence has been said about this service already.
+        var saidAboutPorts = false
         var message: String?
         var up = false
         var process: SupervisedProcess?
@@ -85,6 +87,35 @@ public actor ServiceSupervisor {
     }
 
     public nonisolated var logDirectory: String { layout.dataDirectory + "/services" }
+
+    /// The end of a service's own log, for reading why it exited. Bounded because this is on the
+    /// path of a service restarting every second.
+    private func tail(of name: String, limit: Int = 4_000) -> String {
+        guard let text = try? String(contentsOfFile: logPath(for: name), encoding: .utf8) else { return "" }
+        return String(text.suffix(limit))
+    }
+
+    /// The sentence for a service that could not have the port it asked for, when the port is one
+    /// of ours.
+    ///
+    /// **A project cannot be expected to know which ports a machine has taken, and until now the
+    /// machine never said.** `there-there.app` asked for 8081, which is Bloom Runner's own port,
+    /// and the whole of what anybody was told was `Address already in use` in a service log behind
+    /// a preview that could not be reached, restarting every second. The collision is the project's
+    /// to fix; **being told is ours**.
+    ///
+    /// Matched on the message the operating system produces rather than on anything a program
+    /// chooses, so PHP, node and Python all reach it. A port that is not one of ours gets nothing:
+    /// two of a project's own services fighting over a port is not a thing Bloom knows about.
+    static func portAdvice(in output: String, reserved: [(port: Int, holder: String)]) -> String? {
+        let lower = output.lowercased()
+        guard lower.contains("address already in use") else { return nil }
+        guard let taken = reserved.first(where: { lower.contains(":\($0.port)") }) else { return nil }
+        let list = reserved.map { "\($0.port) (\($0.holder))" }.joined(separator: " and ")
+        return "It asked for port \(taken.port), which is \(taken.holder). This machine keeps "
+            + "\(list), and names them in BLOOM_RESERVED_PORTS. Serve on $BLOOM_APP_PORT, which is "
+            + "what the preview reads, or on any other free port."
+    }
 
     public nonisolated func logPath(for name: String) -> String {
         logDirectory + "/" + Self.fileName(name) + ".log"
@@ -212,6 +243,16 @@ public actor ServiceSupervisor {
             entry.state = .crashed
             entry.restarts += 1
             entry.message = "Exited with status \(status). Starting again in \(SupervisedProcess.describe(delay))."
+            if let advice = Self.portAdvice(in: tail(of: name), reserved: layout.reservedPorts) {
+                entry.message = (entry.message ?? "") + " " + advice
+                // Once, rather than once a second for the rest of the machine's life: a service
+                // that cannot have its port will say this on every restart, and the point is to be
+                // read by somebody, which one line achieves and three thousand do not.
+                if !entry.saidAboutPorts {
+                    entry.saidAboutPorts = true
+                    FileHandle.standardError.write(Data("bloom-runner: \(name): \(advice)\n".utf8))
+                }
+            }
         }
         entries[name] = entry
         launchWhatIsReady()
