@@ -101,7 +101,7 @@ OPERATIONS = {
     "close_chat": plain({"chat_id": S}),
     "mark_read": plain({"chat_id": S, "seq": I}),
     "set_composer": plain({"chat_id": S, "controls": ref("ComposerControls")}),
-    "send": plain({"chat_id": S, "text": S}),
+    "send": plain({"chat_id": S, "text": S}, {"audience": ref("Audience")}),
     "cancel_queued": plain({"chat_id": S, "prompt_id": S}),
     "stop": plain({"chat_id": S}),
     "answer": plain({"chat_id": S, "request_id": S, "answer": ref("Answer")}),
@@ -161,6 +161,9 @@ EVENTS = {
     "setup": record("setup", "Setup"),
     "setup_output": plain({"text": S}),
     "review": plain({"revision": I}),
+    # An agent on the machine asking a client to open a browser pane. A request, not an
+    # instruction: nobody may be listening, and several may be.
+    "pane_requested": plain({}, {"url": S, "chat_id": S}),
     "presence": plain({"users": array(ref("Presence"))}),
     "workspace": record("workspace", "Workspace"),
     "sleeping": plain(),
@@ -187,7 +190,10 @@ RECORDS = {
     "Chat": obj({"id": S, "title": S, "agent": S, "model": S, "effort": S, "permission_mode": S, "interaction_mode": S,
                  "state": S, "last_seq": I, "created_at": DATE, "updated_at": DATE}, {"parent_chat_id": S}),
     "Message": obj({"cursor": I, "chat_id": S, "seq": I, "kind": S, "payload": ANY, "created_at": DATE},
-                   {"author": ref("Author"), "duration_ms": I, "ref_id": S}),
+                   {"author": ref("Author"), "duration_ms": I, "ref_id": S, "audience": ref("Audience")}),
+    # Who a message was for. Absent means the agent, which is every message written before mentions
+    # existed. A message whose kind is `person` is one the agent is never given.
+    "Audience": obj({"kind": {"enum": ["agent", "person"]}}, {"user_id": S, "mention": S}),
     "Blocked": obj({"limit": S, "message": S}),
     "QueuedPrompt": obj({"id": S, "text": S, "state": {"enum": ["queued", "blocked", "uncertain"]}, "created_at": DATE},
                         {"author": ref("Author"), "blocked": ref("Blocked")}),

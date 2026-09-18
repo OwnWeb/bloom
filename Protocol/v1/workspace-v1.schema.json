@@ -320,6 +320,16 @@
               "type": "null"
             }
           ]
+        },
+        "audience": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Audience"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -329,6 +339,41 @@
         "kind",
         "payload",
         "seq"
+      ],
+      "additionalProperties": false
+    },
+    "Audience": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "agent",
+            "person"
+          ]
+        },
+        "user_id": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mention": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind"
       ],
       "additionalProperties": false
     },
@@ -1528,6 +1573,16 @@
             },
             "text": {
               "type": "string"
+            },
+            "audience": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Audience"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -2423,6 +2478,38 @@
           "required": [
             "kind",
             "revision"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "pane_requested"
+            },
+            "url": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "chat_id": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind"
           ],
           "additionalProperties": false
         },
