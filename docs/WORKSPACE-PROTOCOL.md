@@ -355,8 +355,17 @@ everybody**: the event stream encodes one `message` record and sends it to every
 per-reader field is not something this protocol can express, and anything that has to differ by
 reader has to be a reply to a call rather than an event.
 
-**So a client decides whether a message is its own by comparing `author.user_id` with its own
-account, never by the field being absent.** "No author means mine" is true on a Mac, where nobody
+**So a client decides whether a message is its own by comparing `author.user_id` with the subject of
+the token it authenticated with, never by the field being absent.** The subject, rather than "the
+signed-in account", because that is the id the machine records and it is the one every caller has,
+including before an account object has finished loading.
+
+**A share-link guest does not come into it.** A share mints a **preview** token, whose only ability
+is `preview`: it cannot open a chat, cannot send, and carries no author at all. **There are no
+guest-written messages to decide the ownership of**, so a client that finds itself reasoning about
+one has a different problem.
+
+ "No author means mine" is true on a Mac, where nobody
 has one, and wrong in a shared Cloud workspace, where it draws the reader's own words as somebody
 else's, in somebody else's colour, with a caption naming them over the top of their own sentence.
 
