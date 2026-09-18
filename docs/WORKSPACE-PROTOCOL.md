@@ -293,6 +293,38 @@ agent reads** and nowhere else: the agent is asked "Fix the server", not "@agent
 while the stored row keeps what was typed because the bubble draws it. A client must not strip it
 early.
 
+## The terminal socket
+
+Verified against the code rather than described from memory, because two clients have now had to
+work it out for themselves.
+
+**`GET {machine_url}/_bloom/v1/terminal?name={name}`, upgraded.** The scheme is the machine URL's
+with `http` swapped for `ws`. **No token in the URL and none in a header**: a browser's `WebSocket`
+can send neither, so it goes in the first frame and every client takes the same path, which is the
+one that gets tested.
+
+**The first frame must be `auth` and must arrive within five seconds**, or the machine closes with
+`1008`. Anything before it is refused the same way. **A `1008` means refused, and reconnecting will
+not fix it**: the reason says which refusal it was, and `token_expired` is the one a client acts on
+by getting a fresh token rather than retrying. The abilities needed are `view` and `terminal`.
+Frames are capped at 1 MB in both directions.
+
+**Binary up is keystrokes. Binary down is raw PTY bytes with no envelope**, which is what a terminal
+emulator wants and nothing else. **Text up is the three control frames** (`auth`, `reauth`,
+`resize`); **nothing comes down as text.** What a machine has to say beyond bytes it says by closing
+with a reason.
+
+**Connecting with a name attaches to that shell, or creates it.** There is no `open_terminal`
+operation and that is not an omission: the name is the request. `run_script` is a different thing,
+for the scripts `run_scripts` lists. **The shell outlives the socket**, so closing a tab and opening
+another with the same name is the same session with its scrollback and its running command.
+
+**`reauth` is the client's own clock.** A session token lives minutes and a terminal lives hours;
+the machine never asks for a renewal and closes with `token_expired` when the deadline passes, so a
+client watches its own expiry and sends `reauth` before it. **A renewal is verified as the same
+person, still holding both abilities, and is ignored silently otherwise**: `reauth` cannot hand a
+running shell to somebody else, and cannot carry one past the moment its owner's access narrowed.
+
 **A server is held to sending every field; a client is held to reading what a machine actually
 sends.** The two halves of this protocol are not held to the same standard on purpose. What a
 machine sends is whatever was true when that machine was built, and every machine in the field was
