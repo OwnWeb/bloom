@@ -297,8 +297,8 @@ final class CloudWorkspaceSession {
                 // event arrives over an open stream from a machine that has just done the work,
                 // so there is no sleeping machine to spare.
                 Task { await changes.refresh(quietly: changes.hasRead) }
-            case .paneRequested(let url, let chatID):
-                Task { await openRequestedPane(url: url, chatID: chatID) }
+            case .paneRequested(let url, let chatID, let placement):
+                Task { await openRequestedPane(url: url, chatID: chatID, placement: placement) }
             case .turnEnded:
                 // A workspace that has just had files written to it is the definition of one whose
                 // changes are stale. The `review` event above is the machine volunteering that,
@@ -639,17 +639,48 @@ final class CloudWorkspaceSession {
     /// appearing on a desk is ordinary when you pressed something and is not ordinary otherwise,
     /// so the notice names the workspace it came from either way. See `CloudPaneRequest`.
     ///
-    /// The chat id is read but not acted on yet. It says which conversation asked, and the pane it
-    /// would open beside is the one the reader is looking at; moving their selection because a
-    /// machine mentioned another chat is a bigger liberty than opening a pane and is not one this
-    /// event is asking for.
-    private func openRequestedPane(url: String?, chatID: String?) async {
+    /// **A split goes beside the chat that asked, and only while that chat is on screen.** An agent
+    /// asked to put a browser "next to this chat" used to get a tab, because the event carried no
+    /// placement at all and the thing the owner asked for was not expressible; it carries one now.
+    /// Where the asking chat is not the tab in front, this opens a tab instead and says so, because
+    /// bringing that chat forward first would take away what the reader was reading, and moving
+    /// somebody's selection on a machine's word is a bigger liberty than opening a pane.
+    ///
+    /// **The notice names what happened rather than what was asked for**, which is why the
+    /// placement it is given is the one that came back from the attempt.
+    private func openRequestedPane(url: String?, chatID: String?, placement: String?) async {
         let request = CloudPaneRequest.of(url: url, machineHost: await connection?.machineURL?.host())
+        var placed = CloudPaneRequest.placement(
+            placement, chatID: chatID,
+            isChatOnScreen: chatID.map { WorkspaceTabsStore.shared.selectedTab(in: self) == .chat(SessionID($0)) } ?? false
+        )
         if case .workspaceApp(let path) = request {
             previewDestination = path
-            open(.browser)
+            if case .split(let besideChat) = placed, !splitBrowser(beside: SessionID(besideChat)) {
+                // The tab could not be split: a layout that cannot hold another pane, or a browser
+                // tab that is itself the root of an arrangement. A tab is always possible and is
+                // what the reader gets, so it is what the sentence says.
+                placed = .tab
+            }
+            if placed == .tab { open(.browser) }
         }
-        cloud.appModel?.notice = BloomNotice(message: CloudPaneRequest.sentence(request, workspace: surfaceName))
+        cloud.appModel?.notice = BloomNotice(
+            message: CloudPaneRequest.sentence(request, workspace: surfaceName, placement: placed)
+        )
+    }
+
+    /// Puts the workspace's browser in a pane beside a chat's, answering whether it went.
+    ///
+    /// The workspace's one browser rather than a second: `open(_:)`'s rule, for the same reason.
+    /// A machine asking twice should move the pane it already has rather than filling the window
+    /// with browsers.
+    private func splitBrowser(beside chatID: SessionID) -> Bool {
+        let store = CenterTabStore.shared
+        let tab = store.tabs(for: surfaceID).first { $0.kind == .browser }
+            ?? store.add(kind: .browser, workspaceID: surfaceID)
+        return WorkspaceTabsStore.shared.split(
+            tab: .chat(chatID), axis: .horizontal, showing: .tool(tab.id)
+        ) != nil
     }
 
     // MARK: The preview

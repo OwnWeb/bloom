@@ -49,20 +49,50 @@ public enum CloudPaneRequest: Equatable, Sendable {
         return .workspaceApp(path: trimmed.isEmpty ? nil : trimmed)
     }
 
+    /// Where the pane goes: beside the chat that asked, or in a tab.
+    ///
+    /// **The field exists because an agent asked to put a browser "next to this chat" and got a
+    /// tab.** Locally those are two different verbs, `pane_split` and `pane_open`, and the event
+    /// carried neither, so the thing the owner asked for was not expressible at all. Absent means
+    /// `tab`, which is what every client did before the field existed, and an older client reading
+    /// a word it does not know lands in the same place.
+    ///
+    /// **A split goes beside the pane showing the chat that asked, and only while that chat is on
+    /// screen.** Otherwise a tab. The alternative is bringing that chat forward first, and moving
+    /// somebody's selection because a machine mentioned another conversation is a bigger liberty
+    /// than opening a pane: it takes away what they were reading, which opening a pane does not.
+    /// The same reason the chat id has never been acted on for a tab.
+    public static func placement(_ placement: String?, chatID: String?, isChatOnScreen: Bool) -> Placement {
+        guard placement == "split", let chatID, isChatOnScreen else { return .tab }
+        return .split(besideChat: chatID)
+    }
+
+    public enum Placement: Equatable, Sendable {
+        case tab
+        case split(besideChat: String)
+    }
+
     /// What the reader is told, in every case including the ones that open nothing.
     ///
     /// **A pane that appears on its own owes an account of itself.** The owner is the only person
     /// who can tell a window he opened from one an agent in another country opened, and only if
     /// the app says so. The sentence names the workspace rather than the agent, because "the agent
     /// in Queue retries" is a thing he can go and look at.
-    public static func sentence(_ request: CloudPaneRequest, workspace: String) -> String {
+    /// - Parameter placement: where it went, so the sentence does not say "beside the
+    ///   conversation" about something that opened in a tab. An agent asking for a split whose
+    ///   chat is not on screen gets a tab, and the reader is told which they got rather than which
+    ///   was asked for: what they can see is the only thing worth describing to them.
+    public static func sentence(
+        _ request: CloudPaneRequest, workspace: String, placement: Placement = .tab
+    ) -> String {
+        let where_ = placement == .tab ? "in a tab" : "beside the conversation"
         switch request {
         case .workspaceApp:
-            "The agent in \(workspace) opened its app beside the conversation."
+            return "The agent in \(workspace) opened its app \(where_)."
         case .elsewhere(let url):
-            "The agent in \(workspace) asked to show \(url.absoluteString)."
+            return "The agent in \(workspace) asked to show \(url.absoluteString)."
         case .refused:
-            "The agent in \(workspace) asked to show an address Bloom cannot open."
+            return "The agent in \(workspace) asked to show an address Bloom cannot open."
         }
     }
 }

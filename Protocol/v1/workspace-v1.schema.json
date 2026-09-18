@@ -2533,6 +2533,19 @@
                   "type": "null"
                 }
               ]
+            },
+            "placement": {
+              "oneOf": [
+                {
+                  "enum": [
+                    "split",
+                    "tab"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [

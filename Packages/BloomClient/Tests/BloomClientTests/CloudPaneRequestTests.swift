@@ -46,10 +46,32 @@ struct CloudPaneRequestTests {
         #expect(CloudPaneRequest.of(url: "not a url", machineHost: machine) == .refused)
     }
 
+    /// The field that did not exist, which is why an agent asked to put a browser "next to this
+    /// chat" got a tab and the owner spotted it at once.
+    @Test("A split needs the word, a chat, and that chat on screen")
+    func aSplitNeedsAllThree() {
+        #expect(CloudPaneRequest.placement("split", chatID: "c1", isChatOnScreen: true)
+            == .split(besideChat: "c1"))
+        // Not in front: a tab, because bringing that chat forward would take away what the reader
+        // was reading, which opening a pane does not.
+        #expect(CloudPaneRequest.placement("split", chatID: "c1", isChatOnScreen: false) == .tab)
+        #expect(CloudPaneRequest.placement("split", chatID: nil, isChatOnScreen: true) == .tab)
+        // Absent is what every client did before the field existed, and a word this version does
+        // not know lands in the same place rather than guessing.
+        #expect(CloudPaneRequest.placement(nil, chatID: "c1", isChatOnScreen: true) == .tab)
+        #expect(CloudPaneRequest.placement("tab", chatID: "c1", isChatOnScreen: true) == .tab)
+        #expect(CloudPaneRequest.placement("floating", chatID: "c1", isChatOnScreen: true) == .tab)
+    }
+
     @Test("Every case says where it came from")
     func everyCaseIsAccountedFor() {
         #expect(CloudPaneRequest.sentence(.workspaceApp(path: nil), workspace: "Queue retries")
-            == "The agent in Queue retries opened its app beside the conversation.")
+            == "The agent in Queue retries opened its app in a tab.")
+        // What happened rather than what was asked for: a split that could not be made says tab,
+        // because what the reader can see is the only thing worth describing to them.
+        #expect(CloudPaneRequest.sentence(
+            .workspaceApp(path: nil), workspace: "Queue retries", placement: .split(besideChat: "c1")
+        ) == "The agent in Queue retries opened its app beside the conversation.")
         #expect(CloudPaneRequest.sentence(.elsewhere(URL(string: "https://example.com")!), workspace: "Queue retries")
             .contains("https://example.com"))
         #expect(CloudPaneRequest.sentence(.refused, workspace: "Queue retries").contains("cannot open"))
