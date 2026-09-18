@@ -28,10 +28,16 @@ enum CloudSetupEvents {
         // one whose setup happened to do nothing. The row carries Run setup, which is what makes
         // "not now" different from "never".
         if state == .skipped {
+            // The machine's own line where it sends one, because it knows which of the two skips
+            // this was: a workspace created with the box unticked, or a project with nothing to
+            // run. Ours is the fallback rather than the answer, and it is the first of the two,
+            // because a machine that ran no setup for want of a script has nothing to say and
+            // sends no note.
             return [WorkspaceEvent(
                 id: "setup", kind: .setup, outcome: .skipped,
                 title: "Setup was not run",
-                detail: "This Cloud workspace was created without it."
+                detail: skipNote(setup),
+                log: log
             )]
         }
         guard var event = WorkspaceEvent.setup(
@@ -57,6 +63,12 @@ enum CloudSetupEvents {
             event.note = [note, SetupFailure.instruction].joined(separator: " ")
         }
         return [event]
+    }
+
+    /// What the machine says was skipped, or our own sentence where it says nothing.
+    private static func skipNote(_ setup: SetupRecord) -> String {
+        let note = setup.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return note.isEmpty ? "This Cloud workspace was created without it." : note
     }
 
     /// How long it ran, from the two timestamps the machine sends. Nil while it is still going,
