@@ -49,24 +49,12 @@ final class CloudChatLink {
     /// file was copied into the very worktree the agent stands in. A machine's agent stands
     /// somewhere else, so the bytes go over the connection when the turn does, and the machine
     /// says where it put them. See `TranscriptModel.uploading` and `AttachmentDraft.mapping`.
-    func upload(name: String, data: Data) async -> Upload {
+    ///
+    /// The workspace's, rather than this chat's: a file on a machine belongs to the worktree, and
+    /// every chat in the workspace is standing in the same one.
+    func upload(name: String, data: Data) async -> CloudWorkspaceSession.Upload {
         guard let session else { return .refused(Self.closed) }
-        do {
-            let result = try await session.perform(.uploadFile(name: name, data: data))
-            guard case .text(let path) = result else {
-                return .refused("The machine did not say where it put \(name).")
-            }
-            return .at(path)
-        } catch {
-            return .refused(error.message)
-        }
-    }
-
-    /// Where the machine put a file, or why it did not take it.
-    enum Upload {
-        /// The path an agent on that machine reads it from, relative to its worktree.
-        case at(String)
-        case refused(String)
+        return await session.upload(name: name, data: data)
     }
 
     func stop() async {

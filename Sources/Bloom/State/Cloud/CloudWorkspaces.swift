@@ -362,6 +362,9 @@ final class CloudWorkspaces {
         /// "whatever the machine would open a chat with", which is the better answer and is not
         /// known until the machine exists. See `PendingOpeningPrompt.controls`.
         var controls: ComposerControls?
+        /// The draft whose staging directory holds the files the prompt names, or nil for a prompt
+        /// carrying none. See `PendingOpeningPrompt.stagingDraftID`.
+        var stagingDraftID: String?
     }
 
     /// Creates a Cloud workspace, keeps its opening prompt, and selects it.
@@ -382,7 +385,10 @@ final class CloudWorkspaces {
             let chosen = request.controls.map {
                 [AgentKind.claudeCode, .codex].contains($0.agentKind) ? $0 : ComposerControls(hasWorktree: true)
             }
-            hold(PendingOpeningPrompt(workspaceID: item.id, text: prompt, controls: chosen?.cloudRecord))
+            hold(PendingOpeningPrompt(
+                workspaceID: item.id, text: prompt, controls: chosen?.cloudRecord,
+                stagingDraftID: request.stagingDraftID
+            ))
         }
         watching.insert(item.id)
         items.insert(item, at: 0)

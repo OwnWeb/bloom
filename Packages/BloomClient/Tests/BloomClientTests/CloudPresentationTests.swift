@@ -106,6 +106,29 @@ import Testing
         #expect(read.prompts.keys.sorted() == ["w1"])
         #expect(read.prompts["w1"]?.sendCommandID == fresh.sendCommandID)
     }
+
+    /// A prompt written before files could travel still reads, which is what keeps the prompts
+    /// already on somebody's Mac from being dropped by the update that added the field.
+    @Test func aPromptStoredBeforeFilesCouldTravelStillDecodes() throws {
+        let json = """
+        {"prompts": {"w1": {"workspaceID": "w1", "text": "have a look", "chatCommandID": "a", "sendCommandID": "b", "createdAt": 780000000}}}
+        """
+        let held = PendingOpeningPrompts.decode(Data(json.utf8), now: Date(timeIntervalSinceReferenceDate: 780_000_100))
+        let prompt = try #require(held.prompts["w1"])
+        #expect(prompt.text == "have a look")
+        #expect(prompt.stagingDraftID == nil)
+    }
+
+    /// And one that carries files remembers where they are across a relaunch, which is the whole
+    /// reason it is on disk.
+    @Test func aPromptCarryingFilesRemembersWhereTheyAre() {
+        let prompt = PendingOpeningPrompt(
+            workspaceID: "w1", text: "look at `.bloom/attachments/9JVKW4/shot.png`",
+            controls: nil, stagingDraftID: "9JVKW4"
+        )
+        let read = PendingOpeningPrompts.decode(PendingOpeningPrompts(prompts: ["w1": prompt]).encoded, now: Date())
+        #expect(read.prompts["w1"]?.stagingDraftID == "9JVKW4")
+    }
 }
 
 @Suite struct CloudBranchNameTests {

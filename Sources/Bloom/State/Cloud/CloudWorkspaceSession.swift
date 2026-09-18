@@ -440,6 +440,14 @@ final class CloudWorkspaceSession {
         // snapshot has landed by the time this runs: `sendOpeningPromptIfHeld` is called when the
         // connection goes live.
         let defaults = await openingDefaults()
+        // The files it was typed with, which have been waiting on this Mac since before the
+        // machine existed. Once, before the first send: `carrying` clears the staging id on the
+        // held prompt, so a retry after a relaunch sends the sentence it has rather than uploading
+        // the same screenshots again.
+        if prompt.stagingDraftID != nil {
+            prompt = await carrying(prompt)
+            cloud.hold(prompt)
+        }
         var attempts = 0
         while true {
             let next = prompt.nextOperation(defaults: defaults)
@@ -478,6 +486,73 @@ final class CloudWorkspaceSession {
                 return
             }
         }
+    }
+
+    /// Where the machine put a file, or why it did not take it.
+    enum Upload {
+        /// The path an agent on that machine reads it from, relative to its worktree.
+        case at(String)
+        case refused(String)
+    }
+
+    /// Copies a file into the workspace's attachment folder on the machine. Eight megabytes is the
+    /// machine's own limit and its refusal is what gets shown, rather than a second limit here that
+    /// could disagree with it. See `RemoteFileOperations.upload`.
+    func upload(name: String, data: Data) async -> Upload {
+        do {
+            let result = try await perform(.uploadFile(name: name, data: data))
+            guard case .text(let path) = result else {
+                return .refused("The machine did not say where it put \(name).")
+            }
+            return .at(path)
+        } catch {
+            return .refused(error.message)
+        }
+    }
+
+    /// The opening prompt with its files put on the machine and named where the machine put them.
+    ///
+    /// **A file that will not go is taken out of the sentence here, which is the opposite of what a
+    /// chat message does and is the same choice the local create window already made.** There is no
+    /// composer to give the words back to: the workspace exists, its machine is up, and the turn is
+    /// the reason both were made. A path to a file the agent cannot open teaches it that Bloom lies
+    /// about paths, so it goes, and the person is told which one did not make it. See
+    /// `WorkspaceStartAttachments.opening`, which says the same thing about a worktree.
+    private func carrying(_ prompt: PendingOpeningPrompt) async -> PendingOpeningPrompt {
+        var prompt = prompt
+        guard let draftID = prompt.stagingDraftID else { return prompt }
+        prompt.stagingDraftID = nil
+        let parsed = AttachmentDraft.parse(prompt.text)
+        guard !parsed.paths.isEmpty else { return prompt }
+
+        let root = AttachmentStaging.directory(draftID: draftID)
+        var moved: [String: String] = [:]
+        var lost: [String] = []
+        for path in Set(parsed.paths) {
+            let file = URL(filePath: (root as NSString).appendingPathComponent(path))
+            guard let data = try? Data(contentsOf: file) else {
+                lost.append((path as NSString).lastPathComponent)
+                continue
+            }
+            switch await upload(name: (path as NSString).lastPathComponent, data: data) {
+            case .at(let remote):
+                moved[path] = remote
+            case .refused:
+                lost.append((path as NSString).lastPathComponent)
+            }
+        }
+        prompt.text = parsed.mapping { moved[$0] }
+        AttachmentStaging.discard(draftID: draftID)
+        PromptAttachmentStore.shared.clear(sessionID: draftID)
+        if !lost.isEmpty {
+            notice = CloudRefusalNotice(
+                message: lost.count == 1
+                    ? "\(lost[0]) could not be sent to this Cloud workspace, so your first message does not name it."
+                    : "These files could not be sent to this Cloud workspace, so your first message does not name them: \(lost.joined(separator: ", "))",
+                code: nil
+            )
+        }
+        return prompt
     }
 
     // MARK: The preview

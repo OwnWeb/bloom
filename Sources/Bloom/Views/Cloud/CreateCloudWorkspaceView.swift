@@ -85,10 +85,16 @@ struct CreateCloudWorkspaceView: View {
     @State private var runsSetup = true
     @State private var isCreating = false
     @State private var failure: String?
-    /// The bucket the composer's attachments would go in. A Cloud chat cannot take one yet and
-    /// says so where the paperclip is, exactly as the Cloud composer in the centre column does,
-    /// but the prompt still needs somewhere to key a draft.
+    /// The draft this window's prompt and its files are keyed by.
+    ///
+    /// The files are staged under it, laid out as a worktree is, and they cross to the machine when
+    /// the opening prompt does, because there is no machine to upload them to while this window is
+    /// open. See `PendingOpeningPrompt.stagingDraftID`.
     @State private var draftID = PromptAttachments.newShortID()
+    /// Set when the workspace was made, so closing this window leaves the staged files where the
+    /// prompt that names them can still find them. Everything else is an abandoned draft and is
+    /// taken away.
+    @State private var handedOver = false
 
     /// The same width as the local window, for the same reason: the footer's labelled controls.
     /// See `CreateWorkspaceView.width`, which measured it control by control.
@@ -332,12 +338,7 @@ struct CreateCloudWorkspaceView: View {
                 intent: .create,
                 // Fixed width, chosen for this row with its words on. See `width`.
                 adaptsToWidth: false,
-                // A file on this Mac means nothing to an agent on a machine, and uploading one is
-                // not in the first Cloud release. The same sentence the Cloud composer in the
-                // centre column says, from the same button, rather than a second story about it.
-                onAttach: {
-                    app.notice = BloomNotice(message: "Attaching files to a Cloud workspace chat is not available yet. Paste the text instead.")
-                },
+                onAttach: actions.attach,
                 onQuickPrompt: actions.insert,
                 onSend: create
             )
@@ -490,12 +491,14 @@ struct CreateCloudWorkspaceView: View {
         let request = CloudWorkspaces.CreateRequest(
             team: team, project: project, name: derivedName, branch: derivedBranch,
             baseBranch: base, prompt: prompt, runSetup: runsSetup,
-            controls: controlsWereChosen ? controls : nil
+            controls: controlsWereChosen ? controls : nil,
+            stagingDraftID: PromptAttachmentStore.shared.attachments(for: draftID).isEmpty ? nil : draftID
         )
         Task {
             defer { isCreating = false }
             do {
                 _ = try await cloud.create(request)
+                handedOver = request.stagingDraftID != nil
                 dismiss()
                 // The window this one is not attached to. Creating selects the new workspace in
                 // the main window, which can be behind this one or closed altogether. The local
@@ -510,6 +513,9 @@ struct CreateCloudWorkspaceView: View {
     }
 
     private func discardDraft() {
+        // The files went with the workspace. Taking them away here would delete what the held
+        // prompt is about to upload, which on a slow machine is minutes after this window closed.
+        guard !handedOver else { return }
         let id = draftID
         PromptAttachmentStore.shared.clear(sessionID: id)
         Task.detached(priority: .utility) {

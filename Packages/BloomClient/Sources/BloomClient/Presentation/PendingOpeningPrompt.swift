@@ -19,6 +19,15 @@ public struct PendingOpeningPrompt: Codable, Sendable, Hashable {
     /// answer. See `WorkspaceSnapshotRecord.composerDefaults`, which is better than a guess
     /// because it has read the repository's settings file and the agents in the image.
     public var controls: ComposerControlsRecord?
+    /// Where the files this prompt names are staged on this Mac, or nil for a prompt carrying
+    /// none.
+    ///
+    /// The prompt is typed before its machine exists, so its files cannot be uploaded when they
+    /// are attached: they wait in the staging directory the create window laid out, under the
+    /// relative paths the sentence already names, and cross when the connection first goes live.
+    /// Cleared the moment they have, so a retry cannot upload them twice. See
+    /// `CloudWorkspaceSession.sendOpeningPromptIfHeld` and `AttachmentStaging`.
+    public var stagingDraftID: String?
     /// The id the `new_chat` for it is sent with, kept so a retry after a relaunch opens one chat.
     public var chatCommandID: String
     /// The chat that command made, once it answered.
@@ -27,10 +36,14 @@ public struct PendingOpeningPrompt: Codable, Sendable, Hashable {
     public var sendCommandID: String
     public var createdAt: Date
 
-    public init(workspaceID: String, text: String, controls: ComposerControlsRecord?, createdAt: Date = Date()) {
+    public init(
+        workspaceID: String, text: String, controls: ComposerControlsRecord?,
+        stagingDraftID: String? = nil, createdAt: Date = Date()
+    ) {
         self.workspaceID = workspaceID
         self.text = text
         self.controls = controls
+        self.stagingDraftID = stagingDraftID
         chatCommandID = UUID().uuidString.lowercased()
         sendCommandID = UUID().uuidString.lowercased()
         self.createdAt = createdAt
