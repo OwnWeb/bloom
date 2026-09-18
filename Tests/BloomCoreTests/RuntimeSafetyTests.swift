@@ -623,13 +623,42 @@ struct AgentRunnerCancellationRaceTests {
         recorder.all[1].endOutput()
     }
 
+    /// The other half of `sendFailsOnAProcessThatNeverExits`, which is the one that proves a turn
+    /// is never written into a process that is on its way out. This one is only about the wait
+    /// ending: once the process does exit, the turn that was held goes through, into a new one.
+    ///
+    /// **The fake dies when this test says so rather than on a timer, and that is the whole of the
+    /// design.** It used to die 300 ms after Stop while the turn waited against the app's five
+    /// second budget. Instrumented over eight runs of the whole suite on a GitHub runner, that
+    /// turn took 0.64, 0.88, 0.96, 1.13, 1.49, 2.06, 2.20 and 3.39 seconds, and 1.60 of the worst
+    /// of those went on the fake's own task waiting to be scheduled at all. 6,394 tests share
+    /// three or four cores and the cooperative pool is starved, so a 300 ms sleep is not 300 ms.
+    /// The tail of that distribution runs past five seconds, which is the failure on main.
+    ///
+    /// How much the machine moves is easier to see from outside the test: sixteen runs of the
+    /// whole suite, same commit, same runner, came in anywhere between 47 and 63 seconds for the
+    /// same 6,401 tests. A third of the wall time, varying run to run. Anyone about to write a
+    /// wall clock into an assertion in this repository should read that number first.
+    ///
+    /// **Waiting longer would not have been enough**, because the same starvation breaks this test
+    /// the other way round and leaves no trace. The turn does four store round trips before it
+    /// ever looks at the previous run; if those outlast the fake's 300 ms, the wait returns at
+    /// once, the loop under test never runs, and the test passes having checked nothing. A green
+    /// suite reports that exactly as it reports a real pass.
+    ///
+    /// So neither side races a clock. The process cannot die until this test ends it, and this
+    /// test does not end it until the runner says a turn is waiting on it. The budget is the
+    /// test's own and far above any scheduling delay measured, because how long the turn waits is
+    /// not what is under test here; `sendFailsOnAProcessThatNeverExits` is where the budget's
+    /// refusal is.
     @Test("a turn sent while the previous process is still dying waits for it")
     func sendWaitsForTheDyingProcess() async throws {
         let store = try makeTestStore("runtime")
         let session = try await makeSession(store)
-        let recorder = ProcessRecorder(shutdown: .milliseconds(300))
+        let recorder = ProcessRecorder(shutdown: nil)
         let runner = AgentRunner(
-            workspacePath: "/tmp/w", session: session, store: store, makeProcess: recorder.factory
+            workspacePath: "/tmp/w", session: session, store: store,
+            shutdownBudget: .seconds(20), makeProcess: recorder.factory
         )
 
         try await runner.send("one")
@@ -637,7 +666,18 @@ struct AgentRunnerCancellationRaceTests {
         #expect(recorder.all[0].wasTerminated)
         #expect(recorder.all[0].isRunning)
 
-        try await runner.send("two")
+        let second = Task { try await runner.send("two") }
+        await waitUntil("a turn is waiting for the dying process", within: .seconds(20)) {
+            await runner.isWaitingForPreviousRun
+        }
+        // Held rather than started beside a process that is still going, which is the bug. The
+        // process is provably alive here: nothing but the line below can end it.
+        #expect(recorder.all.count == 1)
+        #expect(recorder.all[0].stdin.map(turnText) == ["one"])
+        #expect(recorder.all[0].isRunning)
+
+        recorder.all[0].endOutput()
+        try await second.value
 
         #expect(recorder.all.count == 2)
         #expect(recorder.all[0].stdin.map(turnText) == ["one"])
