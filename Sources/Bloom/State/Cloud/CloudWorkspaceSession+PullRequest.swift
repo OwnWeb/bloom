@@ -15,12 +15,16 @@ extension CloudWorkspaceSession {
     // MARK: What GitHub thinks of it
 
     /// What GitHub says about the branch, as runbloom.app last read it: the whole of what the band
-    /// draws, checks and merge blockers included. The machine's own `gh` reports a pull request
-    /// too, and it is the fallback for the moment before runbloom.app has answered, because it
-    /// arrives with the workspace rather than on a request of its own.
+    /// draws, checks and merge blockers included.
+    ///
+    /// **One source.** There used to be a fallback to the workspace record's `pull_request`, on the
+    /// argument that the machine's own `gh` reported one and it arrived with the workspace before
+    /// runbloom.app had answered. **No machine ever filled that field**, so the fallback never had a
+    /// value and its argument described a record that was never sent. The band is empty for the
+    /// few seconds before runbloom.app answers, which is the honest state: nothing is known yet.
     var pullRequest: PullRequest? {
-        if let read = github.state { return PullRequest(cloudState: read) }
-        return state.workspace?.pullRequest.map { PullRequest(cloudRecord: $0, branch: surfaceBranch) }
+        guard let read = github.state else { return nil }
+        return PullRequest(cloudState: read)
     }
 
     /// Whether this branch is known to have anything on it, which is what decides between "Target

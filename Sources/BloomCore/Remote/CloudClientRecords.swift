@@ -91,26 +91,6 @@ extension BranchCommit {
     }
 }
 
-extension PullRequest {
-    /// The pull request as the machine reports it, which is what `gh pr view` told it on the
-    /// workspace's own branch.
-    ///
-    /// Four fields, because four is what the machine sends. Checks are `.unavailable` rather than
-    /// `.none`: `.none` is a claim that the repository has no checks, and this record says nothing
-    /// either way. Everything else keeps its default, so a bar drawn from this says what it knows
-    /// and offers nothing that depends on what it does not.
-    public init(cloudRecord record: PullRequestRecord, branch: String) {
-        self.init(
-            number: record.number,
-            title: record.title,
-            url: record.url,
-            state: record.state.uppercased(),
-            checks: .unavailable,
-            branch: branch
-        )
-    }
-}
-
 extension ChangedFile.Change {
     /// The inverse of `wireName`. Nil for a letter this version does not know, which the caller
     /// reads as a modification rather than dropping the row.
