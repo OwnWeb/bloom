@@ -13,10 +13,18 @@ final class CapturedProcess: Sendable {
     private let input: Data?
     private let timeout: Duration?
     private let outputLimit: Int
+    /// Stands in for the launch and the read loop, so a test can prove the watchdog answers when
+    /// the work never does. Nil everywhere but in `CapturedProcessTests`: there is no way to make
+    /// a real `Process.run()` hang on demand, and a watchdog nothing exercises is a watchdog that
+    /// stops working without anybody noticing.
+    private let work: (@Sendable () throws -> ShellBytes)?
+    /// The grace, as a value so a test does not have to wait the real fifteen seconds to prove it.
+    private let grace: Duration
 
     init(
         executable: String, arguments: [String], cwd: String?, environment: [String: String],
-        input: Data?, timeout: Duration?, outputLimit: Int
+        input: Data?, timeout: Duration?, outputLimit: Int,
+        work: (@Sendable () throws -> ShellBytes)? = nil, grace: Duration = CapturedProcess.launchGrace
     ) {
         self.executable = executable
         self.arguments = arguments
@@ -25,17 +33,62 @@ final class CapturedProcess: Sendable {
         self.input = input
         self.timeout = timeout
         self.outputLimit = max(1, outputLimit)
+        self.work = work
+        self.grace = grace
     }
+
+    /// How long after the caller's own deadline this gives up on the worker thread entirely.
+    ///
+    /// **A launch that never returns must not stop the machine.** `collect` honours the deadline
+    /// itself: it polls with a twenty millisecond timeout and checks the clock on every pass, so
+    /// nothing inside it can outlast the timeout by more than that. The launch before it is
+    /// Foundation's, and it has no deadline of ours. On a Cloud workspace's first start, one
+    /// `git config` child exited within a second, was never reaped, and `Process.run()` never
+    /// returned: the machine answered health, RPC and its own shutdown for eighteen minutes while
+    /// setup sat in that one call and the workspace was never cloned. No debugger can attach to a
+    /// Sprite to say why, so the fix is to stop waiting rather than to wait better.
+    ///
+    /// The grace is what keeps this a backstop rather than a second timeout: `collect` gets its
+    /// full deadline and the chance to kill the child and report properly, and only a call that is
+    /// past even that is abandoned. The worker thread is left where it is, because there is nothing
+    /// safe to do with a thread parked inside Foundation, and one leaked thread costs a stack where
+    /// a machine that never boots costs the whole workspace.
+    static let launchGrace: Duration = .seconds(15)
 
     func run() async throws -> ShellBytes {
         try Task.checkCancellation()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+                let answered = Mutex(false)
+                // Whoever gets there first answers; a continuation resumed twice is a crash.
+                let finish = { @Sendable (result: Result<ShellBytes, any Error>) in
+                    let first = answered.withLock { done -> Bool in
+                        defer { done = true }
+                        return !done
+                    }
+                    guard first else { return }
+                    continuation.resume(with: result)
+                }
                 let worker = Thread { [self] in
-                    do { continuation.resume(returning: try capture()) } catch { continuation.resume(throwing: error) }
+                    finish(Result { try work?() ?? capture() })
                 }
                 worker.stackSize = 512 * 1_024
                 worker.start()
+                // Only when the caller asked for a deadline. A call with no timeout is one whose
+                // length nobody here knows, and cutting it off at an invented number would end a
+                // long clone or a slow test run for no reason.
+                if let timeout {
+                    Task { [executable, grace] in
+                        try? await Task.sleep(for: timeout + grace)
+                        let abandoning = answered.withLock { !$0 }
+                        guard abandoning else { return }
+                        Shell.countAbandonedLaunch()
+                        let line = "bloom: abandoning a launch of \(executable) that never returned; "
+                            + "\(Shell.abandonedLaunchCount) so far this run\n"
+                        FileHandle.standardError.write(Data(line.utf8))
+                        finish(.failure(ShellFailure.timedOut(command: executable)))
+                    }
+                }
             }
         } onCancel: {
             self.cancelled.withLock { $0 = true }

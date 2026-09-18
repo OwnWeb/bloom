@@ -24,7 +24,8 @@ struct MachineSetupTests {
         let orderFile: String
         let gitConfig: String
 
-        func setup(timeouts: MachineSetup.Timeouts = .standard, origin: String? = nil) throws -> MachineSetup {
+        func setup(timeouts: MachineSetup.Timeouts = .standard, origin: String? = nil,
+                   stallAfter: TimeInterval = MachineSetup.stallAfter) throws -> MachineSetup {
             let configuration = try JSONDecoder().decode(MachineConfiguration.self, from: Data("""
             {"workspace_id": "01k5bx7j9d3v2r8q6m4n0p1s2w", "issuer": "https://runbloom.test", "jwks_url": "https://runbloom.test/jwks",
              "base_url": "https://runbloom.test", "workspace_secret": "secret", "allowed_origins": [],
@@ -36,7 +37,7 @@ struct MachineSetupTests {
                 runtime: runtime, store: store, configuration: configuration, layout: layout,
                 environment: MachineEnvironment { ["ORDER_FILE": orderFile, "TEAM_VALUE": "from the team"] },
                 services: services, serverExecutable: root + "/fake-bloom-runner",
-                cloneURL: { _ in origin }, gitGlobalConfig: gitConfig, timeouts: timeouts
+                cloneURL: { _ in origin }, gitGlobalConfig: gitConfig, timeouts: timeouts, stallAfter: stallAfter
             )
         }
 
@@ -54,7 +55,11 @@ struct MachineSetupTests {
         let source = root + "/source"
         let origin = root + "/origin.git"
         try FileManager.default.createDirectory(atPath: source, withIntermediateDirectories: true)
-        let git = "git -c user.name=Test -c user.email=test@bloom.local"
+        // Signing off, because the machine this runs on may sign every commit through an agent
+        // that asks a person to approve it: this suite failed on a developer's Mac with
+        // "1Password: agent returned an error" while passing in CI, which is a test depending on
+        // whose laptop it is.
+        let git = "git -c user.name=Test -c user.email=test@bloom.local -c commit.gpgsign=false -c tag.gpgsign=false"
         try SetupTestSupport.bash("git init -q -b main .", in: source)
         for (path, text) in files {
             try SetupTestSupport.write(text, to: source + "/" + path, executable: executables.contains(path))
@@ -245,6 +250,41 @@ struct MachineSetupTests {
         try await fixture.setup().run()
         #expect(try await !fixture.workspace().setupLog.contains("no Cloud workspace setup"))
         await fixture.runtime.shutdown()
+    }
+
+    @Test("a step that stops moving says so, rather than leaving a machine that looks alive")
+    func aStalledStepSaysSo() async throws {
+        let settings = """
+        [scripts]
+        prepare = "sleep 4"
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        // Two seconds rather than five minutes, which is the only thing the real machine changes.
+        let setup = try fixture.setup(stallAfter: 2)
+
+        await setup.run()
+
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupLog.contains("Setup has been in prepare for"), "\(workspace.setupLog.suffix(400))")
+        #expect(workspace.setupLog.contains("restarting this machine's server clears it"))
+        // The step finished on its own, so the sentence is a warning rather than a verdict.
+        #expect(workspace.setupState == .succeeded)
+    }
+
+    @Test("a step that is printing is working, whatever its own clock says")
+    func outputIsProgress() async throws {
+        let settings = """
+        [scripts]
+        prepare = "for i in 1 2 3 4 5 6 7 8; do echo working $i; sleep 0.5; done"
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        let setup = try fixture.setup(stallAfter: 2)
+
+        await setup.run()
+
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupLog.contains("working 8"))
+        #expect(!workspace.setupLog.contains("with nothing new"), "a printing script is not a stall")
     }
 
     @Test("a failed step says which script it was")

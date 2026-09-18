@@ -1041,6 +1041,34 @@ and nothing has happened since, and `idle` otherwise. A chat carries the same wo
 workspace that says `running` long after the agent went quiet is a bug worth reporting: the machine
 sends a fresh summary a moment after a chat goes idle.
 
+**A machine stuck in setup answers everything you ask it except the one thing that matters.** This
+was measured, not imagined. On one fresh Sprite the first subprocess of the server's life, a
+`git config` run before any setup step exists, spawned a child that exited within a second, was
+never reaped, and `Process.run()` never returned. For eighteen minutes that machine answered
+`/_bloom/health`, served RPC, held a summary saying `setting_up`, and when the service was finally
+restarted wound down cleanly in eighteen milliseconds. The workspace was never cloned and nothing
+anywhere said so. So **health, RPC and a summary are not evidence that a machine is working**, and
+two things now exist because of it.
+
+- **A launch that never returns is abandoned.** `Shell.run(timeout:)` used to cover only the reading
+  loop; the launch before it had no deadline of ours. It now gets the caller's timeout plus fifteen
+  seconds, after which the worker thread is left where it is and the call fails.
+  `Shell.abandonedLaunchCount` counts those, because one is a fluke and fifty is a machine to
+  replace rather than to keep restarting.
+- **Setup says when it has stopped moving.** Every five minutes a step goes with no output and no
+  change, the machine writes a line into the setup log a person is watching, and into the service
+  log. Output counts as progress, so an hour-long `setup` script that is printing is never called a
+  stall. It says so and does nothing else: restarting the machine's server clears that hang, and
+  the side that should act on it is runbloom.app, which can see a machine from outside.
+
+**No debugger will ever attach to a hung Bloom Runner on this provider.** `gdb` installs on a Sprite
+and then fails with `ptrace: Inappropriate ioctl for device`; there is no `kernel.yama.ptrace_scope`
+to relax, because the sandbox does not implement `ptrace` at all, and `/proc/<pid>/syscall` is empty
+for the same reason. What is left is `/proc/<pid>/task/*/wchan`, the kernel stacks under
+`/proc/<pid>/task/*/stack` as root, and the process table. Do not spend an hour finding this out:
+**what the machine says about itself is the only forensics there will ever be**, which is the whole
+argument for the watchdog above.
+
 **A project with no Cloud workspace setup is told so before anything runs.** A repository with no
 `.bloom` settings file and no `prepare`, `resume` or `[[services]]` has nothing written for a
 machine, so the setup log opens with what to add and a warning that the project's existing setup

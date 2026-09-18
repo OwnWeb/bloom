@@ -30,11 +30,13 @@ Environment:
 """
 
 import argparse
+import base64
 import hashlib
 import http.client
 import json
 import os
 import pathlib
+import re
 import secrets
 import shutil
 import socket
@@ -171,6 +173,109 @@ def rpc(url, token, operation, command_id=None):
     return reply["result"]
 
 
+class Terminal:
+    """A terminal over the machine's WebSocket, which is the one route nothing here has ever driven.
+
+    Hand-rolled because the standard library has no WebSocket client and this needs about eighty
+    lines of it: the handshake, masked client frames, and enough of the reader to tell output from
+    a close. `http.client` cannot be used for the handshake, because a 101 leaves the connection in
+    a state it will not hand back, so this speaks the request over the TLS socket itself.
+    """
+
+    def __init__(self, url, name, token, timeout=30):
+        host = urllib.parse.urlparse(url).hostname
+        raw = socket.create_connection((host, 443), timeout=timeout)
+        self.socket = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
+        key = base64.b64encode(secrets.token_bytes(16)).decode()
+        self.socket.sendall((
+            f"GET /_bloom/v1/terminal?name={urllib.parse.quote(name)} HTTP/1.1\r\n"
+            f"Host: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        ).encode())
+        self.buffer = b""
+        while b"\r\n\r\n" not in self.buffer:
+            chunk = self.socket.recv(4096)
+            if not chunk:
+                raise RuntimeError("the machine closed the terminal socket during the handshake")
+            self.buffer += chunk
+        head, self.buffer = self.buffer.split(b"\r\n\r\n", 1)
+        status = head.split(b"\r\n")[0].decode()
+        if "101" not in status:
+            raise RuntimeError(f"the terminal did not upgrade: {status} {head[:200]!r}")
+        # The token is the first text frame rather than a header, because a browser cannot send one.
+        self.send(json.dumps({"kind": "auth", "token": token}), opcode=1)
+
+    def send(self, payload, opcode=2):
+        data = payload.encode() if isinstance(payload, str) else payload
+        mask = secrets.token_bytes(4)
+        header = bytes([0x80 | opcode])
+        if len(data) < 126:
+            header += bytes([0x80 | len(data)])
+        elif len(data) < 65536:
+            header += bytes([0x80 | 126]) + len(data).to_bytes(2, "big")
+        else:
+            header += bytes([0x80 | 127]) + len(data).to_bytes(8, "big")
+        self.socket.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+    def read(self, timeout=10):
+        """The next frame as (opcode, payload), or (None, reason) when the machine closed it."""
+        self.socket.settimeout(timeout)
+        while True:
+            while len(self.buffer) < 2:
+                if not self._more():
+                    return None, b"the socket ended"
+            opcode = self.buffer[0] & 0x0F
+            length = self.buffer[1] & 0x7F
+            offset = 2
+            if length == 126:
+                while len(self.buffer) < 4:
+                    if not self._more():
+                        return None, b"the socket ended"
+                length, offset = int.from_bytes(self.buffer[2:4], "big"), 4
+            elif length == 127:
+                while len(self.buffer) < 10:
+                    if not self._more():
+                        return None, b"the socket ended"
+                length, offset = int.from_bytes(self.buffer[2:10], "big"), 10
+            while len(self.buffer) < offset + length:
+                if not self._more():
+                    return None, b"the socket ended"
+            payload = self.buffer[offset:offset + length]
+            self.buffer = self.buffer[offset + length:]
+            if opcode == 8:
+                return None, payload[2:]
+            if opcode == 9:
+                self.send(payload, opcode=10)
+                continue
+            return opcode, payload
+
+    def until(self, needle, timeout=20):
+        """Reads output until `needle` shows up, and answers everything read."""
+        seen, deadline = b"", time.time() + timeout
+        while time.time() < deadline:
+            try:
+                opcode, payload = self.read(timeout=max(1, deadline - time.time()))
+            except (TimeoutError, socket.timeout):
+                break
+            if opcode is None:
+                raise RuntimeError(f"the terminal closed while waiting for {needle!r}: {payload!r}; read {seen[-300:]!r}")
+            seen += payload
+            if needle in seen:
+                return seen
+        raise RuntimeError(f"{needle!r} never arrived; read {seen[-300:]!r}")
+
+    def _more(self):
+        chunk = self.socket.recv(65536)
+        self.buffer += chunk
+        return bool(chunk)
+
+    def close(self):
+        try:
+            self.socket.close()
+        except OSError:
+            pass
+
+
 class EventReader(threading.Thread):
     """Reads the event stream through the machine's URL and keeps every event."""
 
@@ -249,6 +354,12 @@ def main():
     parser.add_argument("--outage", type=float, metavar="MINUTES", nargs="?", const=22.0,
                         help="stage a runbloom.app outage of this many minutes and measure what the machine "
                              "queues, what its memory does, what it says, and whether the backlog drains after")
+    parser.add_argument("--archive", action="store_true",
+                        help="rehearse the one irreversible operation on a machine with real work on it: the counts "
+                             "it reports, the refusal when they move under the reader, and the door closing after")
+    parser.add_argument("--terminal", action="store_true",
+                        help="drive a terminal over its WebSocket and drop the connection under it: whether the "
+                             "shell survives, what a reconnection sees, and whether reauth and resize work")
     parser.add_argument("--update", action="store_true",
                         help="also move the machine to another release through control/update, and back from a broken one")
     parser.add_argument("--keep", action="store_true", help="do not delete the machine, for looking at it afterwards")
@@ -487,6 +598,117 @@ def main():
                 run_on(name, "sprite-env services restart bloom", timeout=120)
                 wait_for("health answers again", lambda: https(url, path="/_bloom/health")[0] == 200, 180, interval=3)
                 step("restarted; whatever was still in memory is gone with the process")
+
+            if arguments.archive:
+                # The one thing here a person cannot undo, on a machine with work worth losing.
+                # Everything else in this file is rehearsed because it is fiddly; this is rehearsed
+                # because it is final.
+                step("archive, with real work in the worktree")
+                run_on(name, "cd ~/workspace && "
+                             "printf 'a line nobody committed\n' >> README.md && "
+                             "printf 'scratch\n' > notes-for-nobody.txt && "
+                             "git add -A README.md && git -c user.email=t@t -c user.name=T commit -q -m 'Work in hand' && "
+                             "printf 'and one more\n' >> README.md && "
+                             "git log --oneline -1 && git status --short", timeout=180)
+
+                preview = rpc(url, session(), {"kind": "archive_preview"})["archive_preview"]
+                step(f"preview: uncommitted {preview['has_uncommitted_changes']}, untracked {preview['untracked_files']}, "
+                     f"unpushed {preview['unpushed_commits']}, detached {preview['detached_commits']}, "
+                     f"agent running {preview['is_agent_running']}")
+                assert preview["has_uncommitted_changes"], "the edit made after the commit is not reported"
+                assert "notes-for-nobody.txt" in preview["untracked_files"], preview["untracked_files"]
+                assert preview["unpushed_commits"] >= 1, "the commit nobody pushed is not reported"
+
+                # The answer moves under the reader, which is the case this confirmation exists for.
+                run_on(name, "cd ~/workspace && printf 'late\n' > late-arrival.txt", timeout=60)
+                moved = rpc(url, session(), {"kind": "archive", "confirmation_id": preview["confirmation_id"]})
+                assert "archive_preview" in moved, f"a stale confirmation archived the workspace: {moved}"
+                step(f"a confirmation whose answer moved comes back as a fresh preview, untracked now "
+                     f"{moved['archive_preview']['untracked_files']}")
+                assert "late-arrival.txt" in moved["archive_preview"]["untracked_files"]
+
+                # And nothing was stopped by the refusal: the workspace still answers and still works.
+                after_refusal = rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]
+                step(f"the workspace is untouched by the refusal: {after_refusal['name']}")
+
+                accepted = rpc(url, session(), {"kind": "archive", "confirmation_id": moved["archive_preview"]["confirmation_id"]})
+                assert "accepted" in accepted, f"the fresh confirmation was refused: {accepted}"
+                step("archived with the confirmation that matches what is there now")
+
+                # The door is closed: nothing new starts on a machine runbloom.app is about to delete.
+                chat = rpc(url, session(), {"kind": "workspace"})["workspace"]["chats"][0]["id"]
+                status, _, body = https(url, "POST", "/_bloom/v1/rpc", token=session(), body={
+                    "protocol": "bloom-workspace", "version": 1, "command_id": secrets.token_hex(8),
+                    "operation": {"kind": "send", "chat_id": chat, "text": "After the end"},
+                })
+                refused = json.loads(body).get("error", {})
+                step(f"a prompt sent after the archive is refused: {refused.get('code')} {refused.get('message', '')[:80]!r}")
+                assert refused, "a prompt was accepted on an archived workspace"
+
+                # And the work is still on the disk, because the machine never deletes anything:
+                # runbloom.app holds the provider token and deletes the machine itself.
+                left = run_on(name, "cd ~/workspace && git status --short && git log --oneline -1", timeout=60)
+                step(f"the worktree is untouched by the archive: {' | '.join(left.split(chr(10))[:4])}")
+
+            if arguments.terminal:
+                # A dropped connection is what a person meets: a laptop sleeping, a tunnel dying, a
+                # token expiring. The shell is meant to outlive it, and nothing here had ever
+                # checked that from the outside.
+                step("a terminal, and what a dropped connection costs")
+                first = Terminal(url, "scratch", session())
+                first.send("echo shell-is-$$\n")
+                seen = first.until(b"shell-is-")
+                pid = re.search(rb"shell-is-(\d+)", seen)
+                step(f"the shell answers, pid {pid.group(1).decode() if pid else '?'}")
+                first.send("printf 'written before the drop\\n' > ~/terminal-probe.txt; echo marker-one\n")
+                first.until(b"marker-one")
+
+                # The drop itself: the socket goes without a close frame, which is what a network
+                # failure looks like and is not what a tidy client would send.
+                first.close()
+                time.sleep(2)
+
+                second = Terminal(url, "scratch", session())
+                # Whatever a reattaching client is sent before it types anything, which is tmux's
+                # redraw of the pane. Nothing at all is an answer worth printing rather than an
+                # exception, because "the screen comes back empty" is exactly what a person meets.
+                try:
+                    replayed = second.read(timeout=10)[1] or b""
+                except (TimeoutError, socket.timeout):
+                    replayed = b""
+                step(f"the reconnection is sent {len(replayed)} bytes of the pane at once: {replayed[:80]!r}")
+                second.send("echo shell-is-$$\n")
+                again = second.until(b"shell-is-")
+                pid_again = re.search(rb"shell-is-(\d+)", again)
+                same = bool(pid and pid_again and pid.group(1) == pid_again.group(1))
+                step(f"the shell survived the drop: {same} ({pid_again.group(1).decode() if pid_again else '?'})")
+                assert same, "the shell did not survive a dropped connection"
+                second.send("cat ~/terminal-probe.txt\n")
+                second.until(b"written before the drop")
+                step("and what it wrote before the drop is still there")
+
+                # A token that is about to expire is replaced on the open socket rather than by
+                # reconnecting, which is the whole point of `reauth`.
+                second.send(json.dumps({"kind": "reauth", "token": session()}), opcode=1)
+                second.send("echo after-the-reauth\n")
+                second.until(b"after-the-reauth")
+                step("reauth on the open socket keeps the shell")
+
+                second.send(json.dumps({"kind": "resize", "columns": 100, "rows": 30}), opcode=1)
+                time.sleep(1)
+                second.send("echo cols-$(tput cols)\n")
+                sized = second.until(b"cols-")
+                step(f"resize reaches the pty: {re.search(rb'cols-(\d+)', sized).group(0).decode()}")
+
+                # Each connection is a turn registered with runbloom.app, and the one that dropped
+                # has to have been ended, or it counts against the team until runbloom.app gives up.
+                terminal_turns = [r for r in requests() if r["path"].endswith("/turns") and r["body"].get("kind") == "terminal"]
+                ended = [r for r in requests() if r["method"] == "DELETE"]
+                step(f"terminal turns registered: {len(terminal_turns)}, turns ended: {len(ended)}")
+                assert len(terminal_turns) >= 2, "a reconnection did not register its own turn"
+                wait_for("the dropped connection's turn is ended", lambda: len(
+                    [r for r in requests() if r["method"] == "DELETE"]) >= 1, 60, interval=3)
+                second.close()
 
             if arguments.update:
                 # Releases are laid out under /opt/bloom beforehand, so the bootstrap takes them as

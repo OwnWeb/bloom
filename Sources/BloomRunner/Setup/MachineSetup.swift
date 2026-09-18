@@ -57,7 +57,11 @@ public actor MachineSetup {
     private let cloneURL: @Sendable (_ repository: String) -> String
     private let gitGlobalConfig: String?
     private let timeouts: Timeouts
+    /// How long this instance waits; a test cannot sit through five minutes to prove a sentence.
+    private let stallAfter: TimeInterval
     private var isRunning = false
+    /// What setup is doing now and since when, for the stall watchdog. Nil between runs.
+    private var activity: (name: String, since: Date)?
 
     /// The `gh` wrapper's directory. Put it first on an agent's PATH, so the agent's `gh` asks
     /// Bloom Runner for a token too.
@@ -79,7 +83,8 @@ public actor MachineSetup {
         serverExecutable: String = MachineSetup.currentExecutable,
         cloneURL: @escaping @Sendable (_ repository: String) -> String = MachineSetup.gitHubCloneURL,
         gitGlobalConfig: String? = nil,
-        timeouts: Timeouts = .standard
+        timeouts: Timeouts = .standard,
+        stallAfter: TimeInterval = MachineSetup.stallAfter
     ) {
         self.runtime = runtime
         self.store = store
@@ -94,6 +99,7 @@ public actor MachineSetup {
         self.cloneURL = cloneURL
         self.gitGlobalConfig = gitGlobalConfig
         self.timeouts = timeouts
+        self.stallAfter = stallAfter
         binDirectory = gitTools.binDirectory
     }
 
@@ -117,11 +123,74 @@ public actor MachineSetup {
     /// What Bloom Runner calls at every start.
     public func run() async {
         let completed = (try? await store.setting(Self.completedSetting)) == "1"
+        let watchdog = watchForStalls()
+        defer { watchdog.cancel() }
         if completed {
             await resumeAfterRestart()
         } else {
             await runWholeSequence()
         }
+    }
+
+    /// How long one part of setup may go without moving before the machine says so, and how often
+    /// it says so after that.
+    public static let stallAfter: TimeInterval = 5 * 60
+
+    /// **A machine stuck in setup answers everything you ask it except the one thing that matters.**
+    ///
+    /// Measured on a Sprite: a `git config` child exited one second into the machine's life and was
+    /// never reaped, `Process.run()` never returned, and setup sat in that one call for eighteen
+    /// minutes. Health answered, RPC answered, the summary said `setting_up`, and the shutdown when
+    /// it finally came was clean in eighteen milliseconds. Nothing anywhere said the workspace was
+    /// never going to exist. So this cannot be built on "is the server alive", because it was: it
+    /// is built on "has this step moved", which is the only question with a useful answer.
+    ///
+    /// It says so and does nothing else. Restarting the service clears that hang, and this knows
+    /// it, but a watchdog that restarts a machine is a third thing that reverts a release
+    /// (`Tools/bootstrap-machine.sh` has the other two) and the sentence is what was missing.
+    /// runbloom.app is the side that can see a machine from outside and act on it.
+    private func watchForStalls() -> Task<Void, Never> {
+        let interval = Duration.seconds(min(stallAfter / 2, 30))
+        return Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                await self?.reportStall()
+            }
+        }
+    }
+
+    private var stalledSince: Date?
+
+    private func reportStall() async {
+        guard let activity else {
+            stalledSince = nil
+            return
+        }
+        // Output is progress. A step that is printing is working, whatever its own clock says.
+        let lastMovement = max(activity.since, await currentLog?.lastWriteAt ?? activity.since)
+        let waiting = Date().timeIntervalSince(lastMovement)
+        guard waiting >= stallAfter else { return }
+        // Once per interval rather than once per tick, and again when the same step is still there
+        // the next interval: a machine that is stuck for an hour should say so twelve times, not
+        // once at the start where nobody was looking yet.
+        if let stalledSince, Date().timeIntervalSince(stalledSince) < stallAfter { return }
+        stalledSince = Date()
+        let waited = waiting >= 60 ? "\(Int(waiting / 60)) minutes" : "\(Int(waiting)) seconds"
+        let sentence = "Setup has been in \(activity.name) for \(waited) with nothing new. "
+            + "If it never moves, restarting this machine's server clears it: the one case measured "
+            + "was a subprocess launch that never returned, and a restart ran the same step at once."
+        await currentLog?.note(sentence)
+        FileHandle.standardError.write(Data("bloom-runner: \(sentence)\n".utf8))
+    }
+
+    /// The log of the run in hand, so the watchdog can write into what a person is watching.
+    private var currentLog: SetupLog?
+
+    /// Setup moved on to something. The name is what the watchdog says, so it is what somebody
+    /// reading a stuck machine sees: `configuring git` rather than `step 0`.
+    private func moved(to name: String) {
+        activity = (name, Date())
+        stalledSince = nil
     }
 
     /// Clone, `prepare`, `setup`, `resume`, then the services. Returns whether setup succeeded.
@@ -131,9 +200,14 @@ public actor MachineSetup {
         isRunning = true
         defer { isRunning = false }
 
+        moved(to: "reading the team's environment")
         await machineEnvironment.refresh()
         let environment = await scriptEnvironment()
         let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
+        currentLog = log
+        defer { currentLog = nil; activity = nil }
+        // Named because this is where the one measured hang sat, before any step exists to blame.
+        moved(to: "configuring git")
         await configureGit(environment: environment, log: log)
 
         // A run the machine was stopped in the middle of left its output in the row; a person
@@ -168,11 +242,16 @@ public actor MachineSetup {
         isRunning = true
         defer { isRunning = false }
 
+        moved(to: "reading the team's environment")
         await machineEnvironment.refresh()
         let environment = await scriptEnvironment()
         let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
+        currentLog = log
+        defer { currentLog = nil; activity = nil }
+        moved(to: "configuring git")
         await configureGit(environment: environment, log: log)
         let scripts = MachineScripts.load(repo: layout.worktree)
+        moved(to: "resume")
         let succeeded = await runScript("resume", scripts.resume, timeout: timeouts.resume, environment: environment, log: log, continuing: true)
         if await interruptedByShutdown(log: log) { return false }
         if await log.hasBegun { await settle(log: log, succeeded: succeeded) }
@@ -260,6 +339,7 @@ public actor MachineSetup {
     }
 
     private func begin(_ step: String, log: SetupLog, continuing: Bool) async {
+        moved(to: step)
         await log.begin(continuing: continuing)
         await log.startStep(step)
         await runtime.setupStepStarted(step)
