@@ -494,6 +494,11 @@ public actor WorkspaceRuntime {
 
     public static let liveModels: ModelDiscovery = { _ in
         var records: [ModelRecord] = []
+        // Claude Code's own list, so a client draws one list from one source rather than each
+        // carrying a table that drifts. See `ClaudeModelList`.
+        if let claude = try? await ClaudeModelCatalog.shared.models() {
+            records += claude.map { ModelRecord(agent: AgentKind.claudeCode.wireName, claude: $0) }
+        }
         if let codex = try? await CodexModelCatalog.live().pickerModels() {
             records += codex.filter { !$0.hidden }.map { ModelRecord(agent: AgentKind.codex.wireName, codex: $0) }
         }
@@ -512,6 +517,14 @@ extension ModelRecord {
         self.init(agent: agent, id: model.id, label: model.displayName, efforts: model.supportedEfforts.map(\.id),
                   defaultEffort: model.defaultEffort.isEmpty ? nil : model.defaultEffort, isDefault: model.isDefault)
     }
+    /// A Claude Code model. `default_effort` is left out because the CLI does not say one, and
+    /// `fast_tier` because Claude Code's fast mode is a switch on the chat rather than a tier of
+    /// the model.
+    init(agent: String, claude model: ClaudeModel) {
+        self.init(agent: agent, id: model.id, label: model.label, efforts: model.efforts, defaultEffort: nil,
+                  isDefault: model.isDefault)
+    }
+
     /// A Codex model with its fast tier, which `AgentModel` does not carry because only Codex has
     /// one per model.
     init(agent: String, codex: CodexModel) {

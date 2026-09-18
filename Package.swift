@@ -26,6 +26,7 @@ import Foundation
 // it tests is code the server runs.
 let linuxTests: [String] = [
     "AgentRunnerTests.swift",
+    "ClaudeModelListTests.swift",
     "CloudWorkspaceStartToolTests.swift",
     "CodexTestSupport.swift",
     "CodexTranslationTests.swift",

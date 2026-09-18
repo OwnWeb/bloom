@@ -196,7 +196,13 @@ enum WireExamples {
         ("composer", .composer(ComposerRecord(chatID: "chat-1", controls: controls, availableAgents: ["claude", "codex"],
             models: [ModelRecord(agent: "codex", id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium", isDefault: true,
                                  fastTier: "priority"),
-                     ModelRecord(agent: "codex", id: "gpt-5.5-mini", label: "GPT-5.5 mini", efforts: ["low", "medium"], defaultEffort: "low", isDefault: false)],
+                     ModelRecord(agent: "codex", id: "gpt-5.5-mini", label: "GPT-5.5 mini", efforts: ["low", "medium"], defaultEffort: "low", isDefault: false),
+                     // Claude Code's own list, read from the CLI: the `[1m]` variant is its own
+                     // model id, and the CLI names no default effort.
+                     ModelRecord(agent: "claude", id: "opus[1m]", label: "Opus 5 with 1M context",
+                                 efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: nil, isDefault: true),
+                     ModelRecord(agent: "claude", id: "sonnet", label: "Sonnet 5",
+                                 efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: nil, isDefault: false)],
             commands: [SlashCommandRecord(name: "review", description: "Review the branch")], outputStyles: ["default", "Explanatory"]))),
         // The same answer about a chat nobody has made yet, which is what `composer` with no
         // `chat_id` asks: no `chat_id` comes back either.

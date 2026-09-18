@@ -521,6 +521,32 @@
               "id" : "gpt-5.5-mini",
               "is_default" : false,
               "label" : "GPT-5.5 mini"
+            },
+            {
+              "agent" : "claude",
+              "efforts" : [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "id" : "opus[1m]",
+              "is_default" : true,
+              "label" : "Opus 5 with 1M context"
+            },
+            {
+              "agent" : "claude",
+              "efforts" : [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "id" : "sonnet",
+              "is_default" : false,
+              "label" : "Sonnet 5"
             }
           ],
           "output_styles" : [
