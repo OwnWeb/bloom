@@ -150,3 +150,28 @@ struct ProcessEndingTests {
         #expect(!ProcessEnding.signalled(SIGPIPE).isSuccess)
     }
 }
+
+#if os(Linux)
+/// The arithmetic behind `WIFSIGNALED` and its siblings, which Swift cannot import because they are
+/// C macros, written out and checked against the values the kernel actually produces.
+@Suite("Reading a wait status")
+struct WaitStatusTests {
+    @Test("an ordinary exit carries its code in the second byte")
+    func exitCodes() {
+        #expect(!StreamingProcess.wasSignalled(0))
+        #expect(StreamingProcess.exitCode(0) == 0)
+        // 13 << 8: the shape a script exiting 13 leaves, which is not the same 13 as SIGPIPE.
+        #expect(StreamingProcess.exitCode(13 << 8) == 13)
+        #expect(!StreamingProcess.wasSignalled(13 << 8))
+    }
+
+    @Test("a signalled child carries the signal in the low seven bits")
+    func signals() {
+        #expect(StreamingProcess.wasSignalled(13), "SIGPIPE, the one that started all this")
+        #expect(StreamingProcess.terminatingSignal(13) == 13)
+        #expect(StreamingProcess.wasSignalled(15) && StreamingProcess.terminatingSignal(15) == 15)
+        // 0x7f is stopped rather than terminated, and must not read as a signal death.
+        #expect(!StreamingProcess.wasSignalled(0x7F))
+    }
+}
+#endif

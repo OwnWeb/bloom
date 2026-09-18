@@ -423,10 +423,73 @@ public final class StreamingProcess: Sendable {
     // MARK: - Settling
 
     private func markEOF(stdout: Bool) {
-        state.withLock { state in
+        let bothClosed = state.withLock { state -> Bool in
             if stdout { state.stdoutAtEOF = true } else { state.stderrAtEOF = true }
+            return state.stdoutAtEOF && state.stderrAtEOF && state.status == nil
+        }
+        #if os(Linux)
+        if bothClosed { reapWhenFoundationDoesNot() }
+        #endif
+    }
+
+    #if os(Linux)
+    /// **Wait for the child ourselves, because Foundation sometimes never does.**
+    ///
+    /// Everything here hangs off `process.terminationHandler`: it calls `settle`, which calls
+    /// `finish`, which resumes whoever is awaiting `exitStatus`. Twice on one morning, on Cloud
+    /// workspace machines, that handler never fired. The child had exited, both pipes were at EOF,
+    /// and the process sat in the table as `<defunct>`: a zombie is a child nobody has waited on,
+    /// so Foundation's own reaping had not run. A setup script that finished in 26 seconds left
+    /// the runner waiting for ever, the workspace never became usable, and the control server kept
+    /// restarting a machine whose setup had in fact completed.
+    ///
+    /// So once both pipes are closed, which is the moment the child has almost certainly gone, this
+    /// polls `waitpid` with `WNOHANG` once a second. A child that is genuinely still running, and
+    /// has merely closed its own output, answers 0 and is left alone for as long as it likes: the
+    /// poll costs one syscall a second and ends when the child does. A child that has exited gives
+    /// its status here rather than through a handler that is not coming, and `ECHILD` means
+    /// somebody else reaped it, which is settled as an exit nobody saw rather than as a hang.
+    ///
+    /// Linux only, and deliberately: this is where the fault is, and on Darwin reaping a child
+    /// Foundation is managing would take its `terminationStatus` away from it.
+    private func reapWhenFoundationDoesNot() {
+        let pid = process.processIdentifier
+        guard pid > 0 else { return }
+        DispatchQueue.global().asyncAfter(deadline: .now() + Self.reapPollInterval) { [weak self] in
+            guard let self, self.state.withLock({ $0.status == nil }) else { return }
+            var raw: Int32 = 0
+            let answer = waitpid(pid, &raw, WNOHANG)
+            if answer == pid {
+                let signalled = Self.wasSignalled(raw)
+                self.state.withLock { $0.wasSignalled = signalled }
+                self.settle(status: signalled ? Self.terminatingSignal(raw) : Self.exitCode(raw), deadline: nil)
+                return
+            }
+            if answer < 0, errno == ECHILD {
+                // Reaped by somebody else and the handler never came. There is no status left to
+                // read, and 0 would read as success, so this is reported as a signal of 0: not a
+                // clean exit, which is the only thing that can honestly be said about it.
+                self.state.withLock { $0.wasSignalled = true }
+                self.settle(status: 0, deadline: nil)
+                return
+            }
+            self.reapWhenFoundationDoesNot()
         }
     }
+
+    /// A second between asks. The child is already gone in the case this exists for, so the first
+    /// poll almost always answers; anything faster is a busy loop against a legitimately live
+    /// child that has closed its output.
+    private static let reapPollInterval = DispatchTimeInterval.seconds(1)
+
+    // `WIFSIGNALED` and its siblings are C macros, and Swift does not import macros, so the three
+    // bits of arithmetic behind them are written out here. Straight from `<bits/waitstatus.h>`:
+    // the low seven bits are the terminating signal, 0x7f means stopped rather than exited, and an
+    // ordinary exit puts its code in the second byte.
+    static func wasSignalled(_ raw: Int32) -> Bool { (raw & 0x7F) != 0 && (raw & 0x7F) != 0x7F }
+    static func terminatingSignal(_ raw: Int32) -> Int32 { raw & 0x7F }
+    static func exitCode(_ raw: Int32) -> Int32 { (raw >> 8) & 0xFF }
+    #endif
 
     /// Close the streams once the child's output is genuinely complete.
     ///
