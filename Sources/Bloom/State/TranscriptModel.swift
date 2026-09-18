@@ -1134,11 +1134,29 @@ final class TranscriptModel {
     }
 
     /// Whether this queued message may be sent in place of the turn that is running.
+    ///
+    /// Two rules rather than one, because the two queues are in different places. A local queue is
+    /// this app's and this Mac has one person at it; a Cloud chat's is the machine's, shared, and
+    /// drained by the machine in the order it arrived. What has to be true for a cancel, a stop and
+    /// a send to add up to a Steer at all is `CloudSteer`.
     func canSteer(_ delivery: Delivery) -> Bool {
-        // A Cloud chat's queue is shared and first come, first served: stopping somebody else's
-        // turn to jump the queue is not something one person's button should do.
-        guard cloud == nil else { return false }
+        guard cloud == nil else {
+            return CloudSteer.canSteer(
+                isRunning: isRunning,
+                // The reader's own messages carry no name: see where the queue is built.
+                promptIsReaders: delivery.author == nil && delivery.crewMessage == nil,
+                runningTurnIsReaders: runningTurnIsReaders,
+                queued: pendingDeliveries.count
+            )
+        }
         return DeliverySteer.canSteer(delivery, hold: deliveryHold, on: session.agentKind)
+    }
+
+    /// Whether the turn running now was started by this reader, which is what makes stopping it
+    /// theirs to do. Read off the last thing anybody said: a Cloud row carries a name when it was
+    /// written by somebody else, and nothing at all when it was written here.
+    private var runningTurnIsReaders: Bool {
+        rows.last { $0.kind == .user }?.authorName == nil
     }
 
     /// Stops the turn that is running and sends this queued message into the space it makes.
@@ -1148,10 +1166,37 @@ final class TranscriptModel {
     /// `DeliverySteer.queue(after:from:)`.
     func steer(_ delivery: Delivery) async {
         guard canSteer(delivery) else { return }
+        if let cloud { return await steerOnCloud(delivery, through: cloud) }
         // Booked rather than sent. See `steering` for why a send here would race the result of
         // the turn this is about to cancel.
         steering = delivery
         cancelTurn()
+    }
+
+    /// The same three words on a machine: take this message out of the queue, stop the turn, say it
+    /// again now.
+    ///
+    /// **The order is what makes it safe.** The cancel goes first, so a machine that will not take
+    /// the message back leaves the running turn alone and nothing has happened. The send goes last
+    /// and is not waited for: `CloudSteer` has already established that the queue held nothing but
+    /// this message, so a send that arrives while the turn is still dying is queued into an empty
+    /// queue and started the moment it ends, which is the whole of what Steer promises. Waiting for
+    /// the turn to die first would be a race with no benefit.
+    ///
+    /// A stop that fails is said and the message is still sent, because the queue it goes back into
+    /// is the queue it just left: nothing is lost, and the turn simply runs on.
+    private func steerOnCloud(_ delivery: Delivery, through cloud: CloudChatLink) async {
+        guard await cloud.cancelQueued(delivery.id) else {
+            app.alert = BloomAlert(
+                title: "That message was not sent early",
+                message: "The Cloud workspace would not take it back out of the queue, so the turn that is running was left alone."
+            )
+            return
+        }
+        await cloud.stop()
+        // Its files are on the machine already: this text came back from there, and the paths in it
+        // are the machine's. See `uploading`.
+        _ = await submitToCloud(delivery.body, through: cloud, sourceDraft: nil, uploadingFiles: false)
     }
 
     /// Hands over the message a Steer picked, once the turn it stopped has ended.
@@ -2456,7 +2501,9 @@ final class TranscriptModel {
     }
 
     /// `submit`, for a chat whose queue is on its machine.
-    private func submitToCloud(_ text: String, through cloud: CloudChatLink, sourceDraft: String?) async -> Bool {
+    private func submitToCloud(
+        _ text: String, through cloud: CloudChatLink, sourceDraft: String?, uploadingFiles: Bool = true
+    ) async -> Bool {
         guard !text.isEmpty else { return false }
         let submittedDraft = SubmittedDraft.matching(current: draft, message: text, source: sourceDraft)
         if submittedDraft != nil { draft = "" }
@@ -2466,7 +2513,7 @@ final class TranscriptModel {
         // this must share with the send below: somebody who attached a screenshot and got an
         // apology has lost nothing but the press.
         let body: String
-        switch await uploading(text, through: cloud) {
+        switch uploadingFiles ? await uploading(text, through: cloud) : .sent(text) {
         case .sent(let rewritten):
             body = rewritten
         case .refused(let title, let sentence):
