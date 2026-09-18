@@ -156,6 +156,20 @@ protocol WorkspaceSurface: AnyObject, Observable {
     /// Whether a browser tab is one of the kinds this workspace can open at all.
     var supportsBrowserTabs: Bool { get }
 
+    /// The chats this workspace has closed and would offer back, newest first.
+    ///
+    /// **Empty is the whole of the answer for a workspace that cannot do it**, which is a Cloud
+    /// one today: the section in the `+` menu is absent rather than greyed, exactly as a project
+    /// with no run scripts gets no Run Scripts heading. So the two verbs below have defaults that
+    /// do nothing, and a machine learning to reopen a chat is one implementation rather than a
+    /// second menu. See `SessionReopening` for the words and `NewTabMenu` for the rows.
+    var closedChats: [ClosedChat] { get }
+    /// Reads that list. A `Menu` builds its items before it opens and cannot await anything while
+    /// it does, so this is called on the way to the button and after every close.
+    func refreshClosedChats() async
+    /// Brings one back, with its messages, and puts it in front.
+    func reopen(_ chat: ClosedChat) async
+
     // MARK: A conversation in it
 
     /// Whether the workspace's own setup is running, which the transcript draws a row for.
@@ -409,4 +423,10 @@ extension WorkspaceSurface {
 
     /// Read it if it has not been read, which is what opening the tab means.
     func refreshFileTree() async { await refreshFileTree(force: false) }
+
+    /// Nothing to offer back, which is what a workspace that does not keep closed chats has.
+    /// See the declaration for why this is a default rather than a capability.
+    var closedChats: [ClosedChat] { [] }
+    func refreshClosedChats() async {}
+    func reopen(_ chat: ClosedChat) async {}
 }

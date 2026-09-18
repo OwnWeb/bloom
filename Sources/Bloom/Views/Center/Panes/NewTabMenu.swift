@@ -80,7 +80,7 @@ struct NewTabMenu<Model: WorkspaceSurface>: View {
         }
         // The first opening of this menu in a launch has had no close and no hover behind it, and
         // an empty Recently Closed section is indistinguishable from a chat that cannot come back.
-        .task(id: model.workspace.id) { await model.refreshClosedChats() }
+        .task(id: model.surfaceID) { await model.refreshClosedChats() }
         .accessibilityLabel("New Tab")
         .help("New tab in this workspace")
     }
