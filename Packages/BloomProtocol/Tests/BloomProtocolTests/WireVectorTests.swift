@@ -170,7 +170,15 @@ enum WireExamples {
         ("accepted", .accepted),
         ("workspace", .workspace(WorkspaceSnapshotRecord(workspace: workspace, chats: [chat],
                                                           presence: [PresenceRecord(userID: author.userID, name: author.name, lastInputAt: date)], cursor: 118,
-                                                          composerDefaults: controls))),
+                                                          composerDefaults: controls,
+                                                          // Two people with access, one of whom is
+                                                          // not connected: the list a client offers
+                                                          // completion from is who has access, not
+                                                          // who is here.
+                                                          members: [
+                                                              MemberRecord(userID: author.userID, name: "Freek", handle: "freek"),
+                                                              MemberRecord(userID: nameless.userID, name: "", handle: "sebdd"),
+                                                          ]))),
         ("transcript", .transcript(TranscriptRecord(chat: chat, messages: [message], hasMore: false, questions: [question], busy: true,
                                                     streamingText: "Running", queue: queue))),
         ("composer", .composer(ComposerRecord(chatID: "chat-1", controls: controls, availableAgents: ["claude", "codex"],

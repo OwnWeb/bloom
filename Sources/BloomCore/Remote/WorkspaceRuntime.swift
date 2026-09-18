@@ -69,6 +69,9 @@ public actor WorkspaceRuntime {
     /// the machine. **Answers `unknown` off a machine and before the list has ever arrived**, which
     /// is refused rather than guessed at. See `MemberLookup`.
     let lookUpMember: @Sendable (String) async -> MemberLookup
+    /// Everybody who may be addressed, for the snapshot a client draws completion from. Empty off a
+    /// machine and until the list has arrived.
+    let listMembers: @Sendable () async -> [WorkspaceMember]
     /// Told when somebody has been addressed, so the machine's half can tell runbloom.app. The row
     /// is already written by then, so a machine that dies here still reports after its restart.
     let addressed: (@Sendable (AddressedReport) async -> Void)?
@@ -111,9 +114,11 @@ public actor WorkspaceRuntime {
         runsSetup: Bool = true,
         briefing: String? = nil,
         lookUpMember: @escaping @Sendable (String) async -> MemberLookup = { _ in .unknown },
+        listMembers: @escaping @Sendable () async -> [WorkspaceMember] = { [] },
         addressed: (@Sendable (AddressedReport) async -> Void)? = nil
     ) {
         self.lookUpMember = lookUpMember
+        self.listMembers = listMembers
         self.addressed = addressed
         self.briefing = briefing
         self.runsSetup = runsSetup

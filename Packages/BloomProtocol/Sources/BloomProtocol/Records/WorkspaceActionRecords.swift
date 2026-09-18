@@ -108,18 +108,51 @@ public struct WorkspaceSnapshotRecord: Codable, Sendable, Hashable {
     /// `composer`, because discovering those costs a subprocess and a walk of the filesystem and
     /// this record is read on every connect.
     public var composerDefaults: ComposerControlsRecord
+    /// Everybody who may be addressed with `@`, which is **not the same list as `presence`**: that
+    /// is who is here, and this is who has access. Somebody who is away is exactly the person a
+    /// mention is most useful for.
+    ///
+    /// Each carries a `handle`, which is what somebody types. A name is not typeable and an address
+    /// is not either, and a handle belongs to a **membership** rather than to a person, so the same
+    /// person may be `seb` in one team and `sebdd` in another. **No addresses here**: a share-link
+    /// guest reads this snapshot too, and a directory of every member's email would be a way for
+    /// somebody outside the team to collect them by typing `@`.
+    ///
+    /// Empty when the machine has not been told yet, which is a real state rather than an empty
+    /// team: a `send` addressed to somebody is refused while it lasts, and it ends by itself.
+    public var members: [MemberRecord]
 
     public init(workspace: WorkspaceRecord, chats: [ChatRecord], presence: [PresenceRecord], cursor: Int64,
-                composerDefaults: ComposerControlsRecord) {
+                composerDefaults: ComposerControlsRecord, members: [MemberRecord] = []) {
         self.workspace = workspace
         self.chats = chats
         self.presence = presence
         self.cursor = cursor
         self.composerDefaults = composerDefaults
+        self.members = members
     }
 
     enum CodingKeys: String, CodingKey {
-        case workspace, chats, presence, cursor
+        case workspace, chats, presence, cursor, members
         case composerDefaults = "composer_defaults"
+    }
+}
+
+/// Somebody with access to this workspace, for addressing a message to them.
+public struct MemberRecord: Codable, Sendable, Hashable {
+    public var userID: String
+    public var name: String
+    /// What somebody types after `@`. Short, stable, and unique inside this team.
+    public var handle: String
+
+    public init(userID: String, name: String, handle: String) {
+        self.userID = userID
+        self.name = name
+        self.handle = handle
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, handle
+        case userID = "user_id"
     }
 }

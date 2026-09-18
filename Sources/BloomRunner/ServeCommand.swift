@@ -71,6 +71,7 @@ public enum ServeCommand {
                 publicURL: configuration.publicURL, appPort: layout.appPort, reservedPorts: layout.reservedPorts
             ),
             lookUpMember: { await members.look(up: $0) },
+            listMembers: { await members.all() },
             addressed: { _ in await addressedReporter.start() }
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()

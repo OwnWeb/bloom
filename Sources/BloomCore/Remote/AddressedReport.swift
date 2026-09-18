@@ -26,9 +26,14 @@ public struct AddressedReport: Sendable, Hashable {
     public var id: String
     public var sessionID: SessionID
     public var userID: String
-    /// Whether they were connected to this workspace at the moment it was sent, which only the
-    /// machine can say. Recorded then rather than looked up when the report goes, because by then
-    /// it would be a different question.
+    /// Whether they were connected to this workspace **at the moment the message was sent**, which
+    /// only the machine can say.
+    ///
+    /// **This looks like staleness and is the opposite.** The report may go twenty minutes late,
+    /// after a restart, and asking presence then would answer a different question: runbloom.app is
+    /// deciding whether somebody missed a message, which depends on where they were when it
+    /// arrived, not on where they are when the machine gets round to saying so. So it is recorded
+    /// with the row and never refreshed.
     public var connected: Bool
     public var sentAt: Date
     public var from: Sender

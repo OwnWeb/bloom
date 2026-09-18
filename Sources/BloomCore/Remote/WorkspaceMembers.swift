@@ -1,3 +1,4 @@
+import BloomProtocol
 import Foundation
 
 /// Somebody with access to this workspace, as runbloom.app lists them.
@@ -27,6 +28,8 @@ public struct WorkspaceMember: Sendable, Hashable, Codable {
         case name, handle
         case userID = "user_id"
     }
+
+    public var record: MemberRecord { MemberRecord(userID: userID, name: name, handle: handle) }
 }
 
 /// What the machine knows about one id it has been asked to address.

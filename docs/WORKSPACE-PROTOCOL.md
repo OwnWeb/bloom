@@ -293,6 +293,15 @@ agent reads** and nowhere else: the agent is asked "Fix the server", not "@agent
 while the stored row keeps what was typed because the bubble draws it. A client must not strip it
 early.
 
+**Who may be addressed is `members` on the workspace snapshot, and it is not `presence`.** Presence
+is who is here; this is who has access, and **somebody who is away is exactly who a mention is most
+useful for**. Each carries a `handle`, which is what a person types after `@`: a display name is not
+typeable and an address is not either. **A handle belongs to a membership rather than to a person**,
+so the same person may be `seb` in one team and `sebdd` in another, and a client must not cache one
+across workspaces. There are no addresses in the list, because a share-link guest reads this
+snapshot too and a directory of every member's email would be a way to collect them by typing `@`.
+It is empty until the machine has been told, which is a real state and not an empty team.
+
 **The machine refuses an audience it cannot vouch for**, and says which of the two it is: the person
 is not a member of this team, or this machine has not been told who the team is yet. Both are
 refusals rather than a stored guess.

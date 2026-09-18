@@ -235,7 +235,10 @@ RECORDS = {
     "Terminal": obj({"name": S, "title": S}),
     "Presence": obj({"user_id": S, "name": S}, {"last_input_at": DATE}),
     "WorkspaceSnapshot": obj({"workspace": ref("Workspace"), "chats": array(ref("Chat")), "presence": array(ref("Presence")),
-                              "cursor": I, "composer_defaults": ref("ComposerControls")}),
+                              "cursor": I, "composer_defaults": ref("ComposerControls"), "members": array(ref("Member"))}),
+    # Who may be addressed with `@`, which is not `presence`: that is who is here, and somebody who
+    # is away is exactly who a mention is for. No addresses; a share-link guest reads this too.
+    "Member": obj({"user_id": S, "name": S, "handle": S}),
 }
 
 

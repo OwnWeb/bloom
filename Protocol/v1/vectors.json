@@ -758,6 +758,18 @@
             "permission_mode" : "acceptEdits"
           },
           "cursor" : 118,
+          "members" : [
+            {
+              "handle" : "freek",
+              "name" : "Freek",
+              "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+            },
+            {
+              "handle" : "sebdd",
+              "name" : "",
+              "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2u"
+            }
+          ],
           "presence" : [
             {
               "last_input_at" : "2026-09-17T09:40:02.500Z",

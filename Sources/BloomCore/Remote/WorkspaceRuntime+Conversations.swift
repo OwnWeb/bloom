@@ -15,7 +15,8 @@ extension WorkspaceRuntime {
         }
         return WorkspaceSnapshotRecord(workspace: workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services), chats: chats,
                                        presence: presence.records, cursor: cursor,
-                                       composerDefaults: try await newChatControls().record)
+                                       composerDefaults: try await newChatControls().record,
+                                       members: await listMembers().map(\.record))
     }
 
     /// What a chat that does not exist yet would start with, as this machine would answer it.
@@ -248,8 +249,16 @@ extension WorkspaceRuntime {
             }
             audience = known
         }
-        if let audience, audience.isPrivateToPeople {
-            return try await sendToPerson(body, audience: audience, session: session, as: caller)
+        // **An exhaustive switch rather than a test for `person`.** A kind added here later and not
+        // handled would fall through a boolean into the agent's queue, which is the one outcome
+        // this feature exists to prevent, and it would do it silently a release after anybody
+        // thought about it. Written this way so the compiler refuses instead.
+        switch audience?.kind {
+        case .person:
+            return try await sendToPerson(body, audience: audience ?? MessageAudience(kind: .person),
+                                          session: session, as: caller)
+        case .agent, nil:
+            break
         }
         try await requireInstalled(session.agentKind)
         _ = try await workspace()
