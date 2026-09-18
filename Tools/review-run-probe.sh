@@ -6,6 +6,7 @@
 # Pass --review-fold-only to check that ticking a file folds it and that the row controls line up.
 # Pass --tab-store-only to check what a workspace's tabs are written as and what comes back.
 # Pass --cloud-terminal-only to check what a Cloud terminal shows after the machine reattaches it.
+# Pass --share-popover-only to draw two Share popover designs, offscreen, into the evidence folder.
 # Pass --cloud-selection-only to check that a Cloud workspace with no chats cannot recurse with the
 # tab store. It crashes rather than fails on the code this was written for, which is the failure.
 # Set BLOOM_PROBE_VERBOSE=1 to print the probe's own log on a passing run as well as a failing
