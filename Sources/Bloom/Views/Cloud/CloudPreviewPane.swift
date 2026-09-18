@@ -1,101 +1,153 @@
 import AppKit
 import BloomClient
 import BloomCore
+import BloomProtocol
 import SwiftUI
 
 /// A Cloud workspace's own app, in a pane of the window rather than in another application.
 ///
-/// **A window onto one machine, and deliberately not a browser.** The owner's first prompt in a
-/// Cloud workspace was "show me the homepage in a pane next to this chat", and until now the only
-/// answer was a button that opened his real browser. What a local workspace has in the same place
-/// is a browser tab, which is a place to type an address; this cannot be that, because what it
-/// draws is reached through a token that is single use and lasts a minute. An address bar over a
-/// one-time token is a promise the thing cannot keep, so there is none: this shows the machine's
-/// app and offers to reload it.
+/// **The same browser as a local workspace's, with fewer controls.** It was a browser of its own
+/// for a day: a thin custom row with a glyph, a host and two borderless buttons, on the argument
+/// that a pane reached through a one-time token is not a place to type an address. The owner put it
+/// beside the local browser and said it plainly, that it does not look the same. The argument was
+/// right and the conclusion was wrong: what cannot work here is a control, not a way of dressing a
+/// pane. So this draws `BrowserToolbarView`, the local browser's own bar, and `BrowserToolbar.Surface`
+/// holds the three things a machine has less of and the reason for each.
 ///
 /// **Every showing is a fresh exchange.** `GET /_bloom/preview/enter?token=` sets the preview
 /// cookie for that machine's host and redirects to the app; the token behind it cannot be used
 /// twice. So opening, reloading and coming back after a relaunch each ask runbloom.app for a new
 /// one rather than replaying the address, which is what makes the restore case work by
-/// construction: there is no stored address to have gone stale.
+/// construction: there is no stored address to have gone stale. Reload and Open in Default Browser
+/// both go through that exchange rather than through the address on screen.
 ///
 /// The address is checked before it is loaded, by the same rule `openPreview` checks it with: the
 /// machine's own host, over HTTPS, at the exchange path. runbloom.app naming another host would be
 /// the one way this pane could be pointed somewhere it should not go.
+///
+/// **What it says when there is no app to show is `CloudPreviewReadiness`**, which is a sentence
+/// naming the state rather than a spinner. A white rectangle under a bar is what a page that failed
+/// looks like, and a workspace whose setup has not run will never fill it in on its own.
 struct CloudPreviewPane: View {
     var session: CloudWorkspaceSession
 
     /// The page itself, made on the first exchange and kept for the life of the pane, so a reload
     /// is a reload rather than a new web view with a new cookie store.
     @State private var browser: BrowserSession?
-    @State private var problem: String?
-    @State private var isOpening = true
+    /// Why runbloom.app would not hand over an address, which is a different failure from anything
+    /// the page can report. Nil unless the last exchange was refused.
+    @State private var refusal: CloudPreviewReadiness.Notice?
+    @State private var isOpening = false
 
     var body: some View {
         VStack(spacing: 0) {
-            bar
-            Hairline()
+            toolbar
             content
         }
-        .task { await open() }
+        .task { await openIfReady() }
+        // Setup finishing is what makes "the page appears here on its own" true. The pane is
+        // holding a sentence rather than a request at that moment, so nothing else would notice.
+        .onChange(of: session.state.setup?.state) { _, _ in
+            Task { await openIfReady() }
+        }
     }
+
+    // MARK: - The bar
+
+    private var toolbar: some View {
+        BrowserToolbarView(
+            toolbar: BrowserToolbar(
+                surface: .machineApp,
+                page: browser?.page ?? BrowserTabTitle.BrowserPage(),
+                canGoBack: browser?.canGoBack ?? false,
+                canGoForward: browser?.canGoForward ?? false,
+                isLoading: browser?.isLoading ?? isOpening,
+                loadProgress: browser?.loadProgress ?? 0
+            ),
+            address: .constant(shownAddress),
+            isRingVisible: false,
+            backHistory: browser?.backHistory ?? [],
+            forwardHistory: browser?.forwardHistory ?? [],
+            goBack: { browser?.goBack() },
+            goForward: { browser?.goForward() },
+            goToHistory: { step in browser?.go(back: step) },
+            reloadOrStop: { Task { await openIfReady() } },
+            openInBrowser: { Task { await session.openPreview() } },
+            viewport: Binding(
+                get: { browser?.viewport ?? BrowserViewport() },
+                set: { browser?.viewport = $0 }
+            )
+        )
+    }
+
+    /// Where the page is, without the token it was reached with, and the machine's host before the
+    /// first exchange has answered. See `BrowserToolbar.Surface.shownAddress`.
+    private var shownAddress: String {
+        BrowserToolbar.Surface.machineApp.shownAddress(browser?.page.address ?? "")
+    }
+
+    // MARK: - The page, or the reason there is none
 
     @ViewBuilder
     private var content: some View {
-        if let problem {
-            EmptyStateView(
-                glyph: "exclamationmark.triangle",
-                title: "Could not open the preview",
-                message: problem,
-                actionTitle: "Try again",
-                action: { Task { await open() } }
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let browser {
-            BrowserWebViewHost(session: browser)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if isOpening {
-            LoadingView("Opening the preview")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    /// What a browser tab's address bar stands in for: which machine this is, and the two things
-    /// worth doing to it. No field, for the reason at the head of this file.
-    private var bar: some View {
-        HStack(spacing: Metrics.spacingWide) {
-            Image(systemName: PaneGlyph.browser)
-                .foregroundStyle(Palette.textTertiary)
-            Text(host)
-                .font(Typo.caption)
-                .foregroundStyle(Palette.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
-            Button("Reload", systemImage: "arrow.clockwise") { Task { await open() } }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .help("Ask the Cloud workspace for its app again")
-            Button("Open in Browser", systemImage: "arrow.up.forward.app") {
-                Task { await session.openPreview() }
+        ZStack {
+            if let browser {
+                // The local browser's own page host, which is what makes the viewport control in
+                // the bar do something: it holds the sizing, the scroll view around an oversized
+                // page and the border round it. A plain web view in a frame would have left that
+                // button drawn and dead.
+                BrowserViewportView(session: browser)
             }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .help("Open this in your browser")
+            // Over the web view rather than instead of it, as in `BrowserTabView`: the page keeps
+            // its identity, so a workspace that starts serving does not load into a pane that has
+            // just been rebuilt.
+            if let notice {
+                EmptyStateView(
+                    glyph: "exclamationmark.triangle",
+                    title: notice.title,
+                    message: notice.message,
+                    actionTitle: notice.invitesRetry ? "Try again" : nil,
+                    action: notice.invitesRetry ? { Task { await openIfReady() } } : nil
+                )
+                .background(Palette.surface)
+            }
         }
-        .padding(.horizontal, Metrics.gutter)
-        .frame(height: InspectorLayout.barHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The machine's host while there is one, and the workspace's name before the first exchange
-    /// has answered. Never an address somebody could mistake for something to type into.
-    private var host: String {
-        browser?.currentURL?.host() ?? session.surfaceName
+    /// What is wrong, in the order the reader can act on it.
+    ///
+    /// Setup first, because a workspace that has not set up cannot be serving whatever the page
+    /// says; then a refusal, which is runbloom.app declining to hand over an address at all; then
+    /// the page's own failure, which has a sentence written against the error it got; and last the
+    /// gateway answering for a port nobody is listening on, which is the white rectangle this was
+    /// written for.
+    private var notice: CloudPreviewReadiness.Notice? {
+        if case .waiting(let waiting) = CloudPreviewReadiness.of(setup: session.state.setup) {
+            return waiting
+        }
+        if let refusal { return refusal }
+        guard let browser else { return nil }
+        if let failure = browser.failure {
+            return CloudPreviewReadiness.Notice(
+                title: failure.title, message: failure.message, invitesRetry: true
+            )
+        }
+        if CloudPreviewReadiness.isSilent(status: browser.pageStatus) {
+            return CloudPreviewReadiness.nothingAnswered
+        }
+        return nil
     }
 
-    private func open() async {
+    /// Asks for an address and loads it, unless setup says there is nothing to load yet.
+    ///
+    /// Nothing is fetched while setup is going: the exchange would succeed, the gateway would
+    /// answer for a port nobody holds, and the pane would have spent a token to learn what the
+    /// setup record already said.
+    private func openIfReady() async {
+        guard case .serving = CloudPreviewReadiness.of(setup: session.state.setup) else { return }
         isOpening = true
-        problem = nil
+        refusal = nil
         defer { isOpening = false }
         switch await session.previewEntry() {
         case .address(let url):
@@ -105,7 +157,9 @@ struct CloudPreviewPane: View {
                 browser = BrowserSession(url: url.absoluteString)
             }
         case .refused(let sentence):
-            problem = sentence
+            refusal = CloudPreviewReadiness.Notice(
+                title: "Could not open the preview", message: sentence, invitesRetry: true
+            )
         }
     }
 }
@@ -116,23 +170,4 @@ struct CloudPreviewPane: View {
 enum PreviewEntry {
     case address(URL)
     case refused(String)
-}
-
-/// The page, hosted for a pane that has no browser tab behind it.
-///
-/// `BrowserTabView` is the local browser's whole apparatus: an address bar, downloads, a find bar,
-/// snapshots into a worktree and region capture. None of that belongs to a window onto a machine,
-/// and half of it needs a worktree, so this pane takes the web view and leaves the rest.
-private struct BrowserWebViewHost: NSViewRepresentable {
-    let session: BrowserSession
-
-    func makeNSView(context: Context) -> BrowserHostView {
-        let host = BrowserHostView()
-        host.attach(session.pageView)
-        return host
-    }
-
-    func updateNSView(_ host: BrowserHostView, context: Context) {
-        host.attach(session.pageView)
-    }
 }

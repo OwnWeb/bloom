@@ -206,4 +206,39 @@ struct BrowserToolbarTests {
         #expect(BrowserToolbar(page: page, isLoading: true, loadProgress: 1).progress == nil)
         #expect(BrowserToolbar(page: page, isLoading: false, loadProgress: 0.4).progress == nil)
     }
+
+    // MARK: - The same bar over a machine
+
+    @Test("A machine's pane has no field, no camera and no share sheet, and says why in one place")
+    func whatAMachinesPaneLeavesOut() {
+        #expect(BrowserToolbar.Surface.tab.hasAddressField)
+        #expect(BrowserToolbar.Surface.tab.hasPageCapture)
+        #expect(BrowserToolbar.Surface.tab.hasSystemSharing)
+        #expect(!BrowserToolbar.Surface.machineApp.hasAddressField)
+        #expect(!BrowserToolbar.Surface.machineApp.hasPageCapture)
+        #expect(!BrowserToolbar.Surface.machineApp.hasSystemSharing)
+    }
+
+    @Test("Reload and Open in Default Browser are live on a machine before any page has loaded")
+    func aMachinesPaneCanAlwaysAskAgain() {
+        let blank = BrowserToolbar(surface: .machineApp)
+        #expect(blank.reload.isEnabled)
+        #expect(blank.openInDefaultBrowser.isEnabled)
+        // And a tab with nowhere to go still says so, which is what this must not have changed.
+        let tab = BrowserToolbar()
+        #expect(!tab.reload.isEnabled)
+        #expect(!tab.openInDefaultBrowser.isEnabled)
+    }
+
+    @Test("A single use token is not drawn in the bar")
+    func theTokenNeverReachesTheCapsule() {
+        let entered = "https://m-42.runbloom.app/_bloom/preview/enter?token=abc123#top"
+        #expect(BrowserToolbar.Surface.machineApp.shownAddress(entered)
+            == "https://m-42.runbloom.app/_bloom/preview/enter")
+        #expect(BrowserToolbar.Surface.machineApp.shownAddress("https://m-42.runbloom.app/orders")
+            == "https://m-42.runbloom.app/orders")
+        #expect(BrowserToolbar.Surface.machineApp.shownAddress("") == "")
+        // A tab's address is its address, query and all: that is what the reader typed.
+        #expect(BrowserToolbar.Surface.tab.shownAddress(entered) == entered)
+    }
 }

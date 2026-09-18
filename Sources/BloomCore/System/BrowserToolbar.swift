@@ -47,6 +47,63 @@ public struct BrowserToolbar: Equatable, Sendable {
         }
     }
 
+    /// Which pane this bar is drawn in, which is the only thing that decides what it holds.
+    ///
+    /// **Two panes, one bar, and the differences are capabilities rather than branches.** A Cloud
+    /// workspace's app is shown beside its conversation by `CloudPreviewPane`, and the first
+    /// version of that pane drew a thin custom row of its own: a glyph, a host, two borderless
+    /// buttons. It was a different browser in the same window, which is the whole thing this slice
+    /// of work exists to avoid. So the pane draws `BrowserToolbarView` like the local one, and what
+    /// it has less of is written here, where a test can read it.
+    public enum Surface: String, Sendable, Equatable, CaseIterable, Codable {
+        /// A browser tab in a local workspace. Everything below is present.
+        case tab
+        /// A Cloud workspace's own app, over a machine rather than over this Mac.
+        case machineApp
+
+        /// Whether the address is a field to type into.
+        ///
+        /// It is not, on a machine. The pane is reached through a token that is single use and
+        /// lasts a minute, and there is one address it may ever show, so a field would be a
+        /// promise the pane cannot keep. The capsule stays, holding the host, because that is
+        /// where a reader looks to find out where they are.
+        public var hasAddressField: Bool { self == .tab }
+
+        /// Whether the camera and the area comment are there.
+        ///
+        /// They are not, on a machine: both end in an attachment on the composer's draft, by way
+        /// of a file written into the workspace's worktree, and a Cloud workspace has no worktree
+        /// on this Mac. Left out rather than drawn dead, which is the rule for the whole of this
+        /// enum: a control that can never be pressed is worse than one that is not there.
+        public var hasPageCapture: Bool { self == .tab }
+
+        /// Whether the system share sheet is there.
+        ///
+        /// It is not, on a machine. What it would hand over is the one-time exchange address,
+        /// which stops working the moment it is used, so anybody receiving it gets a dead link.
+        /// Sharing a Cloud workspace's app with somebody is a preview link, which is its own
+        /// decision in the Share popover, with its own expiry. See `CloudSharePopover`.
+        public var hasSystemSharing: Bool { self == .tab }
+
+        /// What the capsule shows, given where the page actually is.
+        ///
+        /// A tab shows the address, whole, because that is what an address bar is. A machine's
+        /// pane shows it without its query, because the one query this pane ever carries is the
+        /// single-use token the exchange was made with, and a token drawn in a bar reads as part
+        /// of the address: it invites somebody to copy it, and it is the one string here that is
+        /// worth nothing a second after it was used. The scheme, the host and the path stay, so
+        /// the reader still sees which page of the app they are on.
+        public func shownAddress(_ address: String) -> String {
+            guard self == .machineApp, !address.isEmpty else { return address }
+            guard var parts = URLComponents(string: address) else { return address }
+            parts.query = nil
+            parts.fragment = nil
+            return parts.string ?? address
+        }
+    }
+
+    public var surface: Surface
+
     /// Where the page is and what it says it is called.
     public var page: BrowserTabTitle.BrowserPage
     public var canGoBack: Bool
@@ -59,6 +116,7 @@ public struct BrowserToolbar: Equatable, Sendable {
     public var isCapturing: Bool
 
     public init(
+        surface: Surface = .tab,
         page: BrowserTabTitle.BrowserPage = BrowserTabTitle.BrowserPage(),
         canGoBack: Bool = false,
         canGoForward: Bool = false,
@@ -66,6 +124,7 @@ public struct BrowserToolbar: Equatable, Sendable {
         loadProgress: Double = 0,
         isCapturing: Bool = false
     ) {
+        self.surface = surface
         self.page = page
         self.canGoBack = canGoBack
         self.canGoForward = canGoForward
@@ -125,12 +184,15 @@ public struct BrowserToolbar: Equatable, Sendable {
             )
         }
         // A pane nobody has pointed anywhere has no page to reload, and a button that does
-        // nothing when pressed is worse than one that says so.
+        // nothing when pressed is worse than one that says so. A machine's pane is the exception
+        // and is live from the start: there is one address it can ever show, and asking for it
+        // again is the whole of what this button does there, including before the first exchange
+        // has answered.
         return Control(
             symbol: "arrow.clockwise",
             name: "Reload",
-            help: "Reload this page",
-            isEnabled: destination != nil
+            help: surface == .machineApp ? "Ask the Cloud workspace for its app again" : "Reload this page",
+            isEnabled: surface == .machineApp || destination != nil
         )
     }
 
@@ -162,13 +224,16 @@ public struct BrowserToolbar: Equatable, Sendable {
     /// `Control.help`, because the name is already the sentence a hover would need.
     ///
     /// Gated by `BrowserAddress.external` rather than `destination`, because the address is
-    /// written by the page and `NSWorkspace` hands it to whatever claims the scheme.
+    /// written by the page and `NSWorkspace` hands it to whatever claims the scheme. On a machine
+    /// it is not gated at all: what the browser is given there is a fresh exchange rather than the
+    /// address on screen, so it works before this pane has loaded anything and after its own token
+    /// has been spent.
     public var openInDefaultBrowser: Control {
         Control(
             symbol: "arrow.up.forward.app",
             name: "Open in Default Browser",
             help: "Open in Default Browser",
-            isEnabled: externalURL != nil
+            isEnabled: surface == .machineApp || externalURL != nil
         )
     }
 
