@@ -135,6 +135,18 @@ struct RemoteWorkspaceRuntimeTests {
         await again.shutdown()
     }
 
+    @Test("a machine with an agent missing says which name it looked for and where")
+    func missingAgentsAreNamed() async throws {
+        let everything = AgentKind.allCases.filter(\.canRunWorkspaces)
+        #expect(WorkspaceRuntime.missingAgentsNote(found: everything, path: "/usr/bin") == nil,
+                "nothing to say when they all resolve")
+
+        let note = try #require(WorkspaceRuntime.missingAgentsNote(
+            found: everything.filter { $0 != .grok }, path: "/home/sprite/.local/bin:/usr/bin"))
+        #expect(note.contains("grok"), "the name it looked for, not the label a person reads")
+        #expect(note.contains("/home/sprite/.local/bin:/usr/bin"), "and where it looked")
+    }
+
     @Test("a client can learn what a chat would start with before any chat exists")
     func composerDefaultsWithoutAChat() async throws {
         let fixture = try await fixture()

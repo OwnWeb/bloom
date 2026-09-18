@@ -80,7 +80,10 @@ machine with six and a half thousand tests and the same suite has measured betwe
 seconds on one commit, so a number taken from a run on your own Mac is a description of that Mac.
 The test before writing one is: **what would this number have to be wrong by for the code to be
 broken?** If the answer is "any amount, it never returns at all", the number is a ceiling and should
-be large; if there is no answer, something else should be asserted instead. This was written after
+be large. **And a ceiling has to sit below whatever kills the test from outside**, which is usually
+a suite's own `.timeLimit`: a bound at or above that limit can never report its own failure,
+because the harness's stopwatch fires first and the assertion under it never runs. If there is no
+answer to the question at all, something else should be asserted instead. This was written after
 producing the fourth instance in one night, an hour after fixing the third, which is how a careful
 person gets it wrong.
 
