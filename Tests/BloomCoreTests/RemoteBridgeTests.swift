@@ -100,6 +100,30 @@ struct RemoteBridgeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// The whole of it end to end: the agent shows a picture, the chat gets a row naming a copy, and
+    /// a client fetches that copy through `download`, the same door and the same token as any file.
+    @Test("media_show writes a media row a client can download the picture from")
+    func mediaShowReachesAClient() async throws {
+        let fixture = try await fixture()
+        let shot = TestScratch.unique("shot") + ".png"
+        try MachineMediaShowTests.png.write(to: URL(filePath: shot))
+
+        let answer = await fixture.call("media_show", ["path": shot, "caption": "After the fix"], as: fixture.orchestrator)
+        #expect(!answer.isError, "\(answer.text)")
+
+        let row = try #require(try await fixture.store.messages(sessionID: fixture.orchestrator.id).last)
+        #expect(row.kind == .media)
+        let media = try JSONDecoder().decode(SharedMedia.self, from: row.payload)
+        #expect(media.caption == "After the fix")
+        #expect(media.mime == "image/png")
+
+        let caller = RemoteCaller(author: MessageAuthor(userID: "u1", name: "Freek"), abilities: ["view"], sessionToken: "t")
+        let reply = await fixture.runtime.respond(to: CommandRequest(.download(path: media.path)), as: caller)
+        guard case .download(let file) = reply.result else { Issue.record("No download: \(String(describing: reply.error))"); return }
+        #expect(file.data == MachineMediaShowTests.png)
+        await fixture.runtime.shutdown()
+    }
+
     /// **Advice to a dead end** is what the agent Freek was testing with found: `agent_start` told it
     /// to use `workspace_start`, and three reading tools to pass "an id from workspace_list", on a
     /// machine that has neither. Every name a listing mentions has to be one the same listing offers.
@@ -110,7 +134,11 @@ struct RemoteBridgeTests {
         let offered = Set(tools.map(\.name))
         for tool in tools {
             let text = tool.description + String(describing: tool.inputSchema)
-            let named = Self.everyToolName.filter { text.contains($0) }
+            // Whole names, not substrings: `workspace_start` is inside `cloud_workspace_start`.
+            let words = try NSRegularExpression(pattern: "[a-z]+(?:_[a-z]+)+")
+                .matches(in: text, range: NSRange(text.startIndex..., in: text))
+                .compactMap { Range($0.range, in: text).map { String(text[$0]) } }
+            let named = Self.everyToolName.intersection(words)
             #expect(named.isSubset(of: offered), "\(tool.name) names \(named.subtracting(offered).sorted())")
         }
         // And the arguments the dead ends came with are gone, not only the words.
@@ -142,12 +170,14 @@ struct RemoteBridgeTests {
         // one here that reaches out of the machine at all: it asks a client to open a browser pane
         // and cannot open one itself. See `RequestPaneTool`. `cloud_setup` is guidance and touches
         // nothing; see `CloudSetupGuide`.
-        // `cloud_workspace_start` was added the same night, and it too only asks: runbloom.app makes
+        // `media_show` was added on 19 September 2026 and writes into this workspace only: a copy
+        // in its scratch folder and a row in the chat that called it. See `MachineMediaShowTool`.
+        // `cloud_workspace_start` was added the night before, and it too only asks: runbloom.app makes
         // the workspace, or refuses with a sentence naming the team switch. See
         // `CloudWorkspaceStartTool`.
         #expect(toolbox.tools(for: .workspace).map(\.name) == [
             "agent_list", "agent_say", "agent_start", "agent_stop", "chat_list", "chat_read",
-            "cloud_setup", "cloud_workspace_start", "request_pane", "whoami", "workspace_diff",
+            "cloud_setup", "cloud_workspace_start", "media_show", "request_pane", "whoami", "workspace_diff",
         ])
         #expect(toolbox.tools(for: .owner).isEmpty)
         // `pane_open` in particular: the machine can ask for a pane and cannot open one, and the
