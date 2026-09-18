@@ -62,6 +62,15 @@ struct MentionAddressTests {
         #expect(audience("@codex fix the tests", from: .person(Self.seb)) == .person(Self.seb))
     }
 
+    /// The name on the window, which is what somebody reaches for before they reach for a role.
+    /// The control server reserves the handle, so it can never be a person's.
+    @Test("The product's own name addresses the agent too")
+    func theProductsNameIsTheAgent() {
+        #expect(audience("@bloom fix the tests", from: .person(Self.seb)) == .agent)
+        #expect(MentionAddress.token(in: "@bloom fix the tests") == "@bloom")
+        #expect(MentionAddress.agentTokens(runningAgent: .codex) == ["agent", "bloom", "codex"])
+    }
+
     /// A typo must not send a message to the wrong reader, and must not silently send it to the
     /// agent either. It goes where the last one went, and the word stays a word.
     @Test("A mention that names nobody changes nothing")

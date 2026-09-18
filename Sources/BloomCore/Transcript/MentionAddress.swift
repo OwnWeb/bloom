@@ -15,12 +15,16 @@ import Foundation
 public enum MentionAddress {
     /// The tokens that mean the workspace's agent.
     ///
-    /// `agent` always, and the running agent's own name beside it. Bloom runs Claude Code, Codex
-    /// or Grok in a chat, so there is no one name to print in a banner the way Amp prints `@amp`;
-    /// `@agent` is the one a person can always type, and `@claude` is the one they will try first
-    /// when Claude is what is answering.
+    /// `agent` and `bloom` always, and the running agent's own name beside them. Bloom runs Claude
+    /// Code, Codex or Grok in a chat, so there is no one name to print in a banner the way Amp
+    /// prints `@amp`; `@agent` is the one a person can always type, and `@claude` is the one they
+    /// will try first when Claude is what is answering.
+    /// **`bloom` is here because it is the product's name**, and somebody reaching for the thing
+    /// that answers reaches for the name on the window before they reach for a role. The control
+    /// server reserves it as a handle, so it can never be a person's, which is what makes it safe
+    /// to spend on the agent here.
     public static func agentTokens(runningAgent: AgentKind?) -> [String] {
-        var tokens = ["agent"]
+        var tokens = ["agent", "bloom"]
         if let alias = runningAgent.map(alias(of:)) { tokens.append(alias) }
         return tokens
     }
@@ -99,8 +103,13 @@ public enum MentionAddress {
 
     /// The agent's own tokens are not handles and are not held to their grammar: they are names
     /// this app chose, and they are checked against the list rather than against a shape.
+    ///
+    /// Every agent's alias is here rather than only the running one, because this gate decides
+    /// whether a run of characters is a mention at all; whether it addresses anybody is
+    /// `mentioned(in:people:runningAgent:)`, which asks the running agent. That is what makes
+    /// `@codex` in a Claude chat a mention that names nobody rather than a word.
     private static func isAgentToken(_ token: String) -> Bool {
-        token == "agent" || AgentKind.allCases.map(alias(of:)).contains(token)
+        token == "agent" || token == "bloom" || AgentKind.allCases.map(alias(of:)).contains(token)
     }
 
     /// Whether a completion menu opened here offers people rather than files.
