@@ -29,6 +29,12 @@ public enum CloudPayloadBytes {
     /// The keys written first, in this order, wherever they occur. The CLI's own order for the two
     /// envelopes a transcript row comes in: `type` then `subtype` for a system line, and `type`,
     /// `id`, `name` for a tool call ahead of its `input`.
+    ///
+    /// **This list is the limit of the fix.** A new test that reads the start of a payload for a
+    /// key not named here works on a local row and fails on a Cloud one, because everything else
+    /// is written sorted. Add its key here when you write it, and a case to
+    /// `CloudPayloadBytesTests` beside the two that are there. The exact fix is the wire carrying a
+    /// payload as the string the machine received, which nobody needed yet.
     static let leadingKeys = ["type", "subtype", "id", "name"]
 
     public static func data(_ value: WireValue) -> Data {

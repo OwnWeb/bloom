@@ -87,6 +87,24 @@
         "seq" : 4
       }
     },
+    "message_media" : {
+      "kind" : "message",
+      "message" : {
+        "chat_id" : "chat-1",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "cursor" : 123,
+        "kind" : "media",
+        "payload" : {
+          "bytes" : 48213,
+          "caption" : "The login page after the fix",
+          "kind" : "image",
+          "mime" : "image/png",
+          "name" : "login.png",
+          "path" : ".bloom/scratch/media/5f1d3c0e9a7b2e4f6c8d0a1b3c5e7f9a2b4d6e8f0a1c3e5b7d9f1a3c5e7b9d1f.png"
+        },
+        "seq" : 9
+      }
+    },
     "presence" : {
       "kind" : "presence",
       "users" : [
@@ -149,6 +167,7 @@
     "setup" : {
       "kind" : "setup",
       "setup" : {
+        "enabled" : true,
         "started_at" : "2026-09-17T09:40:02.500Z",
         "state" : "running",
         "step" : "prepare"
@@ -180,7 +199,11 @@
         "branch" : "freek/queue-retries",
         "id" : "01k5bx7j9d3v2r8q6m4n0p1s2w",
         "name" : "Queue retries",
+        "services" : [
+
+        ],
         "setup" : {
+          "enabled" : true,
           "finished_at" : "2026-09-17T09:40:02.500Z",
           "started_at" : "2026-09-17T09:40:02.500Z",
           "state" : "succeeded"
@@ -198,7 +221,11 @@
           "shed" : 3,
           "unreachable_since" : "2026-09-17T09:40:02.500Z"
         },
+        "services" : [
+
+        ],
         "setup" : {
+          "enabled" : true,
           "finished_at" : "2026-09-17T09:40:02.500Z",
           "started_at" : "2026-09-17T09:40:02.500Z",
           "state" : "succeeded"
@@ -536,6 +563,7 @@
         "setup_output" : {
           "log" : "Installing\n",
           "setup" : {
+            "enabled" : true,
             "started_at" : "2026-09-17T09:40:02.500Z",
             "state" : "running",
             "step" : "setup"
@@ -701,7 +729,11 @@
             "branch" : "freek/queue-retries",
             "id" : "01k5bx7j9d3v2r8q6m4n0p1s2w",
             "name" : "Queue retries",
+            "services" : [
+
+            ],
             "setup" : {
+              "enabled" : true,
               "finished_at" : "2026-09-17T09:40:02.500Z",
               "started_at" : "2026-09-17T09:40:02.500Z",
               "state" : "succeeded"

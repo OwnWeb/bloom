@@ -78,6 +78,16 @@ final class CloudChatLink {
         return await session.upload(name: name, data: data)
     }
 
+    /// A file's bytes from the machine, which is how a `media` row's picture reaches this Mac. The
+    /// verb only; what is kept and where is `CloudChatLink+Media`.
+    func download(_ path: String) async throws(WorkspaceConnection.CommandFailure) -> DownloadRecord {
+        guard let session else { throw .noAnswer(Self.closed) }
+        guard case .download(let record) = try await session.perform(.download(path: path)) else {
+            throw .unreadable("The machine answered with something that is not the file.")
+        }
+        return record
+    }
+
     /// Where a file attached to this chat waits until the turn takes it, which is the workspace's
     /// answer rather than this link's. See `WorkspaceSurface.attachmentRoot`.
     var attachmentRoot: String { session?.attachmentRoot(for: chatID) ?? "" }

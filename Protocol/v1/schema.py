@@ -181,12 +181,17 @@ TERMINAL_FRAMES = {
 RECORDS = {
     "Error": obj({"code": S, "message": S}),
     "Author": obj({"user_id": S, "name": S}),
+    # `enabled` is optional because a machine older than the field does not send it, and a client
+    # decodes its absence as true. Taken from the machine's branch, which says so at more length.
     "Setup": obj({"state": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]}},
-                 {"step": S, "started_at": DATE, "finished_at": DATE, "note": S}),
+                 {"step": S, "started_at": DATE, "finished_at": DATE, "note": S, "enabled": B}),
     "SetupOutput": obj({"setup": ref("Setup"), "log": S}),
     "PullRequest": obj({"number": I, "url": S, "title": S, "state": S}),
     "Workspace": obj({"id": S, "name": S, "branch": S, "base_branch": S, "setup": ref("Setup")},
-                     {"pull_request": ref("PullRequest"), "reporting": ref("Reporting")}),
+                     {"pull_request": ref("PullRequest"), "reporting": ref("Reporting"),
+                      "services": array(ref("Service"))}),
+    # A service that never started says so here and nowhere else. Empty for a project with none.
+    "Service": obj({"name": S, "state": S, "restarts": I}, {"message": S, "http": B}),
     # Present only when the machine has something wrong to say about reaching runbloom.app.
     "Reporting": obj({"shed": I}, {"unreachable_since": DATE}),
     "Chat": obj({"id": S, "title": S, "agent": S, "model": S, "effort": S, "permission_mode": S, "interaction_mode": S,

@@ -27,6 +27,14 @@ struct TranscriptHome: Hashable {
     /// The directory the paths in this conversation are relative to.
     var worktree: String
 
+    /// Whether a `media_show` call is drawn as the picture it showed. True where the file is on
+    /// this Mac. A Bloom Cloud machine's call names a path on the machine, where nothing on this
+    /// disk is; the machine writes a `media` row for the picture instead, and the call is drawn as
+    /// the ordinary tool call it is. See `CloudMediaRowView`.
+    var drawsMediaFromCalls: Bool {
+        if case .cloud = surfaceID { false } else { true }
+    }
+
     init(workspaceID: WorkspaceID? = nil, surfaceID: WorkspaceSurfaceID? = nil, worktree: String = "") {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID ?? workspaceID.map { .local($0) }

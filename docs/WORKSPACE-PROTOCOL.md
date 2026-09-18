@@ -362,6 +362,23 @@ answer wins; a second gets `already_answered`, and the `questions` event that fo
 `set_composer` is last writer wins. The `composer` event says who changed it; show that when it was
 somebody else. A chat that has messages keeps its agent: to change agents, open a new chat.
 
+### Media
+
+An agent on a machine shows a picture with `media_show`, and the chat gets a `message` of kind
+`media`. Its payload is `path`, `name`, `caption`, `kind` (`image` or `video`), `mime` and `bytes`.
+**It is a reference, never the bytes**: fetch `path` with `download`, as any file, and draw it inline
+where the row sits, with `name` under it and `caption` beside it when there is one.
+
+- `path` is a copy in the worktree's git-ignored `.bloom/scratch/media/`, named by its digest, so it
+  never changes under a row and never reaches the diff.
+- Images are PNG, JPEG, GIF, WebP and AVIF; videos MP4, MOV and WebM; each at most 8 MB, which is
+  what `download` carries. The machine reads the type from the file's bytes, never its name. **SVG
+  is refused**, because it can carry script. Draw an image as an image (an `img`, an `NSImage`),
+  never as a document.
+- The agent's own `media_show` call is in the transcript too, just before the `media` row. Draw it
+  as an ordinary tool call, or fold it away: its `path` is the machine's, and there is nothing on
+  a client's disk at that path.
+
 ### Review
 
 Ask `review_snapshot` with the revision you have and `wait: true` to be answered when it changes, or

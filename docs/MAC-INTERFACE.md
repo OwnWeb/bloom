@@ -452,7 +452,12 @@ thinking in tertiary italic while closed; opened, the whole text. It is activity
 **Rows that are content rather than activity**: a successful `media_show` is drawn as its caption
 in body prose, the image or video, then its path in tertiary caption ink with a photo or film
 icon and a small menu (Open, Download). It never folds, and it splits a group. **[checked]**
-(`MediaShowRowView`) A `workspace_say` that sent something is drawn as the message
+(`MediaShowRowView`) **In a Bloom Cloud workspace the picture is the machine's `media` row, not the call**:
+the Mac fetches the copy it names with `download`, keeps it in its caches by workspace, and draws
+it through the same view, with the file's `name` under it. The machine's `media_show` call is then
+an ordinary tool row that folds (`CloudMediaRowView`, `TranscriptHome.drawsMediaFromCalls`,
+`foldFact(picturesFromCalls:)`). The shared fold case is `mediaRowSplits`. **[checked]** in code,
+not yet seen against a machine. A `workspace_say` that sent something is drawn as the message
 it sent, a bubble headed "To" the workspace, and **it never folds and splits a group like an
 image does** (`WorkspaceSayRow.isCall`, read by `foldFact`). **[checked]** It used to fold into "N
 actions" while a comment said otherwise; the fold was the one that was wrong, because its own

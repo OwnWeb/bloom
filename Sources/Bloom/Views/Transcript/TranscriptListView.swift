@@ -732,6 +732,7 @@ struct TranscriptListView: View {
                                 subagentActions: subagentActions,
                                 subagentHasRun: subagentHasRun,
                                 runActions: runActions,
+                                cloudLink: transcript.cloud,
                                 projectName: projectName,
                                 onToggle: { toggle(row.seq) },
                                 onAnswer: { requestID, decision in

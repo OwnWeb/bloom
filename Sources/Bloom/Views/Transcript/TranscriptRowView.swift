@@ -78,6 +78,9 @@ struct TranscriptRowView: View, Equatable {
     /// What an Agent call row opens, or nil where nothing can be opened, such as a subagent's own
     /// pane, whose rows are the run already.
     var runActions: SubagentRunActions?
+    /// What fetches a Bloom Cloud machine's picture. Nil everywhere else, and left out of `==`
+    /// like `runActions`: it is the same for every row of a transcript.
+    var cloudLink: CloudChatLink?
     /// What the project is called, so a permission row can name where a rule would apply, or nil
     /// when there is no project behind this conversation. Handed down for the same reason `home`
     /// is: it is constant for a whole transcript.
@@ -156,6 +159,13 @@ struct TranscriptRowView: View, Equatable {
         case .assistantText:
             if let text = assistantText, !text.isEmpty {
                 ProseRowView(text: text)
+            }
+
+        case .media:
+            // Only a Bloom Cloud machine writes this row. A local transcript draws the same picture
+            // from the `media_show` call, because the file is on the same disk as the window.
+            if let media = sharedMedia {
+                CloudMediaRowView(media: media, home: home, link: cloudLink)
             }
 
         case .thinking:
@@ -292,7 +302,7 @@ struct TranscriptRowView: View, Equatable {
     /// A media call becomes content only after its successful result arrives. Before that it stays
     /// an ordinary pending tool row, and a refusal stays visible as the refusal it is.
     private func successfulMediaRequest(_ use: AgentToolUse) -> MediaShowRequest? {
-        guard row.resultPayload != nil, !row.isError, row.refusal == nil else { return nil }
+        guard home.drawsMediaFromCalls, row.resultPayload != nil, !row.isError, row.refusal == nil else { return nil }
         return MediaShowRequest(use: use)
     }
 
@@ -313,7 +323,7 @@ struct TranscriptRowView: View, Equatable {
     /// Codex's native image viewer is also deliberate visible content. Its absolute paths often
     /// point at `/tmp`, so it uses the narrower image-only resolver rather than the MCP resolver.
     private func successfulCodexImageRequest(_ use: AgentToolUse) -> CodexImageViewRequest? {
-        guard row.resultPayload != nil, !row.isError, row.refusal == nil else { return nil }
+        guard home.drawsMediaFromCalls, row.resultPayload != nil, !row.isError, row.refusal == nil else { return nil }
         return CodexImageViewRequest(use: use)
     }
 
@@ -328,6 +338,12 @@ struct TranscriptRowView: View, Equatable {
     private var permissionAsk: PermissionAsk? {
         guard case .permissionAsk(let ask)? = event else { return nil }
         return ask
+    }
+
+    /// The picture a `media` row names. Small, and a row that is its own content, so it is decoded
+    /// directly rather than through the event cache, which knows only the CLI's events.
+    private var sharedMedia: SharedMedia? {
+        try? JSONDecoder().decode(SharedMedia.self, from: row.payload)
     }
 
     private var initInfo: AgentInit? {

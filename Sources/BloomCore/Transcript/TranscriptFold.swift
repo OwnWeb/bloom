@@ -294,7 +294,11 @@ public enum TranscriptFold {
         /// the structural rows around a turn are boundaries.
         var isActivity: Bool {
             switch kind {
-            case .toolUse, .thinking, .permissionAsk, .notice, .system, .error: !drawsNothing
+            // A machine's shown picture is counted here so that, being `featured`, it splits the
+            // group around it exactly as a local `media_show` call does. Left out of this list it
+            // would neither fold nor split, and a collapsed group would draw it under its line with
+            // the work from both sides of it counted above.
+            case .toolUse, .thinking, .permissionAsk, .notice, .system, .error, .media: !drawsNothing
             // A crew row is somebody talking, so it is a boundary like the other two are. Folding
             // it into a group of grey working rows would hide the message that started the work.
             case .assistantText, .user, .toolResult, .result, .crew: false

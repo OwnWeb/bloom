@@ -79,7 +79,10 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
     ///   - seq: the identity the fold names a run by. The row's own `seq` for a stored row; the
     ///     subagent pane passes its payload derived id, because its positions move on a re-read.
     ///   - isFresh: a tool call made moments ago. Only the live chat knows, so it is handed in.
-    nonisolated func foldFact(seq: Int? = nil, isFresh: Bool = false) -> TranscriptFold.Fact {
+    ///   - picturesFromCalls: whether a `media_show` call is itself the picture, which it is where
+    ///     the file is on this Mac. A Bloom Cloud machine writes a `media` row for the picture, and
+    ///     its call is then ordinary work to fold. See `TranscriptHome.drawsMediaFromCalls`.
+    nonisolated func foldFact(seq: Int? = nil, isFresh: Bool = false, picturesFromCalls: Bool = true) -> TranscriptFold.Fact {
         let settled: Bool
         switch kind {
         case .toolUse: settled = resultPayload != nil
@@ -91,7 +94,8 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
             kind: kind,
             failed: isError || refusal != nil,
             featured: isQuestion
-                || MediaShowRow.isCall(payload) || CodexImageViewRow.isCall(payload)
+                || kind == .media
+                || (picturesFromCalls && (MediaShowRow.isCall(payload) || CodexImageViewRow.isCall(payload)))
                 || (kind == .toolUse && WorkspaceSayRow.isCall(payload))
                 || TranscriptRowInk.isSessionStart(kind: kind, payload: payload),
             drawsNothing: TranscriptNoise.isHidden(self)
@@ -196,9 +200,11 @@ final class TranscriptModel {
     /// Each belongs to this session, including when its pane is displaying another workspace.
     func presentationFolds() -> TranscriptFold.Folds {
         let freshCalls = freshCalls
+        let picturesFromCalls = cloud == nil
         return foldCache.resolve(rows.lazy.map { row in
             row.foldFact(
-                isFresh: row.kind == .toolUse && row.refID.map(freshCalls.contains) == true
+                isFresh: row.kind == .toolUse && row.refID.map(freshCalls.contains) == true,
+                picturesFromCalls: picturesFromCalls
             )
         })
     }
