@@ -12,9 +12,11 @@ The machine's own records outlive the window, so nothing is lost by waiting:
 
   * `/var/tmp/bloom-update.log` is appended by the start wrapper and survives the marker, any
     rotation and any number of updates. This is the durable account.
-  * `/var/tmp/bloom-update-pending` is deleted by a runner that got as far as listening, so its
-    absence means the update came up and its presence means it did not. When it is there, its three
-    lines are the asked version, the version to go back to, and how many starts have seen it.
+  * `/var/tmp/bloom-update-pending` is deleted by a runner that got as far as listening **and by a
+    rollback**, so its absence means one of those two happened and not which: the wrapper's log
+    below is what tells them apart. Its presence means neither, and its three lines are then the
+    asked version, the version to go back to, and how many starts have seen it. Proven against a
+    machine that had actually rolled back, where absence alone would have read as success.
   * `/opt/bloom/current` names the release actually running, and the versions beside it are the
     ones a rollback can reach without a download.
   * The provider's own `restart_count` corroborates the wrapper's sentence: a release that was
@@ -36,10 +38,10 @@ SPRITE = "sprite"
 READS = [
     ("the release running now", "readlink /opt/bloom/current"),
     ("releases on disk, which is what a rollback can reach", "ls -1 /opt/bloom"),
-    # Absence is only evidence when there has been an update: a runner that got as far as
-    # listening deletes it. On a machine with no Bloom on it at all, absence means nothing, which
-    # is why this reports what it found rather than what it concludes.
-    ("the update marker, whose three lines are the asked version, the one to go back to, and starts seen",
+    # Absence is only evidence when there has been an update, and even then it is ambiguous: both
+    # a runner that came up and a rollback delete this. The wrapper's log is the tiebreak, which is
+    # why it is read next. This reports what it found rather than what it concludes.
+    ("the update marker, absent after either a release that came up or a rollback (the log below says which)",
      "cat /var/tmp/bloom-update-pending 2>/dev/null || echo '(absent)'"),
     ("the wrapper's own account, newest last", "tail -n 20 /var/tmp/bloom-update.log 2>/dev/null || echo '(no update log)'"),
     ("the service, with the provider's restart count", "sprite-env services list"),
