@@ -1063,9 +1063,17 @@ shows; `uncommitted` is HEAD to the worktree, staged and unstaged together, whic
 reads before committing; `staged` is HEAD to the index, what a commit would take; `unstaged` is the
 index to the worktree, what it would leave behind. Files git has never seen belong to `unstaged`
 and never to `staged`, because they are in neither the index nor a commit. A file read in `staged`
-or `unstaged` carries that layer. Reverting a file and discarding a hunk take `branch` or
-`uncommitted` only: what discard means inside one layer (unstage it, or throw the worktree's copy
-away) is the window's decision, and the machine will not guess at it.
+or `unstaged` carries that layer.
+
+**Reverting a file and discarding a hunk work in all four, and mean what git means in each.** In
+`branch` and `uncommitted` the change goes back to the baseline being compared against. In `staged`
+it is `git restore --staged`, so the change leaves the index and the worktree keeps it: nothing
+anybody wrote is destroyed, and the client says Unstage rather than Discard. In `unstaged` it is
+`git restore`, throwing the worktree's copy away, which is the only thing the word can mean there
+and the only one of the four where work is lost. A person who knows git is not surprised and a
+person who does not is not robbed, which is why the two ordinary git meanings were taken rather
+than one invented meaning covering both. `HunkDiscard.Intent` is where that choice lives in the
+code, rather than in a comment, because the word on the button has to follow it.
 
 **A rollback says so twice:** to the service's log, which the provider keeps at
 `/.sprite/logs/services/bloom.log` with a timestamp per line, and by appending to

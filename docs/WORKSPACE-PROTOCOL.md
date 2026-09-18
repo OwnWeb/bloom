@@ -145,8 +145,8 @@ Changing the worktree (ability `files`, except where noted):
 | `push` | | `accepted` |
 | `create_pull_request` | `title`, `body`, `draft` | `text`: the pull request's URL |
 | `save_notes` | `text` | `accepted` |
-| `revert_file` | `path`, `scope` (`branch` or `uncommitted`) | `accepted`: the file goes back to what the diff was measured against |
-| `discard_hunk` | `path`, `scope` (`branch` or `uncommitted`), `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
+| `revert_file` | `path`, `scope` | `accepted`: the file goes back, in the sense that scope has |
+| `discard_hunk` | `path`, `scope`, `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
 | `rename_workspace` | `name` | `accepted` |
 | `run_setup` | | `accepted` once setup has run again |
 | `run_script` (`terminal`) | `id` | `terminal`: the terminal it runs in |
@@ -155,6 +155,15 @@ Changing the worktree (ability `files`, except where noted):
 
 `push` and `create_pull_request` act as the person who sent them: the machine registers a short turn
 under their token for the one command, so GitHub sees them rather than the machine.
+
+**What `revert_file` and `discard_hunk` do is the scope's, and both meanings are git's own**, so a
+client has to label the control with the one that matches. In `branch` and `uncommitted` the change
+goes back to the baseline the reader is comparing against. In `staged` it is `git restore --staged`:
+the change leaves the index, the worktree keeps it, and nothing anybody wrote is destroyed, so the
+button says Unstage. In `unstaged` it is `git restore`, throwing the worktree's copy away, which is
+the only thing it can mean there and the only one of the four scopes where work is actually lost.
+A file is looked up in the scope's own list, so a file staged and then put back in the worktree is
+reachable in `staged` and in no other scope.
 
 ### Failure codes
 

@@ -8,41 +8,50 @@ import Foundation
 /// different hunk, while the patch either still matches what is on the machine or it does not, and
 /// "it does not" is the answer a person can act on. The match is the hunk's header and every one of
 /// its lines, so a hunk that grew, shrank or moved is refused rather than guessed at.
+///
+/// **What the word means is the scope's, and both meanings are git's own.** In the branch and
+/// uncommitted scopes it is the whole change, put back to the baseline the reader is comparing
+/// against. In the staged scope it is `git restore --staged`: the change leaves the index, the
+/// worktree keeps it, and nothing anybody wrote is destroyed, so the client labels it Unstage. In
+/// the unstaged scope it is `git restore`, throwing the worktree's copy away, which is the only
+/// thing it can mean there and the only one of the four where something is actually lost.
 public enum RemoteDiscard {
-    /// Reverting and discarding take the two scopes a client reads a whole file's diff from. The
-    /// staged and unstaged scopes are for reading: what "discard" means in each of them (unstage,
-    /// or throw the worktree's copy away) is a decision for the window that offers the button, and
-    /// offering it here before that decision is made would be guessing at it.
-    static func requireWholeFileScope(_ scope: BloomProtocol.DiffScope) throws {
-        guard scope == .branch || scope == .uncommitted else {
-            throw RemoteFailure.invalid("Discarding reads the branch or uncommitted comparison, not one staging layer.")
-        }
+    /// Which of those two a scope asks for, which is the whole of the difference between them.
+    static func intent(for scope: BloomProtocol.DiffScope) -> HunkDiscard.Intent {
+        scope == .staged ? .unstage : .discard
     }
 
     public static func revertFile(workspace: Workspace, path: String, scope: BloomProtocol.DiffScope) async throws {
-        try requireWholeFileScope(scope)
         let (file, base) = try await find(workspace: workspace, path: path, scope: scope)
         guard file.change != .untracked else {
             throw RemoteFailure.invalid("This file is not tracked by git, so there is nothing to put back. Delete it instead.")
         }
-        try await Git.revertTrackedFile(file, worktree: workspace.path, base: base)
+        switch scope {
+        case .staged: try await Git.unstageFile(file, worktree: workspace.path)
+        case .unstaged: try await Git.restoreWorktreeFile(file, worktree: workspace.path)
+        case .branch, .uncommitted: try await Git.revertTrackedFile(file, worktree: workspace.path, base: base)
+        }
     }
 
     public static func discardHunk(workspace: Workspace, path: String, scope: BloomProtocol.DiffScope, patch: String) async throws {
-        try requireWholeFileScope(scope)
         let (file, base) = try await find(workspace: workspace, path: path, scope: scope)
         guard let wanted = hunk(in: patch) else {
             throw RemoteFailure.invalid("That is not one hunk of a patch.")
         }
-        // The same comparison the client read its hunk from: `review_patch` measures uncommitted
-        // work against HEAD as one diff, staged and unstaged together, so that is what a hunk is
-        // matched against and reversed in (the worktree, and the index where it applies).
-        let current = try await Git.patch(worktree: workspace.path, base: base, file: file, scope: .all)
+        // The same comparison the client read its hunk from. In the branch and uncommitted scopes
+        // that is one diff against the baseline, staged and unstaged together, so a hunk is matched
+        // and reversed in the worktree and in the index where it applies. In the two layer scopes
+        // the file carries its layer, which is what `Git.patch` reads to pick a side of the index.
+        let comparison: DiffScope = file.layer == nil ? .all : .uncommitted
+        let current = try await Git.patch(worktree: workspace.path, base: base, file: file, scope: comparison)
         guard let match = DiffParser.parse(current).flatMap(\.hunks).first(where: { same($0, wanted) }) else {
             throw RemoteFailure(.conflict, "This part of the file has changed since it was read. Refresh the diff and try again.")
         }
         do {
-            try await Git.discardHunk(match, of: file, worktree: workspace.path, base: base, scope: .all)
+            try await Git.discardHunk(
+                match, of: file, worktree: workspace.path, base: base,
+                scope: comparison, intent: intent(for: scope)
+            )
         } catch let refusal as HunkDiscardRefusal {
             throw RemoteFailure(.conflict, sentence(for: refusal))
         }
@@ -55,9 +64,11 @@ public enum RemoteDiscard {
     ) async throws -> (ChangedFile, String) {
         try RemoteReview.validateRelativePath(path)
         let base = try await RemoteReview.base(workspace: workspace, scope: scope)
-        // The list the review shows, one row per path. A list split by staging layer would name a
-        // file changed in both twice, and the first of them is not the diff the client read.
-        let files = try await RemoteReview.changes(workspace: workspace, base: base)
+        // The list the scope shows, one row per path. The branch and uncommitted scopes are one row
+        // per path across both layers, because a list split by staging layer would name a file
+        // changed in both twice and the first of them is not the diff the client read; the two
+        // layer scopes are one layer each, and their rows say so.
+        let files = try await RemoteReview.changes(workspace: workspace, base: base, scope: scope)
         guard let file = files.first(where: { $0.path == path }) else {
             throw RemoteFailure.notFound("This file has no changes in the selected scope. Refresh the file list.")
         }

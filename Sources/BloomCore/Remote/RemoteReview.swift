@@ -110,7 +110,10 @@ public enum RemoteReview {
     public static func patch(workspace: Workspace, path: String, scope: BloomProtocol.DiffScope) async throws -> String {
         try validateRelativePath(path)
         let base = try await base(workspace: workspace, scope: scope)
-        let files = try await changes(workspace: workspace, base: base)
+        // The scope's own list, not the whole comparison's. A file staged and then put back in the
+        // worktree is in the staged list and in no other, so looking it up in the wrong one answers
+        // "no changes in the selected scope" about a file the client is looking at.
+        let files = try await changes(workspace: workspace, base: base, scope: scope)
         guard let file = files.first(where: { $0.path == path }) else {
             throw RemoteFailure.notFound("This file has no changes in the selected scope. Refresh the file list.")
         }
