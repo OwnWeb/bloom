@@ -23,6 +23,13 @@ final class WorkspaceModel {
     var sessions: [Session] = []
     var sideConversations: [SessionID: SideConversationState] = [:]
 
+    /// The chats this workspace has closed, newest first, as the `+` menu offers them back.
+    ///
+    /// Held here rather than asked for where it is drawn, because a SwiftUI `Menu` builds its
+    /// items before it opens and cannot await anything while it does. Filled by
+    /// `refreshClosedChats`, below `closeSession`, which is where the reasoning lives.
+    var closedChats: [ClosedChat] = []
+
     /// Whether the store has answered about this workspace's sessions at all, this launch.
     ///
     /// The same distinction `hasReadChanges` keeps below, and here it is not about what a pane is
@@ -642,6 +649,110 @@ final class WorkspaceModel {
         // per session rather than one per instance, so they only ever grew.
         app.bridge?.retire(sessionID: session.id)
         await reloadSessions()
+        // Both halves of the way back, and they are not the same offer. The undo is the reflex for
+        // a close that was a mistake in the moment; the list is what is left once the undo stack
+        // has moved on, which is where 13,872 messages went. See `SessionReopening`.
+        registerCloseUndo(sessionID: session.id)
+        await refreshClosedChats()
+    }
+
+    // MARK: - Reopening a closed chat
+
+    /// Re-reads what the `+` menu would offer.
+    ///
+    /// Stored rather than awaited where it is drawn, because a SwiftUI `Menu` builds its items
+    /// before it opens and has no moment of its own to load anything in. The two callers are the
+    /// hover on the way to the button, which is the trick `NewTabMenu` already plays with
+    /// `refreshSettings` and for the same reason, and every close, so a chat closed with Cmd+W is
+    /// in the list before the pointer has moved.
+    ///
+    /// A failed read leaves the previous answer standing. An empty list and "the store did not
+    /// answer" are two different things, and the second one is not a reason to tell somebody their
+    /// closed chats have gone.
+    func refreshClosedChats() async {
+        guard let store else { return }
+        guard let rows = try? await store.closedSessions(
+            workspaceID: workspace.id, limit: SessionReopening.limit
+        ) else { return }
+        let offered = SessionReopening.offered(rows)
+        // Conditional for the reason every write in `reloadSessions` is: an identical value
+        // written back is still an invalidation as far as Observation is concerned, and this is
+        // re-read on every hover over the title bar.
+        if closedChats != offered { closedChats = offered }
+    }
+
+    /// Puts a closed chat back in the strip and opens it. The inverse of `closeSession` above.
+    ///
+    /// The steps are in this order and not another. The column is cleared first, because
+    /// everything after it reads the session list back and would find nothing. `reloadSessions` is
+    /// what rebuilds the strip: it hands the fresh list to `WorkspaceTabsStore.updateOrder`, and a
+    /// session the strip has no stored position for joins the end of it. Selecting it is a
+    /// separate step because `reloadSessions` only moves the selection when the active chat has
+    /// gone, and this chat was not the active one. `activeSessionID` is written last because its
+    /// setter is what builds the transcript, and the transcript is where the history comes back
+    /// from: closing tore the old one down, so a fresh `TranscriptModel` is made and its `load()`
+    /// reads the messages that were never deleted.
+    ///
+    /// **The bridge needs nothing done to it here, and that is worth saying because closing
+    /// retired it.** `TranscriptModel.runner` calls `BridgeServer.register` when it makes the
+    /// runner, which mints a fresh token and writes a fresh MCP config; the teardown on close left
+    /// no runner, so the next turn in this chat takes that path and comes out with bridge tools
+    /// that work. What does not come back is a CLI chat's terminal: closing closed that tab too,
+    /// and a reopened chat is Bloom's own transcript rather than the shell it was running in.
+    func reopen(_ chat: ClosedChat) async {
+        await reopenChat(sessionID: chat.id)
+    }
+
+    func reopenChat(sessionID: SessionID) async {
+        guard let store else { return }
+        let reopened: Session?
+        do {
+            reopened = try await store.reopenSession(id: sessionID)
+        } catch {
+            app.notice = BloomNotice(
+                message: "Could not reopen the conversation: \(error.readableMessage)"
+            )
+            return
+        }
+        guard reopened != nil else {
+            app.notice = BloomNotice(message: SessionReopening.missing)
+            return
+        }
+        await reloadSessions()
+        WorkspaceTabsStore.shared.select(.chat(sessionID), in: self)
+        activeSessionID = sessionID
+        await refreshClosedChats()
+    }
+
+    /// Offers Edit > Undo for the chat that has just been closed.
+    ///
+    /// The list in the `+` menu is the safety net and this is the reflex, in the shape
+    /// `AppModel.registerArchiveUndo` already gave archiving a workspace. It is offered for every
+    /// close, including a chat with no messages that the list itself would not bother to list:
+    /// undoing something one keystroke after doing it is about the keystroke, not about what was
+    /// in it.
+    ///
+    /// **The target is `AppModel` rather than this model.** `registerUndo(withTarget:handler:)`
+    /// keeps an unowned reference, and a `WorkspaceModel` is a cache entry thrown away when its
+    /// project is removed (`AppModel.workspaceModels`), so an undo registered against this object
+    /// and invoked after that would call through a dangling pointer. `AppModel` is there as long
+    /// as the window is.
+    ///
+    /// A workspace whose model has since gone is a workspace whose project was removed, so there
+    /// is no strip to put a tab back into and the undo does nothing. That is the honest answer
+    /// rather than resurrecting a model for a project that is not in the sidebar.
+    private func registerCloseUndo(sessionID: SessionID) {
+        guard let undoManager = app.undoManager else { return }
+        let workspaceID = workspace.id
+        undoManager.registerUndo(withTarget: app) { app in
+            // The handler runs on the main thread, from the Edit menu or Command+Z, so the
+            // isolation is real rather than assumed away.
+            MainActor.assumeIsolated {
+                guard let model = app.existingModel(for: workspaceID) else { return }
+                Task { await model.reopenChat(sessionID: sessionID) }
+            }
+        }
+        undoManager.setActionName(SessionReopening.undoActionName)
     }
 
     /// The transcript for a session, wired to its own agent runner.

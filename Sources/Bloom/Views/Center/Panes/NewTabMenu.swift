@@ -59,6 +59,7 @@ struct NewTabMenu<Model: WorkspaceSurface>: View {
                 Button(CenterTab.notesTitle, systemImage: PaneGlyph.notes) { model.openNotes() }
             }
             runScriptItems
+            reopenItems
         } label: {
             Label("New Tab", systemImage: "plus")
         }
@@ -68,9 +69,18 @@ struct NewTabMenu<Model: WorkspaceSurface>: View {
         // Bloom changes no selection and brings no window forward, so without this it only reached
         // the menu on the next switch. The read is coalesced and off the main actor, and the
         // pointer takes longer to reach the button than the parse takes.
+        //
+        // The closed chats ride the same moment for the same reason, and they are also refreshed
+        // on every close, so the list is right even on a menu that is opened from the keyboard
+        // and never hovered.
         .onHover {
-            if $0 { model.refreshSettings() }
+            guard $0 else { return }
+            model.refreshSettings()
+            Task { await model.refreshClosedChats() }
         }
+        // The first opening of this menu in a launch has had no close and no hover behind it, and
+        // an empty Recently Closed section is indistinguishable from a chat that cannot come back.
+        .task(id: model.workspace.id) { await model.refreshClosedChats() }
         .accessibilityLabel("New Tab")
         .help("New tab in this workspace")
     }
@@ -107,6 +117,48 @@ struct NewTabMenu<Model: WorkspaceSurface>: View {
                         Text(verbatim: item.subtitle)
                     }
                     .disabled(!item.isEnabled)
+                }
+            }
+        }
+    }
+
+    /// The chats this workspace has closed, newest first, each offering to come back.
+    ///
+    /// **Here rather than in a window of its own, because this is where a chat is made and this is
+    /// where one comes back**, which is the arrangement Safari has and the one a reader already
+    /// knows. The alternative considered was the archive's shape, a sheet listing closed chats the
+    /// way Home lists archived workspaces; that is the right screen for deciding what to delete
+    /// and the wrong one for undoing a mis-click, which is a thing somebody wants two seconds
+    /// after doing it and without leaving the pane.
+    ///
+    /// Absent rather than an empty heading when there is nothing to offer, which is how
+    /// `runScriptItems` above treats a project with no scripts.
+    ///
+    /// Each row carries its agent, its size and its age as a subtitle, because "Chat 3" alone
+    /// cannot be told from the other "Chat 3". The words are `SessionReopening`.
+    @ViewBuilder
+    private var reopenItems: some View {
+        let chats = model.closedChats
+        if !chats.isEmpty {
+            Divider()
+            Section(SessionReopening.sectionTitle) {
+                // The clock is read here rather than when the list was loaded: the load happens on
+                // the way to the button and the menu can stand open afterwards, so an age stamped
+                // at load time would be the age at a moment the reader never saw.
+                let now = Date()
+                ForEach(chats) { chat in
+                    Button {
+                        Task { await model.reopen(chat) }
+                    } label: {
+                        // A label and then a second text, which a menu draws as the title with its
+                        // glyph and a subtitle under it. The same shape as a run script row.
+                        Label {
+                            Text(verbatim: SessionReopening.title(chat))
+                        } icon: {
+                            Image(systemName: PaneKind.chat.symbol)
+                        }
+                        Text(verbatim: SessionReopening.subtitle(chat, now: now))
+                    }
                 }
             }
         }

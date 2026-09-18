@@ -17,11 +17,16 @@ import Foundation
 /// has never had a conversation at all, so a workspace can be born in it. There is a way out of it
 /// on screen in every case: the empty state offers a terminal, and the plus offers a chat.
 ///
-/// So the button comes back, and this is what stops that being a silent loss. A closed conversation
-/// is archived rather than deleted, but nothing in the app clears `archivedAt` on a session and
-/// nothing lists archived ones, so from where the user is standing it does not come back. Both
-/// doors ask the same question now, which also fixes the sharper half of the old arrangement:
-/// Cmd+W destroyed the last transcript in a workspace without a word.
+/// So the button comes back, and this is what stops that being a silent loss. Both doors ask the
+/// same question now, which also fixes the sharper half of the old arrangement: Cmd+W destroyed
+/// the last transcript in a workspace without a word.
+///
+/// **What this type used to say next was that a closed conversation does not come back.** It was
+/// true when it was written, and it cost the owner a chat holding 13,872 messages, every one of
+/// them still in the database, recovered by hand with sqlite3. `SessionReopening` is the answer to
+/// it: the `+` menu offers the ten most recently closed chats in the workspace, and Edit > Undo
+/// offers the one that has just gone. The wording below changed with it, because a dialogue that
+/// overstates what is lost is read once and then skipped.
 ///
 /// An option set rather than a case, because the two costs are independent and a conversation that
 /// is both mid turn and the only one has to say both things rather than the more alarming one.
@@ -85,9 +90,9 @@ public struct SessionClosure: OptionSet, Hashable, Sendable {
         if contains(.leavesNoConversation) {
             lines.append(
                 """
-                It is the only conversation in this workspace, and a closed conversation does not \
-                come back. The worktree and anything else open here are untouched, and a new \
-                conversation can be started from the plus above the pane.
+                It is the only conversation in this workspace. The worktree and anything else open \
+                here are untouched, a new conversation can be started from the plus above the \
+                pane, and this one can be brought back from Recently Closed in the same menu.
                 """
             )
         }
