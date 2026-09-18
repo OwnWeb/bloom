@@ -274,8 +274,14 @@ struct PendingTurnRowView: View {
     private var caption: some View {
         HStack(spacing: Metrics.gutter) {
             // Somebody else's message waiting in a shared Cloud workspace's queue.
-            if let author = delivery.author {
-                Text(author.name)
+            //
+            // **Asked of the account, not of the presence of an author.** A queued prompt comes
+            // back from the machine carrying whoever wrote it, the reader included, so "it has an
+            // author, so it is somebody else's" put the reader's own name over the reader's own
+            // waiting message. See `MessageAuthorship`, which is the one place this is decided.
+            if MessageAuthorship.isFromSomebodyElse(author: delivery.author?.userID, reader: reader),
+               let name = delivery.author?.name, !name.isEmpty {
+                Text(name)
                     .foregroundStyle(Palette.textSecondary)
             }
             if let sentence = holdSentence {
