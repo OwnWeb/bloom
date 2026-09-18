@@ -490,7 +490,7 @@ public actor WorkspaceRuntime {
     public static let liveModels: ModelDiscovery = { _ in
         var records: [ModelRecord] = []
         if let codex = try? await CodexModelCatalog.live().pickerModels() {
-            records += codex.filter { !$0.hidden }.map { ModelRecord(agent: AgentKind.codex.wireName, model: $0.agentModel) }
+            records += codex.filter { !$0.hidden }.map { ModelRecord(agent: AgentKind.codex.wireName, codex: $0) }
         }
         return records
     }
@@ -506,6 +506,12 @@ extension ModelRecord {
     init(agent: String, model: AgentModel) {
         self.init(agent: agent, id: model.id, label: model.displayName, efforts: model.supportedEfforts.map(\.id),
                   defaultEffort: model.defaultEffort.isEmpty ? nil : model.defaultEffort, isDefault: model.isDefault)
+    }
+    /// A Codex model with its fast tier, which `AgentModel` does not carry because only Codex has
+    /// one per model.
+    init(agent: String, codex: CodexModel) {
+        self.init(agent: agent, model: codex.agentModel)
+        fastTier = codex.fastServiceTier
     }
 }
 

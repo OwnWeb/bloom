@@ -103,20 +103,30 @@ public struct ModelRecord: Codable, Sendable, Hashable {
     public var efforts: [String]
     public var defaultEffort: String?
     public var isDefault: Bool
+    /// The service tier that makes this model fast, such as `priority`, from the agent's own model
+    /// list. **Absent means no fast mode**: a model without one, a machine older than the field,
+    /// and every Claude model, whose fast mode is the agent's rather than the model's. Read without
+    /// starting a turn, from the list `models` already comes from. Whether the project's Codex
+    /// configuration turns fast mode off is not in it yet; a client offering the switch on a model
+    /// with a tier will be right unless somebody has opted out there.
+    public var fastTier: String?
 
-    public init(agent: String, id: String, label: String, efforts: [String], defaultEffort: String?, isDefault: Bool) {
+    public init(agent: String, id: String, label: String, efforts: [String], defaultEffort: String?, isDefault: Bool,
+                fastTier: String? = nil) {
         self.agent = agent
         self.id = id
         self.label = label
         self.efforts = efforts
         self.defaultEffort = defaultEffort
         self.isDefault = isDefault
+        self.fastTier = fastTier
     }
 
     enum CodingKeys: String, CodingKey {
         case agent, id, label, efforts
         case defaultEffort = "default_effort"
         case isDefault = "is_default"
+        case fastTier = "fast_tier"
     }
 }
 

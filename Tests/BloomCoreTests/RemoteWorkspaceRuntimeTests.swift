@@ -146,6 +146,17 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// The tier the Mac's `CodexSpeed` reads, carried rather than thrown away, so a web client can
+    /// offer fast mode on a Codex model without a probe of its own.
+    @Test("a Codex model carries its fast tier onto the wire, and one without a tier carries none")
+    func codexModelsCarryTheirFastTier() {
+        let fast = ModelRecord(agent: "codex", codex: CodexModel(id: "gpt-5.5", displayName: "GPT-5.5", fastServiceTier: "priority"))
+        let plain = ModelRecord(agent: "codex", codex: CodexModel(id: "gpt-5.5-mini", displayName: "GPT-5.5 mini"))
+
+        #expect(fast.fastTier == "priority")
+        #expect(plain.fastTier == nil, "absent is what no fast mode looks like")
+    }
+
     /// **Asked for, not pushed**, so what has to hold is that the answer is the file as it is now:
     /// somebody edits it in the workspace and opens the menu again.
     @Test("quick_prompts reads the checkout on every call, and a viewer may ask")

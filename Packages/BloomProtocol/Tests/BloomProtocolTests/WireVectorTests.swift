@@ -182,8 +182,12 @@ enum WireExamples {
                                                           ]))),
         ("transcript", .transcript(TranscriptRecord(chat: chat, messages: [message], hasMore: false, questions: [question], busy: true,
                                                     streamingText: "Running", queue: queue))),
+        // Two models so the vector shows both: one with a fast tier, and one whose `fast_tier` is
+        // absent, which is what no fast mode looks like.
         ("composer", .composer(ComposerRecord(chatID: "chat-1", controls: controls, availableAgents: ["claude", "codex"],
-            models: [ModelRecord(agent: "codex", id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium", isDefault: true)],
+            models: [ModelRecord(agent: "codex", id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium", isDefault: true,
+                                 fastTier: "priority"),
+                     ModelRecord(agent: "codex", id: "gpt-5.5-mini", label: "GPT-5.5 mini", efforts: ["low", "medium"], defaultEffort: "low", isDefault: false)],
             commands: [SlashCommandRecord(name: "review", description: "Review the branch")], outputStyles: ["default", "Explanatory"]))),
         // The same answer about a chat nobody has made yet, which is what `composer` with no
         // `chat_id` asks: no `chat_id` comes back either.

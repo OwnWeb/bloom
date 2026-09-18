@@ -225,7 +225,7 @@ RECORDS = {
                        "busy": B, "streaming_text": S, "queue": ref("Queue")}),
     "ComposerControls": obj({"agent": S, "model": S, "effort": S, "permission_mode": S, "interaction_mode": S, "fast_mode": B,
                              "output_style": S, "codex_context_window": I}, {"codex_fast_mode": B}),
-    "Model": obj({"agent": S, "id": S, "label": S, "efforts": array(S), "is_default": B}, {"default_effort": S}),
+    "Model": obj({"agent": S, "id": S, "label": S, "efforts": array(S), "is_default": B}, {"default_effort": S, "fast_tier": S}),
     "SlashCommand": obj({"name": S, "description": S}),
     "Composer": obj({"controls": ref("ComposerControls"), "available_agents": array(S), "models": array(ref("Model")),
                      "commands": array(ref("SlashCommand")), "output_styles": array(S)}, {"chat_id": S}),

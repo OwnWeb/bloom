@@ -689,6 +689,16 @@
               "type": "null"
             }
           ]
+        },
+        "fast_tier": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

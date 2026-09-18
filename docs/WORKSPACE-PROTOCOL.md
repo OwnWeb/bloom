@@ -557,6 +557,13 @@ answer wins; a second gets `already_answered`, and the `questions` event that fo
 `set_composer` is last writer wins. The `composer` event says who changed it; show that when it was
 somebody else. A chat that has messages keeps its agent: to change agents, open a new chat.
 
+**A model's own efforts and fast tier are on its record.** `models` lists Codex's, each with the
+`efforts` it takes and its `default_effort`, which differ by model; Claude's efforts are the
+agent's and are not listed. `fast_tier` names the service tier that makes a model fast, from the
+same model list and without starting a turn. **Absent means no fast mode**, which is also what a
+machine older than the field sends. A project's Codex configuration can still turn fast mode off,
+and that is not on the wire yet.
+
 **Quick prompts come from two places, and the machine answers for one.** The person's own are in
 their client's database and are that client's to show. The project's are `[[quick_prompts]]` in the
 repository's settings files, which only the machine can read, and `quick_prompts` answers with
