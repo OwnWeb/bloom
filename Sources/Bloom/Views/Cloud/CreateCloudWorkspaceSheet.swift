@@ -13,10 +13,30 @@ struct CreateCloudWorkspaceSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var teamID: String?
-    @State private var projects: [RunbloomProject] = []
+    /// The team's projects, as one value rather than a list beside a spinner beside a sentence:
+    /// loading with an old list still on screen, or failed with projects showing, were states the
+    /// three flags could describe and the sheet could not draw.
+    private enum Projects {
+        case loading
+        case ready([RunbloomProject])
+        case failed(String)
+
+        var all: [RunbloomProject] {
+            if case .ready(let projects) = self { projects } else { [] }
+        }
+
+        var problem: String? {
+            if case .failed(let message) = self { message } else { nil }
+        }
+
+        var isLoading: Bool {
+            if case .loading = self { true } else { false }
+        }
+    }
+
+    @State private var projectsState = Projects.loading
+    private var projects: [RunbloomProject] { projectsState.all }
     @State private var projectID: String?
-    @State private var projectsProblem: String?
-    @State private var isLoadingProjects = false
     @State private var name = ""
     @State private var branch = ""
     @State private var branchWasEdited = false
@@ -65,15 +85,15 @@ struct CreateCloudWorkspaceSheet: View {
                             }
                         }
                         Picker("Project", selection: $projectID) {
-                            if projects.isEmpty { Text(isLoadingProjects ? "Loading…" : "No projects").tag(String?.none) }
+                            if projects.isEmpty { Text(projectsState.isLoading ? "Loading…" : "No projects").tag(String?.none) }
                             ForEach(projects) { Text($0.repository).tag(Optional($0.id)) }
                         }
                         .disabled(projects.isEmpty)
                         if let teamNotice {
                             TeamSetupNoticeView(notice: teamNotice, environment: cloud.environment)
-                        } else if let projectsProblem {
-                            Text(projectsProblem).foregroundStyle(Palette.negative)
-                        } else if !isLoadingProjects, projects.isEmpty {
+                        } else if let problem = projectsState.problem {
+                            Text(problem).foregroundStyle(Palette.negative)
+                        } else if !projectsState.isLoading, projects.isEmpty {
                             // A button rather than a sentence in grey. This is where a first run
                             // stops, and it stopped with nothing to press.
                             VStack(alignment: .leading, spacing: Metrics.spacingWide) {
@@ -192,18 +212,15 @@ struct CreateCloudWorkspaceSheet: View {
 
     private func loadProjects() async {
         guard let teamID else { return }
-        isLoadingProjects = true
-        defer { isLoadingProjects = false }
+        projectsState = .loading
         do {
-            projects = try await cloud.projects(team: teamID)
-            projectsProblem = nil
+            let projects = try await cloud.projects(team: teamID)
+            projectsState = .ready(projects)
             if !projects.contains(where: { $0.id == projectID }) { projectID = projects.first?.id }
         } catch let refusal as RunbloomRefusal {
-            projects = []
-            projectsProblem = refusal.message
+            projectsState = .failed(refusal.message)
         } catch {
-            projects = []
-            projectsProblem = "runbloom.app could not be reached. \(error.localizedDescription)"
+            projectsState = .failed("runbloom.app could not be reached. \(error.localizedDescription)")
         }
     }
 
