@@ -232,6 +232,9 @@ struct ComposerView: View {
             if let store = app.store { await ComposerPlanningSupport.shared.refresh(from: store) }
         }
         .onChange(of: transcript.draft) { _, _ in scheduleDraftSave() }
+        // Somebody else changed this Cloud chat's composer, or the machine answered a change of
+        // ours. Nil for every local chat, so this never fires there.
+        .onChange(of: transcript.cloud?.controls) { _, machine in seed(fromMachine: machine) }
         // Something put words in the box for the owner to carry on writing, which today is Edit on
         // a queued message. The caret goes to the start rather than the end, because the words that
         // just arrived are at the front and are the ones the button was pressed to change.
@@ -362,9 +365,16 @@ struct ComposerView: View {
     /// Writes the footer's choices back where a conversation keeps them: the four that are columns
     /// go on the session row, and fast mode and the output style go in the store's key value table.
     private func apply(controls new: ComposerControls) {
+        // What the footer showed before this change, for the Cloud path below: it has to know
+        // whether anything moved, and the four values held in state are about to be overwritten.
+        let before = controls
+        // A Cloud chat's settings are its machine's. Writing them into this Mac's settings table
+        // as well kept a second copy nothing read, under a key named after somebody else's chat.
+        let keepsLocally = transcript.cloud == nil
+
         if new.codexFastMode != codexFastMode {
             codexFastMode = new.codexFastMode
-            if let store = app.store {
+            if keepsLocally, let store = app.store {
                 let key = CodexSpeed.key(sessionID: transcript.session.id)
                 let value = new.codexFastMode.map { $0 ? "1" : "0" }
                 Task { try? await store.setSetting(key, value) }
@@ -373,7 +383,7 @@ struct ComposerView: View {
 
         if new.isFastMode != isFastMode {
             isFastMode = new.isFastMode
-            if let store = app.store {
+            if keepsLocally, let store = app.store {
                 let key = ComposerControls.fastModeKey(sessionID: transcript.session.id)
                 let value = new.isFastMode ? "1" : nil
                 Task { try? await store.setSetting(key, value) }
@@ -382,7 +392,7 @@ struct ComposerView: View {
 
         if new.outputStyle != outputStyle {
             outputStyle = new.outputStyle
-            if let store = app.store {
+            if keepsLocally, let store = app.store {
                 let key = ComposerControls.outputStyleKey(sessionID: transcript.session.id)
                 // The default is stored as no row at all, so a session that was set back to it
                 // reads the same as one that was never asked. See `AgentRunner.refreshOutputStyle`.
@@ -393,7 +403,7 @@ struct ComposerView: View {
 
         if new.codexContextWindow != codexContextWindow {
             codexContextWindow = new.codexContextWindow
-            if let store = app.store {
+            if keepsLocally, let store = app.store {
                 let key = ComposerControls.contextWindowKey(sessionID: transcript.session.id)
                 // Nil for the model's own window, so a chat set back to it reads the same as one
                 // nobody ever asked. `CodexRunner.applyContextWindowChange` reads it on the next
@@ -427,6 +437,23 @@ struct ComposerView: View {
             break
         }
 
+        // **All nine, to the machine, whichever of them moved.** This used to fall through to
+        // the guard below, which compares the five fields a `Session` has and nothing else: so a
+        // Cloud chat's fast mode, Codex fast mode, output style and context window changed this
+        // view and never reached the machine. The wire carries all nine and the Mac was using
+        // five. The lightning bolt in the middle of the owner's screenshot was one of the four.
+        if !keepsLocally {
+            guard new != before else { return }
+            Task {
+                // Refused: put the four back to what the machine still has, since no answer is
+                // coming that would. The five on the session are put back by the call itself.
+                if await !transcript.setCloudControls(new) {
+                    seed(fromMachine: transcript.cloud?.controls)
+                }
+            }
+            return
+        }
+
         guard new.model != session.model
             || new.effort != session.effort
             || new.agentKind != session.agentKind
@@ -441,6 +468,20 @@ struct ComposerView: View {
             $0.permissionMode = new.permissionMode
             $0.interactionMode = new.interactionMode
         }
+    }
+
+    /// Takes the four values a `Session` has no column for off the machine's own account of this
+    /// chat's composer.
+    ///
+    /// Called when the chat is prepared and again whenever the machine's controls change, which is
+    /// what another person changing this chat's model or fast mode looks like from here. Nil is a
+    /// machine that has not said yet, and leaves the values alone rather than resetting them.
+    private func seed(fromMachine machine: ComposerControls?) {
+        guard let machine else { return }
+        if isFastMode != machine.isFastMode { isFastMode = machine.isFastMode }
+        if codexFastMode != machine.codexFastMode { codexFastMode = machine.codexFastMode }
+        if outputStyle != machine.outputStyle { outputStyle = machine.outputStyle }
+        if codexContextWindow != machine.codexContextWindow { codexContextWindow = machine.codexContextWindow }
     }
 
     /// A chat that has already spoken gets a new chat beside it rather than being turned into
@@ -521,7 +562,13 @@ struct ComposerView: View {
 
         if let question = SideConversation.question(in: transcript.draft) {
             guard canOpenSideConversation, let model else {
-                app.notice = BloomNotice(message: "Use /btw in a workspace chat to open a side conversation.")
+                // Two different reasons, and the old sentence gave the first to both. Ask Bloom has
+                // no workspace, so "use it in a workspace chat" is the way forward. A Cloud chat
+                // IS a workspace chat, and telling somebody standing in one to go and use a
+                // workspace chat sends them looking for a thing they already have.
+                app.notice = BloomNotice(message: transcript.cloud == nil
+                    ? "Use /btw in a workspace chat to open a side conversation."
+                    : "Side conversations are not available in a Cloud workspace yet.")
                 return
             }
             // The command itself belongs to Bloom. Leave review comments on the main chat.
@@ -820,7 +867,15 @@ struct ComposerView: View {
         // A Cloud chat's controls are its machine's, set by whoever wrote last. Nothing on this Mac
         // (its defaults, its model list, the settings kept per session in its database) may write
         // over them just because this reader opened the chat.
-        guard transcript.cloud == nil else { return }
+        //
+        // **But they have to be read from it**, which is the half that was missing. The four
+        // values held in state were only ever seeded further down, past this guard, so a Cloud
+        // chat's fast mode, output style and context window started at this Mac's defaults and
+        // showed those rather than what the machine was going to run with.
+        guard transcript.cloud == nil else {
+            seed(fromMachine: transcript.cloud?.controls)
+            return
+        }
 
         repairModel()
 

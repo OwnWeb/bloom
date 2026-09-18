@@ -51,16 +51,17 @@ a **context window** size. **[checked]**
   `permissionMode`, `interactionMode`, `fastMode`, `codexFastMode`, `outputStyle`,
   `codexContextWindow`, and `set_composer` writes them. A chat that does not exist yet takes
   `composer_defaults` off the workspace snapshot. **[checked]**
-- **But the Mac uses only five of the nine on a Cloud chat, and that is a bug on the Mac, not a
-  design.** **[checked]** For a Cloud chat, `updatePreferences` sends `set_composer` and rolls the
-  session back with an alert if the machine refuses, which is right. The other four are never read
-  from the machine and never sent to it: `ComposerView.prepare()` seeds them after a
-  `guard transcript.cloud == nil else { return }`, so they start at this Mac's defaults, and a change
-  to only those four fails the guard in `apply(controls:)` that decides whether to call
-  `updatePreferences` at all. **So on a Cloud chat the lightning bolt and the output style show a
-  local default, and changing them does not reach the machine.**
-- **Wire needed**: none. **Round-trip all nine through `set_composer`, and do not copy the Mac's
-  behaviour here.**
+- **The Mac used only five of the nine on a Cloud chat until this was written, and it was a bug,
+  not a design.** **[checked]** The other four were seeded in `ComposerView.prepare()` after a
+  `guard transcript.cloud == nil else { return }`, so a Cloud chat started them at this Mac's
+  defaults, and a change to only those four failed the guard in `apply(controls:)` that decided
+  whether to call `updatePreferences`, so `set_composer` was never sent. The lightning bolt showed a
+  local default and pressing it reached nothing. **Fixed on this branch**: the four are read from
+  the machine when the chat is prepared and whenever the machine's controls change, and every
+  change sends all nine through `TranscriptModel.setCloudControls`, putting the four back if the
+  machine refuses.
+- **Wire needed**: none. **Round-trip all nine through `set_composer`**, which is what the Mac now
+  does.
 - **Shortcut**: none.
 
 **The lists themselves are not on the wire, and that is the catch.** Which models exist comes from
@@ -92,11 +93,11 @@ modes and the efforts are derivable from the agent name and need nothing.** **[c
 - **State**: `TranscriptModel.contextUsage`, folded from the transcript's own rows by
   `ContextWindowUsage.updated(_:with:)`. Nil until a turn has finished, deliberately: a gauge
   reading 0% would be a claim. **[checked]**
-- **Cloud: the gauge never appears, and the reason is on the Mac.** **[checked]**
-  `contextUsage` is only ever updated by `noteContextWindow`, which is called from the local read
-  path (`appendLatestMessages`). `receiveCloud` absorbs a machine's rows without calling it, and
-  its rebuild path sets the rows without setting the reading either. So nothing ever computes it
-  for a Cloud chat.
+- **Cloud: the gauge did not appear until this was written, and the reason was on the Mac.**
+  **[checked]** `contextUsage` was only moved by `noteContextWindow`, which only the local read path
+  called; `receiveCloud` absorbed a machine's rows without asking, and its rebuild set the rows
+  without the reading. **Fixed on this branch**: arriving rows are folded, and a whole history read
+  takes the reading from the whole of it, as `load()` does locally.
 - **Whether it would work once computed** depends on a machine's `result` rows carrying the payload
   `ContextWindowUsage` parses. **[unsure]**, and genuinely so: this is a question about what a
   running machine stores, which the code here cannot settle. It is moot until the call exists.
@@ -134,9 +135,10 @@ modes and the efforts are derivable from the agent name and need nothing.** **[c
   built-in slash command (`SlashCommandIndex`: "Ask a side question while the main agent works"),
   and pressing Return with a `/btw …` draft opens a side conversation instead of sending
   (`ComposerView.send()` asks `SideConversation.question(in:)` first). In a chat with no workspace
-  model, which is a Cloud chat and Ask Bloom, it says "Use /btw in a workspace chat to open a side
-  conversation." and sends nothing. **That sentence is wrong for a Cloud chat**, which is a
-  workspace chat; a small copy fix on the Mac.
+  model it sends nothing and says why: in Ask Bloom "Use /btw in a workspace chat to open a side
+  conversation.", and in a Cloud chat "Side conversations are not available in a Cloud workspace
+  yet." The first sentence used to be given to both, which sent somebody standing in a workspace
+  chat off to look for one.
 
 ### 6. The paperclip: attachments
 
@@ -157,8 +159,9 @@ modes and the efforts are derivable from the agent name and need nothing.** **[c
 - **Shortcut**: **Cmd+.**, the Workspace menu's **Stop Agent**. **[checked]** It stops the chat
   whose composer has focus, falling back to the highlighted workspace's active chat
   (`BloomCommands`, `MenuCommand(.stopAgent)`), and calls `TranscriptModel.stop()`, which on a Cloud
-  chat is the machine's `stop`. **The fallback reads a local `WorkspaceModel`**, so on a Cloud chat
-  it works while the composer has focus and not otherwise. **[checked]**
+  chat is the machine's `stop`. **[checked]** The fallback used to read only a local
+  `WorkspaceModel`, so on a Cloud chat it worked while the composer had focus and did nothing once
+  focus moved; it asks the Cloud workspace's chat in front as well now.
 
 ### 8. The send arrow
 

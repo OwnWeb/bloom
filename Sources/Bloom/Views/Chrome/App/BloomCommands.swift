@@ -612,9 +612,9 @@ struct BloomCommands: Commands {
             // stops the agent that row is about. It is `existingModel`, which only reads: a
             // workspace this launch has never opened has no transcript to stop anyway.
             MenuCommand(.stopAgent) {
-                (composerTranscript ?? subjectModel?.activeTranscript)?.stop()
+                stoppableTranscript?.stop()
             }
-            .disabled((composerTranscript ?? subjectModel?.activeTranscript)?.isRunning != true)
+            .disabled(stoppableTranscript?.isRunning != true)
         }
 
         CommandGroup(replacing: .help) {
@@ -1108,6 +1108,20 @@ struct BloomCommands: Commands {
     /// The live model behind the subject, when this launch has one. Only Stop Agent asks: setup
     /// and the run scripts need a workspace whose settings have been read, which is the one the
     /// window is actually showing.
+    /// The chat Cmd+. stops: the one whose composer has focus, then the chat in front of the
+    /// workspace the window is on.
+    ///
+    /// **The second half used to read only a local workspace's model**, so on a Cloud workspace
+    /// Cmd+. worked while the composer had focus and did nothing the moment focus moved to the
+    /// transcript or the inspector, on the same turn in the same window. A Cloud workspace has a
+    /// chat in front too, and it is asked the same way.
+    private var stoppableTranscript: TranscriptModel? {
+        if let composerTranscript { return composerTranscript }
+        if let local = subjectModel?.activeTranscript { return local }
+        guard let cloud = model.selectedCloudSession, let chat = cloud.activeChat else { return nil }
+        return cloud.existingTranscript(for: chat.id)
+    }
+
     private var subjectModel: WorkspaceModel? {
         guard let id = subject?.liveID else { return nil }
         return model.existingModel(for: id)

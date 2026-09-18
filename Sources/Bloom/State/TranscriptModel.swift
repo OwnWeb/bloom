@@ -2537,10 +2537,16 @@ final class TranscriptModel {
             && (cloudRowCount == 0 ? highestSeenMessageSeq == -1 : messages[cloudRowCount - 1].seq == highestSeenMessageSeq)
         let appended = messages.count != cloudRowCount
         if appendsOnly {
+            let appendedFrom = rows.count
             for record in messages.dropFirst(cloudRowCount) {
                 absorb(converted(record))
                 highestSeenMessageSeq = max(highestSeenMessageSeq, record.seq)
             }
+            // **The context gauge, which never appeared on a Cloud chat.** `contextUsage` is only
+            // moved by `noteContextWindow`, and only the local read path called it: this one
+            // absorbed a machine's rows and never asked what they said about the window. Over what
+            // arrived rather than over the transcript, for the reason the local path gives.
+            noteContextWindow(in: rows[min(appendedFrom, rows.count)...])
         } else {
             var built: [TranscriptRow] = []
             var index: [String: Int] = [:]
@@ -2553,6 +2559,11 @@ final class TranscriptModel {
             indexByRefID = index
             highestSeenMessageSeq = messages.last?.seq ?? -1
             presentationRevision += 1
+            // A whole history read, so the reading is taken from the whole of it, as `load()` does
+            // for a local chat. Without this a page of history arriving under the stream would
+            // leave the gauge at whatever the newest few rows had said, or at nothing.
+            let reading = ContextWindowUsage.latest(in: built)
+            if reading != contextUsage { contextUsage = reading }
         }
         cloudRowCount = messages.count
 
@@ -2771,6 +2782,34 @@ final class TranscriptModel {
             session = previous
             app.alert = BloomAlert(title: "Could not change this chat", message: failure)
         }
+    }
+
+    /// Sends a Cloud chat's whole composer to its machine: all nine values, not the five a
+    /// `Session` has columns for.
+    ///
+    /// The five are moved on the session first, so the picker shows the new model the moment it
+    /// is chosen, and put back if the machine refuses, which is what `updateCloudPreferences`
+    /// already did for them. The other four are the composer's own state and follow the machine's
+    /// answer when it arrives. See `ComposerView.apply(controls:)` for the bug this closes.
+    ///
+    /// - Returns: whether the machine took it. A refusal leaves the machine's controls as they
+    ///   were, so no answer arrives to move the other four back, and the composer has to do that
+    ///   itself or it goes on showing a fast mode the machine said no to.
+    @discardableResult
+    func setCloudControls(_ controls: ComposerControls) async -> Bool {
+        guard let cloud else { return false }
+        var next = session
+        next.agentKind = controls.agentKind
+        next.model = controls.model
+        next.effort = controls.effort
+        next.permissionMode = controls.permissionMode
+        next.interactionMode = controls.interactionMode
+        let previous = session
+        if next != session { session = next }
+        guard let failure = await cloud.setComposer(controls) else { return true }
+        session = previous
+        app.alert = BloomAlert(title: "Could not change this chat", message: failure)
+        return false
     }
 }
 
