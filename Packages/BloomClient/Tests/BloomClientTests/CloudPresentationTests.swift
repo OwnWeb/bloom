@@ -233,9 +233,16 @@ import Testing
 
     /// It used to offer a button to the setup tab. There is no such tab: a machine's setup is a
     /// row at the head of its conversation, which is already on screen behind the banner.
+    ///
+    /// **And the banner says what it does about it, because the refusal no longer will.**
+    /// runbloom.app's sentence used to end "and this will reconnect automatically once it is",
+    /// which was true of every reader while every reader retried, and became a promise nobody was
+    /// keeping the moment a web page read it. The refusal states the fact; each surface adds its
+    /// own behaviour, and this one keeps asking.
     @Test func aMachineThatIsNotReadySaysSoWithNothingToPress() {
         let banner = CloudConnectionBanner.of(.notReady(message: "Still starting.", retryAfter: 5))
-        #expect(banner?.message == "Still starting.")
+        #expect(banner?.message == "Still starting. Bloom opens it as soon as it is.")
+        #expect(banner?.title == CloudOpeningNotice.title)
         #expect(banner?.actions.isEmpty == true)
     }
 
@@ -413,7 +420,9 @@ import Testing
     /// The step names outlived the banner they were written for: a machine's setup is a row in the
     /// transcript now, and the row says which step is running in the same words.
     @Test func aSetupStepIsNamedInWordsAndAnUnknownOneIsSaidAsItStands() {
-        #expect(CloudConnectionBanner.stepName("prepare") == "preparing the machine")
+        // The machine's own heading, word for word, which is what the row's suppression rests on.
+        // See `CloudSetupStepTests`, which pins all seven.
+        #expect(CloudConnectionBanner.stepName("prepare") == "running the prepare script")
         #expect(CloudConnectionBanner.stepName("seeding") == "seeding")
         #expect(CloudConnectionBanner.stepName("") == nil)
         #expect(CloudConnectionBanner.stepName(nil) == nil)

@@ -39,13 +39,23 @@ public enum CloudSetupStep {
     /// The steps a machine runs, in the order it runs them. `environment` and `git` are the two
     /// that were invisible: a new workspace used to sit in `pending` through a call to runbloom.app
     /// and the whole of the git configuration, which is where a measured eighteen minute hang sat.
+    ///
+    /// **The long form is the machine's own heading, word for word**, and that is a requirement
+    /// rather than a nicety. The machine writes a `[bloom] ` line per step, and a client showing
+    /// the newest of those under a row already naming the step has to recognise the two as the
+    /// same sentence or it says the same thing twice. Three of these were guessed before they were
+    /// asked for, and all three guesses were wrong: "preparing the machine", "running the project's
+    /// setup" and "resuming", against the machine's three `script` headings. They were the two
+    /// longest steps and the one that runs on every wake, which is to say the three somebody is
+    /// most likely to be watching. `CloudSetupStepTests` pins all seven against the literals, so a
+    /// change on either side fails a suite rather than a person.
     private static let names: [String: (short: String, long: String)] = [
         "environment": ("reading the environment", "reading the team's environment"),
         "git": ("configuring git", "configuring git"),
         "clone": ("cloning", "cloning the repository"),
-        "prepare": ("preparing", "preparing the machine"),
-        "setup": ("running setup", "running the project's setup"),
-        "resume": ("resuming", "resuming"),
+        "prepare": ("preparing", "running the prepare script"),
+        "setup": ("running setup", "running the setup script"),
+        "resume": ("resuming", "running the resume script"),
         "services": ("starting services", "starting the project's services"),
     ]
 }
