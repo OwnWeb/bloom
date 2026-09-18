@@ -63,7 +63,7 @@ extension WorkspaceRuntime {
     /// a strong capture would keep both alive for ever.
     nonisolated func bridgeToolbox() -> BridgeToolbox {
         let handlers: [any BridgeToolHandling] = [
-            WhoamiTool(),
+            WhoamiTool(environment: briefing),
             ChatListTool(),
             ChatReadTool(),
             WorkspaceDiffTool(),
@@ -81,7 +81,10 @@ extension WorkspaceRuntime {
                 return await self.stopCrewMember(name, callerID: sessionID, workspaceID: workspaceID)
             },
         ]
-        return BridgeToolbox(handlers: handlers.map { WorkspaceScopedTool(wrapped: $0, workspaceID: workspaceID) })
+        return BridgeToolbox(
+            handlers: handlers.map { WorkspaceScopedTool(wrapped: $0, workspaceID: workspaceID) },
+            briefing: briefing
+        )
     }
 
     // MARK: - The crew

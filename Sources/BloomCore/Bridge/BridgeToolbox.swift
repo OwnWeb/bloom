@@ -8,9 +8,14 @@ import Foundation
 /// it.
 public struct BridgeToolbox: Sendable {
     public let handlers: [any BridgeToolHandling]
+    /// What an agent reaching this toolbox is told about where it is running, before it asks. Nil
+    /// on the owner's own Mac, where the agent is already in the place it can see. See
+    /// `BridgeBriefing`.
+    public let briefing: String?
 
-    public init(handlers: [any BridgeToolHandling]) {
+    public init(handlers: [any BridgeToolHandling], briefing: String? = nil) {
         self.handlers = handlers
+        self.briefing = briefing
     }
 
     /// What a `BridgeServer` built without the app serves: everything that needs no seam back

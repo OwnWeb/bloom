@@ -62,6 +62,9 @@ public actor WorkspaceRuntime {
     var setupStartedAt: Date?
     /// What the setup runner last found under the step's child. See `RemoteSummary.Setup.Liveness`.
     var setupLiveness: RemoteSummary.Setup.Liveness?
+    /// What an agent on this machine is told about where it is running. Nil off a machine. See
+    /// `BridgeBriefing`.
+    let briefing: String?
     /// The project's services as the machine is running them. Empty everywhere that is not a
     /// machine, which is every Mac. See `ServiceRecord`.
     var services: [ServiceRecord] = []
@@ -98,8 +101,10 @@ public actor WorkspaceRuntime {
         runnerExitGrace: Duration = .seconds(6),
         bridgeSocketPath: String? = nil,
         bridgeShimPath: String? = BridgeRegistration.shimPath(),
-        runsSetup: Bool = true
+        runsSetup: Bool = true,
+        briefing: String? = nil
     ) {
+        self.briefing = briefing
         self.runsSetup = runsSetup
         self.bridgeSocketPath = bridgeSocketPath
         self.bridgeShimPath = bridgeShimPath

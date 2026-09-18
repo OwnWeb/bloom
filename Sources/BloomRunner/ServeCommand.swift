@@ -59,7 +59,10 @@ public enum ServeCommand {
             // Short and under the data directory, because a Unix socket path has a length limit and
             // only the machine's own user should reach it. The shim is bloom-bridge beside this binary.
             bridgeSocketPath: layout.dataDirectory + "/bridge.sock",
-            runsSetup: configuration.runsSetup
+            runsSetup: configuration.runsSetup,
+            briefing: BridgeBriefing.machine(
+                publicURL: configuration.publicURL, appPort: layout.appPort, reservedPorts: layout.reservedPorts
+            )
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()
         // What the machine says about its own reporting goes two ways here, because the two readers
