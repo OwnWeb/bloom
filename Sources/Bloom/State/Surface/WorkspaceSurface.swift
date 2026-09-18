@@ -106,6 +106,10 @@ protocol WorkspaceSurface: AnyObject, Observable {
     associatedtype SettingsNotices: View
     @MainActor func settingsNotices() -> SettingsNotices
 
+    /// What an empty pane says instead of its own sentence, or nil for the pane's own. See
+    /// `PaneEmptyNotice`.
+    var emptyPaneNotice: PaneEmptyNotice? { get }
+
     /// Whether an agent is mid turn in this one chat, which is what lights its tab.
     func isRunningChat(_ id: SessionID) -> Bool
 

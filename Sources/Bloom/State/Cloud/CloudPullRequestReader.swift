@@ -26,6 +26,10 @@ final class CloudPullRequestReader {
     /// Set while the reader has put a failure in front of somebody and they have closed it. The
     /// same failure stays hidden; a different one, or a success, brings the strip back.
     private(set) var dismissedFailure: GitHubReadFailure?
+    /// What the strip just did, said in the column under it: a refusal from runbloom.app, or a
+    /// prompt that could not be sent. The strip writes it and the inspector draws it, for a Cloud
+    /// workspace exactly as for a local one.
+    var notice: PullRequestNotice?
 
     @ObservationIgnored private weak var session: CloudWorkspaceSession?
     @ObservationIgnored private var readAt: Date?

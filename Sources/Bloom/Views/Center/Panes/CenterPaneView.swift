@@ -157,7 +157,13 @@ struct CenterPaneView<Model: WorkspaceSurface>: View {
             }
 
         case nil:
-            if model.isRunningSetup {
+            if let notice = model.emptyPaneNotice {
+                EmptyStateView(
+                    glyph: notice.glyph, title: notice.title, message: notice.message,
+                    actionTitle: notice.actionTitle, action: notice.action
+                )
+                .background(Palette.surface)
+            } else if model.isRunningSetup {
                 setupState
             } else if !model.hasReadChats {
                 // **Not `noConversationState`, and this is the bug that made a switch feel wrong
@@ -280,7 +286,8 @@ struct CenterPaneView<Model: WorkspaceSurface>: View {
             // The nouns and the glyphs are `PaneKind`'s, the same ones the `+` menu and the split
             // menus take theirs from, so this cannot end up calling a browser something else.
             HStack(spacing: Metrics.spacing) {
-                ForEach(PaneKind.allCases) { kind in
+                // The kinds this workspace can open: a Cloud workspace has no browser of its own.
+                ForEach(PaneKind.allCases.filter { $0 != .browser || model.supportsBrowserTabs }) { kind in
                     Button {
                         NewPane.open(kind, in: model) { tabs.reveal($0, in: model) }
                     } label: {

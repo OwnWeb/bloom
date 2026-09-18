@@ -8,23 +8,18 @@ import Foundation
 /// differences between them are these flags. A control whose capability is missing stays where it
 /// is, greyed, with the sentence below saying why, because a control that disappears teaches
 /// nobody anything and a control that fails after being pressed is worse.
+///
+/// **Only what a view actually asks.** It started with ten, one for everything a Cloud workspace
+/// might not be able to do. Six went when the review pass found nothing asking them: history and
+/// revert became true for both kinds once the machine could do them, and revealing a file, a
+/// shell in a folder, transcript search and Keep Awake are answered by the thing itself (a file
+/// with no path on this Mac, a terminal the machine offers or refuses) rather than by a flag
+/// nobody read. A capability nothing asks is a claim nothing checks.
 public struct WorkspaceCapabilities: Sendable, Hashable {
     /// One thing a workspace may or may not be able to do.
     public enum Capability: String, Sendable, Hashable, CaseIterable {
-        /// Show a file in the Finder, or open it in another application on this Mac.
-        case revealFiles
-        /// Take a file or a hunk back to what it was.
-        case revertChanges
-        /// A shell on the same files, in the app.
-        case terminal
-        /// Merge the pull request, or mark it ready for review.
+        /// Merge the pull request, or mark it ready for review, as the signed-in person.
         case managePullRequest
-        /// The commits on the branch, for the History tab.
-        case history
-        /// Find a conversation by what was said in it.
-        case searchTranscripts
-        /// Keep this Mac awake while the agent works.
-        case keepAwake
         /// Open the project's own app inside Bloom.
         case preview
         /// Write to a file from the diff: the in-place editor and the whole-file editor.
@@ -36,20 +31,8 @@ public struct WorkspaceCapabilities: Sendable, Hashable {
         /// missing capability. Written as what is true rather than as an apology.
         public var cloudSentence: String {
             switch self {
-            case .revealFiles:
-                "These files are in the cloud rather than on this Mac, so there is nothing for the Finder to show. Open the file here, or on GitHub."
-            case .revertChanges:
-                "Taking a change back in a Cloud workspace is not built yet. Ask the agent to undo it, or do it from the workspace's terminal."
-            case .terminal:
-                "This Cloud workspace has no terminal for you yet."
             case .managePullRequest:
-                "Merging and marking a pull request ready from a Cloud workspace is not built yet. The pull request itself is on GitHub."
-            case .history:
-                "The commits on this branch are not readable from a Cloud workspace yet."
-            case .searchTranscripts:
-                "Search does not reach Cloud workspace conversations yet. Open the workspace and read its chat."
-            case .keepAwake:
-                "A Cloud workspace runs in the cloud, so it keeps working whatever this Mac does. It sleeps by itself when nobody is using it and wakes when you are."
+                "Only somebody who can push to this repository can merge its pull request or mark it ready for review."
             case .preview:
                 "This Cloud workspace has no preview yet. It appears once the project's own app is running on it."
             case .editFiles:
@@ -71,24 +54,18 @@ public struct WorkspaceCapabilities: Sendable, Hashable {
     /// Everything, which is what a worktree on this Mac can do.
     public static let local = WorkspaceCapabilities(Set(Capability.allCases))
 
-    /// What a Cloud workspace can do. The arguments are the things still being built on the other
-    /// side of the wire, so each of them turns on here the day it lands rather than in a view.
+    /// What a Cloud workspace can do. The two that are known on the day are asked of runbloom.app
+    /// and of the machine: whether this person may merge, and whether a preview is running. The
+    /// two that are not built yet are off until they are, and turn on here rather than in a view.
     public static func cloud(
-        history: Bool = false, revertChanges: Bool = false, searchTranscripts: Bool = false,
-        preview: Bool = true, terminal: Bool = true, managePullRequest: Bool = false,
+        managePullRequest: Bool = false, preview: Bool = false,
         editFiles: Bool = false, reviewComments: Bool = false
     ) -> WorkspaceCapabilities {
         var supported: Set<Capability> = []
-        if history { supported.insert(.history) }
-        if revertChanges { supported.insert(.revertChanges) }
-        if searchTranscripts { supported.insert(.searchTranscripts) }
-        if preview { supported.insert(.preview) }
-        if terminal { supported.insert(.terminal) }
         if managePullRequest { supported.insert(.managePullRequest) }
+        if preview { supported.insert(.preview) }
         if editFiles { supported.insert(.editFiles) }
         if reviewComments { supported.insert(.reviewComments) }
-        // Never, by construction: there is no worktree on this Mac to reveal, and nothing this Mac
-        // does keeps a machine in the cloud awake.
         return WorkspaceCapabilities(supported)
     }
 }

@@ -108,6 +108,9 @@ extension WorkspaceModel: WorkspaceSurface {
         WorkspaceSettingsNotices(model: self)
     }
 
+    /// The pane's own sentences say everything a local workspace has to say.
+    var emptyPaneNotice: PaneEmptyNotice? { nil }
+
     func isRunningChat(_ id: SessionID) -> Bool {
         sessions.first { $0.id == id }.map(isRunning) ?? false
     }

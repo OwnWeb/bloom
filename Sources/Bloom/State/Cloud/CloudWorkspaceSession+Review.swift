@@ -32,15 +32,10 @@ extension CloudWorkspaceSession: WorkspaceSurface {
 
     var capabilities: WorkspaceCapabilities {
         .cloud(
-            // Each of these turns on here the day its half lands on the other side of the wire.
-            history: true,
-            revertChanges: true,
-            searchTranscripts: false,
-            preview: allows("preview"),
-            terminal: allows("terminal"),
             // runbloom.app answers whether this person may merge, as GitHub sees them, so the
             // control is greyed for somebody without push access rather than failing when pressed.
-            managePullRequest: github.state?.canMerge == true
+            managePullRequest: github.state?.canMerge == true,
+            preview: allows("preview")
         )
     }
 
@@ -106,6 +101,30 @@ extension CloudWorkspaceSession: WorkspaceSurface {
     /// Nothing: a Cloud workspace's settings file is on its machine, and what it says about setup
     /// is the setup banner and the Setup tab rather than a strip over the panes.
     func settingsNotices() -> EmptyView { EmptyView() }
+
+    /// A new Cloud workspace's first minutes, which is the only time it has more to say than the
+    /// pane does: its machine is setting itself up, and the first message typed at create is
+    /// waiting for it. Said with the message itself, because it is the one thing the reader did.
+    var emptyPaneNotice: PaneEmptyNotice? {
+        if isRunningSetup {
+            return PaneEmptyNotice(
+                glyph: PaneGlyph.setup,
+                title: "Setting up this Cloud workspace",
+                message: heldPrompt.map { "Your first message goes as soon as it is ready: “\($0.text)”" }
+                    ?? "It is cloning the repository and running the project's setup. This takes a few minutes the first time.",
+                actionTitle: "Watch Setup",
+                action: { [weak self] in self?.openSetupLog() }
+            )
+        }
+        if let held = heldPrompt {
+            return PaneEmptyNotice(
+                glyph: "clock",
+                title: "Your first message is waiting",
+                message: "“\(held.text)” goes to the agent as soon as this Cloud workspace has started."
+            )
+        }
+        return nil
+    }
 
     func isRunningChat(_ id: SessionID) -> Bool {
         state.chats[id.rawValue]?.isRunning == true
@@ -440,10 +459,12 @@ extension CloudWorkspaceSession: WorkspaceSurface {
 
     func confirmArchive(_ request: ArchiveRequest, presenting: @escaping (ArchiveRequest) -> Void) async {}
     var isLoadingPullRequest: Bool { github.isLoading }
+    /// Kept, where it used to be thrown away. The strip writes a notice when a merge is refused or
+    /// a prompt cannot be sent, and a setter that did nothing meant a Cloud workspace's refusals
+    /// vanished without a word.
     var pullRequestNotice: PullRequestNotice? {
-        get { nil }
-        // Nothing here raises one yet, so there is nothing for a dismissal to clear either.
-        set { _ = newValue }
+        get { github.notice }
+        set { github.notice = newValue }
     }
     var pullRequestRefreshFailure: GitHubReadFailure? { github.visibleFailure }
     func dismissPullRequestRefreshFailure() { github.dismissFailure() }

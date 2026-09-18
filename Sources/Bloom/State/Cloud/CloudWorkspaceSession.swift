@@ -45,9 +45,9 @@ final class CloudWorkspaceSession {
     @ObservationIgnored private(set) lazy var changes = CloudChanges(session: self)
     /// The branch's commits, read when the History tab is opened and a page at a time after that.
     @ObservationIgnored private(set) lazy var history = CloudHistory(session: self)
-    /// Which setup states this workspace has already shown the tab for, so it is revealed once per
-    /// state rather than on every event that repeats it.
-    @ObservationIgnored private var seenSetupStates: Set<String> = []
+    /// Which setup states this workspace has already brought the tab forward for. See
+    /// `SetupTabReveal`, which is where the rule is, under test.
+    @ObservationIgnored private var setupReveal = SetupTabReveal()
     /// What GitHub says about the branch, read from runbloom.app rather than from this Mac's gh.
     @ObservationIgnored private(set) lazy var github = CloudPullRequestReader(session: self)
     /// Where the reader had got to in each conversation, per pane, which is what a local workspace
@@ -126,8 +126,7 @@ final class CloudWorkspaceSession {
     /// The setup tab, brought forward the first time a setup is running or has failed, so the one
     /// account of a machine's first few minutes is in front of whoever opened the workspace.
     func revealSetupIfNeeded() {
-        let state = state.setup?.state ?? ""
-        guard ["pending", "running", "failed"].contains(state), seenSetupStates.insert(state).inserted else { return }
+        guard setupReveal.shouldReveal(for: state.setup?.state) else { return }
         open(.setup)
     }
 

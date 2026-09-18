@@ -25,3 +25,18 @@ struct ChatComposerNotice: Equatable {
         lhs.sentence == rhs.sentence && lhs.actionTitle == rhs.actionTitle
     }
 }
+
+/// What an empty pane says when its workspace has something more specific to say than the pane's
+/// own sentence. Data, for the reason `ChatComposerNotice` is: the pane draws it, and neither kind
+/// of workspace knows how.
+///
+/// It exists for a Cloud workspace's first minutes: the machine is setting itself up and the first
+/// message somebody typed at create is waiting for it. A pane that said "the setup script is still
+/// running" and nothing else lost the one thing the reader had done, which was ask for something.
+struct PaneEmptyNotice {
+    var glyph: String
+    var title: String
+    var message: String
+    var actionTitle: String?
+    var action: (@MainActor () -> Void)?
+}

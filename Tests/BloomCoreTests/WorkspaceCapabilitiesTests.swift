@@ -11,26 +11,17 @@ struct WorkspaceCapabilitiesTests {
         }
     }
 
-    @Test("a Cloud workspace never reveals files or keeps this Mac awake")
-    func cloudNever() {
-        let everything = WorkspaceCapabilities.cloud(
-            history: true, revertChanges: true, searchTranscripts: true, preview: true, terminal: true, managePullRequest: true
-        )
-        #expect(!everything.has(.revealFiles))
-        #expect(!everything.has(.keepAwake))
-        #expect(everything.has(.history))
-        #expect(everything.has(.managePullRequest))
-    }
-
-    @Test("what is still being built is off until it is handed in")
-    func cloudDefaults() {
+    @Test("a Cloud workspace has what it is handed and nothing else")
+    func cloudIsWhatItIsGiven() {
         let today = WorkspaceCapabilities.cloud()
-        #expect(!today.has(.history))
-        #expect(!today.has(.revertChanges))
-        #expect(!today.has(.searchTranscripts))
-        #expect(!today.has(.managePullRequest))
-        #expect(today.has(.terminal))
-        #expect(today.has(.preview))
+        for capability in WorkspaceCapabilities.Capability.allCases {
+            #expect(!today.has(capability), "a Cloud workspace has \(capability.rawValue) without being given it")
+        }
+        let merging = WorkspaceCapabilities.cloud(managePullRequest: true, preview: true)
+        #expect(merging.has(.managePullRequest))
+        #expect(merging.has(.preview))
+        #expect(!merging.has(.editFiles))
+        #expect(!merging.has(.reviewComments))
     }
 
     @Test("every capability says why it is missing, in Cloud workspace words")

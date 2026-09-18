@@ -71,13 +71,7 @@ struct FileHeaderBar<Model: WorkspaceSurface>: View {
     /// Why Discard cannot be pressed right now, or nil when it can. An agent mid turn is writing
     /// this worktree, and a discard landing between two of its writes throws away half of an edit
     /// it is about to build on.
-    private var discardBlocker: String? {
-        // The capability first, because "this workspace cannot do that" outranks "not this second".
-        guard model.capabilities.has(.revertChanges) else {
-            return WorkspaceCapabilities.Capability.revertChanges.cloudSentence
-        }
-        return model.isRunning ? HunkDiscard.agentIsWorking : nil
-    }
+    private var discardBlocker: String? { model.isRunning ? HunkDiscard.agentIsWorking : nil }
 
     /// What the editor files this file under: its path on this Mac, or a key naming the Cloud
     /// workspace and the file. See `WorkspaceSurface.editorKey(for:)`.

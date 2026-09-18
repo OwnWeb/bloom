@@ -672,7 +672,7 @@ struct DiffView<Model: WorkspaceSurface>: View {
     /// Throw the file's changes away. Only ever reached through the confirmation in the header
     /// bar, which names what is about to go.
     private func revert() {
-        guard allowsWorktreeActions, model.capabilities.has(.revertChanges), !model.isRunning else { return }
+        guard allowsWorktreeActions, !model.isRunning else { return }
         Task {
             session.discard(path: fileKey)
             // The file is about to be replaced or deleted outright, so a box open on the lines it

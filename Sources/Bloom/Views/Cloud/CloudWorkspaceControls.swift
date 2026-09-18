@@ -33,11 +33,11 @@ struct CloudWorkspaceControls: ToolbarContent {
                 Task { await session.openPreview() }
             }
             .help(
-                session.allows("preview")
+                session.capabilities.has(.preview)
                     ? "Open the project's app in your browser"
                     : WorkspaceCapabilities.Capability.preview.cloudSentence
             )
-            .disabled(!session.allows("preview"))
+            .disabled(!session.capabilities.has(.preview))
         }
         ToolbarItem(placement: .primaryAction) {
             Button("Share", systemImage: "person.2") { isSharing = true }
