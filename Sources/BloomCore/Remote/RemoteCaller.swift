@@ -23,7 +23,7 @@ public struct RemoteCaller: Sendable, Hashable {
 
     public func requires(_ ability: String) throws {
         guard abilities.contains("view"), abilities.contains(ability) else {
-            throw RemoteFailure(.missingAbility, "Your access to this Cloud workspace does not include this.")
+            throw RemoteFailure(.missingAbility, "Your access to this Bloom Cloud workspace does not include this.")
         }
     }
 }

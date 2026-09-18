@@ -77,6 +77,10 @@ extension WorkspaceRuntime {
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.sayToCrew(name, text: text, callerID: sessionID, workspaceID: workspaceID)
             },
+            CloudWorkspaceStartTool { [weak self] order, sessionID, _ in
+                guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
+                return await self.startCloudWorkspace(order, sessionID: sessionID)
+            },
             RequestPaneTool { [weak self] url, placement, sessionID, _ in
                 guard let self else { return 0 }
                 return await self.requestPane(url: url, chatID: sessionID, placement: placement)
@@ -286,7 +290,7 @@ extension WorkspaceRuntime {
 /// workspace cannot exist here, since the runtime registers only its own chats, and is refused all
 /// the same so the rule does not rest on that.
 private struct WorkspaceScopedTool: BridgeToolHandling {
-    static let elsewhere = "This Cloud workspace's bridge only answers agents working in it."
+    static let elsewhere = "This Bloom Cloud workspace's bridge only answers agents working in it."
 
     let wrapped: any BridgeToolHandling
     let workspaceID: WorkspaceID

@@ -36,7 +36,7 @@ enum EventStreamRoute {
             // A revoke that landed while the stream was being opened found nothing to close.
             if await verifier.revocations.isRevoked(token.subject, issuedAt: token.issuedAt) {
                 await streams.closed(id)
-                return WireResponses.failure(RemoteFailure(.unauthenticated, "Your access to this Cloud workspace was removed."))
+                return WireResponses.failure(RemoteFailure(.unauthenticated, "Your access to this Bloom Cloud workspace was removed."))
             }
             var headers = HTTPFields()
             headers[.contentType] = "text/event-stream"

@@ -28,7 +28,7 @@ public enum BridgeBriefing {
     public static func machine(publicURL: String, appPort: Int, reservedPorts: [(port: Int, holder: String)]) -> String {
         let ports = reservedPorts.map { "\($0.port) (\($0.holder))" }.joined(separator: ", ")
         return """
-            You are running on a Cloud workspace machine, not on the owner's Mac.
+            You are running on a Bloom Cloud workspace machine, not on the owner's Mac.
 
             **Panes, terminals and browsers belong to whoever is looking at this workspace**, in \
             their own window, somewhere else. Nothing here can open, split or point one, and there \

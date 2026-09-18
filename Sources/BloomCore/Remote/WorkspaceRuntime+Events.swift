@@ -217,7 +217,7 @@ extension WorkspaceRuntime {
     /// their queued prompts go, a turn of theirs that is running stops, and the shells they opened
     /// end, since each of those carries their key.
     public func revoke(userID: String) async {
-        await events.close(with: .closing(WireError(.unauthenticated, "Your access to this Cloud workspace was removed.")),
+        await events.close(with: .closing(WireError(.unauthenticated, "Your access to this Bloom Cloud workspace was removed.")),
                            where: { $0 == userID })
         guard !isClosed else { return }
         let chats = (try? await chatIDs()) ?? []

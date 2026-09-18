@@ -52,7 +52,7 @@ enum PreviewRoutes {
         // preview check reaches it, and it names nothing but the services from the project's own
         // settings file and how they ended.
         router.get("/_bloom/preview/unavailable") { request, _ -> Response in
-            var lines = ["The app in this Cloud workspace is not answering yet."]
+            var lines = ["The app in this Bloom Cloud workspace is not answering yet."]
             // The services are named only to somebody the preview let in. Caddy reaches this with
             // the original request, but a request straight to this path has no cookie and is told
             // nothing about the project.

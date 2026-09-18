@@ -52,6 +52,20 @@ public enum BridgeReadTarget: Sendable, Equatable {
         ),
     ])
 
+    /// `tool` without the `workspace` argument, when the tools it tells an agent to take an id
+    /// from are not offered beside it. On a Cloud machine there is one workspace and nothing to
+    /// name: the paragraph beginning "Without 'workspace'" and the property both go, and a call
+    /// that passes it anyway is still answered, because naming your own workspace is harmless.
+    static func narrowed(_ tool: BridgeTool, offering offered: Set<String>) -> BridgeTool {
+        guard !offered.contains("workspace_list"), case .object(var schema) = tool.inputSchema,
+              case .object(var properties) = schema["properties"] else { return tool }
+        properties.removeValue(forKey: argument)
+        schema["properties"] = .object(properties)
+        let paragraphs = tool.description.components(separatedBy: "\n\n")
+            .filter { !$0.hasPrefix("Without '\(argument)'") }
+        return BridgeTool(name: tool.name, description: paragraphs.joined(separator: "\n\n"), inputSchema: .object(schema))
+    }
+
     /// Resolves the `workspace` argument of `request` for `identity`.
     static func resolve(
         _ request: MCPRequest, as identity: BridgeIdentity, store: Store

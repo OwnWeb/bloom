@@ -128,19 +128,22 @@ public struct RunbloomClient: Sendable {
     /// because runbloom.app rotated it and the control call saying so has not arrived (or never
     /// will). Every call here is idempotent on runbloom.app or harmless to repeat, which is what
     /// makes sending it twice safe.
-    private func send(_ method: HTTPMethod, _ path: String, body: Data? = nil, expecting success: Set<Int>) async throws -> Data {
+    func send(_ method: HTTPMethod, _ path: String, body: Data? = nil, headers: [String: String] = [:],
+              expecting success: Set<Int>) async throws -> Data {
         do {
-            return try await sendOnce(method, path, body: body, expecting: success)
+            return try await sendOnce(method, path, body: body, headers: headers, expecting: success)
         } catch let error as RunbloomError where error.isTerminal && secret.reload() {
-            return try await sendOnce(method, path, body: body, expecting: success)
+            return try await sendOnce(method, path, body: body, headers: headers, expecting: success)
         }
     }
 
-    private func sendOnce(_ method: HTTPMethod, _ path: String, body: Data?, expecting success: Set<Int>) async throws -> Data {
+    private func sendOnce(_ method: HTTPMethod, _ path: String, body: Data?, headers: [String: String],
+                          expecting success: Set<Int>) async throws -> Data {
         var request = HTTPClientRequest(url: workspaceURL + path)
         request.method = method
         request.headers.add(name: "Authorization", value: "Bearer \(secret.current)")
         request.headers.add(name: "Accept", value: "application/json")
+        for (name, value) in headers { request.headers.add(name: name, value: value) }
         if let body {
             request.headers.add(name: "Content-Type", value: "application/json")
             request.body = .bytes(ByteBuffer(bytes: body))
@@ -185,7 +188,7 @@ public struct RunbloomClient: Sendable {
         return .refused(status: status, code: refusal.code, message: refusal.message, limit: refusal.limit, retryAfter: refusal.retryAfter)
     }
 
-    private func decode<T: Decodable>(_ type: T.Type, _ data: Data, status: Int) throws -> T {
+    func decode<T: Decodable>(_ type: T.Type, _ data: Data, status: Int) throws -> T {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {

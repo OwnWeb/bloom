@@ -24,7 +24,7 @@ extension WorkspaceRuntime {
             return .accepted
         case .renameWorkspace(let name):
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, trimmed.utf8.count <= 256 else { throw RemoteFailure.invalid("Enter a shorter Cloud workspace name.") }
+            guard !trimmed.isEmpty, trimmed.utf8.count <= 256 else { throw RemoteFailure.invalid("Enter a shorter Bloom Cloud workspace name.") }
             _ = try await workspace()
             _ = try await store.update(workspaceID: workspaceID) { $0.name = trimmed }
             return .accepted

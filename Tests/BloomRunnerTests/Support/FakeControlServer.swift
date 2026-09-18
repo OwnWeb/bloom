@@ -1,4 +1,5 @@
 import Foundation
+import HTTPTypes
 import Hummingbird
 import Logging
 import NIOCore
@@ -17,6 +18,7 @@ final class FakeControlServer: Sendable {
         var path: String
         var authorization: String?
         var contentType: String?
+        var idempotencyKey: String?
         var body: Data
 
         var json: [String: Any]? {
@@ -192,6 +194,7 @@ final class FakeControlServer: Sendable {
             path: path,
             authorization: request.headers[.authorization],
             contentType: request.headers[.contentType],
+            idempotencyKey: HTTPField.Name("Idempotency-Key").flatMap { request.headers[$0] },
             body: body
         )
         let scripted: Scripted? = state.withLock { state in

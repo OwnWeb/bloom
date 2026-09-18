@@ -84,7 +84,9 @@ public struct BridgeToolbox: Sendable {
     /// The tools a caller may see. Sorted by name so `tools/list` is stable between calls, which
     /// is one fewer thing to wonder about when a transcript is read back.
     public func tools(for role: BridgeRole) -> [BridgeTool] {
-        handlers.filter { $0.roles.contains(role) }.map(\.tool).sorted { $0.name < $1.name }
+        let reachable = handlers.filter { $0.roles.contains(role) }
+        let offered = Set(reachable.map(\.tool.name))
+        return reachable.map { $0.tool(offering: offered) }.sorted { $0.name < $1.name }
     }
 
     /// The handler for a call, or nil when there is none this caller may reach. A tool that exists

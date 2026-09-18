@@ -21,12 +21,12 @@ public struct CloudSetupTool: BridgeToolHandling {
     public let tool = BridgeTool(
         name: CloudSetupTool.name,
         description: """
-            How a project is made to work on a Cloud workspace: what runs and when, which ports are \
+            How a project is made to work on a Bloom Cloud workspace: what runs and when, which ports are \
             taken, what belongs in a service rather than in a script, what the environment holds, \
             and how to check it rather than guess.
 
             Read this before writing or changing .bloom/settings.toml, before adding a setup or \
-            resume script, and when a Cloud workspace's setup fails or its preview is blank. It is \
+            resume script, and when a Bloom Cloud workspace's setup fails or its preview is blank. It is \
             the same guidance on a Mac, where getting it right costs nothing, and on a machine, \
             where getting it wrong has already cost somebody an afternoon.
 

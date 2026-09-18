@@ -58,6 +58,16 @@ public struct ChatReadTool: BridgeToolHandling {
         ])
     )
 
+    public func tool(offering offered: Set<String>) -> BridgeTool {
+        let narrowed = BridgeReadTarget.narrowed(tool, offering: offered)
+        guard !offered.contains("workspace_tabs") else { return narrowed }
+        return BridgeTool(
+            name: narrowed.name,
+            description: narrowed.description.replacingOccurrences(of: "chat_list or workspace_tabs", with: "chat_list"),
+            inputSchema: narrowed.inputSchema
+        )
+    }
+
     public func call(_ request: MCPRequest, as identity: BridgeIdentity, store: Store) async -> BridgeToolResult {
         guard let chat = request.stringParam("chat"), !chat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failure("Pass a chat ID or exact title from chat_list as 'chat'.")

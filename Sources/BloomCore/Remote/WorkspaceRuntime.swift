@@ -75,6 +75,9 @@ public actor WorkspaceRuntime {
     /// Told when somebody has been addressed, so the machine's half can tell runbloom.app. The row
     /// is already written by then, so a machine that dies here still reports after its restart.
     let addressed: (@Sendable (AddressedReport) async -> Void)?
+    /// Asks runbloom.app for another Cloud workspace. Nil off a machine, where there is nobody to
+    /// ask; see `startCloudWorkspace`.
+    let createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)?
     /// The project's services as the machine is running them. Empty everywhere that is not a
     /// machine, which is every Mac. See `ServiceRecord`.
     var services: [ServiceRecord] = []
@@ -115,8 +118,10 @@ public actor WorkspaceRuntime {
         briefing: String? = nil,
         lookUpMember: @escaping @Sendable (String) async -> MemberLookup = { _ in .unknown },
         listMembers: @escaping @Sendable () async -> [WorkspaceMember] = { [] },
-        addressed: (@Sendable (AddressedReport) async -> Void)? = nil
+        addressed: (@Sendable (AddressedReport) async -> Void)? = nil,
+        createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil
     ) {
+        self.createCloudWorkspace = createCloudWorkspace
         self.lookUpMember = lookUpMember
         self.listMembers = listMembers
         self.addressed = addressed
@@ -187,7 +192,7 @@ public actor WorkspaceRuntime {
     /// because the agent did nothing wrong, and it says what survived, because that is the first
     /// thing anybody wants to know.
     static let restartedSentence =
-        "This Cloud workspace's server restarted while the agent was working, so the turn ended "
+        "This Bloom Cloud workspace's server restarted while the agent was working, so the turn ended "
         + "here. Everything it had already written is above, and its changes are still in the "
         + "workspace."
 
@@ -196,7 +201,7 @@ public actor WorkspaceRuntime {
     public func respond(to request: CommandRequest, as caller: RemoteCaller) async -> CommandReply {
         guard request.protocol == WorkspaceProtocol.name, request.version == WorkspaceProtocol.version else {
             return CommandReply(commandID: request.commandID, error: WireError(.unsupportedVersion,
-                "This Cloud workspace speaks \(WorkspaceProtocol.name) version \(WorkspaceProtocol.version). Update Bloom."))
+                "This workspace speaks \(WorkspaceProtocol.name) version \(WorkspaceProtocol.version). Update Bloom."))
         }
         guard !request.commandID.isEmpty, request.commandID.utf8.count <= 128 else {
             return CommandReply(commandID: request.commandID, error: WireError(.invalidRequest, "A command needs an id of up to 128 characters."))
@@ -346,14 +351,14 @@ public actor WorkspaceRuntime {
 
     func workspace() async throws -> Workspace {
         guard let workspace = try await store.workspace(id: workspaceID), workspace.state == .active else {
-            throw RemoteFailure(.workspaceChanging, "This Cloud workspace is no longer available.")
+            throw RemoteFailure(.workspaceChanging, "This Bloom Cloud workspace is no longer available.")
         }
         return workspace
     }
 
     func repo(for workspace: Workspace) async throws -> Repo {
         guard let repo = try await store.repo(id: workspace.repoID) else {
-            throw RemoteFailure(.internal, "This Cloud workspace's repository is missing on the machine.")
+            throw RemoteFailure(.internal, "This Bloom Cloud workspace's repository is missing on the machine.")
         }
         return repo
     }

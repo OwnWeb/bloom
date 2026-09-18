@@ -14,7 +14,7 @@ import Foundation
 /// without discovering anything by collision.
 public enum CloudSetupGuide {
     public static let text = """
-        # Making a project work on a Cloud workspace
+        # Making a project work on a Bloom Cloud workspace
 
         **A project can be perfectly happy on a Mac and collide on its first machine.** Locally the \
         ports are free, there are no services, and nothing enforces any of this. **The cheapest \

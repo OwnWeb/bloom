@@ -476,7 +476,7 @@ public actor MachineSetup {
 
     /// What somebody is told before a repository with no Cloud workspace setup is set up anyway.
     static func noCloudSetupNote(hasSetupScript: Bool) -> String {
-        let start = "This project has no Cloud workspace setup yet. Add .bloom/settings.toml with a "
+        let start = "This project has no Bloom Cloud workspace setup yet. Add .bloom/settings.toml with a "
             + "[scripts] prepare (what the machine needs installed), setup (this workspace's own "
             + "setup) and [[services]] (what to run and how to know it is up)."
         return hasSetupScript

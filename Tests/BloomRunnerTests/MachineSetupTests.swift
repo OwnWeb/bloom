@@ -364,7 +364,7 @@ struct MachineSetupTests {
         try await fixture.setup().run()
 
         let workspace = try await fixture.workspace()
-        #expect(workspace.setupLog.contains("This project has no Cloud workspace setup yet"))
+        #expect(workspace.setupLog.contains("This project has no Bloom Cloud workspace setup yet"))
         #expect(workspace.setupLog.contains(".bloom/settings.toml"))
         #expect(workspace.setupLog.contains("may not work on a machine"))
         // The variables a Mac script reads are set, so `set -u` does not end it on the first line.
@@ -378,7 +378,7 @@ struct MachineSetupTests {
     func cloudSetupIsNotExplained() async throws {
         let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
         try await fixture.setup().run()
-        #expect(try await !fixture.workspace().setupLog.contains("no Cloud workspace setup"))
+        #expect(try await !fixture.workspace().setupLog.contains("no Bloom Cloud workspace setup"))
         await fixture.runtime.shutdown()
     }
 

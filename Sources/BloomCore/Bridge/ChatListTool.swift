@@ -32,6 +32,10 @@ public struct ChatListTool: BridgeToolHandling {
         ])
     )
 
+    public func tool(offering offered: Set<String>) -> BridgeTool {
+        BridgeReadTarget.narrowed(tool, offering: offered)
+    }
+
     public func call(_ request: MCPRequest, as identity: BridgeIdentity, store: Store) async -> BridgeToolResult {
         do {
             let target: BridgeReadTarget

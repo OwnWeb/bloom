@@ -35,8 +35,8 @@ public actor MachineSupervisor: MachineControl {
     /// machine go. runbloom.app stops the machine's services thirty seconds later regardless.
     public func stop(limit: String) async {
         let sentence = limit == "kill_switch"
-            ? "Cloud workspaces are paused for everyone at the moment."
-            : "Your team reached a Cloud workspace limit."
+            ? "Bloom Cloud workspaces are paused for everyone at the moment."
+            : "Your team reached a Bloom Cloud workspace limit."
         await runtime.stopForLimit(DeliveryBlock(limit: limit, message: sentence))
         await reporter.changed()
         await awake.nudge()

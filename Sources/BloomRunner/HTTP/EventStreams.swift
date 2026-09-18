@@ -53,7 +53,7 @@ public actor EventStreams {
     /// Closes every stream a person holds, which is what revoking their access does.
     func revoke(userID: String) {
         for (id, entry) in entries where entry.userID == userID {
-            entry.close.yield(WireError(.unauthenticated, "Your access to this Cloud workspace was removed."))
+            entry.close.yield(WireError(.unauthenticated, "Your access to this Bloom Cloud workspace was removed."))
             entry.close.finish()
             entries.removeValue(forKey: id)
         }

@@ -17,7 +17,10 @@ struct RemoteWorkspaceRuntimeTests {
         let runners: RemoteTestRunners
     }
 
-    func fixture(gate: any RemoteTurnGate = UngatedTurns()) async throws -> Fixture {
+    func fixture(
+        gate: any RemoteTurnGate = UngatedTurns(),
+        createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil
+    ) async throws -> Fixture {
         let store = try makeTestStore("remote-runtime")
         let repo = try await store.upsert(Repo(name: "bloom", path: TestScratch.unique("repo")))
         let path = TestScratch.unique("worktree")
@@ -28,7 +31,8 @@ struct RemoteWorkspaceRuntimeTests {
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id, gate: gate,
             makeRunner: { session, _, store, environment, _ in runners.make(session: session, store: store, environment: environment) },
-            installedAgents: { [.claudeCode, .codex] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50)
+            installedAgents: { [.claudeCode, .codex] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50),
+            createCloudWorkspace: createCloudWorkspace
         )
         try await runtime.start()
         return Fixture(store: store, workspace: workspace, session: session, runtime: runtime, runners: runners)
@@ -155,6 +159,50 @@ struct RemoteWorkspaceRuntimeTests {
 
         #expect(fast.fastTier == "priority")
         #expect(plain.fastTier == nil, "absent is what no fast mode looks like")
+    }
+
+    /// runbloom.app decides who is asking from the turn, so the machine sends the turn it is really
+    /// running and never a guess. A chat with no person's turn in it is refused before anything is
+    /// sent.
+    @Test("a Cloud workspace is asked for under the running turn, and refused from a chat with none")
+    func cloudWorkspacesAreAskedForUnderTheTurn() async throws {
+        let gate = RemoteTestGate()
+        let asked = Mutex<[CloudWorkspaceRequest]>([])
+        let fixture = try await fixture(gate: gate, createCloudWorkspace: { request in
+            asked.withLock { $0.append(request) }
+            return .created(CloudWorkspaceCreated(id: "01k5new", name: request.order.name, state: "setting_up", url: "https://runbloom.app/w/01k5new"))
+        })
+        let order = CloudWorkspaceOrder(name: "Spike")
+
+        guard case .refused(let between) = await fixture.runtime.startCloudWorkspace(order, sessionID: fixture.session.id) else {
+            Issue.record("A chat with no turn running asked runbloom.app anyway"); return
+        }
+        #expect(between.contains("a person is prompting"))
+        #expect(asked.withLock { $0 }.isEmpty)
+
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Make a spike")),
+                                          as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Make a spike"] }
+        let answer = await fixture.runtime.startCloudWorkspace(order, sessionID: fixture.session.id)
+
+        guard case .created = answer else { Issue.record("Expected created, got \(answer)"); return }
+        let turnID = try #require(gate.registered.withLock { $0 }.first?.turnID)
+        let request = try #require(asked.withLock { $0 }.first)
+        #expect(request.turnID == turnID, "runbloom.app's own id for the turn, which is how it knows who asked")
+        #expect(request.idempotencyKey == CloudWorkspaceRequest.idempotencyKey(turnID: turnID, name: "Spike"))
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a runtime with nobody to ask says so rather than pretending")
+    func cloudWorkspacesNeedRunbloom() async throws {
+        let fixture = try await fixture()
+        guard case .refused(let sentence) = await fixture.runtime.startCloudWorkspace(CloudWorkspaceOrder(name: "Spike"),
+                                                                                      sessionID: fixture.session.id) else {
+            Issue.record("Created a workspace with nobody to ask"); return
+        }
+        #expect(sentence.contains("not connected to runbloom.app"))
+        await fixture.runtime.shutdown()
     }
 
     /// **Asked for, not pushed**, so what has to hold is that the answer is the file as it is now:

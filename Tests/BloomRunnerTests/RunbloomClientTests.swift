@@ -150,6 +150,40 @@ struct RunbloomClientTests {
         }
     }
 
+    /// runbloom.app decides; the machine passes the turn and the key, and hands the agent whatever
+    /// runbloom.app said, word for word, because that sentence is the only place the team switch
+    /// is named.
+    @Test func aCloudWorkspaceIsAskedForWithTheTurnAndTheKey() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("POST", "/cloud-workspaces", .json(201, ["workspace": [
+                "id": "01k5new", "name": "Try the retry", "state": "setting_up", "url": "https://runbloom.app/w/01k5new",
+            ]]))
+            let request = CloudWorkspaceRequest(order: CloudWorkspaceOrder(name: "Try the retry", baseBranch: "main", runSetup: false),
+                                                turnID: "01jturn", idempotencyKey: "key-1")
+            let answer = await client.createCloudWorkspace(request)
+            #expect(answer == .created(CloudWorkspaceCreated(id: "01k5new", name: "Try the retry", state: "setting_up",
+                                                             url: "https://runbloom.app/w/01k5new")))
+            let sent = try #require(fake.requests("POST", "/cloud-workspaces").first)
+            #expect(sent.idempotencyKey == "key-1")
+            #expect(sent.json?["turn_id"] as? String == "01jturn")
+            #expect(sent.json?["name"] as? String == "Try the retry")
+            #expect(sent.json?["base_branch"] as? String == "main")
+            #expect(sent.json?["run_setup"] as? Bool == false)
+            #expect(sent.json?["branch"] == nil, "absent rather than null, so runbloom.app derives it")
+            #expect(sent.json?["prompt"] == nil, "no prompt until the handoff exists")
+
+            let off = "Creating Bloom Cloud workspaces from an agent is off for this team. An admin can turn it on in Team settings."
+            fake.script("POST", "/cloud-workspaces", .refusal(code: "agent_creation_disabled", message: off))
+            #expect(await client.createCloudWorkspace(request) == .refused(off))
+
+            fake.script("POST", "/cloud-workspaces", FakeControlServer.Scripted(status: 503, body: "down"))
+            guard case .refused(let unreachable) = await client.createCloudWorkspace(request) else {
+                Issue.record("An unreachable runbloom.app made something up"); return
+            }
+            #expect(unreachable.contains("no Bloom Cloud workspace was created"))
+        }
+    }
+
     @Test func expiryReadsWithAndWithoutAFraction() throws {
         let whole = try #require(RunbloomGitCredentialBody.date("2026-09-17T10:00:00Z"))
         let micro = try #require(RunbloomGitCredentialBody.date("2026-09-17T10:00:00.500000Z"))

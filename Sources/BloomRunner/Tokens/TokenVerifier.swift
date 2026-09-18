@@ -122,7 +122,7 @@ public actor TokenVerifier {
         }
 
         if use != .control, await revocations.isRevoked(subject, issuedAt: issuedAt) {
-            throw RemoteFailure(.unauthenticated, "Your access to this Cloud workspace was removed.")
+            throw RemoteFailure(.unauthenticated, "Your access to this Bloom Cloud workspace was removed.")
         }
 
         if use.isSingleUse {

@@ -66,7 +66,7 @@ enum TerminalRoute {
         do {
             token = try await dependencies.verifier.verify(raw, as: .session)
             guard token.abilities.contains("view"), token.abilities.contains("terminal") else {
-                throw RemoteFailure(.missingAbility, "Your access to this Cloud workspace does not include the terminal.")
+                throw RemoteFailure(.missingAbility, "Your access to this Bloom Cloud workspace does not include the terminal.")
             }
             let caller = token.caller(token: raw)
             turnID = try await dependencies.gate.register(.terminal, chat: nil, agent: nil, caller: caller)
@@ -95,7 +95,7 @@ enum TerminalRoute {
         // A revoke that landed during the two runbloom.app calls above found no socket to close.
         if await dependencies.verifier.revocations.isRevoked(token.subject, issuedAt: token.issuedAt) {
             await attachment.close()
-            try await outbound.close(.policyViolation, reason: "Your access to this Cloud workspace was removed.")
+            try await outbound.close(.policyViolation, reason: "Your access to this Bloom Cloud workspace was removed.")
             return
         }
 

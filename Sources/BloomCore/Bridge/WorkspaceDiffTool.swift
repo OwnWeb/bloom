@@ -73,6 +73,10 @@ public struct WorkspaceDiffTool: BridgeToolHandling {
         ])
     )
 
+    public func tool(offering offered: Set<String>) -> BridgeTool {
+        BridgeReadTarget.narrowed(tool, offering: offered)
+    }
+
     public func call(_ request: MCPRequest, as identity: BridgeIdentity, store: Store) async -> BridgeToolResult {
         var path: String?
         if let raw = request.param("path") {

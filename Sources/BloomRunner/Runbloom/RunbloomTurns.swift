@@ -25,7 +25,7 @@ public struct RunbloomTurns: RemoteTurnGate {
         // Only a person's token can register a turn. The server acting for itself has none, and
         // sending the workspace secret in its place is exactly what runbloom.app is built to refuse.
         guard let token = caller.sessionToken, !token.isEmpty else {
-            throw RemoteFailure(.unauthenticated, "Sign in again to send this to the Cloud workspace.")
+            throw RemoteFailure(.unauthenticated, "Sign in again to send this to the Bloom Cloud workspace.")
         }
         do {
             return try await client.registerTurn(kind: kind, chatID: chat?.rawValue, agent: agent, sessionToken: token)

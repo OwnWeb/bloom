@@ -197,7 +197,7 @@ actor RemotePromptQueue {
         start(id)
     }
 
-    static let shutdownSentence = "The Cloud workspace stopped while this turn was running."
+    static let shutdownSentence = "The Bloom Cloud workspace stopped while this turn was running."
 
     func shutdown() async {
         closed = true

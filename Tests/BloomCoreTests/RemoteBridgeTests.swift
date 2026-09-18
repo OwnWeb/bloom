@@ -100,6 +100,39 @@ struct RemoteBridgeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// **Advice to a dead end** is what the agent Freek was testing with found: `agent_start` told it
+    /// to use `workspace_start`, and three reading tools to pass "an id from workspace_list", on a
+    /// machine that has neither. Every name a listing mentions has to be one the same listing offers.
+    @Test("no tool on a machine names a tool the machine does not offer")
+    func noDeadEnds() async throws {
+        let fixture = try await fixture()
+        let tools = fixture.runtime.bridgeToolbox().tools(for: .workspace)
+        let offered = Set(tools.map(\.name))
+        for tool in tools {
+            let text = tool.description + String(describing: tool.inputSchema)
+            let named = Self.everyToolName.filter { text.contains($0) }
+            #expect(named.isSubset(of: offered), "\(tool.name) names \(named.subtracting(offered).sorted())")
+        }
+        // And the arguments the dead ends came with are gone, not only the words.
+        for name in ["chat_list", "chat_read", "workspace_diff"] {
+            let schema = try #require(tools.first { $0.name == name }?.inputSchema)
+            #expect(!String(describing: schema).contains("\"workspace\""), "\(name) still takes a workspace")
+        }
+        await fixture.runtime.shutdown()
+    }
+
+    /// Every bridge tool on either side. The Mac's own come from `AppModel.bridgeToolbox()`, which
+    /// the core cannot build, so they are named here; the core's are read from the toolbox.
+    /// `reveal` is left out because it is also a word.
+    static let everyToolName: Set<String> = Set(BridgeToolbox.standard.handlers.map(\.tool.name)).union([
+        "workspace_start", "workspace_say", "workspace_archive", "workspace_merge", "workspace_tabs",
+        "workspace_tab_select", "pane_open", "pane_split", "pane_close", "pane_rename", "pane_list",
+        "browser_go", "browser_read", "browser_click", "browser_fill", "browser_press", "browser_screenshot",
+        "browser_snapshot", "browser_text", "browser_console", "browser_network", "browser_reload",
+        "browser_scroll", "browser_wait", "media_show", "terminal_start", "terminal_read", "terminal_write",
+        "terminal_send_key", "agent_start", "agent_say", "agent_stop", "request_pane", "cloud_workspace_start",
+    ])
+
     @Test("only the tools about this one workspace are offered, and only to agents working in it")
     func theToolList() async throws {
         let fixture = try await fixture()
@@ -109,9 +142,12 @@ struct RemoteBridgeTests {
         // one here that reaches out of the machine at all: it asks a client to open a browser pane
         // and cannot open one itself. See `RequestPaneTool`. `cloud_setup` is guidance and touches
         // nothing; see `CloudSetupGuide`.
+        // `cloud_workspace_start` was added the same night, and it too only asks: runbloom.app makes
+        // the workspace, or refuses with a sentence naming the team switch. See
+        // `CloudWorkspaceStartTool`.
         #expect(toolbox.tools(for: .workspace).map(\.name) == [
             "agent_list", "agent_say", "agent_start", "agent_stop", "chat_list", "chat_read",
-            "cloud_setup", "request_pane", "whoami", "workspace_diff",
+            "cloud_setup", "cloud_workspace_start", "request_pane", "whoami", "workspace_diff",
         ])
         #expect(toolbox.tools(for: .owner).isEmpty)
         // `pane_open` in particular: the machine can ask for a pane and cannot open one, and the

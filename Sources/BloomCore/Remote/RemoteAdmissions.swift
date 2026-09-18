@@ -34,8 +34,8 @@ final class RemoteAdmissions: Sendable {
             guard !state.stopped else { throw RemoteFailure.shuttingDown }
             switch state.phase {
             case .open: break
-            case .closing: throw RemoteFailure(.workspaceChanging, "This Cloud workspace is being archived.")
-            case .closed: throw RemoteFailure(.workspaceChanging, "This Cloud workspace has been archived.")
+            case .closing: throw RemoteFailure(.workspaceChanging, "This Bloom Cloud workspace is being archived.")
+            case .closed: throw RemoteFailure(.workspaceChanging, "This Bloom Cloud workspace has been archived.")
             }
             let id = UUID()
             state.permits.insert(id)
@@ -47,7 +47,7 @@ final class RemoteAdmissions: Sendable {
     func beginClosing() throws {
         try state.withLock { state in
             guard !state.stopped else { throw RemoteFailure.shuttingDown }
-            guard state.phase == .open else { throw RemoteFailure(.workspaceChanging, "This Cloud workspace is already being archived.") }
+            guard state.phase == .open else { throw RemoteFailure(.workspaceChanging, "This Bloom Cloud workspace is already being archived.") }
             state.phase = .closing
         }
     }
