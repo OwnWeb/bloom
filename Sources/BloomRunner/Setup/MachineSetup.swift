@@ -23,6 +23,17 @@ import Foundation
 /// disk. A script that writes them into `.env` has made that choice itself.
 public actor MachineSetup {
     public static let completedSetting = "remote.setup.completed"
+    /// Whether the last whole sequence skipped the scripts because the workspace asked for no
+    /// setup, as distinct from having run them.
+    ///
+    /// **`completedSetting` cannot answer this**, because it is set either way: a workspace that
+    /// asked for no setup has finished its sequence exactly as much as one that ran three scripts.
+    /// What needs telling apart is a machine where nothing was ever installed from one where setup
+    /// really ran, and there is one machine in the world of the second kind: a workspace created
+    /// with the box unticked, whose runner was older than this key and set it up anyway. Updating
+    /// that machine must not stop its services or rewrite its setup log with a sentence saying
+    /// nothing was run, because something was, and its preview is somebody's working project.
+    static let skippedSetting = "remote.setup.skipped"
 
     public struct Timeouts: Sendable, Hashable {
         public var clone: Duration
@@ -229,6 +240,7 @@ public actor MachineSetup {
         } else if succeeded {
             await log.note(Self.setupNotAskedForNote(hasServices: !scripts.services.isEmpty))
         }
+        try? await store.setSetting(Self.skippedSetting, configuration.runsSetup ? "0" : "1")
         if await interruptedByShutdown(log: log) { return false }
         await settle(log: log, succeeded: succeeded)
         guard succeeded else { return false }
@@ -257,7 +269,28 @@ public actor MachineSetup {
         // A workspace that asked for no setup asks for none at every start, not only the first.
         // `resume` is one of the three scripts, and a service is declared in the same settings file
         // they are, so starting one here would run half of what was refused.
-        guard configuration.runsSetup else {
+        //
+        // Unless setup has actually run here, which is a machine whose runner was older than the
+        // key and set it up before anybody could honour it. Stopping its services and replacing its
+        // log with "nothing was run" would be both untrue and destructive, so such a machine carries
+        // on as it was and says why.
+        if !configuration.runsSetup {
+            // Absent means an older runner finished the sequence, and an older runner always ran
+            // setup: this is the machine the setting exists for, so absence must read as "it ran"
+            // rather than as "we do not know". Getting this the other way round is what would stop
+            // that machine's services on the very update meant to help it.
+            let skippedBefore = (try? await store.setting(Self.skippedSetting)) == "1"
+            guard skippedBefore else {
+                await log.note(Self.setupRanBeforeNote)
+                moved(to: "resume")
+                let resumed = await runScript("resume", scripts.resume, timeout: timeouts.resume,
+                                              environment: environment, log: log, continuing: true)
+                if await interruptedByShutdown(log: log) { return false }
+                if await log.hasBegun { await settle(log: log, succeeded: resumed) }
+                guard resumed else { return false }
+                await services.start(scripts.services, environment: environment)
+                return true
+            }
             await log.note(Self.setupNotAskedForNote(hasServices: !scripts.services.isEmpty))
             await settle(log: log, succeeded: true)
             return true
@@ -331,6 +364,12 @@ public actor MachineSetup {
                 + "expect what setup installs." + ending
             : start + ending
     }
+
+    /// What the one machine in the middle is told: setup turned off, and setup already run.
+    static let setupRanBeforeNote =
+        "This workspace was created with setup turned off, but it was set up anyway before this "
+        + "machine's server understood that. What is installed stays, and its services keep "
+        + "running, because stopping them now would break a project that works."
 
     /// What somebody is told before a repository with no Cloud workspace setup is set up anyway.
     static func noCloudSetupNote(hasSetupScript: Bool) -> String {

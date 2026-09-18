@@ -210,6 +210,29 @@ struct MachineSetupTests {
         await fixture.runtime.shutdown()
     }
 
+    /// The one machine in the middle: created with setup turned off, set up anyway by a runner
+    /// older than the key, and then updated to one that reads it. Its services are somebody's
+    /// working preview and its log is the account of a setup that really happened.
+    @Test("a machine that already set up is left alone when its server learns setup was off")
+    func setupRanBeforeTheKeyWasUnderstood() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        // The old runner: the key is not in its configuration at all, so it sets up.
+        try await fixture.setup().run()
+        #expect(fixture.order == ["prepare", "resume"])
+        // Every trace an older runner leaves behind, which is a completed sequence and no record
+        // of having skipped anything.
+        try await fixture.store.setSetting(MachineSetup.skippedSetting, nil)
+
+        try await fixture.setup(runSetup: false).run()
+
+        #expect(fixture.order == ["prepare", "resume", "resume"])
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupState == .succeeded)
+        #expect(workspace.setupLog.contains("set up anyway before this machine's server understood"))
+        #expect(!workspace.setupLog.contains("nothing else was run"))
+        await fixture.runtime.shutdown()
+    }
+
     /// The reader never assumes the writer wrote it. Every machine bootstrapped before the key
     /// existed has a `workspace.json` without it, and setting up is what those machines do.
     @Test("a configuration written before the key existed still sets up")
