@@ -452,20 +452,23 @@ public final class StreamingProcess: Sendable {
     ///
     /// Linux only, and deliberately: this is where the fault is, and on Darwin reaping a child
     /// Foundation is managing would take its `terminationStatus` away from it.
-    private func reapWhenFoundationDoesNot() {
+    private func reapWhenFoundationDoesNot(waited: Int = 0) {
         let pid = process.processIdentifier
         guard pid > 0 else { return }
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.reapPollInterval) { [weak self] in
+            let waited = waited + 1
             guard let self, self.state.withLock({ $0.status == nil }) else { return }
             var raw: Int32 = 0
             let answer = waitpid(pid, &raw, WNOHANG)
             if answer == pid {
                 let signalled = Self.wasSignalled(raw)
                 self.state.withLock { $0.wasSignalled = signalled }
+                self.note(reapedAfter: waited)
                 self.settle(status: signalled ? Self.terminatingSignal(raw) : Self.exitCode(raw), deadline: nil)
                 return
             }
             if answer < 0, errno == ECHILD {
+                self.note(reapedAfter: waited)
                 // Reaped by somebody else and the handler never came. There is no status left to
                 // read, and 0 would read as success, so this is reported as a signal of 0: not a
                 // clean exit, which is the only thing that can honestly be said about it.
@@ -473,8 +476,23 @@ public final class StreamingProcess: Sendable {
                 self.settle(status: 0, deadline: nil)
                 return
             }
-            self.reapWhenFoundationDoesNot()
+            self.reapWhenFoundationDoesNot(waited: waited)
         }
+    }
+
+    /// Said once per child this happens to, in the register of the abandoned launch in
+    /// `CapturedProcess`, and for the same reason: **a workaround nobody can count is a workaround
+    /// nobody can tell has stopped working.** Without this the cure is silent, and the next person
+    /// asking whether Foundation still does this, how often, and to which calls has nothing to read.
+    /// It took two days to find the first time precisely because the machine said nothing.
+    ///
+    /// One poll is one second, from `reapPollInterval`, so the count is how long after the child's
+    /// output ended that its exit had still not been reported.
+    private func note(reapedAfter polls: Int) {
+        Shell.countSelfReaped()
+        let line = "bloom: \(executable) closed its output \(polls)s ago and Foundation never "
+            + "reported it ending; waited on it here. \(Shell.selfReapedCount) so far this run\n"
+        FileHandle.standardError.write(Data(line.utf8))
     }
 
     /// A second between asks. The child is already gone in the case this exists for, so the first
