@@ -78,7 +78,11 @@ public enum ServeCommand {
                 note("shed \(newlyShed) unsent usage report(s); \(status.queued) queued, \(status.queuedBytes) bytes")
             }
             if let since = status.unreachableSince {
-                note("runbloom.app unreachable since \(WireDate.string(from: since)); "
+                // Not "unreachable": the three things that reach here are a network that answered
+                // nothing, a server that erred, and a machine that was asleep, and only the first
+                // is what that word means. What is true of all of them is that nothing has been
+                // recorded since.
+                note("nothing reported to runbloom.app since \(WireDate.string(from: since)); "
                      + "\(status.queued) report(s) queued, \(status.queuedBytes) bytes")
             }
         })

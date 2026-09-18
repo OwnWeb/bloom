@@ -126,13 +126,67 @@ struct ReportDeliveryTests {
         #expect(full.queued > 0, "the newest are what is kept, because the counters are cumulative")
     }
 
+    /// The machine this was written for was asleep, not cut off. A Sprite that goes idle is
+    /// suspended mid-request, the request dies exactly as an outage kills one, and there is no
+    /// second attempt until it wakes, when the retry succeeds.
+    @Test("a single failure that the next attempt recovers from is never called an outage")
+    func oneFailureIsNotAnOutage() async {
+        let recorder = Recorder()
+        let clock = Mutex(Date(timeIntervalSince1970: 1_700_000_000))
+        let statuses = Mutex([ReportDelivery.Status]())
+        let delivery = ReportDelivery(
+            sender: recorder.sender,
+            sleep: { duration in
+                // The suspension itself: time passes, and no attempt is made in it.
+                clock.withLock { $0 += 120 }
+                try await recorder.instantSleep(duration)
+            },
+            now: { clock.withLock { $0 } },
+            observer: { status in statuses.withLock { $0.append(status) } }
+        )
+
+        recorder.fail(Self.down)
+        await delivery.submitUsage(Self.data("1"))
+        #expect(await delivery.flush(timeout: .seconds(5)))
+
+        #expect(recorder.usage == ["1"], "the report itself still got through on the retry")
+        #expect(statuses.withLock { $0.allSatisfy { $0.unreachableSince == nil } },
+                "a machine that woke up and reported is not a machine anybody should be warned about")
+    }
+
+    /// runbloom.app answering "not now" is proof that it can be reached.
+    @Test("being asked to slow down is not an outage")
+    func backpressureIsNotAnOutage() async {
+        let recorder = Recorder()
+        let statuses = Mutex([ReportDelivery.Status]())
+        let delivery = ReportDelivery(
+            sender: recorder.sender, sleep: recorder.instantSleep,
+            observer: { status in statuses.withLock { $0.append(status) } }
+        )
+
+        let busy = RunbloomError.refused(status: 429, code: "too_many_requests", message: "Slow down.",
+                                         limit: nil, retryAfter: 1)
+        recorder.fail(contentsOf: Array(repeating: busy, count: 6))
+        await delivery.submitUsage(Self.data("1"))
+        #expect(await delivery.flush(timeout: .seconds(5)))
+
+        #expect(recorder.usage == ["1"], "the report is kept and tried again rather than dropped")
+        #expect(statuses.withLock { $0.allSatisfy { $0.unreachableSince == nil } })
+    }
+
     @Test("the machine knows since when it has been unable to reach runbloom.app")
     func unreachableSinceIsTheLastSuccess() async {
         let recorder = Recorder()
         let clock = Mutex(Date(timeIntervalSince1970: 1_700_000_000))
         let statuses = Mutex([ReportDelivery.Status]())
+        // Each backoff moves the clock as well as returning at once, because an outage is only
+        // said out loud once it has lasted, and a test whose time never passes never gets there.
         let delivery = ReportDelivery(
-            sender: recorder.sender, sleep: recorder.instantSleep,
+            sender: recorder.sender,
+            sleep: { duration in
+                clock.withLock { $0 += Double(duration.components.seconds) }
+                try await recorder.instantSleep(duration)
+            },
             now: { clock.withLock { $0 } },
             observer: { status in statuses.withLock { $0.append(status) } }
         )
@@ -147,7 +201,8 @@ struct ReportDeliveryTests {
         // is read out of what was announced rather than out of the live state, because the retries
         // are instant here and the outage is over before an assertion could look at it.
         clock.withLock { $0 += 600 }
-        recorder.fail(Self.down, Self.down, Self.down)
+        // Enough failures, over enough time, to be an outage rather than a machine that blinked.
+        recorder.fail(contentsOf: Array(repeating: Self.down, count: 8))
         await delivery.submitUsage(Self.data("2"))
         #expect(await delivery.flush(timeout: .seconds(5)))
         #expect(statuses.withLock { $0.compactMap(\.unreachableSince).first } == reachedAt)

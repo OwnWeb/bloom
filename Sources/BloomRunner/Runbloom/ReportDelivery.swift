@@ -34,6 +34,24 @@ public actor ReportDelivery {
     /// Four megabytes of unsent usage. See the note above for what that is in days.
     public static let maximumQueuedBytes = 4 << 20
 
+    /// How long failures have to keep failing before the machine says so, and how many there have
+    /// to have been.
+    ///
+    /// **Because a paused machine is not an unreachable one.** A Sprite that goes idle is
+    /// suspended, and a request in flight across a suspension fails exactly as a network outage
+    /// does. It happened on 18 September 2026: a workspace went idle at 11:19:55, the machine said
+    /// "runbloom.app unreachable" at 11:21:30, and the control server was answering perfectly well
+    /// the whole time. Nothing was wrong except that a request died when its machine went to sleep,
+    /// and the person watching would have been shown an alarming sentence about a workspace that
+    /// was merely asleep.
+    ///
+    /// A suspended machine takes no further attempts, so the run of failures stops at one and the
+    /// next attempt, after it wakes, succeeds. **Requiring a second failure and half a minute costs
+    /// a real outage half a minute of silence**, which is nothing against the hours this record
+    /// exists to describe, and it costs a sleeping machine nothing at all.
+    static let outageBeforeSaying: TimeInterval = 30
+    static let failuresBeforeSaying = 2
+
     /// What the machine can say about its own reporting, which is the one failure here that
     /// otherwise shows nowhere. Handed to whoever wants to publish or log it, on every change.
     public struct Status: Sendable, Hashable {
@@ -83,6 +101,11 @@ public actor ReportDelivery {
     /// server's start when none ever has. Set on the first failure worth retrying, cleared by the
     /// next success, so a flap of one report does not read as an outage that never ended.
     private var unreachableSince: Date?
+    /// The first failure of the run of failures in hand, and how many there have been. **Not for
+    /// measuring the outage**, which began at the last success; for deciding whether there is an
+    /// outage to speak of at all. See `outageBeforeSaying`.
+    private var firstFailureAt: Date?
+    private var consecutiveFailures = 0
     private var lastReachedAt: Date
     private var shed = 0
     private var announced: Status?
@@ -135,7 +158,7 @@ public actor ReportDelivery {
 
     /// What this has to say about itself, for a client and for the log.
     public var status: Status {
-        Status(unreachableSince: unreachableSince, queued: usage.count + (summary == nil ? 0 : 1),
+        Status(unreachableSince: outageWorthSaying, queued: usage.count + (summary == nil ? 0 : 1),
                queuedBytes: queuedBytes, shed: shed)
     }
 
@@ -249,18 +272,37 @@ public actor ReportDelivery {
         } catch let error as RunbloomError where !error.isWorthRetrying {
             reached()
             return .dropped
+        } catch let error as RunbloomError where error.isBackpressure {
+            // **Being asked to wait is not being unable to reach anybody.** runbloom.app answered,
+            // and what it answered was "not now": the report is kept and tried again, and nothing
+            // about the machine's ability to reach it is in doubt, so no outage is recorded.
+            reached()
+            return .retry
         } catch {
             // The first failure since the last success is when contact was lost, which is that
             // success, not now: an outage that began while nothing was being sent still began then.
             if unreachableSince == nil { unreachableSince = lastReachedAt }
+            if firstFailureAt == nil { firstFailureAt = now() }
+            consecutiveFailures += 1
             return .retry
         }
+    }
+
+    /// When contact was lost, but only once the losing has gone on long enough to mean something.
+    /// The date is still the last success, because that is when reporting actually stopped; what
+    /// this decides is whether to say it at all.
+    private var outageWorthSaying: Date? {
+        guard let unreachableSince, let firstFailureAt, consecutiveFailures >= Self.failuresBeforeSaying,
+              now().timeIntervalSince(firstFailureAt) >= Self.outageBeforeSaying else { return nil }
+        return unreachableSince
     }
 
     /// runbloom.app answered, whatever it said.
     private func reached() {
         lastReachedAt = now()
         unreachableSince = nil
+        firstFailureAt = nil
+        consecutiveFailures = 0
     }
 
     /// Tells the observer, once per change rather than once per attempt.
