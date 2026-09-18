@@ -637,9 +637,9 @@ struct DiffView<Model: WorkspaceSurface>: View {
         // Edit control does, and it appears with the bar rather than with the diff.
         let absolute = fileKey
         let binary = file.isBinary
-        let editable = await Task.detached(priority: .utility) {
-            !binary && FileEditor.isEditable(absolute)
-        }.value
+        // The workspace answers it: a stat on this Mac, and what the diff already said for a file
+        // on a machine. See `EditableFiles.isEditable`.
+        let editable = binary ? false : await model.editableFiles.isEditable(absolute)
         guard !Task.isCancelled else { return }
         isEditable = editable && allowsEditing
     }
@@ -1404,7 +1404,7 @@ struct DiffView<Model: WorkspaceSurface>: View {
         let hunks = document.file.hunks
         let path = fileKey
         Task {
-            if let problem = await edits.begin(path: path, at: line, hunks: hunks) {
+            if let problem = await edits.begin(path: path, at: line, hunks: hunks, from: model.editableFiles) {
                 editProblem = problem
             }
             rebuild()
@@ -1421,7 +1421,7 @@ struct DiffView<Model: WorkspaceSurface>: View {
     private func saveEdit() {
         let path = fileKey
         Task {
-            let saved = await edits.save(path: path)
+            let saved = await edits.save(path: path, to: model.editableFiles)
             rebuild()
             guard saved else { return }
             // The bytes on disk are not what this file was last drawn from any more, so what the

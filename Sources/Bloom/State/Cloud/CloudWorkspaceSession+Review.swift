@@ -174,11 +174,25 @@ extension CloudWorkspaceSession {
         openFile(path: location.path, focusing: true)
     }
 
-    /// No file on this Mac to name, so the key names the workspace and the file. Nothing opens it:
-    /// the editor is behind `.editFiles`, which a Cloud workspace does not have.
+    /// No file on this Mac to name, so the key names the workspace and the file: two Cloud
+    /// workspaces holding the same path are two drafts, not one.
     func editorKey(for relativePath: String) -> String {
-        "cloud:\(id.rawValue)/\(relativePath)"
+        Self.editorKeyPrefix(id) + relativePath
     }
+
+    /// And the way back, which is the machine's own name for the file. Here rather than in
+    /// `MachineFiles` because a key and its parsing belong to one owner or they drift.
+    func relativePath(fromEditorKey key: String) -> String {
+        let prefix = Self.editorKeyPrefix(id)
+        guard key.hasPrefix(prefix) else { return key }
+        return String(key.dropFirst(prefix.count))
+    }
+
+    private static func editorKeyPrefix(_ id: CloudWorkspaceID) -> String { "cloud:\(id.rawValue)/" }
+
+    /// Reading and writing this workspace's files, which is the machine's business rather than
+    /// this Mac's. See `EditableFiles`.
+    var editableFiles: any EditableFiles { MachineFiles(session: self) }
 
     func heldDiff(for file: ChangedFile, ignoringWhitespace: Bool) -> DiffPresentation? {
         changes.heldDiff(for: file, ignoringWhitespace: ignoringWhitespace)

@@ -35,7 +35,12 @@ extension CloudWorkspaceSession: WorkspaceSurface {
             // runbloom.app answers whether this person may merge, as GitHub sees them, so the
             // control is greyed for somebody without push access rather than failing when pressed.
             managePullRequest: github.state?.canMerge == true,
-            preview: allows("preview")
+            preview: allows("preview"),
+            // The machine's own `file` and `write_file`, which carry a revision and refuse a write
+            // made against a version somebody else has moved on from. The token has to say this
+            // Mac may touch files at all: a reader who may only watch gets no editor, which is the
+            // same answer the machine would give and is better given before the button is pressed.
+            editFiles: allows("files")
         )
     }
 

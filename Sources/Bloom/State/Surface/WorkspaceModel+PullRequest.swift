@@ -73,6 +73,9 @@ extension WorkspaceModel {
     }
 
     /// The file itself, which is what the editor opens and what the find bar files its state under.
+    /// The file itself, on this Mac's disk. See `EditableFiles`.
+    var editableFiles: any EditableFiles { DiskFiles() }
+
     func editorKey(for relativePath: String) -> String {
         (workspace.path as NSString).appendingPathComponent(relativePath)
     }

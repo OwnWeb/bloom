@@ -298,6 +298,9 @@ protocol WorkspaceSurface: AnyObject, Observable {
     /// one in the cloud. It is a key and not a path: nothing opens it, and everything that reads
     /// or writes the file itself is behind `.editFiles` or `.revealFiles`.
     func editorKey(for relativePath: String) -> String
+    /// Where the file behind that key is read from and written back to: this Mac's disk for a
+    /// worktree, the machine's connection for a Cloud workspace. See `EditableFiles`.
+    var editableFiles: any EditableFiles { get }
     /// A shell opened in one of the workspace's folders. Behind `.terminal`.
     func openTerminal(in folder: String)
     /// The file shown as a page, which is how a local workspace previews an image or a PDF.

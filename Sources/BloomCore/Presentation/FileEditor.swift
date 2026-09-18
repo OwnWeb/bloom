@@ -6,12 +6,32 @@ import Foundation
 /// point of the whole type is to make "the version I showed the user" a value that can be checked
 /// against the disk later.
 public struct EditableFile: Sendable, Hashable {
-    /// Absolute path. Relative paths are refused: this type writes to disk, and a working
-    /// directory is not a thing a view can be trusted to have.
+    /// Absolute path for a file on this Mac. `FileEditor` refuses a relative one, because it
+    /// writes to disk and a working directory is not a thing a view can be trusted to have.
+    ///
+    /// A file on a machine is named the way its machine names it, relative to the worktree the
+    /// agent stands in, and nothing on this Mac ever opens it: it is read and written over the
+    /// connection. See `MachineFiles`.
     public let path: String
     public let text: String
     public let modifiedAt: Date
     public let size: Int
+    /// The machine's own stamp for these bytes, sent back with a write so it can refuse one made
+    /// against a version somebody else has moved on from.
+    ///
+    /// Nil for a file on this Mac, where the stamp is the modification date and the size and the
+    /// check is `FileEditor.write` re-reading before it replaces. The two are the same guard in
+    /// two places: whoever holds the file decides whether the version being written over is still
+    /// the version that was read.
+    public let revision: String?
+
+    public init(path: String, text: String, modifiedAt: Date, size: Int, revision: String? = nil) {
+        self.path = path
+        self.text = text
+        self.modifiedAt = modifiedAt
+        self.size = size
+        self.revision = revision
+    }
 
     public var filename: String { (path as NSString).lastPathComponent }
 }

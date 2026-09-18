@@ -97,16 +97,25 @@ final class DiffEditSession {
     ///   commonest of those sentences is the agent having rewritten the file since this diff was
     ///   drawn, which is a refusal rather than a failure: opening on the diff's numbers would put
     ///   the reader's typing into code they have never seen.
-    func begin(path absolutePath: String, at line: Int, hunks: [DiffHunk]) async -> String? {
+    /// - Parameter files: where the file is read from, which is this Mac's disk for a worktree and
+    ///   the connection for a Cloud workspace. See `EditableFiles`.
+    func begin(
+        path absolutePath: String, at line: Int, hunks: [DiffHunk],
+        from files: any EditableFiles = DiskFiles()
+    ) async -> String? {
         // A box somebody has typed into is not moved out from under them by a click on another
         // line. An untouched one is only a view of the file and may be reopened anywhere.
         if isEdited(absolutePath), let region = editors[absolutePath]?.region {
             return "You are already editing \(Self.span(of: region)). Save or cancel that first."
         }
 
-        let outcome = await Task.detached(priority: .userInitiated) {
-            Self.locating(absolutePath, at: line, hunks: hunks)
-        }.value
+        let outcome: Located
+        switch await files.read(absolutePath) {
+        case .success(let file):
+            outcome = Self.locating(file, at: line, hunks: hunks)
+        case .failure(let error):
+            outcome = .refused(Self.message(for: error))
+        }
 
         switch outcome {
         case let .opened(editor):
@@ -121,14 +130,22 @@ final class DiffEditSession {
     /// Write the box back, or leave the disk alone and say why.
     ///
     /// - Returns: whether the file was written, which is what tells the caller to refresh the diff.
-    func save(path absolutePath: String) async -> Bool {
+    func save(path absolutePath: String, to files: any EditableFiles = DiskFiles()) async -> Bool {
         guard let editor = editors[absolutePath], let text = typed[absolutePath],
               editor.region.isEdited(text)
         else { return false }
 
-        let outcome = await Task.detached(priority: .userInitiated) {
-            Self.writing(text, of: editor.region, over: editor.baseline)
-        }.value
+        let outcome: Written
+        do {
+            let whole = try DiffEdit.apply(text, of: editor.region, to: editor.baseline.text)
+            switch await files.write(whole, over: editor.baseline) {
+            case .success: outcome = .written
+            case .failure(let error): outcome = .refused(Self.message(for: error))
+            }
+        } catch {
+            // `apply` throws `DiffEditRefusal` and nothing else, which is the sentence itself.
+            outcome = .refused(Self.message(for: error))
+        }
 
         switch outcome {
         case .written:
@@ -192,37 +209,20 @@ final class DiffEditSession {
         case refused(String)
     }
 
+    /// Which lines of the file the diff's line stands for, over the text as it is now.
+    ///
+    /// The read that produced `file` is the workspace's, which is what lets this open over a
+    /// machine's copy as readily as over this Mac's; what is left here is the only rule that is
+    /// this type's own, which is where the box goes.
     nonisolated private static func locating(
-        _ path: String, at line: Int, hunks: [DiffHunk]
+        _ file: EditableFile, at line: Int, hunks: [DiffHunk]
     ) -> Located {
         do {
-            let file = try FileEditor.read(path)
             let region = try DiffEdit.region(at: line, in: hunks, fileText: file.text)
             return .opened(Editor(baseline: file, region: region, status: .editing))
-        } catch let error as FileEditorError {
-            return .refused(message(for: error))
-        } catch let error as DiffEditRefusal {
-            return .refused(message(for: error))
         } catch {
-            // Neither call throws anything else, and an error with no sentence attached to it is
-            // the one thing a reader can do nothing with.
-            return .refused(error.localizedDescription)
-        }
-    }
-
-    nonisolated private static func writing(
-        _ text: String, of region: DiffEditRegion, over baseline: EditableFile
-    ) -> Written {
-        do {
-            let whole = try DiffEdit.apply(text, of: region, to: baseline.text)
-            try FileEditor.write(whole, over: baseline)
-            return .written
-        } catch let error as DiffEditRefusal {
+            // `region` throws `DiffEditRefusal` and nothing else, which is the sentence itself.
             return .refused(message(for: error))
-        } catch let error as FileEditorError {
-            return .refused(message(for: error))
-        } catch {
-            return .refused(error.localizedDescription)
         }
     }
 

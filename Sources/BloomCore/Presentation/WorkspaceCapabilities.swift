@@ -36,7 +36,7 @@ public struct WorkspaceCapabilities: Sendable, Hashable {
             case .preview:
                 "This Cloud workspace has no preview yet. It appears once the project's own app is running on it."
             case .editFiles:
-                "Editing a file in a Cloud workspace is not built yet. Ask the agent to make the change, or edit it from the workspace's terminal."
+                "This Cloud workspace was opened without permission to change its files. Ask the agent to make the change instead."
             case .reviewComments:
                 "Notes on a diff are not built for a Cloud workspace yet. Say what you want changed in the chat instead."
             }
