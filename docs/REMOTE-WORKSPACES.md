@@ -1214,6 +1214,24 @@ The sentence is runbloom.app's own and is drawn as it stands, because it names v
 does not know. A workspace quietly running an older version than anybody thinks is what produces a
 bug report nobody can reproduce.
 
+**A machine that cannot reach runbloom.app says so too, and this one is not drawn yet.** The
+workspace record carries `reporting` when something is wrong and leaves it out when nothing is, with
+`unreachable_since` and `shed`. `unreachable_since` is the moment of the last report that got
+through rather than the moment the first one failed, because an outage that began while nothing was
+being sent still began then, and it clears on the first success, so a flap does not read as an
+unending outage. `shed` appears once the queue has hit its four megabyte cap and started dropping
+its oldest entries, which is a fortnight of a quiet machine or about a day and a half of a busy one.
+
+The whole job here is the sentence, and it is about the record rather than about the work: the
+turns are still running and still saved, what they cost is not being recorded at the moment, and
+after the cap some of that account is gone for good. Anything that reads as "your work is being
+lost" is wrong and will frighten somebody for no reason. It belongs in `Packages/BloomClient` beside
+the other notices so that the web client inherits it rather than inventing a second story, and it is
+a banner rather than anything smaller, one that cannot be put away while it is true, because unlike
+a rollback it does not end by itself. Until it is built, a client that does not know the field
+ignores it: `CloudWorkspaceItem` decodes from a keyed container, so a key it has never heard of
+changes nothing.
+
 **History is the machine's own `git log`.** `history` pages the branch's commits and `commit_files`
 answers the files of the row somebody opened, so the History tab draws the rows it has always drawn.
 Two differences from a local workspace, both said where they matter: Load earlier commits pages from
