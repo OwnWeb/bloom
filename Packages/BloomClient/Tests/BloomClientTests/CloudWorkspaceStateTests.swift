@@ -5,6 +5,35 @@ import Testing
 
 /// The merging rules of the client chapter in docs/WORKSPACE-PROTOCOL.md.
 @Suite struct CloudWorkspaceStateTests {
+    /// **A machine that predates `composer_defaults` is still openable.** The field is required of
+    /// a server, and a client that threw on a snapshot without it would not be missing a default,
+    /// it would be refusing to open a workspace whose machine is merely older than the field. What
+    /// is absent is absent, and the client falls back to its own choice.
+    @Test func aSnapshotFromAMachineWithoutComposerDefaultsStillReads() throws {
+        let json = """
+        {"workspace": {"id": "01k5ws", "name": "Queue retries", "branch": "freek/queue-retries", "base_branch": "main", "setup": {"state": "succeeded"}}, "chats": [], "presence": [], "cursor": 77}
+        """
+        let snapshot = try WireJSON.decode(WorkspaceSnapshotRecord.self, from: Data(json.utf8))
+        #expect(snapshot.composerDefaults == nil)
+        #expect(snapshot.cursor == 77)
+
+        var state = CloudWorkspaceState()
+        state.absorb(snapshot)
+        #expect(state.workspace?.name == "Queue retries")
+        #expect(state.composerDefaults == nil, "nothing to fall back from is not something to invent")
+    }
+
+    /// And a snapshot that carries them puts them on the workspace, which is where a value with no
+    /// chat id belongs: see `CloudWorkspaceState.composerDefaults`.
+    @Test func aSnapshotWithComposerDefaultsKeepsThemOnTheWorkspace() {
+        var state = CloudWorkspaceState()
+        let controls = ComposerControlsRecord(agent: "codex", model: "gpt-5.5", effort: "medium",
+                                              permissionMode: "auto", interactionMode: "build")
+        state.absorb(Records.workspace(composerDefaults: controls))
+        #expect(state.composerDefaults == controls)
+        #expect(state.chats.values.allSatisfy { $0.chat?.model != "gpt-5.5" }, "not filed under a chat")
+    }
+
     @Test func aRowArrivingInAPageAndAsAnEventIsKeptOnce() {
         var state = CloudWorkspaceState()
         state.absorbPage(Records.page([Records.message(0), Records.message(1)]))

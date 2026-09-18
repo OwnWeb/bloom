@@ -17,10 +17,12 @@ enum Records {
         TranscriptRecord(chat: chat, messages: messages, hasMore: hasMore, questions: [], busy: busy, streamingText: streaming, queue: QueueRecord(chatID: chat.id, prompts: []))
     }
 
-    static func workspace(cursor: Int64 = 0, chats: [ChatRecord] = [chat()]) -> WorkspaceSnapshotRecord {
+    static func workspace(
+        cursor: Int64 = 0, chats: [ChatRecord] = [chat()], composerDefaults: ComposerControlsRecord? = nil
+    ) -> WorkspaceSnapshotRecord {
         WorkspaceSnapshotRecord(
             workspace: WorkspaceRecord(id: "01k5ws", name: "Queue retries", branch: "freek/queue-retries", baseBranch: "main", setup: SetupRecord(state: "succeeded")),
-            chats: chats, presence: [], cursor: cursor
+            chats: chats, presence: [], cursor: cursor, composerDefaults: composerDefaults
         )
     }
 
