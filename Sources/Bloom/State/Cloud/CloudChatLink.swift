@@ -59,7 +59,7 @@ final class CloudChatLink {
             .map { ComposerAudience.Person(id: CloudUserID($0.userID), handle: $0.handle, name: $0.name) }
     }
 
-    /// What is answering in this chat, for `@claude` beside `@agent`.
+    /// What is answering in this chat, for `@claude` beside `@bloom`.
     var runningAgent: AgentKind? { controls?.agentKind }
 
     /// Puts a file on the machine and answers the path an agent standing in its worktree reads it

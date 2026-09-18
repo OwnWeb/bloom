@@ -14,7 +14,7 @@ import Foundation
 /// says.
 ///
 /// **The audience sticks.** Sending to a person leaves the composer addressed to that person, and
-/// the next message with no `@` goes there too; `@agent` puts it back. The prefix changes the
+/// the next message with no `@` goes there too; `@bloom` puts it back. The prefix changes the
 /// audience rather than setting it for one message, which is the part of this feature that is
 /// hardest to guess from a description and is exactly what a person means by "it remembers who I
 /// was talking to".

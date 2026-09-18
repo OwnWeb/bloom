@@ -3,14 +3,20 @@ import Foundation
 /// A row in the mention menu: somebody on the team, or the thing that answers.
 ///
 /// **The agent is a row because it is the commonest destination and was the one you could not
-/// pick.** `@agent`, `@bloom` and the running agent's own name all resolve to it once the message
-/// is sent, but a menu listing only people said "Nobody here is called blo" while somebody typed
+/// pick.** `@bloom` and the running agent's own name both resolve to it once the message is sent,
+/// but a menu listing only people said "Nobody here is called blo" while somebody typed
 /// `@bloom`, which reads as the feature being broken rather than as the agent being elsewhere.
 ///
-/// **Whichever alias found it, picking it writes `@agent`.** The aliases exist so that typing what
+/// **Whichever alias found it, picking it writes `@bloom`.** The aliases exist so that typing what
 /// comes to mind works, not so that four spellings of one destination end up in the transcripts a
 /// team reads back. The web client took the same decision, which is why it is written here rather
 /// than in either client's menu.
+///
+/// **`bloom` is the only word for the thing itself**, which is the way round it should have been:
+/// it is the name on the window rather than a category. `@agent` was that word for a day and has
+/// been retired rather than kept as an alias, at the owner's asking; `@claude`, `@codex` and
+/// `@grok` stay, because they are the agent's own name rather than a second word for the category.
+/// See `MentionAddress.mentioned` for what `@agent` does now, which is nothing at all.
 public enum MentionCandidate: Sendable, Hashable, Identifiable {
     /// The workspace's agent, labelled with what is actually answering.
     case agent(name: String)
@@ -18,7 +24,7 @@ public enum MentionCandidate: Sendable, Hashable, Identifiable {
 
     /// Stable across a filter, because a lazy stack serves the view it cached for a position while
     /// the list changes under an open menu. Prefixed, so a person who somehow held the handle
-    /// `agent` could not collide with the agent's own row.
+    /// `bloom` could not collide with the agent's own row.
     public var id: String {
         switch self {
         case .agent: "agent:"
@@ -37,7 +43,7 @@ public enum MentionCandidate: Sendable, Hashable, Identifiable {
     /// What is drawn beside the name, and for a person what they would have had to type.
     public var handle: String {
         switch self {
-        case .agent: "agent"
+        case .agent: "bloom"
         case .person(let person): person.handle
         }
     }

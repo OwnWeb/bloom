@@ -4,7 +4,7 @@ import Foundation
 ///
 /// **The prefix changes the audience; it does not set it for one message.** Sending `@seb test`
 /// addresses Seb and leaves the composer addressed to Seb, so the next message with nothing typed
-/// in front of it goes there too, and `@agent` is what brings it back. That is the whole of
+/// in front of it goes there too, and `@bloom` is what brings it back. That is the whole of
 /// "it remembers who you were last talking to", and it is here rather than in a view because both
 /// clients have to agree about it and because a rule in a `View` is a rule nothing can test.
 ///
@@ -15,16 +15,22 @@ import Foundation
 public enum MentionAddress {
     /// The tokens that mean the workspace's agent.
     ///
-    /// `agent` and `bloom` always, and the running agent's own name beside them. Bloom runs Claude
-    /// Code, Codex or Grok in a chat, so there is no one name to print in a banner the way Amp
-    /// prints `@amp`; `@agent` is the one a person can always type, and `@claude` is the one they
-    /// will try first when Claude is what is answering.
-    /// **`bloom` is here because it is the product's name**, and somebody reaching for the thing
-    /// that answers reaches for the name on the window before they reach for a role. The control
-    /// server reserves it as a handle, so it can never be a person's, which is what makes it safe
-    /// to spend on the agent here.
+    /// `bloom`, and the running agent's own name beside it. Bloom runs Claude Code, Codex or Grok
+    /// in a chat, so there is no one name to print in a banner the way Amp prints `@amp`.
+    ///
+    /// **`bloom` is the only word for the thing itself, because it is the product's name rather
+    /// than a category**: somebody reaching for what answers reaches for the name on the window
+    /// before they reach for a role. The control server reserves the handle, including freeing it
+    /// from anybody who held it, so it can never be a person's.
+    ///
+    /// **`agent` was that word for a day and is gone rather than kept as an alias**, at the
+    /// owner's asking. What that costs is written down where it is felt, in `mentioned`: `@agent`
+    /// is now an ordinary handle naming nobody, so it changes no audience and the words stay
+    /// words. **`@claude`, `@codex` and `@grok` stay**, because they are the agent's own name
+    /// rather than a second word for the category, and somebody watching Claude answer will reach
+    /// for Claude.
     public static func agentTokens(runningAgent: AgentKind?) -> [String] {
-        var tokens = ["agent", "bloom"]
+        var tokens = ["bloom"]
         if let alias = runningAgent.map(alias(of:)) { tokens.append(alias) }
         return tokens
     }
@@ -71,6 +77,14 @@ public enum MentionAddress {
     ///
     /// A mention that names nobody is nil too: it is a word somebody typed, and rewriting the
     /// audience on a typo would send a message to the wrong reader without saying so.
+    ///
+    /// **`@agent` is now one of those**, and it is worth knowing which way it fails. It is a valid
+    /// handle by shape and the control server holds it, so it names nobody: the audience is left
+    /// exactly where it was and the words are sent as written. So it does not quietly reach the
+    /// agent and it does not quietly reach nobody. **It does nothing**, which means somebody who
+    /// learned `@agent` while it worked, and is mid-conversation with a colleague, sends that
+    /// colleague a message beginning "@agent". That is the price of retiring a token, it is the
+    /// gentlest of the three failures available, and it is the one this rule was written for.
     public static func mentioned(
         in draft: String, people: [ComposerAudience.Person], runningAgent: AgentKind?
     ) -> ComposerAudience? {
@@ -109,15 +123,17 @@ public enum MentionAddress {
     /// `mentioned(in:people:runningAgent:)`, which asks the running agent. That is what makes
     /// `@codex` in a Claude chat a mention that names nobody rather than a word.
     private static func isAgentToken(_ token: String) -> Bool {
-        token == "agent" || token == "bloom" || AgentKind.allCases.map(alias(of:)).contains(token)
+        token == "bloom" || AgentKind.allCases.map(alias(of:)).contains(token)
     }
 
     /// The rows a mention menu shows for what has been typed so far.
     ///
     /// **The agent first**, because it is where most messages go and because a list that buried it
     /// under three colleagues would make the commonest destination the hardest to reach. It is
-    /// matched on every token that addresses it and on the name it is labelled with, so `@ag`,
-    /// `@bl`, `@cla` and `@Claude` all find the same row.
+    /// matched on every token that addresses it and on the name it is labelled with, so `@bl`,
+    /// `@cla` and `@Claude` all find the same row. **`@ag` finds nothing**, which is the whole of
+    /// what retiring `@agent` looks like from the menu: the word is not offered, so nobody learns
+    /// it from here, and somebody who already knows it is told plainly that nobody is called that.
     ///
     /// A person is matched on handle and on name both, because somebody typing `@seb` is as likely
     /// to be reaching for the name they see in the room as for the handle they have to type, and a

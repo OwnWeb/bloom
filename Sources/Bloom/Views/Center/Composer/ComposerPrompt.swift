@@ -35,7 +35,7 @@ struct ComposerPrompt<Footer: View>: View {
     /// `PersonMentionMenu`, which is what opens when it says yes.
     var people: [ComposerAudience.Person] = []
     /// What is answering in this conversation, so the mention menu can label the agent's own row
-    /// with it and find that row from `@claude` as well as from `@agent`. Nil in the create
+    /// with it and find that row from `@claude` as well as from `@bloom`. Nil in the create
     /// window, which has no chat yet, and everywhere the menu lists files.
     var runningAgent: AgentKind?
     /// Where an attached file is copied to, and what its stored path is relative to.
@@ -609,9 +609,9 @@ struct ComposerPrompt<Footer: View>: View {
     /// Writes the mention in, in place of what was typed. The same replacement a file picks, over
     /// the same token, because the two menus differ in what they list and in nothing else.
     ///
-    /// **The agent's row writes `@agent` whichever alias found it.** `@bloom` and `@claude` both
-    /// reach it and both are correct to type, but four spellings of one destination in the
-    /// transcripts a team reads back is the cost of letting the completion keep what was typed.
+    /// **The agent's row writes `@bloom` whichever name found it.** `@claude` reaches it too and is
+    /// correct to type, but several spellings of one destination in the transcripts a team reads
+    /// back is the cost of letting the completion keep what was typed.
     /// See `MentionCandidate.insertion`.
     private func pick(candidate: MentionCandidate) {
         guard let token = activeMenu.mention else { return }

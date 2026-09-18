@@ -42,7 +42,10 @@ struct MentionAddressTests {
     func namingNobodyIsNotNamingTheAgent() {
         #expect(MentionAddress.mentioned(in: "carry on", people: Self.people, runningAgent: .claudeCode) == nil)
         #expect(MentionAddress.mentioned(in: "@nobody test", people: Self.people, runningAgent: .claudeCode) == nil)
-        #expect(MentionAddress.mentioned(in: "@agent test", people: Self.people, runningAgent: .claudeCode) == .agent)
+        #expect(MentionAddress.mentioned(in: "@bloom test", people: Self.people, runningAgent: .claudeCode) == .agent)
+        // `@agent` was retired: a handle the control server holds, naming nobody, so it names
+        // nobody here too.
+        #expect(MentionAddress.mentioned(in: "@agent test", people: Self.people, runningAgent: .claudeCode) == nil)
     }
 
     /// The whole of "it remembers who you were last talking to": the prefix changes the audience
@@ -56,7 +59,7 @@ struct MentionAddressTests {
 
     @Test("The agent has a token that always works, and its own name beside it")
     func theAgentIsAddressableToo() {
-        #expect(audience("@agent fix the tests", from: .person(Self.seb)) == .agent)
+        #expect(audience("@bloom fix the tests", from: .person(Self.seb)) == .agent)
         #expect(audience("@claude fix the tests", from: .person(Self.seb)) == .agent)
         // The one that is running, rather than any of them: this chat is Claude's.
         #expect(audience("@codex fix the tests", from: .person(Self.seb)) == .person(Self.seb))
@@ -66,9 +69,24 @@ struct MentionAddressTests {
     /// The control server reserves the handle, so it can never be a person's.
     @Test("The product's own name addresses the agent too")
     func theProductsNameIsTheAgent() {
-        #expect(audience("@bloom fix the tests", from: .person(Self.seb)) == .agent)
         #expect(MentionAddress.token(in: "@bloom fix the tests") == "@bloom")
-        #expect(MentionAddress.agentTokens(runningAgent: .codex) == ["agent", "bloom", "codex"])
+        #expect(MentionAddress.agentTokens(runningAgent: .codex) == ["bloom", "codex"])
+    }
+
+    /// **Retiring a token has three possible failures and this is the gentlest.** `@agent` could
+    /// have gone on reaching the agent, which is a word that does not exist still working; it
+    /// could have sent to nobody, which loses a message. It does neither: it is a valid handle by
+    /// shape that names nobody, so the audience stays exactly where it was and the words are sent
+    /// as written. Somebody mid-conversation with a colleague who types it sends that colleague a
+    /// message beginning "@agent", which is visible and recoverable.
+    @Test("@agent was retired, and it now changes nothing")
+    func theOldTokenDoesNothing() {
+        #expect(audience("@agent come back", from: .person(Self.seb)) == .person(Self.seb))
+        #expect(audience("@agent come back") == .agent)
+        // Still a mention by shape, so the composer's menu opens on it and says nobody is called
+        // that, rather than the word silently becoming ordinary text.
+        #expect(MentionAddress.token(in: "@agent come back") == "@agent")
+        #expect(rows("ag").contains { $0.isAgent } == false)
     }
 
     /// A typo must not send a message to the wrong reader, and must not silently send it to the
@@ -100,7 +118,6 @@ struct MentionAddressTests {
     @Test("The agent heads the list and answers to every name it has")
     func theAgentIsARow() {
         #expect(rows("").first == .agent(name: "Claude Code"))
-        #expect(rows("ag").first?.isAgent == true)
         #expect(rows("bl").first?.isAgent == true)
         #expect(rows("cla").first?.isAgent == true)
         // The name it is labelled with, which is what somebody reads before they type.
@@ -109,10 +126,12 @@ struct MentionAddressTests {
         #expect(rows("codex", agent: .claudeCode).contains { $0.isAgent } == false)
     }
 
-    @Test("Whichever name found it, picking the agent writes @agent")
+    /// **`bloom` is the one word for the thing itself.** It was `agent` for a day, and the reason
+    /// it moved is that `bloom` is the product's name rather than a category.
+    @Test("Whichever name found it, picking the agent writes @bloom")
     func theAgentAlwaysWritesTheSameThing() {
-        #expect(rows("bl").first?.insertion == "@agent ")
-        #expect(rows("cla").first?.insertion == "@agent ")
+        #expect(rows("bl").first?.insertion == "@bloom ")
+        #expect(rows("cla").first?.insertion == "@bloom ")
         #expect(rows("seb").first?.insertion == "@sebdd ")
     }
 

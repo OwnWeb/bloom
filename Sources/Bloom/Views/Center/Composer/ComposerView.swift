@@ -157,7 +157,7 @@ struct ComposerView: View {
                     .font(Typo.caption)
                     .foregroundStyle(Palette.link)
                     .pointerStyle(.link)
-                    .help("The next message goes to the agent again. Typing @agent does the same.")
+                    .help("The next message goes to the agent again. Typing @bloom does the same.")
             }
             .padding(.horizontal, ComposerLayout.horizontalInset + Metrics.spacingWide)
             .padding(.bottom, Metrics.spacingSmall)
