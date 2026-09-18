@@ -263,6 +263,8 @@ final class CloudWorkspaceSession {
                 // event arrives over an open stream from a machine that has just done the work,
                 // so there is no sleeping machine to spare.
                 Task { await changes.refresh(quietly: changes.hasRead) }
+            case .paneRequested(let url, let chatID):
+                Task { await openRequestedPane(url: url, chatID: chatID) }
             case .turnEnded:
                 // A workspace that has just had files written to it is the definition of one whose
                 // changes are stale. The `review` event above is the machine volunteering that,
@@ -574,6 +576,42 @@ final class CloudWorkspaceSession {
             )
         }
         return prompt
+    }
+
+    // MARK: A pane the agent asked for
+
+    /// Where the preview pane goes when it is next opened, or nil for the app's own front page.
+    ///
+    /// Set by a request from the machine and cleared by the pane that honours it: a destination is
+    /// a thing that happens once, and one left lying about would send the reader somewhere on the
+    /// next open for a reason that has scrolled off the screen.
+    private(set) var previewDestination: String?
+
+    func tookPreviewDestination() -> String? {
+        defer { previewDestination = nil }
+        return previewDestination
+    }
+
+    /// What this Mac does about `pane_requested`.
+    ///
+    /// **Opened rather than asked about, and said rather than opened silently.** The local
+    /// equivalent, `pane_open`, is on Bloom's own self-approved list, because it adds something the
+    /// reader can see and close in the workspace whose agent is asking and nowhere else, and this
+    /// is that same act over a connection. What it owes on top is an account of itself: a pane
+    /// appearing on a desk is ordinary when you pressed something and is not ordinary otherwise,
+    /// so the notice names the workspace it came from either way. See `CloudPaneRequest`.
+    ///
+    /// The chat id is read but not acted on yet. It says which conversation asked, and the pane it
+    /// would open beside is the one the reader is looking at; moving their selection because a
+    /// machine mentioned another chat is a bigger liberty than opening a pane and is not one this
+    /// event is asking for.
+    private func openRequestedPane(url: String?, chatID: String?) async {
+        let request = CloudPaneRequest.of(url: url, machineHost: await connection?.machineURL?.host())
+        if case .workspaceApp(let path) = request {
+            previewDestination = path
+            open(.browser)
+        }
+        cloud.appModel?.notice = BloomNotice(message: CloudPaneRequest.sentence(request, workspace: surfaceName))
     }
 
     // MARK: The preview

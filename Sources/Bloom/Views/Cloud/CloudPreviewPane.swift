@@ -195,6 +195,27 @@ struct CloudPreviewPane: View {
         }
     }
 
+    /// The page the agent asked for, once the exchange has let this pane in.
+    ///
+    /// **Two loads rather than one, because the exchange decides where the first one lands.**
+    /// `preview/enter` sets the cookie for the machine's host and redirects to the app's front
+    /// page; it takes no destination of its own. So a request for `/orders` is that exchange
+    /// followed by an ordinary navigation, which the cookie now allows. The reader sees the front
+    /// page for the moment in between, which is the honest picture of what happened.
+    ///
+    /// The wait is a ceiling on infinity rather than a measurement: a load that never finishes
+    /// leaves the pane on the front page, which is where it would have been anyway, and no version
+    /// of this should sit here for longer than somebody would watch.
+    private func goToRequestedPage(host: String?) async {
+        guard let destination = session.tookPreviewDestination(), let host, let browser else { return }
+        let deadline = Date().addingTimeInterval(15)
+        while browser.isLoading, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard !browser.isLoading else { return }
+        browser.load("https://" + host + destination)
+    }
+
     /// What the pane says while the workspace is not connected, which is short because the column's
     /// own banner above it is already saying the rest.
     ///
@@ -238,6 +259,7 @@ struct CloudPreviewPane: View {
             } else {
                 browser = BrowserSession(url: url.absoluteString)
             }
+            await goToRequestedPage(host: url.host())
         case .refused(let sentence):
             refusal = CloudPreviewReadiness.Notice(
                 title: "Could not open the preview", message: sentence, invitesRetry: true

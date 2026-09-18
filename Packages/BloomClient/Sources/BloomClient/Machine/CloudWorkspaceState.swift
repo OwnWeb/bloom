@@ -90,6 +90,9 @@ public struct CloudWorkspaceState: Sendable, Hashable {
         case composerChanged(chatID: String, by: AuthorRecord?)
         /// A chat this client had not seen appeared, so its history should be read.
         case newChat(String)
+        /// The agent asked for a browser pane. A request rather than an instruction: see
+        /// `WorkspaceEvent.paneRequested` and `CloudPaneRequest`.
+        case paneRequested(url: String?, chatID: String?)
         /// A chat stopped running, which is the moment its workspace's changes went stale.
         ///
         /// Running to anything else, including waiting for an answer: an agent that stops to ask a
@@ -137,6 +140,10 @@ public struct CloudWorkspaceState: Sendable, Hashable {
         case .review(let revision):
             reviewRevision = revision
             return .reviewMoved
+        case .paneRequested(let url, let chatID):
+            // Nothing is kept: a request is a moment rather than state, and a client that was not
+            // listening when it was made has not missed a fact about the workspace.
+            return .paneRequested(url: url, chatID: chatID)
         case .presence(let users):
             presence = users
         case .workspace(let record):
