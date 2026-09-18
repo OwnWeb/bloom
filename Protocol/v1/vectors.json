@@ -51,6 +51,7 @@
     },
     "composer" : {
       "changed_by" : {
+        "email" : "freek@spatie.be",
         "name" : "Freek",
         "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
       },
@@ -71,6 +72,7 @@
       "kind" : "message",
       "message" : {
         "author" : {
+          "email" : "freek@spatie.be",
           "name" : "Freek",
           "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
         },
@@ -85,6 +87,27 @@
           "type" : "user"
         },
         "seq" : 4
+      }
+    },
+    "message_from_a_nameless_author" : {
+      "kind" : "message",
+      "message" : {
+        "author" : {
+          "email" : "technical@spatie.be",
+          "name" : "",
+          "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2u"
+        },
+        "chat_id" : "chat-1",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "cursor" : 119,
+        "kind" : "user",
+        "payload" : {
+          "message" : {
+            "role" : "user"
+          },
+          "type" : "user"
+        },
+        "seq" : 5
       }
     },
     "pane_requested" : {
@@ -122,6 +145,7 @@
         "prompts" : [
           {
             "author" : {
+              "email" : "freek@spatie.be",
               "name" : "Freek",
               "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
             },
@@ -132,6 +156,7 @@
           },
           {
             "author" : {
+              "email" : "freek@spatie.be",
               "name" : "Freek",
               "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
             },
@@ -613,6 +638,7 @@
           "messages" : [
             {
               "author" : {
+                "email" : "freek@spatie.be",
                 "name" : "Freek",
                 "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
               },
@@ -644,6 +670,7 @@
             "prompts" : [
               {
                 "author" : {
+                  "email" : "freek@spatie.be",
                   "name" : "Freek",
                   "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
                 },
@@ -654,6 +681,7 @@
               },
               {
                 "author" : {
+                  "email" : "freek@spatie.be",
                   "name" : "Freek",
                   "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
                 },

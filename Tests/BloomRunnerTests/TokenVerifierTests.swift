@@ -93,8 +93,16 @@ struct TokenVerifierTests {
         await expectRefused(issuer.control(issuedAt: clock.now, overrides: ["sub": TestTokenIssuer.defaultUserID]), as: .control)
     }
 
-    @Test func aSessionTokenWithoutANameIsRefused() async {
-        await expectRefused(issuer.session(issuedAt: clock.now, removing: ["name"]), as: .session)
+    /// **This used to be refused and is now accepted, deliberately.** Turning away everybody
+    /// runbloom.app has no display name for is a worse answer than an unlabelled message: the
+    /// identity that matters is the subject, and what a client draws is a presentation question
+    /// `AuthorRecord.label` answers from the name and the address together.
+    @Test func aSessionTokenWithoutANameIsAccepted() async throws {
+        let verifier = issuer.verifier(clock: clock)
+        let token = try await verifier.verify(issuer.session(issuedAt: clock.now, removing: ["name"]), as: .session)
+
+        #expect(token.author?.name == "")
+        #expect(token.author?.userID == TestTokenIssuer.defaultUserID)
     }
 
     @Test(arguments: ["sub", "jti", "iat", "exp", "iss", "aud"])
@@ -298,5 +306,49 @@ private extension String {
         let data = (try? JSONSerialization.data(withJSONObject: members, options: [.sortedKeys])) ?? Data()
         parts[0] = Base64URL.encode(data)
         return parts.joined(separator: ".")
+    }
+}
+
+/// Who a message is from, which a shared workspace draws above the bubble.
+@Suite("The author a session token names")
+struct TokenAuthorTests {
+    private func token(name: String?, email: String? = nil) -> WorkspaceToken {
+        WorkspaceToken(use: .session, subject: "user-1", name: name, email: email, abilities: ["prompt"],
+                       issuedAt: .init(), expiresAt: .init().addingTimeInterval(300), jti: "jti-1", signingKey: "kid-1")
+    }
+
+    /// The bug this exists for: `name ?? subject` catches a claim that is absent and steps aside
+    /// for one that is present and empty, putting an empty label on a message in a shared
+    /// workspace, where it reads as the reader's own.
+    @Test("an empty name is carried as empty rather than as a user id, and the email comes with it")
+    func emptyName() throws {
+        let author = try #require(token(name: "", email: "technical@spatie.be").author)
+
+        #expect(author.name.isEmpty)
+        #expect(author.email == "technical@spatie.be")
+        #expect(author.record.label == "technical@spatie.be")
+    }
+
+    @Test("a name wins over an address when there is one")
+    func nameWins() throws {
+        let author = try #require(token(name: "Freek", email: "freek@spatie.be").author)
+
+        #expect(author.record.label == "Freek")
+        #expect(author.email == "freek@spatie.be", "the address still travels, because mentions match on it")
+    }
+
+    /// Neither, which is all a share-link guest has. A client says "somebody" rather than nothing.
+    @Test("no name and no address still draws something")
+    func neither() throws {
+        let author = try #require(token(name: nil).author)
+
+        #expect(author.userID == "user-1")
+        #expect(author.email == nil)
+        #expect(author.record.label == "somebody")
+    }
+
+    @Test("a whitespace name is an empty one")
+    func whitespaceIsEmpty() throws {
+        #expect(try #require(token(name: "   ", email: " a@b.test ").author).record.label == "a@b.test")
     }
 }

@@ -97,7 +97,11 @@ public actor TokenVerifier {
         else { throw Self.refusal("This workspace token is missing a claim.") }
         switch use {
         case .session:
-            guard let name = claims.name, !name.isEmpty else { throw Self.refusal("This workspace token is missing a claim.") }
+            // **A name is not required and used to be.** A person runbloom.app has no display name
+            // for was refused the workspace outright, which is a worse answer than an unlabelled
+            // message: the identity that matters is the subject, which is checked above, and what
+            // a client draws is a presentation question answered by `AuthorRecord.label`.
+            break
         case .preview:
             break
         case .control:
@@ -129,6 +133,7 @@ public actor TokenVerifier {
             use: use,
             subject: subject,
             name: use == .session ? claims.name : nil,
+            email: use == .session ? claims.email : nil,
             team: use == .session ? claims.team : nil,
             abilities: abilities.intersection(use.grantableAbilities),
             issuedAt: issuedAt,
@@ -176,6 +181,7 @@ public actor TokenVerifier {
         var aud: String?
         var sub: String?
         var name: String?
+        var email: String?
         var team: String?
         var tokenUse: String?
         var abilities: [String]?
@@ -184,7 +190,7 @@ public actor TokenVerifier {
         var jti: String?
 
         enum CodingKeys: String, CodingKey {
-            case iss, aud, sub, name, team, abilities, iat, exp, jti
+            case iss, aud, sub, name, email, team, abilities, iat, exp, jti
             case tokenUse = "token_use"
         }
     }

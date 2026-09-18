@@ -177,7 +177,9 @@ TERMINAL_FRAMES = {
 
 RECORDS = {
     "Error": obj({"code": S, "message": S}),
-    "Author": obj({"user_id": S, "name": S}),
+    # `name` may be empty, and `email` is what a client draws when it is. Not one overloaded field:
+    # mention completion matches on these, and picking the wrong person misaddresses a message.
+    "Author": obj({"user_id": S, "name": S}, {"email": S}),
     # `enabled` is required because the machine always writes it, and a client decodes its absence
     # as true anyway: an older machine that does not know the key is one that always ran setup.
     "Setup": obj({"state": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]}, "enabled": B},

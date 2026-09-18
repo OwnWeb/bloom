@@ -11,10 +11,15 @@ import Foundation
 /// on a Mac there is one person and nothing to tell apart.
 public struct MessageAuthor: Sendable, Hashable, Codable {
     public var userID: String
+    /// May be empty: not everybody has a display name. See `AuthorRecord.label` for what a client
+    /// draws when it is.
     public var name: String
+    /// Their address, when the token that carried them named one.
+    public var email: String?
 
-    public init(userID: String, name: String) {
+    public init(userID: String, name: String, email: String? = nil) {
         self.userID = userID
         self.name = name
+        self.email = email
     }
 }

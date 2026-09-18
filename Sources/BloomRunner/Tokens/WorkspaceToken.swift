@@ -41,8 +41,11 @@ public struct WorkspaceToken: Sendable, Hashable {
     public var use: TokenUse
     /// A user id, `share:<share id>` for a preview opened from a share, or `control`.
     public var subject: String
-    /// Session tokens only.
+    /// Session tokens only. **May be absent or empty**: not everybody has a display name, and a
+    /// machine that refused them would be a machine they could not use.
     public var name: String?
+    /// Session tokens only, and the thing a person recognises when there is no name.
+    public var email: String?
     /// Session tokens only.
     public var team: String?
     public var abilities: Set<String>
@@ -58,6 +61,7 @@ public struct WorkspaceToken: Sendable, Hashable {
         use: TokenUse,
         subject: String,
         name: String? = nil,
+        email: String? = nil,
         team: String? = nil,
         abilities: Set<String>,
         issuedAt: Date,
@@ -68,6 +72,7 @@ public struct WorkspaceToken: Sendable, Hashable {
         self.use = use
         self.subject = subject
         self.name = name
+        self.email = email
         self.team = team
         self.abilities = abilities
         self.issuedAt = issuedAt
@@ -78,9 +83,18 @@ public struct WorkspaceToken: Sendable, Hashable {
 
     /// The person a session token names, as a queued prompt records them. Nil for a preview or a
     /// control token, which are not somebody writing in the workspace.
+    /// **An empty name is not a missing one, and both have to be handled.** This used to read
+    /// `name ?? subject`, which catches a claim that is absent and steps aside for one that is
+    /// present and empty, putting an empty string on the wire that draws a label indistinguishable
+    /// from no label at all. In a shared workspace an unlabelled message reads as the reader's own.
+    ///
+    /// The email is carried rather than folded into the name; see `AuthorRecord.label` for what a
+    /// client draws from the two.
     public var author: MessageAuthor? {
         guard use == .session else { return nil }
-        return MessageAuthor(userID: subject, name: name ?? subject)
+        let stated = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let address = email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return MessageAuthor(userID: subject, name: stated, email: address.isEmpty ? nil : address)
     }
 
     /// A preview opened through a share link rather than by a member of the team.

@@ -1189,6 +1189,21 @@ public actor Store {
                     try db.execute("ALTER TABLE messages ADD COLUMN \(column) TEXT;")
                 }
             },
+            // An author's address, which a client draws when it has no name to draw. Kept next to
+            // the name rather than derived, because a message read back a week later has to carry
+            // the same label it was written with: the alternative was putting an email in `name`,
+            // and a field meaning "a name, or an address" breaks the moment mention completion
+            // matches on it. See `AuthorRecord`.
+            { db in
+                let deliveries = Set(try db.query("PRAGMA table_info(deliveries);").compactMap { $0.string("name") })
+                if !deliveries.contains("author_email") {
+                    try db.execute("ALTER TABLE deliveries ADD COLUMN author_email TEXT;")
+                }
+                let messages = Set(try db.query("PRAGMA table_info(messages);").compactMap { $0.string("name") })
+                if !messages.contains("author_email") {
+                    try db.execute("ALTER TABLE messages ADD COLUMN author_email TEXT;")
+                }
+            },
         ]
 
         let current = Int(try db.readUserVersion())
@@ -2408,8 +2423,9 @@ public actor Store {
     private func insert(_ message: Message) throws -> Int64 {
         let id = try db.run(
             """
-            INSERT INTO messages (session_id, seq, kind, payload, created_at, duration_ms, ref_id, author_user_id, author_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (session_id, seq, kind, payload, created_at, duration_ms, ref_id,
+                                  author_user_id, author_name, author_email)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(message.sessionID), .int(Int64(message.seq)), .text(message.kind.rawValue),
@@ -2418,6 +2434,7 @@ public actor Store {
                 message.refID.map { .text($0) } ?? .null,
                 message.author.map { .text($0.userID) } ?? .null,
                 message.author.map { .text($0.name) } ?? .null,
+                message.author?.email.map { .text($0) } ?? .null,
             ]
         )
         // Here rather than in a trigger, and here rather than in a task afterwards: this is the
@@ -2839,8 +2856,8 @@ public actor Store {
             INSERT INTO deliveries
                 (id, target_session_id, source_workspace_id, kind, verdict, body, crew_payload,
                  created_at, delivered_at, delivered_seq, delivery_state, interaction_mode, provider_turn_id,
-                 author_user_id, author_name, remote_turn_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 author_user_id, author_name, author_email, remote_turn_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(delivery.id),
@@ -2858,6 +2875,7 @@ public actor Store {
                 delivery.providerTurnID.map { .text($0) } ?? .null,
                 delivery.author.map { .text($0.userID) } ?? .null,
                 delivery.author.map { .text($0.name) } ?? .null,
+                delivery.author?.email.map { .text($0) } ?? .null,
                 delivery.remoteTurnID.map { .text($0) } ?? .null,
             ]
         )
@@ -4148,7 +4166,7 @@ public actor Store {
 
     private static func author(from row: Row) -> MessageAuthor? {
         guard let id = row.string("author_user_id") else { return nil }
-        return MessageAuthor(userID: id, name: row.string("author_name") ?? "")
+        return MessageAuthor(userID: id, name: row.string("author_name") ?? "", email: row.string("author_email"))
     }
 
     private static func ocean(from row: Row) -> Ocean {

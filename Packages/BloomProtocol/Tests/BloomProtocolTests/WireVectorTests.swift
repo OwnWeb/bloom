@@ -93,7 +93,11 @@ struct WireVectorTests {
 enum WireExamples {
     static let commandID = "00000000-0000-4000-8000-000000000001"
     static let date = Date(timeIntervalSince1970: 1_789_638_002.5)
-    static let author = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2t", name: "Freek")
+    static let author = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2t", name: "Freek", email: "freek@spatie.be")
+    /// Somebody runbloom.app has no display name for, which is the shape a client has to draw from
+    /// the email. It used to arrive with an empty name and nothing else, and an unlabelled message
+    /// in a shared workspace reads as the reader's own.
+    static let nameless = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2u", name: "", email: "technical@spatie.be")
     static let controls = ComposerControlsRecord(agent: "claude", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits", interactionMode: "build")
     static let setup = SetupRecord(state: "succeeded", step: nil, startedAt: date, finishedAt: date)
     static let chat = ChatRecord(id: "chat-1", title: "Chat", agent: "claude", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits",
@@ -214,6 +218,11 @@ enum WireExamples {
 
     static let events: [(String, WorkspaceEvent)] = [
         ("message", .message(message)),
+        // The same message from somebody with no display name, which is the case a client has to
+        // draw from the address instead. See `AuthorRecord.label`.
+        ("message_from_a_nameless_author", .message(MessageRecord(
+            cursor: 119, chatID: message.chatID, seq: 5, kind: message.kind,
+            payload: message.payload, author: nameless, createdAt: message.createdAt))),
         ("stream_snapshot", .stream(chatID: "chat-1", text: "Reading the queue", snapshot: true)),
         ("stream_delta", .stream(chatID: "chat-1", text: " worker", snapshot: false)),
         ("chat", .chat(chat)),

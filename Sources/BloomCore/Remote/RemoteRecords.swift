@@ -19,7 +19,7 @@ extension AgentKind {
 }
 
 extension MessageAuthor {
-    public var record: AuthorRecord { AuthorRecord(userID: userID, name: name) }
+    public var record: AuthorRecord { AuthorRecord(userID: userID, name: name, email: email) }
 }
 
 extension JSONValue {

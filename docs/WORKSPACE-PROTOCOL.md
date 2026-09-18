@@ -266,6 +266,19 @@ string, so the two could not have been compared even if it had arrived. A client
 a refresh path on it, which therefore never ran. **An event nothing emits is worse than no event**:
 it reads as a mechanism, and the client that trusts it has no symptom to debug.
 
+**Every message has an author, and drawing it is one rule: the name if it is not empty, the email
+if it is, and "somebody" if neither.** `AuthorRecord` carries `user_id`, `name` and an optional
+`email`, and **`name` may be empty**, because not everybody has a display name. An empty name drawn
+as-is is an empty label, which in a shared workspace is indistinguishable from no label, which reads
+as the reader's own message: on 18 September 2026 Freek read a colleague's message as his. The email
+is a field of its own rather than something put in `name` when a name is missing, because **mention
+completion matches on these**, and a field that is sometimes a name and sometimes an address is how
+a message meant for one person reaches another. `email` is absent for a share-link guest.
+
+**A person with no display name is not refused.** The machine used to require a `name` claim on a
+session token and turn away anybody runbloom.app had no name for, which is a worse answer than an
+unlabelled message.
+
 **The workspace record carries the project's services, and a client should draw them.** One entry
 per `[[services]]` the repository declares, each with its `state` (`waiting`, `starting`, `running`,
 `not_ready`, `crashed`, `stopped`), how many times it has restarted, and a sentence for a person.
