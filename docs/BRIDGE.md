@@ -333,6 +333,38 @@ menu makes, unchanged and not copied. It adds them **to** `.standard` rather tha
 handlers again, because a copy of that list is a copy that drifts: a tool added to the core toolbox
 and not to the app's would pass every test in the suite and never reach the running app.
 
+### An agent on a Cloud machine, and the pane it cannot ask for
+
+The same split decides what a Cloud workspace's agent is offered, and there the consequence is
+visible rather than architectural. A machine's bridge serves eight tools: `whoami`, `chat_list`,
+`chat_read`, `workspace_diff` and the four `agent_*` ones. **Nothing that touches a window is there,
+because the window is on somebody's Mac and the machine is in a datacentre.**
+
+On 18 September 2026 an agent was asked to open a browser pane beside its chat. It ran `which
+sprite-env`, searched its tools, read `sprite-env --help`, listed `/opt/bloom/current/bin`, grepped
+the repository for a port, read `.bloom/settings.toml` and the Caddyfile, disassembled
+`/.sprite/bin/sprite-browser`, worked out that it writes an OSC escape to a controlling TTY and that
+its own Bash tool has none, checked the runner's HTTP API for a pane endpoint, and finally ran
+`strings` over Bloom Runner's binary looking for the word "browser". Thirty-five actions.
+**Every conclusion it reached was correct.** `tools/list` had told it what exists; nothing had told
+it that the absence of a pane tool was the answer rather than a gap to route around. That is what
+`BridgeBriefing` now says, as MCP `instructions` and again in `whoami`.
+
+**Whether a machine's agent should be able to *ask* for a pane is a real question and the answer is
+not yet.** It would be a message from the machine to whoever is looking, the same direction as
+`workspace_say`, carried on the event stream the clients already hold, and the machine already
+computes nothing it would need. Three things make it hard, and none of them is size:
+
+- **Nobody may be looking.** A machine runs with every window shut. So such a tool can never report
+  that a pane opened, only that it asked, and it has to say plainly when there was nobody to ask.
+  **A tool that silently evaporates is worse than no tool**, because the agent then spends its next
+  several actions wondering, which is the failure this whole section is about.
+- **Several people may be looking**, on a Mac and in the web client at once. Either they all get a
+  pane or the request names none of them; there is no "the" window.
+- **It is an escalation.** An agent on a machine in another country causing a window to open on
+  somebody's desk belongs behind the approval a local `pane_open` already goes through, not in front
+  of it. See `BridgeToolApproval`.
+
 **The two tab tools are on that side for a reason worth stating plainly, because it is not the
 same reason the browser tools are there.** A browser is a `WKWebView`, which is obviously the
 window's. A tab looks like data and is not: the tool tabs are a JSON blob in user defaults that
