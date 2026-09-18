@@ -18,6 +18,7 @@ public struct AgentModelSource: Sendable {
         let codex = CodexModelCatalog.live()
         let grok = GrokModelCatalog.live(store: store)
         return [
+            .claudeCode: .claude(),
             .codex: AgentModelSource(
                 models: { try await codex.models().map(\.agentModel) },
                 invalidate: { await codex.invalidate() }

@@ -91,7 +91,9 @@ final class ComposerModelCatalog {
             // settings file can pin an id Bloom has never heard of, and a picker that dropped it
             // would be a one-way door out of the model actually in force.
             if backend == owner {
-                options = ComposerOption.adding([current], to: options)
+                options = ComposerOption.adding(
+                    [current], to: options, names: backend == .claudeCode ? ComposerOption.models : []
+                )
             }
             // After the pinned id is in, not before: `adding` puts whatever the chat is set to at
             // the end of the list, which is how `claude-opus-5[1m]` came to be drawn under Haiku.
@@ -104,10 +106,14 @@ final class ComposerModelCatalog {
         }
     }
 
+    /// Claude Code's rows are what the `claude` CLI lists, and the written list only until it has
+    /// answered or where it never does: a Mac without the CLI, or one where it says nothing, keeps
+    /// the picker it had rather than an empty one.
     func options(for kind: AgentKind) -> [ComposerOption] {
-        if kind == .claudeCode { return ComposerOption.models }
-        return (models[kind] ?? []).filter { !$0.hidden }
+        let fetched = (models[kind] ?? []).filter { !$0.hidden }
             .map { ComposerOption(id: $0.id, label: $0.displayName) }
+        if kind == .claudeCode, fetched.isEmpty { return ComposerOption.models }
+        return fetched
     }
 
     /// Which backend a model id belongs to, so choosing one out of another section is understood
@@ -127,11 +133,12 @@ final class ComposerModelCatalog {
 
     /// The efforts one model takes.
     ///
-    /// Claude Code's five are the same for every model. Codex's are the model's own, and a level
-    /// the chosen model does not take is not on the list: offering `max` on `gpt-5.5`, which stops
-    /// at `xhigh`, is offering something the server will refuse.
+    /// Each model's own, from its backend's list, and a level the chosen model does not take is not
+    /// on the list: offering `max` on `gpt-5.5`, which stops at `xhigh`, is offering something the
+    /// server will refuse. Claude Code's now come from the CLI too, per model. A model nothing has
+    /// listed, or any Claude model before the CLI has answered, gets the written five.
     func efforts(for kind: AgentKind, model: String) -> [ComposerOption] {
-        guard kind != .claudeCode, let found = models[kind]?.first(where: { $0.id == model }) else {
+        guard let found = models[kind]?.first(where: { $0.id == model }) else {
             return ComposerOption.efforts
         }
         return found.supportedEfforts.map { ComposerOption(id: $0.id, label: $0.label) }

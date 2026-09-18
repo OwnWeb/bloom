@@ -330,7 +330,10 @@ extension AppModel {
         controls.agentKind = agent
 
         if agent == .claudeCode {
+            // What the CLI lists and the written list both, so an agent that names `opus`, which
+            // the CLI lists as `opus[1m]`, is not refused a model the CLI will happily run.
             let models = Set(ComposerOption.models.map(\.id))
+                .union(ComposerModelCatalog.shared.options(for: .claudeCode).map(\.id))
             if let model = order.model {
                 guard models.contains(model) else {
                     throw BridgeWorkspaceModelFailure.invalid(
