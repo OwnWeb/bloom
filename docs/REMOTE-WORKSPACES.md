@@ -377,6 +377,29 @@ browser now rather than discovered to be native-only then.
 
 ## Preview
 
+**The preview is opened as a page, never inside a frame, and that is a decision rather than an
+omission.** Authorisation is a cookie on the machine's origin, because **nothing can attach a token
+to a subresource**: the preview serves somebody's real app and the browser fetches its own images,
+scripts and XHR with whatever it has. In a frame on runbloom.app that cookie is third party, which
+Safari blocks outright and Chrome is part way through removing, so the enter would succeed and
+everything after it would arrive unauthenticated, **looking like a broken app rather than a blocked
+cookie**. `SameSite=None` plus the Storage Access API would work in one browser today and needs a
+prompt; a first-party page works in all of them with the code that already exists. The Mac's pane is
+a `WKWebView`, which is first party already, so it needs nothing special; a browser client opens a
+tab.
+
+**If an embedded preview ever matters more than a tab, the design is a proxy and not a cookie
+policy**: runbloom.app serves the preview path itself and forwards to the machine, so the frame is
+same origin with the page around it and no machine cookie is involved at all. It costs every preview
+byte and every Vite socket going through the control server. **Written here so nobody arrives at the
+proxy as a workaround for a blocked cookie**, which is the route that ends in `SameSite=None` and a
+year of browser-specific bugs.
+
+**And the machine not refusing a frame is not the same as a frame working.** Nothing here sets
+`X-Frame-Options` or `frame-ancestors`, but the project's own app does: Laravel, Rails and Next all
+ship something in some configuration, so "can this be framed" would be a per-project question
+answered silently at runtime.
+
 The Sprite URL has one port, so it cannot give control and the preview separate origins. A Caddy
 supervised by Bloom Runner listens on it and routes `/_bloom/*` to Bloom Runner and everything else
 to the project's app on `BLOOM_APP_PORT`. Caddy rather than a proxy in Swift, because streaming,

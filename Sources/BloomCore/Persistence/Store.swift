@@ -2378,11 +2378,18 @@ public actor Store {
         ).map(Self.message(from:))
     }
 
-    public func messageCount(sessionID: SessionID) throws -> Int {
-        Int(try db.query(
-            "SELECT COUNT(*) AS c FROM messages WHERE session_id = ?",
-            [.text(sessionID)]
-        ).first?.int("c") ?? 0)
+    /// How many rows a chat has.
+    ///
+    /// **`forAgent` leaves out what an agent must never be given**, which is a message somebody
+    /// addressed to a person. A count is a small thing to get wrong and a real leak: an agent whose
+    /// `chat_read` returns four rows while the count says five has been told that a message it
+    /// cannot see exists, which is the fact the feature is hiding, and it is exactly the shape that
+    /// invites it to ask what it missed. See `MessageAudience`.
+    public func messageCount(sessionID: SessionID, forAgent: Bool = false) throws -> Int {
+        let sql = forAgent
+            ? "SELECT COUNT(*) AS c FROM messages WHERE session_id = ? AND (audience_kind IS NULL OR audience_kind <> 'person')"
+            : "SELECT COUNT(*) AS c FROM messages WHERE session_id = ?"
+        return Int(try db.query(sql, [.text(sessionID)]).first?.int("c") ?? 0)
     }
 
     public func nextSeq(sessionID: SessionID) throws -> Int {

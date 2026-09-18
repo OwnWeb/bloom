@@ -85,6 +85,12 @@ struct RemoteBridgeTests {
             as: identity, store: fixture.store
         )
 
+        // **The count is part of the same promise.** An agent told there are three messages that
+        // can only read two has been told a private one exists, which is the fact being kept.
+        let listing = try #require(toolbox.handler(named: "chat_list", for: .workspace))
+        let chats = await listing.call(MCPRequest(id: .integer(2), method: "chat_list"), as: identity, store: fixture.store)
+        #expect(chats.text.contains("\"messages\" : 2"), "two of the three rows are the agent's: \(chats.text)")
+
         #expect(answer.text.contains("for the agent"))
         #expect(answer.text.contains("carry on"))
         #expect(!answer.text.contains("this bit is yours"))

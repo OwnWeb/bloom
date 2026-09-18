@@ -42,7 +42,10 @@ public struct ChatListTool: BridgeToolHandling {
             let sessions = try await store.sessions(workspaceID: target.workspaceID)
             var chats: [JSONValue] = []
             for session in sessions {
-                let count = try await store.messageCount(sessionID: session.id)
+                // Counted as the caller may read it. An agent told "five messages" that can only
+                // read four has been told a private one exists, which is the one fact this is
+                // supposed to keep. See `Store.messageCount`.
+                let count = try await store.messageCount(sessionID: session.id, forAgent: identity.role == .workspace)
                 chats.append(.object([
                     "id": .string(session.id.rawValue),
                     "title": .string(Self.title(of: session)),
