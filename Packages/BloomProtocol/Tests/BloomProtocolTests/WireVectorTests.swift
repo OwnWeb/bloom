@@ -254,7 +254,8 @@ enum WireExamples {
         // An agent on a machine asking for a browser pane. It names the chat it is speaking for, so
         // a client can put the pane beside it, and no url at all means this workspace's own public
         // address, which a client connected to it already has.
-        ("pane_requested", .paneRequested(url: "http://127.0.0.1:3000/dashboard", chatID: chat.id)),
+        ("pane_requested", .paneRequested(url: "http://127.0.0.1:3000/dashboard", chatID: chat.id,
+                                          placement: "split")),
         ("presence", .presence([PresenceRecord(userID: author.userID, name: author.name, lastInputAt: nil)])),
         ("workspace", .workspace(workspace)),
         // The same record while the machine cannot reach runbloom.app, which is the only time it

@@ -26,7 +26,20 @@ import Foundation
 /// and it can be added when somebody wants it.
 public struct RequestPaneTool: BridgeToolHandling {
     /// Sends the request and answers how many connected clients were told. Zero is a real answer.
-    public typealias Requesting = @Sendable (_ url: String?, _ sessionID: SessionID?, _ workspaceID: WorkspaceID) async -> Int
+    /// Where the asker wants it. **`pane_split` and `pane_open` are the two verbs an agent already
+    /// knows locally**, and until this existed a machine's agent could only produce the second
+    /// while the tool's own name said pane: asked to put a browser next to a chat, it reported
+    /// success and a tab appeared.
+    public enum Placement: String, Sendable, Hashable {
+        /// Beside the pane showing the chat that asked, when that chat is on screen.
+        case split
+        /// A tab of its own, which is what every client did before this existed.
+        case tab
+    }
+
+    public typealias Requesting = @Sendable (
+        _ url: String?, _ placement: Placement, _ sessionID: SessionID?, _ workspaceID: WorkspaceID
+    ) async -> Int
 
     private let request: Requesting
 
@@ -51,6 +64,10 @@ public struct RequestPaneTool: BridgeToolHandling {
 
             Leave 'url' out to ask for this workspace's own public address, which is what the \
             preview shows. Pass one to point the pane somewhere else.
+
+            'placement' is 'split' to ask for it beside the chat you are in, or 'tab' for a tab of \
+            its own, which is the default. A client that cannot split, or whose reader is not \
+            looking at this chat, opens a tab instead: what you get is theirs to decide, as ever.
             """,
         inputSchema: .object([
             "type": .string("object"),
@@ -58,6 +75,11 @@ public struct RequestPaneTool: BridgeToolHandling {
                 "url": .object([
                     "type": .string("string"),
                     "description": .string("An http or https address. Omit for this workspace's own public URL."),
+                ]),
+                "placement": .object([
+                    "type": .string("string"),
+                    "enum": .array([.string("split"), .string("tab")]),
+                    "description": .string("'split' for beside this chat, 'tab' for its own tab. Defaults to 'tab'."),
                 ]),
             ]),
         ])
@@ -81,14 +103,21 @@ public struct RequestPaneTool: BridgeToolHandling {
             }
             url = stated
         }
-        let told = await self.request(url, identity.sessionID, workspaceID)
+        // An unknown word is refused rather than quietly read as a tab: an agent that asked for
+        // something this machine does not understand should be told, not answered with the default.
+        let stated = request.stringParam("placement")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let placement = stated.map({ Placement(rawValue: $0) }) ?? Placement.tab else {
+            return .failure("A pane is placed 'split', beside this chat, or 'tab', in a tab of its own.")
+        }
+        let told = await self.request(url, placement, identity.sessionID, workspaceID)
         guard told > 0 else {
             return .init(text: "Nobody has this workspace open, so there was nobody to ask. "
                 + "Nothing was opened. Say what you wanted to show and where it is served.")
         }
         let people = told == 1 ? "1 client" : "\(told) clients"
-        return .init(text: "Asked \(people) looking at this workspace to open a browser pane"
+        let where_ = placement == .split ? " beside this chat" : " in a tab"
+        return .init(text: "Asked \(people) looking at this workspace to open a browser pane\(where_)"
             + (url.map { " at \($0)" } ?? " at this workspace's public address")
-            + ". Whether it opens is theirs to decide, so do not report it as done.")
+            + ". Whether it opens, and where, is theirs to decide, so do not report it as done.")
     }
 }

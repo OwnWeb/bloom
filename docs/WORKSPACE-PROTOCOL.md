@@ -246,6 +246,13 @@ events. Then live events as they happen.
 | `sleeping` | nothing | see "Sleeping and waking" |
 | `closing` | a failure | the stream ends; act on the code |
 
+**`pane_requested` carries `placement`, `split` or `tab`, and absent means `tab`.** An agent asked
+to put a browser "next to this chat" had no way to say so and got a tab, which is a different thing:
+locally the two are different verbs, `pane_split` and `pane_open`. **A split belongs beside the pane
+showing the chat that asked**, and a client that cannot split, or whose reader is not looking at
+that chat, opens a tab instead. **The reader's selection is never moved for either**, which is a
+bigger liberty than opening something.
+
 **`pane_requested` is an agent on the machine asking, not telling.** It cannot open a pane: a pane
 belongs to the window of whoever is looking, and the machine is not there. So a client shows one if
 it wants to, and may ignore it. **Several clients may receive the same request**, and there is no

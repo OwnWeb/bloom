@@ -162,7 +162,9 @@ EVENTS = {
     "setup_output": plain({"text": S}),
     # An agent on the machine asking a client to open a browser pane. A request, not an
     # instruction: nobody may be listening, and several may be.
-    "pane_requested": plain({}, {"url": S, "chat_id": S}),
+    # `placement` is `split` or `tab`, absent meaning `tab`, which is what every client did before
+    # the field existed.
+    "pane_requested": plain({}, {"url": S, "chat_id": S, "placement": {"enum": ["split", "tab"]}}),
     "presence": plain({"users": array(ref("Presence"))}),
     "workspace": record("workspace", "Workspace"),
     "sleeping": plain(),

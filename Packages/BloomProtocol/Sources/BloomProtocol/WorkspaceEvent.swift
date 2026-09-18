@@ -27,14 +27,22 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
     /// Setup wrote output.
     case setupOutput(text: String)
     /// An agent on the machine is **asking** for a browser pane. No url means this workspace's own
-    /// public address, which a client connected to it already knows. Not an
+    /// public address, which a client connected to it already knows.
+    ///
+    /// **`placement` is `split` or `tab`, and absent means `tab`**, which is what every client did
+    /// before the field existed. An agent asked to put a browser "next to this chat" had no way to
+    /// say so and got a tab, which is a different thing and the owner noticed immediately: locally
+    /// the two are different verbs, `pane_split` and `pane_open`. **A split belongs beside the pane
+    /// showing the chat that asked**, and falls back to a tab when that chat is not on screen; a
+    /// client that cannot split can always open a tab, which is why absent is the safe reading in
+    /// both directions. Not an
     /// instruction: a client shows it, ignores it, or is not there at all.
     ///
     /// **The machine cannot open a pane and this is how it says so usefully.** A pane belongs to
     /// the window of whoever is looking, which is on somebody's Mac; the machine can only ask, and
     /// it may be asking nobody. The tool that sends this tells the agent how many clients were
     /// told, so an agent never reports opening something that did not open.
-    case paneRequested(url: String?, chatID: String?)
+    case paneRequested(url: String?, chatID: String?, placement: String?)
     /// Who has the workspace open.
     case presence([PresenceRecord])
     /// The workspace's name, branch or pull request changed.
@@ -70,7 +78,7 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
     }
 
     enum Keys: String, CodingKey {
-        case chatID = "chat_id", text, snapshot, questions, controls, changedBy = "changed_by", users, error, url
+        case chatID = "chat_id", text, snapshot, questions, controls, changedBy = "changed_by", users, error, url, placement
     }
 
     public init(from decoder: any Decoder) throws {
@@ -91,7 +99,8 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
         case "setup_output": self = .setupOutput(text: try c.decode(String.self, forKey: .text))
         case "pane_requested":
             self = .paneRequested(url: try c.decodeIfPresent(String.self, forKey: .url),
-                                  chatID: try c.decodeIfPresent(String.self, forKey: .chatID))
+                                  chatID: try c.decodeIfPresent(String.self, forKey: .chatID),
+                                  placement: try c.decodeIfPresent(String.self, forKey: .placement))
         case "presence": self = .presence(try c.decode([PresenceRecord].self, forKey: .users))
         case "workspace": self = .workspace(try Tagged.record(WorkspaceRecord.self, kind: kind, from: decoder))
         case "sleeping": self = .sleeping
@@ -117,9 +126,10 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
             try c.encode(chatID, forKey: .chatID); try c.encode(controls, forKey: .controls); try c.encodeIfPresent(changedBy, forKey: .changedBy)
         case .setup(let value): try Tagged.encode(kind: kind, to: encoder, record: value)
         case .setupOutput(let text): try Tagged.encode(kind: kind, to: encoder); try c.encode(text, forKey: .text)
-        case .paneRequested(let url, let chatID):
+        case .paneRequested(let url, let chatID, let placement):
             try Tagged.encode(kind: kind, to: encoder)
             try c.encodeIfPresent(url, forKey: .url); try c.encodeIfPresent(chatID, forKey: .chatID)
+            try c.encodeIfPresent(placement, forKey: .placement)
         case .presence(let users): try Tagged.encode(kind: kind, to: encoder); try c.encode(users, forKey: .users)
         case .workspace(let value): try Tagged.encode(kind: kind, to: encoder, record: value)
         case .sleeping: try Tagged.encode(kind: kind, to: encoder)

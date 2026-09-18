@@ -77,9 +77,9 @@ extension WorkspaceRuntime {
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.sayToCrew(name, text: text, callerID: sessionID, workspaceID: workspaceID)
             },
-            RequestPaneTool { [weak self] url, sessionID, _ in
+            RequestPaneTool { [weak self] url, placement, sessionID, _ in
                 guard let self else { return 0 }
-                return await self.requestPane(url: url, chatID: sessionID)
+                return await self.requestPane(url: url, chatID: sessionID, placement: placement)
             },
             AgentStopTool { [weak self] name, sessionID, workspaceID in
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
@@ -98,10 +98,10 @@ extension WorkspaceRuntime {
     /// **Zero is the answer that matters.** A machine runs with every window shut, and an agent
     /// that was told it had shown somebody something would go on to say so. Counting the
     /// subscribers rather than assuming is the whole honesty of the tool.
-    func requestPane(url: String?, chatID: SessionID?) async -> Int {
+    func requestPane(url: String?, chatID: SessionID?, placement: RequestPaneTool.Placement) async -> Int {
         let listening = await events.count
         guard listening > 0 else { return 0 }
-        await events.publish(.paneRequested(url: url, chatID: chatID?.rawValue))
+        await events.publish(.paneRequested(url: url, chatID: chatID?.rawValue, placement: placement.rawValue))
         return listening
     }
 
