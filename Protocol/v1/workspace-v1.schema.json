@@ -58,9 +58,6 @@
             "skipped"
           ]
         },
-        "enabled": {
-          "type": "boolean"
-        },
         "step": {
           "oneOf": [
             {
@@ -102,10 +99,19 @@
               "type": "null"
             }
           ]
+        },
+        "enabled": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
-        "enabled",
         "state"
       ],
       "additionalProperties": false
@@ -168,12 +174,6 @@
         "setup": {
           "$ref": "#/$defs/Setup"
         },
-        "services": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Service"
-          }
-        },
         "pull_request": {
           "oneOf": [
             {
@@ -193,6 +193,19 @@
               "type": "null"
             }
           ]
+        },
+        "services": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Service"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -200,7 +213,6 @@
         "branch",
         "id",
         "name",
-        "services",
         "setup"
       ],
       "additionalProperties": false
@@ -217,9 +229,6 @@
         "restarts": {
           "type": "integer"
         },
-        "http": {
-          "type": "boolean"
-        },
         "message": {
           "oneOf": [
             {
@@ -229,10 +238,19 @@
               "type": "null"
             }
           ]
+        },
+        "http": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
-        "http",
         "name",
         "restarts",
         "state"
@@ -1182,17 +1200,23 @@
           "$ref": "#/$defs/ComposerControls"
         },
         "members": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Member"
-          }
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Member"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "chats",
         "composer_defaults",
         "cursor",
-        "members",
         "presence",
         "workspace"
       ],

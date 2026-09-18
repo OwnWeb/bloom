@@ -175,22 +175,34 @@ TERMINAL_FRAMES = {
     "resize": plain({"columns": I, "rows": I}),
 }
 
+# **A field added after machines shipped is optional here, whatever the machine now sends.**
+#
+# The schema is the artefact a client reads first and generates types from, so what it says becomes
+# what a client refuses. "Every current machine sends this" is a fact about deployment; a schema is
+# a promise, and the promise has to hold for the machine somebody is actually connected to. The web
+# client met this as a crash rather than a type error: a snapshot from a machine older than
+# `members` threw, and **the workspace could not be opened at all**. Marking the addition optional
+# would have made that impossible rather than merely documented.
+#
+# What a current machine sends is in `vectors.json`, which is the right place for it: a vector is an
+# example and a schema is a promise. The fields this applies to today are `members`, `services`,
+# `setup.enabled` and a service's `http`.
 RECORDS = {
     "Error": obj({"code": S, "message": S}),
     # `name` may be empty, and `email` is what a client draws when it is. Not one overloaded field:
     # mention completion matches on these, and picking the wrong person misaddresses a message.
     "Author": obj({"user_id": S, "name": S}, {"email": S}),
-    # `enabled` is required because the machine always writes it, and a client decodes its absence
-    # as true anyway: an older machine that does not know the key is one that always ran setup.
-    "Setup": obj({"state": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]}, "enabled": B},
-                 {"step": S, "started_at": DATE, "finished_at": DATE, "note": S}),
+    # `enabled` is optional here for the reason at the head of RECORDS: a machine older than the
+    # field does not send it, and a client decodes its absence as true.
+    "Setup": obj({"state": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]}},
+                 {"step": S, "started_at": DATE, "finished_at": DATE, "note": S, "enabled": B}),
     "SetupOutput": obj({"setup": ref("Setup"), "log": S}),
     "PullRequest": obj({"number": I, "url": S, "title": S, "state": S}),
-    "Workspace": obj({"id": S, "name": S, "branch": S, "base_branch": S, "setup": ref("Setup"),
-                      "services": array(ref("Service"))},
-                     {"pull_request": ref("PullRequest"), "reporting": ref("Reporting")}),
+    "Workspace": obj({"id": S, "name": S, "branch": S, "base_branch": S, "setup": ref("Setup")},
+                     {"pull_request": ref("PullRequest"), "reporting": ref("Reporting"),
+                      "services": array(ref("Service"))}),
     # A service that never started says so here and nowhere else. Empty for a project with none.
-    "Service": obj({"name": S, "state": S, "restarts": I, "http": B}, {"message": S}),
+    "Service": obj({"name": S, "state": S, "restarts": I}, {"message": S, "http": B}),
     # Present only when the machine has something wrong to say about reaching runbloom.app.
     "Reporting": obj({"shed": I}, {"unreachable_since": DATE}),
     "Chat": obj({"id": S, "title": S, "agent": S, "model": S, "effort": S, "permission_mode": S, "interaction_mode": S,
@@ -235,7 +247,8 @@ RECORDS = {
     "Terminal": obj({"name": S, "title": S}),
     "Presence": obj({"user_id": S, "name": S}, {"last_input_at": DATE}),
     "WorkspaceSnapshot": obj({"workspace": ref("Workspace"), "chats": array(ref("Chat")), "presence": array(ref("Presence")),
-                              "cursor": I, "composer_defaults": ref("ComposerControls"), "members": array(ref("Member"))}),
+                              "cursor": I, "composer_defaults": ref("ComposerControls")},
+                             {"members": array(ref("Member"))}),
     # Who may be addressed with `@`, which is not `presence`: that is who is here, and somebody who
     # is away is exactly who a mention is for. No addresses; a share-link guest reads this too.
     "Member": obj({"user_id": S, "name": S, "handle": S}),
