@@ -222,7 +222,6 @@ enum WireExamples {
         ("composer", .composer(chatID: "chat-1", controls: controls, changedBy: author)),
         ("setup", .setup(SetupRecord(state: "running", step: "prepare", startedAt: date))),
         ("setup_output", .setupOutput(text: "Reading package lists...\n")),
-        ("review", .review(revision: 7)),
         // An agent on a machine asking for a browser pane. It names the chat it is speaking for, so
         // a client can put the pane beside it, and no url at all means this workspace's own public
         // address, which a client connected to it already has.

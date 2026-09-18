@@ -2455,22 +2455,6 @@
           "type": "object",
           "properties": {
             "kind": {
-              "const": "review"
-            },
-            "revision": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "kind",
-            "revision"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "kind": {
               "const": "pane_requested"
             },
             "url": {

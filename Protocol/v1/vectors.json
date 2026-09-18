@@ -147,10 +147,6 @@
         ]
       }
     },
-    "review" : {
-      "kind" : "review",
-      "revision" : 7
-    },
     "setup" : {
       "kind" : "setup",
       "setup" : {
