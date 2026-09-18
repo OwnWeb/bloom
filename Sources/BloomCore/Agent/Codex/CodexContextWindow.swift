@@ -29,6 +29,27 @@ public enum CodexContextWindow {
     /// comparison without an optional at every step.
     public static let modelDefault = 0
 
+    /// What changing this costs, said where it can be read before it is changed.
+    ///
+    /// **The reconnect is not the cost. The grants are.** `CodexRunner.applyContextWindowChange`
+    /// restarts `codex app-server` because these two are launch arguments, and it says in its own
+    /// doc comment that the chat survives it: the thread id is on the session row, so the next
+    /// turn resumes rather than starting over. What does not survive is anything that lived only
+    /// inside the process, which is every "Allow for this session" somebody pressed.
+    ///
+    /// Nothing said that anywhere. The permission simply came back, and a question you have
+    /// already answered arriving again reads as Bloom having forgotten it rather than as the
+    /// price of a setting you changed. That is the rule `DiffScope.strandedNote` was written from,
+    /// one screen over: a person draws a conclusion from an absence, and it is the worse one.
+    ///
+    /// Before rather than after, which is why it is here and not a row in the transcript. A
+    /// consequence is worth most at the moment somebody is deciding, which is the argument
+    /// `PermissionScope.consequence` already makes for the words on an allow button, and this
+    /// follows its register: name what survives first, because that is the half being weighed.
+    public static let changeConsequence =
+        "Changing this restarts Codex for this chat. The conversation carries on where it is, "
+        + "and anything you allowed for this session is asked again."
+
     /// What the picker offers, narrowest first.
     ///
     /// Two overrides and no more. Anything below the catalogue's own figure would be a control

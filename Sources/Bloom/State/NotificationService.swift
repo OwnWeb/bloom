@@ -65,7 +65,17 @@ final class NotificationService {
     @ObservationIgnored private var checksTask: Task<Void, Never>?
     /// What CI said about each workspace last time it was looked at, so a transition into a result
     /// can be told from a result that has been sitting there all along.
+    ///
+    /// **A cache over the settings rows rather than the truth.** The truth is on disk under
+    /// `ChecksWatch.lastSeenKey`, because a reading that dies with the process cannot answer the
+    /// question this feature is actually for: a run that finished while Bloom was shut. This
+    /// holds what has been read or written this launch so a pass costs no store round trip per
+    /// workspace, and it is seeded from disk the first time each workspace is considered.
     @ObservationIgnored private var lastSeenChecks: [WorkspaceID: PullRequest.Checks] = [:]
+    /// The workspaces whose stored reading has been pulled into `lastSeenChecks` this launch.
+    /// Separate from the dictionary above because "not read yet" and "read, and there was
+    /// nothing" are different answers and only the second one may be treated as a baseline.
+    @ObservationIgnored private var didReadStoredChecks: Set<WorkspaceID> = []
 
     private init() {}
 
@@ -317,10 +327,16 @@ final class NotificationService {
     ///
     /// This is the one event with no moment to hook: nothing in the app is told that a check run
     /// finished. The Checks tab polls, but only while it is the tab on screen, which is the one
-    /// case where a notification would be pointless. So the watcher rides on the pull request
-    /// state each `WorkspaceModel` already holds, and refreshes only the ones whose checks are
-    /// pending. A workspace the user has not opened this launch has no model and no pull request
-    /// loaded, and is therefore not watched at all.
+    /// case where a notification would be pointless. So Bloom asks, on a slow clock.
+    ///
+    /// **It used to ride on the pull request each `WorkspaceModel` held, and that made it a
+    /// feature about workspaces you had already opened.** Nothing has a model until it is opened,
+    /// so after every relaunch this watched nothing at all, and the user was told nothing while a
+    /// switch in Settings said "Checks finished" was on. `ChecksWatch` carries why that is worse
+    /// than a smaller feature and what is scoped instead: the fact is read from
+    /// `WorkspacePullRequests`, which is keyed by workspace and needs no model, exactly as
+    /// `AppModel.isBlockedOnQuestion` and `hasRunningAgent` answer without forcing one into
+    /// existence.
     private func startWatchingChecks() {
         checksTask?.cancel()
         checksTask = Task { [weak self] in
@@ -338,6 +354,8 @@ final class NotificationService {
               preferences.isEnabled(.checksFinished) else { return }
 
         let onScreen = context.isAppActive ? context.selectedWorkspaceID : nil
+        let store = app.store
+        let requests = WorkspacePullRequests.shared
 
         for workspace in app.workspaces {
             guard !Task.isCancelled else { return }
@@ -346,31 +364,76 @@ final class NotificationService {
             // minute while they read. It is also the one workspace that would never be notified
             // about, so there is nothing to watch for.
             guard workspace.id != onScreen else { continue }
-            guard let model = app.existingModel(for: workspace.id),
-                  let pullRequest = model.pullRequest else {
-                lastSeenChecks[workspace.id] = nil
-                continue
-            }
 
-            let previous = lastSeenChecks[workspace.id]
-            lastSeenChecks[workspace.id] = pullRequest.checks
+            // Seeds the baseline from disk, once per workspace per launch.
+            await readStoredChecks(for: workspace.id, in: store)
 
-            // Only the transition, never the state. A pull request that has been green since
-            // yesterday would otherwise announce itself on every pass.
-            if previous == .pending, pullRequest.checks == .passing || pullRequest.checks == .failing {
-                submit(NotificationDraft(
-                    event: .checksFinished,
-                    workspaceID: workspace.id,
-                    workspaceName: workspace.name,
-                    detail: pullRequest.checksSummary
-                ))
-            }
+            // Announcing is free and comes first, because the reading it works from may have been
+            // taken by somebody else: a drawn sidebar row refreshes itself every two minutes
+            // through `WorkspacePullRequests.track`. For those workspaces this pass costs nothing
+            // at all and still catches the transition.
+            await noteChecks(of: workspace, in: store)
 
-            // Nothing else in the app refreshes a pull request while the user is elsewhere, so
-            // pending checks are the only reason to spend a `gh` call here.
-            if pullRequest.checks == .pending {
-                await model.refreshPullRequest()
-            }
+            // Asking is a `gh` subprocess, so it is scoped. `ChecksWatch.polls` carries the rule
+            // and the cost argument: a branch with no pull request and a pull request whose checks
+            // have settled are both certainties Bloom already holds.
+            guard ChecksWatch.polls(
+                hasPullRequest: workspace.pullRequestNumber != nil
+                    || requests.pullRequest(for: workspace.id) != nil,
+                lastSeen: lastSeenChecks[workspace.id],
+                isOnScreen: false
+            ) else { continue }
+
+            // Through the shared holder rather than a `WorkspaceModel`, which is the whole point
+            // of this change: it needs no model, and its queue turns a dozen workspaces coming due
+            // at once into a dozen sequential `gh` calls rather than a dozen concurrent ones.
+            await requests.refreshOnce(workspace, store: store)
+            guard !Task.isCancelled else { return }
+            await noteChecks(of: workspace, in: store)
         }
+    }
+
+    /// Announces a finished run, and writes down what was seen either way.
+    ///
+    /// **The baseline is read from `lastSeenChecks` rather than passed in**, which is what makes
+    /// this safe to call twice in one pass: the second call finds the state it just wrote and
+    /// returns without saying anything. Called once before asking and once after, because the
+    /// reading that matters may have come from a sidebar row rather than from this watcher.
+    ///
+    /// The write happens whenever the state moved, whether or not it is worth announcing, because
+    /// the reading is the baseline every later answer is a move from. It goes to the store as well
+    /// as to memory: see `ChecksWatch.lastSeenKey` for the half of the old bug that fixes.
+    private func noteChecks(of workspace: Workspace, in store: Store?) async {
+        guard let pullRequest = WorkspacePullRequests.shared.pullRequest(for: workspace.id) else { return }
+        let lastSeen = lastSeenChecks[workspace.id]
+        guard lastSeen != pullRequest.checks else { return }
+
+        let announces = ChecksWatch.announces(from: lastSeen, to: pullRequest.checks)
+        lastSeenChecks[workspace.id] = pullRequest.checks
+        try? await store?.setSetting(
+            ChecksWatch.lastSeenKey(workspaceID: workspace.id), pullRequest.checks.rawValue
+        )
+        guard announces else { return }
+        submit(NotificationDraft(
+            event: .checksFinished,
+            workspaceID: workspace.id,
+            workspaceName: workspace.name,
+            detail: pullRequest.checksSummary
+        ))
+    }
+
+    /// Pulls a workspace's stored reading into the launch's cache, once.
+    ///
+    /// `didReadStoredChecks` is marked only when a store actually answered, so a pass that runs
+    /// before the database is open tries again on the next one rather than recording "no baseline"
+    /// as the baseline. That distinction is the same one `hasReadSessions` keeps on
+    /// `WorkspaceModel`, and getting it wrong here would mean announcing nothing for a workspace
+    /// for the rest of the launch.
+    private func readStoredChecks(for id: WorkspaceID, in store: Store?) async {
+        guard !didReadStoredChecks.contains(id), let store else { return }
+        didReadStoredChecks.insert(id)
+        guard let raw = try? await store.setting(ChecksWatch.lastSeenKey(workspaceID: id)),
+              let stored = PullRequest.Checks(rawValue: raw) else { return }
+        lastSeenChecks[id] = stored
     }
 }

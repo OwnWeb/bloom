@@ -58,6 +58,7 @@ struct QuickPromptMenu: View {
     /// One piece of state for both routes into it, the pencil's form and the row's own context
     /// menu, because they ask the same question. See `QuickPromptDeletion`.
     @State private var deleting: QuickPrompt?
+    @State private var isRestoreHovered = false
 
     /// Wide enough for a name and a line of the prompt under it without either being cut.
     /// Wider than the composer's other menus, because a row here carries a name somebody wrote
@@ -126,6 +127,7 @@ struct QuickPromptMenu: View {
 
             Hairline()
             newRow
+            restoreRow
         }
         .onAppear {
             // A fresh query every time it opens. The panel is a way of finding one thing, not a
@@ -306,6 +308,51 @@ struct QuickPromptMenu: View {
         .onHover { isNewHovered = $0 }
         .padding(.horizontal, Self.listInset)
         .padding(.vertical, Metrics.spacingSmall)
+    }
+
+    /// The way back to a built-in prompt that was deleted, under the row that writes a new one.
+    ///
+    /// **Absent unless something is actually missing**, which is the normal state: a control for a
+    /// state nothing is in teaches the reader nothing, and the same test decides whether the
+    /// sidebar offers its hidden-projects toggle.
+    ///
+    /// It is here rather than in Settings because this is the list the prompt went missing from,
+    /// and a way back that lives on another screen is one nobody finds from where they noticed.
+    /// The words, and the argument that seeding must never do this on its own, are
+    /// `QuickPromptSeed`.
+    @ViewBuilder
+    private var restoreRow: some View {
+        let missing = catalog.missingBuiltIns
+        if let title = QuickPromptSeed.restoreTitle(missing: missing.count) {
+            Button {
+                let catalog = catalog
+                let store = app.store
+                Task { await catalog.restoreBuiltIns(in: store) }
+            } label: {
+                HStack(spacing: Metrics.gutter) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .imageScale(.medium)
+                        .foregroundStyle(Palette.textSecondary)
+                        .frame(width: Metrics.repoIcon, height: Metrics.repoIcon)
+
+                    Text(verbatim: title)
+                        .font(Typo.label)
+                        .foregroundStyle(Palette.textSecondary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, Self.rowInset)
+                .frame(height: Metrics.rowHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .rowBackground(isSelected: false, isHovered: isRestoreHovered, isFocused: true)
+            .onHover { isRestoreHovered = $0 }
+            .padding(.horizontal, Self.listInset)
+            .padding(.bottom, Metrics.spacingSmall)
+            .help(QuickPromptSeed.restoreHelp)
+        }
     }
 
     /// What the scroll view is told to be.

@@ -16,7 +16,8 @@ import BloomCore
 ///
 /// **Cut to three lines.** A brief for another workspace can run to a dozen paragraphs, and here it
 /// is a record of something this agent did, sitting between its own work. The receiving chat is
-/// where it is read, so it is drawn whole there and shortened here, with a way to open it.
+/// where it is read, so it is cut harder here than there, with a way to open it. See
+/// `CutBubbleText`, which both ends share, and `WorkspaceMessageRowView` for the other one.
 struct WorkspaceMessageSentRowView: View {
     var record: WorkspaceSayRecord
 
@@ -25,11 +26,8 @@ struct WorkspaceMessageSentRowView: View {
 
     @State private var state: WorkspaceMessage.State?
     @State private var isExpanded = false
-    /// Whether the message is longer than the cut. Measured only while it is cut, so opening it does
-    /// not make the control that closes it disappear.
-    @State private var isLong = false
-    @State private var drawnHeight: CGFloat = 0
-    @State private var wholeHeight: CGFloat = 0
+    /// Whether the message is longer than the cut, answered by `CutBubbleText`.
+    @State private var isCut = false
 
     /// Enough for a short message to be whole and a long one to say what it is about.
     private static let collapsedLines = 3
@@ -54,18 +52,14 @@ struct WorkspaceMessageSentRowView: View {
 
     private var bubble: some View {
         CappedWidth(width: bubbleWidth?.cap ?? UserTurnRowView.uncappedFallback) {
-            Text(record.text)
-                .font(Typo.body)
-                .foregroundStyle(Palette.workspaceMessageInk)
-                .textSelection(.enabled)
-                .lineLimit(isExpanded ? nil : Self.collapsedLines)
-                .fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-                    drawnHeight = $0
-                    measure()
-                }
-                .background(alignment: .topLeading) { ruler }
-                .padding(UserTurnRowView.padding)
+            CutBubbleText(
+                text: record.text,
+                lines: Self.collapsedLines,
+                ink: Palette.workspaceMessageInk,
+                fill: Palette.workspaceMessageFill,
+                isExpanded: isExpanded,
+                isCut: $isCut
+            )
         }
         .padding(.bottom, OutgoingBubbleShape.tailDrop)
         .background {
@@ -75,40 +69,14 @@ struct WorkspaceMessageSentRowView: View {
         }
     }
 
-    /// The same text with no line limit, at the width the cut one was given, so the two heights say
-    /// whether anything was cut. SwiftUI never reports that itself. A background is sized to the
-    /// content it is behind, and `fixedSize` vertically lets the ruler run past it rather than be
-    /// clamped, which is the same arrangement `TruncationProbe` uses for a single line.
-    @ViewBuilder
-    private var ruler: some View {
-        if !isExpanded {
-            Text(record.text)
-                .font(Typo.body)
-                .fixedSize(horizontal: false, vertical: true)
-                .hidden()
-                .accessibilityHidden(true)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-                    wholeHeight = $0
-                    measure()
-                }
-        }
-    }
-
-    /// Half a point of slack, because the two heights come from two layouts of the same string.
-    private func measure() {
-        guard !isExpanded, drawnHeight > 0, wholeHeight > 0 else { return }
-        let long = wholeHeight > drawnHeight + 0.5
-        if long != isLong { isLong = long }
-    }
-
     @ViewBuilder
     private var caption: some View {
-        if state == .cancelled || isLong {
+        if state == .cancelled || isCut {
             HStack(spacing: Metrics.gutter) {
                 if state == .cancelled {
                     Text("Cancelled before it was delivered").foregroundStyle(Palette.textTertiary)
                 }
-                if isLong {
+                if isCut {
                     Button(isExpanded ? "Show less" : "Show all") { isExpanded.toggle() }
                         .buttonStyle(.plain)
                         .foregroundStyle(Palette.textTertiary)
