@@ -809,6 +809,13 @@ def main():
                              "printf 'and one more\n' >> README.md && "
                              "git log --oneline -1 && git status --short", timeout=180)
 
+                # A chat to send into afterwards. Made before the archive, because afterwards the
+                # machine refuses to make one, which is the thing being tested.
+                chat = rpc(url, session(), {"kind": "new_chat", "controls": {
+                    "agent": "claude", "model": "sonnet", "effort": "low", "permission_mode": "bypassPermissions",
+                    "interaction_mode": "build", "fast_mode": False, "output_style": "default",
+                    "codex_context_window": 0}})["chat"]["id"]
+
                 preview = rpc(url, session(), {"kind": "archive_preview"})["archive_preview"]
                 step(f"preview: uncommitted {preview['has_uncommitted_changes']}, untracked {preview['untracked_files']}, "
                      f"unpushed {preview['unpushed_commits']}, detached {preview['detached_commits']}, "
@@ -834,15 +841,21 @@ def main():
                 assert accepted.get("kind") == "accepted", f"the fresh confirmation was refused: {accepted}"
                 step("archived with the confirmation that matches what is there now")
 
-                # The door is closed: nothing new starts on a machine runbloom.app is about to delete.
-                chat = rpc(url, session(), {"kind": "workspace"})["workspace"]["chats"][0]["id"]
-                status, _, body = https(url, "POST", "/_bloom/v1/rpc", token=session(), body={
-                    "protocol": "bloom-workspace", "version": 1, "command_id": secrets.token_hex(8),
-                    "operation": {"kind": "send", "chat_id": chat, "text": "After the end"},
-                })
-                refused = json.loads(body).get("error", {})
-                step(f"a prompt sent after the archive is refused: {refused.get('code')} {refused.get('message', '')[:80]!r}")
-                assert refused, "a prompt was accepted on an archived workspace"
+                # The door is closed: nothing new starts on a machine runbloom.app is about to
+                # delete, whether it is a prompt into a chat that already existed or a new chat.
+                for operation in ({"kind": "send", "chat_id": chat, "text": "After the end"},
+                                  {"kind": "new_chat", "controls": {
+                                      "agent": "claude", "model": "sonnet", "effort": "low",
+                                      "permission_mode": "bypassPermissions", "interaction_mode": "build",
+                                      "fast_mode": False, "output_style": "default", "codex_context_window": 0}}):
+                    _, _, body = https(url, "POST", "/_bloom/v1/rpc", token=session(), body={
+                        "protocol": "bloom-workspace", "version": 1, "command_id": secrets.token_hex(8),
+                        "operation": operation,
+                    })
+                    refused = json.loads(body).get("error", {})
+                    step(f"{operation['kind']} after the archive is refused: {refused.get('code')} "
+                         f"{refused.get('message', '')[:70]!r}")
+                    assert refused, f"{operation['kind']} was accepted on an archived workspace"
 
                 # And the work is still on the disk, because the machine never deletes anything:
                 # runbloom.app holds the provider token and deletes the machine itself.
