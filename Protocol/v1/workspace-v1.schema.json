@@ -158,6 +158,12 @@
         "setup": {
           "$ref": "#/$defs/Setup"
         },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Service"
+          }
+        },
         "pull_request": {
           "oneOf": [
             {
@@ -184,7 +190,38 @@
         "branch",
         "id",
         "name",
+        "services",
         "setup"
+      ],
+      "additionalProperties": false
+    },
+    "Service": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "restarts": {
+          "type": "integer"
+        },
+        "message": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "restarts",
+        "state"
       ],
       "additionalProperties": false
     },

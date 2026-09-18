@@ -136,7 +136,14 @@ public enum ServeCommand {
             runtime: runtime, awake: awake, reporter: reporter, streams: streams, terminals: terminals,
             environment: machineEnvironment, secret: secret, revocations: verifier.revocations, updater: { version, sha256, tag in try MachineUpdate.start(version: version, sha256: sha256, tag: tag) }
         )
-        let services = ServiceSupervisor(layout: layout)
+        // The supervisor's own states, on the workspace record, because a service that never
+        // started is otherwise a sentence held in this process's memory and reachable only through
+        // a preview page that a project's own proxy can make unreachable. See `ServiceRecord`.
+        let services = ServiceSupervisor(layout: layout, observer: { [weak runtime] statuses in
+            await runtime?.servicesChanged(statuses.map {
+                ServiceRecord(name: $0.name, state: $0.state.rawValue, restarts: $0.restarts, message: $0.message)
+            })
+        })
         let server = WorkspaceHTTPServer(dependencies: .init(
             runtime: runtime, verifier: verifier, gate: gate, control: supervisor, store: store,
             allowedOrigins: configuration.allowedOrigins, version: version, streams: streams, terminals: terminals,

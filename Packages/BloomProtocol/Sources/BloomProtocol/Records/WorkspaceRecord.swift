@@ -11,9 +11,13 @@ public struct WorkspaceRecord: Codable, Sendable, Hashable {
     /// Present only when there is something wrong to say about the machine's own reporting. See
     /// `ReportingRecord`.
     public var reporting: ReportingRecord?
+    /// The `[[services]]` this project declares, as the machine is running them. Empty for a
+    /// workspace that declares none, and on a Mac.
+    public var services: [ServiceRecord]
 
     public init(id: String, name: String, branch: String, baseBranch: String, setup: SetupRecord,
-                pullRequest: PullRequestRecord? = nil, reporting: ReportingRecord? = nil) {
+                pullRequest: PullRequestRecord? = nil, reporting: ReportingRecord? = nil,
+                services: [ServiceRecord] = []) {
         self.id = id
         self.name = name
         self.branch = branch
@@ -21,10 +25,11 @@ public struct WorkspaceRecord: Codable, Sendable, Hashable {
         self.setup = setup
         self.pullRequest = pullRequest
         self.reporting = reporting
+        self.services = services
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, branch, setup, reporting
+        case id, name, branch, setup, reporting, services
         case baseBranch = "base_branch"
         case pullRequest = "pull_request"
     }
@@ -127,6 +132,36 @@ public struct SetupRecord: Codable, Sendable, Hashable {
         finishedAt = try container.decodeIfPresent(Date.self, forKey: .finishedAt)
         note = try container.decodeIfPresent(String.self, forKey: .note)
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+    }
+}
+
+/// One of a project's `[[services]]`, as the machine is running it.
+///
+/// **A service that never started is otherwise invisible.** The supervisor launches a service only
+/// once every name in its `depends_on` is ready, so one whose dependency never comes up waits for
+/// ever: never launched, never failed, never restarted, and its whole existence a sentence held in
+/// the machine's memory. Until this record that sentence reached a person in exactly one place, the
+/// preview's own "the app is not answering" page, which cannot be reached at all when a project
+/// runs its own proxy on the previewed port. On 18 September 2026 a workspace had four services up
+/// and a fifth crash-looping against Bloom Runner's port every second, and the only account of it
+/// was a log nobody was looking at.
+///
+/// **The difference this makes is between "the preview is blank" and "your app service cannot bind
+/// 8081", which is the difference between a mystery and an afternoon's work avoided.**
+public struct ServiceRecord: Codable, Sendable, Hashable {
+    public var name: String
+    /// `waiting`, `starting`, `running`, `not_ready`, `crashed` or `stopped`.
+    public var state: String
+    /// How many times it has exited since it was started.
+    public var restarts: Int
+    /// What it is waiting for, or how it ended, in a sentence meant for a person.
+    public var message: String?
+
+    public init(name: String, state: String, restarts: Int = 0, message: String? = nil) {
+        self.name = name
+        self.state = state
+        self.restarts = restarts
+        self.message = message
     }
 }
 

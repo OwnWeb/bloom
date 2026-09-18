@@ -181,6 +181,9 @@
         "branch" : "freek/queue-retries",
         "id" : "01k5bx7j9d3v2r8q6m4n0p1s2w",
         "name" : "Queue retries",
+        "services" : [
+
+        ],
         "setup" : {
           "enabled" : true,
           "finished_at" : "2026-09-17T09:40:02.500Z",
@@ -200,6 +203,25 @@
           "shed" : 3,
           "unreachable_since" : "2026-09-17T09:40:02.500Z"
         },
+        "services" : [
+          {
+            "name" : "vite",
+            "restarts" : 0,
+            "state" : "running"
+          },
+          {
+            "message" : "Exited with status 1. Starting again in 1 s. It asked for port 8081, which is Bloom Runner itself.",
+            "name" : "app",
+            "restarts" : 412,
+            "state" : "crashed"
+          },
+          {
+            "message" : "Waiting for app.",
+            "name" : "horizon",
+            "restarts" : 0,
+            "state" : "waiting"
+          }
+        ],
         "setup" : {
           "enabled" : true,
           "finished_at" : "2026-09-17T09:40:02.500Z",
@@ -693,6 +715,9 @@
             "branch" : "freek/queue-retries",
             "id" : "01k5bx7j9d3v2r8q6m4n0p1s2w",
             "name" : "Queue retries",
+            "services" : [
+
+            ],
             "setup" : {
               "enabled" : true,
               "finished_at" : "2026-09-17T09:40:02.500Z",

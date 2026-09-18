@@ -13,7 +13,7 @@ extension WorkspaceRuntime {
         for session in try await store.sessions(workspaceID: workspaceID) where session.archivedAt == nil {
             chats.append(session.record(lastSeq: try await store.nextSeq(sessionID: session.id) - 1))
         }
-        return WorkspaceSnapshotRecord(workspace: workspace.record(setup: setupRecord(workspace), reporting: reporting), chats: chats,
+        return WorkspaceSnapshotRecord(workspace: workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services), chats: chats,
                                        presence: presence.records, cursor: cursor,
                                        composerDefaults: try await newChatControls().record)
     }

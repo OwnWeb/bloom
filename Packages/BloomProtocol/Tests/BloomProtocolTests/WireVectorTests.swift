@@ -226,10 +226,20 @@ enum WireExamples {
         ("presence", .presence([PresenceRecord(userID: author.userID, name: author.name, lastInputAt: nil)])),
         ("workspace", .workspace(workspace)),
         // The same record while the machine cannot reach runbloom.app, which is the only time it
-        // carries `reporting` and the shape a client draws that warning from.
+        // carries `reporting` and the shape a client draws that warning from. It carries services
+        // too, in the three states worth drawing differently: one up, one that cannot have its port
+        // and is restarting, and one that has never been launched at all because what it waits for
+        // never came up. The third is the one nothing could show before this record existed.
         ("workspace_not_reporting", .workspace(WorkspaceRecord(
             id: workspace.id, name: workspace.name, branch: workspace.branch, baseBranch: workspace.baseBranch,
-            setup: workspace.setup, reporting: ReportingRecord(unreachableSince: date, shed: 3)))),
+            setup: workspace.setup, reporting: ReportingRecord(unreachableSince: date, shed: 3),
+            services: [
+                ServiceRecord(name: "vite", state: "running"),
+                ServiceRecord(name: "app", state: "crashed", restarts: 412,
+                              message: "Exited with status 1. Starting again in 1 s. It asked for port 8081, "
+                                  + "which is Bloom Runner itself."),
+                ServiceRecord(name: "horizon", state: "waiting", message: "Waiting for app."),
+            ]))),
         ("sleeping", .sleeping),
         ("closing", .closing(WireError(.tokenExpired, "The session token expired."))),
     ]

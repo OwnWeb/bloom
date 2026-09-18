@@ -246,6 +246,16 @@ events. Then live events as they happen.
 | `sleeping` | nothing | see "Sleeping and waking" |
 | `closing` | a failure | the stream ends; act on the code |
 
+**The workspace record carries the project's services, and a client should draw them.** One entry
+per `[[services]]` the repository declares, each with its `state` (`waiting`, `starting`, `running`,
+`not_ready`, `crashed`, `stopped`), how many times it has restarted, and a sentence for a person.
+**The state worth drawing loudest is `waiting`**: the machine starts a service only once everything
+in its `depends_on` is ready, so one whose dependency never comes up is never launched, never fails
+and never restarts, and before this record its only account was a sentence on the preview's own
+error page, which a project running its own proxy on the previewed port makes unreachable. The list
+is empty for a project that declares no services, and `workspace_not_reporting` in the vectors shows
+the three shapes together.
+
 **A workspace can be created with setup turned off, and `setup.enabled` is how a client knows.**
 It is false when somebody asked for no setup scripts at all: the repository is cloned and nothing
 else is run, no services are started, and `setup.state` settles at `skipped` with a note saying so.

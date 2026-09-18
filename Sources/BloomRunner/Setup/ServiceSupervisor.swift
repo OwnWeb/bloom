@@ -71,6 +71,11 @@ public actor ServiceSupervisor {
     }
 
     private let layout: MachineLayout
+    /// Told whenever the states change, so a client sees a service that never started. Pulling this
+    /// was enough while the only reader was the preview's failure page; it is not enough now that
+    /// the workspace record carries it, because nothing asks a machine for a page it never opens.
+    private let observer: (@Sendable ([Status]) async -> Void)?
+    private var announced: [Status]?
     private let tuning: Tuning
     private var services: [RemoteProjectSettings.Service] = []
     private var environment: [String: String] = [:]
@@ -81,9 +86,30 @@ public actor ServiceSupervisor {
     private var generation = 0
     private var operation: Task<Void, Never>?
 
-    public init(layout: MachineLayout, tuning: Tuning = .standard) {
+    public init(layout: MachineLayout, tuning: Tuning = .standard,
+                observer: (@Sendable ([Status]) async -> Void)? = nil) {
         self.layout = layout
         self.tuning = tuning
+        self.observer = observer
+    }
+
+    /// Tells the observer, once per change rather than once per event, and in order.
+    ///
+    /// Chained rather than spawned loose, because two changes a millisecond apart delivered the
+    /// wrong way round would leave a client holding the older one for ever: the reader replaces its
+    /// copy, so the last to arrive wins whatever it says.
+    private var announcing: Task<Void, Never>?
+
+    private func announce() {
+        let current = status
+        guard current != announced else { return }
+        announced = current
+        guard let observer else { return }
+        let previous = announcing
+        announcing = Task { [current] in
+            await previous?.value
+            await observer(current)
+        }
     }
 
     public nonisolated var logDirectory: String { layout.dataDirectory + "/services" }
@@ -192,6 +218,7 @@ public actor ServiceSupervisor {
                 group.addTask { await process.stop() }
             }
         }
+        announce()
     }
 
     private func launchWhatIsReady() {
@@ -217,6 +244,7 @@ public actor ServiceSupervisor {
             entries[name] = entry
             process.start()
         }
+        announce()
     }
 
     private func handle(_ event: SupervisedProcess.Event, service name: String, generation: Int) {
@@ -255,6 +283,7 @@ public actor ServiceSupervisor {
             }
         }
         entries[name] = entry
+        announce()
         launchWhatIsReady()
     }
 
@@ -270,6 +299,7 @@ public actor ServiceSupervisor {
             entry.message = "Running, but \(url) did not answer within \(SupervisedProcess.describe(tuning.readinessDeadline))."
         }
         entries[name] = entry
+        announce()
         launchWhatIsReady()
     }
 
