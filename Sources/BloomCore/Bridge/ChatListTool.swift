@@ -18,8 +18,9 @@ public struct ChatListTool: BridgeToolHandling {
             a conversation without selecting its tab.
 
             Without 'workspace' it lists your own workspace, and 'current' identifies your own \
-            chat. Pass 'workspace' with an id from workspace_list, or a name no other active \
-            workspace shares, to list another workspace's chats; the answer then names that \
+            chat. Pass 'workspace' with an id (workspace_start reports one, and so does \
+            workspace_list from a client of the owner's own), or a name no other active workspace \
+            shares, to list another workspace's chats; the answer then names that \
             workspace and no chat in it is 'current'. A client that is not working in a workspace \
             must pass it.
 

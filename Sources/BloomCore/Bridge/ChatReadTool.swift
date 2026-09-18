@@ -14,12 +14,11 @@ public struct ChatReadTool: BridgeToolHandling {
         name: "chat_read",
         description: """
             Read a chat's stored transcript without switching tabs. Pass 'chat' as an ID from \
-            chat_list or an exact title from chat_list or workspace_tabs. Duplicate titles require \
-            an ID. Only unarchived chats are reachable.
+            chat_list or an exact title from it. Duplicate titles require an ID. Only unarchived chats are reachable.
 
             Without 'workspace' it reads a chat in your own workspace. Pass 'workspace' with an id \
-            from workspace_list, or a name no other active workspace shares, to read a chat in \
-            another one. A client that is not working in a workspace must pass it.
+            (workspace_start reports one, and so does workspace_list from a client of the owner's \
+            own), or a name no other active workspace shares, to read a chat in another one. A client that is not working in a workspace must pass it.
 
             Messages arrive oldest first, with sequence numbers, kinds, timestamps and content. \
             User and assistant prose, thinking and crew messages are plain text; other records \

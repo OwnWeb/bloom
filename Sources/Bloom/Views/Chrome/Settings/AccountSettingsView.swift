@@ -14,6 +14,7 @@ import SwiftUI
 /// for changing it.
 struct AccountSettingsView: View {
     @Environment(AppModel.self) private var app
+    @AppStorage(CloudWorkspaceStartTool.settingKey) private var agentsCreateCloudWorkspaces = false
 
     private var cloud: CloudWorkspaces { app.cloud }
 
@@ -131,6 +132,16 @@ struct AccountSettingsView: View {
             } header: {
                 Text(team.name)
             }
+        }
+
+        // Here rather than under Agents, because it is a thing this account spends, and the
+        // refusal an agent gets while it is off names this tab.
+        Section {
+            Toggle(CloudWorkspaceStartTool.settingTitle, isOn: $agentsCreateCloudWorkspaces)
+        } header: {
+            Text("Agents")
+        } footer: {
+            Text("Each Bloom Cloud workspace is a machine and costs money, and you are asked before each one. This setting is a preference that a well behaved client respects. It is not an authorisation: anything holding your sign in can create Bloom Cloud workspaces with it on or off, exactly as you can.")
         }
 
         Section {

@@ -46,7 +46,8 @@ public enum BridgeReadTarget: Sendable, Equatable {
     static let schemaProperty: JSONValue = .object([
         "type": .string("string"),
         "description": .string(
-            "Another workspace to read, by the id workspace_list or workspace_start reports, or by "
+            "Another workspace to read, by the id workspace_start reports (or workspace_list, from a "
+                + "client of the owner's own), or by "
                 + "its name when no other active workspace shares it. Leave it out to read your own. "
                 + "Required from a client that is not working in a workspace."
         ),
@@ -111,7 +112,7 @@ public enum BridgeReadTrouble: Error, Sendable, Equatable {
             return """
                 Bloom has no active workspace called '\(given)'. Active workspaces: \
                 \(BridgeWorkspaceLookup.list(known)). Retrying with the same name will fail the \
-                same way, so pass an id workspace_list reports.
+                same way, so pass one of those.
                 """
 
         case let .ambiguous(given, ids):

@@ -367,8 +367,12 @@ final class CloudWorkspaces {
         var stagingDraftID: String?
     }
 
-    /// Creates a Cloud workspace, keeps its opening prompt, and selects it.
-    func create(_ request: CreateRequest) async throws -> CloudWorkspaceItem {
+    /// Creates a Cloud workspace, keeps its opening prompt, and selects it unless told not to.
+    ///
+    /// `selecting: false` is an agent's `cloud_workspace_start`, for the reason `workspace_start`
+    /// passes `select: false`: a row appearing is news, a selection moving while somebody types is
+    /// an interruption.
+    func create(_ request: CreateRequest, selecting: Bool = true) async throws -> CloudWorkspaceItem {
         let item = try await api.createCloudWorkspace(team: request.team.id, request: CreateCloudWorkspace(
             project: request.project.id, name: request.name, branch: request.branch,
             baseBranch: request.baseBranch.flatMap { $0.isEmpty ? nil : $0 },
@@ -392,7 +396,7 @@ final class CloudWorkspaces {
         }
         watching.insert(item.id)
         items.insert(item, at: 0)
-        app?.selection = .cloud(CloudWorkspaceID(item.id))
+        if selecting { app?.selection = .cloud(CloudWorkspaceID(item.id)) }
         return item
     }
 

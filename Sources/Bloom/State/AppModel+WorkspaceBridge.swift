@@ -53,6 +53,13 @@ extension AppModel {
                     order, in: project, from: identity, origin: origin
                 )
             },
+            CloudWorkspaceStartTool(
+                allowed: { UserDefaults.standard.bool(forKey: CloudWorkspaceStartTool.settingKey) },
+                start: { [weak self] order in
+                    guard let self else { return .refused("Bloom is still starting up.") }
+                    return await self.startCloudWorkspaceForBridge(order)
+                }
+            ),
             PaneOpenTool { [weak self] order, workspaceID in
                 guard let self else { return .refused("Bloom is still starting up.") }
                 return await self.openPaneForBridge(order, in: workspaceID)

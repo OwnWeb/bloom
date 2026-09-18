@@ -224,8 +224,8 @@ public struct QuickPromptListTool: BridgeToolHandling {
             back into the composer from the panel beside it. Each one carries its id, its name, \
             the mark drawn down the left of its row, and the whole of its text.
 
-            Call this before quick_prompt_update or quick_prompt_delete, because the id it prints \
-            is the only thing either of those takes. It is also what stops you writing a second \
+            From a client of the owner's own, call this before quick_prompt_update or \
+            quick_prompt_delete, because the id it prints is the only thing either of those takes. It is also what stops you writing a second \
             copy of a prompt the owner already has.
 
             \(QuickPromptCall.panelSentence)
@@ -306,7 +306,7 @@ public struct QuickPromptCreateTool: BridgeToolHandling {
             \(QuickPromptCall.panelSentence)
 
             It adds a row and changes nothing that is already there. The owner takes it away again \
-            from the panel, or you can with quick_prompt_delete.
+            from the panel, or with quick_prompt_delete from a client of their own.
             """,
         inputSchema: .object([
             "type": .string("object"),
@@ -359,10 +359,13 @@ public struct QuickPromptCreateTool: BridgeToolHandling {
             )
             var answer = QuickPromptCall.json(written)
             if case .object(var fields) = answer {
+                // quick_prompt_delete is the owner's alone, so only the owner's client is pointed at it.
+                let undo = identity.role == .owner
+                    ? "quick_prompt_delete removes it again, and there is no undo on that."
+                    : "The owner can take it away from the panel."
                 fields["note"] = .string(
                     "It is in the quick prompt panel in every workspace's composer now. Nothing "
-                        + "else changed. quick_prompt_delete removes it again, and there is no "
-                        + "undo on that."
+                        + "else changed. " + undo
                 )
                 answer = .object(fields)
             }
