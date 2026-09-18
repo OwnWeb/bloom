@@ -1932,6 +1932,76 @@ public actor Store {
         ).map(Self.session(from:))
     }
 
+    /// The chats closed in one workspace, newest first, with the size of what reopening one would
+    /// bring back.
+    ///
+    /// **One statement rather than a session read and a `messageCount(sessionID:)` per row**, for
+    /// `crewByWorkspace`'s reason: this is asked every time the pointer crosses the `+` above the
+    /// pane, and ten round trips onto this actor per hover would be competing with the writes of
+    /// whichever agent is mid turn. `messages_session` is the index the subquery rides, and the
+    /// chat that forced this feature holds 13,872 rows behind it.
+    ///
+    /// **The predicate is `TabSet.tabbable`'s, turned onto archived rows, and that is the decision
+    /// rather than the tidiness.** A crew member is a sidebar row and a side conversation is a
+    /// pane of the chat that started it, so clearing `archived_at` on either would hand back a
+    /// chat the strip never draws: reachable in the database, invisible in the app, which is the
+    /// bug `SessionReopening` exists to fix wearing a different coat.
+    ///
+    /// `limit` is the caller's because the cap is a presentation decision and lives in
+    /// `SessionReopening.limit`. It is applied here as well so a workspace with four hundred
+    /// closed chats is four hundred rows SQLite skips rather than four hundred it builds.
+    public func closedSessions(workspaceID: WorkspaceID, limit: Int) throws -> [ClosedChat] {
+        try db.query(
+            """
+            SELECT s.id AS id, s.title AS title, s.agent_kind AS agent_kind,
+                   s.archived_at AS archived_at,
+                   (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
+            FROM sessions s
+            WHERE s.workspace_id = ? AND s.archived_at IS NOT NULL
+              AND s.parent_session_id IS NULL AND s.side_conversation_parent_id IS NULL
+            ORDER BY s.archived_at DESC
+            LIMIT ?
+            """,
+            [.text(workspaceID), .int(Int64(max(0, limit)))]
+        ).compactMap { row in
+            // A row with no id or no archived stamp is not a closed chat, whatever else it is.
+            // Both are guarded rather than defaulted, because a default here would invent a chat
+            // that reopening could not find.
+            guard let id = row.string("id"), let closedAt = row.date("archived_at") else { return nil }
+            return ClosedChat(
+                id: SessionID(id),
+                title: row.string("title") ?? PaneNaming.chat,
+                // A row written before the column existed reads as Claude Code, which is what it
+                // was. Same fallback as `session(from:)`, for the same reason.
+                agentKind: AgentKind(rawValue: row.string("agent_kind") ?? "") ?? .claudeCode,
+                messageCount: Int(row.int("message_count") ?? 0),
+                closedAt: closedAt
+            )
+        }
+    }
+
+    /// Clears `archived_at`, which is the whole of reopening a chat.
+    ///
+    /// **Through `update(sessionID:)` and never `upsert`**, and the reason is that method's own:
+    /// a session row has two writers, and the value a menu was built from is a reading taken when
+    /// the pointer crossed a button. Writing it back whole would put `agent_session_id`, `state`
+    /// and the token counters back to whatever they were at that moment, and the first of those is
+    /// the id `--resume` is built from.
+    ///
+    /// **The side conversations that were promoted when this chat closed stay promoted.** The
+    /// `sessions_keep_side_conversations` trigger nulls `side_conversation_parent_id` on the way
+    /// in so a closed parent cannot strand a running child, and it does not fire on the way out.
+    /// That is right rather than a gap: those chats are tabs of their own now, somebody may have
+    /// been using them for a week, and pulling them back under a parent would take them out of the
+    /// strip without asking.
+    ///
+    /// Returns nil when there is no such row, which is a chat whose workspace was archived and its
+    /// records deleted while the menu offering it stood open.
+    @discardableResult
+    public func reopenSession(id: SessionID) throws -> Session? {
+        try update(sessionID: id) { $0.archivedAt = nil }
+    }
+
     /// The chats one chat started, oldest first. A crew, in `Crew`'s words.
     ///
     /// Separate from `sessions(workspaceID:)` rather than a filter over it, because the two

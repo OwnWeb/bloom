@@ -35,7 +35,11 @@ struct SessionClosureTests {
         #expect(cost == .leavesNoConversation)
         #expect(cost.needsConfirmation)
         #expect(cost.reasons.count == 1)
-        #expect(cost.reasons[0].contains("does not come back"))
+        #expect(cost.reasons[0].contains("only conversation in this workspace"))
+        // It used to say the conversation does not come back, which was true and is not any more.
+        // `SessionReopening` gave it a way back, and a dialogue that overstates what is lost is a
+        // dialogue that stops being read.
+        #expect(cost.reasons[0].contains("Recently Closed"))
     }
 
     /// An option set rather than a case, so a conversation that is both says both things instead
