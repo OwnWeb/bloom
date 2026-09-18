@@ -24,10 +24,14 @@ public enum PendingMessageEdit {
     /// puts nobody's words anywhere. The same reasoning already keeps Edit off a message relayed
     /// from another workspace; see `WorkspaceMessageRowView`.
     ///
-    /// A delivery with no author is the reader's own, which is every delivery in a workspace
-    /// nobody shares. See `MessageAuthorship`.
-    public static func canEdit(_ delivery: Delivery) -> Bool {
-        delivery.author == nil
+    /// **Whose it is is `MessageAuthorship`'s question, not this one's**, and it is asked with the
+    /// reading account rather than with the absence of an author alone. A queued prompt comes back
+    /// from the machine with the account that wrote it on it, the reader's own included, so "it
+    /// carries no author, therefore it is mine" would take the pencil off every message the reader
+    /// had queued in a Cloud workspace. `reader` is nil for every local queue, where the absence is
+    /// the whole of the answer and always was.
+    public static func canEdit(_ delivery: Delivery, reader: String? = nil) -> Bool {
+        !MessageAuthorship.isFromSomebodyElse(author: delivery.author?.userID, reader: reader)
             && PendingMessageDiscard.canDiscard(delivery)
             && PendingMessageDiscard.isPlainText(delivery.body)
     }

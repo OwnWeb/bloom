@@ -899,6 +899,7 @@ struct TranscriptListView: View {
                     return AnyView(
                         PendingTurnRowView(
                             delivery: delivery,
+                            reader: transcript.cloud?.readerID,
                             home: transcript.home,
                             holdSentence: holdSentence,
                             canRetry: transcript.canRetry(delivery),

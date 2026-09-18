@@ -23,6 +23,9 @@ import BloomCore
 /// nobody has sent it. See `Delivery`.
 struct PendingTurnRowView: View {
     var delivery: Delivery
+    /// The account doing the reading, so a queued message of the reader's own is known to be
+    /// theirs. Nil for every local queue, which has one person at it. See `MessageAuthorship`.
+    var reader: String?
     /// Where attachment paths resolve and which workspace opens when a pill is clicked.
     var home: TranscriptHome = .init()
     /// The sentence saying why the queue is waiting, under the last bubble in it and nowhere else.
@@ -329,7 +332,7 @@ struct PendingTurnRowView: View {
             // Offered only for a message the composer could be handed back as text, which is
             // `PendingMessageEdit.canEdit`: a disabled item with no explanation says less than no
             // item at all.
-            if PendingMessageEdit.canEdit(delivery) {
+            if PendingMessageEdit.canEdit(delivery, reader: reader) {
                 Button("Edit", systemImage: "pencil", action: onEdit)
                     .help("Takes this message back into the composer to change it.")
             }

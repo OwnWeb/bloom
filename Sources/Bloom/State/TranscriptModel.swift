@@ -1108,14 +1108,17 @@ final class TranscriptModel {
             // Only somebody's own message comes back into their composer. Anybody may remove a
             // queued prompt, and the machine records who did, but nobody's words are typed into
             // anybody else's box.
-            guard delivery.author == nil || delivery.author?.userID == cloud.readerID else { return }
+            guard !MessageAuthorship.isFromSomebodyElse(
+                author: delivery.author?.userID, reader: cloud.readerID
+            ) else { return }
             guard await cloud.cancelQueued(delivery.id) else { return }
             draft = PendingMessageEdit.draft(taking: delivery, into: draft)
             composerFocusRequests += 1
             jumpToLiveEnd()
             return
         }
-        guard dispatchingDeliveryID != delivery.id, PendingMessageEdit.canEdit(delivery), let store else { return }
+        guard dispatchingDeliveryID != delivery.id,
+              PendingMessageEdit.canEdit(delivery, reader: cloud?.readerID), let store else { return }
         let removed = (try? await store.cancelDelivery(id: delivery.id)) ?? false
         await refreshQueue()
 
@@ -1146,7 +1149,7 @@ final class TranscriptModel {
     private func returnQueueToComposer() async {
         guard let store else { return }
         await refreshQueue()
-        let wanted = PendingMessageReturn.returning(from: pendingDeliveries)
+        let wanted = PendingMessageReturn.returning(from: pendingDeliveries, reader: cloud?.readerID)
         guard !wanted.isEmpty else { return }
 
         // One cancel each, and only what really left the queue reaches the box. A message that
@@ -2468,7 +2471,17 @@ final class TranscriptModel {
     /// Rows arriving at the end are absorbed one by one, as a local turn's are. Anything else (a
     /// history page landing under rows the stream already delivered) rebuilds the list, which is
     /// the one read `read(from:)` would have done; it happens once per page, not per event.
-    func receiveCloud(_ chat: CloudChatState, streaming: String, workspaceID: CloudWorkspaceID, readerID: String?) {
+    /// **Nothing here decides whose a message is any more, and that is the point.**
+    ///
+    /// This used to clear the author of every row and every queued prompt whose account matched
+    /// the reader, so that "there is an author, so it is not mine" would come out right. It was a
+    /// layer implementing a contract that does not exist: `author` means "who wrote this row", and
+    /// one message record is encoded once and sent to every subscriber, so it structurally cannot
+    /// differ by reader. **A rule that is only correct because a different layer cleaned up first
+    /// is not a rule**, and this layer is how "the machine leaves your account on your own
+    /// messages" stayed invisible to the one person testing it. `MessageAuthorship` decides it now,
+    /// from the account, in the core where a test can reach it.
+    func receiveCloud(_ chat: CloudChatState, streaming: String, workspaceID: CloudWorkspaceID) {
         guard cloud != nil else { return }
         if let record = chat.chat, record != cloudChatRecord {
             cloudChatRecord = record
@@ -2480,10 +2493,7 @@ final class TranscriptModel {
         let pending = Set(chat.questions.map(\.requestID))
         let messages = chat.messages
         func converted(_ record: MessageRecord) -> Message {
-            var message = Message(cloudMessage: record, id: CloudMessageIdentity.id(workspace: workspaceID, cursor: record.cursor))
-            // The reader's own messages are drawn as theirs, without a name on them.
-            if message.author?.userID == readerID { message.author = nil }
-            return message
+            Message(cloudMessage: record, id: CloudMessageIdentity.id(workspace: workspaceID, cursor: record.cursor))
         }
         // Rows only ever arrive at the end, unless a history page landed under rows the stream had
         // already delivered. The row at the old count still being the newest one held says which,
@@ -2529,11 +2539,7 @@ final class TranscriptModel {
         setAwaitingPermission(!chat.questions.isEmpty)
         if !chat.isRunning, statusLabel != nil { statusLabel = nil }
 
-        let queue = chat.queue.prompts.map { prompt in
-            var delivery = Delivery(cloudPrompt: prompt, chatID: chat.id)
-            if delivery.author?.userID == readerID { delivery.author = nil }
-            return delivery
-        }
+        let queue = chat.queue.prompts.map { Delivery(cloudPrompt: $0, chatID: chat.id) }
         if queue != pendingDeliveries { pendingDeliveries = queue }
         if cloudQueueError != chat.queue.error { cloudQueueError = chat.queue.error }
         if let echo = sending, queue.contains(where: { $0.body == echo.body }) || rows.last?.kind == .user {

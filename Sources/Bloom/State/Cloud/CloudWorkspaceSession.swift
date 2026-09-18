@@ -298,7 +298,7 @@ final class CloudWorkspaceSession {
     /// Hands a chat's slice of the state to its transcript model, when it has one.
     private func forward(_ chatID: String) {
         guard let transcript = transcripts[chatID], let chat = state.chats[chatID] else { return }
-        transcript.receiveCloud(chat, streaming: streaming[chatID] ?? "", workspaceID: id, readerID: readerID)
+        transcript.receiveCloud(chat, streaming: streaming[chatID] ?? "", workspaceID: id)
     }
 
     /// A session token, fetched through the connection so every stream on this workspace shares

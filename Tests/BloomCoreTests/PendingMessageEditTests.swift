@@ -105,5 +105,16 @@ struct PendingMessageEditTests {
         #expect(!PendingMessageEdit.canEdit(theirs))
         // And taking it out of the queue is still allowed: that is a different act.
         #expect(PendingMessageDiscard.canDiscard(theirs))
+
+        // The machine sends a queued prompt back with the account that wrote it on it, the
+        // reader's own included, so the pencil has to be decided from the account rather than from
+        // the absence. Without this, Edit came off every message the reader had queued in a Cloud
+        // workspace.
+        var ownedByMe = mine
+        ownedByMe.author = MessageAuthor(userID: "u1", name: "Freek")
+        #expect(PendingMessageEdit.canEdit(ownedByMe, reader: "u1"))
+        #expect(!PendingMessageEdit.canEdit(theirs, reader: "u1"))
+        #expect(PendingMessageReturn.canReturn(ownedByMe, reader: "u1"))
+        #expect(!PendingMessageReturn.canReturn(theirs, reader: "u1"))
     }
 }
