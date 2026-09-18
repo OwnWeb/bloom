@@ -542,6 +542,7 @@ final class CenterTabStore {
 
     func load(workspaceID: WorkspaceID) { load(workspaceID: .local(workspaceID)) }
 
+    @discardableResult
     func add(
         kind: CenterTab.Kind, workspaceID: WorkspaceID, url: String = "", title: String? = nil,
         directory: String = "", agentSessionID: SessionID? = nil, runScriptID: String? = nil
