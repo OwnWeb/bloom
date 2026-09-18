@@ -97,6 +97,44 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("a turn the machine restarted under ends with a row saying so, not with silence")
+    func aRestartUnderATurnIsExplained() async throws {
+        let first = try await fixture()
+        // A turn in flight when the process goes: an update restarts the service and kills the
+        // whole process group, so the row that would have closed this turn is never written.
+        _ = try await first.store.upsert(first.session.with { $0.state = .running })
+        await first.runtime.shutdown()
+
+        // The server starting again on the same database, which is what the machine does.
+        let second = WorkspaceRuntime(
+            store: first.store, workspaceID: first.workspace.id, gate: UngatedTurns(),
+            makeRunner: { session, _, store, environment, _ in first.runners.make(session: session, store: store, environment: environment) },
+            installedAgents: { [.claudeCode] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50)
+        )
+        try await second.start()
+
+        let messages = try await first.store.messages(sessionID: first.session.id)
+        let row = try #require(messages.last)
+        #expect(row.kind == .error)
+        let exit = AgentExit.decode(row.payload)
+        #expect(exit.summary == WorkspaceRuntime.restartedSentence, "the row says what happened")
+        #expect(exit.title == "Turn stopped", "rather than reading as the agent's own failure")
+        let session = try #require(try await first.store.session(id: first.session.id))
+        #expect(session.state.isMidTurn == false, "and the chat stops claiming to be running")
+
+        // Idempotent: a second start writes nothing, or every restart would add a row.
+        let again = WorkspaceRuntime(
+            store: first.store, workspaceID: first.workspace.id, gate: UngatedTurns(),
+            makeRunner: { session, _, store, environment, _ in first.runners.make(session: session, store: store, environment: environment) },
+            installedAgents: { [.claudeCode] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50)
+        )
+        try await again.start()
+        let afterSecondStart = try await first.store.messages(sessionID: first.session.id)
+        #expect(afterSecondStart.count == messages.count)
+        await second.shutdown()
+        await again.shutdown()
+    }
+
     @Test("a machine that cannot reach runbloom.app says so on the workspace it serves")
     func reportingIsOnTheWorkspaceRecord() async throws {
         let fixture = try await fixture()
