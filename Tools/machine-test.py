@@ -105,6 +105,26 @@ def run_on(name, script, stdin=None, timeout=300):
     return sprite(name, "exec", "--", "bash", "-lc", script, stdin=stdin, timeout=timeout)
 
 
+def provider_state(name):
+    """What the provider says about one machine, which is the only outside view of a pause.
+
+    Not through `sprite()`: that helper passes `-s <name>`, and `sprite api` reads that as a prefix
+    for the path, so the two together ask for `/v1/sprites/<name>/v1/sprites`. The CLI also prints
+    its own preamble and a curl progress meter around the body, so the JSON is taken from the first
+    brace.
+    """
+    result = subprocess.run([SPRITE, "api", "-o", ORGANISATION, f"/v1/sprites/{name}"],
+                            capture_output=True, text=True, timeout=120)
+    text = result.stdout
+    start = text.find("{")
+    if start < 0:
+        return {}
+    try:
+        return json.loads(text[start:])
+    except ValueError:
+        return {}
+
+
 def free_port():
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -314,11 +334,24 @@ class EventReader(threading.Thread):
         super().__init__(daemon=True)
         self.url, self.token = url, token
         self.events, self.lock, self.error = [], threading.Lock(), None
+        self.connection = None
+        self.closed = False
+
+    def close(self):
+        """Ends the stream, which is the only way to stop holding the machine awake: an open event
+        stream is a connection, and a machine with a connection does not pause."""
+        self.closed = True
+        try:
+            if self.connection:
+                self.connection.close()
+        except OSError:
+            pass
 
     def run(self):
         try:
             parsed = urllib.parse.urlparse(self.url)
             connection = http.client.HTTPSConnection(parsed.hostname, timeout=600, context=ssl.create_default_context())
+            self.connection = connection
             connection.request("GET", "/_bloom/v1/events", headers={"Authorization": f"Bearer {self.token}"})
             response = connection.getresponse()
             if response.status != 200:
@@ -336,7 +369,9 @@ class EventReader(threading.Thread):
                             with self.lock:
                                 self.events.append(json.loads(line[6:]))
         except Exception as error:  # noqa: BLE001 - kept for the report
-            self.error = error
+            # A stream this test closed on purpose is not a failure to report.
+            if not self.closed:
+                self.error = error
 
     def find(self, predicate):
         with self.lock:
@@ -388,6 +423,9 @@ def main():
     parser.add_argument("--archive", action="store_true",
                         help="rehearse the one irreversible operation on a machine with real work on it: the counts "
                              "it reports, the refusal when they move under the reader, and the door closing after")
+    parser.add_argument("--sleep", type=float, metavar="MINUTES", nargs="?", const=25.0,
+                        help="stop touching the machine and watch it pause: when the runner lets its hold go, when "
+                             "the provider stops running it, and what the first read afterwards costs")
     parser.add_argument("--terminal", action="store_true",
                         help="drive a terminal over its WebSocket and drop the connection under it: whether the "
                              "shell survives, what a reconnection sees, and whether reauth and resize work")
@@ -501,6 +539,20 @@ def main():
             session = lambda: issuer.token("session", USER, abilities, {"name": "Machine test", "team": "t"})  # noqa: E731
             snapshot = rpc(url, session(), {"kind": "workspace"})["workspace"]
             step(f"workspace read through the URL: {snapshot['workspace']['name']}, setup {snapshot['workspace']['setup']['state']}")
+
+            # What a chat that does not exist yet would start with, which a client cannot work out
+            # for itself: it needs the repository's settings file and the agents this machine runs.
+            defaults = snapshot["composer_defaults"]
+            step(f"composer defaults before any chat: {defaults['agent']} {defaults['model']} "
+                 f"{defaults['effort']} {defaults['permission_mode']}")
+            assert defaults.get("agent") and defaults.get("model"), f"empty defaults: {defaults}"
+            offered = rpc(url, session(), {"kind": "composer"})["composer"]
+            assert "chat_id" not in offered, f"a composer about no chat named one: {offered.get('chat_id')}"
+            assert offered["controls"] == defaults, "the snapshot and the composer disagree about a new chat"
+            assert defaults["agent"] in offered["available_agents"], \
+                f"the default names {defaults['agent']}, which this machine does not run: {offered['available_agents']}"
+            step(f"the same answer through composer with no chat_id, offering {offered['available_agents']} "
+                 f"and {len(offered['models'])} model(s)")
 
             reader = EventReader(url, session())
             reader.start()
@@ -646,6 +698,48 @@ def main():
                 run_on(name, "sprite-env services restart bloom", timeout=120)
                 wait_for("health answers again", lambda: https(url, path="/_bloom/health")[0] == 200, 180, interval=3)
                 step("restarted; whatever was still in memory is gone with the process")
+
+            if arguments.sleep:
+                # What a person meets when they open a workspace nobody has touched since lunch.
+                # runbloom.app's own token endpoint is the other half of this and is not reachable
+                # from here; what this measures is the machine's side, which is what a client talks
+                # to once that endpoint has said `awake: false`.
+                step(f"leaving the machine alone for up to {arguments.sleep:g} minutes")
+                reader.close()
+                boot_before = run_on(name, "cat /proc/sys/kernel/random/boot_id 2>/dev/null || true", timeout=60).strip()
+                state = lambda: provider_state(name)  # noqa: E731
+                started = time.time()
+                released_at = None
+                paused_at = None
+                while time.time() - started < arguments.sleep * 60 and not paused_at:
+                    time.sleep(20)
+                    if released_at is None:
+                        asleep = [r for r in requests() if r["path"].endswith("/summary") and r["body"].get("awake") is False]
+                        if asleep:
+                            released_at = time.time()
+                            step(f"  {round(released_at - started):>4}s  the runner let its hold go (summary says awake false)")
+                    current = state()
+                    running = str(current.get("state") or current.get("status") or current).lower()
+                    if released_at and ("stop" in running or "paus" in running or "suspend" in running or "cold" in running):
+                        paused_at = time.time()
+                        step(f"  {round(paused_at - started):>4}s  the provider says {running[:60]}")
+
+                if not paused_at:
+                    step(f"the provider still reports it running after {round(time.time() - started)}s: {state()}")
+
+                # The first read a client makes afterwards, which is the number the web client wants.
+                woke = time.time()
+                status, _, body = https(url, path="/_bloom/health", timeout=180)
+                step(f"the first read after the wait: {status} {body[:60]!r} in {time.time() - woke:.1f}s")
+
+                boot_after = run_on(name, "cat /proc/sys/kernel/random/boot_id 2>/dev/null || true", timeout=120).strip()
+                step(f"the machine came back on {'the same boot' if boot_after == boot_before else 'a new boot'}")
+                # And what the machine itself says about the gap, which is the only way it can see
+                # its own pause: a wall clock jump between samples.
+                usage = [r["body"] for r in requests() if r["path"].endswith("/usage")]
+                events = [event for report in usage for event in report.get("events", [])]
+                step(f"usage events through the pause: {[event['kind'] for event in events][-6:]}")
+                step(f"the last summary says awake {[r['body'].get('awake') for r in requests() if r['path'].endswith('/summary')][-1]}")
 
             if arguments.terminal:
                 # A dropped connection is what a person meets: a laptop sleeping, a tunnel dying, a
