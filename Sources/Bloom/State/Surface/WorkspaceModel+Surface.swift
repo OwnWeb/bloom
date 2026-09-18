@@ -34,6 +34,17 @@ extension WorkspaceModel: WorkspaceSurface {
         CenterTabStore.shared.setShowsAllFiles(shows, for: tab)
     }
 
+    /// The file on this Mac, with its editor and its preview. An absolute path is a file outside
+    /// the worktree, which the review opens read-only.
+    func filePane(path: String) -> FilePreview {
+        let isAbsolute = path.hasPrefix("/")
+        return FilePreview(
+            model: self, path: path,
+            absolutePathOverride: isAbsolute ? path : nil,
+            canEditInBloom: !isAbsolute
+        )
+    }
+
     func absolutePath(for relativePath: String) -> String? {
         (workspace.path as NSString).appendingPathComponent(relativePath)
     }

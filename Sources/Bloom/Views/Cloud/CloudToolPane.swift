@@ -21,7 +21,10 @@ extension CloudWorkspaceSession {
         case .terminal:
             CloudTerminalPane(session: self)
         case .review:
-            CloudReviewTab(session: self)
+            // The app's own review pane: the same toolbar, the same All files and one file, the
+            // same diff and the same composer under it. See `ReviewPaneView`.
+            ReviewPaneView(model: self, tab: tab, siblings: siblings)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .setup:
             CloudSetupLogView(session: self)
         case .browser, .notes:

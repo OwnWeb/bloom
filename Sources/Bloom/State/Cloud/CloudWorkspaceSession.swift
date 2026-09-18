@@ -48,6 +48,9 @@ final class CloudWorkspaceSession {
     /// Which setup states this workspace has already brought the tab forward for. See
     /// `SetupTabReveal`, which is where the rule is, under test.
     @ObservationIgnored private var setupReveal = SetupTabReveal()
+    /// The chat somebody pointed the review's composer at, when they picked one. See
+    /// `WorkspaceSurface.reviewDestination`.
+    var chosenReviewDestination: SessionID?
     /// What GitHub says about the branch, read from runbloom.app rather than from this Mac's gh.
     @ObservationIgnored private(set) lazy var github = CloudPullRequestReader(session: self)
     /// Where the reader had got to in each conversation, per pane, which is what a local workspace
@@ -132,6 +135,13 @@ final class CloudWorkspaceSession {
 
     func allows(_ ability: String) -> Bool { abilities.contains(ability) }
 
+    /// Whether this workspace has a review tab at all, which is what every read of the machine's
+    /// changes is gated on. Reading them is a request to the machine, and a machine trying to sleep
+    /// should not be asked for a list nothing is drawing.
+    var hasReviewTab: Bool {
+        CenterTabStore.shared.tabs(for: surfaceID).contains { $0.kind == .review }
+    }
+
     // MARK: Opening
 
     /// Opens the connection, unless it is open. Opening is what wakes a sleeping machine, so it is
@@ -186,6 +196,10 @@ final class CloudWorkspaceSession {
                 // Not awaited: this loop is what drains the stream, and the opening prompt can take
                 // a minute on a machine that is still waking.
                 Task { await sendOpeningPromptIfHeld() }
+                // A review tab restored from a previous launch was never opened by anybody this
+                // time, so nothing has asked the machine what changed. A local workspace has the
+                // poll in `AppModel` for this; a Cloud one has the moment its connection comes up.
+                if hasReviewTab { Task { await changes.refresh() } }
             }
             if case .archived = next {
                 Task { await cloud.refresh(id) }
@@ -217,9 +231,7 @@ final class CloudWorkspaceSession {
             case .reviewMoved:
                 // Only while somebody has the review open: reading it is a request to the machine,
                 // and a machine trying to sleep should not be asked for a list nothing is drawing.
-                if CenterTabStore.shared.tabs(for: surfaceID).contains(where: { $0.kind == .review }) {
-                    Task { await changes.refresh() }
-                }
+                if hasReviewTab { Task { await changes.refresh() } }
             default:
                 break
             }

@@ -149,6 +149,14 @@ extension CloudWorkspaceSession {
         )
     }
 
+    /// The chat a review sends to, when somebody has picked one rather than taking the chat in
+    /// front. Kept on the session, because it is about this window's reading rather than the
+    /// machine's state.
+    var reviewDestinationID: SessionID? {
+        get { chosenReviewDestination }
+        set { chosenReviewDestination = newValue }
+    }
+
     /// No worktree on this Mac, so the composer offers what it offers Ask Bloom.
     var composerWorkspace: WorkspaceModel? { nil }
 

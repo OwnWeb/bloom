@@ -21,6 +21,22 @@ extension CloudWorkspaceSession {
 
     var changedFiles: [ChangedFile] { changes.files.map(ChangedFile.init(cloudRecord:)) }
 
+    /// The same order the local review reads in, from the same rule: the tree's order where every
+    /// row is a whole file, and the list's own where a file can appear twice under two layers.
+    var reviewFiles: [ChangedFile] {
+        let files = changedFiles
+        return files.contains { $0.layer != nil } ? files : ChangedFileTree.orderedFiles(from: files)
+    }
+
+    func selectedChangedFile(path: String) -> ChangedFile? {
+        changedFiles.first { $0.path == path && $0.layer == changes.selectedLayer }
+            ?? changedFiles.first { $0.path == path }
+    }
+
+    /// Read out of this Mac's defaults when the workspace was opened, so there is no moment where
+    /// the marks are unknown.
+    var hasReadViewedFiles: Bool { true }
+
     var changesError: String? { changes.problem }
 
     var hasReadChanges: Bool { changes.hasRead }
@@ -59,8 +75,7 @@ extension CloudWorkspaceSession {
 
     /// The row identity the list highlights, which is the path with its layer where there is one.
     var selectedChangeID: String? {
-        changedFiles.first { $0.path == changes.selectedPath && $0.layer == changes.selectedLayer }?.id
-            ?? changedFiles.first { $0.path == changes.selectedPath }?.id
+        changes.selectedPath.flatMap { selectedChangedFile(path: $0) }?.id
     }
 
     /// The review is one tab of this workspace's own strip and shows the selected file, so the two

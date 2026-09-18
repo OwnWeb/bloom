@@ -1085,7 +1085,7 @@ want the UI to use the same code for local and remote, so that if I change this,
 local and cloud." So there are no Cloud views of things a local workspace already has. There is one
 set of views, written against protocols, with two implementations behind them.
 
-**`WorkspaceReviewSurface` is the first of those protocols.** It is what the inspector and the
+**`WorkspaceSurface` is the first of those protocols.** It is what the inspector and the
 review panes ask a workspace for: the changed files and their patches, the file tree and a file's
 contents, the read ticks, the scope, the branch's commits, the pull request and the things a reader
 can do to one. `WorkspaceModel` answers it out of the worktree on this Mac, `CloudWorkspaceSession`
@@ -1094,9 +1094,9 @@ out of the machine. It was written from what the inspector already asked `Worksp
 the local path could not regress: the views call the same methods on the same object they always
 did.
 
-**Generic over the protocol, never `any WorkspaceReviewSurface`.** SwiftUI's `@Bindable` refuses an
+**Generic over the protocol, never `any WorkspaceSurface`.** SwiftUI's `@Bindable` refuses an
 existential, and the inspector binds a selection and a tab. `struct FileTreeView<Model:
-WorkspaceReviewSurface>` keeps the binding and keeps every type static, so the redraw behaviour
+WorkspaceSurface>` keeps the binding and keeps every type static, so the redraw behaviour
 these columns were tuned for is what it was. The cost is real and is paid in one place: a generic
 SwiftUI body is much harder work for the type checker, and `FileTreeView` had to be cut into
 `body`, `watched`, `loading`, `stack` and `scroller` before the CI runner would finish it. Cut a
@@ -1118,7 +1118,16 @@ rooted in the worktree; notes on a diff (`.reviewComments`), which are worth sen
 composer slice lands; and go to definition, which needs the same language server. The editor pane
 is built by the workspace rather than by the diff, which is the one place a view is handed back
 from a model: `WorkspaceModel.editorPane(path:session:)` answers with the editor and a Cloud
-workspace answers with the sentence saying why there is none.
+**And the pane around the diff is `ReviewPaneView`, arrangement included.** All files against
+Selected file, the pinned tab that stays on the file it was opened with, the continuous review with
+its collapsible per-file headers, and the composer under it that sends what you read to a chosen
+chat, are one view over the protocol for both kinds. This was the last place a person could feel
+which kind of workspace they were in: a Cloud review used to be a list beside a diff and nothing
+else. One question in it really is the worktree's, and is asked as one: whether the file is still on
+disk. `FileManager.fileExists` is run only where there is a worktree to run it against, because a
+Cloud path resolves to nothing on this Mac and the pane would say a file that is perfectly present
+on the machine is gone. What a Cloud workspace does with a file that has gone is what the machine
+answers when asked for it.
 
 **The chat is `ChatPaneView`, the same view a local conversation is drawn with.** The transcript,
 the composer, the jump pill, the dock, the text size, the font and the line height are one view

@@ -47,6 +47,11 @@ protocol WorkspaceSurface: AnyObject, Observable {
         paneMenu: (@MainActor () -> NSMenu)?
     ) -> ToolPane
 
+    /// One of this workspace's files, read rather than diffed, which is what the review shows for
+    /// a file nobody changed. A worktree opens it here; a Cloud workspace asks its machine.
+    associatedtype FilePane: View
+    @MainActor func filePane(path: String) -> FilePane
+
     /// What Edit mode in a diff shows. See `WorkspaceModel.editorPane(path:session:)` for why
     /// the workspace builds this view and the diff does not.
     associatedtype EditorPane: View
@@ -171,6 +176,20 @@ protocol WorkspaceSurface: AnyObject, Observable {
     var changesGeneration: Int { get }
     func refreshChanges(_ reason: ChangesRefresh) async
     func readPatch(for file: ChangedFile) async throws -> String
+    /// The chat a review sends to when somebody picks one, and the one it resolves to. The rule is
+    /// `ReviewDestination` in the core and is written once, in an extension below, so a Cloud
+    /// review and a local one cannot answer it differently.
+    var reviewDestinationID: SessionID? { get set }
+
+    /// The changed files in the order the review reads them, which is the tree's order for a
+    /// branch comparison and the list's own where a file can appear twice. Held rather than
+    /// derived, so a scroll does not rebuild it.
+    var reviewFiles: [ChangedFile] { get }
+    /// The row the review is pointed at, which is the path and its layer where there is one.
+    func selectedChangedFile(path: String) -> ChangedFile?
+    /// Whether the read marks have been read, which tells "nothing ticked" from "not asked yet".
+    var hasReadViewedFiles: Bool { get }
+
     /// What the review pane last drew for this file, so a diff the app already has goes on screen
     /// on the frame the tab is picked rather than after a read.
     func heldDiff(for file: ChangedFile, ignoringWhitespace: Bool) -> DiffPresentation?
@@ -331,6 +350,15 @@ protocol WorkspaceSurface: AnyObject, Observable {
 }
 
 extension WorkspaceSurface {
+    /// The chat a review actually goes to: the chosen one while it still exists, then the one in
+    /// front, then the first. Nil only when the workspace has no chat at all.
+    var reviewDestination: Session? {
+        let id = ReviewDestination.resolved(
+            chosen: reviewDestinationID, active: activeChat?.id, sessions: chats.map(\.id)
+        )
+        return chats.first { $0.id == id }
+    }
+
     func refreshPullRequest() async { await refreshPullRequest(maxAge: .zero) }
     func requestPullRequest() async -> String? { await requestPullRequest(overrides: PromptOverrides()) }
     func requestPush() async -> String? { await requestPush(overrides: PromptOverrides()) }
