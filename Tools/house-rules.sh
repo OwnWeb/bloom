@@ -325,6 +325,9 @@ id_type_allowed_names=(
   processID         # a pid, as text
   bundleID          # macOS, not Bloom
   ownerID           # a split pane, which is the layout's namespace and not a row
+  stagingDraftID    # a composer draft's attachment folder under the temporary directory, and the
+                    # bucket key PromptAttachmentStore holds it by. Never a row, and its own copy
+                    # lives in BloomClient, which cannot import the typed ids at all
 )
 # The remaining stored `String` ids, each one a deliberate decision. This list
 # should only ever get shorter.
