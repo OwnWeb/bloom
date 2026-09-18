@@ -155,7 +155,10 @@ struct WorkspaceEvent: Identifiable, Equatable {
             )
 
         case .succeeded:
-            guard !log.isEmpty else { return nil }
+            // Nothing a reader would see is nothing, however many bytes it is: see
+            // `LogTail.hasSomethingToShow`, which was written for a finished setup that drew a
+            // chevron over five blank lines.
+            guard LogTail.hasSomethingToShow(log) else { return nil }
             let lines = LogTail.lineCount(log)
             return WorkspaceEvent(
                 id: "setup", kind: .setup, outcome: .succeeded,

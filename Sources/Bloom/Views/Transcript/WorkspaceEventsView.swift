@@ -331,7 +331,12 @@ struct WorkspaceEventRow: View {
 
     /// Only where there is something behind the disclosure. A merge has no log, and a chevron that
     /// opens onto nothing is worse than no chevron.
-    private var canExpand: Bool { !event.log.isEmpty }
+    ///
+    /// Asked of what the log would draw rather than of its length. A log of blank lines, or of a
+    /// clear-screen and nothing else, is not an empty string and is still nothing to read: the
+    /// owner met exactly that, a "Setup finished" row whose chevron opened onto a blank space. See
+    /// `LogTail.hasSomethingToShow`.
+    private var canExpand: Bool { LogTail.hasSomethingToShow(event.log) }
 
     private var note: String {
         if event.isRunning, isFirstThing, event.kind == .setup {
@@ -341,7 +346,7 @@ struct WorkspaceEventRow: View {
     }
 
     private var tail: String {
-        guard !event.log.isEmpty else { return "" }
+        guard canExpand else { return "" }
         if isExpanded { return LogTail.last(event.log, lines: Self.expandedTail) }
 
         switch event.outcome {

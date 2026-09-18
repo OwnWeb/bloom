@@ -216,6 +216,15 @@ final class CloudWorkspaceSession {
                 // does.
                 Task { await changes.refresh() }
                 changes.reconsiderWatching()
+                // **And the setup log, which nothing was ever asking for.** The stream only
+                // appends what happens after it opens, so a workspace opened after its setup had
+                // finished had no log at all: `setup_output` exists for exactly this and had no
+                // caller, which is why the owner met a finished setup row with nothing behind its
+                // chevron. Asked once, on the way up, and only where there is a setup to read and
+                // nothing of it in hand.
+                if let setup = state.setup, setup.state != "skipped", state.setupLog.isEmpty {
+                    Task { _ = await readSetupOutput() }
+                }
             }
             if next != .live { changes.stopWatching() }
             if case .archived = next {
