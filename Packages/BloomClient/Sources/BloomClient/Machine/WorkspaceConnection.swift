@@ -24,8 +24,14 @@ public actor WorkspaceConnection {
         case live
         /// The machine went to sleep. Nothing reconnects until somebody does something.
         case asleep
-        /// runbloom.app has no machine to hand out yet: still being created, or being replaced.
-        /// Retried after `retryAfter` seconds.
+        /// runbloom.app has no machine to hand out: being created, bootstrapped, replaced or
+        /// deleted, or one whose build failed. Retried after `retryAfter` seconds.
+        ///
+        /// **Never a sleeping machine.** The refusal behind this asks whether the machine's state
+        /// is ready, which is nothing to do with whether it is awake: a machine that is asleep and
+        /// ready gets a token and is woken by the first request made with it. So nothing drawn for
+        /// this phase may say "waking", and the sentence shown is runbloom.app's own, because it
+        /// knows which of those five it is and this does not.
         case notReady(message: String, retryAfter: Int)
         /// A team limit refused the wake. Retried by itself only when the limit clears by itself.
         case limited(LimitNotice)

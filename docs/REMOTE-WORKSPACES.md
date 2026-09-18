@@ -539,7 +539,9 @@ nothing about it either, which is the whole reason `reporting` exists.
 ## Limits
 
 runbloom.app enforces per-team limits at three points: creating a workspace, issuing a workspace
-token (which is what wakes a sleeping machine), and starting a turn. Archive is never refused. A
+token (which reserves a slot against the awake limit, and wakes nothing: the client's own first
+request to the machine URL is what wakes a sleeping machine, because answering is waking), and
+starting a turn. Archive is never refused. A
 refusal is:
 
 ```json
