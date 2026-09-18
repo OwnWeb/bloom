@@ -63,8 +63,10 @@ extension CloudWorkspaceSession {
     func openReview() { open(.review) }
 
     /// Notes are not on the wire yet.
-    var supportsNotes: Bool { false }
-    func openNotes() {}
+    var supportsNotes: Bool { true }
+    /// The workspace's own note, kept by its machine so that it is the workspace's rather than
+    /// this Mac's. See `CloudNotesPane`.
+    func openNotes() { open(.notes) }
 
     /// Nothing: a Cloud workspace's settings file is on its machine, and what it says about setup
     /// is the setup banner and the Setup tab rather than a strip over the panes.

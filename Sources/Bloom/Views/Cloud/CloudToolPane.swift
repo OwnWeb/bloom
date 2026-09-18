@@ -30,12 +30,18 @@ extension CloudWorkspaceSession {
             // for why a window onto one machine cannot have an address bar.
             CloudPreviewPane(session: self)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .notes, .setup:
-            // Neither is a kind a Cloud workspace opens: notes are not on the wire, and setup is a
-            // row at the head of the conversation rather than a tab. A tab of either was written by
-            // another version of Bloom, so it says so rather than drawing an empty pane.
-            // `CenterTabStore` drops the setup ones on the way in, so this is the belt to that
-            // brace.
+        case .notes:
+            // The machine's note, in the local pane. It is the workspace's scratchpad rather than
+            // this Mac's, which is what lets somebody else on the team open the workspace and read
+            // what was written in it. See `CloudNotesPane`.
+            CloudNotesPane(session: self)
+                .id(id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .setup:
+            // Not a kind a Cloud workspace opens: setup is a row at the head of the conversation
+            // rather than a tab. A tab of it was written by another version of Bloom, so it says so
+            // rather than drawing an empty pane. `CenterTabStore` drops these on the way in, so
+            // this is the belt to that brace.
             EmptyStateView(
                 glyph: "questionmark.square.dashed",
                 title: "Nothing to show",
