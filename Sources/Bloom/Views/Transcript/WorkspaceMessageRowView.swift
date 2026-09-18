@@ -14,9 +14,18 @@ import BloomCore
 /// kind of object rather than the same one from somebody else. See `Palette.workspaceMessage` for
 /// why the colour moved.
 ///
-/// Drawn whole, however long. This is what the agent here is answering, so the reader should be
-/// able to read all of it; it is the sending chat that shortens it. See
-/// `WorkspaceMessageSentRowView`.
+/// **Cut to five lines.** It was drawn whole however long, on the argument that this is what the
+/// agent here is answering and the reader should be able to read all of it. A brief for another
+/// workspace runs to a dozen paragraphs as readily as to a sentence, and whole it filled the pane
+/// and pushed what this agent did about it off the bottom, which is the opposite of that argument.
+/// Five rather than the sending chat's three because this is the side the message is read on. See
+/// `CutBubbleText` for the cut, and `WorkspaceMessageSentRowView` for the other end of it.
+///
+/// **No raw envelope.** Under every message sat "Show full prompt", which revealed `sent`: the
+/// same words again, inside Bloom's fence and its instructions for answering. The boilerplate is
+/// Bloom's rather than the sender's, so a reader of this row learns nothing from it, and it made
+/// the long message problem twice as long. `CrewMessageRowView` keeps its envelope, because a
+/// subagent's brief is wrapped in the orchestrator's own words rather than in ours.
 ///
 /// Queued, it is the same bubble unfilled with a dotted edge, which is what the owner's own queued
 /// turn looks like, and it can be deleted the way that one can. It cannot be edited or steered:
@@ -32,11 +41,16 @@ struct WorkspaceMessageRowView: View {
     /// bubbles and not every tool row.
     @Environment(\.transcriptBubbleWidth) private var bubbleWidth
 
-    @State private var showsEnvelope = false
+    @State private var isExpanded = false
+    /// Whether the message is longer than the cut, answered by `CutBubbleText`.
+    @State private var isCut = false
     @State private var isPointedAt = false
 
     /// `PendingTurnRowView`'s dots, so both queued bubbles are edged the same way.
     private static let dots = StrokeStyle(lineWidth: Metrics.outline, dash: [2, 3])
+
+    /// Enough for most messages to be whole, and for a long one to say what it is about.
+    private static let collapsedLines = 5
 
     var body: some View {
         HStack(spacing: 0) {
@@ -46,7 +60,6 @@ struct WorkspaceMessageRowView: View {
                 WorkspaceMessageOrigin(end: message.route, direction: .from)
                 bubble
                 caption
-                if showsEnvelope { envelope }
             }
         }
         .padding(.horizontal, TranscriptLayout.inset)
@@ -56,12 +69,15 @@ struct WorkspaceMessageRowView: View {
 
     private var bubble: some View {
         CappedWidth(width: bubbleWidth?.cap ?? UserTurnRowView.uncappedFallback) {
-            Text(message.text)
-                .font(Typo.body)
-                .foregroundStyle(isWaiting ? Palette.textSecondary : Palette.workspaceMessageInk)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(UserTurnRowView.padding)
+            CutBubbleText(
+                text: message.text,
+                lines: Self.collapsedLines,
+                ink: isWaiting ? Palette.textSecondary : Palette.workspaceMessageInk,
+                // Queued, the bubble is an outline with nothing behind it but the transcript.
+                fill: isWaiting ? Palette.surface : Palette.workspaceMessageFill,
+                isExpanded: isExpanded,
+                isCut: $isCut
+            )
         }
         .padding(.bottom, OutgoingBubbleShape.tailDrop)
         .background {
@@ -75,43 +91,32 @@ struct WorkspaceMessageRowView: View {
         }
     }
 
+    /// "Show all" is not hidden until the pointer arrives, the way "Show full prompt" was. That one
+    /// revealed evidence nobody needed on the way past; this one is the only way to read the rest
+    /// of a message the row has cut, and an affordance that is the only route to something has to
+    /// be visible to be one.
     @ViewBuilder
     private var caption: some View {
-        if isWaiting {
+        if isWaiting || isCut {
             HStack(spacing: Metrics.gutter) {
-                if let holdSentence {
+                if isWaiting, let holdSentence {
                     Text(holdSentence).foregroundStyle(Palette.textTertiary)
                 }
-                Button("Delete", action: onDelete)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(isPointedAt ? Palette.link : Palette.textTertiary)
-                    .pointerStyle(.link)
-                    .help("Takes this message back out of the queue. It is not sent, and the workspace that sent it is told.")
+                if isCut {
+                    Button(isExpanded ? "Show less" : "Show all") { isExpanded.toggle() }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Palette.textTertiary)
+                        .pointerStyle(.link)
+                }
+                if isWaiting {
+                    Button("Delete", action: onDelete)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(isPointedAt ? Palette.link : Palette.textTertiary)
+                        .pointerStyle(.link)
+                        .help("Takes this message back out of the queue. It is not sent, and the workspace that sent it is told.")
+                }
             }
             .font(Typo.caption)
-        } else {
-            // What the model was handed, which is the message inside its envelope. Evidence for when
-            // an agent does something strange, and nothing a reader needs on the way past, so it
-            // appears under the pointer rather than sitting under every message. Faded rather than
-            // removed, so nothing below moves when the pointer arrives.
-            Button(showsEnvelope ? "Hide full prompt" : "Show full prompt") {
-                showsEnvelope.toggle()
-            }
-            .buttonStyle(.plain)
-            .font(Typo.caption)
-            .foregroundStyle(Palette.textTertiary)
-            .pointerStyle(.link)
-            .opacity(isPointedAt || showsEnvelope ? 1 : 0)
         }
-    }
-
-    /// The bytes the agent was given, for when it does something strange with them.
-    private var envelope: some View {
-        Text(message.sent)
-            .font(Typo.codeSmall)
-            .foregroundStyle(Palette.textSecondary)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: bubbleWidth?.cap ?? UserTurnRowView.uncappedFallback, alignment: .leading)
     }
 }
