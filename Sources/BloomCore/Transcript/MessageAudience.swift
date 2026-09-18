@@ -36,11 +36,11 @@ public enum MessageAudience: Equatable, Hashable, Sendable, Codable {
     /// nothing would say so. The text keeps what was typed, which is what the bubble draws; who it
     /// went to is this.
     public struct Person: Equatable, Hashable, Sendable, Codable, Identifiable {
-        public var id: String
+        public var id: CloudUserID
         public var handle: String
         public var name: String
 
-        public init(id: String, handle: String, name: String) {
+        public init(id: CloudUserID, handle: String, name: String) {
             self.id = id
             self.handle = handle
             self.name = name

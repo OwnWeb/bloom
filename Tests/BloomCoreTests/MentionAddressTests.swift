@@ -4,8 +4,8 @@ import Testing
 
 @Suite("Addressing a message to a person")
 struct MentionAddressTests {
-    private static let seb = MessageAudience.Person(id: "u2", handle: "sebdd", name: "Seb De Deyne")
-    private static let alex = MessageAudience.Person(id: "u3", handle: "alex", name: "Alex Vanderbist")
+    private static let seb = MessageAudience.Person(id: CloudUserID("u2"), handle: "sebdd", name: "Seb De Deyne")
+    private static let alex = MessageAudience.Person(id: CloudUserID("u3"), handle: "alex", name: "Alex Vanderbist")
     private static let people = [seb, alex]
 
     private func audience(_ draft: String, from current: MessageAudience = .agent) -> MessageAudience {
