@@ -98,15 +98,14 @@ public struct ChatReadTool: BridgeToolHandling {
             } else {
                 cursor = .init(sessionID: session.id)
             }
-            // **The one place an agent can read a transcript, and therefore the one place the rule
-            // about messages addressed to people has to hold.** `@seb …` means this is not for the
-            // agent, and a message it can read is a message the feature did not deliver. Filtered
-            // here rather than at the point a prompt is sent, because "do not deliver it" is a rule
-            // that a later change replaying the last few rows silently breaks, and this is the
-            // choke point that change would go through. The agent is told nothing about the gap:
-            // a "messages not shown" marker invites it to ask what it missed.
-            let messages = try await store.messages(sessionID: session.id, afterSeq: cursor.seq - 1, limit: limit + 1)
-                .filter { $0.audience?.isPrivateToPeople != true }
+            // **The rule about messages addressed to people, asked for by name.** `@seb …` means
+            // this is not for the agent, and a message it can read is a message the feature did not
+            // deliver. Asked of the store rather than filtered here, so that the next thing to read
+            // a chat for a model meets the same parameter: see `Store.messages`. The agent is told
+            // nothing about the gap, because a "messages not shown" marker invites it to ask what
+            // it missed.
+            let messages = try await store.messages(sessionID: session.id, afterSeq: cursor.seq - 1,
+                                                    limit: limit + 1, forAgent: true)
             let page = try ChatTranscriptPage.make(messages: messages, cursor: cursor, limit: limit)
             var answer: [String: JSONValue] = [
                 "chat_id": .string(session.id.rawValue),

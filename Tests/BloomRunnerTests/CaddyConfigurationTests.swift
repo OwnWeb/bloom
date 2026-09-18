@@ -10,6 +10,17 @@ struct CaddyConfigurationTests {
         publicURL: "https://bloom-01k5.sprites.app"
     )
 
+    /// **The reserved ports are the layout's, not a copy.** Both of Bloom's own can be moved by the
+    /// environment, and a second list here would have sent somebody looking for their app on the
+    /// machine's own server.
+    @Test("a machine with Bloom's ports moved does not offer the moved ones as the app")
+    func movedReservedPorts() {
+        let lines = PreviewRoutes.portAdvice(appPort: 3000, listening: [9090, 9091], reserved: [9090, 9091])
+
+        #expect(lines.contains { $0.contains("has not started yet") })
+        #expect(!lines.contains { $0.contains("9090") })
+    }
+
     @Test("HTTPS and the admin endpoint are off, and it listens on the URL port")
     func globalOptions() {
         let text = Self.configuration.render()
@@ -88,7 +99,7 @@ struct PreviewPortAdviceTests {
     @Test("a project serving somewhere else is told which port the preview reads and where to move")
     func namesBothPorts() {
         // The workspace that started this: the app on 8091, the preview reading 3000.
-        let lines = PreviewRoutes.portAdvice(appPort: 3000, listening: [8080, 8081, 8091])
+        let lines = PreviewRoutes.portAdvice(appPort: 3000, listening: [8080, 8081, 8091], reserved: [8080, 8081])
         let text = lines.joined(separator: "\n")
         #expect(text.contains("reads port 3000"))
         #expect(text.contains("8091"), "the port their app is actually on")
@@ -99,13 +110,13 @@ struct PreviewPortAdviceTests {
 
     @Test("nothing to say when the app's port is listening")
     func silentWhenThePortIsRight() {
-        #expect(PreviewRoutes.portAdvice(appPort: 3000, listening: [3000, 8080]).isEmpty,
+        #expect(PreviewRoutes.portAdvice(appPort: 3000, listening: [3000, 8080], reserved: [8080, 8081]).isEmpty,
                 "then the port is not the problem and a paragraph about it is noise")
     }
 
     @Test("a machine with nothing up says that instead of offering a port")
     func nothingListening() {
-        let text = PreviewRoutes.portAdvice(appPort: 3000, listening: [8080, 8081]).joined(separator: "\n")
+        let text = PreviewRoutes.portAdvice(appPort: 3000, listening: [8080, 8081], reserved: [8080, 8081]).joined(separator: "\n")
         #expect(text.contains("has not started yet"))
         #expect(!text.contains("Serve the app on"), "there is nowhere to point them")
     }

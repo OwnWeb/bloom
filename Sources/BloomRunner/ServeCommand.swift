@@ -167,7 +167,8 @@ public enum ServeCommand {
                 try await client.gitCredentials(repository: repository, operation: operation, turnID: turn)
             },
             services: { await services.status },
-            appPort: layout.appPort
+            appPort: layout.appPort,
+            reservedPorts: layout.reservedPorts.map(\.port)
         ))
 
         let caddy = CaddySupervisor(layout: layout, publicURL: configuration.publicURL)

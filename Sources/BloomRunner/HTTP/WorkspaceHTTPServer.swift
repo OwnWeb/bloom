@@ -37,12 +37,16 @@ public struct WorkspaceHTTPServer: Sendable {
         /// Where the preview proxies, so the page that says the app is not answering can say what
         /// port it read.
         public var appPort: Int
+        /// The ports Bloom itself holds, from `MachineLayout.reservedPorts`. Passed rather than
+        /// restated, because both of them can be moved by the environment.
+        public var reservedPorts: [Int]
 
         public init(runtime: WorkspaceRuntime, verifier: TokenVerifier, gate: any RemoteTurnGate, control: any MachineControl,
                     store: Store, allowedOrigins: [String], version: String, streams: EventStreams = EventStreams(),
                     terminals: TerminalConnections = TerminalConnections(), gitCredentials: GitCredentials? = nil,
                     services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] },
-                    appPort: Int = 3000) {
+                    appPort: Int = 3000,
+                    reservedPorts: [Int] = []) {
             self.runtime = runtime
             self.verifier = verifier
             self.gate = gate
@@ -55,6 +59,7 @@ public struct WorkspaceHTTPServer: Sendable {
             self.gitCredentials = gitCredentials
             self.services = services
             self.appPort = appPort
+            self.reservedPorts = reservedPorts
         }
     }
 
@@ -89,7 +94,7 @@ public struct WorkspaceHTTPServer: Sendable {
         ControlRoutes.register(on: router, verifier: dependencies.verifier, control: dependencies.control)
         PreviewRoutes.register(on: router, verifier: dependencies.verifier, sessions: PreviewSessions(store: dependencies.store, revocations: dependencies.verifier.revocations),
                                runtime: dependencies.runtime, services: dependencies.services,
-                               appPort: dependencies.appPort)
+                               appPort: dependencies.appPort, reservedPorts: dependencies.reservedPorts)
         if let credentials = dependencies.gitCredentials {
             GitCredentialRoute.register(on: router, secret: credentials.secret, repository: credentials.repository,
                                         runtime: dependencies.runtime, liveTerminalTurn: { [terminals] in await terminals.liveTurn(terminal: $0) },

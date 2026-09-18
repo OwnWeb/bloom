@@ -2371,9 +2371,22 @@ public actor Store {
 
     // MARK: - Messages
 
-    public func messages(sessionID: SessionID, afterSeq: Int = -1, limit: Int = 100_000) throws -> [Message] {
-        try db.query(
-            "SELECT * FROM messages WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?",
+    /// A chat's rows.
+    ///
+    /// **`forAgent` is the choke point for the one rule mentions rest on**: a message somebody
+    /// addressed to a person is never given to an agent, now or on any later replay. It is a
+    /// parameter here rather than a filter at each caller because **there are two callers today and
+    /// the third is the dangerous one**: a summariser, a compaction, anything that reads a chat to
+    /// hand a model its history. Whoever writes that meets this parameter and has to answer it.
+    ///
+    /// Filtered in SQL rather than after the fact, so a page of fifty is fifty rows the caller may
+    /// have rather than fifty minus however many were private.
+    public func messages(
+        sessionID: SessionID, afterSeq: Int = -1, limit: Int = 100_000, forAgent: Bool = false
+    ) throws -> [Message] {
+        let privacy = forAgent ? "AND (audience_kind IS NULL OR audience_kind <> 'person') " : ""
+        return try db.query(
+            "SELECT * FROM messages WHERE session_id = ? AND seq > ? \(privacy)ORDER BY seq LIMIT ?",
             [.text(sessionID), .int(Int64(afterSeq)), .int(Int64(limit))]
         ).map(Self.message(from:))
     }

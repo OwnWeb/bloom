@@ -21,12 +21,12 @@ enum PreviewRoutes {
     /// paragraph about it is noise over whatever is. The variable is named rather than the number
     /// alone: every script this machine runs is handed `BLOOM_APP_PORT`, so a project that reads it
     /// cannot be on the wrong port, and a project that hard-codes one can be told which to change.
-    static func portAdvice(appPort: Int, listening: [Int]) -> [String] {
+    static func portAdvice(appPort: Int, listening: [Int], reserved: [Int]) -> [String] {
         guard !listening.contains(appPort) else { return [] }
         var lines = ["", "The preview reads port \(appPort), and nothing is listening there."]
         // Bloom's own ports are not an answer to "where is your app", and offering them as one
         // would send somebody to proxy the preview at itself.
-        let others = listening.filter { $0 != appPort && !Self.ownPorts.contains($0) }
+        let others = listening.filter { $0 != appPort && !reserved.contains($0) }
         if others.isEmpty {
             lines.append("Nothing else is listening either, so the app has not started yet.")
         } else {
@@ -36,12 +36,15 @@ enum PreviewRoutes {
         return lines
     }
 
-    /// The ports Bloom itself holds on a machine: the public one Caddy answers and the runner's own.
-    static let ownPorts: Set<Int> = [8080, 8081]
+    // The ports Bloom holds are `MachineLayout.reservedPorts` and are passed in. They used to be a
+    // second copy of the list here, which was the same fact written twice: both of Bloom's ports
+    // can be moved by the environment, so a machine with either overridden would have had this page
+    // offering Bloom's own port as somewhere the project's app might be listening.
 
     static func register(on router: Router<WorkspaceRequestContext>, verifier: TokenVerifier, sessions: PreviewSessions,
                          runtime: WorkspaceRuntime, services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] },
                          appPort: Int = 3000,
+                         reservedPorts: [Int] = [],
                          listening: @escaping @Sendable () -> [Int] = { ListeningPorts.current() }) {
         // What Caddy shows instead of its own 502 when the project's app is not listening. A person
         // who opens the preview and sees a bare gateway error has no way to find out that the app
@@ -61,7 +64,7 @@ enum PreviewRoutes {
             // that says the app is not answering, which is true and leaves somebody to deduce that
             // there is an agreed port at all: one workspace served on 8091 while the preview read
             // 3000, and an agent built a second proxy to bridge them.
-            lines.append(contentsOf: portAdvice(appPort: appPort, listening: listening()))
+            lines.append(contentsOf: portAdvice(appPort: appPort, listening: listening(), reserved: reservedPorts))
             let statuses = await services()
             if statuses.isEmpty {
                 lines.append("No services are configured in .bloom/settings.toml, so nothing was started for it.")
