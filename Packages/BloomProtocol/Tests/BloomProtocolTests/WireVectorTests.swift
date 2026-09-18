@@ -120,6 +120,8 @@ enum WireExamples {
         ("setup_output", .setupOutput),
         ("files", .files),
         ("history", .history(limit: 50, before: nil)),
+        // The next page, which is the only time `before` is sent.
+        ("history_next_page", .history(limit: 50, before: "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234")),
         ("revert_file", .revertFile(path: "app/Queue.php", scope: .uncommitted)),
         ("transcript_search", .transcriptSearch(query: "retry the queue", limit: 30)),
         ("discard_hunk", .discardHunk(path: "app/Queue.php", scope: .uncommitted,
@@ -129,6 +131,8 @@ enum WireExamples {
         ("file", .file(path: "README.md")),
         ("download", .download(path: "storage/logs/laravel.log")),
         ("review_snapshot", .reviewSnapshot(scope: .branch, knownRevision: nil, wait: true)),
+        // Asked again with the revision already held, which is how a client waits for a change.
+        ("review_snapshot_known_revision", .reviewSnapshot(scope: .branch, knownRevision: "revision-2", wait: true)),
         ("review_snapshot_staged", .reviewSnapshot(scope: .staged, knownRevision: nil, wait: false)),
         ("review_patch_unstaged", .reviewPatch(path: "app/Queue.php", scope: .unstaged, knownRevision: nil)),
         ("review_patch", .reviewPatch(path: "README.md", scope: .uncommitted, knownRevision: "revision-1")),
@@ -142,6 +146,11 @@ enum WireExamples {
         ("close_chat", .closeChat(chatID: "chat-1")),
         ("mark_read", .markRead(chatID: "chat-1", seq: 4)),
         ("set_composer", .setComposer(chatID: "chat-1", controls: controls)),
+        // A Codex chat switched to fast. Absent `codex_fast_mode` means the chat inherits Codex's
+        // own configuration; an explicit false is standard speed and must survive as that.
+        ("set_composer_codex_fast", .setComposer(chatID: "chat-2", controls: ComposerControlsRecord(
+            agent: "codex", model: "gpt-5.5", effort: "medium", permissionMode: "acceptEdits", interactionMode: "build",
+            codexFastMode: true))),
         ("send", .send(chatID: "chat-1", text: "Run the tests")),
         // The same call addressed to somebody rather than to the agent. **Absent means the agent**,
         // so the vector above is what an installed client keeps sending and it keeps working.
@@ -265,9 +274,32 @@ enum WireExamples {
         ("stream_delta", .stream(chatID: "chat-1", text: " worker", snapshot: false)),
         ("chat", .chat(chat)),
         ("queue", .queue(queue)),
+        // A crew chat an agent opened with `agent_start`, which names the chat that asked for it.
+        ("chat_from_a_crew", .chat(ChatRecord(id: "chat-2", title: "Check the migrations", agent: "claude", model: "claude-opus-5",
+                                              effort: "high", permissionMode: "acceptEdits", interactionMode: "build", state: "running",
+                                              parentChatID: "chat-1", lastSeq: 0, createdAt: date, updatedAt: date))),
+        // A queue that stopped, with the sentence the machine writes when it does.
+        ("queue_paused", .queue(QueueRecord(chatID: "chat-1", prompts: [queue.prompts[0]],
+                                            error: "Queue paused. Send a message to resume."))),
+        // A tool call carries the tool's own id as `ref_id`, which its result names; the turn's
+        // closing row carries how long the turn took.
+        ("message_tool_use", .message(MessageRecord(
+            cursor: 121, chatID: "chat-1", seq: 7, kind: "toolUse",
+            payload: .object(["type": .string("tool_use"), "id": .string("toolu_01"), "name": .string("Bash")]),
+            createdAt: date, refID: "toolu_01"))),
+        ("message_result", .message(MessageRecord(
+            cursor: 122, chatID: "chat-1", seq: 8, kind: "result",
+            payload: .object(["type": .string("result"), "subtype": .string("success")]),
+            createdAt: date, durationMS: 48_200))),
         ("questions", .questions(chatID: "chat-1", questions: [question])),
         ("composer", .composer(chatID: "chat-1", controls: controls, changedBy: author)),
         ("setup", .setup(SetupRecord(state: "running", step: "prepare", startedAt: date))),
+        // Setup that failed. `note` is the tail of the log, at most eight lines, so a client can say
+        // why without fetching the whole of it.
+        ("setup_failed", .setup(SetupRecord(state: "failed", startedAt: date, finishedAt: date,
+                                            note: "[bloom] Running the setup script.\n"
+                                                + "Your requirements could not be resolved to an installable set of packages.\n"
+                                                + "[bloom] The setup script exited with status 2."))),
         ("setup_output", .setupOutput(text: "Reading package lists...\n")),
         // An agent on a machine asking for a browser pane. It names the chat it is speaking for, so
         // a client can put the pane beside it, and no url at all means this workspace's own public

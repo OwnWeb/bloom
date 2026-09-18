@@ -4,8 +4,8 @@ the checked-in vectors all agree.
 
     python3 Protocol/v1/schema.py            regenerate workspace-v1.schema.json
     python3 Protocol/v1/schema.py --check    fail when the schema is stale, a kind in the Swift
-                                             source is missing from it, or a vector does not
-                                             validate
+                                             source is missing from it, a vector does not
+                                             validate, or an optional field is in no vector
 
 The vectors are written by the Swift types themselves (Packages/BloomProtocol, WireVectorTests),
 so this is the third corner of a triangle: a change to a Swift type moves the vectors, and this
@@ -294,13 +294,21 @@ def swift_kinds(file_name, type_name):
 
 
 # The subset of JSON Schema this file uses.
-def validate(value, schema, root, path="$"):
+def validate(value, schema, root, path="$", seen=None):
+    """The errors in `value`, and into `seen` every (object, field) it carried a non-null value
+    for, counted only along the one alternative of a oneOf that matched."""
+    seen = set() if seen is None else seen
     if "$ref" in schema:
-        return validate(value, root["$defs"][schema["$ref"].split("/")[-1]], root, path)
+        return validate(value, root["$defs"][schema["$ref"].split("/")[-1]], root, path, seen)
     if "oneOf" in schema:
-        matches = [option for option in schema["oneOf"] if not validate(value, option, root, path)]
+        matches = []
+        for option in schema["oneOf"]:
+            carried = set()
+            if not validate(value, option, root, path, carried):
+                matches.append(carried)
         if len(matches) != 1:
             return [f"{path}: matched {len(matches)} of {len(schema['oneOf'])} alternatives"]
+        seen |= matches[0]
         return []
     if "const" in schema:
         return [] if value == schema["const"] and type(value) is type(schema["const"]) else [f"{path}: expected {schema['const']!r}"]
@@ -320,7 +328,7 @@ def validate(value, schema, root, path="$"):
         errors.append(f"{path}: {value!r} is not an ISO 8601 UTC date")
     if kind == "array":
         for index, item in enumerate(value):
-            errors += validate(item, schema.get("items", {}), root, f"{path}[{index}]")
+            errors += validate(item, schema.get("items", {}), root, f"{path}[{index}]", seen)
     if kind == "object":
         properties = schema.get("properties", {})
         for key in schema.get("required", []):
@@ -328,10 +336,50 @@ def validate(value, schema, root, path="$"):
                 errors.append(f"{path}: missing {key}")
         for key, item in value.items():
             if key in properties:
-                errors += validate(item, properties[key], root, f"{path}.{key}")
+                if item is not None:
+                    seen.add((id(schema), key))
+                errors += validate(item, properties[key], root, f"{path}.{key}", seen)
             elif schema.get("additionalProperties") is False:
                 errors.append(f"{path}: unexpected field {key}")
     return errors
+
+
+# Optional fields no machine sends yet, each with the reason it is exempt from having a vector. A
+# vector for one of these would be an example of a value the machine cannot produce, which is the
+# fake this check exists to stop, so the honest thing is to name it here instead.
+NEVER_SENT = {
+    "Workspace.pull_request": "declared, and nothing on the machine fills it; the pull_request operation answers the URL",
+}
+
+
+def optional_fields(schema):
+    """Every optional property of every object in the schema, labelled Definition.field, or
+    Definition[kind].field for one case of a tagged union, with the object it belongs to."""
+    found = []
+
+    def walk(node, label):
+        if isinstance(node, list):
+            for item in node:
+                walk(item, label)
+            return
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "object" and "properties" in node:
+            kind = node["properties"].get("kind", {}).get("const")
+            name = f"{label}[{kind}]" if kind else label
+            for key in node["properties"]:
+                if key not in node.get("required", []):
+                    found.append((f"{name}.{key}", id(node), key))
+            for key, value in node["properties"].items():
+                walk(value, f"{name}.{key}")
+            return
+        for key, value in node.items():
+            if key != "$ref":
+                walk(value, label)
+
+    for name, definition in schema["$defs"].items():
+        walk(definition, name)
+    return found
 
 
 def check(schema):
@@ -348,11 +396,22 @@ def check(schema):
             problems.append(f"{type_name}: Swift has {sorted(swift - set(cases))} the schema lacks, "
                             f"the schema has {sorted(set(cases) - swift)} Swift lacks")
     vectors = json.loads(VECTORS_PATH.read_text())
+    seen = set()
     for group, definition in [("requests", "Request"), ("replies", "Reply"), ("errors", "Reply"),
                               ("events", "Event"), ("terminal_frames", "TerminalFrame")]:
         for name, value in vectors[group].items():
-            for error in validate(value, ref(definition), schema):
+            for error in validate(value, ref(definition), schema, seen=seen):
                 problems.append(f"{group}.{name}: {error}")
+    # **Every optional field is carried by at least one vector.** A required field that drifts
+    # fails above; an optional one no vector carries could be renamed on one side and read as
+    # absent on the other for ever. The web read `name` where the wire says `label` for as long as
+    # it had a model menu, and nothing here could have said so.
+    optional = optional_fields(schema)
+    for label, node, key in optional:
+        if (node, key) not in seen and label not in NEVER_SENT:
+            problems.append(f"{label} is optional and no vector carries it. Add one with a value the machine really sends.")
+    for label in sorted(set(NEVER_SENT) - {label for label, _, _ in optional}):
+        problems.append(f"NEVER_SENT names {label}, which is not an optional field any more.")
     # And the other direction: things a server must never accept.
     malformed = [
         ("an operation from #163", {"protocol": "bloom-workspace", "version": 1, "command_id": "c", "operation": {"kind": "catalogue"}}),
