@@ -52,9 +52,21 @@ public struct ChatRecord: Codable, Sendable, Hashable {
 ///
 /// `seq` orders rows within a chat. `cursor` orders rows across the whole workspace and is what
 /// the event stream's `id:` carries, because a workspace holds several chats and a per-chat
-/// number cannot say where a reconnect should resume. `payload` is the row as the agent's own
-/// protocol wrote it, kept as JSON rather than re-shaped, because every backend's rows are
-/// different and a client already has to read each of them.
+/// number cannot say where a reconnect should resume.
+///
+/// **`payload` is a Claude Code `stream-json` line, whatever agent produced the turn.** Codex and
+/// Grok are translated into that shape at ingest, before the row is written, so a client writes
+/// one renderer rather than three. The reason is the store rather than the client: a row is read
+/// back by one decoder that knows one vocabulary, and a JSON-RPC notification kept as it arrived
+/// draws perfectly while it is live and comes back after a restart as a column of unknown rows.
+/// `CodexTranslation` and `GrokTranslation` are where it happens, and `docs/CODEX.md` says why.
+///
+/// The one per-agent difference is inside that shape, and it is the tool vocabulary. Codex keeps
+/// its own names, because `Shell` is not `Bash` and `ApplyPatch` is not `Edit`: they are different
+/// tools with different rules, and a permission grant has to read back as the thing the person
+/// actually approved. The native item travels under `input.codexItem`, so a presenter can tell
+/// which vocabulary a row is in from the row alone and nothing is lost.
+/// `Protocol/v1/stored-payloads.json` is what both look like, written out of the real translators.
 public struct MessageRecord: Codable, Sendable, Hashable {
     public var cursor: Int64
     public var chatID: String
@@ -149,7 +161,10 @@ public struct QueueRecord: Codable, Sendable, Hashable {
 
 /// A permission prompt, question or plan waiting for somebody to answer it.
 ///
-/// `ask` is the agent's own request as it arrived, for the same reason a message payload is.
+/// `ask` is a Claude Code `can_use_tool` control request, for the same reason a message payload is
+/// a `stream-json` line: Codex's five approval kinds and Grok's are translated into that envelope
+/// before the question is stored, so one decoder redraws a workspace reopened mid question. Which
+/// backend asked is read off the tool name, which stays that backend's own.
 public struct QuestionRecord: Codable, Sendable, Hashable {
     public var requestID: String
     public var chatID: String

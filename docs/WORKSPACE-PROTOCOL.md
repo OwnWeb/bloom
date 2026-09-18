@@ -10,6 +10,13 @@ The Swift types in `Packages/BloomProtocol` are the source. `WireVectorTests` fa
 encoding to the checked-in vectors, and `python3 Protocol/v1/schema.py --check` fails when the
 schema stops describing them or stops listing a kind they decode. Both run in CI.
 
+One thing a client reads that the schema cannot describe is the inside of a transcript row.
+`message.payload` is opaque to this protocol and is **always a Claude Code `stream-json` line**,
+whatever agent ran the turn: Codex and Grok are translated into that shape before a row is written,
+so one renderer draws all three. [stored-payloads.json](../Protocol/v1/stored-payloads.json) is a
+real Codex turn and a real Grok turn after that translation, written out of the translators
+themselves, and `StoredPayloadVectorTests` fails when they stop producing it.
+
 ## Where a client finds a workspace
 
 A client never finds a machine by itself. It signs in to runbloom.app, lists Cloud workspaces there

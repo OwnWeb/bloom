@@ -74,6 +74,10 @@ ln -sfn "$ROOT/Tests/BloomCoreTests" "$WORK/Tests/BloomCoreTests"
 # The tests find a fixture by walking up from their own file, so it has to be reachable
 # from the mirrored Tests directory as well as from the real one.
 ln -sfn "$ROOT/Tests/fixtures" "$WORK/Tests/fixtures"
+# The client facing wire artefacts, reached the same way: StoredPayloadVectorTests writes
+# Protocol/v1/stored-payloads.json, and a mirror without this would compare a generated file
+# against nothing and write the real one nowhere.
+ln -sfn "$ROOT/Protocol" "$WORK/Protocol"
 # BloomCore's one dependency, the Cloud workspace wire shapes, which is plain Foundation and a
 # package of its own, so the mirror can name it by the same relative path the real manifest does.
 ln -sfn "$ROOT/Packages" "$WORK/Packages"
