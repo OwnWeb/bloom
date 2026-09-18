@@ -107,10 +107,11 @@ struct RemoteBridgeTests {
         // Pinned on purpose, so adding a tool to a machine is a decision somebody takes rather
         // than a thing that happens. `request_pane` was added on 18 September 2026 and is the only
         // one here that reaches out of the machine at all: it asks a client to open a browser pane
-        // and cannot open one itself. See `RequestPaneTool`.
+        // and cannot open one itself. See `RequestPaneTool`. `cloud_setup` is guidance and touches
+        // nothing; see `CloudSetupGuide`.
         #expect(toolbox.tools(for: .workspace).map(\.name) == [
             "agent_list", "agent_say", "agent_start", "agent_stop", "chat_list", "chat_read",
-            "request_pane", "whoami", "workspace_diff",
+            "cloud_setup", "request_pane", "whoami", "workspace_diff",
         ])
         #expect(toolbox.tools(for: .owner).isEmpty)
         // `pane_open` in particular: the machine can ask for a pane and cannot open one, and the

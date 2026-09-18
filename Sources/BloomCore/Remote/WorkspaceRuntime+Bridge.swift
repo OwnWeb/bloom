@@ -68,6 +68,7 @@ extension WorkspaceRuntime {
             ChatReadTool(),
             WorkspaceDiffTool(),
             AgentListTool(),
+            CloudSetupTool(),
             AgentStartTool { [weak self] order, sessionID, workspaceID in
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.startCrewMember(order, parentID: sessionID, workspaceID: workspaceID)

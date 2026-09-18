@@ -48,6 +48,11 @@ public enum BridgeBriefing {
             list. A service that asks for one of them dies with "Address already in use" and \
             restarts for ever.
 
+            **Before you touch `.bloom/settings.toml`, a setup script or a service, read \
+            `cloud_setup`.** It is what runs and when, which ports are taken, what belongs in a \
+            service rather than a script, and how to check. Everything in it was learned by \
+            somebody losing an afternoon to it.
+
             To say something to the person rather than show them, write it in your answer: the \
             chat is what they are reading.
             """

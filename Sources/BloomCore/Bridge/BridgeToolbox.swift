@@ -76,6 +76,9 @@ public struct BridgeToolbox: Sendable {
         // and stopping one all happen in the main-actor graph that owns the runners: see
         // `CrewStarting`, `CrewSaying` and `CrewStopping` in `CrewSeam`.
         AgentListTool(),
+        // Guidance rather than an action, and it needs nothing but itself, which is why it is here
+        // rather than in the app's half. See `CloudSetupTool`.
+        CloudSetupTool(),
     ])
 
     /// The tools a caller may see. Sorted by name so `tools/list` is stable between calls, which
