@@ -23,12 +23,27 @@ public enum MessageAuthorship {
     /// Whether this message was sent by somebody else, which is the only thing the colour depends
     /// on.
     ///
-    /// A message with no author is the reader's own. That is the client's own convention rather
-    /// than the wire's: the transcript clears the author of anything written by the account that
-    /// is reading, so what is left carries a name because it belongs to somebody else. Every
-    /// message in a workspace nobody shares is therefore the reader's, which is right: a Mac has
-    /// one person at it.
-    public static func isFromSomebodyElse(author: String?) -> Bool { author != nil }
+    /// **Two ways to be yours, and the second is the one that was missing.** A message with no
+    /// author is yours, because the transcript clears the author of anything written by the
+    /// account that is reading; every message in a workspace nobody shares is therefore yours,
+    /// which is right, because a Mac has one person at it. **And an author that IS you is yours
+    /// too**, whether or not anything cleared the field.
+    ///
+    /// The second half is not defensive tidying. The machine sends your own messages back with
+    /// your account still on them, so a client whose whole rule was "there is an author, so it is
+    /// not mine" draws your own words in the colour reserved for somebody else's. That rule was
+    /// true right up until mentions made it possible to watch one of your messages come back
+    /// named. The web client shipped it, the owner reported it, and this is their fix: **be right
+    /// whether or not the machine clears the field**, because which of the two is doing the
+    /// clearing is not something the reader can see.
+    ///
+    /// - Parameter reader: the account doing the reading, or nil where nobody is signed in, which
+    ///   is every local workspace and a share-link guest. A nil reader matches no author, so the
+    ///   answer falls back to the absence alone.
+    public static func isFromSomebodyElse(author: String?, reader: String? = nil) -> Bool {
+        guard let author else { return false }
+        return author != reader
+    }
 
     /// What to call whoever a message was addressed to, or nil where the caption says nothing
     /// about it.
@@ -70,6 +85,7 @@ public enum MessageAuthorship {
     ///     somebody's messages does not make the second one a new run, because the reader can see
     ///     perfectly well that the same person is still talking.
     ///   - previousAddressee: who that one was for, by the same rule.
+    ///   - reader: the account doing the reading, for `isFromSomebodyElse(author:reader:)`.
     ///
     /// An author with no name gets no name in the caption. The wire carries a name and an account
     /// id and nothing else, so a person runbloom.app has no name for cannot be introduced here;
@@ -81,11 +97,15 @@ public enum MessageAuthorship {
         name: String?,
         addressee: String?,
         previousAuthor: String?,
-        previousAddressee: String?
+        previousAddressee: String?,
+        reader: String? = nil
     ) -> String? {
-        let sender = isFromSomebodyElse(author: author) ? clean(name) : ""
+        let sender = isFromSomebodyElse(author: author, reader: reader) ? clean(name) : ""
         let recipient = clean(addressee)
         guard !sender.isEmpty || !recipient.isEmpty else { return nil }
+        // The run is keyed on the pair, and on the author as the wire spells it rather than on
+        // "was it mine": your own message following your own message is one run whether or not
+        // the machine put your account on both of them.
         guard author != previousAuthor || addressee != previousAddressee else { return nil }
         if sender.isEmpty { return "To " + recipient }
         if recipient.isEmpty { return sender }

@@ -22,6 +22,31 @@ struct MessageAuthorshipTests {
         #expect(caption(after: nil) == nil)
     }
 
+    /// The bug the web client shipped and the owner reported: the machine sends your own messages
+    /// back with your account still on them, so "there is an author, so it is not mine" drew his
+    /// own words in the colour reserved for somebody else's.
+    @Test("A message whose author is you is yours, cleared or not")
+    func yourOwnAccountIsStillYou() {
+        #expect(!MessageAuthorship.isFromSomebodyElse(author: "u1", reader: "u1"))
+        #expect(MessageAuthorship.isFromSomebodyElse(author: "u2", reader: "u1"))
+        // Nobody signed in: every local workspace, and a share-link guest. The absence is all
+        // there is to go on, and it is the answer it always was.
+        #expect(MessageAuthorship.isFromSomebodyElse(author: "u2", reader: nil))
+        #expect(!MessageAuthorship.isFromSomebodyElse(author: nil, reader: nil))
+        // And the caption agrees with the colour, which is the half that would otherwise have
+        // read "Freek Van der Herten to Seb De Deyne" over Freek's own sentence.
+        #expect(MessageAuthorship.caption(
+            author: "u1", name: "Freek Van der Herten", addressee: "Seb De Deyne",
+            previousAuthor: nil, previousAddressee: nil, reader: "u1"
+        ) == "To Seb De Deyne")
+        // A colleague writing to a third person still names both ends. A fix that deletes both is
+        // not a fix.
+        #expect(MessageAuthorship.caption(
+            author: "u2", name: "Seb De Deyne", addressee: "Freek Van der Herten",
+            previousAuthor: nil, previousAddressee: nil, reader: "u1"
+        ) == "Seb De Deyne to Freek Van der Herten")
+    }
+
     @Test("Somebody else's is theirs whatever it is called")
     func theirsIsTheirs() {
         #expect(MessageAuthorship.isFromSomebodyElse(author: "u2"))

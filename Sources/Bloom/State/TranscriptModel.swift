@@ -1182,8 +1182,13 @@ final class TranscriptModel {
         guard cloud == nil else {
             return CloudSteer.canSteer(
                 isRunning: isRunning,
-                // The reader's own messages carry no name: see where the queue is built.
-                promptIsReaders: delivery.author == nil && delivery.crewMessage == nil,
+                // The same rule the bubbles are coloured by, rather than "it carries no author":
+                // the machine sends the reader's own work back with their account on it, and the
+                // clearing where the queue is built is one account id away from not happening.
+                // See `MessageAuthorship.isFromSomebodyElse`.
+                promptIsReaders: !MessageAuthorship.isFromSomebodyElse(
+                    author: delivery.author?.userID, reader: cloud?.readerID
+                ) && delivery.crewMessage == nil,
                 runningTurnIsReaders: runningTurnIsReaders,
                 queued: pendingDeliveries.count
             )
@@ -1192,10 +1197,14 @@ final class TranscriptModel {
     }
 
     /// Whether the turn running now was started by this reader, which is what makes stopping it
-    /// theirs to do. Read off the last thing anybody said: a Cloud row carries a name when it was
-    /// written by somebody else, and nothing at all when it was written here.
+    /// theirs to do. Read off the last thing anybody said.
+    ///
+    /// **The account rather than the name**, which is what it used to ask. A teammate runbloom.app
+    /// has no name for carries an empty name and an account all the same, and reading the name
+    /// made their turn look like the reader's own and offered a Steer over it.
     private var runningTurnIsReaders: Bool {
-        rows.last { $0.kind == .user }?.authorName == nil
+        guard let last = rows.last(where: { $0.kind == .user }) else { return true }
+        return !MessageAuthorship.isFromSomebodyElse(author: last.authorID, reader: cloud?.readerID)
     }
 
     /// Stops the turn that is running and sends this queued message into the space it makes.

@@ -562,6 +562,9 @@ struct TranscriptListView: View {
         // What this workspace calls everybody, read once for the whole list rather than per row:
         // it walks the member list, and a transcript is hundreds of rows long.
         let addresseeNames = transcript.addresseeNames
+        // Who is reading, so a message of the reader's own that came back from the machine with
+        // their account still on it is drawn as theirs. See `MessageAuthorship.isFromSomebodyElse`.
+        let readerID = transcript.cloud?.readerID
 
         for index in drawnRows.indices {
             let row = drawnRows[index]
@@ -619,9 +622,13 @@ struct TranscriptListView: View {
                     name: row.authorName,
                     addressee: addressee,
                     previousAuthor: previousAuthorID,
-                    previousAddressee: previousAddressee
+                    previousAddressee: previousAddressee,
+                    reader: readerID
                 )
                 : nil
+            let isFromSomebodyElse = MessageAuthorship.isFromSomebodyElse(
+                author: row.authorID, reader: readerID
+            )
             if row.kind == .user {
                 previousAuthorID = row.authorID
                 previousAddressee = addressee
@@ -666,6 +673,7 @@ struct TranscriptListView: View {
                 // A row whose label appears or disappears because the message above it changed is
                 // a row that has to be drawn again.
                 $0.combine(caption)
+                $0.combine(isFromSomebodyElse)
             }
             // Free, and no for the two kinds that make up most of a long session, so it is asked
             // here rather than inside the closure that runs per cell.
@@ -717,6 +725,7 @@ struct TranscriptListView: View {
                             TranscriptRowView(
                                 row: row,
                                 caption: caption,
+                                isFromSomebodyElse: isFromSomebodyElse,
                                 home: home,
                                 isExpanded: isExpanded,
                                 isNested: row.parentToolUseID != nil,
