@@ -343,6 +343,17 @@ final class TranscriptModel {
     /// when a turn ends sends it. Cleared there, and wherever the chat stops expecting a result.
     private var steering: Delivery?
 
+    /// Who the next message in this chat goes to, until a mention changes it.
+    ///
+    /// **The composer's, not the conversation's.** Two people in one Cloud workspace can be
+    /// addressing different people at the same moment, so a chat-level field would move the second
+    /// one's box under them. It is per chat rather than per window because "who I was last talking
+    /// to" is a fact about this conversation, and it is in memory rather than on disk because a
+    /// relaunch is a fresh start at the agent, which is the safe direction: a mode that outlived a
+    /// restart would send somebody's first message of the morning to a person they had forgotten
+    /// they were talking to. See `MentionAddress`.
+    var audience: ComposerAudience = .agent
+
     /// Whether the chat above this one has already been told that this turn ended.
     ///
     /// A turn has two endings that report, `.error` and `.result`, and they are not alternatives:
@@ -2531,20 +2542,20 @@ final class TranscriptModel {
             return false
         }
 
-        // Who this one is for. **`@agent` is the only mention that can resolve today**, because
-        // nobody can be addressed until the machine is told who is on the team, and that is the
-        // control server's half. It is worth carrying all the same: the machine takes the mention
-        // off the text it hands the model, so an agent asked "@agent run the tests" reads "run the
-        // tests" while the transcript keeps what was typed. See `MentionAddress` and
-        // `AudienceRecord`.
-        let audience = Self.audience(of: body, through: cloud)
+        // Who this one is for: what it names, or where the last one went. The mention travels with
+        // it rather than being stripped here, because the machine takes it off the text it hands
+        // the model and nowhere else, so an agent asked "@agent run the tests" reads "run the
+        // tests" while the transcript keeps what was typed. See `MentionAddress`.
+        let named = MentionAddress.mentioned(in: body, people: cloud.people, runningAgent: cloud.runningAgent)
+        audience = named ?? audience
+        let record = Self.record(for: audience, mention: named == nil ? nil : MentionAddress.token(in: body))
         let delivery = Delivery(targetSessionID: session.id, body: body)
         messageArrivals.sent(delivery.id)
         // The echo only when nothing is ahead of it, which is when the machine will start it at
         // once; otherwise the queue event that follows draws it where it waits.
         if !queuesNextMessage { sending = delivery }
         jumpToLiveEnd()
-        let outcome = await cloud.send(body, audience: audience)
+        let outcome = await cloud.send(body, audience: record)
         guard let sentence = outcome.sentence else { return true }
         // The echo goes either way: it said the turn had started, and for the unknown case that
         // is exactly what nobody can promise. What the machine really did is in the transcript,
@@ -2615,20 +2626,18 @@ final class TranscriptModel {
         return .sent(parsed.mapping { moved[$0] })
     }
 
-    /// The audience a draft names, as the wire carries it, or nil where it names nobody.
+    /// The audience as the wire carries it, or nil for a message to the agent with nothing typed
+    /// in front of it.
     ///
-    /// Nil rather than "the agent" for a message with no mention, and the difference is not
-    /// cosmetic: absent means the agent on the wire as well, so an unaddressed message is sent the
-    /// way every message has always been sent, and the day somebody can be addressed the sticky
-    /// audience is what fills this in. See `MentionAddress.mentioned`.
-    private static func audience(of body: String, through cloud: CloudChatLink) -> AudienceRecord? {
-        guard let mention = MentionAddress.token(in: body),
-              let named = MentionAddress.mentioned(
-                  in: body, people: cloud.people, runningAgent: cloud.runningAgent
-              )
-        else { return nil }
-        switch named {
+    /// **Nil rather than an explicit agent for the ordinary case**, because absent means the agent
+    /// on the wire as well and every message Bloom has ever sent is that one: a client that started
+    /// spelling it out would be saying something new about messages that have not changed. What is
+    /// spelled out is a message that named somebody, either way, so the machine can strip the
+    /// mention it carries.
+    private static func record(for audience: ComposerAudience, mention: String?) -> AudienceRecord? {
+        switch audience {
         case .agent:
+            guard let mention else { return nil }
             return AudienceRecord(kind: AudienceRecord.agent, mention: mention)
         case .person(let person):
             return AudienceRecord(kind: AudienceRecord.person, userID: person.id.rawValue, mention: mention)

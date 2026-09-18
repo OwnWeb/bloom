@@ -28,6 +28,12 @@ struct ComposerPrompt<Footer: View>: View {
 
     /// The checkout `@mentions` and `/commands` are resolved against.
     var mentionRoot: String
+    /// Everybody a message in this conversation may be addressed to, other than the reader.
+    ///
+    /// Empty everywhere but a shared Cloud workspace, which is what keeps `@` meaning a file in
+    /// every worktree on this Mac: see `MentionAddress.offersPeople`, which is the rule, and
+    /// `PersonMentionMenu`, which is what opens when it says yes.
+    var people: [ComposerAudience.Person] = []
     /// Where an attached file is copied to, and what its stored path is relative to.
     var attachmentRoot: String
     /// Which bucket of `PromptAttachmentStore` this prompt is filling: a session id in a
@@ -222,11 +228,14 @@ struct ComposerPrompt<Footer: View>: View {
                 commands: slashResults(in: openMenu),
                 commandsAreLoaded: slashCatalog.isLoaded,
                 files: fileMatches,
+                people: peopleMatches(in: openMenu),
+                offersPeople: offersPeople(in: openMenu),
                 selectedIndex: menuIndex,
                 maxHeight: placement.menuHeight,
                 availableWidth: boxWidth,
                 onPickCommand: pick(command:),
                 onPickFile: pick(file:),
+                onPickPerson: pick(person:),
                 onHighlight: { menuIndex = $0 }
             )
             .alignmentGuide(.top, computeValue: guide)
@@ -442,8 +451,28 @@ struct ComposerPrompt<Footer: View>: View {
     private var menuCount: Int {
         switch activeMenu {
         case .slash: slashResults(in: activeMenu).count
-        case .mention: fileMatches.count
+        case .mention: offersPeople(in: activeMenu) ? peopleMatches(in: activeMenu).count : fileMatches.count
         case .none: 0
+        }
+    }
+
+    /// Whether the `@` being typed names a person rather than a file. The rule is
+    /// `MentionAddress.offersPeople`, in the core, because the web client asks it too.
+    private func offersPeople(in menu: ComposerMenu) -> Bool {
+        guard let token = menu.mention else { return false }
+        return MentionAddress.offersPeople(token: token, draft: command.body, hasPeople: !people.isEmpty)
+    }
+
+    /// Who the query matches, by handle or by name, in the order the machine listed them.
+    ///
+    /// Both, because somebody typing `@seb` is as likely to be reaching for the name they see in
+    /// the room as for the handle they have to type, and a menu that only matched handles would
+    /// look broken to the second kind of person.
+    private func peopleMatches(in menu: ComposerMenu) -> [ComposerAudience.Person] {
+        guard offersPeople(in: menu), let query = menu.query?.lowercased() else { return [] }
+        guard !query.isEmpty else { return people }
+        return people.filter {
+            $0.handle.lowercased().contains(query) || $0.name.lowercased().contains(query)
         }
     }
 
@@ -553,7 +582,10 @@ struct ComposerPrompt<Footer: View>: View {
 
     private func pick(file: FileMatch) {
         guard let token = activeMenu.mention else { return }
-        let replacement = "@\(file.path) "
+        replace(token: token, with: "@\(file.path) ")
+    }
+
+    private func replace(token: ComposerMenu.Token, with replacement: String) {
         var draft = command
         // Measured against the body, which is what the token was found in and what the editor's
         // caret counts from. Writing it back through the split is what keeps the command intact.
@@ -568,12 +600,23 @@ struct ComposerPrompt<Footer: View>: View {
         isFocused = true
     }
 
+    /// Writes the handle in, in place of what was typed. The same replacement a file picks, over
+    /// the same token, because the two menus differ in what they list and in nothing else.
+    private func pick(person: ComposerAudience.Person) {
+        guard let token = activeMenu.mention else { return }
+        replace(token: token, with: "@\(person.handle) ")
+    }
+
     private func pickHighlighted() {
         switch activeMenu {
         case .slash:
             let results = slashResults(in: activeMenu)
             guard results.indices.contains(menuIndex) else { return }
             pick(command: results[menuIndex].command)
+        case .mention where offersPeople(in: activeMenu):
+            let matches = peopleMatches(in: activeMenu)
+            guard matches.indices.contains(menuIndex) else { return }
+            pick(person: matches[menuIndex])
         case .mention:
             guard fileMatches.indices.contains(menuIndex) else { return }
             pick(file: fileMatches[menuIndex])

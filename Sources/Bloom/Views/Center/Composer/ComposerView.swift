@@ -90,6 +90,7 @@ struct ComposerView: View {
             .help("Drag to resize. Double-click to fit the text.")
 
             ComposerPlansView(transcript: transcript, model: model, controls: controls)
+            audienceBanner
             composer
         }
         // The chrome is whatever is left once the editor's share is taken off, so this settles on
@@ -129,12 +130,49 @@ struct ComposerView: View {
         return transcript.cloud?.attachmentRoot ?? transcript.cwd
     }
 
+    /// The line over the box when the next message is not for the agent.
+    ///
+    /// **It is there over an empty box, because the mode is state rather than something read out of
+    /// what is typed.** That is the part of this feature that is hardest to guess from a
+    /// description and the part a person relies on: after one message to Seb, everything else goes
+    /// to Seb until it is changed, and the only thing saying so is this line.
+    ///
+    /// **What it says is who sees it, not who it is from.** A message to a person is drawn in the
+    /// room for everybody who has the workspace open; the one who does not see it is the agent,
+    /// which is the whole point and the thing somebody has to be sure of before they type.
+    @ViewBuilder
+    private var audienceBanner: some View {
+        if let person = transcript.audience.person {
+            HStack(spacing: Metrics.spacingWide) {
+                Image(systemName: "at")
+                    .font(Typo.caption)
+                    .foregroundStyle(Palette.textTertiary)
+                Text("Writing to \(person.name). The agent does not see this.")
+                    .font(Typo.caption)
+                    .foregroundStyle(Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: Metrics.spacingSmall)
+                Button("Back to the agent") { transcript.audience = .agent }
+                    .buttonStyle(.plain)
+                    .font(Typo.caption)
+                    .foregroundStyle(Palette.link)
+                    .pointerStyle(.link)
+                    .help("The next message goes to the agent again. Typing @agent does the same.")
+            }
+            .padding(.horizontal, ComposerLayout.horizontalInset + Metrics.spacingWide)
+            .padding(.bottom, Metrics.spacingSmall)
+            .frame(maxWidth: TranscriptLayout.conversationMeasure)
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
     private var composer: some View {
         ComposerPrompt(
             text: $transcript.draft,
             caret: $caret,
             isFocused: $isFocused,
             mentionRoot: transcript.cwd,
+            people: transcript.cloud?.people ?? [],
             attachmentRoot: attachmentRoot,
             attachmentKey: transcript.session.id.rawValue,
             reviewComments: reviewComments,
