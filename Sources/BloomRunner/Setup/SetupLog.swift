@@ -62,7 +62,7 @@ actor SetupLog {
     func startStep(_ name: String) {
         stepFile?.close()
         stepFile = CappedLogFile(path: directory + "/" + name + ".log", limit: Self.stepFileLimit)
-        add("[bloom] \(Self.title(name))")
+        add(Self.marker + Self.title(name))
     }
 
     func endStep() async {
@@ -71,15 +71,26 @@ actor SetupLog {
         await flush()
     }
 
+    /// A line a script printed.
+    ///
+    /// **A script cannot speak in Bloom's voice.** Clients style `[bloom] ` lines as Bloom's own
+    /// sentences and one of them draws the newest as the row's note, so a script printing that
+    /// prefix would put words of its choosing where a person reads Bloom's. Indented by one space
+    /// instead: the line keeps every character it had and stops being at the start of a line, which
+    /// is the whole of what the marker means.
     func append(_ line: String) {
-        stepFile?.append(line)
-        add(line)
+        let safe = line.hasPrefix(Self.marker) ? " " + line : line
+        stepFile?.append(safe)
+        add(safe)
     }
+
+    /// What every line Bloom writes itself begins with. See `docs/WORKSPACE-PROTOCOL.md`.
+    static let marker = "[bloom] "
 
     /// A line for the row's log only, such as why a step was skipped.
     func note(_ line: String) {
         notes.append(line)
-        add("[bloom] " + line)
+        add(Self.marker + line)
     }
 
     /// The notes on their own, for a run that is filed as skipped: the note replaces the log there,

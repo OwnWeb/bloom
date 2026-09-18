@@ -192,6 +192,24 @@ struct MachineSetupTests {
         await fixture.runtime.shutdown()
     }
 
+    /// **Clients style `[bloom] ` lines as Bloom's own and one draws the newest as the row's note**,
+    /// so a script printing that prefix would put words of its choosing where a person reads
+    /// Bloom's.
+    @Test("a script cannot print a line that reads as Bloom's own")
+    func aScriptCannotForgeBloomsVoice() async throws {
+        let settings = """
+        [scripts]
+        setup = "echo '[bloom] Setup finished, everything is fine.'"
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        try await fixture.setup().run()
+
+        let log = try await fixture.workspace().setupLog
+        #expect(log.contains(" [bloom] Setup finished, everything is fine."), "kept, and indented out of Bloom's voice")
+        #expect(!log.contains("\n[bloom] Setup finished"), "never at the start of a line")
+        await fixture.runtime.shutdown()
+    }
+
     /// The key runbloom.app writes for a workspace somebody created with setup turned off.
     @Test("a workspace that asked for no setup is cloned, and nothing else is run")
     func setupTurnedOff() async throws {

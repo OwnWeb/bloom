@@ -396,10 +396,21 @@ the three shapes together.
 the script's own output.** A client can draw the two differently on that alone: the step headings
 (`[bloom] Cloning the repository.`), the notes (a settings problem, a run starting again, why
 nothing ran) and the outcome sentences are Bloom speaking; everything else is what the project
-printed. **Two of the six steps normally print nothing at all** (reading the team's environment and
-configuring git are usually silent, and so is starting the services beyond one line), so **an empty
-log under a named step is the ordinary case rather than a sign that nothing is happening**. The step
-is the state; the log is the detail.
+printed.
+
+**The step ids, which are the whole set**: `environment`, `git`, `clone`, `prepare`, `setup`,
+`resume`, `services`. A run shows the ones it needs, in that order: a project with no scripts shows
+`environment`, `git`, `clone` and, if it declares any, `services`, and a later start shows
+`environment`, `git`, `resume`, `services`. **Three of them normally print nothing worth reading**:
+`environment` and `git` are silent unless something goes wrong, and `services` says one line. So
+**an empty log under a named step is the ordinary case rather than a sign that nothing is
+happening**, and **the step is always set before the work starts**, which makes it a promise the
+machine has already kept rather than one it is about to. The step is the state; the log is the
+detail.
+
+**A script cannot speak in Bloom's voice**: a line of script output that begins with the marker is
+indented by one space before it is stored, so it keeps every character and stops being a line that
+starts with `[bloom] `.
 
 **A workspace can be created with setup turned off, and `setup.enabled` is how a client knows.**
 It is false when somebody asked for no setup scripts at all: the repository is cloned and nothing

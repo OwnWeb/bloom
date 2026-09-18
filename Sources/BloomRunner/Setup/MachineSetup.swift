@@ -218,19 +218,32 @@ public actor MachineSetup {
         if let stalledSince, Date().timeIntervalSince(stalledSince) < stallAfter { return }
         stalledSince = Date()
         let waited = waiting >= 60 ? "\(Int(waiting / 60)) minutes" : "\(Int(waiting)) seconds"
-        // The same signal the summary carries, so there is one definition of alive rather than two
-        // that drift. Silence with something running under it is a step working quietly; silence
-        // with nothing running is the only shape worth anybody acting on.
-        let found: String
+        // **The advice is given only when it is correct.** This used to end by suggesting a restart
+        // whatever was happening, which is advice handed to everybody whose `composer install` is
+        // four minutes into being perfectly fine, and advice that is usually wrong is advice
+        // somebody learns to ignore on the day it is right. The verdict is the same signal the
+        // summary carries, so there is one definition of alive rather than two that drift, and it
+        // is spent here on the difference between reassurance and an instruction.
+        let quiet = "Setup has been in \(activity.name) for \(waited) with nothing new. "
+        let sentence: String
         switch lastVerdict {
-        case .working: found = "Something under it is using the processor, so it is working. "
-        case .waiting: found = "Something is still running under it, waiting rather than working. "
-        case .nothingAlive: found = "Nothing is running under it. "
-        case nil: found = ""
+        case .working:
+            sentence = quiet + "Something under it is still working, so this is a quiet step rather "
+                + "than a stuck one."
+        case .waiting:
+            sentence = quiet + "Something is still running under it, waiting on something rather than "
+                + "using the processor. Nothing needs doing."
+        case .nothingAlive, nil:
+            // Nil is a machine that cannot tell rather than one saying the step is dead, and the
+            // advice is the same in both: this is the only shape where a restart is the answer, and
+            // saying why is what stops it reading as a ritual.
+            let because = lastVerdict == nil
+                ? "If it never moves, "
+                : "Nothing is running under it at all. "
+            sentence = quiet + because
+                + "restarting this machine's server clears it: the one case measured was a "
+                + "subprocess launch that never returned, and a restart ran the same step at once."
         }
-        let sentence = "Setup has been in \(activity.name) for \(waited) with nothing new. " + found
-            + "If it never moves, restarting this machine's server clears it: the one case measured "
-            + "was a subprocess launch that never returned, and a restart ran the same step at once."
         await currentLog?.note(sentence)
         FileHandle.standardError.write(Data("bloom-runner: \(sentence)\n".utf8))
     }
