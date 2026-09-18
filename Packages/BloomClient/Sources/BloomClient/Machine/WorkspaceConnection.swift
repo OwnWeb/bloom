@@ -191,6 +191,10 @@ public actor WorkspaceConnection {
     /// The machine's address, once a token named it.
     public var machineURL: URL? { token?.machineURL }
 
+    /// Who the current token was minted for, which is available as soon as one has been fetched
+    /// and therefore before any account object exists. See `SessionToken.userID`.
+    public var tokenUserID: String? { token?.userID }
+
     // MARK: Opening and closing
 
     /// Opens the event stream, unless it is open or opening already.

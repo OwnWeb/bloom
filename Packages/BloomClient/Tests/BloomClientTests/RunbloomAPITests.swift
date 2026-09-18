@@ -122,6 +122,24 @@ import Testing
         #expect(!token.awake)
         #expect(token.allows("share"))
         #expect(token.machineURL.absoluteString == Fixtures.machine)
+        // The fixture predates the field, which is the case an older control server is in: absent
+        // reads as nil rather than throwing, and the account is what the client falls back to.
+        #expect(token.userID == nil)
+    }
+
+    /// The id a client tells its own messages by before it has an account object. It is the
+    /// token's own `sub`, pinned to it by a test on runbloom.app's side, which is what makes
+    /// reading the field rather than decoding the token correct as well as cheap. See
+    /// `SessionToken.userID`.
+    @Test func aSessionTokenSaysWhoItWasMintedFor() async throws {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json("""
+        {"data": {"token": "session-1", "expires_at": "2099-01-01T00:00:00.000000Z", \
+        "machine_url": "\(Fixtures.machine)", "awake": true, "abilities": ["view"], \
+        "user_id": "01k5user"}}
+        """))
+        let token = try await Fixtures.api(transport).sessionToken(for: "01k5ws")
+        #expect(token.userID == "01k5user")
     }
 
     @Test func readsAPreviewToken() async throws {

@@ -10,19 +10,37 @@ public struct SessionToken: Codable, Sendable, Hashable {
     /// request made with this token, which is why a client shows that it is waking.
     public var awake: Bool
     public var abilities: [String]
+    /// Who this token was minted for, which is the same id the machine records in
+    /// `author.user_id` and the same one the member list uses.
+    ///
+    /// **It is here so a client can tell its own messages from everybody else's before it has an
+    /// account object**, which is the window the Mac used to draw the reader's own words in the
+    /// colour reserved for a teammate. It is the token's own `sub`, and runbloom.app has a test
+    /// pinning the two together, **so read this field and never decode the token**: parsing it
+    /// would give this client an opinion about the token's shape that everybody afterwards would
+    /// have to keep, for a value that is handed over anyway.
+    ///
+    /// Optional because it is additive: an older control server sends none, and every recorded
+    /// fixture predates it. See `MessageAuthorship.isFromSomebodyElse`.
+    public var userID: String?
 
-    public init(token: String, expiresAt: Date, machineURL: URL, awake: Bool, abilities: [String]) {
+    public init(
+        token: String, expiresAt: Date, machineURL: URL, awake: Bool, abilities: [String],
+        userID: String? = nil
+    ) {
         self.token = token
         self.expiresAt = expiresAt
         self.machineURL = machineURL
         self.awake = awake
         self.abilities = abilities
+        self.userID = userID
     }
 
     enum CodingKeys: String, CodingKey {
         case token, awake, abilities
         case expiresAt = "expires_at"
         case machineURL = "machine_url"
+        case userID = "user_id"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -32,6 +50,7 @@ public struct SessionToken: Codable, Sendable, Hashable {
         machineURL = try c.decode(URL.self, forKey: .machineURL)
         awake = try c.decodeIfPresent(Bool.self, forKey: .awake) ?? false
         abilities = try c.decodeIfPresent([String].self, forKey: .abilities) ?? []
+        userID = try c.decodeIfPresent(String.self, forKey: .userID)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -41,6 +60,7 @@ public struct SessionToken: Codable, Sendable, Hashable {
         try c.encode(machineURL, forKey: .machineURL)
         try c.encode(awake, forKey: .awake)
         try c.encode(abilities, forKey: .abilities)
+        try c.encodeIfPresent(userID, forKey: .userID)
     }
 
     public func allows(_ ability: String) -> Bool { abilities.contains(ability) }

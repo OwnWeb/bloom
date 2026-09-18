@@ -63,33 +63,34 @@ final class CloudWorkspaceSession {
     /// The account doing the reading, which is what decides whether a message is the reader's own.
     /// See `MessageAuthorship.isFromSomebodyElse`, which is the only thing that should ask.
     ///
-    /// **The signed in account, and there is a better answer this client cannot reach yet.** The
-    /// id wanted here is the one the token was minted for: the machine records exactly that in
-    /// `author.user_id`, and a caller has it from its first request, before any account object
-    /// exists. runbloom.app's session-token response does not carry it yet (`SessionToken` in
-    /// `BloomClient` decodes `token`, `expires_at`, `machine_url`, `awake` and `abilities`), so
-    /// the account is what there is.
+    /// **The token's own id first, the signed in account behind it.** A session token is fetched
+    /// to open the connection, so `user_id` is here from the first request, where an account
+    /// object arrives whenever the sign in finishes. That order is the whole point: the window it
+    /// closes is between launch and the account arriving, where a workspace somebody else is in
+    /// drew the reader's own messages in the colour reserved for a teammate and captioned them
+    /// with their own name.
     ///
-    /// **The window that leaves, stated plainly so the next person knows what closing it is
-    /// worth**: between launch and the account arriving, in a workspace somebody else is in, the
-    /// reader's own messages read as somebody else's, which colours them as a teammate's and
-    /// captions them with their own name. A share-link guest is not a case: a preview token cannot
-    /// open a chat or send, so there are no guest-written messages whose ownership could be got
-    /// wrong.
-    ///
-    /// **What closes it: `user_id` on that response**, which the control server is adding. Read
-    /// the field into here; **do not decode the token for its `sub`**, even though the value is
-    /// the same one. The token is for the machine, and a client that parses it acquires an opinion
-    /// about its shape that everybody afterwards has to keep, which is a cost for nothing when the
-    /// field is handed over. It is called `user_id` rather than `subject` because that is already
-    /// what the member list and `author.user_id` call it, and the comparison this makes is against
+    /// **The field, never the token's `sub`**, even though the value is the same one and
+    /// runbloom.app has a test pinning the two together. Parsing the token would give this client
+    /// an opinion about its shape that everybody afterwards has to keep, for a value that is
+    /// handed over anyway. It is `user_id` rather than `subject` because that is already what the
+    /// member list and `author.user_id` call it, and the comparison this feeds is against
     /// `author.user_id`: one id, one name, everywhere it appears.
     ///
-    /// **And it is not a field every client ought to use.** The web's account arrives server
-    /// rendered before the first paint, so the token's id would reach it later rather than
-    /// earlier. This is for a client that authenticates before it renders, which is this one and
-    /// only this one today.
-    var readerID: String? { cloud.account?.id }
+    /// **Not a field every client ought to want.** The web's account arrives server rendered
+    /// before the first paint, so the token's id would reach it later rather than earlier. This is
+    /// for a client that authenticates before it renders, which is this one and only this one
+    /// today.
+    ///
+    /// The account stays as the fallback for a control server too old to send it. A share-link
+    /// guest is not a case either way: a preview token cannot open a chat or send, so there are no
+    /// guest-written messages whose ownership could be got wrong. See
+    /// `MessageAuthorship.isFromSomebodyElse`, which is the only thing that should ask.
+    var readerID: String? { tokenUserID ?? cloud.account?.id }
+
+    /// Who the connection's current token was minted for, cached as the phase moves because
+    /// `readerID` is read from view bodies and the connection is an actor.
+    private(set) var tokenUserID: String?
 
     #if DEBUG
     /// One chat, put into this workspace without a machine to have sent it.
@@ -224,6 +225,10 @@ final class CloudWorkspaceSession {
         switch update {
         case .phase(let next):
             phase = next
+            // Read on every phase rather than only on `.live`: the token is fetched to open the
+            // stream, so this is answerable while the connection is still connecting, and being
+            // answerable early is the whole reason the field exists. See `readerID`.
+            if let userID = await connection?.tokenUserID, userID != tokenUserID { tokenUserID = userID }
             if next == .live {
                 abilities = await connection?.abilities ?? []
                 // A history read that failed while the workspace could not be reached is tried
