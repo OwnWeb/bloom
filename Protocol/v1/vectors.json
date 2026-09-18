@@ -257,17 +257,27 @@
         },
         "services" : [
           {
+            "http" : false,
             "name" : "vite",
             "restarts" : 0,
             "state" : "running"
           },
           {
+            "http" : true,
+            "message" : "Waiting for db.",
+            "name" : "web",
+            "restarts" : 0,
+            "state" : "waiting"
+          },
+          {
+            "http" : false,
             "message" : "Exited with status 1. Starting again in 1 s. It asked for port 8081, which is Bloom Runner itself.",
             "name" : "app",
             "restarts" : 412,
             "state" : "crashed"
           },
           {
+            "http" : false,
             "message" : "Waiting for app.",
             "name" : "horizon",
             "restarts" : 0,

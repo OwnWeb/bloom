@@ -157,7 +157,8 @@ public enum ServeCommand {
         // a preview page that a project's own proxy can make unreachable. See `ServiceRecord`.
         let services = ServiceSupervisor(layout: layout, observer: { [weak runtime] statuses in
             await runtime?.servicesChanged(statuses.map {
-                ServiceRecord(name: $0.name, state: $0.state.rawValue, restarts: $0.restarts, message: $0.message)
+                ServiceRecord(name: $0.name, state: $0.state.rawValue, restarts: $0.restarts,
+                              message: $0.message, isHTTP: $0.isHTTP)
             })
         })
         let server = WorkspaceHTTPServer(dependencies: .init(

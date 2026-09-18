@@ -217,6 +217,9 @@
         "restarts": {
           "type": "integer"
         },
+        "http": {
+          "type": "boolean"
+        },
         "message": {
           "oneOf": [
             {
@@ -229,6 +232,7 @@
         }
       },
       "required": [
+        "http",
         "name",
         "restarts",
         "state"

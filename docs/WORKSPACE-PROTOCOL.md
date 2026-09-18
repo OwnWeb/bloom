@@ -384,7 +384,12 @@ unlabelled message.
 
 **The workspace record carries the project's services, and a client should draw them.** One entry
 per `[[services]]` the repository declares, each with its `state` (`waiting`, `starting`, `running`,
-`not_ready`, `crashed`, `stopped`), how many times it has restarted, and a sentence for a person.
+`not_ready`, `crashed`, `stopped`), how many times it has restarted, a sentence for a person, and
+**`http`, which marks the one the preview routes to**. That mark is a fact rather than an
+instruction: **"can I open the preview yet" is that service and no other, and "why is it not up" is
+usually a different one**, because what holds an app back is the database it waits for. Two clients
+wanted opposite things from it and both were right, so the machine says which it is and neither has
+to guess from a name.
 **The state worth drawing loudest is `waiting`**: the machine starts a service only once everything
 in its `depends_on` is ready, so one whose dependency never comes up is never launched, never fails
 and never restarts, and before this record its only account was a sentence on the preview's own

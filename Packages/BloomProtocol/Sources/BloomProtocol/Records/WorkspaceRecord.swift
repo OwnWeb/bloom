@@ -168,16 +168,40 @@ public struct ServiceRecord: Codable, Sendable, Hashable {
     public var name: String
     /// `waiting`, `starting`, `running`, `not_ready`, `crashed` or `stopped`.
     public var state: String
+    /// The one the preview routes to, which is the service the project marked `http = true`.
+    ///
+    /// **A fact rather than an instruction about what to draw.** Two clients wanted opposite things
+    /// from it and both are right: one asks "can I open the preview yet", which is this service and
+    /// no other, and one asks "why is it not up", which is usually a different service entirely,
+    /// because the thing holding the app back is the database it waits for. So the machine says
+    /// which one it is and neither client has to infer it from a name.
+    public var isHTTP: Bool
     /// How many times it has exited since it was started.
     public var restarts: Int
     /// What it is waiting for, or how it ended, in a sentence meant for a person.
     public var message: String?
 
-    public init(name: String, state: String, restarts: Int = 0, message: String? = nil) {
+    public init(name: String, state: String, restarts: Int = 0, message: String? = nil, isHTTP: Bool = false) {
         self.name = name
         self.state = state
+        self.isHTTP = isHTTP
         self.restarts = restarts
         self.message = message
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, state, restarts, message
+        case isHTTP = "http"
+    }
+
+    /// Absent means no, for a machine built before the field. See `WorkspaceSnapshotRecord`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        state = try container.decode(String.self, forKey: .state)
+        restarts = try container.decode(Int.self, forKey: .restarts)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
+        isHTTP = try container.decodeIfPresent(Bool.self, forKey: .isHTTP) ?? false
     }
 }
 

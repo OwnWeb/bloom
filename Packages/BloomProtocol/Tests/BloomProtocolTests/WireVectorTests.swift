@@ -267,6 +267,9 @@ enum WireExamples {
             setup: workspace.setup, reporting: ReportingRecord(unreachableSince: date, shed: 3),
             services: [
                 ServiceRecord(name: "vite", state: "running"),
+                // The one the preview routes to, which here is neither the healthy one nor the
+                // one everything is waiting on: that is the whole reason the mark is on the wire.
+                ServiceRecord(name: "web", state: "waiting", message: "Waiting for db.", isHTTP: true),
                 ServiceRecord(name: "app", state: "crashed", restarts: 412,
                               message: "Exited with status 1. Starting again in 1 s. It asked for port 8081, "
                                   + "which is Bloom Runner itself."),

@@ -190,7 +190,7 @@ RECORDS = {
                       "services": array(ref("Service"))},
                      {"pull_request": ref("PullRequest"), "reporting": ref("Reporting")}),
     # A service that never started says so here and nowhere else. Empty for a project with none.
-    "Service": obj({"name": S, "state": S, "restarts": I}, {"message": S}),
+    "Service": obj({"name": S, "state": S, "restarts": I, "http": B}, {"message": S}),
     # Present only when the machine has something wrong to say about reaching runbloom.app.
     "Reporting": obj({"shed": I}, {"unreachable_since": DATE}),
     "Chat": obj({"id": S, "title": S, "agent": S, "model": S, "effort": S, "permission_mode": S, "interaction_mode": S,

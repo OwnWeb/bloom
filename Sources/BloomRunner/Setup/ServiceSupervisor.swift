@@ -35,6 +35,8 @@ public actor ServiceSupervisor {
         public var restarts: Int
         /// A sentence for a person: what it is waiting for, or how it ended.
         public var message: String?
+        /// The one the preview routes to, from the project's own `http = true`.
+        public var isHTTP: Bool = false
     }
 
     public struct Tuning: Sendable, Hashable {
@@ -148,7 +150,10 @@ public actor ServiceSupervisor {
     }
 
     public var status: [Status] {
-        order.compactMap { entries[$0] }.map { Status(name: $0.service.name, state: $0.state, restarts: $0.restarts, message: $0.message) }
+        order.compactMap { entries[$0] }.map {
+            Status(name: $0.service.name, state: $0.state, restarts: $0.restarts, message: $0.message,
+                   isHTTP: $0.service.http)
+        }
     }
 
     /// Starts these services, stopping whatever was running first. A service with no name, or a
