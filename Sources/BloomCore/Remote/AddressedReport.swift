@@ -37,27 +37,56 @@ public struct AddressedReport: Sendable, Hashable {
     public var connected: Bool
     public var sentAt: Date
     public var from: Sender
+    /// The words, as typed and mention included, so the mail can say what was asked rather than
+    /// only that something was. **Only the message that addressed this person**: a report is one
+    /// message and one recipient, so it can never carry anybody else's words. Capped at
+    /// `textLimit`. Nil on a report written before the words were kept, which is sent without them.
+    public var text: String?
 
     public init(id: String = newID(), sessionID: SessionID, userID: String, connected: Bool,
-                sentAt: Date, from: Sender) {
+                sentAt: Date, from: Sender, text: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.userID = userID
         self.connected = connected
         self.sentAt = sentAt
         self.from = from
+        self.text = text
+    }
+
+    /// Enough for any message somebody writes to a colleague in a chat, and short enough that a
+    /// mail is a nudge rather than a transcript.
+    public static let textLimit = 2_000
+    /// runbloom.app refuses more than 16 KiB of UTF-8. Two thousand characters are far under that
+    /// in any ordinary sentence, but a character can be a long run of bytes, an emoji family among
+    /// them, and a report refused for its words would mail nobody at all.
+    public static let byteLimit = 16_000
+
+    /// The first `textLimit` characters, shortened further until they fit `byteLimit`, and never
+    /// cut inside a character.
+    static func excerpt(_ text: String) -> String {
+        var cut = String(text.prefix(textLimit))
+        while cut.utf8.count > byteLimit { cut.removeLast() }
+        return cut
     }
 
     /// The body runbloom.app reads. See `RunbloomClient.reportAddressed`.
     public var body: JSONValue {
         var sender: [String: JSONValue] = ["kind": .string(from.kind)]
         if case .member(let userID) = from { sender["user_id"] = .string(userID) }
-        return .object([
+        var body: [String: JSONValue] = [
             "message_id": .string(id),
             "sent_at": .string(WireDate.string(from: sentAt)),
             "from": .object(sender),
             "addressed": .array([.object(["user_id": .string(userID), "connected": .bool(connected)])]),
-        ])
+        ]
+        // **Named for what it is: words one person wrote to another.** Never a prompt and never
+        // agent traffic, and the key says so to whoever reads the body at the other end.
+        if let text {
+            let excerpt = Self.excerpt(text)
+            body["person_message"] = .object(["text": .string(excerpt), "truncated": .bool(excerpt != text)])
+        }
+        return .object(body)
     }
 }
 

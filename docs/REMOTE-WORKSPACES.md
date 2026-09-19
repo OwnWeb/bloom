@@ -269,6 +269,14 @@ person was connected at that moment**, which is the fact only the machine holds.
 dedupes per message **and addressed person**, so a retry is free, and the id must never be reused:
 a repeat is treated as a retry and mails nobody, which fails without a symptom.
 
+**It carries the words, as `person_message: {"text", "truncated"}`**, so the mail can say what was
+asked. Only the message that addressed that person, as typed with its mention, capped at 2,000
+characters and 16,000 bytes of UTF-8 and cut between characters, with `truncated` saying so. **The
+key names what it is: words one person wrote to another**, never a prompt and never agent traffic;
+runbloom.app escapes them, never stores or logs them, and keeps its own 2,000-character cap in the
+mail. A report queued before the words were kept goes without the field, and the mail goes out as it
+did. Agreed with the control server on 19 September 2026.
+
 **A guest's message is reported too, and runbloom.app decides it sends no mail.** The machine says
 what happened and the server says what it means, so that policy is one deploy rather than a release
 to every machine, and there is an answer when somebody asks how often guests try to reach people who

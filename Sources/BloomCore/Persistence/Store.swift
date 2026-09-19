@@ -1242,6 +1242,9 @@ public actor Store {
             CREATE INDEX IF NOT EXISTS addressed_reports_unsent
                 ON addressed_reports (reported_at) WHERE reported_at IS NULL;
             """),
+            // The words of the message, so the mail can say what was asked. Null on rows written
+            // before this, which are sent without them. See `AddressedReport.text`.
+            sql("ALTER TABLE addressed_reports ADD COLUMN text TEXT;"),
         ]
 
         let current = Int(try db.readUserVersion())
@@ -4341,14 +4344,15 @@ public actor Store {
         try db.run(
             """
             INSERT OR IGNORE INTO addressed_reports
-                (id, session_id, user_id, connected, sent_at, from_kind, from_user_id, reported_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                (id, session_id, user_id, connected, sent_at, from_kind, from_user_id, reported_at, text)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
             """,
             [
                 .text(report.id), .text(report.sessionID), .text(report.userID),
                 .int(report.connected ? 1 : 0), .double(report.sentAt.timeIntervalSince1970),
                 .text(report.from.kind),
                 { if case .member(let id) = report.from { return .text(id) } else { return .null } }(),
+                report.text.map { .text($0) } ?? .null,
             ]
         )
     }
@@ -4365,7 +4369,7 @@ public actor Store {
                     : row.string("from_user_id").map { .member($0) } ?? .guest
                 return AddressedReport(id: id, sessionID: SessionID(session), userID: user,
                                        connected: (row.int("connected") ?? 0) == 1,
-                                       sentAt: Date(timeIntervalSince1970: sentAt), from: from)
+                                       sentAt: Date(timeIntervalSince1970: sentAt), from: from, text: row.string("text"))
             }
     }
 

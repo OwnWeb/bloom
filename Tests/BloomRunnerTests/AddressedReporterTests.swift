@@ -8,9 +8,41 @@ import Testing
 @Suite("Reporting that somebody was addressed")
 struct AddressedReporterTests {
     private func report(userID: String = "user-seb", connected: Bool = false,
-                        from: AddressedReport.Sender = .member("user-freek")) -> AddressedReport {
+                        from: AddressedReport.Sender = .member("user-freek"), text: String? = nil) -> AddressedReport {
         AddressedReport(sessionID: SessionID("01k5bx7j9d3v2r8q6m4n0p1s2w"), userID: userID,
-                        connected: connected, sentAt: Date(timeIntervalSince1970: 1_700_000_000), from: from)
+                        connected: connected, sentAt: Date(timeIntervalSince1970: 1_700_000_000), from: from, text: text)
+    }
+
+    /// Freek wanted the mail to say what was asked. The words travel under a key that says they are
+    /// one person's to another, so the other end never mistakes them for agent traffic.
+    @Test("the words go as person_message, and a report written before them goes without")
+    func theWordsTravel() {
+        let body = report(text: "@sebdd could you look at the migration?").body
+        #expect(body["person_message"]?["text"]?.stringValue == "@sebdd could you look at the migration?")
+        #expect(body["person_message"]?["truncated"]?.boolValue == false)
+        #expect(report().body["person_message"] == nil, "absent, so the mail goes out as it did")
+    }
+
+    /// runbloom.app refuses more than 16 KiB, and a refused report mails nobody, so the cut is by
+    /// characters and then by bytes, never inside a character.
+    @Test("long words are cut to the character limit, and to the byte limit when characters are long")
+    func theWordsAreCapped() throws {
+        let long = String(repeating: "a", count: AddressedReport.textLimit + 10)
+        let cut = try #require(report(text: long).body["person_message"])
+        #expect(cut["text"]?.stringValue?.count == AddressedReport.textLimit)
+        #expect(cut["truncated"]?.boolValue == true)
+
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"
+        let emoji = try #require(report(text: String(repeating: family, count: 1_000)).body["person_message"]?["text"]?.stringValue)
+        #expect(emoji.utf8.count <= AddressedReport.byteLimit)
+        #expect(emoji.allSatisfy { $0 == Character(family) }, "cut between characters, never inside one")
+    }
+
+    @Test("the words are kept with the row, so a report sent after a restart still carries them")
+    func theWordsSurviveARestart() async throws {
+        let store = try Store(path: SetupTestSupport.directory("addressed-text") + "/bloom.sqlite")
+        try await store.recordAddressed(report(text: "Before I merge"))
+        #expect(try await store.unsentAddressedReports().first?.text == "Before I merge")
     }
 
     @Test("the body carries the id, the sender and the machine's own verdict on who was here")
