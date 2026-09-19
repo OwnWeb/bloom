@@ -19,19 +19,25 @@ struct RemoteWorkspaceRuntimeTests {
 
     func fixture(
         gate: any RemoteTurnGate = UngatedTurns(),
-        createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil
+        createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil,
+        models: @escaping WorkspaceRuntime.ModelDiscovery = { _ in [] },
+        settings: String? = nil
     ) async throws -> Fixture {
         let store = try makeTestStore("remote-runtime")
         let repo = try await store.upsert(Repo(name: "bloom", path: TestScratch.unique("repo")))
         let path = TestScratch.unique("worktree")
         try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        if let settings {
+            try FileManager.default.createDirectory(atPath: path + "/.bloom", withIntermediateDirectories: true)
+            try settings.write(toFile: path + "/.bloom/settings.toml", atomically: true, encoding: .utf8)
+        }
         let workspace = try await store.upsert(Workspace(repoID: repo.id, name: "Queue retries", branch: "queue-retries", path: path, baseBranch: "main"))
         let session = try await store.upsert(Session(workspaceID: workspace.id, title: "Chat"))
         let runners = RemoteTestRunners()
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id, gate: gate,
             makeRunner: { session, _, store, environment, _ in runners.make(session: session, store: store, environment: environment) },
-            installedAgents: { [.claudeCode, .codex] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50),
+            installedAgents: { [.claudeCode, .codex] }, models: models, runnerExitGrace: .milliseconds(50),
             createCloudWorkspace: createCloudWorkspace
         )
         try await runtime.start()
@@ -266,6 +272,36 @@ struct RemoteWorkspaceRuntimeTests {
         #expect(refused.error?.code == .invalidValue)
         #expect(try await fixture.store.messages(sessionID: fixture.session.id).filter { $0.kind == .user }.count == 1)
         await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
+    /// Claude Code's list, as a machine signed out of any account reads it.
+    static let claudeList: WorkspaceRuntime.ModelDiscovery = { _ in [
+        ModelRecord(agent: "claude", id: "opus[1m]", label: "Opus 5 with 1M context", efforts: ["low", "medium", "high"],
+                    defaultEffort: nil, isDefault: true),
+        ModelRecord(agent: "claude", id: "sonnet", label: "Sonnet 5", efforts: ["low", "medium", "high"], defaultEffort: nil, isDefault: false),
+    ] }
+
+    /// **A picker's current model is in its own menu.** The real machine showed the built-in default
+    /// `opus` beside a list that has `opus[1m]` and no `opus`, the same class of mistake as a client
+    /// reading `name` where the wire says `label`: every fake agreed with itself.
+    @Test("with nothing pinned, the default model is one the list offers")
+    func theDefaultIsInTheList() async throws {
+        let fixture = try await fixture(models: Self.claudeList)
+        let reply = await fixture.runtime.respond(to: CommandRequest(.composer(chatID: nil)), as: Self.caller(Self.freek))
+        guard case .composer(let composer) = reply.result else { Issue.record("No composer"); return }
+        let offered = composer.models.filter { $0.agent == composer.controls.agent }.map(\.id)
+        #expect(offered.contains(composer.controls.model), "\(composer.controls.model) is not in \(offered)")
+        #expect(composer.controls.model == "opus[1m]", "the one the list marks as its default")
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a model the project pinned is kept, even one the list does not offer")
+    func aPinnedModelIsKept() async throws {
+        let fixture = try await fixture(models: Self.claudeList, settings: "[models]\ndefault = \"opus\"\n")
+        let reply = await fixture.runtime.respond(to: CommandRequest(.composer(chatID: nil)), as: Self.caller(Self.freek))
+        guard case .composer(let composer) = reply.result else { Issue.record("No composer"); return }
+        #expect(composer.controls.model == "opus", "the project asked for it; a client draws it as its own row")
         await fixture.runtime.shutdown()
     }
 

@@ -493,6 +493,10 @@ public actor WorkspaceRuntime {
         return "no \(missing.map(\.executableName).joined(separator: ", ")) on PATH=\(path)"
     }
 
+    /// One catalogue for the life of the machine, so its fifteen-minute cache is a cache: a new one
+    /// per call started a Codex process every time anybody read the defaults.
+    static let codexCatalog = CodexModelCatalog.live()
+
     public static let liveModels: ModelDiscovery = { _ in
         var records: [ModelRecord] = []
         // Claude Code's own list, so a client draws one list from one source rather than each
@@ -500,7 +504,7 @@ public actor WorkspaceRuntime {
         if let claude = try? await ClaudeModelCatalog.shared.models() {
             records += claude.map { ModelRecord(agent: AgentKind.claudeCode.wireName, claude: $0) }
         }
-        if let codex = try? await CodexModelCatalog.live().pickerModels() {
+        if let codex = try? await codexCatalog.pickerModels() {
             records += codex.filter { !$0.hidden }.map { ModelRecord(agent: AgentKind.codex.wireName, codex: $0) }
         }
         return records

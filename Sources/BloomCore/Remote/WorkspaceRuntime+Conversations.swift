@@ -38,6 +38,7 @@ extension WorkspaceRuntime {
         var repo = SettingsLoader.load(repo: workspace.path)
         repo.homeDefaultModel = nil
         repo.homeDefaultEffort = nil
+        let pinned = !(repo.defaultModel ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         var defaults = ComposerDefaults.resolve(repo: repo, app: AppDefaults())
         let installed = await installedAgents()
         // A default naming an agent this machine does not run would be a default nothing can start,
@@ -52,6 +53,22 @@ extension WorkspaceRuntime {
             if let chosen = listed.first(where: \.isDefault) ?? listed.first {
                 defaults.model = chosen.id
                 defaults.effort = chosen.defaultEffort ?? chosen.efforts.first ?? defaults.effort
+            }
+        }
+        // **The default is a model the list offers.** Bloom's built-in default is the CLI's alias
+        // `opus`, and Claude Code's own list offers `opus[1m]` and no `opus`, so a client's picker
+        // opened on a current model that was not in its own menu; the real machine showed it, where
+        // every fake had agreed with itself. When nothing in the repository chose a model, the one
+        // the list marks as its default is used instead. One the project pinned is kept as asked,
+        // and a client draws it as its own row.
+        if !pinned {
+            let listed = await models(workspace.path).filter { $0.agent == defaults.backend.wireName }
+            if !listed.isEmpty, !listed.contains(where: { $0.id == defaults.model }),
+               let chosen = listed.first(where: \.isDefault) ?? listed.first {
+                defaults.model = chosen.id
+                if !chosen.efforts.isEmpty, !chosen.efforts.contains(defaults.effort) {
+                    defaults.effort = chosen.defaultEffort ?? chosen.efforts.first ?? defaults.effort
+                }
             }
         }
         return ComposerControls(defaults: defaults, isFastMode: false, outputStyle: OutputStyle.defaultName)
