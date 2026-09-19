@@ -934,6 +934,15 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "continue_after_merge" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "kind" : "continue_after_merge"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "create_pull_request" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {

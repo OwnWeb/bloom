@@ -68,12 +68,30 @@ extension CloudWorkspaceSession {
     /// this Mac's `gh` is doing has no bearing on what the strip may say.
     var gitHubReadiness: GitHubAvailability.State { .ready }
 
+    /// The machine cuts the branch in its worktree and tells the agent as this person, so the
+    /// token has to allow both. Everything else the Mac's gate checks (merged, nobody working, no
+    /// rebase half done, the right branch) the machine checks with that same gate, and says why.
     var continueBlocker: String? {
-        "Carrying on in a new branch is not built for a Bloom Cloud workspace yet. Make another one from the same project."
+        allows("files") && allows("prompt")
+            ? nil
+            : "Your access to this Bloom Cloud workspace does not include changing its files and prompting its agent."
     }
 
+    /// The machine's `continue_after_merge`: a new branch from the base in the same worktree, the
+    /// session kept, and the agent told in the chat in front. The same act as a local workspace's,
+    /// done where the worktree is.
     func continueAfterMerge(_ pullRequest: PullRequest) async -> AppModel.ContinuationOutcome {
-        .failed(continueBlocker ?? "")
+        if let continueBlocker { return .declined(continueBlocker) }
+        do {
+            let answer = try await perform(.continueAfterMerge(chatID: (selectedChatID ?? chatIDs.first)?.rawValue))
+            // The merged pull request is behind the workspace now; asked again at once so the strip
+            // offers to open the next one rather than going on showing the merge.
+            await github.refresh(maxAge: .zero)
+            if case .text(let branch) = answer { return .continuedOnMachine(branch: branch) }
+            return .continuedOnMachine(branch: "")
+        } catch {
+            return error.code == .conflict ? .declined(error.message) : .failed(error.message)
+        }
     }
 
     /// The Cloud archive, which asks the machine what is about to be lost and says that the

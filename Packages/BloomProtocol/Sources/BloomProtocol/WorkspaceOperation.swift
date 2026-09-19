@@ -59,6 +59,9 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case discardHunk(path: String, scope: DiffScope, patch: String)
     case renameWorkspace(name: String)
     case runSetup
+    /// After the pull request merged: a new branch cut from the base in this same worktree, and the
+    /// agent told, in `chat_id` or the most recent chat. Answers `text` with the new branch.
+    case continueAfterMerge(chatID: String?)
     case runScript(id: String)
     case closeTerminal(name: String)
     case archive(confirmationID: String)
@@ -78,7 +81,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         switch self {
         case .send, .cancelQueued, .stop, .answer, .newChat, .closeChat, .renameChat, .setComposer: "prompt"
         case .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup,
-             .revertFile, .discardHunk: "files"
+             .continueAfterMerge, .revertFile, .discardHunk: "files"
         case .runScript, .closeTerminal: "terminal"
         case .archive, .archivePreview: "share"
         default: "view"
@@ -130,6 +133,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .discardHunk: "discard_hunk"
         case .renameWorkspace: "rename_workspace"
         case .runSetup: "run_setup"
+        case .continueAfterMerge: "continue_after_merge"
         case .runScript: "run_script"
         case .closeTerminal: "close_terminal"
         case .archive: "archive"
@@ -204,6 +208,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
                                 patch: try c.decode(String.self, forKey: .patch))
         case "rename_workspace": self = .renameWorkspace(name: try c.decode(String.self, forKey: .name))
         case "run_setup": self = .runSetup
+        case "continue_after_merge": self = .continueAfterMerge(chatID: try c.decodeIfPresent(String.self, forKey: .chatID))
         case "run_script": self = .runScript(id: try c.decode(String.self, forKey: .id))
         case "close_terminal": self = .closeTerminal(name: try c.decode(String.self, forKey: .name))
         case "archive": self = .archive(confirmationID: try c.decode(String.self, forKey: .confirmationID))
@@ -218,7 +223,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .workspace, .setupOutput, .files, .runScripts, .notes, .pullRequest, .archivePreview, .push, .runSetup: break
         case .transcript(let chatID, let afterSeq, let limit):
             try c.encode(chatID, forKey: .chatID); try c.encode(afterSeq, forKey: .afterSeq); try c.encodeIfPresent(limit, forKey: .limit)
-        case .composer(let chatID): try c.encodeIfPresent(chatID, forKey: .chatID)
+        case .composer(let chatID), .continueAfterMerge(let chatID): try c.encodeIfPresent(chatID, forKey: .chatID)
         case .closeChat(let chatID), .stop(let chatID): try c.encode(chatID, forKey: .chatID)
         case .file(let path), .download(let path): try c.encode(path, forKey: .path)
         case .history(let limit, let before):

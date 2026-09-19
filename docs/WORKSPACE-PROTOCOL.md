@@ -162,6 +162,7 @@ Changing the worktree (ability `files`, except where noted):
 | `discard_hunk` | `path`, `scope`, `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
 | `rename_workspace` | `name` | `accepted` |
 | `run_setup` | | `accepted` once setup has run again |
+| `continue_after_merge` | `chat_id`, optional | `text`: the new branch. After the pull request merged: a new branch cut from the base in this worktree, the same session kept, and the agent told in `chat_id` or the most recent chat, as the person who asked. Refused with `conflict` and the Mac's own sentence when the pull request has not merged, an agent is working, a rebase is half done, or the worktree is on another branch or detached. Needs `prompt` as well as `files` |
 | `run_script` (`terminal`) | `id` | `terminal`: the terminal it runs in |
 | `close_terminal` (`terminal`) | `name` | `accepted` |
 | `archive` (`share`) | `confirmation_id` | `accepted`, or a fresh `archive_preview` when the answer moved |

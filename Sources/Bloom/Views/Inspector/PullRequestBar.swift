@@ -272,12 +272,14 @@ struct PullRequestBar<Model: WorkspaceSurface>: View {
         Task {
             defer { isWorking = false }
             switch await model.continueAfterMerge(pullRequest) {
-            case .continued:
+            case .continued, .continuedOnMachine:
                 break
             case .refused(let refusal):
                 report = PullRequestNotice(
                     tone: .info, title: "Nothing was changed", message: refusal.sentence
                 )
+            case .declined(let sentence):
+                report = PullRequestNotice(tone: .info, title: "Nothing was changed", message: sentence)
             case .failed(let reason):
                 report = PullRequestNotice(
                     tone: .failure,
