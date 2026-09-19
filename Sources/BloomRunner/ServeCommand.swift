@@ -39,6 +39,12 @@ public enum ServeCommand {
             path: layout.worktree, branch: configuration.branch, baseBranch: configuration.baseBranch
         )
         let version = RunnerVersion.current
+        // The user an agent, a terminal, a script and a service run as, or nil on a machine whose
+        // provisioning has not made one, which runs them as this process's user as it always did.
+        // See `MachineSandbox` and `Tools/provision-sandbox.sh`.
+        let sandbox = MachineSandbox.available()
+        FileHandle.standardError.write(Data((sandbox.map { "bloom-runner: agents run as \($0.user)\n" }
+            ?? "bloom-runner: no sandbox user on this machine, so agents run as this process does\n").utf8))
         let binDirectory = layout.dataDirectory + "/bin"
         // Who may be addressed, pulled from runbloom.app and refetched on a miss so that somebody
         // who joined the team this morning is addressable this afternoon. See `MachineMembers`.
@@ -58,7 +64,7 @@ public enum ServeCommand {
                 extra["BLOOM_DATA_DIR"] = layout.dataDirectory
                 extra["BLOOM_RUNNER_PORT"] = String(layout.serverPort)
                 extra["PATH"] = binDirectory + ":" + (environment["PATH"] ?? Shell.environment()["PATH"] ?? "/usr/bin:/bin")
-                return RemoteRunnerFactory.live(session, path, store, extra, bridge)
+                return RemoteRunnerFactory.make(session, path, store, extra, bridge, sandbox: sandbox)
             },
             publishing: RemotePublishing { turnID in
                 try await client.gitCredentials(repository: configuration.repository, operation: .write, turnID: turnID).token

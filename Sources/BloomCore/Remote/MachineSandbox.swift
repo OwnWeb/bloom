@@ -67,6 +67,13 @@ public struct MachineSandbox: Sendable, Hashable {
         return environment
     }
 
+    /// The same command, as the launch every runner spawns through.
+    public func wrap(_ launch: AgentLaunch) -> AgentLaunch {
+        let command = wrap(executable: launch.executable, arguments: launch.arguments)
+        return AgentLaunch(executable: command.executable, arguments: command.arguments, cwd: launch.cwd,
+                           environment: environment(launch.environment))
+    }
+
     /// Single quotes, with any quote inside closed and reopened, which is the only quoting `sh`
     /// gives no other meaning to.
     static func quoted(_ text: String) -> String {

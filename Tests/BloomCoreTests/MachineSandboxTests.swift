@@ -36,6 +36,20 @@ struct MachineSandboxTests {
         #expect(environment["ANTHROPIC_API_KEY"] == "k", "what the turn needs still travels")
     }
 
+    /// Every agent CLI is spawned through an `AgentLaunch`, which is why one wrapping covers all of
+    /// them, and why the working directory survives it: the sandbox user works in the same worktree.
+    @Test("a launch keeps its directory and gains the sandbox user's home")
+    func wrappingALaunch() {
+        let launch = AgentLaunch(executable: "/usr/local/bin/claude", arguments: ["--print"],
+                                 cwd: "/home/sprite/workspace", environment: ["HOME": "/home/sprite", "ANTHROPIC_API_KEY": "k"])
+        let wrapped = sandbox.wrap(launch)
+        #expect(wrapped.executable == "/usr/bin/sudo")
+        #expect(wrapped.cwd == "/home/sprite/workspace")
+        #expect(wrapped.environment["HOME"] == "/home/bloom-agent")
+        #expect(wrapped.environment["ANTHROPIC_API_KEY"] == "k")
+        #expect(wrapped.arguments.last?.contains("'/usr/local/bin/claude' '--print'") == true)
+    }
+
     /// A Mac, or a machine built before the sandbox existed, runs commands as it always did.
     @Test("nothing is wrapped where the user or the tools are missing")
     func availability() {
