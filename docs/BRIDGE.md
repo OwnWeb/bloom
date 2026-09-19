@@ -409,6 +409,12 @@ as the signed-in person (`CloudWorkspaceReach`, filled in by `AppModel+CloudWork
   paged as a local diff.
 - **A workspace not open in the window** is opened for the call and closed after it, which wakes a
   sleeping machine, as anybody doing anything there does.
+- **Known: a message sent to a Bloom Cloud workspace draws in the sending chat as an ordinary tool
+  row**, not as the "To" bubble a local one gets. The bubble is drawn from a `message_id` in this
+  Mac's store (`WorkspaceSayRecord`), and a Cloud send makes no row here to have one.
+- **Known: a workspace agent cannot list Bloom Cloud workspaces**, because `workspace_list` is the
+  owner's alone. It reaches one by a name or id it was given. Widening that is a permissions
+  decision for the owner, and has not been taken.
 
 ## 4. What an agent cannot reach through it
 
