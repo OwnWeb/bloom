@@ -155,9 +155,18 @@ extension WorkspaceRuntime {
             // the same closing chat event.
             publishedChats.removeValue(forKey: id)
             publishedQuestions.removeValue(forKey: id)
-            if publishing, let session = try await store.session(id: id) {
-                await events.publish(.chat(session.record(lastSeq: try await store.nextSeq(sessionID: id) - 1)))
-            }
+            guard publishing,
+                  let captured = try await store.session(id: id),
+                  captured.archivedAt != nil else { continue }
+            await beforeClosedChatPublication?(id)
+            let lastSeq = try await store.nextSeq(sessionID: id) - 1
+            // `captured` may be stale after either suspension above. Reopening clears the stamp
+            // and publishes the open record while this refresh is away; publishing `captured`
+            // afterwards would put every client back into the closed state while Store is open.
+            // This final read and the call to EventHub have no WorkspaceRuntime suspension between
+            // them: the event is enqueued before another runtime command can change the row again.
+            guard let current = try await store.session(id: id), current.archivedAt != nil else { continue }
+            await events.publish(.chat(current.record(lastSeq: lastSeq)))
         }
         guard let workspace = try await store.workspace(id: workspaceID) else { return }
         let record = workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services)
@@ -185,6 +194,11 @@ extension WorkspaceRuntime {
                 await events.publish(.setupOutput(text: String(decoding: bytes[start...], as: UTF8.self)))
             }
         }
+    }
+
+    /// Installs the deterministic pause used by the close/reopen overlap regression.
+    func setBeforeClosedChatPublication(_ pause: (@Sendable (SessionID) async -> Void)?) {
+        beforeClosedChatPublication = pause
     }
 
     // MARK: - Calls from runbloom.app

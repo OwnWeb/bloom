@@ -1161,22 +1161,18 @@ struct RemoteWorkspaceRuntimeTests {
             $0.sortOrder = 7
         }
         let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.seb), after: nil)
-        let chats = Mutex<[ChatRecord]>([])
+        let events = RemoteChatEventRecorder(chatID: fixture.session.id.rawValue)
         let reader = Task {
             for await event in stream {
-                if case .chat(let chat) = event, chat.id == fixture.session.id.rawValue {
-                    chats.withLock { $0.append(chat) }
-                }
+                await events.record(event)
             }
         }
-        await waitUntil("the opening chat event arrives", within: .seconds(30)) {
-            !chats.withLock { $0 }.isEmpty
-        }
+        await events.waitForChats(1)
         // Bring the comparison cache to the same row the opening snapshot read, then measure only
         // the close and reopen transitions below. The preference writes above may otherwise still
         // have an observation queued when this stream opens.
         try await fixture.runtime.refreshPublishedState(publishing: false)
-        chats.withLock { $0.removeAll() }
+        await events.resetChats()
         let closed = await fixture.runtime.respond(
             to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue)),
             as: Self.caller(Self.freek)
@@ -1201,12 +1197,77 @@ struct RemoteWorkspaceRuntimeTests {
         #expect(reopened == expected, "reopening changes only archived_at")
         #expect(try await fixture.store.messageCount(sessionID: fixture.session.id) == 1)
 
-        await waitUntil("the close and reopen chat events arrive", within: .seconds(30)) {
-            chats.withLock { $0 }.count >= 2
-        }
-        try await Task.sleep(for: .milliseconds(100))
-        let seen = chats.withLock { $0 }
+        await events.waitForChats(2)
+        // A marker published after both commands is a deterministic drain barrier for the event
+        // reader. When it arrives, every chat event enqueued before it has been recorded.
+        let barrier = "reopen-published-\(UUID().uuidString)"
+        await fixture.runtime.events.publish(.setupOutput(text: barrier))
+        await events.waitForBarrier(barrier)
+        let seen = await events.chatRecords
         #expect(seen.map { $0.closedAt != nil } == [true, false])
+        reader.cancel()
+        await fixture.runtime.shutdown()
+    }
+
+    /// The reviewed race: a close refresh had captured the archived row, reopening published the
+    /// open row while that refresh waited for `nextSeq`, then the older refresh published closed
+    /// last. The gate forces that exact overlap without a clock or a scheduler guess.
+    @Test("a paused close publication cannot overtake a reopen")
+    func reopenWinsAStaleClosePublication() async throws {
+        let fixture = try await fixture()
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.session.id,
+            kind: .user,
+            payload: Data(#"{"text":"keep me"}"#.utf8)
+        )
+        let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.seb), after: nil)
+        let events = RemoteChatEventRecorder(chatID: fixture.session.id.rawValue)
+        let reader = Task {
+            for await event in stream { await events.record(event) }
+        }
+        await events.waitForChats(1)
+        try await fixture.runtime.refreshPublishedState(publishing: false)
+        await events.resetChats()
+
+        let gate = ClosedChatPublicationGate()
+        let chatID = fixture.session.id
+        await fixture.runtime.setBeforeClosedChatPublication { id in
+            if id == chatID { await gate.hold() }
+        }
+        let close = Task {
+            await fixture.runtime.respond(
+                to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue), commandID: "racing-close"),
+                as: Self.caller(Self.freek)
+            )
+        }
+        await gate.waitUntilHeld()
+
+        let reopened = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: fixture.session.id.rawValue), commandID: "racing-reopen"),
+            as: Self.caller(Self.seb)
+        )
+        await gate.release()
+        let closed = await close.value
+        await fixture.runtime.setBeforeClosedChatPublication(nil)
+
+        #expect(closed.result == .accepted)
+        guard case .chat(let record) = reopened.result else {
+            Issue.record("Expected the reopen to win, got \(String(describing: reopened.error))")
+            reader.cancel()
+            await fixture.runtime.shutdown()
+            return
+        }
+        #expect(record.closedAt == nil)
+        try await fixture.runtime.refreshPublishedState(publishing: true)
+        let barrier = "racing-reopen-published-\(UUID().uuidString)"
+        await fixture.runtime.events.publish(.setupOutput(text: barrier))
+        await events.waitForBarrier(barrier)
+
+        let seen = await events.chatRecords
+        #expect(!seen.isEmpty)
+        #expect(seen.last?.closedAt == nil, "the final client-visible chat state is open")
+        #expect(!seen.contains { $0.closedAt != nil }, "no stale closed event followed the reopen")
+        #expect(try await fixture.store.session(id: fixture.session.id)?.archivedAt == nil)
         reader.cancel()
         await fixture.runtime.shutdown()
     }
@@ -1257,6 +1318,78 @@ struct RemoteWorkspaceRuntimeTests {
         let stored = try await fixture.store.session(id: fixture.session.id)
         #expect(stored?.model == "claude-opus-5")
         await fixture.runtime.shutdown()
+    }
+}
+
+private actor RemoteChatEventRecorder {
+    let chatID: String
+    private(set) var chatRecords: [ChatRecord] = []
+    private var chatWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var barriers: Set<String> = []
+    private var barrierWaiters: [String: CheckedContinuation<Void, Never>] = [:]
+
+    init(chatID: String) {
+        self.chatID = chatID
+    }
+
+    func record(_ event: WorkspaceEvent) {
+        switch event {
+        case .chat(let chat) where chat.id == chatID:
+            chatRecords.append(chat)
+            let count = chatRecords.count
+            chatWaiters.removeAll { waiter in
+                guard count >= waiter.count else { return false }
+                waiter.continuation.resume()
+                return true
+            }
+        case .setupOutput(let text):
+            barriers.insert(text)
+            barrierWaiters.removeValue(forKey: text)?.resume()
+        default:
+            break
+        }
+    }
+
+    func waitForChats(_ count: Int) async {
+        guard chatRecords.count < count else { return }
+        await withCheckedContinuation { continuation in
+            chatWaiters.append((count, continuation))
+        }
+    }
+
+    func resetChats() {
+        chatRecords.removeAll()
+    }
+
+    func waitForBarrier(_ marker: String) async {
+        guard !barriers.contains(marker) else { return }
+        await withCheckedContinuation { barrierWaiters[marker] = $0 }
+    }
+}
+
+private actor ClosedChatPublicationGate {
+    private var isHeld = false
+    private var isReleased = false
+    private var arrival: CheckedContinuation<Void, Never>?
+    private var held: CheckedContinuation<Void, Never>?
+
+    func hold() async {
+        isHeld = true
+        arrival?.resume()
+        arrival = nil
+        guard !isReleased else { return }
+        await withCheckedContinuation { held = $0 }
+    }
+
+    func waitUntilHeld() async {
+        guard !isHeld else { return }
+        await withCheckedContinuation { arrival = $0 }
+    }
+
+    func release() {
+        isReleased = true
+        held?.resume()
+        held = nil
     }
 }
 

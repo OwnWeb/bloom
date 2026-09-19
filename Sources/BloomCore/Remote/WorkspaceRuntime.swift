@@ -59,6 +59,9 @@ public actor WorkspaceRuntime {
     var publishedCursor: Int64 = 0
     var publishedChats: [SessionID: ChatRecord] = [:]
     var publishedQuestions: [SessionID: [QuestionRecord]] = [:]
+    /// A deterministic test seam at the suspension the close/reopen publication race used to
+    /// cross. Nil in production. See `refreshPublishedState`.
+    var beforeClosedChatPublication: (@Sendable (SessionID) async -> Void)?
     var publishedSetup: SetupRecord?
     var publishedWorkspace: WorkspaceRecord?
     var publishedSetupLogLength = 0

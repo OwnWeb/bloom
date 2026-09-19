@@ -143,10 +143,17 @@ struct BridgeRegistrationTests {
         let fileMode = try #require(
             manager.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
         )
+        let directoryGID = try #require(
+            manager.attributesOfItem(atPath: directory)[.groupOwnerAccountID] as? NSNumber
+        )
+        let fileGID = try #require(
+            manager.attributesOfItem(atPath: path)[.groupOwnerAccountID] as? NSNumber
+        )
         // The config is written atomically through a new inode. Setgid is what makes that inode
         // inherit the shared directory's group instead of the Runner's primary group.
         #expect(directoryMode.int16Value == 0o2750)
         #expect(fileMode.int16Value == 0o640)
+        #expect(fileGID == directoryGID, "the atomic replacement inherited the shared group")
     }
 
     @Test("the Codex overrides carry the command, empty arguments and the environment")
