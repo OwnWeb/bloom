@@ -89,12 +89,13 @@ public typealias CloudWorkspaceStartAllowed = @Sendable () async -> Bool
 /// respects, not an authorisation: anything holding the owner's sign in can create workspaces with
 /// it on or off, exactly as the owner can. The owner chose it that way knowing so.
 ///
-/// **And the owner is asked before each one.** It is deliberately not on `BridgeToolApproval`'s
-/// list, which is what Bloom answers for itself. That list is for tools where there is nothing for a
-/// person to weigh; a tool that spends money is one a person answers for, the same argument that
-/// keeps `workspace_archive` off it. The cost of that is the one the list was written to avoid, a
-/// turn waiting on an answer nobody gives, and for a tool that makes a machine it is the right
-/// cost.
+/// **Not on `BridgeToolApproval`'s list, so Bloom never answers the ask itself.** That list is for
+/// tools where there is nothing for a person to weigh; a tool that spends money is one a person
+/// answers for, the same argument that keeps `workspace_archive` off it. **What that buys depends on
+/// the chat, and it is not a promise that the owner is asked.** The ask is the agent CLI's own
+/// permission check, so a chat that asks before using tools asks the owner before each one, and a
+/// chat set to bypass permissions asks nobody. The setting is the only thing in front of it in
+/// every chat.
 ///
 /// **One level, like `workspace_start`.** A workspace an agent started may not start more of
 /// either kind: the lock that stops a runaway agent cutting worktrees stops it making machines.
@@ -142,8 +143,8 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
             to open, and is not brought to the front.
 
             This costs real money, because every Bloom Cloud workspace is a machine. The owner has \
-            to have turned "\(settingTitle)" on in Bloom's Settings, and is asked before each one \
-            is made. Create one because the work belongs on a machine: it should keep going while \
+            to have turned "\(settingTitle)" on in Bloom's Settings. Create one only when the owner \
+            would want to pay for it. Create one because the work belongs on a machine: it should keep going while \
             this Mac sleeps, or somebody else on the team should be able to open it. For work that \
             belongs on this Mac, use workspace_start.
 

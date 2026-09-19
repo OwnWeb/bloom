@@ -51,9 +51,10 @@ struct CloudWorkspaceStartToolTests {
         #expect(tool.tool.description.contains("costs real money"))
     }
 
-    /// It spends money, so a person answers for each one, the argument that keeps
-    /// `workspace_archive` off the list too.
-    @Test("the owner is asked before each one")
+    /// It spends money, so Bloom never answers its ask itself, the argument that keeps
+    /// `workspace_archive` off the list too. Whether the owner is then asked is the chat's
+    /// permission mode, which is why the pane does not promise it.
+    @Test("Bloom never answers its permission ask itself")
     func notSelfApproved() {
         #expect(!BridgeToolApproval.isSelfApproved(toolName: "\(BridgeToolApproval.toolPrefix)cloud_workspace_start"))
     }

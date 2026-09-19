@@ -292,9 +292,11 @@ struct CloudSettingsPane: View {
             HStack(alignment: .top, spacing: Metrics.gutter) {
                 VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
                     Text(CloudWorkspaceStartTool.settingTitle).font(Typo.title)
-                    // The control server's own sentence, which says what this switch is and is
-                    // not: a preference a well behaved client respects, not an authorisation.
-                    Text("Each Bloom Cloud workspace is a machine and costs money, and you are asked before each one. This setting is a preference that a well behaved client respects. It is not an authorisation: anything holding your sign in can create Bloom Cloud workspaces with it on or off, exactly as you can.")
+                    // Plain words, which is what a settings pane owes somebody. That this is a
+                    // preference Bloom keeps rather than a gate runbloom.app enforces is said in
+                    // docs/BRIDGE.md, where it belongs. No promise that you are asked first: a chat
+                    // that bypasses permissions asks nobody. See `CloudWorkspaceStartTool`.
+                    Text("Each Bloom Cloud workspace is its own machine and costs money. When this is on, your agents may start one.")
                         .font(Typo.caption)
                         .foregroundStyle(Palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

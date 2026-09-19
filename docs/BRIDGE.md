@@ -157,7 +157,7 @@ places: the listing, the dispatch and the gate.
 | `project_unhide` | Put it back, in the place it already had | | ✓ |
 | `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why | | ✓ |
 | `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. A workspace agent starts it in its own project, or in another one it names With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
-| `cloud_workspace_start` | Create a Bloom Cloud workspace on runbloom.app, which is a machine and costs money. Refused unless the owner has turned on "Let agents create Bloom Cloud workspaces" under Settings, Bloom Cloud, and asked of the owner every time. Same arguments as a machine's own copy: `prompt`, `name`, `branch`, `base_branch`, `run_setup`, `project`. A workspace agent leaving `project` out gets the project whose repository is its own. Returns `{"workspace": {id, name, state}}` as soon as it exists, without selecting it | ✓ | ✓ |
+| `cloud_workspace_start` | Create a Bloom Cloud workspace on runbloom.app, which is a machine and costs money. Refused unless the owner has turned on "Let agents create Bloom Cloud workspaces" under Settings, Bloom Cloud. Never answered by Bloom itself, so a chat that asks before using tools asks the owner; one that bypasses permissions does not. Same arguments as a machine's own copy: `prompt`, `name`, `branch`, `base_branch`, `run_setup`, `project`. A workspace agent leaving `project` out gets the project whose repository is its own. Returns `{"workspace": {id, name, state}}` as soon as it exists, without selecting it | ✓ | ✓ |
 | `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own, or one it started (by name or id), for a workspace agent; any of them, named out loud, for the owner | ✓ | ✓ |
 | `workspace_archive` | Archive a workspace through normal safety checks, keeping its branch and history. For a workspace agent, its own once the turn asking for it has ended, or one it started, by id and at once; any of them, named out loud and at once, for the owner | ✓ | ✓ |
 | `workspace_merge` | Ask a workspace's own agent to merge its pull request | | ✓ |
@@ -912,13 +912,14 @@ So `BridgeToolApproval` names the tools Bloom answers for itself:
 It is a list rather than "anything with our prefix", so a tool added later is opted in by somebody
 thinking about it rather than by inheriting a decision made before it existed.
 
-`cloud_workspace_start` is off that list on purpose, and it is the one tool whose ask is meant to
-reach a person. Everything above is true of it except the last clause: Bloom cannot weigh whether a
-machine is worth what it costs, and that is the one thing a person can. The cost is the one the
-list was written to avoid, a turn waiting on nobody, and for a tool that spends money it is the
-right cost. The setting in front of it is a second, cheaper answer to the same question: an owner
-who never wants it leaves it off and is never asked at all. Neither is an authorisation. Anything
-holding the owner's sign in can create Bloom Cloud workspaces with the setting on or off.
+`cloud_workspace_start` is off that list on purpose: Bloom cannot weigh whether a machine is worth
+what it costs, and that is the one thing a person can, so Bloom never answers its ask itself.
+**That is not a promise that the owner is asked.** The ask is the agent CLI's own permission
+check: a chat that asks before using tools asks the owner before each one, and a chat set to bypass
+permissions asks nobody. The setting "Let agents create Bloom Cloud workspaces", off by default, is
+the only thing in front of the tool in every chat. It is a preference this client keeps, not an
+authorisation: anything holding the owner's sign in can create Bloom Cloud workspaces with the
+setting on or off.
 
 Answering is not a shortcut round consent, because **Bloom is on both ends of this question**. It
 wrote the tool, it minted the token, it knows which workspace is asking, and it enforces every
