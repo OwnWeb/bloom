@@ -22,6 +22,7 @@ struct CloudSettingsView: View {
     @AppStorage(CloudWorkspaceStartTool.settingKey) private var agentsCreateCloudWorkspaces = false
     // On when absent, as `CloudWorkspaceStartQuestion.asks` reads it: each one costs money.
     @AppStorage(CloudWorkspaceStartQuestion.settingKey) private var asksBeforeCloudWorkspaceStart = true
+    @AppStorage(CloudSidebarPresence.settingKey) private var showsInSidebar = true
 
     private var cloud: CloudWorkspaces { app.cloud }
 
@@ -32,6 +33,7 @@ struct CloudSettingsView: View {
                 environment: cloud.environment,
                 agentsCreateCloudWorkspaces: $agentsCreateCloudWorkspaces,
                 asksBeforeCloudWorkspaceStart: $asksBeforeCloudWorkspaceStart,
+                showsInSidebar: $showsInSidebar,
                 drawing: .live,
                 actions: CloudSettingsPane.Actions(
                     signIn: { Task { await cloud.beginSignIn() } },
@@ -84,6 +86,7 @@ struct CloudSettingsPane: View {
     var environment: RunbloomEnvironment
     @Binding var agentsCreateCloudWorkspaces: Bool
     @Binding var asksBeforeCloudWorkspaceStart: Bool
+    @Binding var showsInSidebar: Bool
     var drawing: Drawing
     var actions: Actions
     /// The mark in the hero. Nil is this app's own icon; the gallery passes one, because the
@@ -137,6 +140,7 @@ struct CloudSettingsPane: View {
             case .signedIn(let account):
                 signedIn(account)
             }
+            sidebarCard
             originNote
         }
         .padding(Metrics.gutter + Metrics.spacingWide)
@@ -331,6 +335,18 @@ struct CloudSettingsPane: View {
             button("Open runbloom.app") { actions.open(environment.accountPage) }
             Spacer()
             button("Sign Out", action: actions.signOut)
+        }
+    }
+
+    /// In every phase, because the sidebar's card is dismissed while signed out, and this is where
+    /// its tooltip says it comes back from. See `CloudSidebarPresence`.
+    private var sidebarCard: some View {
+        card {
+            HStack(alignment: .center, spacing: Metrics.gutter) {
+                Text(CloudSidebarPresence.settingTitle).font(Typo.title)
+                Spacer(minLength: 0)
+                toggle($showsInSidebar, label: CloudSidebarPresence.settingTitle)
+            }
         }
     }
 

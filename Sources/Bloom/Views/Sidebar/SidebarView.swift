@@ -1,4 +1,5 @@
 import SwiftUI
+import BloomClient
 import BloomCore
 
 /// The left column: where you can go, every project with its workspaces, and a status bar that
@@ -47,6 +48,9 @@ struct SidebarView: View {
     /// Which shape the pane is in: projects with their workspaces, or sections by what each
     /// workspace needs. A preference for the same reason hiding a project is one, and the status
     /// bar binds the same key so the two cannot disagree. See `SidebarGrouping`.
+    /// Whether Bloom Cloud is in the sidebar at all. Off from the signed-out card's dismiss button,
+    /// back on from Settings, under Bloom Cloud, or by signing in. See `CloudSidebarPresence`.
+    @AppStorage(CloudSidebarPresence.settingKey) private var showsBloomCloud = true
     @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.status.rawValue
 
     /// The sections the owner has folded away. Only Idle can be one. Window state rather than a
@@ -169,7 +173,14 @@ struct SidebarView: View {
             } else {
                 Section { paneRowsList }
             }
-            if app.cloud.isSignedIn || app.cloud.hasEverSignedIn { cloudSection }
+            switch CloudSidebarPresence.decide(
+                isSignedIn: app.cloud.isSignedIn, hasEverSignedIn: app.cloud.hasEverSignedIn,
+                isShown: showsBloomCloud
+            ) {
+            case .list: cloudSection
+            case .signInCard: cloudSignInCard
+            case .hidden: EmptyView()
+            }
         }
         // The native list owns row height, keyboard navigation and which row is selected. How the
         // selected row is drawn is `SidebarSelectionFill`'s, on each row, for the reason given there.
@@ -876,6 +887,21 @@ struct SidebarView: View {
     }
 
     // MARK: - Cloud workspaces
+
+    /// Signed out, one card and no heading. See `CloudSidebarCard` and `CloudSidebarPresence`.
+    private var cloudSignInCard: some View {
+        Section {
+            CloudSidebarCard(
+                isSigningIn: app.cloud.accountState == .signingIn,
+                signIn: { Task { await app.cloud.beginSignIn() } },
+                cancelSignIn: { app.cloud.signIn.cancelSignIn() },
+                dismiss: { showsBloomCloud = false }
+            )
+            .padding(.top, Metrics.spacing)
+            .selectionDisabled()
+            .moveDisabled(true)
+        }
+    }
 
     /// Cloud workspaces, below the projects, only while a Bloom account is signed in.
     ///

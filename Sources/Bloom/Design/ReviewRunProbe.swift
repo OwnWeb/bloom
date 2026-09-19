@@ -65,7 +65,7 @@ enum ReviewRunProbe {
            let directory = ProbeHarness.value(for: "--review-run-probe") {
             progress("Drawing the Bloom Cloud settings pane, signed out and signed in")
             let written = CloudSettingsGallery.render(into: directory)
-            check(written.count == 6, "the gallery drew \(written.count) of the six images")
+            check(written.count == 10, "the gallery drew \(written.count) of the ten images")
             let result: JSONValue = .object([
                 "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
                 "images": .strings(written),

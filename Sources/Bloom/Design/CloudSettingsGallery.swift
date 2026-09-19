@@ -4,7 +4,8 @@ import BloomCore
 import SwiftUI
 
 #if DEBUG
-/// Settings' Bloom Cloud pane, photographed offscreen: signed out and signed in, light and dark.
+/// Settings' Bloom Cloud pane, photographed offscreen: signed out and signed in, light and dark,
+/// with the question asked before an agent's Bloom Cloud workspace and the sidebar's signed-out card.
 ///
 /// The real `CloudSettingsPane`, not a mock of it, with `.drawn` controls because `ImageRenderer`
 /// draws an AppKit-backed button or switch as a placeholder, and with the water held still
@@ -47,7 +48,7 @@ enum CloudSettingsGallery {
                 let pane = CloudSettingsPane(
                     phase: phase, environment: environment,
                     agentsCreateCloudWorkspaces: .constant(name.hasSuffix("signed-in")),
-                    asksBeforeCloudWorkspaceStart: .constant(true), drawing: .drawn, actions: .init(),
+                    asksBeforeCloudWorkspaceStart: .constant(true), showsInSidebar: .constant(true), drawing: .drawn, actions: .init(),
                     // Read, never written: the installed app's icon is the compiled mark this probe
                     // bundle does not have.
                     mark: mark
@@ -71,6 +72,41 @@ enum CloudSettingsGallery {
             }
         }
         written += renderQuestion(into: directory)
+        written += renderSidebarCard(into: directory, mark: mark)
+        return written
+    }
+
+    /// The sidebar's signed-out card, at the sidebar's width on its ground, at rest and under the
+    /// pointer, light and dark. A heading row above it stands in for the Projects list, so the
+    /// photograph shows the card against what it sits beneath.
+    private static func renderSidebarCard(into directory: String, mark: NSImage?) -> [String] {
+        var written: [String] = []
+        for (state, hovered) in [("rest", false), ("hover", true)] {
+            for dark in [false, true] {
+                let view = VStack(alignment: .leading, spacing: Metrics.spacing) {
+                    Text("Projects").bold().foregroundStyle(Palette.textSecondary)
+                    CloudSidebarCard(
+                        isSigningIn: false, signIn: {}, cancelSignIn: {}, dismiss: {},
+                        mark: mark, showsDismiss: hovered
+                    )
+                }
+                .padding(Metrics.spacingWide)
+                .frame(width: Metrics.sidebarWidth, alignment: .topLeading)
+                .background(Palette.sidebar)
+                .environment(\.colorScheme, dark ? .dark : .light)
+                var image: NSImage?
+                NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+                    let renderer = ImageRenderer(content: view)
+                    renderer.scale = 2
+                    image = renderer.nsImage
+                }
+                guard let image, let data = image.tiffRepresentation, let rep = NSBitmapImageRep(data: data),
+                      let png = rep.representation(using: .png, properties: [:]) else { continue }
+                let path = "\(directory)/cloud-sidebar-card-\(state)-\(dark ? "dark" : "light").png"
+                try? png.write(to: URL(filePath: path))
+                written.append(path)
+            }
+        }
         return written
     }
 

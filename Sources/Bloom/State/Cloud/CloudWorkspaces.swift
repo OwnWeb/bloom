@@ -158,6 +158,9 @@ final class CloudWorkspaces {
             try await signIn.signIn(presenting: window)
             hasEverSignedIn = true
             UserDefaults.standard.set(true, forKey: Self.hasEverSignedInKey)
+            // Somebody who has just signed in is using Bloom Cloud, so a sidebar they once hid it
+            // from shows it again. See `CloudSidebarPresence`.
+            UserDefaults.standard.set(true, forKey: CloudSidebarPresence.settingKey)
             accountState = .loading
             startPolling()
             await refresh()
