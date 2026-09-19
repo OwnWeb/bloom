@@ -1243,8 +1243,14 @@ public actor Store {
                 ON addressed_reports (reported_at) WHERE reported_at IS NULL;
             """),
             // The words of the message, so the mail can say what was asked. Null on rows written
-            // before this, which are sent without them. See `AddressedReport.text`.
-            sql("ALTER TABLE addressed_reports ADD COLUMN text TEXT;"),
+            // before this, which are sent without them. See `AddressedReport.text`. Added only
+            // when missing, because `ADD COLUMN` has no `IF NOT EXISTS` and migrations replay.
+            { db in
+                let reports = Set(try db.query("PRAGMA table_info(addressed_reports);").compactMap { $0.string("name") })
+                if !reports.contains("text") {
+                    try db.execute("ALTER TABLE addressed_reports ADD COLUMN text TEXT;")
+                }
+            },
         ]
 
         let current = Int(try db.readUserVersion())
