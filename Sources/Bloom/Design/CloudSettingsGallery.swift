@@ -226,7 +226,8 @@ enum CloudSettingsGallery {
             written.append(path)
         }
         let path = "\(directory)/cloud-hero-motion.gif"
-        let count = 96
+        // The longest loop, at eight frames a second: one whole cycle of the light crossing.
+        let count = 112
         guard let gif = CGImageDestinationCreateWithURL(URL(filePath: path) as CFURL, "com.compuserve.gif" as CFString, count, nil) else {
             return written
         }

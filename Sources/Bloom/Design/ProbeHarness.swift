@@ -514,3 +514,24 @@ extension JSONValue {
         .object(values.mapValues { numbers($0) })
     }
 }
+
+extension ProbeHarness {
+    /// How much of an image is not transparent, from 0 to 1. For a probe asking whether anything
+    /// was drawn at all, which is the question an empty render answers with a file that exists.
+    static func coverage(of image: CGImage) -> Double {
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0,
+              let context = CGContext(
+                  data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return 0 }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = context.data else { return 0 }
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        var covered = 0
+        for index in stride(from: 3, to: width * height * 4, by: 4) where pixels[index] > 8 { covered += 1 }
+        return Double(covered) / Double(width * height)
+    }
+}

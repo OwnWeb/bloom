@@ -67,6 +67,18 @@ enum ReviewRunProbe {
             let written = CloudSettingsGallery.render(into: directory)
             check(written.count == 20, "the gallery drew \(written.count) of the twenty images")
             // The archive popover never changes size once it is open, whatever the machine says.
+            check(BloomIconArtwork.hasLayers, "the bundle has no icon layers, so the hero has no icon")
+            check(BloomIconArtwork.image(.ground, size: 64) != nil, "a layer could not be filled")
+            if let test = CloudHeroFrames.selfTestImage() {
+                check(ProbeHarness.coverage(of: test) > 0.9, "CARenderer drew nothing at all on this machine")
+            } else {
+                check(false, "CARenderer could not be set up at all")
+            }
+            if let frame = CloudHeroFrames.render(size: CGSize(width: 200, height: 148), markCentreX: 60, markSize: 64, seconds: 3) {
+                check(ProbeHarness.coverage(of: frame) > 0.02, "the hero frame came out empty: nothing was composited")
+            } else {
+                check(false, "the hero frame could not be rendered at all")
+            }
             let sizes = CloudSettingsGallery.archiveSizes
             check(sizes.count == 3, "the archive popover was drawn \(sizes.count) times, not three")
             check(Set(sizes.map(\.height)).count == 1, "the archive popover's heights differ: \(sizes)")

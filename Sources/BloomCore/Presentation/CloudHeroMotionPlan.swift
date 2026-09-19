@@ -1,17 +1,20 @@
 import Foundation
 
-/// How the Bloom Cloud hero moves: the mark floating, a halo breathing behind it, two machines on
-/// thin orbits round it, and a band of light crossing the plinth now and then.
+/// How the Bloom Cloud hero moves: the icon turning slowly in space under a light that travels
+/// across it, with its shadow and the water behind it following.
 ///
 /// **One description, read twice.** The live hero samples these functions into Core Animation
-/// keyframes, and the gallery sets each layer to the same functions at a chosen moment to render
-/// frames offscreen, so the frames shown for review are the motion that ships rather than a
-/// separate drawing of it.
+/// keyframes that the render server runs, and the gallery renders frames of that same layer tree
+/// through `CARenderer` at chosen moments, so what is sent for review is the motion that ships.
 ///
-/// **Calm by construction.** Every loop is between six and twelve seconds, every track ends where
-/// it began so no loop point shows, nothing flashes (the brightest the halo gets is a little over
-/// half), and the band of light crosses in four seconds and then leaves the plinth alone for seven.
-/// The periods share no common factor below their product, so the whole never visibly repeats.
+/// **It is the icon's own layers, not a picture of it**: `BloomIconArtwork` hands out the five
+/// silhouettes filled from `icon.json`, the view separates them in z, and the perspective in the
+/// container does the parallax. Nothing here knows about layers; it is the movement alone.
+///
+/// **Rich but calm.** Every loop is between eight and fourteen seconds, every track ends where it
+/// began so no loop point shows, the turn never exceeds nine degrees, and the sheen is a
+/// travelling highlight rather than a flash. The periods share no small common factor, so the
+/// composition does not visibly repeat: yaw and pitch alone are back together every 143 seconds.
 public enum CloudHeroMotionPlan {
     public struct Track: Sendable {
         public let period: Double
@@ -23,58 +26,79 @@ public enum CloudHeroMotionPlan {
         }
     }
 
-    /// An orbit: an ellipse round the mark's centre, tilted, and how long one machine takes to go
-    /// round it once. Sizes are in points.
-    public struct Orbit: Sendable {
-        public let radiusX: Double
-        public let radiusY: Double
-        /// Clockwise tilt, in radians.
-        public let tilt: Double
-        public let period: Double
-        /// Where on the orbit the machine starts, from 0 to 1, so the two are not in step.
-        public let start: Double
+    /// Turning left and right, in radians: nine degrees each way on an eleven second breath.
+    public static let yaw = Track(period: 11) { 0.157 * sin($0 * 2 * .pi) }
 
-        /// The machine's offset from the mark's centre at `seconds`, with y up.
-        public func position(atSeconds seconds: Double) -> (x: Double, y: Double) {
-            position(phase: (seconds / period + start).truncatingRemainder(dividingBy: 1))
-        }
+    /// Nodding, in radians: six degrees, on thirteen, so the two are never in step.
+    public static let pitch = Track(period: 13) { 0.105 * sin($0 * 2 * .pi) }
 
-        public func position(phase: Double) -> (x: Double, y: Double) {
-            let angle = phase * 2 * .pi
-            let x = radiusX * cos(angle)
-            let y = radiusY * sin(angle)
-            return (x * cos(tilt) - y * sin(tilt), x * sin(tilt) + y * cos(tilt))
-        }
-    }
+    /// A slow rock in the plane of the screen, a degree and a half, which is what keeps the turn
+    /// from reading as a hinge.
+    public static let roll = Track(period: 9) { 0.026 * sin($0 * 2 * .pi) }
 
-    /// Up and down by three points on a nine second breath.
-    public static let float = Track(period: 9) { 3 * sin($0 * 2 * .pi) }
+    /// The icon breathing towards the reader, in points of z.
+    public static let lift = Track(period: 12) { 6 * sin($0 * 2 * .pi) }
 
-    /// The halo's opacity, between a quarter and 0.55 on a seven second cycle: the runbloom.app
-    /// gate's own "alive, not animated" breath.
-    public static let haloOpacity = Track(period: 7) { 0.4 - 0.15 * cos($0 * 2 * .pi) }
-
-    /// The halo's scale, on the same cycle, so it swells as it brightens.
-    public static let haloScale = Track(period: 7) { 1 - 0.06 * cos($0 * 2 * .pi) }
-
-    /// Where the band of light is across the plinth, as a fraction of its width: from well off the
-    /// left edge to well off the right in the first four of eleven seconds, eased at both ends,
-    /// then parked off the right until it starts again off the left, which nobody can see jump.
-    public static let sweep = Track(period: 11) { phase in
-        let crossing = 4.0 / 11
-        guard phase < crossing else { return 1.3 }
+    /// Where the light is across the icon, from -1 (off the leading edge) to 1 (off the trailing
+    /// edge), on a fourteen second cycle: it crosses in the first two fifths and then rests off
+    /// the edge, which is how a highlight on a real surface behaves as the light passes.
+    public static let sheen = Track(period: 14) { phase in
+        let crossing = 0.4
+        guard phase < crossing else { return 1.25 }
         let t = phase / crossing
-        let eased = t * t * (3 - 2 * t)
-        return -0.3 + 1.6 * eased
+        return -1.25 + 2.5 * (t * t * (3 - 2 * t))
     }
 
-    public static let orbits = [
-        Orbit(radiusX: 44, radiusY: 13, tilt: -0.3, period: 10, start: 0),
-        Orbit(radiusX: 50, radiusY: 18, tilt: 0.38, period: 12, start: 0.55),
-    ]
+    /// How strong the sheen is, so it fades in and out rather than appearing at the edge.
+    public static let sheenOpacity = Track(period: 14) { phase in
+        let crossing = 0.4
+        guard phase < crossing else { return 0 }
+        return 0.5 * sin((phase / crossing) * .pi)
+    }
+
+    /// How much of the light the whole icon catches, which rises as it turns towards the source.
+    public static let sheenTilt = Track(period: 11) { 0.5 + 0.5 * sin($0 * 2 * .pi) }
 
     /// Every loop, for the tests and for anything that has to pause them all.
     public static var periods: [Double] {
-        [float.period, haloOpacity.period, haloScale.period, sweep.period] + orbits.map(\.period)
+        [yaw, pitch, roll, lift, sheen, sheenOpacity, sheenTilt].map(\.period)
+    }
+
+    /// The whole plan at one moment, which is what a still frame sets and what the live view
+    /// samples into keyframes.
+    public struct Pose: Sendable, Equatable {
+        public var yaw: Double
+        public var pitch: Double
+        public var roll: Double
+        public var lift: Double
+        public var sheen: Double
+        public var sheenOpacity: Double
+    }
+
+    public static func pose(atSeconds seconds: Double) -> Pose {
+        Pose(
+            yaw: yaw.at(seconds: seconds),
+            pitch: pitch.at(seconds: seconds),
+            roll: roll.at(seconds: seconds),
+            lift: lift.at(seconds: seconds),
+            sheen: sheen.at(seconds: seconds),
+            // The travelling highlight, dimmed by how far the face is turned away from the light.
+            sheenOpacity: sheenOpacity.at(seconds: seconds) * (0.55 + 0.45 * sheenTilt.at(seconds: seconds))
+        )
+    }
+
+    /// Where the icon's shadow falls and how soft it is, from the pose: a shadow moves opposite to
+    /// the face that lifts, and spreads as the object leans away from its ground.
+    public static func shadow(for pose: Pose) -> (offsetX: Double, offsetY: Double, radius: Double, opacity: Double) {
+        let offsetX = -pose.yaw * 90
+        let offsetY = -14 - pose.pitch * 60 - pose.lift
+        let lean = (abs(pose.yaw) + abs(pose.pitch)) / 0.262
+        return (offsetX, offsetY, 16 + 10 * lean, 0.45 - 0.1 * lean)
+    }
+
+    /// Where the water's glow sits behind the icon, in points, so the light in the plinth and the
+    /// light on the icon are the same light.
+    public static func glowOffset(for pose: Pose) -> (x: Double, y: Double) {
+        (pose.yaw * 120, pose.pitch * 70)
     }
 }

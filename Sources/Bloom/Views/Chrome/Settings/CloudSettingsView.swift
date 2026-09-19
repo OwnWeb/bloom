@@ -192,7 +192,7 @@ struct CloudSettingsPane: View {
             CloudHeroMotion(markCentreX: Self.heroInset + Self.markSize / 2, markSize: Self.markSize)
         case .drawn:
             GeometryReader { proxy in
-                if let still = CloudHeroMotionView.still(
+                if let still = CloudHeroFrames.image(
                     size: proxy.size, markCentreX: Self.heroInset + Self.markSize / 2,
                     markSize: Self.markSize, seconds: motionSeconds
                 ) {
