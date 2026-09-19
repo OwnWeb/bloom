@@ -128,7 +128,7 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
     /// agent told only "not allowed" cannot help the person find where to allow it.
     public static let offSentence = """
         Creating Bloom Cloud workspaces is off. The owner turns it on in Bloom's Settings, under \
-        Bloom Account: "\(settingTitle)". It is off by default because each one is a machine and \
+        Bloom Cloud: "\(settingTitle)". It is off by default because each one is a machine and \
         costs money.
         """
 

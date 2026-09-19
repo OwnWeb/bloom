@@ -7,6 +7,7 @@
 # Pass --tab-store-only to check what a workspace's tabs are written as and what comes back.
 # Pass --cloud-terminal-only to check what a Cloud terminal shows after the machine reattaches it.
 # Pass --share-popover-only to draw two Share popover designs, offscreen, into the evidence folder.
+# Pass --cloud-settings-only to draw Settings' Bloom Cloud pane, signed out and in, light and dark.
 # Pass --cloud-selection-only to check that a Cloud workspace with no chats cannot recurse with the
 # tab store. It crashes rather than fails on the code this was written for, which is the failure.
 # Set BLOOM_PROBE_VERBOSE=1 to print the probe's own log on a passing run as well as a failing

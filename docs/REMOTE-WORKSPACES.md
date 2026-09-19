@@ -1039,7 +1039,7 @@ the coordinator.
   `has_agent_key` (team keys only) and `setup_url` (`https://runbloom.app/app/<team>`, opened as given).
   `setup_complete` is runbloom.app's own verdict and wins over counting the four here, because it
   counts steps a given version of the app may not know about. The
-  create sheet and the Bloom Account pane list the steps still to take and offer "Finish setting up
+  create sheet and the Bloom Cloud settings pane list the steps still to take and offer "Finish setting up
   on runbloom.app", which opens `setup_url` only when it is on runbloom.app's own origin; a team not
   in early access says so. A runbloom.app that sends none of it changes nothing.
 - **`sharing_in_progress`** (409, `retry_after`) on a session or preview token, for anybody but the
@@ -1076,7 +1076,7 @@ the coordinator.
   (all about a worktree on this Mac) leave it alone, and `CloudWorkspaceColumn` draws its chats,
   terminal, changes and setup output as panes of its own.
 - **Signed out, nothing asks.** The sidebar has no Cloud section and the New menu no Cloud item until
-  a Bloom account is signed in; Settings has a Bloom Account pane that says what an account is for.
+  a Bloom account is signed in; Settings has a Bloom Cloud pane that says what an account is for.
 - **The list is read every 20 seconds while Bloom is active, whenever it becomes active, and every
   minute in the background,** where its notifications matter most. Notifications are derived from consecutive readings: into `waiting_for_input`,
   `running` to `idle`, into `setup_failed`; not on the first reading, not for a workspace the reader

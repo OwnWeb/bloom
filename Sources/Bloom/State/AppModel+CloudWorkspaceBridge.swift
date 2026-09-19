@@ -16,7 +16,7 @@ import Foundation
 extension AppModel {
     func startCloudWorkspaceForBridge(_ order: CloudWorkspaceOrder) async -> CloudWorkspaceStartOutcome {
         guard let account = cloud.account else {
-            return .refused("Bloom is not signed in to a Bloom account, so it cannot create Bloom Cloud workspaces. The owner signs in under Settings, Bloom Account.")
+            return .refused("Bloom is not signed in to a Bloom account, so it cannot create Bloom Cloud workspaces. The owner signs in under Settings, Bloom Cloud.")
         }
         guard account.githubConnected else {
             return .refused("The Bloom account has no GitHub connected, which a Bloom Cloud workspace needs to clone and push. The owner connects it on runbloom.app.")

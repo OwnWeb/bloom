@@ -50,6 +50,19 @@ enum ReviewRunProbe {
             exit(failures.isEmpty ? 0 : 1)
         }
 
+        if CommandLine.arguments.contains("--cloud-settings-only"),
+           let directory = ProbeHarness.value(for: "--review-run-probe") {
+            progress("Drawing the Bloom Cloud settings pane, signed out and signed in")
+            let written = CloudSettingsGallery.render(into: directory)
+            check(written.count == 4, "the gallery drew \(written.count) of the four images")
+            let result: JSONValue = .object([
+                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
+                "images": .strings(written),
+            ])
+            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         if CommandLine.arguments.contains("--share-popover-only"),
            let directory = ProbeHarness.value(for: "--review-run-probe") {
             progress("Drawing two Share popovers")

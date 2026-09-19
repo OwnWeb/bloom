@@ -26,7 +26,7 @@ enum SettingsTab: String, Hashable, CaseIterable {
         case .prompts: "Prompts"
         case .terminal: "Terminal"
         case .commandLine: "Command Line"
-        case .account: "Bloom Account"
+        case .account: "Bloom Cloud"
         }
     }
 
