@@ -21,14 +21,27 @@ extension AppModel {
     func drainMacMessages() async {
         guard let userID = cloud.account?.id else { return }
         let api = cloud.api
-        await macMessageDrain.drain(
-            list: { try await api.macMessages() },
+        let acknowledged = await macMessageDrain.drain(
+            // Said out loud, because a silent failure here looks exactly like nobody having sent
+            // anything. A 404 is runbloom.app with Bloom Cloud switched off for every team the
+            // person is in, or a Bloom asking an address that server does not have.
+            list: {
+                do {
+                    return try await api.macMessages()
+                } catch {
+                    Log.bridge.notice("Reading the messages runbloom.app holds for this Mac failed: \(error.readableMessage, privacy: .public)")
+                    throw error
+                }
+            },
             land: { [weak self] message in
                 guard let self else { return .later }
                 return await self.landMacMessage(message.record(for: userID), team: message.team?.name, held: true)
             },
             acknowledge: { try await api.acknowledgeMacMessage($0) }
         )
+        if let acknowledged, !acknowledged.isEmpty {
+            Log.bridge.notice("Took \(acknowledged.count, privacy: .public) message(s) runbloom.app was holding for this Mac.")
+        }
     }
 
     /// - Parameter held: whether runbloom.app held it, which is when a message for a workspace this

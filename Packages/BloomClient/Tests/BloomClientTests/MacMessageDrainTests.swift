@@ -18,6 +18,10 @@ struct MacMessageDrainTests {
         let transport = FakeTransport()
         transport.on("GET", "/me/mac-messages", .json(Self.page))
         let messages = try await Fixtures.api(transport).macMessages()
+        // The whole address, not just its tail: a drain that asks the wrong path gets a 404 that
+        // looks exactly like a server without the route, which is a day to tell apart by hand.
+        #expect(transport.requests.map { $0.url?.absoluteString } == ["https://runbloom.test/api/v1/me/mac-messages"])
+        #expect(transport.requests.first?.value(forHTTPHeaderField: "Authorization") == "Bearer access")
         let message = try #require(messages.first)
         #expect(message.team?.name == "Spatie")
         #expect(message.fromWorkspace.name == "Payments")
