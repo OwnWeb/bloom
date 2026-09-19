@@ -909,7 +909,11 @@ def main():
                 # Releases are laid out under /opt/bloom beforehand, so the bootstrap takes them as
                 # already downloaded: what this measures is the restart, the new process saying it
                 # came up, and the rollback, which nothing else reaches.
-                digest = hashlib.sha256(data).hexdigest() if package else "0" * 64
+                # **The package's own bytes.** `data` here was another function's local, so
+                # `--update` raised NameError the moment it was reached with a package; found by the
+                # review of 19 September 2026. The directory is copied rather than downloaded, so the
+                # digest only has to be the one the machine will check against what it already has.
+                digest = hashlib.sha256(package.read_bytes()).hexdigest() if package else "0" * 64
                 installed = run_on(name, "readlink /opt/bloom/current").strip().rsplit("/", 1)[-1]
                 updated = f"{version}-update"
                 run_on(name, f"sudo cp -a /opt/bloom/{installed} /opt/bloom/{updated}")
