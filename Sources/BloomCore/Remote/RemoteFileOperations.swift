@@ -26,13 +26,13 @@ public enum RemoteFileOperations {
         // have, and it refuses to overwrite one that appeared meanwhile, as a stale revision does.
         guard !expected.isEmpty else {
             do {
-                _ = try WorkspaceFileAccess(workspace: workspace, path: path, creatingParents: true).create(data, mode: 0o644)
+                _ = try WorkspaceFileAccess(workspace: workspace, path: path, creatingParents: true, writing: true).create(data, mode: 0o644)
             } catch let failure as RemoteFailure where failure.code == .conflict {
                 throw RemoteFailure(.conflict, "This file exists already. Reload it and save your change into it.")
             }
             return TextFileRecord(path: path, text: text, revision: revision(data))
         }
-        try WorkspaceFileAccess(workspace: workspace, path: path).replace(data, expectedRevision: expected, limit: RemoteReview.fileLimit)
+        try WorkspaceFileAccess(workspace: workspace, path: path, writing: true).replace(data, expectedRevision: expected, limit: RemoteReview.fileLimit)
         return TextFileRecord(path: path, text: text, revision: revision(data))
     }
 

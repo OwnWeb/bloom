@@ -12,14 +12,18 @@ public final class WorkspaceFileAccess {
     private let parent: WorkspaceDirectoryHandle?
     private let name: String
 
+    /// `writing` refuses anything inside a `.git`, after symlinks are resolved, so a symlink named
+    /// something innocent cannot lead a write there either. A hook written there runs as whoever next
+    /// commits, and a worktree's `.git` file names the repository git writes to (L6 in the review of
+    /// 19 September 2026). Reading stays allowed; it is how a client shows what is there.
     public convenience init(workspace: Workspace, path: String, creatingParents: Bool = false,
-                            followingFinalSymlink: Bool = true, allowingMissing: Bool = false) throws {
+                            followingFinalSymlink: Bool = true, allowingMissing: Bool = false, writing: Bool = false) throws {
         try self.init(root: workspace.path, path: path, creatingParents: creatingParents,
-                      followingFinalSymlink: followingFinalSymlink, allowingMissing: allowingMissing)
+                      followingFinalSymlink: followingFinalSymlink, allowingMissing: allowingMissing, writing: writing)
     }
 
     public init(root rootPath: String, path: String, creatingParents: Bool = false,
-                followingFinalSymlink: Bool = true, allowingMissing: Bool = false) throws {
+                followingFinalSymlink: Bool = true, allowingMissing: Bool = false, writing: Bool = false) throws {
         try RemoteReview.validateRelativePath(path)
         let root = URL(fileURLWithPath: rootPath).standardizedFileURL.resolvingSymlinksInPath()
         var directory: WorkspaceDirectoryHandle? = try WorkspaceDirectoryHandle(path: root.path)
@@ -43,6 +47,9 @@ public final class WorkspaceFileAccess {
         let components = target.path.dropFirst(prefix.count).split(separator: "/").map(String.init)
         guard let name = components.last, !components.contains(".."), !components.contains(".") else {
             throw RemoteFailure.invalid("Use a file path inside this workspace.")
+        }
+        if writing, components.contains(where: { $0.lowercased() == ".git" }) {
+            throw Self.gitDirectory
         }
         for component in components.dropLast() {
             directory = try directory?.child(component, create: creatingParents, allowingMissing: allowingMissing)
@@ -196,6 +203,10 @@ public final class WorkspaceFileAccess {
 
     private static var changed: RemoteFailure {
         RemoteFailure(.conflict, "This file changed on the server. Reload it before saving your edits.")
+    }
+
+    private static var gitDirectory: RemoteFailure {
+        RemoteFailure.invalid("Files inside .git cannot be changed from here.")
     }
 
     private static var outside: RemoteFailure {

