@@ -141,11 +141,37 @@ extension WorkspaceHTTPServerTests {
     @Test("an event stream whose token has run out is closed with token_expired")
     func anEventStreamClosesAtExpiry() async throws {
         let streams = EventStreams()
-        let (_, closing) = await streams.open(for: Self.token(expiresAt: Date().addingTimeInterval(-1)))
+        let (_, closing) = try await streams.open(for: Self.token(expiresAt: Date().addingTimeInterval(-1)))
         var reasons = closing.makeAsyncIterator()
         let reason = await reasons.next()
         #expect(reason?.code == .tokenExpired)
         #expect(await streams.count == 0)
+    }
+
+    /// M3 in the review of 19 September 2026: a viewer opening streams in a loop and never reading.
+    @Test("a person holds at most so many streams, and somebody else is not held to theirs")
+    func streamsAreCappedPerPerson() async throws {
+        let streams = EventStreams()
+        let token = Self.token(expiresAt: Date().addingTimeInterval(300))
+        for _ in 0..<EventStreams.perPersonLimit { _ = try await streams.open(for: token) }
+        await #expect(throws: RemoteFailure.self) { _ = try await streams.open(for: token) }
+        _ = try await streams.open(for: Self.token(subject: "01k5a7c2b0z9y8x7w6v5t4s3zz", expiresAt: Date().addingTimeInterval(300)))
+    }
+
+    /// The other half of M3: frames nobody reads end the stream, rather than piling up in memory.
+    @Test("a stream whose reader stops is ended once its buffer is full")
+    func aSlowReaderIsLetGo() async throws {
+        let (events, source) = AsyncStream.makeStream(of: WorkspaceEvent.self)
+        let (closing, _) = AsyncStream.makeStream(of: WireError.self)
+        let overflowed = Mutex(false)
+        let merged = EventStreamRoute.merge(events: events, closing: closing, bufferLimit: 4) { overflowed.withLock { $0 = true } }
+        for _ in 0..<50 { source.yield(.presence([])) }
+        // Nothing reads until the stream has given up on its reader, which is the whole scenario.
+        #expect(await SetupTestSupport.eventually { overflowed.withLock { $0 } })
+        var received = 0
+        for await _ in merged { received += 1 }
+        #expect(received == 4, "the buffer, and then the end of the stream")
+        source.finish()
     }
 
     @Test("a terminal whose token has run out is closed")
@@ -160,7 +186,7 @@ extension WorkspaceHTTPServerTests {
     @Test("a stream is renewed only with the same person's token")
     func aStreamIsRenewedOnlyByItsOwnPerson() async throws {
         let streams = EventStreams()
-        let (id, _) = await streams.open(for: Self.token(expiresAt: Date().addingTimeInterval(300)))
+        let (id, _) = try await streams.open(for: Self.token(expiresAt: Date().addingTimeInterval(300)))
         await #expect(throws: RemoteFailure.self) {
             try await streams.refresh(id, with: Self.token(subject: "01k5a7c2b0z9y8x7w6v5t4s3zz", expiresAt: Date().addingTimeInterval(600)))
         }
