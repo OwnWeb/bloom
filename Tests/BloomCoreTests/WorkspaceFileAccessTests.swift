@@ -86,4 +86,23 @@ private actor RemoteFileSaveGate {
         if count == 2 { first?.resume(); first = nil; return }
         await withCheckedContinuation { first = $0 }
     }
+
+    /// A settings file a project does not have yet is added with an empty revision, which means
+    /// "only if there is none", and one that exists is never overwritten that way.
+    @Test func anEmptyRevisionCreatesAFileOnlyWhenThereIsNone() throws {
+        let (workspace, _) = try fixture()
+        let created = try RemoteFileOperations.write(workspace: workspace, path: ".bloom/settings.toml",
+                                                     text: "[[quick_prompts]]\n", revision: "")
+        #expect(created.revision == RemoteFileOperations.revision(Data("[[quick_prompts]]\n".utf8)))
+        #expect(try String(contentsOfFile: workspace.path + "/.bloom/settings.toml", encoding: .utf8) == "[[quick_prompts]]\n")
+
+        #expect(throws: RemoteFailure.self) {
+            try RemoteFileOperations.write(workspace: workspace, path: ".bloom/settings.toml", text: "overwritten", revision: "")
+        }
+        #expect(try String(contentsOfFile: workspace.path + "/.bloom/settings.toml", encoding: .utf8) == "[[quick_prompts]]\n")
+
+        let edited = try RemoteFileOperations.write(workspace: workspace, path: ".bloom/settings.toml",
+                                                    text: "[[quick_prompts]]\nname = \"x\"\n", revision: created.revision)
+        #expect(edited.revision != created.revision, "the revision it answered is the one to save with next")
+    }
 }

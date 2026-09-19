@@ -153,7 +153,7 @@ Changing the worktree (ability `files`, except where noted):
 
 | Kind | Fields | Result |
 | --- | --- | --- |
-| `write_file` | `path`, `text`, `revision` | `file` with the new revision, or `conflict` |
+| `write_file` | `path`, `text`, `revision` | `file` with the new revision, or `conflict` when the file changed since that revision. **An empty `revision` creates the file, and its folders, only if there is none**, answering `conflict` if one exists: that is how a client adds a `.bloom/settings.toml` a project does not have yet |
 | `upload_file` | `name`, `data` | `text`: the path it was saved at, under `.bloom/attachments/` |
 | `commit` | `message` | `accepted` |
 | `push` | | `accepted` |
