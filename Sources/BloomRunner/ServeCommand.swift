@@ -73,7 +73,8 @@ public enum ServeCommand {
             lookUpMember: { await members.look(up: $0) },
             listMembers: { await members.all() },
             addressed: { _ in await addressedReporter.start() },
-            createCloudWorkspace: { await client.createCloudWorkspace($0) }
+            createCloudWorkspace: { await client.createCloudWorkspace($0) },
+            peers: RunbloomPeers.peers(client: client, http: http)
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()
         // What the machine says about its own reporting goes two ways here, because the two readers

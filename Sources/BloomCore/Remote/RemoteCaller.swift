@@ -11,11 +11,16 @@ public struct RemoteCaller: Sendable, Hashable {
     public var author: MessageAuthor?
     public var abilities: Set<String>
     public var sessionToken: String?
+    /// The workspace an agent was running in when its person's token was minted for it, read from
+    /// the token's signed `act` claim. **A message on such a token is always labelled as an agent's**,
+    /// whether or not the body says so: a label the sender can leave out is not a label.
+    public var agentOrigin: String?
 
-    public init(author: MessageAuthor?, abilities: Set<String>, sessionToken: String? = nil) {
+    public init(author: MessageAuthor?, abilities: Set<String>, sessionToken: String? = nil, agentOrigin: String? = nil) {
         self.author = author
         self.abilities = abilities
         self.sessionToken = sessionToken
+        self.agentOrigin = agentOrigin
     }
 
     /// Every ability a person can hold, and no author: the runtime's own calls, and tests.

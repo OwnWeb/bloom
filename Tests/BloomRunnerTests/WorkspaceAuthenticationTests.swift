@@ -170,4 +170,25 @@ extension WorkspaceHTTPServerTests {
         WorkspaceToken(use: .session, subject: subject, name: "Freek", email: nil, team: nil, abilities: ["view"],
                        issuedAt: expiresAt.addingTimeInterval(-300), expiresAt: expiresAt, jti: UUID().uuidString, signingKey: "k")
     }
+
+    /// **A label the sender can leave out is not a label.** A token runbloom.app minted for an agent
+    /// carries `act`, and the message is marked as an agent's even when the body says nothing.
+    @Test("a message sent on a token minted for an agent is labelled as one, whatever the body says")
+    func anActorTokenLabelsTheMessage() async throws {
+        let fixture = try await fixture()
+        let token = fixture.issuer.session(overrides: ["act": ["sub": "bloom-workspace:01k5origin", "turn": "01jturn"]])
+        let send = try Self.body(CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "From another workspace")))
+        let promptID = try await fixture.server.application(port: 0).test(.router) { client in
+            try await client.execute(uri: "/_bloom/v1/rpc", method: .post, headers: Self.bearer(token), body: send) { response -> String? in
+                let reply = try WireJSON.decode(CommandReply.self, from: Data(buffer: response.body))
+                guard case .queued(let id) = reply.result else { Issue.record("Not queued: \(String(buffer: response.body))"); return nil }
+                return id
+            }
+        }
+        // By the id the reply gave, not off the queue, which the drain may already have emptied.
+        let id = try #require(promptID)
+        let queued = try #require(try await fixture.store.delivery(id: DeliveryID(id)))
+        #expect(queued.via != nil, "labelled from the signed claim, not from the body")
+        await fixture.runtime.shutdown()
+    }
 }

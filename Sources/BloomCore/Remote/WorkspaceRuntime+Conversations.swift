@@ -259,7 +259,7 @@ extension WorkspaceRuntime {
         let id = try chatID.sessionID
         // Read before anything is written, so a label this machine cannot draw refuses the send
         // rather than landing as a message nobody can tell apart from a typed one.
-        let via = try statedVia.map(MessageVia.init(record:))
+        let via = try statedVia.map(MessageVia.init(record:)) ?? (caller.agentOrigin == nil ? nil : MessageVia())
         guard stopping[id] == nil else { throw RemoteFailure(.busy, "This conversation is being stopped.") }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { throw RemoteFailure.invalid("Type a message before sending.") }

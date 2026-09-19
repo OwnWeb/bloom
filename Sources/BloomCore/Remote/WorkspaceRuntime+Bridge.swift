@@ -77,6 +77,16 @@ extension WorkspaceRuntime {
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.sayToCrew(name, text: text, callerID: sessionID, workspaceID: workspaceID)
             },
+            // The team's other Bloom Cloud workspaces, reached through runbloom.app's tokens and
+            // talked to directly. See `WorkspacePeers`.
+            PeerWorkspaceListTool { [weak self] sessionID in
+                guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
+                return await self.listPeers(sessionID: sessionID)
+            },
+            PeerWorkspaceSayTool { [weak self] workspace, chat, text, sessionID in
+                guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
+                return await self.sayToPeer(workspace: workspace, chat: chat, text: text, sessionID: sessionID)
+            },
             // Reaches only the store and the worktree, so no seam: see `MachineMediaShowTool`.
             MachineMediaShowTool(),
             CloudWorkspaceStartTool { [weak self] order, sessionID, _ in

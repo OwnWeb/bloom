@@ -56,6 +56,9 @@ public struct WorkspaceToken: Sendable, Hashable {
     public var jti: String
     /// The `kid` of the key that signed it.
     public var signingKey: String
+    /// The workspace an agent was running in when runbloom.app minted this for its person, from the
+    /// standard `act` claim. Session tokens only; nil on a person's own. See `RemoteCaller.agentOrigin`.
+    public var actor: String?
 
     public init(
         use: TokenUse,
@@ -67,8 +70,10 @@ public struct WorkspaceToken: Sendable, Hashable {
         issuedAt: Date,
         expiresAt: Date,
         jti: String,
-        signingKey: String
+        signingKey: String,
+        actor: String? = nil
     ) {
+        self.actor = actor
         self.use = use
         self.subject = subject
         self.name = name
@@ -104,6 +109,7 @@ public struct WorkspaceToken: Sendable, Hashable {
     /// because registering a turn with runbloom.app passes the prompter's own session token and
     /// nothing else would be accepted there.
     public func caller(token: String) -> RemoteCaller {
-        RemoteCaller(author: author, abilities: abilities, sessionToken: use == .session ? token : nil)
+        RemoteCaller(author: author, abilities: abilities, sessionToken: use == .session ? token : nil,
+                     agentOrigin: use == .session ? actor : nil)
     }
 }

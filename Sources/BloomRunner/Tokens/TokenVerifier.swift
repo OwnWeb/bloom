@@ -139,7 +139,8 @@ public actor TokenVerifier {
             issuedAt: issuedAt,
             expiresAt: expiresAt,
             jti: jti,
-            signingKey: kid
+            signingKey: kid,
+            actor: use == .session ? claims.act?.sub.flatMap { $0.isEmpty ? nil : $0 } : nil
         )
     }
 
@@ -176,6 +177,13 @@ public actor TokenVerifier {
         }
     }
 
+    /// The standard actor claim: who is acting on the subject's behalf. runbloom.app writes it when
+    /// it mints a token for an agent in another workspace.
+    private struct Actor: Decodable {
+        var sub: String?
+        var turn: String?
+    }
+
     private struct Claims: Decodable {
         var iss: String?
         var aud: String?
@@ -188,9 +196,10 @@ public actor TokenVerifier {
         var iat: Double?
         var exp: Double?
         var jti: String?
+        var act: Actor?
 
         enum CodingKeys: String, CodingKey {
-            case iss, aud, sub, name, email, team, abilities, iat, exp, jti
+            case iss, aud, sub, name, email, team, abilities, iat, exp, jti, act
             case tokenUse = "token_use"
         }
     }

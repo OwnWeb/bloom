@@ -52,12 +52,14 @@ public enum BridgeReadTarget: Sendable, Equatable {
         ),
     ])
 
-    /// `tool` without the `workspace` argument, when the tools it tells an agent to take an id
-    /// from are not offered beside it. On a Cloud machine there is one workspace and nothing to
-    /// name: the paragraph beginning "Without 'workspace'" and the property both go, and a call
+    /// `tool` without the `workspace` argument where it cannot read another workspace, which is
+    /// everywhere but the Mac. The Mac's toolbox is the one offering `workspace_start`, and it is
+    /// also the only one whose store holds other workspaces to read; a Cloud machine offers
+    /// `workspace_list` for its peers, whose chats these tools cannot reach, so that name is not
+    /// the test. The paragraph beginning "Without 'workspace'" and the property both go, and a call
     /// that passes it anyway is still answered, because naming your own workspace is harmless.
     static func narrowed(_ tool: BridgeTool, offering offered: Set<String>) -> BridgeTool {
-        guard !offered.contains("workspace_list"), case .object(var schema) = tool.inputSchema,
+        guard !offered.contains("workspace_start"), case .object(var schema) = tool.inputSchema,
               case .object(var properties) = schema["properties"] else { return tool }
         properties.removeValue(forKey: argument)
         schema["properties"] = .object(properties)

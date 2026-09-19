@@ -105,6 +105,19 @@ struct TokenVerifierTests {
         #expect(token.author?.userID == TestTokenIssuer.defaultUserID)
     }
 
+    /// runbloom.app's standard actor claim, written when it mints a token for an agent in another
+    /// workspace. Read, so the message is labelled from something signed.
+    @Test func theActorClaimIsReadAndAPersonsOwnTokenHasNone() async throws {
+        let verifier = issuer.verifier(clock: clock)
+        let minted = try await verifier.verify(issuer.session(issuedAt: clock.now, overrides: [
+            "act": ["sub": "bloom-workspace:01k5origin", "turn": "01jturn"],
+        ]), as: .session)
+        #expect(minted.actor == "bloom-workspace:01k5origin")
+        #expect(minted.caller(token: "t").agentOrigin == "bloom-workspace:01k5origin")
+        let own = try await verifier.verify(issuer.session(issuedAt: clock.now), as: .session)
+        #expect(own.actor == nil)
+    }
+
     @Test(arguments: ["sub", "jti", "iat", "exp", "iss", "aud"])
     func aTokenMissingARequiredClaimIsRefused(claim: String) async {
         await expectRefused(issuer.session(issuedAt: clock.now, removing: [claim]), as: .session)

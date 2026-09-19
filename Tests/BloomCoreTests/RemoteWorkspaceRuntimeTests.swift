@@ -21,7 +21,8 @@ struct RemoteWorkspaceRuntimeTests {
         gate: any RemoteTurnGate = UngatedTurns(),
         createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil,
         models: @escaping WorkspaceRuntime.ModelDiscovery = { _ in [] },
-        settings: String? = nil
+        settings: String? = nil,
+        peers: WorkspacePeers? = nil
     ) async throws -> Fixture {
         let store = try makeTestStore("remote-runtime")
         let repo = try await store.upsert(Repo(name: "bloom", path: TestScratch.unique("repo")))
@@ -38,7 +39,7 @@ struct RemoteWorkspaceRuntimeTests {
             store: store, workspaceID: workspace.id, gate: gate,
             makeRunner: { session, _, store, environment, _ in runners.make(session: session, store: store, environment: environment) },
             installedAgents: { [.claudeCode, .codex] }, models: models, runnerExitGrace: .milliseconds(50),
-            createCloudWorkspace: createCloudWorkspace
+            createCloudWorkspace: createCloudWorkspace, peers: peers
         )
         try await runtime.start()
         return Fixture(store: store, workspace: workspace, session: session, runtime: runtime, runners: runners)
@@ -302,6 +303,37 @@ struct RemoteWorkspaceRuntimeTests {
         let reply = await fixture.runtime.respond(to: CommandRequest(.composer(chatID: nil)), as: Self.caller(Self.freek))
         guard case .composer(let composer) = reply.result else { Issue.record("No composer"); return }
         #expect(composer.controls.model == "opus", "the project asked for it; a client draws it as its own row")
+        await fixture.runtime.shutdown()
+    }
+
+    /// runbloom.app decides who is asking from the turn, so the machine sends the one really
+    /// running, and the other machine is told which workspace and chat the agent was in, by name.
+    @Test("a message to another workspace goes under the running turn, with this workspace's name and chat")
+    func messagesToPeersCarryTheTurnAndTheLabel() async throws {
+        let gate = RemoteTestGate()
+        let sent = Mutex<[PeerMessage]>([])
+        let peers = WorkspacePeers(list: { _ in .listed([]) }, say: { message in
+            sent.withLock { $0.append(message) }
+            return .sent(workspace: "Other", chat: "Chat", queued: false)
+        })
+        let fixture = try await fixture(gate: gate, peers: peers)
+
+        guard case .refused = await fixture.runtime.sayToPeer(workspace: "Other", chat: nil, text: "Hi", sessionID: fixture.session.id) else {
+            Issue.record("A chat with no turn running reached another workspace"); return
+        }
+        #expect(sent.withLock { $0 }.isEmpty)
+
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Tell the other one")),
+                                          as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Tell the other one"] }
+        _ = await fixture.runtime.sayToPeer(workspace: "Other", chat: nil, text: "Rebase on main", sessionID: fixture.session.id)
+
+        let message = try #require(sent.withLock { $0 }.first)
+        #expect(message.turnID == gate.registered.withLock { $0 }.first?.turnID)
+        #expect(message.via.workspace == "Queue retries")
+        #expect(message.via.chat == fixture.session.title)
+        #expect(message.text == "Rebase on main")
+        await fixture.runners.finishTurn()
         await fixture.runtime.shutdown()
     }
 

@@ -178,11 +178,14 @@ struct RemoteBridgeTests {
         #expect(toolbox.tools(for: .workspace).map(\.name) == [
             "agent_list", "agent_say", "agent_start", "agent_stop", "chat_list", "chat_read",
             "cloud_setup", "cloud_workspace_start", "media_show", "request_pane", "whoami", "workspace_diff",
+            "workspace_list", "workspace_say",
         ])
         #expect(toolbox.tools(for: .owner).isEmpty)
         // `pane_open` in particular: the machine can ask for a pane and cannot open one, and the
         // names say which is which.
-        for absent in ["workspace_start", "workspace_say", "workspace_archive", "pane_open", "browser_go", "project_list"] {
+        // `workspace_list` and `workspace_say` reach the team's other Bloom Cloud workspaces through
+        // runbloom.app's tokens, added on 19 September 2026; see `WorkspacePeers`.
+        for absent in ["workspace_start", "workspace_archive", "pane_open", "browser_go", "project_list"] {
             #expect(toolbox.handler(named: absent, for: .workspace) == nil, "\(absent) is not offered")
         }
 

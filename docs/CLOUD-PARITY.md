@@ -150,6 +150,15 @@ person it already is. If a team switch is wanted, it is the one `cloud_workspace
 
 ### Bloom Cloud to Bloom Cloud
 
+**Built on 19 September 2026**, to the shape agreed with the control server: `GET
+.../workspaces?turn_id=` lists the workspaces the turn's person may open, and `POST .../tokens` mints
+a session token for one of them, with `view` and `prompt` only, for that person, carrying the
+standard `act` claim that names this workspace. The receiving machine reads `act` and labels the
+message as an agent's even when the body leaves `via` out. runbloom.app refuses another team's
+workspace (answered as if it did not exist), a removed member, a share guest, a turn that is not
+running and a switch that is off, and limits minting to 20 a minute and 100 an hour per origin. The
+machine refuses a crew chat before asking. See `RunbloomPeers`.
+
 **What exists.** Nothing: no machine knows another's address, and no machine holds a token for
 another.
 
@@ -202,8 +211,8 @@ a Mac-only role for the person's own client, not an agent.
 | --- | --- | --- | --- |
 | `whoami`, `chat_list`, `chat_read`, `workspace_diff`, `agent_*`, `cloud_setup` | yes | | reading tools are held to this workspace |
 | `workspace_start` | `cloud_workspace_start` | yes, with an optional opening prompt | the prompt is handed over once; see `OpeningHandoff` |
-| `workspace_list` | no | yes, through runbloom.app | needed by any cross-workspace tool |
-| `workspace_say` | no | yes, part 2 | |
+| `workspace_list` | yes, the team's other Bloom Cloud workspaces | | through runbloom.app; see "Bloom Cloud to Bloom Cloud" |
+| `workspace_say` | yes, to another Bloom Cloud workspace | | through a token runbloom.app mints; labelled there |
 | `workspace_rename` | no | yes, trivially | the protocol already has `rename_workspace` |
 | `workspace_archive` | no | yes, through runbloom.app | the machine already has `archive_preview` and `archive` |
 | `workspace_merge` | no | yes, through runbloom.app's GitHub App | a machine's own `gh` has no token that may merge |
