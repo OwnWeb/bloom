@@ -37,9 +37,29 @@ struct RunnerReleaseTagTests {
         #expect(refusal(tag: "runner-v0.1.0-test.10")?.contains("tag has to be") == true)
     }
 
-    private func refusal(tag: String?) -> String? {
+    /// Item 8 of the review of 19 September 2026: what an update refuses before anything runs. A
+    /// version that could name a path, a digest that is not one, a tag for another release, and a
+    /// download URL off GitHub's asset hosts all stop here; only the missing script is left.
+    @Test("an update refuses a bad version, a bad digest, another release's tag and a foreign URL")
+    func updateGuards() {
+        let digest = String(repeating: "a", count: 64)
+        for version in ["../../etc", "1.2", "1.2.3; rm -rf /", ""] {
+            #expect(refusal(version: version, sha256: digest, tag: nil)?.contains("release version") == true, "\(version)")
+        }
+        for sha in ["", "abc", String(repeating: "A", count: 64), String(repeating: "a", count: 63) + "g"] {
+            #expect(refusal(version: "1.2.3", sha256: sha, tag: nil)?.contains("sha256") == true, "\(sha)")
+        }
+        #expect(refusal(version: "1.2.3", sha256: digest, tag: "v9.9.9")?.contains("tag has to be") == true)
+        #expect(refusal(version: "1.2.3", sha256: digest, tag: "runner-v1.2.3", downloadURL: "https://example.com/a")?
+            .contains("download_url") == true)
+        #expect(refusal(version: "1.2.3", sha256: digest, tag: "runner-v1.2.3",
+                        downloadURL: "https://objects.githubusercontent.com/a")?.contains("bootstrap script") == true)
+    }
+
+    private func refusal(version: String = "0.1.0-test.11", sha256: String = String(repeating: "a", count: 64),
+                         tag: String?, downloadURL: String? = nil) -> String? {
         do {
-            try MachineUpdate.start(version: "0.1.0-test.11", sha256: String(repeating: "a", count: 64), tag: tag)
+            try MachineUpdate.start(version: version, sha256: sha256, tag: tag, downloadURL: downloadURL)
             return nil
         } catch let failure as RemoteFailure {
             return failure.message

@@ -260,4 +260,24 @@ struct RemoteDiscardTests {
         #expect(Set(records.compactMap(\.layer)) == ["staged", "unstaged"])
         _ = workspace
     }
+
+    /// Item 8 of the review of 19 September 2026: a revert or a discard names a file the review
+    /// lists, so a path outside the worktree is not a file it can find.
+    @Test func revertAndDiscardFindNothingOutsideTheWorktree() async throws {
+        let (repo, workspace) = try await fixture()
+        let outside = TestScratch.unique("outside")
+        try FileManager.default.createDirectory(atPath: outside, withIntermediateDirectories: true)
+        try "outside secret".write(toFile: outside + "/value.txt", atomically: true, encoding: .utf8)
+        try repo.write("queue.txt", "changed\n")
+        for path in ["../queue.txt", outside + "/value.txt", "nested/../../value.txt"] {
+            await #expect(throws: RemoteFailure.self, "revert \(path)") {
+                try await RemoteDiscard.revertFile(workspace: workspace, path: path, scope: .uncommitted)
+            }
+            await #expect(throws: RemoteFailure.self, "discard \(path)") {
+                try await RemoteDiscard.discardHunk(workspace: workspace, path: path, scope: .uncommitted,
+                                                    patch: "@@ -1 +1 @@\n-a\n+b\n")
+            }
+        }
+        #expect(try String(contentsOfFile: outside + "/value.txt", encoding: .utf8) == "outside secret")
+    }
 }

@@ -311,6 +311,38 @@ struct WorkspaceHTTPServerTests {
         await fixture.runtime.shutdown()
     }
 
+    /// Item 8 of the review: the local route answers nobody without the secret, and says nothing
+    /// about why, so a guess learns nothing.
+    @Test("the local git credential route answers 404 without the local secret, or with a wrong one")
+    func gitCredentialsWantTheSecret() async throws {
+        let fixture = try await fixture()
+        let asked = Mutex(0)
+        let verifier = TokenVerifier(issuer: fixture.issuer.issuer, workspaceID: fixture.issuer.workspaceID, keys: fixture.issuer.keySet())
+        let server = WorkspaceHTTPServer(dependencies: .init(
+            runtime: fixture.runtime, verifier: verifier, gate: UngatedTurns(), control: fixture.control, store: fixture.store,
+            allowedOrigins: [], version: "1.2.3",
+            gitCredentials: .init(secret: "local-secret-value", repository: "spatie/bloom") { _, _, _ in
+                asked.withLock { $0 += 1 }
+                return RunbloomGitCredential(token: "t", expiresAt: Date(), username: "x-access-token")
+            }
+        ))
+        let body = ByteBuffer(string: #"{"repository":"spatie/bloom"}"#)
+        try await server.application(port: 0).test(.router) { client in
+            for headers: HTTPFields in [
+                [.contentType: "application/json"],
+                [GitCredentialRoute.secretHeader: "", .contentType: "application/json"],
+                [GitCredentialRoute.secretHeader: "local-secret-valuf", .contentType: "application/json"],
+                [GitCredentialRoute.secretHeader: "local-secret-value-and-more", .contentType: "application/json"],
+            ] {
+                try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers, body: body) { response in
+                    #expect(response.status == .notFound)
+                }
+            }
+        }
+        #expect(asked.withLock { $0 } == 0, "nothing was asked of runbloom.app")
+        await fixture.runtime.shutdown()
+    }
+
     /// M1 in the review of 19 September 2026: every process can read the local secret, so a named
     /// chat, terminal or turn counts only when the caller descends from it.
     @Test("a write token goes only to a caller that descends from the chat, terminal or push it names")
