@@ -138,6 +138,7 @@ enum WireExamples {
         ("review_patch", .reviewPatch(path: "README.md", scope: .uncommitted, knownRevision: "revision-1")),
         ("run_scripts", .runScripts),
         ("quick_prompts", .quickPrompts),
+        ("search_code", .searchCode(query: "retryAfter", limit: 50)),
         ("notes", .notes),
         ("pull_request", .pullRequest),
         ("archive_preview", .archivePreview),
@@ -243,6 +244,11 @@ enum WireExamples {
         ("review_snapshot_unchanged", .reviewSnapshot(ReviewSnapshotRecord(revision: "revision-2", files: nil))),
         ("review_patch", .reviewPatch(PatchSnapshotRecord(revision: "file-revision", patch: "diff --git a/README.md b/README.md\n"))),
         ("run_scripts", .runScripts(scripts: [RunScriptRecord(id: "tests", name: "Tests", command: "composer test")])),
+        // Two matching lines, and more that were not returned.
+        ("code_matches", .codeMatches(matches: [
+            CodeMatchRecord(path: "app/Queue.php", line: 42, column: 17, text: "        $this->retryAfter = 90;"),
+            CodeMatchRecord(path: "config/queue.php", line: 12, column: 9, text: "        'retry_after' => 90,"),
+        ], truncated: true)),
         // A worked example of everything a menu has to draw: a prompt that composes in the chat on
         // screen, one that opens a new chat, and the sentence for one that was left out. **No
         // `send_immediately` on any of them**, and there never will be: see `QuickPromptRecord`.

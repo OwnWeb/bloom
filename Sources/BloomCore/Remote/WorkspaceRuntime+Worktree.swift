@@ -59,7 +59,7 @@ extension WorkspaceRuntime {
             return .archivePreview(try await prepareArchive())
         case .archive(let confirmationID):
             return try await archive(confirmationID: confirmationID)
-        case .files, .file, .download, .reviewSnapshot, .reviewPatch, .writeFile, .uploadFile, .runScript, .closeTerminal,
+        case .files, .searchCode, .file, .download, .reviewSnapshot, .reviewPatch, .writeFile, .uploadFile, .runScript, .closeTerminal,
              .history, .commitFiles, .commitPatch, .revertFile, .discardHunk:
             return try await performOnFiles(operation, as: caller)
         default:
@@ -193,9 +193,10 @@ extension WorkspaceRuntime {
         let workspace = try await workspace()
         switch operation {
         case .files:
-            let listed = try await Git.checkRaw(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], in: workspace.path)
-            let paths = String(decoding: listed.stdout, as: UTF8.self).split(separator: "\0").map(String.init)
-            return .files(paths: Array(Set(paths)).sorted())
+            return .files(paths: try await listedFiles(workspace))
+        case .searchCode(let query, let limit):
+            // The same list `files` answers, so a client searches exactly what it can open.
+            return try RemoteCodeSearch.search(workspace: workspace, paths: try await listedFiles(workspace), query: query, limit: limit)
         case .history(let limit, let before):
             return .history(try await RemoteHistory.page(workspace: workspace, limit: limit, before: before))
         case .revertFile(let path, let scope):
@@ -245,5 +246,12 @@ extension WorkspaceRuntime {
         let service = RemoteTerminals(workspaceID: workspaceID, worktree: workspace.path, databasePath: store.path)
         terminalService = service
         return service
+    }
+
+    /// Every path git tracks or would track: tracked, and untracked but not ignored.
+    private func listedFiles(_ workspace: Workspace) async throws -> [String] {
+        let listed = try await Git.checkRaw(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], in: workspace.path)
+        let paths = String(decoding: listed.stdout, as: UTF8.self).split(separator: "\0").map(String.init)
+        return Array(Set(paths)).sorted()
     }
 }

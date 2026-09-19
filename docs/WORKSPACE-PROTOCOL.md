@@ -123,6 +123,7 @@ Reading (ability `view`):
 | `review_patch` | `path`, `scope`, `known_revision` | `review_patch`: `revision`, and `patch` unless you already had it |
 | `run_scripts` | | `run_scripts` |
 | `quick_prompts` | | `quick_prompts`: the project's `prompts` (`id`, `name`, `prompt`, `symbol`, `new_chat`, `source`) and the `issues` with them |
+| `search_code` | `query` (1 to 256 characters), `limit` (at most 200) | `code_matches`: `matches` (`path`, `line`, `column` in UTF-16 units, `text` cut at 400) and `truncated`. Case-insensitive, over exactly what `files` lists, skipping files over 1 MB and anything binary or not UTF-8. Every file is opened without following links, so a symlink out of the worktree is never read. Stops at the limit or after ten seconds, with `truncated` true |
 | `history` | `limit`, `before` | `history`: `commits` (newest first, each with `pushed` when the branch has a remote) and `has_more` |
 | `commit_files` | `sha` | `commit_files`: that commit's own changed files |
 | `commit_patch` | `sha`, `path` | `review_patch`: the file's diff inside that commit, refused when the commit or the file is not in it |

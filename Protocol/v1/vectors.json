@@ -495,6 +495,28 @@
       },
       "version" : 1
     },
+    "code_matches" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "code_matches",
+        "matches" : [
+          {
+            "column" : 17,
+            "line" : 42,
+            "path" : "app/Queue.php",
+            "text" : "        $this->retryAfter = 90;"
+          },
+          {
+            "column" : 9,
+            "line" : 12,
+            "path" : "config/queue.php",
+            "text" : "        'retry_after' => 90,"
+          }
+        ],
+        "truncated" : true
+      },
+      "version" : 1
+    },
     "commit_files" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "result" : {
@@ -1429,6 +1451,16 @@
       "operation" : {
         "kind" : "save_notes",
         "text" : "Check the retry limit"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "search_code" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "search_code",
+        "limit" : 50,
+        "query" : "retryAfter"
       },
       "protocol" : "bloom-workspace",
       "version" : 1

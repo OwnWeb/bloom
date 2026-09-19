@@ -1249,6 +1249,30 @@
       ],
       "additionalProperties": false
     },
+    "CodeMatch": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer"
+        },
+        "column": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "column",
+        "line",
+        "path",
+        "text"
+      ],
+      "additionalProperties": false
+    },
     "Terminal": {
       "type": "object",
       "properties": {
@@ -1666,6 +1690,32 @@
           },
           "required": [
             "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "search_code"
+            },
+            "query": {
+              "type": "string"
+            },
+            "limit": {
+              "oneOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "query"
           ],
           "additionalProperties": false
         },
@@ -2526,6 +2576,29 @@
             "issues",
             "kind",
             "prompts"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "code_matches"
+            },
+            "matches": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CodeMatch"
+              }
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "matches",
+            "truncated"
           ],
           "additionalProperties": false
         },

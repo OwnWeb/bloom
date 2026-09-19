@@ -25,6 +25,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case runScripts
     /// The project's quick prompts, read off the checkout on this call. See `QuickPromptRecord`.
     case quickPrompts
+    /// The workspace's code searched for `query`, case-insensitively, over what `files` lists.
+    case searchCode(query: String, limit: Int?)
     /// The branch's commits, newest first. `before` is a sha to page from, exclusive.
     case history(limit: Int?, before: String?)
     /// One commit's changed files, for a History row somebody opened.
@@ -75,7 +77,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     public var mutates: Bool {
         switch self {
         case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
-             .runScripts, .quickPrompts, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes, .pullRequest,
+             .runScripts, .quickPrompts, .searchCode, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes, .pullRequest,
              .archivePreview: false
         default: true
         }
@@ -117,6 +119,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .reviewPatch: "review_patch"
         case .runScripts: "run_scripts"
         case .quickPrompts: "quick_prompts"
+        case .searchCode: "search_code"
         case .notes: "notes"
         case .pullRequest: "pull_request"
         case .archivePreview: "archive_preview"
@@ -181,6 +184,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
                                 knownRevision: try c.decodeIfPresent(String.self, forKey: .knownRevision))
         case "run_scripts": self = .runScripts
         case "quick_prompts": self = .quickPrompts
+        case "search_code":
+            self = .searchCode(query: try c.decode(String.self, forKey: .query), limit: try c.decodeIfPresent(Int.self, forKey: .limit))
         case "notes": self = .notes
         case "pull_request": self = .pullRequest
         case "archive_preview": self = .archivePreview
@@ -239,7 +244,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
             try c.encodeIfPresent(limit, forKey: .limit); try c.encodeIfPresent(before, forKey: .before)
         case .commitFiles(let sha): try c.encode(sha, forKey: .sha)
         case .commitPatch(let sha, let path): try c.encode(sha, forKey: .sha); try c.encode(path, forKey: .path)
-        case .transcriptSearch(let query, let limit):
+        case .transcriptSearch(let query, let limit), .searchCode(let query, let limit):
             try c.encode(query, forKey: .query); try c.encodeIfPresent(limit, forKey: .limit)
         case .revertFile(let path, let scope): try c.encode(path, forKey: .path); try c.encode(scope, forKey: .scope)
         case .discardHunk(let path, let scope, let patch):
