@@ -52,11 +52,16 @@ public enum PeerSayAnswer: Sendable, Hashable {
 public struct WorkspacePeers: Sendable {
     public var list: @Sendable (_ turnID: String) async -> PeerListAnswer
     public var say: @Sendable (PeerMessage) async -> PeerSayAnswer
+    /// Leaves a message with runbloom.app for the turn's person's Mac, when none of their Macs has
+    /// this workspace open. Nil where there is no runbloom.app to leave it with.
+    public var depositForMac: (@Sendable (MacDeposit) async -> MacSayAnswer)?
 
     public init(list: @escaping @Sendable (String) async -> PeerListAnswer,
-                say: @escaping @Sendable (PeerMessage) async -> PeerSayAnswer) {
+                say: @escaping @Sendable (PeerMessage) async -> PeerSayAnswer,
+                depositForMac: (@Sendable (MacDeposit) async -> MacSayAnswer)? = nil) {
         self.list = list
         self.say = say
+        self.depositForMac = depositForMac
     }
 }
 

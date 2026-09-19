@@ -427,6 +427,43 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// Direct to a Mac of the turn's person when one has this workspace open, and left with
+    /// runbloom.app only when none has: a browser tab on the workspace does not count.
+    @Test("a message for a Mac goes down its stream, and is left with runbloom.app when no Mac is here")
+    func macMessagesAreDepositedOnlyWhenNoMacIsConnected() async throws {
+        let gate = RemoteTestGate()
+        let deposits = Mutex<[MacDeposit]>([])
+        let peers = WorkspacePeers(list: { _ in .listed([]) }, say: { _ in .refused("unused") }, depositForMac: { deposit in
+            deposits.withLock { $0.append(deposit) }
+            return .queued(expiresAt: "2026-09-26T13:00:00Z")
+        })
+        let fixture = try await fixture(gate: gate, peers: peers)
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Tell my Mac")),
+                                          as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Tell my Mac"] }
+
+        // Only a browser is watching, so it is deposited, for the running turn, from this chat.
+        let browser = try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil, client: nil)
+        let queued = await fixture.runtime.sayToMac(workspace: "fix-login", text: "Done", sessionID: fixture.session.id)
+        #expect(queued == .queued(expiresAt: "2026-09-26T13:00:00Z"))
+        let deposit = try #require(deposits.withLock { $0 }.first)
+        #expect(deposit.turnID == gate.registered.withLock { $0 }.first?.turnID)
+        #expect(deposit.workspace == "fix-login")
+        #expect(deposit.chat == fixture.session.title)
+        #expect(!deposit.idempotencyKey.isEmpty)
+
+        // With their Mac here, it goes straight there and nothing is left with runbloom.app.
+        let mac = MacMessages(try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil, client: WorkspaceRuntime.macClient))
+        let direct = await fixture.runtime.sayToMac(workspace: "fix-login", text: "Again", sessionID: fixture.session.id)
+        #expect(direct == .sent(connections: 1))
+        #expect(deposits.withLock { $0 }.count == 1)
+        await waitUntil("the Mac saw it") { mac.seen.records.withLock { $0 }.map(\.text) == ["Again"] }
+        mac.reader.cancel()
+        _ = browser
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
     @Test("stop_setup reaches the machine's setup, and with nothing running says there is nothing to stop")
     func stoppingSetup() async throws {
         let fixture = try await fixture()

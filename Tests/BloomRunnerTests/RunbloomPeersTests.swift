@@ -91,6 +91,34 @@ struct RunbloomPeersTests {
         }
     }
 
+    /// A Mac that is not connected: left with runbloom.app, once, whatever happens to the answer.
+    @Test("a deposit for a closed Mac is sent once under one key, and a limit says how long to wait")
+    func depositForAClosedMac() async throws {
+        let fake = try await FakeControlServer.start()
+        let client = RunbloomClient(baseURL: fake.baseURL + "/", workspaceID: fake.workspaceID, secret: fake.secret, http: .shared)
+        let deposit = MacDeposit(turnID: "01jturn", workspace: "fix-login", text: "The migration is in.", chat: "Chat",
+                                 idempotencyKey: "call-1")
+        fake.script("POST", "/mac-messages", .raw(503, "{}"), .json(202, ["queued": true, "expires_at": "2026-09-26T13:00:00Z"]))
+        let answer = await RunbloomPeers.depositForMac(deposit, client: client, pause: { _ in })
+        #expect(answer == .queued(expiresAt: "2026-09-26T13:00:00Z"))
+        let sent = fake.requests("POST", "/mac-messages")
+        #expect(sent.count == 2)
+        #expect(Set(sent.map(\.idempotencyKey)) == ["call-1"], "a retry is the same request, so it cannot queue twice")
+        let body = try #require(try JSONSerialization.jsonObject(with: sent[0].body) as? [String: Any])
+        #expect(body["turn_id"] as? String == "01jturn")
+        #expect(body["target_workspace"] as? String == "fix-login")
+        #expect((body["via"] as? [String: Any])?["chat"] as? String == "Chat")
+        #expect(body["user_id"] == nil && body["recipient"] == nil, "runbloom.app decides who receives it")
+
+        fake.script("POST", "/mac-messages", .json(429, ["code": "too_many_requests", "message": "This workspace has sent enough for now.",
+                                                         "retry_after": 90]))
+        #expect(await RunbloomPeers.depositForMac(deposit, client: client, pause: { _ in })
+            == .refused("This workspace has sent enough for now. Try again in 2 minutes."))
+        fake.script("POST", "/mac-messages", .refusal(status: 409, code: "mailbox_full", message: "Their Mac has 50 messages waiting."))
+        #expect(await RunbloomPeers.depositForMac(deposit, client: client, pause: { _ in }) == .refused("Their Mac has 50 messages waiting."))
+        await fake.stop()
+    }
+
     @Test("a workspace the list does not have is refused before anything is minted, and refusals are passed on")
     func refusals() async throws {
         try await Self.withFake { fake, peers in

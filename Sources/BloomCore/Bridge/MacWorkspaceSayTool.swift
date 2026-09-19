@@ -17,9 +17,9 @@ public struct MacWorkspaceSayTool: BridgeToolHandling {
         name: MacWorkspaceSayTool.name,
         description: """
             Send a message to the agent in a workspace on the Mac of the person you are working \\
-            for: a local Bloom workspace there, not a Bloom Cloud one. It reaches their Mac only \\
-            while they have this workspace open in Bloom on it; otherwise nothing is sent and the \\
-            answer says so.
+            for: a local Bloom workspace there, not a Bloom Cloud one. It goes straight to their \\
+            Mac while they have this workspace open in Bloom on it; otherwise it is queued and \\
+            arrives when Bloom on their Mac next checks in, and the answer says which.
 
             'workspace' is that local workspace's name as the person gave it to you; this machine \\
             cannot list a Mac's workspaces, and their Mac refuses a name it does not have. It \\
@@ -54,6 +54,9 @@ public struct MacWorkspaceSayTool: BridgeToolHandling {
         switch await say(workspace, message, identity.sessionID) {
         case .refused(let sentence):
             return .failure(sentence)
+        case .queued:
+            return .init(text: "Queued for their Mac. It arrives when Bloom there next checks in. Whether \(workspace) "
+                + "exists there is the Mac's to check, and no reply comes back here. Say what you sent and carry on.")
         case .sent(let connections):
             let reach = connections == 1 ? "their Mac" : "their Mac, on \(connections) connections"
             return .init(text: "Sent to \(reach). Whether \(workspace) exists there is the Mac's to check, "

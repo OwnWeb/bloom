@@ -30,8 +30,34 @@ enum RunbloomPeers {
                 } catch {
                     return .refused(sentence(for: error))
                 }
-            }
+            },
+            depositForMac: { deposit in await depositForMac(deposit, client: client) }
         )
+    }
+
+    /// `POST .../mac-messages`, asked again with the same key while runbloom.app cannot be reached, so
+    /// a lost answer queues the message once. runbloom.app's own sentence for a refusal is passed on
+    /// as it stands, with how long to wait added for the hourly limit, which its sentence leaves out.
+    static func depositForMac(_ deposit: MacDeposit, client: RunbloomClient,
+                              pause: @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }) async -> MacSayAnswer {
+        var delay = Duration.seconds(1)
+        for attempt in 1...3 {
+            do {
+                return .queued(expiresAt: try await client.depositMacMessage(deposit))
+            } catch let RunbloomError.refused(_, code, message, _, retryAfter) {
+                guard code == "too_many_requests", let retryAfter, retryAfter > 0 else { return .refused(message) }
+                let minutes = max(1, Int((Double(retryAfter) / 60).rounded(.up)))
+                return .refused(message + " Try again in \(minutes) minute\(minutes == 1 ? "" : "s").")
+            } catch let error as RunbloomError where error.isWorthRetrying && attempt < 3 {
+                await pause(delay)
+                delay *= 2
+            } catch {
+                return .refused("runbloom.app could not be reached, so nothing was queued for their Mac. "
+                    + "Sending it again is safe: it will not arrive twice.")
+            }
+        }
+        return .refused("runbloom.app could not be reached, so nothing was queued for their Mac. "
+            + "Sending it again is safe: it will not arrive twice.")
     }
 
     /// Mint, pick the chat, send. A name is matched against the list rather than guessed, so a
@@ -153,6 +179,19 @@ extension RunbloomClient {
         let turn = turnID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? turnID
         let data = try await send(.GET, "/workspaces?turn_id=\(turn)", expecting: [200])
         return try decode(Answer.self, data, status: 200).workspaces
+    }
+
+    /// Leaves a message for the turn's person's Mac. Answers when runbloom.app drops it uncollected.
+    func depositMacMessage(_ deposit: MacDeposit) async throws -> String? {
+        struct Answer: Decodable {
+            var expiresAt: String?
+            enum CodingKeys: String, CodingKey { case expiresAt = "expires_at" }
+        }
+        var body: [String: Any] = ["turn_id": deposit.turnID, "target_workspace": deposit.workspace, "text": deposit.text]
+        if let chat = deposit.chat { body["via"] = ["chat": String(chat.prefix(255))] }
+        let data = try await send(.POST, "/mac-messages", body: JSONSerialization.data(withJSONObject: body),
+                                  headers: ["Idempotency-Key": deposit.idempotencyKey], expecting: [200, 202])
+        return try decode(Answer.self, data, status: 202).expiresAt
     }
 
     /// A session token for another workspace, for the turn's person, with `view` and `prompt`.

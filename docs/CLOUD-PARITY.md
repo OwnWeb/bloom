@@ -231,6 +231,17 @@ machines awake and billing, which is a worse trade than the gap. **B and C close
 relays; neither is to be built without Freek's written exception**, bounded like the opening prompt
 (encrypted, for one Mac, deleted when delivered, expiring).
 
+**C was approved by Freek on 19 September 2026, and is built on the machine's side.** Direct first:
+when a Mac stream (`Bloom-Client: mac`) of the turn's person is open here, the message goes down it
+as above. Only when none is, a browser tab on this workspace not counting, the machine leaves it
+with runbloom.app: `POST .../mac-messages` with `turn_id`, `target_workspace`, `text` and
+`via.chat`, and an `Idempotency-Key` minted per tool call and kept across its retries, so a lost
+answer queues nothing twice. There is no recipient field: runbloom.app delivers to the running
+turn's prompter, found on its side. It keeps the message encrypted for seven days, fifty undelivered
+at most per person and thirty deposits an hour per workspace, and deletes it when the Mac
+acknowledges it or the person leaves the team. Its refusal sentences are passed to the agent as they
+stand, with "try again in N minutes" added from `Retry-After`. See `RunbloomPeers.depositForMac`.
+
 **Addressing** stays the hard part in any shape: the machine knows no Mac's local workspace names, so
 the agent has to be told one, and only the Mac can refuse a wrong one, after the fact. A Mac that
 sends its open local workspaces' names on connect would fix that, and is the first thing to add if A
