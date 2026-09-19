@@ -1,5 +1,6 @@
 import BloomCore
 import Foundation
+import Synchronization
 
 /// Brings the machine's one workspace up: the checkout, the repository's scripts, then its
 /// services.
@@ -739,9 +740,21 @@ public actor MachineSetup {
         // A shutdown cancels this task, which ends `lines` and with it sends SIGTERM. A script that
         // ignores it would hold shutdown until its step timeout, up to an hour, so it gets the
         // same grace as the watchdog gives and is then killed.
+        // Kept only while a sandboxed script runs, and only the tail: it is read to tell "this asked
+        // for root" from an ordinary failure. See `SandboxRefusal`.
+        let tail = Mutex<[String]>([])
+        let watching = command != nil
         let ending = await withTaskCancellationHandler {
             do {
-                for try await line in lines { await log.append(line) }
+                for try await line in lines {
+                    if watching {
+                        tail.withLock { lines in
+                            lines.append(line)
+                            if lines.count > Self.refusalTail { lines.removeFirst() }
+                        }
+                    }
+                    await log.append(line)
+                }
             } catch {
                 await log.append("[bloom] \(error)")
             }
@@ -767,6 +780,10 @@ public actor MachineSetup {
             // `terminationStatus`; somebody read that as the script's own verdict and spent twenty
             // actions rebuilding by hand what setup should have done. See `ProcessEnding`.
             await log.note(step.map { "The \($0) script \(ending.sentence)." } ?? "The script \(ending.sentence).")
+            // What the failure really was, when it was root and not the project's own code.
+            if let user = command?.user, let advice = SandboxRefusal.advice(lines: tail.withLock { $0 }, user: user) {
+                await log.note(advice)
+            }
         }
         return ending.isSuccess
     }
@@ -784,6 +801,9 @@ public actor MachineSetup {
         // branch, which is what a workspace cut from it looks like before anybody commits.
         return !head.isEmpty && head == tip
     }
+
+    /// How many of a sandboxed script's last lines are kept to read a permission refusal out of.
+    static let refusalTail = 40
 
     /// Provisioning, beside this build of the Runner. See `Tools/provision-sandbox.sh`.
     static let provisionScript = "/opt/bloom/current/bin/provision-sandbox.sh"

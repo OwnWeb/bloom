@@ -193,6 +193,57 @@ struct MachineSetupTests {
         #expect(!recorded.contains("from the team"), "the team's values stay in the environment, never in arguments")
     }
 
+    /// The whole path: a sandboxed rerun whose script asks for root fails, and the log says which
+    /// command was refused and what to do about it, rather than leaving a bare exit status.
+    ///
+    /// The sandbox's three tools are stood in for by pass-through stubs, because a Mac has no
+    /// `unshare` and cannot drop privileges in a test; what is real here is the wrapping, the
+    /// script, and a `sudo` on the script's PATH that refuses exactly as the machine's does for a
+    /// user with no rights.
+    @Test("a sandboxed script that asks for root is told why, and pointed at a fresh machine")
+    func refusedRootIsExplained() async throws {
+        let asksForRoot = """
+        #!/bin/bash
+        set -x
+        sudo apt-get install -y libpq-dev
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings, ".bloom/setup.sh": asksForRoot],
+                                        executables: [".bloom/setup.sh"])
+        // sudo and unshare: run whatever follows the `--` separator. setpriv: drop its own flags.
+        let afterSeparator = """
+        #!/bin/bash
+        while [[ $# -gt 0 && "$1" != "--" ]]; do shift; done
+        shift
+        exec "$@"
+        """
+        let withoutFlags = """
+        #!/bin/bash
+        while [[ "$1" == --* ]]; do shift; done
+        exec "$@"
+        """
+        try SetupTestSupport.write(afterSeparator + "\n", to: fixture.root + "/fake-sudo", executable: true)
+        try SetupTestSupport.write(withoutFlags + "\n", to: fixture.root + "/fake-setpriv", executable: true)
+        // What the script itself calls, which is the thing that refuses.
+        let refusing = """
+        #!/bin/bash
+        echo "sudo: a password is required" >&2
+        exit 1
+        """
+        try FileManager.default.createDirectory(atPath: fixture.layout.dataDirectory + "/bin", withIntermediateDirectories: true)
+        try SetupTestSupport.write(refusing + "\n", to: fixture.layout.dataDirectory + "/bin/sudo", executable: true)
+        let sandbox = MachineSandbox(user: "bloom-agent", maskedPaths: [], sudo: fixture.root + "/fake-sudo",
+                                    unshare: fixture.root + "/fake-sudo", setpriv: fixture.root + "/fake-setpriv",
+                                    shell: "/bin/bash")
+        let setup = try fixture.setup(sandbox: sandbox)
+        await setup.run()
+        _ = await setup.rerunSetup()
+
+        let log = try await fixture.workspace().setupLog
+        #expect(log.contains("`sudo apt-get install -y libpq-dev` was refused"))
+        #expect(log.contains("Replace the machine"))
+        #expect(log.contains(SandboxRefusal.code))
+    }
+
     @Test("a branch that exists on the remote is checked out as it is there")
     func existingBranch() async throws {
         let fixture = try await fixture(
