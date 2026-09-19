@@ -341,6 +341,12 @@ enum WireExamples {
         // address, which a client connected to it already has.
         ("pane_requested", .paneRequested(url: "http://127.0.0.1:3000/dashboard", chatID: chat.id,
                                           placement: "split")),
+        // An agent on the machine telling its person's Mac something, for a local workspace there.
+        // Sent only down that person's streams; the Mac checks `user_id` and the name again.
+        ("mac_message", .macMessage(MacMessageRecord(
+            id: "01k5mac000000000000000000", userID: author.userID, workspace: "Queue retries",
+            text: "The migration is done on the Cloud branch; rebase yours on it.",
+            via: ViaRecord(workspace: "Queue retries in the Cloud", chat: "Chat")))),
         ("presence", .presence([PresenceRecord(userID: author.userID, name: author.name, lastInputAt: nil)])),
         ("workspace", .workspace(workspace)),
         // The same record while the machine cannot reach runbloom.app, which is the only time it

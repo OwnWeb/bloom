@@ -169,6 +169,7 @@ EVENTS = {
     # `placement` is `split` or `tab`, absent meaning `tab`, which is what every client did before
     # the field existed.
     "pane_requested": plain({}, {"url": S, "chat_id": S, "placement": {"enum": ["split", "tab"]}}),
+    "mac_message": record("mac_message", "MacMessage"),
     "presence": plain({"users": array(ref("Presence"))}),
     "workspace": record("workspace", "Workspace"),
     "sleeping": plain(),
@@ -221,6 +222,8 @@ RECORDS = {
     "Audience": obj({"kind": {"enum": ["agent", "person"]}}, {"user_id": S, "mention": S}),
     # A label: an agent wrote this on its author's behalf, from this workspace and chat, by name.
     "Via": obj({"kind": {"enum": ["agent"]}}, {"workspace": S, "chat": S}),
+    # For a workspace on the Mac of the running turn's person, sent only down their streams.
+    "MacMessage": obj({"id": S, "user_id": S, "workspace": S, "text": S, "via": ref("Via")}),
     "Blocked": obj({"limit": S, "message": S}),
     "QueuedPrompt": obj({"id": S, "text": S, "state": {"enum": ["queued", "blocked", "uncertain"]}, "created_at": DATE},
                         {"author": ref("Author"), "blocked": ref("Blocked")}),

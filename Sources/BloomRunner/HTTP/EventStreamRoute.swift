@@ -12,6 +12,8 @@ import Hummingbird
 enum EventStreamRoute {
     static let streamIDHeader = HTTPField.Name("Bloom-Stream-ID")!
     static let lastEventIDHeader = HTTPField.Name("Last-Event-ID")!
+    /// Which kind of client is opening the stream: `mac` for Bloom on a Mac. See `RemoteEventHub`.
+    static let clientHeader = HTTPField.Name("Bloom-Client")!
     /// A comment line now and then, so a proxy that closes quiet connections does not. Measured:
     /// the machine's own URL held a stream with 100 seconds of silence, and 25 is well inside that.
     static let keepAliveInterval: Duration = .seconds(25)
@@ -28,7 +30,8 @@ enum EventStreamRoute {
             let cursor = request.headers[lastEventIDHeader].flatMap { Int64($0) }
             let events: AsyncStream<WorkspaceEvent>
             do {
-                events = try await runtime.openEvents(for: token.caller(token: request.bearerToken ?? ""), after: cursor)
+                events = try await runtime.openEvents(for: token.caller(token: request.bearerToken ?? ""), after: cursor,
+                                                      client: request.headers[clientHeader])
             } catch {
                 return WireResponses.failure(error)
             }

@@ -183,6 +183,8 @@ actor RemotePromptQueue {
 
     /// The runbloom.app turn a chat is running, if any.
     func runningTurn(_ id: SessionID) -> String? { running[id] }
+    /// The person whose turn a chat is running, as runbloom.app registered it.
+    func runningAuthor(_ id: SessionID) -> String? { runningAuthors[id] }
 
     func turnEnded(_ id: SessionID, ending: RemoteTurnEnd) async {
         runningAuthors.removeValue(forKey: id)

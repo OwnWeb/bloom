@@ -200,6 +200,10 @@ weighed against the rule that nobody outside a workspace or team can instruct it
 | B. A standing outbound connection from the Mac to runbloom.app | runbloom.app, for every message | whoever runbloom.app forwards for, so its routing is now part of the Mac's attack surface | whenever the Mac is running | a relay: a second exception, and a standing one |
 | C. A mailbox runbloom.app keeps and the Mac drains | runbloom.app, stored until read | as B, and the words are at rest on a server | even when the Mac is closed | a relay with storage: the widest exception of the three |
 
+**A is built (19 September 2026)**: `mac_workspace_say` on the machine, the `mac_message` event, and
+`Bloom-Client: mac` on the Mac's event stream so a browser holding the same person's stream is not
+mistaken for their Mac. The Mac's half, receiving it into a local workspace, is the Mac client's.
+
 **A, because it adds no party and no stored words.** The machine already talks to the Mac over the
 stream (`pane_requested`), authenticated by a token that names the person, and runbloom.app never
 sees what is said. What makes it safe:

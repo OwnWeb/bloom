@@ -11,10 +11,10 @@ extension WorkspaceRuntime {
     /// being assembled waits in its buffer rather than being missed; the rows replayed after the
     /// client's cursor are then sent, and a live `message` at or below the last replayed cursor is
     /// skipped as the duplicate it is.
-    public func openEvents(for caller: RemoteCaller, after cursor: Int64?) async throws -> AsyncStream<WorkspaceEvent> {
+    public func openEvents(for caller: RemoteCaller, after cursor: Int64?, client: String? = nil) async throws -> AsyncStream<WorkspaceEvent> {
         guard !isClosed else { throw RemoteFailure.shuttingDown }
         if let author = caller.author { presence.noteName(author) }
-        let subscription = await events.subscribe(userID: caller.author?.userID)
+        let subscription = await events.subscribe(userID: caller.author?.userID, client: client)
         do {
             return try await openEvents(subscription, after: cursor)
         } catch {

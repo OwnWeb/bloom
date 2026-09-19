@@ -177,8 +177,8 @@ struct RemoteBridgeTests {
         // `CloudWorkspaceStartTool`.
         #expect(toolbox.tools(for: .workspace).map(\.name) == [
             "agent_list", "agent_say", "agent_start", "agent_stop", "chat_list", "chat_read",
-            "cloud_setup", "cloud_workspace_start", "media_show", "request_pane", "whoami", "workspace_diff",
-            "workspace_list", "workspace_say",
+            "cloud_setup", "cloud_workspace_start", "mac_workspace_say", "media_show", "request_pane", "whoami",
+            "workspace_diff", "workspace_list", "workspace_say",
         ])
         #expect(toolbox.tools(for: .owner).isEmpty)
         // `pane_open` in particular: the machine can ask for a pane and cannot open one, and the

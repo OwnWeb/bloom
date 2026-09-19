@@ -87,6 +87,10 @@ extension WorkspaceRuntime {
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.sayToPeer(workspace: workspace, chat: chat, text: text, sessionID: sessionID)
             },
+            MacWorkspaceSayTool { [weak self] workspace, text, sessionID in
+                guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
+                return await self.sayToMac(workspace: workspace, text: text, sessionID: sessionID)
+            },
             // Reaches only the store and the worktree, so no seam: see `MachineMediaShowTool`.
             MachineMediaShowTool(),
             CloudWorkspaceStartTool { [weak self] order, sessionID, _ in

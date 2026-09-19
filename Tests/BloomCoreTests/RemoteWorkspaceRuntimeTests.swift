@@ -391,6 +391,41 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// **Nobody outside can instruct a Mac through this.** The message goes only down the running
+    /// turn's person's own Mac stream: never a colleague's Mac on the same workspace, and never the
+    /// same person's browser, which is not a Mac.
+    @Test("a message for a Mac reaches only the turn's person, and only on their Mac")
+    func macMessagesReachOnlyTheirPersonsMac() async throws {
+        let gate = RemoteTestGate()
+        let peers = WorkspacePeers(list: { _ in .listed([]) }, say: { _ in .refused("unused") })
+        let fixture = try await fixture(gate: gate, peers: peers)
+
+        guard case .refused = await fixture.runtime.sayToMac(workspace: "Local", text: "Hi", sessionID: fixture.session.id) else {
+            Issue.record("A chat with no turn running reached a Mac"); return
+        }
+
+        let freeksMac = MacMessages(try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil, client: WorkspaceRuntime.macClient))
+        let freeksBrowser = MacMessages(try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil))
+        let sebsMac = MacMessages(try await fixture.runtime.openEvents(for: Self.caller(Self.seb), after: nil, client: WorkspaceRuntime.macClient))
+
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Tell my Mac")),
+                                          as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Tell my Mac"] }
+        let answer = await fixture.runtime.sayToMac(workspace: "Local", text: "Rebase on the Cloud branch", sessionID: fixture.session.id)
+        #expect(answer == .sent(connections: 1))
+
+        await waitUntil("Freek's Mac hears it", within: .seconds(30)) { !freeksMac.seen.records.withLock { $0 }.isEmpty }
+        let record = try #require(freeksMac.seen.records.withLock { $0 }.first)
+        #expect(record.userID == Self.freek.userID)
+        #expect(record.workspace == "Local")
+        #expect(record.via.workspace == "Queue retries")
+        #expect(freeksBrowser.seen.records.withLock { $0 }.isEmpty, "a browser is not a Mac")
+        #expect(sebsMac.seen.records.withLock { $0 }.isEmpty, "a colleague's Mac is never told")
+        for stream in [freeksMac, freeksBrowser, sebsMac] { stream.reader.cancel() }
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a runtime with nobody to ask says so rather than pretending")
     func cloudWorkspacesNeedRunbloom() async throws {
         let fixture = try await fixture()
@@ -976,5 +1011,22 @@ actor RemoteTestRunner: SessionRunner {
 
     func finish() {
         sink.yield(.result(AgentResult()))
+    }
+}
+
+/// The `mac_message` events one stream received, read beside the test.
+final class MacMessages: Sendable {
+    final class Seen: Sendable {
+        let records = Mutex<[MacMessageRecord]>([])
+    }
+
+    let seen = Seen()
+    let reader: Task<Void, Never>
+
+    init(_ stream: AsyncStream<WorkspaceEvent>) {
+        let seen = self.seen
+        reader = Task {
+            for await event in stream { if case .macMessage(let record) = event { seen.records.withLock { $0.append(record) } } }
+        }
     }
 }
