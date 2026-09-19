@@ -1,5 +1,6 @@
 import AppKit
 import BloomClient
+import QuartzCore
 import BloomCore
 import Observation
 
@@ -39,6 +40,10 @@ final class CloudTerminal {
     @ObservationIgnored private var reader: Task<Void, Never>?
     @ObservationIgnored private var refresher: Task<Void, Never>?
     @ObservationIgnored private var size: (columns: Int, rows: Int) = (80, 24)
+    /// What the machine has sent since the emulator was last fed, and the refresh it waits for.
+    /// See `TerminalOutputBatch`, which is where the measurement behind this is.
+    @ObservationIgnored private var batch = TerminalOutputBatch()
+    @ObservationIgnored private var refresh: CADisplayLink?
     @ObservationIgnored private(set) lazy var view: CloudTerminalView = {
         let view = CloudTerminalView(frame: CGRect(x: 0, y: 0, width: 640, height: 400))
         view.onInput = { [weak self] bytes in self?.input(bytes) }
@@ -82,7 +87,7 @@ final class CloudTerminal {
                 guard let self else { return }
                 switch event {
                 case .output(let data):
-                    self.view.feed(byteArray: ArraySlice(data))
+                    self.receive(data)
                 case .closed(let reason, let isRefusal):
                     self.socket = nil
                     self.refresher?.cancel()
@@ -101,7 +106,47 @@ final class CloudTerminal {
         }
     }
 
+    /// One frame from the machine, held for the next display refresh rather than fed on arrival.
+    ///
+    /// A view with no window has no refresh to wait for and draws nothing anyway, so it is fed at
+    /// once, as it always was.
+    private func receive(_ data: Data) {
+        guard view.window != nil else {
+            // Whatever was waiting for a refresh that will not come goes first, so nothing is fed
+            // out of the order the machine sent it.
+            feedBatch()
+            view.feed(byteArray: ArraySlice(data))
+            return
+        }
+        switch batch.append(data) {
+        case .wait:
+            break
+        case .schedule:
+            let link = view.displayLink(target: self, selector: #selector(refreshed))
+            link.add(to: .main, forMode: .common)
+            refresh = link
+        case .feedNow:
+            feedBatch()
+        }
+    }
+
+    @objc private func refreshed(_ link: CADisplayLink) {
+        feedBatch()
+    }
+
+    private func feedBatch() {
+        refresh?.invalidate()
+        refresh = nil
+        guard !batch.isEmpty else { return }
+        let (bytes, frames) = batch.take()
+        view.feed(byteArray: ArraySlice(bytes))
+        // What the batching saved, in the field: a burst of output is a run of these, each saying
+        // how many of the machine's frames went into one feed.
+        Log.cloudTerminal.debug("fed \(frames, privacy: .public) frames, \(bytes.count, privacy: .public) bytes, in one feed")
+    }
+
     func close() {
+        feedBatch()
         reader?.cancel()
         refresher?.cancel()
         let socket = socket

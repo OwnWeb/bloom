@@ -61,9 +61,42 @@ enum CloudTerminalProbe {
         let kept = history.replacingOccurrences(of: "\n", with: "").contains("What follows is a new shell")
         check(!onScreen, "the boundary line survived a clear screen, so this probe's reading of the frame is wrong")
 
+        let batching = measureBatching(check: check)
         summary = "after the reattach the screen holds one copy of each line and the new prompt; "
             + "the boundary line is \(onScreen ? "on screen" : "off the screen") and "
-            + "\(kept ? "kept in the scrollback" : "gone from the buffer altogether")"
+            + "\(kept ? "kept in the scrollback" : "gone from the buffer altogether"); "
+            + batching
+    }
+
+    /// What batching a burst saves, measured through the app's own view: `seq 1 5000` fed as the
+    /// 849 frames tmux's control mode cut it into on this Mac, and then fed once, as
+    /// `TerminalOutputBatch` does per display refresh. The screens have to come out identical; the
+    /// times are reported, not asserted, because they describe the machine this ran on.
+    static func measureBatching(check: (Bool, String) -> Void) -> String {
+        let bytes = Array((1...5_000).map { "\($0)\r\n" }.joined().utf8)
+        let frameCount = 849
+        let step = (bytes.count + frameCount - 1) / frameCount
+        let frames = stride(from: 0, to: bytes.count, by: step).map { bytes[$0..<min($0 + step, bytes.count)] }
+
+        let separate = CloudTerminalView(frame: CGRect(x: 0, y: 0, width: 640, height: 400))
+        separate.getTerminal().resize(cols: 80, rows: 24)
+        let clock = ContinuousClock()
+        let eachStart = clock.now
+        for frame in frames { separate.feed(byteArray: frame) }
+        let each = clock.now - eachStart
+
+        let batched = CloudTerminalView(frame: CGRect(x: 0, y: 0, width: 640, height: 400))
+        batched.getTerminal().resize(cols: 80, rows: 24)
+        let onceStart = clock.now
+        batched.feed(byteArray: ArraySlice(bytes))
+        let once = clock.now - onceStart
+
+        check(
+            screen(of: separate.getTerminal()) == screen(of: batched.getTerminal()),
+            "feeding the burst once drew a different screen from feeding it frame by frame"
+        )
+        let format: (Duration) -> String = { $0.formatted(.units(allowed: [.milliseconds], fractionalPart: .show(length: 1))) }
+        return "seq 1 5000 as \(frames.count) feeds took \(format(each)), as one feed \(format(once))"
     }
 
     private static func feed(_ view: CloudTerminalView, _ text: String) {
