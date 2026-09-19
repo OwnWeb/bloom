@@ -100,6 +100,16 @@ public struct RunbloomEnvironment: Sendable, Hashable {
 
     public var redirect: String { "\(urlScheme)://oauth/callback" }
 
+    /// The signed-in person's own page on runbloom.app: their GitHub connection and the apps they
+    /// signed in to. It was `/account`, which runbloom.app is deleting; build it here and nowhere
+    /// else, so the next move is one line.
+    public var accountPage: URL { origin.appending(path: "app/account") }
+
+    /// The person's current team, which is its workspaces page with the setup checklist on it, or
+    /// its people for a team without Bloom Cloud workspaces. What a setup notice opens when
+    /// runbloom.app named no page of its own.
+    public var teamPage: URL { origin.appending(path: "app") }
+
     /// Reads the environment: `BLOOM_RUNBLOOM_URL` (a development runbloom.app) wins over the
     /// setting, which wins over production. An address that is not an origin is ignored rather
     /// than trusted, because sign in sends credentials wherever this points.

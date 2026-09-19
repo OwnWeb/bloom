@@ -147,7 +147,7 @@ struct AccountSettingsView: View {
         Section {
             HStack {
                 Button("Manage on runbloom.app") {
-                    NSWorkspace.shared.open(cloud.environment.origin.appending(path: "account"))
+                    NSWorkspace.shared.open(cloud.environment.accountPage)
                 }
                 Spacer()
                 Button("Sign Out") { Task { await cloud.signOut() } }

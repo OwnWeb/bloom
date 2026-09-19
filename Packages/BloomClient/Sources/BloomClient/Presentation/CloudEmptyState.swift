@@ -68,7 +68,7 @@ public struct CloudEmptyState: Sendable, Hashable {
             return CloudEmptyState(
                 title: "Bloom Cloud workspaces",
                 sentence: "None of your teams can create Bloom Cloud workspaces yet. runbloom.app says what each of them needs.",
-                action: .open(environment.origin.appending(path: "account"), title: TeamSetupNotice.genericButtonTitle)
+                action: .open(environment.teamPage, title: TeamSetupNotice.genericButtonTitle)
             )
         }
         let isEarlyAccess = account.teams.allSatisfy { !$0.cloudWorkspacesEnabled }

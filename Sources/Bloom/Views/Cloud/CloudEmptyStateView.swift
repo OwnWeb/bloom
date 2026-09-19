@@ -73,7 +73,7 @@ struct CloudEmptyStateView: View {
             SettingsTabRequest.post(.account)
             openSettings()
         case .open(let page, _):
-            NSWorkspace.shared.open(page ?? app.cloud.environment.origin.appending(path: "account"))
+            NSWorkspace.shared.open(page ?? app.cloud.environment.teamPage)
         case .createWorkspace:
             openWindow(id: CreateCloudWorkspaceWindow.id)
         }

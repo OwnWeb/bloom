@@ -286,7 +286,7 @@ final class CloudWorkspaces {
     }
 
     /// The page on runbloom.app closest to a Cloud workspace's cause: its team's own setup page
-    /// when the account named one, and the account page otherwise.
+    /// when the account named one, and the current team's page otherwise.
     ///
     /// Written as four statements rather than one expression, because one line of optional chaining
     /// with a `??` between two differently produced `URL`s is past what the CI runner's type checker
@@ -296,7 +296,7 @@ final class CloudWorkspaces {
         let workspace: CloudWorkspaceItem? = item(id)
         let team: RunbloomTeam? = workspace.flatMap { self.team($0.teamID) }
         if let page = team?.setup?.setupPage(on: environment) { return page }
-        return environment.origin.appending(path: "account")
+        return environment.teamPage
     }
 
     func team(_ id: String) -> RunbloomTeam? {

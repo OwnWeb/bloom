@@ -461,7 +461,7 @@ struct CreateCloudWorkspaceView: View {
     /// runbloom.app's page for one step of a team's setup.
     private func open(_ step: TeamSetupStep) {
         let page = team?.setup?.setupPage(on: cloud.environment, for: step)
-        NSWorkspace.shared.open(page ?? cloud.environment.origin.appending(path: "account"))
+        NSWorkspace.shared.open(page ?? cloud.environment.teamPage)
     }
 
     // MARK: - Actions

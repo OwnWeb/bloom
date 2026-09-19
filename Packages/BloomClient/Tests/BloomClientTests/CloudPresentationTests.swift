@@ -396,7 +396,7 @@ import Testing
         let team = try team("""
         {"id": "t", "name": "Spatie", "role": "owner", "cloud_workspaces_enabled": true,
          "cloud_workspaces": {"enabled": true, "setup_complete": false, "github_connected": true, "github_app_installed": false,
-                              "has_project": false, "has_agent_key": true, "setup_url": "https://runbloom.app/account/spatie"}}
+                              "has_project": false, "has_agent_key": true, "setup_url": "https://runbloom.app/app/spatie"}}
         """)
         #expect(!team.isReadyForCloudWorkspaces)
         let notice = try #require(TeamSetupNotice(team: team, environment: environment))
@@ -404,7 +404,7 @@ import Testing
         // The first step still to take is the one the button goes to, and installing the GitHub App
         // is taken on the team's own page rather than a page under it.
         #expect(notice.buttonTitle == "Install the GitHub App on runbloom.app")
-        #expect(notice.page?.absoluteString == "https://runbloom.app/account/spatie")
+        #expect(notice.page?.absoluteString == "https://runbloom.app/app/spatie")
     }
 
     @Test func aTeamNotInEarlyAccessSaysSo() throws {
@@ -526,7 +526,7 @@ import Testing
 
     private var complete: TeamSetup {
         TeamSetup(enabled: true, setupComplete: true, githubConnected: true, githubAppInstalled: true, hasProject: true, hasAgentKey: true,
-                  setupURL: URL(string: "https://runbloom.app/account/spatie"))
+                  setupURL: URL(string: "https://runbloom.app/app/spatie"))
     }
 
     @Test func signedOutSaysWhatACloudWorkspaceIsAndOffersSigningIn() {
@@ -550,7 +550,7 @@ import Testing
         let state = CloudEmptyState.noWorkspaces(isSignedIn: true, account: account([team(enabled: true, setup: setup)]), environment: environment)
         #expect(state.title == "One more step first")
         #expect(state.steps == ["Add a repository as a project."])
-        #expect(state.action == .open(URL(string: "https://runbloom.app/account/spatie/projects"), title: "Add a project on runbloom.app"))
+        #expect(state.action == .open(URL(string: "https://runbloom.app/app/spatie"), title: "Add a project on runbloom.app"))
     }
 
     @Test func aMissingKeyGetsTheKeysPage() {
@@ -558,12 +558,12 @@ import Testing
         setup.setupComplete = false
         setup.hasAgentKey = false
         let state = CloudEmptyState.noWorkspaces(isSignedIn: true, account: account([team(enabled: true, setup: setup)]), environment: environment)
-        #expect(state.action == .open(URL(string: "https://runbloom.app/account/spatie/agent-keys"), title: "Add an API key on runbloom.app"))
+        #expect(state.action == .open(URL(string: "https://runbloom.app/app/spatie"), title: "Add an API key on runbloom.app"))
     }
 
     @Test func earlyAccessSaysSoAndStillOffersTheWayThere() {
         let state = CloudEmptyState.noWorkspaces(
-            isSignedIn: true, account: account([team(enabled: false, setup: TeamSetup(enabled: false, setupURL: URL(string: "https://runbloom.app/account/spatie")))]),
+            isSignedIn: true, account: account([team(enabled: false, setup: TeamSetup(enabled: false, setupURL: URL(string: "https://runbloom.app/app/spatie")))]),
             environment: environment
         )
         #expect(state.title == "Bloom Cloud workspaces are in early access")
@@ -755,5 +755,17 @@ import Testing
 
     @Test func noAnswerAtAllIsAPlainFailure() {
         #expect(CloudSendOutcome(failure: .noAnswer("It did not answer.")) == .failed("It did not answer."))
+    }
+
+    /// runbloom.app is deleting `/account`, so nothing here may build an address under it.
+    @Test("the account and team pages are under /app, and a setup page is opened as given")
+    func pagesAreUnderApp() {
+        let environment = RunbloomEnvironment(origin: URL(string: "https://runbloom.app")!, urlScheme: "bloom")
+        #expect(environment.accountPage.absoluteString == "https://runbloom.app/app/account")
+        #expect(environment.teamPage.absoluteString == "https://runbloom.app/app")
+        let setup = TeamSetup(enabled: true, hasProject: false, setupURL: URL(string: "https://runbloom.app/app/spatie"))
+        for step in TeamSetupStep.allCases {
+            #expect(setup.setupPage(on: environment, for: step)?.absoluteString == "https://runbloom.app/app/spatie")
+        }
     }
 }

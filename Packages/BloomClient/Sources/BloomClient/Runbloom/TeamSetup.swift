@@ -60,7 +60,7 @@ public struct TeamSetup: Codable, Sendable, Hashable {
     /// steps this version may not have heard of; otherwise the four this version knows.
     public var isComplete: Bool { setupComplete ?? missing.isEmpty }
 
-    /// The steps still to take, in the order the account page lists them.
+    /// The steps still to take, in the order runbloom.app's setup checklist lists them.
     ///
     /// `github_connected` is about the signed in person; the other three are the team's. Only a
     /// step runbloom.app said false is listed: not said is not the same as not done.
@@ -76,13 +76,18 @@ public struct TeamSetup: Codable, Sendable, Hashable {
     /// The same steps as sentences.
     public var missing: [String] { missingSteps.map(\.sentence) }
 
-    /// The page to send somebody to (`https://runbloom.app/account/<team>`, sometimes a page under
-    /// it), and only when it is runbloom.app's own: the address came from an answer, and a button
-    /// that opens it should not open anywhere else.
+    /// The page to send somebody to, as runbloom.app gave it, and only when it is runbloom.app's
+    /// own: the address came from an answer, and a button that opens it should not open anywhere
+    /// else.
+    ///
+    /// **The same page for every step, opened as given.** It used to have `projects` or
+    /// `agent-keys` put on the end of it for those two steps, which was this Mac building
+    /// runbloom.app's addresses: the page moved from `/account/<team>` to `/app/<team>`, the
+    /// workspaces page with the whole setup checklist on it, and the two pages under it were never
+    /// carried across. The step still names the button; the page is runbloom.app's to say.
     public func setupPage(on environment: RunbloomEnvironment, for step: TeamSetupStep? = nil) -> URL? {
         guard let setupURL, BloomAuthDocument.sameOrigin(setupURL, environment.origin) else { return nil }
-        guard let page = step?.page else { return setupURL }
-        return setupURL.appending(path: page)
+        return setupURL
     }
 }
 
@@ -113,14 +118,6 @@ public enum TeamSetupStep: String, Sendable, Hashable, CaseIterable {
         }
     }
 
-    /// The page under the team's own, when the step has one of its own.
-    var page: String? {
-        switch self {
-        case .connectGitHub, .installGitHubApp: nil
-        case .addProject: "projects"
-        case .addAgentKey: "agent-keys"
-        }
-    }
 }
 
 /// What the app says about a team that cannot hold Cloud workspaces yet, for the create sheet and

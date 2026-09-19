@@ -1036,7 +1036,7 @@ the coordinator.
 - **A team that is not ready says what is missing.** Each team in `/api/v1/me`, and
   `/api/v1/teams/{team}` itself, carries `cloud_workspaces`: `enabled`, `setup_complete`,
   `github_connected` (the signed in person's), `github_app_installed`, `has_project`,
-  `has_agent_key` (team keys only) and `setup_url` (`https://runbloom.app/account/<team>`).
+  `has_agent_key` (team keys only) and `setup_url` (`https://runbloom.app/app/<team>`, opened as given).
   `setup_complete` is runbloom.app's own verdict and wins over counting the four here, because it
   counts steps a given version of the app may not know about. The
   create sheet and the Bloom Account pane list the steps still to take and offer "Finish setting up

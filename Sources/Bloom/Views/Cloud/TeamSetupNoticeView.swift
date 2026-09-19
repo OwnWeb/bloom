@@ -28,7 +28,7 @@ struct TeamSetupNoticeView: View {
             // The button names the first step still to take rather than "finish setting up", which
             // over four different steps says nothing about which one this is.
             Button(notice.buttonTitle) {
-                NSWorkspace.shared.open(notice.page ?? environment.origin.appending(path: "account"))
+                NSWorkspace.shared.open(notice.page ?? environment.teamPage)
             }
         }
     }

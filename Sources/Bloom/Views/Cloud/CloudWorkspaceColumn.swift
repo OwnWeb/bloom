@@ -90,7 +90,7 @@ struct CloudWorkspaceColumn: View {
     }
 
     /// runbloom.app, as close to the cause as the app can get: the team's own page when the account
-    /// named one, and the account page otherwise.
+    /// named one, and the current team's page otherwise.
     private func openRunbloom(for session: CloudWorkspaceSession) {
         NSWorkspace.shared.open(app.cloud.runbloomPage(forWorkspace: session.id))
     }
