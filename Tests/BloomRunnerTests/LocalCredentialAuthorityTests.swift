@@ -90,10 +90,10 @@ struct LocalCredentialSocketTests {
         }
         defer { socket.close() }
 
-        let answer = LocalCredentialClient.ask(.init(repository: "spatie/bloom", chatID: "chat-a"), over: path)
+        let answer = await ask(.init(repository: "spatie/bloom", chatID: "chat-a"), over: path)
         #expect(answer?.token == "write")
-        #expect(LocalCredentialClient.ask(.init(repository: "spatie/bloom"), over: path)?.token == "read")
-        #expect(LocalCredentialClient.ask(.init(repository: "somebody/else"), over: path) == nil, "an empty answer is no answer")
+        #expect(await ask(.init(repository: "spatie/bloom"), over: path)?.token == "read")
+        #expect(await ask(.init(repository: "somebody/else"), over: path) == nil, "an empty answer is no answer")
         #expect(seen.withLock { $0 }.count == 3)
         #if os(Linux)
         // The one thing only the kernel can say, and the whole reason this is not a loopback port.
@@ -105,5 +105,18 @@ struct LocalCredentialSocketTests {
     func noListener() throws {
         let directory = try SetupTestSupport.directory("credential-socket-missing")
         #expect(LocalCredentialClient.ask(.init(repository: "spatie/bloom"), over: directory + "/nothing.sock") == nil)
+    }
+
+    /// The real caller is a one-shot executable, not a Swift task. Keeping the blocking client on
+    /// a thread of its own matters in this test too: the server awaits its answer on Swift's
+    /// cooperative executor, so blocking an executor worker here can starve that answer until the
+    /// client's thirty-second timeout and hold unrelated Linux tests behind it.
+    private func ask(_ request: GitCredentialRoute.Asked, over path: String) async -> GitCredentialRoute.Answer? {
+        await withCheckedContinuation { continuation in
+            let thread = Thread {
+                continuation.resume(returning: LocalCredentialClient.ask(request, over: path))
+            }
+            thread.start()
+        }
     }
 }
