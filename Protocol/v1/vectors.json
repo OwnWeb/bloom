@@ -298,7 +298,7 @@
             },
             "blocked" : {
               "limit" : "concurrent_machines",
-              "message" : "Your team already has 20 Cloud workspaces running."
+              "message" : "Your team already has 20 Bloom Cloud workspaces running. Close one to open this."
             },
             "created_at" : "2026-09-17T09:40:02.500Z",
             "id" : "delivery-2",
@@ -933,7 +933,7 @@
                 },
                 "blocked" : {
                   "limit" : "concurrent_machines",
-                  "message" : "Your team already has 20 Cloud workspaces running."
+                  "message" : "Your team already has 20 Bloom Cloud workspaces running. Close one to open this."
                 },
                 "created_at" : "2026-09-17T09:40:02.500Z",
                 "id" : "delivery-2",

@@ -462,7 +462,7 @@ struct RemoteWorkspaceRuntimeTests {
     @Test("a turn refused for a limit stays queued and marked, and starts once the limit lifts")
     func limitsBlockAndClear() async throws {
         let gate = RemoteTestGate()
-        gate.refusal.withLock { $0 = .blocked(DeliveryBlock(limit: "concurrent_machines", message: "Your team already has 20 Cloud workspaces running.")) }
+        gate.refusal.withLock { $0 = .blocked(DeliveryBlock(limit: "concurrent_machines", message: "Your team already has 20 Bloom Cloud workspaces running. Close one to open this.")) }
         let fixture = try await fixture(gate: gate)
         let reply = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "When there is room")),
                                                   as: Self.caller(Self.freek))

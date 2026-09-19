@@ -107,7 +107,7 @@ enum WireExamples {
     static let queue = QueueRecord(chatID: "chat-1", prompts: [
         QueuedPromptRecord(id: "delivery-1", text: "And the docs", author: author, state: "queued", createdAt: date),
         QueuedPromptRecord(id: "delivery-2", text: "Then push", author: author, state: "blocked",
-                           blocked: BlockedRecord(limit: "concurrent_machines", message: "Your team already has 20 Cloud workspaces running."), createdAt: date),
+                           blocked: BlockedRecord(limit: "concurrent_machines", message: "Your team already has 20 Bloom Cloud workspaces running. Close one to open this."), createdAt: date),
     ])
     static let question = QuestionRecord(requestID: "ask-1", chatID: "chat-1", ask: .object(["tool_name": .string("Bash")]), askedAt: date)
     static let workspace = WorkspaceRecord(id: "01k5bx7j9d3v2r8q6m4n0p1s2w", name: "Queue retries", branch: "freek/queue-retries", baseBranch: "main", setup: setup)
