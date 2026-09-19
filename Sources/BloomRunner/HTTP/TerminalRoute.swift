@@ -51,6 +51,13 @@ enum TerminalRoute {
     }
 
     private static func serve(name: String, inbound: WebSocketInboundStream, outbound: WebSocketOutboundWriter, dependencies: Dependencies) async throws {
+        let connections = dependencies.connections
+        guard await connections.admitUnauthenticated() else {
+            try await outbound.close(.policyViolation, reason: "Too many terminals are connecting. Try again in a moment.")
+            return
+        }
+        var waiting = true
+        defer { if waiting { Task { await connections.authenticated() } } }
         var messages = inbound.messages(maxSize: maximumFrame).makeAsyncIterator()
         // Closing the socket is what ends a read that never gets an answer, so the deadline closes
         // it rather than trying to cancel the read.
@@ -60,6 +67,8 @@ enum TerminalRoute {
         }
         let first = try await messages.next()
         deadline.cancel()
+        waiting = false
+        await connections.authenticated()
         guard let first else {
             try await outbound.close(.policyViolation, reason: "Send an auth frame first.")
             return
@@ -206,6 +215,24 @@ actor TerminalExpiry {
 /// Open terminal connections by person, so revoking somebody closes their shells' connections.
 public actor TerminalConnections {
     public init() {}
+
+    /// **How many sockets may be waiting to authenticate at once.** The upgrade happens before the
+    /// token is read, so without a cap anybody could hold hundreds of sockets for their five
+    /// seconds each (L4 in the review of 19 September 2026). A socket over it is closed at once.
+    static let unauthenticatedLimit = 32
+    private var unauthenticated = 0
+
+    /// Takes a place among the sockets waiting to authenticate, or answers false when they are full.
+    func admitUnauthenticated() -> Bool {
+        guard unauthenticated < Self.unauthenticatedLimit else { return false }
+        unauthenticated += 1
+        return true
+    }
+
+    /// Gives the place back, whether the socket authenticated, was refused or went away.
+    func authenticated() {
+        unauthenticated = max(0, unauthenticated - 1)
+    }
 
     private var entries: [UUID: (userID: String?, turnID: String, terminal: String, close: @Sendable () async -> Void)] = [:]
 

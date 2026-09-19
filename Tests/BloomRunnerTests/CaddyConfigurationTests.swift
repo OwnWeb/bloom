@@ -25,6 +25,8 @@ struct CaddyConfigurationTests {
     func globalOptions() {
         let text = Self.configuration.render()
         #expect(text.contains("\tadmin off\n"))
+        #expect(text.contains("\t\t\tread_header 10s\n"), "a request's headers arrive within ten seconds or it is dropped")
+        #expect(!text.contains("read_body") && !text.contains("\twrite "), "an upload and a stream are never cut short")
         #expect(text.contains("\tauto_https off\n"))
         #expect(text.contains("\n:8080 {\n"))
         #expect(text.contains(#"output file "/home/sprite/.bloom/caddy/access.log""#))

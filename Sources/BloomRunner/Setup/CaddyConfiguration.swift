@@ -37,6 +37,11 @@ import Foundation
 ///
 /// Automatic HTTPS and the admin endpoint are off: the Sprite's proxy terminates TLS, and an admin
 /// API on a machine that runs other people's code is a way to rewrite these rules from inside.
+///
+/// **Headers within ten seconds, and an idle connection closed after two minutes** (L4 in the
+/// review of 19 September 2026), so a client that opens connections and never finishes a request
+/// cannot hold them. No read or write timeout: an upload takes as long as it takes, and an event
+/// stream or a terminal is minutes of a response still being written.
 public struct CaddyConfiguration: Sendable, Hashable {
     public var publicPort: Int
     public var serverPort: Int
@@ -86,6 +91,12 @@ public struct CaddyConfiguration: Sendable, Hashable {
         \tadmin off
         \tauto_https off
         \tpersist_config off
+        \tservers {
+        \t\ttimeouts {
+        \t\t\tread_header 10s
+        \t\t\tidle 2m
+        \t\t}
+        \t}
         }
 
         :\(publicPort) {

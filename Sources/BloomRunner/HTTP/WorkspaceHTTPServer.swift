@@ -4,6 +4,7 @@ import Foundation
 import HTTPTypes
 import Hummingbird
 import HummingbirdWebSocket
+import NIOCore
 
 /// Everything Bloom Runner answers on its port, behind Caddy.
 ///
@@ -117,13 +118,19 @@ public struct WorkspaceHTTPServer: Sendable {
         return router
     }
 
+    static let idleTimeout: TimeAmount = .seconds(30)
+
     /// The application, listening on loopback only: Caddy is the one thing on the machine's URL.
     public func application(port: Int, host: String = "127.0.0.1",
                             onServerRunning: @escaping @Sendable (Int) async -> Void = { _ in }) -> some ApplicationProtocol {
         let responder = CORSResponder(wrapped: router().buildResponder(), allowedOrigins: Set(dependencies.allowedOrigins))
         return Application(
             responder: responder,
-            server: .http1WebSocketUpgrade(webSocketRouter: webSocketRouter()),
+            // A connection that sends nothing, or nothing more after a reply, is closed after
+            // thirty seconds rather than held for ever (L4 in the review of 19 September 2026).
+            // An event stream is a request in progress, so its minutes of quiet are not idle.
+            server: .http1WebSocketUpgrade(webSocketRouter: webSocketRouter(),
+                                           configuration: .init(http1: .init(idleTimeout: Self.idleTimeout))),
             configuration: .init(address: .hostname(host, port: port), serverName: "bloom-runner"),
             onServerRunning: { channel in await onServerRunning(channel.localAddress?.port ?? port) }
         )

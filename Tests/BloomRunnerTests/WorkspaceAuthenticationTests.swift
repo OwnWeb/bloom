@@ -174,6 +174,18 @@ extension WorkspaceHTTPServerTests {
         source.finish()
     }
 
+    /// L4: a socket is upgraded before its token is read, so the ones waiting are capped.
+    @Test("only so many terminal sockets wait to authenticate, and a place comes back when one does")
+    func unauthenticatedTerminalsAreCapped() async {
+        let connections = TerminalConnections()
+        for _ in 0..<TerminalConnections.unauthenticatedLimit {
+            #expect(await connections.admitUnauthenticated())
+        }
+        #expect(await !connections.admitUnauthenticated())
+        await connections.authenticated()
+        #expect(await connections.admitUnauthenticated())
+    }
+
     @Test("a terminal whose token has run out is closed")
     func aTerminalClosesAtExpiry() async throws {
         let closed = Mutex(false)
