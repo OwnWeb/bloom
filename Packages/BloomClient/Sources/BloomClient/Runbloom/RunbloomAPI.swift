@@ -95,6 +95,22 @@ public struct RunbloomAPI: Sendable {
         }
     }
 
+    /// One page of a project's branches for the create sheet's base branch list: the default first
+    /// when it matches, then newest commit first, thirty a page from page 1, `search` a case
+    /// insensitive substring. Read either bare or in the resource envelope, whichever it comes in.
+    public func branches(team: String, project: String, search: String, page: Int) async throws -> CloudProjectBranches {
+        let data = try await perform(
+            "GET", "teams/\(team)/projects/\(project)/branches", body: nil,
+            query: [URLQueryItem(name: "search", value: search), URLQueryItem(name: "page", value: String(page))]
+        )
+        if let wrapped = try? JSONDecoder().decode(Envelope<CloudProjectBranches>.self, from: data) { return wrapped.data }
+        do {
+            return try JSONDecoder().decode(CloudProjectBranches.self, from: data)
+        } catch {
+            throw RunbloomRefusal(status: 200, code: "unreadable_answer", message: "runbloom.app answered in a way this version of Bloom cannot read. Check for an update.")
+        }
+    }
+
     /// Takes the pull request out of draft, as the signed-in person rather than as the agent.
     public func markPullRequestReady(_ id: String) async throws -> CloudPullRequestState {
         try await send("POST", "cloud-workspaces/\(id)/pull-request/ready", body: Empty())
@@ -177,17 +193,23 @@ public struct RunbloomAPI: Sendable {
         }
     }
 
-    private func perform(_ method: String, _ path: String, body: Data?) async throws -> Data {
-        let first = try await request(method, path, body: body, token: try await accessToken(false))
+    private func perform(_ method: String, _ path: String, body: Data?, query: [URLQueryItem] = []) async throws -> Data {
+        let first = try await request(method, path, body: body, query: query, token: try await accessToken(false))
         if first.1.statusCode == 401 {
-            let second = try await request(method, path, body: body, token: try await accessToken(true))
+            let second = try await request(method, path, body: body, query: query, token: try await accessToken(true))
             return try Self.check(second)
         }
         return try Self.check(first)
     }
 
-    private func request(_ method: String, _ path: String, body: Data?, token: String) async throws -> (Data, HTTPURLResponse) {
-        var request = URLRequest(url: baseURL.appending(path: path))
+    private func request(
+        _ method: String, _ path: String, body: Data?, query: [URLQueryItem] = [], token: String
+    ) async throws -> (Data, HTTPURLResponse) {
+        // Query items appended as items, never written into `path`: `appending(path:)` would
+        // encode the `?` as part of the path.
+        var url = baseURL.appending(path: path)
+        if !query.isEmpty { url.append(queryItems: query) }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

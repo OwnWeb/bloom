@@ -403,12 +403,13 @@ final class CloudWorkspaces {
     /// One page of a project's branches as runbloom.app lists them, searched on its side, for the
     /// create sheet's "from main" list. See `CloudBaseBranches`.
     ///
-    /// **A stub until runbloom.app's endpoint lands**, and an honest one: it lists nothing, so the
-    /// sheet offers the project's default branch and whatever is typed, which is exactly what the
-    /// field it replaces offered. The control server is sending the path; this is the one place
-    /// it goes.
+    /// runbloom.app pages by number from 1; the list keeps a cursor, so the next page's number is
+    /// the cursor. A branch pushed within the last minute may not be listed yet, since runbloom.app
+    /// caches the list for sixty seconds, which is one reason a typed name is always a row.
     func branches(team: String, project: String, query: String, cursor: String?) async throws -> (names: [String], next: String?) {
-        ([], nil)
+        let page = cursor.flatMap(Int.init) ?? 1
+        let answer = try await api.branches(team: team, project: project, search: query, page: page)
+        return (answer.branches.map(\.name), answer.hasMore ? String(page + 1) : nil)
     }
 
     func projects(team: String) async throws -> [RunbloomProject] {

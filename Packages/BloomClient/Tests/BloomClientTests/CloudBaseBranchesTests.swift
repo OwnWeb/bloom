@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import BloomClient
 
@@ -57,5 +58,15 @@ struct CloudBaseBranchesTests {
         #expect(list.load == .loading)
         list.fail("runbloom.app could not be reached.", for: "main")
         #expect(list.load == .failed("runbloom.app could not be reached."))
+    }
+
+    @Test("runbloom.app's page of branches is read as documented")
+    func decodesAPage() throws {
+        let json = #"{"branches":[{"name":"main","is_default":true,"updated_at":null},{"name":"feat/login","is_default":false,"updated_at":"2026-09-19T08:00:00Z"}],"page":1,"has_more":true,"truncated":false}"#
+        let page = try JSONDecoder().decode(CloudProjectBranches.self, from: Data(json.utf8))
+        #expect(page.branches.map(\.name) == ["main", "feat/login"])
+        #expect(page.branches.first?.isDefault == true)
+        #expect(page.hasMore)
+        #expect(!page.truncated)
     }
 }
