@@ -265,6 +265,27 @@ struct RemoteBridgeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// **A person closing a crew member's chat is the Mac's Stop Subagent**: the member stops, its
+    /// chat is archived, and the agent that started it is told it was stopped by the person, so it
+    /// does not sit waiting for a report that will never come. A client sends `close_chat` on the
+    /// member's chat and nothing else.
+    @Test("close_chat on a crew member's chat archives it and tells the parent it was stopped")
+    func closingAMembersChatTellsTheParent() async throws {
+        let fixture = try await fixture()
+        _ = await fixture.call("agent_start", ["name": "tests", "task": "Run the suite"], as: fixture.orchestrator)
+        let member = try await fixture.member("tests")
+        await waitUntil("the brief reached the member") { fixture.agents.sent(to: member.id).count == 1 }
+
+        let caller = RemoteCaller(author: RemoteWorkspaceRuntimeTests.freek, abilities: ["view", "prompt"], sessionToken: "token")
+        let closed = await fixture.runtime.respond(to: CommandRequest(.closeChat(chatID: member.id.rawValue)), as: caller)
+        #expect(closed.result == .accepted, "\(String(describing: closed.error))")
+        #expect(try await fixture.store.session(id: member.id)?.archivedAt != nil)
+        await waitUntil("the parent is told", within: .seconds(30)) {
+            fixture.agents.sent(to: fixture.orchestrator.id).contains { $0.contains("Your subagent \"tests\" was stopped by the owner") }
+        }
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a crew member cannot start a crew member of its own")
     func noNesting() async throws {
         let fixture = try await fixture()
