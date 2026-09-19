@@ -45,6 +45,7 @@ import os
 import pathlib
 import re
 import secrets
+import shlex
 import shutil
 import socket
 import ssl
@@ -87,9 +88,12 @@ def sprite(name, *arguments, stdin=None, check=True, timeout=300):
 def push(name, source, destination, timeout=300):
     # A machine a few seconds old has answered "directory does not exist" for its own home
     # directory, and a moment later accepted the same upload.
+    #
+    # **It called itself here rather than the CLI**, so every upload recursed until Python gave up
+    # with a recursion error that named nothing. Found by the review of 19 September 2026.
     for attempt in range(5):
         try:
-            return push(name, source, destination, timeout=timeout)
+            return sprite(name, "file", "push", source, destination, timeout=timeout)
         except RuntimeError:
             if attempt == 4:
                 raise
@@ -586,6 +590,56 @@ def main():
                 assert service["state"] in ("waiting", "starting", "running", "not_ready", "crashed", "stopped"), service
             listed = ", ".join(s["name"] + " " + s["state"] for s in drawn)
             step("services: " + (listed or "(none declared)"))
+
+            # ---------------------------------------------------------------- the sandbox user
+            #
+            # **Every claim the sandbox rests on, asked of the machine itself.** A Sprite lets any
+            # local user manage it through /.sprite/api.sock, so "runs as another user" proves
+            # nothing on its own; what has to hold is that the sandbox user cannot reach that
+            # socket, cannot become root, and cannot read the Runner's secret or database. Each
+            # check runs as that user through sudo, which the Runner's user is allowed and the
+            # sandbox user is not. See MachineSandbox and H1 in the security review.
+            sandbox_user = run_on(name, "id -un bloom-agent 2>/dev/null || true").strip()
+            if not sandbox_user:
+                step("no sandbox user on this machine: skipping the isolation checks")
+            else:
+                def as_sandbox(script):
+                    return run_on(name, f"sudo -n -u bloom-agent -- bash -lc {shlex.quote(script)} 2>&1 || true")
+
+                checks = {
+                    "it has no sudo of its own": ("sudo -n true && echo yes || echo no", "no"),
+                    "it cannot read the workspace secret": (
+                        "cat /etc/bloom/workspace.json >/dev/null 2>&1 && echo yes || echo no", "no"),
+                    "it cannot read the Runner's database": (
+                        "cat /home/sprite/.bloom/bloom.sqlite >/dev/null 2>&1 && echo yes || echo no", "no"),
+                    "it cannot read the local secret": (
+                        "cat /home/sprite/.bloom/local-secret >/dev/null 2>&1 && echo yes || echo no", "no"),
+                    "it can work in the worktree": (
+                        "touch /home/sprite/workspace/.sandbox-probe && rm /home/sprite/workspace/.sandbox-probe "
+                        "&& echo yes || echo no", "yes"),
+                    "it can reach the credential socket": (
+                        "test -w /var/lib/bloom/shared/git-credentials.sock && echo yes || echo no", "yes"),
+                }
+                for description, (script, expected) in checks.items():
+                    answer = as_sandbox(script).strip().splitlines()[-1:] or [""]
+                    assert answer[0] == expected, f"{description}: expected {expected}, got {answer[0]!r}"
+                    step(f"sandbox: {description}")
+
+                # The one that matters most, and the reason the mount namespace exists: inside it the
+                # provider's own API socket is masked, so the sandbox user cannot create a service
+                # that would run as the Runner's user. Run the way the Runner runs an agent.
+                masked = run_on(name, "sudo -n unshare --mount --propagation private -- sh -c "
+                                      "'mount --bind /dev/null /.sprite/api.sock && exec setpriv --reuid=bloom-agent "
+                                      "--regid=bloom-agent --init-groups /.sprite/bin/sprite-env services list' 2>&1 || true")
+                assert "[]" not in masked and "services" not in masked.lower(), \
+                    f"the sandbox user reached the Sprite API through the mask: {masked.strip()[:300]}"
+                step("sandbox: the provider's API socket is masked inside the namespace")
+
+                # And that the agents' own binaries are where that user can run them, since the
+                # image keeps them under a home it cannot enter.
+                version = as_sandbox("claude --version").strip().splitlines()[-1:] or [""]
+                assert "Claude Code" in version[0], f"the sandbox user cannot run claude: {version[0]!r}"
+                step("sandbox: it can run " + version[0])
 
             # Raw replies for a client to test against, byte for byte what this release sends. A
             # client cannot reach a machine of its own, and a fake it writes itself agrees with its
