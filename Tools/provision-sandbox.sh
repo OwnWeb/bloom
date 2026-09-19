@@ -24,6 +24,7 @@
 #   BLOOM_SANDBOX_USER   the user to make (default bloom-agent)
 #   BLOOM_SANDBOX_GROUP  the shared group (default bloom-work)
 #   BLOOM_SANDBOX_HOME   that user's home (default /home/<user>)
+#   BLOOM_SHARED_DIR     what both users read (default /var/lib/bloom/shared)
 #   BLOOM_WORKTREE       the checkout to share (default $HOME/workspace)
 #   BLOOM_DATA_DIR       the Runner's own directory, left private (default $HOME/.bloom)
 #   BLOOM_AGENT_SOURCE   where the image keeps the CLIs (default $HOME/.local/share/sprite-agents)
@@ -99,7 +100,14 @@ if [[ -d "$home/.claude" && ! -e "$sandbox_home/.claude" ]]; then
   $sudo_cmd chown -R "$user:$user" "$sandbox_home/.claude"
 fi
 
-# 5. Both users in one checkout, and the Runner's own directory still private.
+# 5. The one directory both users read, for the tmux configuration and anything like it. The
+# Runner's own data directory cannot be it: the workspace secret and the database are in there.
+shared="${BLOOM_SHARED_DIR:-/var/lib/bloom/shared}"
+$sudo_cmd mkdir -p "$shared"
+$sudo_cmd chgrp "$group" "$shared"
+$sudo_cmd chmod 2775 "$shared"
+
+# 6. Both users in one checkout, and the Runner's own directory still private.
 $sudo_cmd chmod 0751 "$home"
 if [[ -d "$worktree" ]]; then
   $sudo_cmd chgrp -R "$group" "$worktree"

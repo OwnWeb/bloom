@@ -305,6 +305,25 @@ struct TmuxCommandTests {
         #expect(command.killSession("bloom-x").starts(with: command.globalArguments))
     }
 
+    /// On a machine with a sandbox user, the tmux server and every client run as that user, so the
+    /// panes do: that is what keeps a shell from reading the workspace secret. Nothing changes
+    /// anywhere else, which is why every call site can stay as it is.
+    @Test("with a sandbox, tmux itself runs as the sandbox user, and without one nothing changes")
+    func sandboxed() {
+        let sandboxed = TmuxCommand(executable: "/usr/bin/tmux", socketName: "bloom-deadbeef", configPath: "/var/lib/bloom/shared/tmux.conf",
+                                    sandbox: MachineSandbox(user: "bloom-agent"))
+        #expect(sandboxed.executable == "/usr/bin/sudo")
+        #expect(sandboxed.tmuxPath == "/usr/bin/tmux")
+        let listed = sandboxed.listSessions
+        #expect(listed.first == "-E")
+        let script = try! #require(listed.last)
+        #expect(script.contains("mount --bind /dev/null '/.sprite/api.sock'"))
+        #expect(script.contains("'--reuid=bloom-agent'"))
+        #expect(script.hasSuffix("'/usr/bin/tmux' '-L' 'bloom-deadbeef' '-f' '/var/lib/bloom/shared/tmux.conf' '-u' 'list-sessions' '-F' '#{session_name}'"))
+        #expect(command.executable == "/opt/homebrew/bin/tmux", "a Mac spawns tmux itself")
+        #expect(command.listSessions == command.globalArguments + ["list-sessions", "-F", "#{session_name}"])
+    }
+
     @Test("A pane attaches or creates in one exec, with its workspace environment")
     func attachOrCreate() {
         let arguments = command.attachOrCreate(

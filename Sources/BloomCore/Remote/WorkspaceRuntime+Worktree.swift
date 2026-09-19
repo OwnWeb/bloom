@@ -274,7 +274,8 @@ extension WorkspaceRuntime {
     public func terminals() async throws -> RemoteTerminals {
         if let terminalService { return terminalService }
         let workspace = try await workspace()
-        let service = RemoteTerminals(workspaceID: workspaceID, worktree: workspace.path, databasePath: store.path)
+        let service = RemoteTerminals(workspaceID: workspaceID, worktree: workspace.path, databasePath: store.path,
+                                      sandbox: sandbox, sharedDirectory: sharedDirectory)
         terminalService = service
         return service
     }

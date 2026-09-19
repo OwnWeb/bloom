@@ -36,6 +36,10 @@ public actor WorkspaceRuntime {
     let reviewCache = RemoteReviewCache()
     var terminalService: RemoteTerminals?
     var lastJournalPrune: Date?
+    /// The user a machine runs its untrusted work as, and the directory both users can read, or nil
+    /// on a Mac and on a machine with no sandbox user. See `MachineSandbox`.
+    let sandbox: MachineSandbox?
+    let sharedDirectory: String?
     /// Disk work running off the actor, and whose searches are among it. See `blocking`.
     var blockingInFlight = 0
     var searchesInFlight: Set<String> = []
@@ -134,8 +138,12 @@ public actor WorkspaceRuntime {
         listMembers: @escaping @Sendable () async -> [WorkspaceMember] = { [] },
         addressed: (@Sendable (AddressedReport) async -> Void)? = nil,
         createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil,
-        peers: WorkspacePeers? = nil
+        peers: WorkspacePeers? = nil,
+        sandbox: MachineSandbox? = nil,
+        sharedDirectory: String? = nil
     ) {
+        self.sandbox = sandbox
+        self.sharedDirectory = sharedDirectory
         self.peers = peers
         self.createCloudWorkspace = createCloudWorkspace
         self.lookUpMember = lookUpMember

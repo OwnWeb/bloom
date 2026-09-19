@@ -80,7 +80,8 @@ public enum ServeCommand {
             listMembers: { await members.all() },
             addressed: { _ in await addressedReporter.start() },
             createCloudWorkspace: { await client.createCloudWorkspace($0) },
-            peers: RunbloomPeers.peers(client: client, http: http)
+            peers: RunbloomPeers.peers(client: client, http: http),
+            sandbox: sandbox, sharedDirectory: MachineSandbox.sharedDirectory
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()
         // What the machine says about its own reporting goes two ways here, because the two readers

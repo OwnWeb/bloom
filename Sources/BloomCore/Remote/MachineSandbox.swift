@@ -94,6 +94,11 @@ public struct MachineSandbox: Sendable, Hashable {
         return sandbox
     }
 
+    /// Where a machine keeps what both users read: the tmux configuration, and anything else the
+    /// Runner writes for the sandbox user. Made by `Tools/provision-sandbox.sh`, root-owned, group
+    /// `bloom-work` and setgid, because the Runner's own data directory stays 0700.
+    public static let sharedDirectory = "/var/lib/bloom/shared"
+
     public static func userExists(_ name: String) -> Bool {
         #if canImport(Glibc)
         return name.withCString { getpwnam($0) != nil }

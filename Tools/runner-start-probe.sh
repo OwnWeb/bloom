@@ -166,7 +166,7 @@ printf '#!/bin/sh
 printf "%%s\n" "$*" >> "%s/sudo.log"
 ' "$sandbox_root" > "$root/fake-bin/fake-sudo"
 chmod +x "$root/fake-bin/fake-sudo"
-HOME="$sandbox_root/home" SUDO="$root/fake-bin/fake-sudo" BLOOM_SANDBOX_HOME="$sandbox_root/agent"   BLOOM_WORKTREE="$sandbox_root/worktree" BLOOM_DATA_DIR="$sandbox_root/home/.bloom"   BLOOM_AGENT_SOURCE="$sandbox_root/home/.local/share/sprite-agents"   BLOOM_AGENT_TARGET="$sandbox_root/agents"   bash "$provision_script" >"$sandbox_root/out.log" 2>&1 || print -r -- "provision exited $?" >> "$sandbox_root/out.log"
+HOME="$sandbox_root/home" SUDO="$root/fake-bin/fake-sudo" BLOOM_SANDBOX_HOME="$sandbox_root/agent"   BLOOM_WORKTREE="$sandbox_root/worktree" BLOOM_DATA_DIR="$sandbox_root/home/.bloom"   BLOOM_AGENT_SOURCE="$sandbox_root/home/.local/share/sprite-agents"   BLOOM_AGENT_TARGET="$sandbox_root/agents" BLOOM_SHARED_DIR="$sandbox_root/shared"   bash "$provision_script" >"$sandbox_root/out.log" 2>&1 || print -r -- "provision exited $?" >> "$sandbox_root/out.log"
 sudo_log="$(<"$sandbox_root/sudo.log")"
 check "the sandbox user is made with no sudo group" "yes" "$([[ "$sudo_log" == *"useradd --create-home --home-dir $sandbox_root/agent --shell /bin/bash --groups bloom-work bloom-agent"* ]] && echo yes || echo no)"
 check "the shared group is made" "yes" "$([[ "$sudo_log" == *"groupadd bloom-work"* ]] && echo yes || echo no)"
@@ -176,8 +176,9 @@ check "the sudoers file is checked before it is installed" "yes" "$([[ "$sudo_lo
 check "the CLIs are copied where anybody can run them" "yes" "$([[ "$sudo_log" == *"chmod -R a+rX $sandbox_root/agents/claude"* ]] && echo yes || echo no)"
 check "the Runner's home becomes traversable, and only the one it was given" "yes" "$([[ "$sudo_log" == *"chmod 0751 $sandbox_root/home"* && "$sudo_log" != *"chmod 0751 $HOME "* ]] && echo yes || echo no)"
 check "the Runner's data directory stays private" "yes" "$([[ "$sudo_log" == *"chmod 0700 $sandbox_root/home/.bloom"* ]] && echo yes || echo no)"
+check "the directory both users read is made setgid" "yes" "$([[ "$sudo_log" == *"chmod 2775 $sandbox_root/shared"* ]] && echo yes || echo no)"
 check "the worktree is shared with the group" "yes" "$([[ "$sudo_log" == *"chgrp -R bloom-work $sandbox_root/worktree"* ]] && echo yes || echo no)"
-check "running it twice asks for nothing twice" "" "$(HOME="$sandbox_root/home" SUDO=/usr/bin/true BLOOM_SANDBOX_HOME="$sandbox_root/agent" BLOOM_WORKTREE="$sandbox_root/worktree" BLOOM_DATA_DIR="$sandbox_root/home/.bloom" BLOOM_AGENT_SOURCE="$sandbox_root/home/.local/share/sprite-agents" BLOOM_AGENT_TARGET="$sandbox_root/agents" bash "$provision_script" >/dev/null 2>&1; echo -n "")"
+check "running it twice asks for nothing twice" "" "$(HOME="$sandbox_root/home" SUDO=/usr/bin/true BLOOM_SANDBOX_HOME="$sandbox_root/agent" BLOOM_WORKTREE="$sandbox_root/worktree" BLOOM_DATA_DIR="$sandbox_root/home/.bloom" BLOOM_AGENT_SOURCE="$sandbox_root/home/.local/share/sprite-agents" BLOOM_AGENT_TARGET="$sandbox_root/agents" BLOOM_SHARED_DIR="$sandbox_root/shared" bash "$provision_script" >/dev/null 2>&1; echo -n "")"
 
 if (( ${#failures} )); then
   print -r -- "runner-start probe failed:"
