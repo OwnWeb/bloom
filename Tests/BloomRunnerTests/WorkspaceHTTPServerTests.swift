@@ -306,6 +306,55 @@ struct WorkspaceHTTPServerTests {
         await fixture.runtime.shutdown()
     }
 
+    /// M1 in the review of 19 September 2026: every process can read the local secret, so a named
+    /// chat, terminal or turn counts only when the caller descends from it.
+    @Test("a write token goes only to a caller that descends from the chat, terminal or push it names")
+    func gitCredentialsFollowTheCaller() async throws {
+        let fixture = try await fixture()
+        let asked = Mutex<[String]>([])
+        let origin = Mutex<LocalOrigin?>(nil)
+        let verifier = TokenVerifier(issuer: fixture.issuer.issuer, workspaceID: fixture.issuer.workspaceID, keys: fixture.issuer.keySet())
+        var credentials = WorkspaceHTTPServer.GitCredentials(secret: "local", repository: "spatie/bloom") { _, operation, turn in
+            asked.withLock { $0.append("\(operation.rawValue) \(turn ?? "-")") }
+            return RunbloomGitCredential(token: "t", expiresAt: Date(), username: "x-access-token")
+        }
+        credentials.origin = { _ in origin.withLock { $0 } }
+        let server = WorkspaceHTTPServer(dependencies: .init(
+            runtime: fixture.runtime, verifier: verifier, gate: UngatedTurns(), control: fixture.control, store: fixture.store,
+            allowedOrigins: [], version: "1.2.3", gitCredentials: credentials
+        ))
+        let headers: HTTPFields = [GitCredentialRoute.secretHeader: "local", .contentType: "application/json"]
+        let chat = fixture.session.id.rawValue
+        try await server.application(port: 0).test(.router) { client in
+            // A setup script or a service: descends from nothing the Runner started for a person.
+            origin.withLock { $0 = LocalOrigin() }
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/bloom","chat_id":"\#(chat)"}"#)) { response in
+                #expect(response.status == .ok)
+            }
+            // Another chat's agent naming this one.
+            origin.withLock { $0 = LocalOrigin(chatID: SessionID("another-chat")) }
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/bloom","chat_id":"\#(chat)"}"#)) { response in
+                #expect(response.status == .ok)
+            }
+            // A shell in somebody else's terminal naming this one.
+            origin.withLock { $0 = LocalOrigin(terminal: "theirs") }
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/bloom","terminal":"mine"}"#)) { response in
+                #expect(response.status == .ok)
+            }
+            // Nobody the kernel can vouch for, naming a turn.
+            origin.withLock { $0 = nil }
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/bloom","turn_id":"a-turn"}"#)) { response in
+                #expect(response.status == .forbidden)
+            }
+        }
+        #expect(asked.withLock { $0 } == ["read -", "read -", "read -"], "every one of them only reads")
+        await fixture.runtime.shutdown()
+    }
+
     @Test("an SSE frame keeps its JSON on one line and carries the cursor as its id")
     func frames() throws {
         let message = MessageRecord(cursor: 42, chatID: "chat", seq: 1, kind: "user", payload: .string("line one\nline two"), createdAt: Date(timeIntervalSince1970: 0))

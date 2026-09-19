@@ -7,9 +7,14 @@ public struct WorkspaceRequestContext: RequestContext, WebSocketRequestContext {
     public var coreContext: CoreRequestContextStorage
     public let webSocket: WebSocketHandlerReference<Self>
 
+    /// The port the client connected from, which on loopback is what `LocalProcessTable` finds
+    /// the calling process by. Nil when the transport does not say.
+    public let remotePort: Int?
+
     public init(source: Source) {
         coreContext = .init(source: source)
         webSocket = .init()
+        remotePort = source.channel.remoteAddress?.port
     }
 
     /// Uploads are 8 MB, which is a little under 11 MB as base64 inside a JSON envelope.

@@ -67,6 +67,8 @@ public struct WorkspaceHTTPServer: Sendable {
         public var secret: String
         public var repository: String
         public var fetch: @Sendable (String, RunbloomGitOperation, String?) async throws -> RunbloomGitCredential
+        /// Who a local caller is, by its port. Nil reads it from `/proc`; tests say it themselves.
+        var origin: (@Sendable (Int?) async -> LocalOrigin?)?
 
         public init(secret: String, repository: String, fetch: @escaping @Sendable (String, RunbloomGitOperation, String?) async throws -> RunbloomGitCredential) {
             self.secret = secret
@@ -98,6 +100,11 @@ public struct WorkspaceHTTPServer: Sendable {
         if let credentials = dependencies.gitCredentials {
             GitCredentialRoute.register(on: router, secret: credentials.secret, repository: credentials.repository,
                                         runtime: dependencies.runtime, liveTerminalTurn: { [terminals] in await terminals.liveTurn(terminal: $0) },
+                                        origin: credentials.origin ?? { [runtime = dependencies.runtime] port in
+                                            guard let port else { return nil }
+                                            let server = await runtime.terminalServerProcessID()
+                                            return LocalProcessTable().origin(ofLocalPort: port, terminalServer: server)
+                                        },
                                         fetch: credentials.fetch)
         }
         return router

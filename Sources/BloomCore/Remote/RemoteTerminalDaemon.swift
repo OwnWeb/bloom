@@ -78,6 +78,12 @@ actor RemoteTerminalDaemon {
         }
     }
 
+    /// The foreground tmux server's process, while this owns one and it runs.
+    var serverProcessID: Int32? {
+        guard ownsDaemon, let process, process.processIdentifier > 0 else { return nil }
+        return process.processIdentifier
+    }
+
     /// Whether replacing this runtime now would cut somebody off: a client attached to tmux (SSH
     /// attaches directly and never passes through an attachment here), or a pane running
     /// something other than an idle shell.

@@ -248,6 +248,12 @@ extension WorkspaceRuntime {
         return service
     }
 
+    /// The tmux server's process, when this runtime started one, so the git credential route can
+    /// tell a shell in one of its terminals from any other process. Does not start terminals.
+    public func terminalServerProcessID() async -> Int32? {
+        await terminalService?.serverProcessID()
+    }
+
     /// Every path git tracks or would track: tracked, and untracked but not ignored.
     private func listedFiles(_ workspace: Workspace) async throws -> [String] {
         let listed = try await Git.checkRaw(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], in: workspace.path)

@@ -1066,7 +1066,14 @@ and its builder confirmed them.
   turn is looked up by `BLOOM_CHAT_ID`, a terminal's by `BLOOM_TERMINAL` (the turn of whichever
   connection to it is open, since a shell outlives the connection it started with), and a bare
   `turn_id` is accepted only while a push or pull request runs under it. Every shell can read the
-  local secret, so a named turn is otherwise another person's push waiting to happen.
+  local secret, so a named turn is otherwise another person's push waiting to happen. **And the
+  caller has to be what it names**: the route finds the calling process from its loopback port in
+  `/proc`, walks up to the child Bloom Runner started, and honours a chat only under that chat's
+  agent, a terminal only in a pane of the Runner's own tmux server, and a turn only under the
+  publishing command started for it. A setup script, a service or another chat's agent gets a
+  read-only token whatever it names (`LocalProcessTable`, M1 in the review of 19 September 2026).
+  Code running as the same user can still reach into those processes or the tmux server, which
+  running the agent as a second user is what ends.
 - **A terminal belongs to whoever opened it.** Its shell holds that person's key, personal
   environment and turn, so nobody else attaches to it or closes it by name. Keys reach tmux through
   the creating client's environment (`update-environment`), never its arguments. A renewal of a

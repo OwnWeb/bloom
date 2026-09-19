@@ -236,6 +236,11 @@ public actor RemoteTerminals {
         return await daemon.hasActiveWork()
     }
 
+    /// The tmux server this started and is still running. See `WorkspaceRuntime.terminalServerProcessID`.
+    public func serverProcessID() async -> Int32? {
+        await daemon.serverProcessID
+    }
+
     public func shutdown() async {
         closed = true
         let open = Array(attachments.values)
