@@ -113,7 +113,7 @@ if [[ -d "$worktree" ]]; then
   $sudo_cmd chgrp -R "$group" "$worktree"
   $sudo_cmd chmod -R g+rwX "$worktree"
   # setgid, so a file either of them makes stays in the shared group.
-  find "$worktree" -type d -print0 2>/dev/null | xargs -0 -r $sudo_cmd chmod g+s
+  find "$worktree" -type d -print0 2>/dev/null | xargs -0 -r "$sudo_cmd" chmod g+s
 fi
 if [[ -d "$data" ]]; then
   $sudo_cmd chmod 0700 "$data"

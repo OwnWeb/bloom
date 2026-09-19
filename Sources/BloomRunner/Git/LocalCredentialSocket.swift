@@ -151,10 +151,17 @@ final class LocalCredentialSocket: @unchecked Sendable {
     /// `SO_PEERCRED` and the machine is Linux, so elsewhere this answers nil and the caller refuses.
     static func peer(of connection: Int32) -> Peer? {
         #if canImport(Glibc)
-        var credentials = ucred()
-        var size = socklen_t(MemoryLayout<ucred>.size)
-        guard getsockopt(connection, SOL_SOCKET, SO_PEERCRED, &credentials, &size) == 0 else { return nil }
-        return Peer(pid: credentials.pid, uid: credentials.uid)
+        // **Three 32-bit fields, not `ucred`.** Swift's Glibc does not surface that struct (it is
+        // behind `_GNU_SOURCE`), and its layout is fixed by the kernel's ABI: pid, uid, gid, each
+        // 32 bits. Read as a buffer rather than named, because a named type nobody can import is a
+        // build that fails on Linux and passes on a Mac, which is how this was found.
+        var fields = [UInt32](repeating: 0, count: 3)
+        var size = socklen_t(MemoryLayout<UInt32>.size * 3)
+        let read = fields.withUnsafeMutableBytes { raw in
+            getsockopt(connection, SOL_SOCKET, SO_PEERCRED, raw.baseAddress, &size)
+        }
+        guard read == 0, size >= 8 else { return nil }
+        return Peer(pid: Int32(bitPattern: fields[0]), uid: fields[1])
         #else
         return nil
         #endif
