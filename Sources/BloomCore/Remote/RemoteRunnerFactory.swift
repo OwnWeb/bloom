@@ -26,30 +26,35 @@ public enum RemoteRunnerFactory {
     /// here spawns through an `AgentLaunch`, so one wrapping covers all four CLIs. See
     /// `MachineSandbox`, and H1 in the security review of 19 September 2026.
     public static func make(_ session: Session, _ workspacePath: String, _ store: Store, _ environment: [String: String],
-                            _ bridge: BridgeHandle?, sandbox: MachineSandbox?) -> any SessionRunner {
-        let launching: @Sendable (AgentLaunch) -> AgentLaunch = { sandbox?.wrap($0) ?? $0 }
+                            _ bridge: BridgeHandle?, sandbox: MachineSandbox?,
+                            didStart: (@Sendable (Int32) -> Void)? = nil) -> any SessionRunner {
+        let launching: @Sendable (AgentLaunch) -> any AgentProcessing = { launch in
+            let wrapped = sandbox?.wrap(launch) ?? launch
+            return StreamingProcess(executable: wrapped.executable, arguments: wrapped.arguments, cwd: wrapped.cwd,
+                                    environment: wrapped.environment, mergeStderr: false, didStart: didStart)
+        }
         switch session.agentKind {
         case .codex:
             return CodexRunner(workspacePath: workspacePath, session: session, store: store, bridge: bridge?.attachment) { configuration in
                 var configuration = configuration
                 configuration.environment.merge(environment) { _, extra in extra }
                 if let sandbox { configuration.environment = sandbox.environment(configuration.environment) }
-                return CodexClient(configuration: configuration) { launch in CodexClient.spawn(launching(launch)) }
+                return CodexClient(configuration: configuration, makeProcess: launching)
             }
         case .grok:
             return GrokRunner(workspacePath: workspacePath, session: session, store: store, bridge: bridge?.attachment) { configuration in
                 var configuration = configuration
                 configuration.environment.merge(environment) { _, extra in extra }
                 if let sandbox { configuration.environment = sandbox.environment(configuration.environment) }
-                return GrokClient(configuration: configuration) { launch in GrokClient.spawn(launching(launch)) }
+                return GrokClient(configuration: configuration, makeProcess: launching)
             }
         // Cursor and OpenCode have no runner, for the reason `TranscriptModel.makeRunner` gives.
         case .claudeCode, .cursor, .openCode:
             return AgentRunner(workspacePath: workspacePath, session: session, store: store, mcpConfigPath: bridge?.mcpConfigPath) { launch in
-                AgentRunner.spawn(launching(AgentLaunch(
+                launching(AgentLaunch(
                     executable: launch.executable, arguments: launch.arguments, cwd: launch.cwd,
                     environment: launch.environment.merging(environment) { _, extra in extra }
-                )))
+                ))
             }
         }
     }

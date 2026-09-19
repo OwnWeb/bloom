@@ -99,6 +99,12 @@ public struct MachineSandbox: Sendable, Hashable {
     /// `bloom-work` and setgid, because the Runner's own data directory stays 0700.
     public static let sharedDirectory = "/var/lib/bloom/shared"
 
+    /// The door a process on the machine asks for a GitHub token through, in the shared directory
+    /// so the sandbox user can reach it. See `LocalCredentialSocket`.
+    public static let credentialSocketPath = sharedDirectory + "/git-credentials.sock"
+    /// The group that shares the worktree and the credential socket. See `Tools/provision-sandbox.sh`.
+    public static let sharedGroup = "bloom-work"
+
     public static func userExists(_ name: String) -> Bool {
         #if canImport(Glibc)
         return name.withCString { getpwnam($0) != nil }

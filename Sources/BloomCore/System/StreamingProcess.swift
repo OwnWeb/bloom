@@ -101,8 +101,10 @@ public final class StreamingProcess: Sendable {
         arguments: [String],
         cwd: String? = nil,
         environment: [String: String] = Shell.environment(),
-        mergeStderr: Bool = true
+        mergeStderr: Bool = true,
+        didStart: (@Sendable (Int32) -> Void)? = nil
     ) {
+        self.didStart = didStart
         self.executable = executable
         self.arguments = arguments
         self.cwd = cwd
@@ -142,6 +144,9 @@ public final class StreamingProcess: Sendable {
         // and only there, `SystemCalls` ignores the signal for the process.
         SystemCalls.configurePipeWrites(stdinPipe.fileHandleForWriting.fileDescriptor)
     }
+
+    /// Told the pid once the process is running. See `start()`.
+    private let didStart: (@Sendable (Int32) -> Void)?
 
     public var isRunning: Bool {
         state.withLock { $0.started && $0.status == nil }
@@ -231,6 +236,10 @@ public final class StreamingProcess: Sendable {
 
         do {
             try ProcessLaunch.run(process)
+            // **The pid, at the one moment it is knowable and before anything can use it.** A
+            // machine's git credential door recognises a caller by which of the Runner's own
+            // children it descends from, so it has to be told each one. See `SpawnedProcesses`.
+            if process.processIdentifier > 0 { didStart?(process.processIdentifier) }
             #if os(Linux)
             try startPipeReader(stdoutPipe.fileHandleForReading, stdout: true)
             try startPipeReader(stderrPipe.fileHandleForReading, stdout: false)

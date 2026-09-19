@@ -247,6 +247,21 @@ public actor RemoteTerminals {
         return await daemon.hasActiveWork()
     }
 
+    /// Each terminal's shell, by the terminal's own name. **Asked of tmux rather than remembered**,
+    /// because a pane outlives the process that made it and a restarted Runner has to be able to
+    /// tell whose shell is asking for a git token. Empty when tmux is not running.
+    public func panePIDs() async -> [String: Int32] {
+        guard let command = try? tmuxCommand(),
+              let listed = try? await Shell.run(command.executable, command.listPanes, cwd: worktree, timeout: .seconds(5)),
+              listed.ok else { return [:] }
+        var byTerminal: [String: Int32] = [:]
+        for (session, pid) in TmuxSessions.parsePanePIDs(listed.stdout) {
+            guard let name = TmuxSessions.paneID(ofSessionName: session) else { continue }
+            byTerminal[name] = pid
+        }
+        return byTerminal
+    }
+
     /// The tmux server this started and is still running. See `WorkspaceRuntime.terminalServerProcessID`.
     public func serverProcessID() async -> Int32? {
         await daemon.serverProcessID

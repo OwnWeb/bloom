@@ -280,6 +280,11 @@ extension WorkspaceRuntime {
         return service
     }
 
+    /// Each terminal's shell by name, for the git credential door. Does not start terminals.
+    public func terminalPanePIDs() async -> [String: Int32] {
+        await terminalService?.panePIDs() ?? [:]
+    }
+
     /// The tmux server's process, when this runtime started one, so the git credential route can
     /// tell a shell in one of its terminals from any other process. Does not start terminals.
     public func terminalServerProcessID() async -> Int32? {

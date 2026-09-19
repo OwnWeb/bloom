@@ -43,6 +43,9 @@ public enum ServeCommand {
         // provisioning has not made one, which runs them as this process's user as it always did.
         // See `MachineSandbox` and `Tools/provision-sandbox.sh`.
         let sandbox = MachineSandbox.available()
+        // What this Runner started, and for whom, which is how the credential door recognises a
+        // caller now that a sandboxed process's environment is not the Runner's to read.
+        let processes = SpawnedProcesses()
         FileHandle.standardError.write(Data((sandbox.map { "bloom-runner: agents run as \($0.user)\n" }
             ?? "bloom-runner: no sandbox user on this machine, so agents run as this process does\n").utf8))
         let binDirectory = layout.dataDirectory + "/bin"
@@ -64,7 +67,8 @@ public enum ServeCommand {
                 extra["BLOOM_DATA_DIR"] = layout.dataDirectory
                 extra["BLOOM_RUNNER_PORT"] = String(layout.serverPort)
                 extra["PATH"] = binDirectory + ":" + (environment["PATH"] ?? Shell.environment()["PATH"] ?? "/usr/bin:/bin")
-                return RemoteRunnerFactory.make(session, path, store, extra, bridge, sandbox: sandbox)
+                return RemoteRunnerFactory.make(session, path, store, extra, bridge, sandbox: sandbox,
+                                                didStart: { pid in Task { await processes.record(pid: pid, for: .chat(session.id)) } })
             },
             publishing: RemotePublishing { turnID in
                 try await client.gitCredentials(repository: configuration.repository, operation: .write, turnID: turnID).token
@@ -182,6 +186,44 @@ public enum ServeCommand {
             appPort: layout.appPort,
             reservedPorts: layout.reservedPorts.map(\.port)
         ))
+
+        // The credential door for processes on this machine. **A unix socket, because the kernel
+        // names the caller on it**: with a sandbox, the Runner cannot read another user's `/proc`
+        // entry, and the loopback route's shared secret is not in the sandbox user's reach either.
+        // See `LocalCredentialSocket` and M1 in the security review of 19 September 2026.
+        let credentialSurroundings = LocalCredentialAuthority.Surroundings(
+            origin: { [weak runtime] pid in
+                if let purpose = await processes.origin(of: pid)?.purpose { return purpose }
+                guard let server = await runtime?.terminalServerProcessID(),
+                      await processes.ancestry(of: pid).contains(server) else { return nil }
+                return .terminalServer
+            },
+            ancestry: { await processes.ancestry(of: $0) },
+            panePIDs: { [weak runtime] in await runtime?.terminalPanePIDs() ?? [:] },
+            runningTurn: { [weak runtime] in await runtime?.runningTurnID(chat: $0) },
+            terminalTurn: { [terminals] in await terminals.liveTurn(terminal: $0) },
+            isPublishing: { [weak runtime] in await runtime?.isPublishingTurn($0) ?? false }
+        )
+        let credentialSocket: LocalCredentialSocket?
+        do {
+            credentialSocket = try LocalCredentialSocket(path: MachineSandbox.credentialSocketPath,
+                                                        group: sandbox == nil ? nil : MachineSandbox.sharedGroup) { asked, peer in
+                guard asked.repository.lowercased() == configuration.repository.lowercased() else { return nil }
+                let turn = await LocalCredentialAuthority.turn(for: asked, peer: peer, in: credentialSurroundings)
+                guard let credential = try? await client.gitCredentials(repository: configuration.repository,
+                                                                       operation: turn == nil ? .read : .write, turnID: turn) else {
+                    return nil
+                }
+                return GitCredentialRoute.Answer(username: credential.username, token: credential.token)
+            }
+        } catch {
+            // A machine without the shared directory keeps the loopback route, which is what
+            // everything used before the sandbox. Said out loud, because it is a difference in how
+            // a push is authorised.
+            FileHandle.standardError.write(Data("bloom-runner: the credential socket is not listening: \(error)\n".utf8))
+            credentialSocket = nil
+        }
+        defer { credentialSocket?.close() }
 
         let caddy = CaddySupervisor(layout: layout, publicURL: configuration.publicURL)
         let setup = MachineSetup(runtime: runtime, store: store, configuration: configuration, layout: layout,
