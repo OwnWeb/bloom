@@ -412,6 +412,25 @@ struct MachineSetupTests {
         #expect(workspace.setupState == .succeeded)
     }
 
+    /// `run_setup` by hand on a machine runs the setup script through bash, as the whole sequence
+    /// does. It went through the Mac's zsh before, which a machine does not have, so it failed there
+    /// before running a line.
+    @Test("setup run again by hand runs the script through the machine's own shell")
+    func rerunningSetup() async throws {
+        let settings = """
+        [scripts]
+        setup = 'echo reran >> "$ORDER_FILE"'
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        let setup = try fixture.setup()
+        await setup.run()
+        #expect(fixture.order.filter { $0 == "reran" }.count == 1)
+
+        #expect(await setup.rerunSetup() == true)
+        #expect(fixture.order.filter { $0 == "reran" }.count == 2, "the script ran again")
+        #expect(try await fixture.workspace().setupState == .succeeded)
+    }
+
     /// Somebody stops a setup that is taking too long: the step running is ended, nothing after it
     /// starts, and the run says who stopped it rather than looking broken.
     @Test("a stopped setup ends its step, runs nothing after it, and says who stopped it")

@@ -181,6 +181,7 @@ public enum ServeCommand {
         // `stop_setup` reaches the machine's own setup through here; one run by hand is the
         // runtime's own to stop. See `MachineSetup.stop(by:)`.
         await runtime.setSetupStopper { name in await setup.stop(by: name) }
+        await runtime.setSetupRerunner { await setup.rerunSetup() }
         // Caddy first, so the machine's URL answers while setup runs; a machine without it still
         // serves Bloom Runner on its own port, which is what development on a Mac does.
         do {

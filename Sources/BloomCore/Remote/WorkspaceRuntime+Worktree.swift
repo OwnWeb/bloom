@@ -87,6 +87,12 @@ extension WorkspaceRuntime {
                 throw RemoteFailure(.busy, "Stop the workspace's agents and clear queued prompts before running setup again.")
             }
         }
+        // On a machine, the machine's own setup runs it, with bash: the Mac's path below launches
+        // zsh, which a machine does not have. It reports its steps and its end itself.
+        if let setupRerunner {
+            Task { _ = await setupRerunner() }
+            return .accepted
+        }
         let repo = try await repo(for: workspace)
         await setupStepStarted("setup")
         let manager = WorkspaceManager(store: store)
@@ -110,6 +116,11 @@ extension WorkspaceRuntime {
     /// Stops whichever setup is running: one somebody ran by hand, or the machine's own.
     public func setSetupStopper(_ stopper: @escaping @Sendable (String) async -> Bool) {
         setupStopper = stopper
+    }
+
+    /// How a machine runs the setup script again by hand. See `setupRerunner`.
+    public func setSetupRerunner(_ rerunner: @escaping @Sendable () async -> Bool?) {
+        setupRerunner = rerunner
     }
 
     private func stopSetup(by name: String) async throws -> OperationResult {

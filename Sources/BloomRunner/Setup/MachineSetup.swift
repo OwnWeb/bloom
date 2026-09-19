@@ -266,6 +266,36 @@ public actor MachineSetup {
         stalledSince = nil
     }
 
+    /// `run_setup` by hand: the project's setup script again, as the whole sequence runs it. Nil when
+    /// a run is already in progress.
+    ///
+    /// **Through this, never through the Mac's `WorkspaceManager.runSetup`.** That one launches an
+    /// inline script with zsh, and a machine is Ubuntu with no zsh, so a setup somebody asked for by
+    /// hand on a machine failed before running a line; the Linux job found it on 19 September 2026.
+    /// Here it is bash, with the same log, the same stall watchdog and the same `stop(by:)`.
+    public func rerunSetup() async -> Bool? {
+        guard !isRunning else { return nil }
+        isRunning = true
+        stoppedBy = nil
+        didWork = false
+        defer { isRunning = false }
+        let watchdog = watchForStalls()
+        defer { watchdog.cancel() }
+        let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
+        currentLog = log
+        defer { currentLog = nil; activity = nil }
+        let environment = await scriptEnvironment()
+        let scripts = MachineScripts.load(repo: layout.worktree)
+        var succeeded = await runScript("setup", scripts.setup, timeout: timeouts.setup, environment: environment,
+                                        log: log, continuing: false)
+        if let stoppedBy {
+            await log.note(Self.stoppedNote(by: stoppedBy))
+            succeeded = false
+        }
+        await settle(log: log, succeeded: succeeded)
+        return succeeded
+    }
+
     /// Clone, `prepare`, `setup`, `resume`, then the services. Returns whether setup succeeded.
     @discardableResult
     public func runWholeSequence() async -> Bool {

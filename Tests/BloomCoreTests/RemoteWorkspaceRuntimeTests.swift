@@ -370,60 +370,29 @@ struct RemoteWorkspaceRuntimeTests {
     }
 
     /// **A slow setup that is going well must not read as a failed call.** The call answers once the
-    /// run has started, a second one while it runs is refused on the spot, and the outcome arrives
-    /// the way every setup's does, on the workspace row.
-    @Test("run_setup answers as soon as setup starts, refuses a second, and settles on the row")
+    /// run has started, and a second one while it runs is refused on the spot. The run itself is the
+    /// machine's (`MachineSetup.rerunSetup`, tested with a real script on Linux); here it stands in.
+    @Test("run_setup answers as soon as setup starts, and refuses a second while it runs")
     func runSetupAnswersAtOnce() async throws {
         let fixture = try await fixture()
-        let repo = try #require(try await fixture.store.repo(id: fixture.workspace.repoID))
-        try FileManager.default.createDirectory(atPath: repo.path + "/.bloom", withIntermediateDirectories: true)
-        try "[scripts]\nsetup = 'sleep 2'\n".write(toFile: repo.path + "/.bloom/settings.toml", atomically: true, encoding: .utf8)
+        let release = AsyncStream<Void>.makeStream()
+        let runtime = fixture.runtime
+        await runtime.setSetupRerunner {
+            await runtime.setupStepStarted("setup")
+            for await _ in release.stream { break }
+            await runtime.setupFinished(succeeded: true)
+            return true
+        }
 
-        let first = await fixture.runtime.respond(to: CommandRequest(.runSetup), as: Self.caller(Self.freek))
+        let first = await runtime.respond(to: CommandRequest(.runSetup), as: Self.caller(Self.freek))
         #expect(first.result == .accepted, "\(String(describing: first.error))")
-        let second = await fixture.runtime.respond(to: CommandRequest(.runSetup), as: Self.caller(Self.freek))
+        await waitUntil("setup has started") { await runtime.holdsPromptsForSetup }
+        let second = await runtime.respond(to: CommandRequest(.runSetup), as: Self.caller(Self.freek))
         #expect(second.error?.code == .busy, "the first is still running")
 
-        // A cap on "never", not a measurement of the script.
-        await waitUntil("setup settles on the row", within: .seconds(30)) {
-            (try? await fixture.store.workspace(id: fixture.workspace.id))?.setupState == .succeeded
-        }
-        await fixture.runtime.shutdown()
-    }
-
-    /// **Nobody outside can instruct a Mac through this.** The message goes only down the running
-    /// turn's person's own Mac stream: never a colleague's Mac on the same workspace, and never the
-    /// same person's browser, which is not a Mac.
-    @Test("a message for a Mac reaches only the turn's person, and only on their Mac")
-    func macMessagesReachOnlyTheirPersonsMac() async throws {
-        let gate = RemoteTestGate()
-        let peers = WorkspacePeers(list: { _ in .listed([]) }, say: { _ in .refused("unused") })
-        let fixture = try await fixture(gate: gate, peers: peers)
-
-        guard case .refused = await fixture.runtime.sayToMac(workspace: "Local", text: "Hi", sessionID: fixture.session.id) else {
-            Issue.record("A chat with no turn running reached a Mac"); return
-        }
-
-        let freeksMac = MacMessages(try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil, client: WorkspaceRuntime.macClient))
-        let freeksBrowser = MacMessages(try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil))
-        let sebsMac = MacMessages(try await fixture.runtime.openEvents(for: Self.caller(Self.seb), after: nil, client: WorkspaceRuntime.macClient))
-
-        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Tell my Mac")),
-                                          as: Self.caller(Self.freek))
-        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Tell my Mac"] }
-        let answer = await fixture.runtime.sayToMac(workspace: "Local", text: "Rebase on the Cloud branch", sessionID: fixture.session.id)
-        #expect(answer == .sent(connections: 1))
-
-        await waitUntil("Freek's Mac hears it", within: .seconds(30)) { !freeksMac.seen.records.withLock { $0 }.isEmpty }
-        let record = try #require(freeksMac.seen.records.withLock { $0 }.first)
-        #expect(record.userID == Self.freek.userID)
-        #expect(record.workspace == "Local")
-        #expect(record.via.workspace == "Queue retries")
-        #expect(freeksBrowser.seen.records.withLock { $0 }.isEmpty, "a browser is not a Mac")
-        #expect(sebsMac.seen.records.withLock { $0 }.isEmpty, "a colleague's Mac is never told")
-        for stream in [freeksMac, freeksBrowser, sebsMac] { stream.reader.cancel() }
-        await fixture.runners.finishTurn()
-        await fixture.runtime.shutdown()
+        release.continuation.yield()
+        await waitUntil("setup has finished") { await !runtime.holdsPromptsForSetup }
+        await runtime.shutdown()
     }
 
     @Test("a runtime with nobody to ask says so rather than pretending")

@@ -91,6 +91,9 @@ public actor WorkspaceRuntime {
     var setupStopper: (@Sendable (String) async -> Bool)?
     /// A setup somebody ran by hand, while it runs, so it can be stopped. See `runSetupAgain`.
     var manualSetup: Task<Bool, Never>?
+    /// Runs the setup script again the machine's way, answering nil when a run is in progress. Set
+    /// by the machine; nil elsewhere, where `WorkspaceManager.runSetup` is right. See `runSetupAgain`.
+    var setupRerunner: (@Sendable () async -> Bool?)?
     var archivePreviews: [String: (preview: ArchivePreviewRecord, createdAt: Date)] = [:]
     var isClosed = false
     var shutdownTask: Task<Void, Never>?
