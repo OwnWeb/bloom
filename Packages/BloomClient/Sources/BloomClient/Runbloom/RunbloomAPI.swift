@@ -83,6 +83,18 @@ public struct RunbloomAPI: Sendable {
         try await get("cloud-workspaces/\(id)/checks")
     }
 
+    /// The log of a failed check, trimmed on runbloom.app exactly as `CheckFailureHandoff` trims one
+    /// here, for a Bloom Cloud workspace, where this Mac has no worktree to run `gh` in. `check` is
+    /// the check's `id` from `checks(for:)`. Answered bare rather than in the resource envelope.
+    public func checkLog(for id: String, check: String) async throws -> CloudCheckLog {
+        let data = try await perform("GET", "cloud-workspaces/\(id)/checks/\(check)/log", body: nil)
+        do {
+            return try JSONDecoder().decode(CloudCheckLog.self, from: data)
+        } catch {
+            throw RunbloomRefusal(status: 200, code: "unreadable_answer", message: "runbloom.app answered in a way this version of Bloom cannot read. Check for an update.")
+        }
+    }
+
     /// Takes the pull request out of draft, as the signed-in person rather than as the agent.
     public func markPullRequestReady(_ id: String) async throws -> CloudPullRequestState {
         try await send("POST", "cloud-workspaces/\(id)/pull-request/ready", body: Empty())

@@ -107,6 +107,17 @@ final class CloudPullRequestReader {
 
     /// The branch's checks, read on the same terms. Nil means they could not be read at all, which
     /// the Checks tab draws differently from a branch with no checks on it.
+    /// The log of one failed check, found by the name and URL the checks list gave it, since the
+    /// strip's `CheckRun` does not carry runbloom.app's id. Nil when there is no such check, when
+    /// runbloom.app has no log behind it, or when it could not be asked: the hand-off then goes
+    /// without one, as it always did.
+    func readCheckLog(named name: String, detailsURL: String?) async -> CloudCheckLog.Log? {
+        guard let session,
+              let check = checks?.checks.first(where: { $0.name == name && $0.detailsURL == detailsURL })
+        else { return nil }
+        return try? await session.cloud.api.checkLog(for: session.id.rawValue, check: check.id).log
+    }
+
     func readChecks() async -> CloudChecks? {
         guard let session else { return nil }
         let cloud = session.cloud

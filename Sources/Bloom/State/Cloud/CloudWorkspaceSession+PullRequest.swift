@@ -56,12 +56,27 @@ extension CloudWorkspaceSession {
 
     var canSendCheckFailure: Bool { selectedChatID != nil || !chatIDs.isEmpty }
 
-    /// The sentence goes to the chat in front. The log itself is not fetched here: `gh` on this Mac
-    /// has no access to the repository a Cloud workspace's branch is in, and the agent on the
-    /// machine does, so it is better placed to read the run than this Mac is.
+    /// The same hand-off a local workspace makes, with the log read by runbloom.app rather than by
+    /// `gh` here, since this Mac has no worktree for this branch. The trimmed log is put on the
+    /// machine as a file and the sentence names it, which is what `CheckFailureSender` does with a
+    /// local worktree; with no log to be had the sentence goes on its own, with the run's URL for
+    /// the agent to open itself.
     func sendCheckFailure(_ run: CheckRun) async -> String? {
-        let where_ = run.detailsURL.map { " Its run is at \($0)." } ?? ""
-        return await ask("The check \(run.name) failed on this branch.\(where_) Find out why and fix it.")
+        var logPath: String?
+        var excerpt: CheckFailureHandoff.Excerpt?
+        if let log = await github.readCheckLog(named: run.name, detailsURL: run.detailsURL),
+           case .at(let path) = await upload(name: log.filename, data: Data(log.text.utf8)) {
+            logPath = path
+            excerpt = CheckFailureHandoff.Excerpt(text: log.text, totalLines: log.totalLines, droppedLines: log.droppedLines)
+        }
+        return await ask(CheckFailureHandoff.sentence(
+            name: run.name,
+            workflow: run.workflowName,
+            state: CheckState(run),
+            detailsURL: run.detailsURL,
+            logPath: logPath,
+            excerpt: excerpt
+        ))
     }
 
     /// Never in the dark: the machine asks GitHub with the workspace's own credentials, so what
