@@ -77,9 +77,8 @@ struct CreateCloudWorkspaceView: View {
     /// agents in its image. A value nobody touched should give way to that. A value somebody
     /// picked should not. See `PendingOpeningPrompt.controls`.
     @State private var controlsWereChosen = false
-    /// Empty for the project's own default, which is what the chip says when nothing is typed.
+    /// Empty for the project's own default, which is what the chip says when nothing is picked.
     @State private var baseBranch = ""
-    @State private var isEditingBase = false
     /// Whether the machine runs the project's setup. The same choice the local window offers, in
     /// the same words, with the same default.
     @State private var runsSetup = true
@@ -249,37 +248,17 @@ struct CreateCloudWorkspaceView: View {
         }
     }
 
-    /// `from main`, in the place the local window's source picker stands.
-    ///
-    /// A button with a field behind it rather than a menu, because runbloom.app lists a project's
-    /// default branch and nothing else: there is no list of branches to choose from, and a menu
-    /// with one item in it that cannot be changed would be a control that lies about what it does.
-    /// Typing is how another base is named, and the chip says what will happen when nobody types.
+    /// `from main`, in the place the local window's source picker stands, and drawn by the same
+    /// parts. See `CloudBaseBranchPicker`.
     private var baseControl: some View {
-        Button {
-            isEditingBase = true
-        } label: {
-            ComposerControlLabel(text: "from \(base)", showsMenuIndicator: true) {
-                Image(systemName: "plus.circle")
+        CloudBaseBranchPicker(
+            defaultBranch: project?.defaultBranch ?? "main",
+            baseBranch: $baseBranch,
+            load: { [cloud, team, project] query, cursor in
+                guard let team, let project else { return ([], nil) }
+                return try await cloud.branches(team: team.id, project: project.id, query: query, cursor: cursor)
             }
-        }
-        .buttonStyle(.plain)
-        .help("Choose the branch this one is cut from")
-        .accessibilityLabel("Base branch")
-        .accessibilityValue(base)
-        .popover(isPresented: $isEditingBase, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: Metrics.spacingWide) {
-                Text("Cut the new branch from")
-                    .font(Typo.caption)
-                    .foregroundStyle(Palette.textSecondary)
-                TextField(project?.defaultBranch ?? "main", text: $baseBranch)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.body.monospaced())
-                    .frame(width: 260)
-                    .onSubmit { isEditingBase = false }
-            }
-            .padding(Metrics.gutter)
-        }
+        )
     }
 
     // MARK: - The choice, and then the box

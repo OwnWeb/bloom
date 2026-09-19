@@ -400,6 +400,17 @@ final class CloudWorkspaces {
         return item
     }
 
+    /// One page of a project's branches as runbloom.app lists them, searched on its side, for the
+    /// create sheet's "from main" list. See `CloudBaseBranches`.
+    ///
+    /// **A stub until runbloom.app's endpoint lands**, and an honest one: it lists nothing, so the
+    /// sheet offers the project's default branch and whatever is typed, which is exactly what the
+    /// field it replaces offered. The control server is sending the path; this is the one place
+    /// it goes.
+    func branches(team: String, project: String, query: String, cursor: String?) async throws -> (names: [String], next: String?) {
+        ([], nil)
+    }
+
     func projects(team: String) async throws -> [RunbloomProject] {
         try await api.projects(team: team)
     }
