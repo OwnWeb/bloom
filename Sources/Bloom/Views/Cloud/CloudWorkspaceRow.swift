@@ -90,17 +90,14 @@ struct CloudWorkspaceRow: View {
 
     /// Whether other people can see it, which is the one thing about a Cloud workspace's row a
     /// local one has no word for.
+    ///
+    /// There was a lock as well, for a private workspace a team owner or admin could see and not
+    /// open. runbloom.app no longer lists those at all (fb24dd3, "private means private"): every
+    /// workspace this Mac is given is one it can open, so the mark had nothing left to say.
     @ViewBuilder
     private var sharingMark: some View {
         let ink = isEmphasized ? Palette.textInverted : Palette.textTertiary
-        if !item.canOpen {
-            // A team owner or admin can see a private workspace exists, and archive it, without
-            // being able to open it.
-            Image(systemName: "lock")
-                .font(Typo.micro)
-                .foregroundStyle(ink)
-                .accessibilityLabel("Private to \(item.owner?.name ?? "its owner")")
-        } else if item.sharedWithTeam || item.role == "collaborator" {
+        if item.sharedWithTeam || item.role == "collaborator" {
             Image(systemName: "person.2")
                 .font(Typo.micro)
                 .foregroundStyle(ink)
