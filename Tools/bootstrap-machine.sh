@@ -142,6 +142,16 @@ point_current_at() {
 
 point_current_at "$target"
 
+# The sandbox user, made or checked at every install and update, beside the version just unpacked.
+# **A failure here is not a failure of the update**: a machine whose provider will not make a user
+# runs everything as the Runner's user, as it did before the sandbox existed, and the Runner asks
+# `MachineSandbox.available` rather than assuming. The log says what happened either way.
+provision="$target/bin/provision-sandbox.sh"
+if [[ -x "$provision" ]]; then
+  BLOOM_WORKTREE="${BLOOM_WORKTREE:-$HOME/workspace}" BLOOM_DATA_DIR="${BLOOM_DATA_DIR:-$HOME/.bloom}" \
+    bash "$provision" || echo "bootstrap-machine: the sandbox user could not be made; running as $(id -un)" >&2
+fi
+
 if [[ "$action" == "install" ]]; then
   # The whole name, so a service called bloom-something does not count as this one.
   if ! "$service_tool" services list 2>/dev/null | grep -qE '(^|[^[:alnum:]_-])bloom([^[:alnum:]_-]|$)'; then

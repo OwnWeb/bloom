@@ -151,6 +151,34 @@ check "the wrapper goes back to the release that worked" "$bootstrap_prefix/2.0.
 check "and says so where a person will find it afterwards" "3" \
   "$(grep -c 'going back to' "$root/update.log" 2>/dev/null || echo 0)"
 
+# ---------------------------------------------------------------- provisioning the sandbox user
+#
+# Tools/provision-sandbox.sh needs root, so it is run with SUDO pointed at a recorder: nothing is
+# changed, and what it would have done is read back. What matters is that the sandbox user is made
+# with no sudo of its own, that the sudoers line is checked with visudo before it is installed, that
+# the CLIs are copied somewhere world-readable, and that the Runner's data directory stays private.
+provision_script="$PWD/Tools/provision-sandbox.sh"
+sandbox_root="$root/sandbox"
+mkdir -p "$sandbox_root/home/.claude" "$sandbox_root/home/.local/share/sprite-agents/claude" "$sandbox_root/worktree" "$sandbox_root/home/.bloom"
+print -r -- '{}' > "$sandbox_root/home/.claude/settings.json"
+print -r -- 'binary' > "$sandbox_root/home/.local/share/sprite-agents/claude/claude"
+printf '#!/bin/sh
+printf "%%s\n" "$*" >> "%s/sudo.log"
+' "$sandbox_root" > "$root/fake-bin/fake-sudo"
+chmod +x "$root/fake-bin/fake-sudo"
+HOME="$sandbox_root/home" SUDO="$root/fake-bin/fake-sudo" BLOOM_SANDBOX_HOME="$sandbox_root/agent"   BLOOM_WORKTREE="$sandbox_root/worktree" BLOOM_DATA_DIR="$sandbox_root/home/.bloom"   BLOOM_AGENT_SOURCE="$sandbox_root/home/.local/share/sprite-agents"   BLOOM_AGENT_TARGET="$sandbox_root/agents"   bash "$provision_script" >"$sandbox_root/out.log" 2>&1 || print -r -- "provision exited $?" >> "$sandbox_root/out.log"
+sudo_log="$(<"$sandbox_root/sudo.log")"
+check "the sandbox user is made with no sudo group" "yes" "$([[ "$sudo_log" == *"useradd --create-home --home-dir $sandbox_root/agent --shell /bin/bash --groups bloom-work bloom-agent"* ]] && echo yes || echo no)"
+check "the shared group is made" "yes" "$([[ "$sudo_log" == *"groupadd bloom-work"* ]] && echo yes || echo no)"
+provision_out="$(<"$sandbox_root/out.log")"
+check "sudo is granted to the Runner's user and to nobody else" "yes" "$([[ "$provision_out" == *"granting: $(id -un) ALL=(ALL) NOPASSWD:SETENV: ALL"* && "$provision_out" != *"bloom-agent ALL="* ]] && echo yes || echo no)"
+check "the sudoers file is checked before it is installed" "yes" "$([[ "$sudo_log" == *"visudo -cqf"* && "$sudo_log" == *"install -o root -g root -m 0440"* ]] && echo yes || echo no)"
+check "the CLIs are copied where anybody can run them" "yes" "$([[ "$sudo_log" == *"chmod -R a+rX $sandbox_root/agents/claude"* ]] && echo yes || echo no)"
+check "the Runner's home becomes traversable, and only the one it was given" "yes" "$([[ "$sudo_log" == *"chmod 0751 $sandbox_root/home"* && "$sudo_log" != *"chmod 0751 $HOME "* ]] && echo yes || echo no)"
+check "the Runner's data directory stays private" "yes" "$([[ "$sudo_log" == *"chmod 0700 $sandbox_root/home/.bloom"* ]] && echo yes || echo no)"
+check "the worktree is shared with the group" "yes" "$([[ "$sudo_log" == *"chgrp -R bloom-work $sandbox_root/worktree"* ]] && echo yes || echo no)"
+check "running it twice asks for nothing twice" "" "$(HOME="$sandbox_root/home" SUDO=/usr/bin/true BLOOM_SANDBOX_HOME="$sandbox_root/agent" BLOOM_WORKTREE="$sandbox_root/worktree" BLOOM_DATA_DIR="$sandbox_root/home/.bloom" BLOOM_AGENT_SOURCE="$sandbox_root/home/.local/share/sprite-agents" BLOOM_AGENT_TARGET="$sandbox_root/agents" bash "$provision_script" >/dev/null 2>&1; echo -n "")"
+
 if (( ${#failures} )); then
   print -r -- "runner-start probe failed:"
   for failure in $failures; do print -r -- "  $failure"; done
