@@ -32,6 +32,9 @@ struct StreamingStatusView: View {
             Text(text)
                 .font(Typo.label)
                 .foregroundStyle(Palette.textSecondary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .truncationMode(.tail)
 
             Spacer(minLength: 0)
         }

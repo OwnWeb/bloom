@@ -91,18 +91,18 @@ struct StreamingRowView: View {
             if let run = transcript.retryRun {
                 RetryRowView(run: run)
                     .transaction { $0.animation = nil }
-            } else if let tool = transcript.streamingToolName {
-                // The name the CLI streams is the wire name, and for an MCP call that is
-                // `mcp__bloom-workspace-bridge__workspace_say`: four underscores, the transport
-                // named instead of the thing happening, and the widest line in the transcript for
-                // as long as the call runs. The saved row that replaces it a second later has
-                // always said "Bloom: workspace say". Same answer, asked in the core, so the tail
-                // and the row it turns into cannot disagree. See `MCPToolName.readable`.
-                StreamingStatusView(
-                    mark: .tool("gearshape"),
-                    text: "Running \(MCPToolName.readable(tool))"
-                )
+            } else if let tool = transcript.streamingTool {
+                if tool.startedAt == nil {
+                    StreamingStatusView(mark: .tool("gearshape"), text: tool.label)
+                        .transaction { $0.animation = nil }
+                } else {
+                    // The model owns when the call began; this clock only redraws the readout. A
+                    // result removes the view, so nothing keeps ticking after the work is over.
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        StreamingStatusView(mark: .tool("gearshape"), text: tool.text(at: context.date))
+                    }
                     .transaction { $0.animation = nil }
+                }
             } else if transcript.isRunning || transcript.sending != nil, !hasVisibleStream {
                 // Reserve the activity line with the instant echo so starting the agent does
                 // not insert another row underneath a bubble that is still arriving.

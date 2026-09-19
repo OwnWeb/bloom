@@ -201,7 +201,7 @@ final class TranscriptModel {
     private(set) var streamingText = ""
     private(set) var streamingThinking = ""
     @ObservationIgnored private(set) var messageArrivals = MessageArrivals()
-    private(set) var streamingToolName: String?
+    private(set) var streamingTool: RunningTool?
     private(set) var thinkingTokens = 0
     private(set) var statusLabel: String?
 
@@ -1653,7 +1653,7 @@ final class TranscriptModel {
         clearStreaming()
         streamingText = recovery.text
         streamingThinking = recovery.thinking
-        streamingToolName = recovery.toolName
+        streamingTool = recovery.toolName.map(RunningTool.init(name:))
         thinkingTokens = recovery.thinkingTokens
         if let status = recovery.status { await handle(.status(status)) }
         if let retry = recovery.retry { absorb(retry) }
@@ -1712,7 +1712,7 @@ final class TranscriptModel {
             // Not buffered. It arrives once per tool call rather than per token, and it is what
             // the status line under the tail says, so a delay on it would be visible where a
             // delay on a few characters of prose is not.
-            case .toolName(let name): streamingToolName = name
+            case .toolName(let name): streamingTool = RunningTool(name: name)
             case .toolInput: break
             case .blockFinished: break
             }
@@ -1723,7 +1723,10 @@ final class TranscriptModel {
             // through. That is the only signal there is: the CLI announces a retry and never
             // announces a recovery, so the recovery is the next event of any kind.
             settleRetryRun()
-            let runningTool = streamingToolName
+            let runningTool: RunningTool? = switch event {
+            case .toolUse(let use): RunningTool(use: use)
+            default: streamingTool
+            }
             let callsBefore = freshCalls
             await appendLatestMessages()
             // Keep the live drawing while the store is awaited. Clearing first leaves an empty
@@ -1733,7 +1736,7 @@ final class TranscriptModel {
             // naming it rather than saying the model is being waited on while a tool runs. Its
             // result clears this like any other arrival. See `TranscriptFold.freshCall`.
             if case .toolUse = event, !freshCalls.isSubset(of: callsBefore) {
-                streamingToolName = runningTool
+                streamingTool = runningTool
             }
 
         case .error(let failure):
@@ -2138,7 +2141,7 @@ final class TranscriptModel {
         buffer = ("", "")
         streamingText = ""
         streamingThinking = ""
-        streamingToolName = nil
+        streamingTool = nil
     }
 
     /// Whether an answer is arriving, as far as anything that draws is concerned.
@@ -2154,7 +2157,7 @@ final class TranscriptModel {
     /// the tail is on screen from the frame the turn begins whatever this says. See
     /// `StreamingTailView`.
     var isStreaming: Bool {
-        !streamingText.isEmpty || !streamingThinking.isEmpty || streamingToolName != nil
+        !streamingText.isEmpty || !streamingThinking.isEmpty || streamingTool != nil
     }
 
     /// Tells the chat that started this one that it has stopped, and lets that chat's queue move.
