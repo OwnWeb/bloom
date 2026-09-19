@@ -84,14 +84,21 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     }
 
     /// The token ability this operation needs. Every operation needs `view` as well.
+    ///
+    /// **Every case is named, and there is no `default`.** It ended in `default: "view"`, so an
+    /// operation added later, however much it changed, was open to anybody who could look; the
+    /// security review of 19 September 2026 found it as L1. Now a new case does not compile until
+    /// somebody decides what it needs, and `OperationAbilityTests` pins the whole table.
     public var ability: String {
         switch self {
+        case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
+             .runScripts, .quickPrompts, .searchCode, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes,
+             .pullRequest, .markRead: "view"
         case .send, .cancelQueued, .stop, .answer, .newChat, .closeChat, .renameChat, .setComposer: "prompt"
         case .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup, .stopSetup, .continueAfterMerge,
              .revertFile, .discardHunk: "files"
         case .runScript, .closeTerminal: "terminal"
         case .archive, .archivePreview: "share"
-        default: "view"
         }
     }
 
