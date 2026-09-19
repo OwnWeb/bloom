@@ -457,11 +457,13 @@ enum InlineNSAttributes {
                 )
             case let .code(text):
                 let child = run(text, font: faced(code, traits), color: color)
+                let target = SourceReference.url(text)
                 child.addAttribute(
-                    .backgroundColor, value: Palette.hoverNSColor,
+                    target == nil ? .backgroundColor : .bloomInlineCodeBackground,
+                    value: Palette.hoverNSColor,
                     range: NSRange(location: 0, length: child.length)
                 )
-                if let target = SourceReference.url(text) {
+                if let target {
                     child.addAttribute(.link, value: target, range: NSRange(location: 0, length: child.length))
                 }
                 output.append(child)

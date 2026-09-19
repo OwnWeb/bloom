@@ -26,13 +26,12 @@ import BloomCore
 /// family installed here works: `ChatFont(rawValue: "Palatino")`, and a name that is not installed
 /// draws in San Francisco rather than in nothing.
 struct ProseLeadingGallery: View {
-    /// A paragraph with a filename in it, which is the shape of most transcript prose: sentences
-    /// wrapped around something set in the mono face. Deliberately no link in it, because
-    /// `MarkdownView` draws a run holding one with an `NSViewRepresentable` and the offscreen
-    /// renderer paints a yellow placeholder over those. See `Snapshot`.
+    /// A paragraph with a source path in it, which is the shape of most transcript prose:
+    /// sentences wrapped around something set in the mono face. The link also keeps the source
+    /// icon and inline-code plate visible across every supported text size.
     private static let sample = """
-    Ran the suite and the failure is real. `DiffParser.parse(hunk:)` drops the last line of a \
-    hunk whose header has no trailing count, which is every single-line hunk `git` writes.
+    Read `~/bloom-handover/coordinator.md`. It covers the handover procedure and the exact \
+    commands to run, including the paths that must not be touched.
     """
 
     /// What the transcript used to add, in points, whatever size it was set at. Here so the page
