@@ -305,6 +305,7 @@ id_type_allowed_files=(
   'Sources/BloomCore/Remote/RemoteSummary.swift'      # runbloom.app's summary body, ids as JSON strings
   'Sources/BloomCore/Remote/RemoteUsageMeter.swift'   # runbloom.app's usage body and the kernel's boot id
   'Sources/BloomCore/Bridge/CloudWorkspaceStartTool.swift' # a Bloom Cloud workspace's id, which runbloom.app assigns
+  'Sources/BloomCore/Bridge/CloudWorkspaceReach.swift' # Bloom Cloud workspace and chat ids, which runbloom.app and the machine assign
   'Sources/BloomRunner/Machine/MachineConfiguration.swift' # runbloom.app's workspace.json
   'Sources/BloomCore/Transcript/ContextCompaction.swift' # the same stream-json, one line of it
 )

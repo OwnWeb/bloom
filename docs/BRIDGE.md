@@ -388,6 +388,28 @@ actor whose `update` methods re-read inside the actor, so a handler on a backgro
 directly, and a second `SQLiteDatabase` on the file is the cross-connection sequence race that
 `UNIQUE(session_id, seq)` exists to survive rather than to invite.
 
+### Bloom Cloud workspaces from this Mac
+
+`workspace_list`, `workspace_say`, `chat_list`, `chat_read` and `workspace_diff` also take a Bloom
+Cloud workspace's id or name, through the connection the window already holds to its machine and
+as the signed-in person (`CloudWorkspaceReach`, filled in by `AppModel+CloudWorkspaceReach`).
+
+- **Only workspaces runbloom.app lists for that person and that they can open.** Anything else is
+  "no such workspace", not a machine's refusal. A local workspace with the same name wins.
+- **`workspace_list`** puts them after this Mac's, marked `"cloud": true`, with runbloom.app's id,
+  name, state, repository and branch. Naming a project leaves them out.
+- **`workspace_say`** becomes the machine's `send` on the most recently active top-level chat, never
+  a subagent's. The words go as written: the label saying an agent sent them is the machine's to
+  draw, from a `via` field on `send` still to come. The same throttle as a local message applies,
+  read from `CloudSayLedger`. No reply can come back and `notify_when_done` is not available,
+  because a machine cannot reach this Mac, and the answer says to read the chat instead.
+- **`chat_list` and `chat_read`** read the machine's chats and transcript in the local answer's
+  shape. **A message addressed to a person is left out**, before paging, so a page is still full.
+- **`workspace_diff`** reads the machine's review snapshot at branch scope and one patch per file,
+  paged as a local diff.
+- **A workspace not open in the window** is opened for the call and closed after it, which wakes a
+  sleeping machine, as anybody doing anything there does.
+
 ## 4. What an agent cannot reach through it
 
 Nothing here writes a file directly or changes Git state. `workspace_diff` reads a worktree

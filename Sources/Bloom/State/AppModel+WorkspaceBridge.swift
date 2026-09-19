@@ -46,7 +46,18 @@ extension AppModel {
             return await self.driveTerminalForBridge(command, in: workspaceID)
         }
 
-        return BridgeToolbox(handlers: BridgeToolbox.standard.handlers + [
+        // The tools that read or write another workspace, handed the way into Bloom Cloud ones so a
+        // Cloud workspace's id or name works where a local one's does. They replace the standard
+        // toolbox's copies, which have no way in. See `CloudWorkspaceReach`.
+        let reach = cloudWorkspaceReach()
+        let reaching: [any BridgeToolHandling] = [
+            WorkspaceListTool(cloud: reach),
+            ChatListTool(cloud: reach),
+            ChatReadTool(cloud: reach),
+            WorkspaceDiffTool(cloud: reach),
+        ]
+        let replaced = Set(reaching.map(\.tool.name))
+        return BridgeToolbox(handlers: BridgeToolbox.standard.handlers.filter { !replaced.contains($0.tool.name) } + reaching + [
             WorkspaceStartTool { [weak self] order, project, identity, origin in
                 guard let self else { throw AppNotReady.stillStartingUp }
                 return try await self.startWorkspaceForBridge(
@@ -151,10 +162,10 @@ extension AppModel {
             // write to it and recorded the message; only one that may go without the owner reaches
             // this, and the approval card calls the same method for the rest. See
             // `AppModel+WorkspaceMessages`.
-            WorkspaceSayTool { [weak self] message in
+            WorkspaceSayTool({ [weak self] message in
                 guard let self else { return .refused("Bloom is still starting up.") }
                 return await self.deliverWorkspaceMessage(message)
-            },
+            }, cloud: reach),
         ])
     }
 

@@ -7,7 +7,12 @@ import Foundation
 /// name one. See `BridgeReadTarget` for why a read may cross into another workspace when nothing
 /// else a parent has may.
 public struct ChatListTool: BridgeToolHandling {
-    public init() {}
+    /// The way into Bloom Cloud workspaces, when there is one. See `CloudWorkspaceReach`.
+    private let cloud: CloudWorkspaceReach?
+
+    public init(cloud: CloudWorkspaceReach? = nil) {
+        self.cloud = cloud
+    }
 
     public let roles: Set<BridgeRole> = [.workspace, .owner]
     public let tool = BridgeTool(
@@ -36,11 +41,15 @@ public struct ChatListTool: BridgeToolHandling {
     public func call(_ request: MCPRequest, as identity: BridgeIdentity, store: Store) async -> BridgeToolResult {
         do {
             let target: BridgeReadTarget
-            switch try await BridgeReadTarget.resolve(request, as: identity, store: store) {
+            switch try await BridgeReadTarget.resolve(request, as: identity, store: store, cloud: cloud) {
             case .failure(let trouble): return .failure(trouble.sentence(tool: "chat_list"))
             case .success(let resolved): target = resolved
             }
-            let sessions = try await store.sessions(workspaceID: target.workspaceID)
+            if case .cloud(let workspace) = target, let cloud {
+                return await Self.cloudAnswer(workspace, reach: cloud)
+            }
+            guard let workspaceID = target.workspaceID else { return .failure("Bloom could not list the chats.") }
+            let sessions = try await store.sessions(workspaceID: workspaceID)
             var chats: [JSONValue] = []
             for session in sessions {
                 let count = try await store.messageCount(sessionID: session.id)
@@ -62,6 +71,34 @@ public struct ChatListTool: BridgeToolHandling {
             return .json(.object(answer))
         } catch {
             return .failure("Bloom could not list the chats: \(error.localizedDescription)")
+        }
+    }
+
+    /// A Bloom Cloud workspace's chats, as its machine lists them, in the local answer's shape.
+    ///
+    /// `messages` is the chat's last sequence number rather than a count, because that is what the
+    /// machine says without reading every row, and `current` is always false: the caller is not
+    /// standing in any of them. `cloud` says which kind of workspace this answer is about.
+    static func cloudAnswer(_ workspace: CloudWorkspaceTarget, reach: CloudWorkspaceReach) async -> BridgeToolResult {
+        switch await reach.chats(workspace.id) {
+        case .failure(let trouble):
+            return .failure("Bloom could not list the chats in the Bloom Cloud workspace '\(workspace.name)': \(trouble.sentence)")
+        case .success(let chats):
+            let rows: [JSONValue] = chats.map { chat in
+                .object([
+                    "id": .string(chat.id),
+                    "title": .string(chat.title.isEmpty ? PaneNaming.untitledChat : chat.title),
+                    "agent": .string(chat.agent),
+                    "state": .string(chat.state),
+                    "current": .bool(false),
+                    "parent_chat_id": chat.parentChatID.map(JSONValue.string) ?? .null,
+                    "messages": .integer(chat.lastSeq),
+                ])
+            }
+            return .json(.object([
+                "chats": .array(rows), "count": .integer(rows.count),
+                "workspace_id": .string(workspace.id), "workspace": .string(workspace.name), "cloud": .bool(true),
+            ]))
         }
     }
 

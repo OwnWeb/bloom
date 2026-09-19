@@ -37,8 +37,21 @@ public enum WorkspaceSayThrottle {
     public static func refusal(
         sending text: String, to workspace: String, recent: [WorkspaceMessage], now: Date = Date()
     ) -> WorkspaceSayTrouble? {
+        refusal(
+            sending: text, to: workspace,
+            sent: recent.filter { $0.state != .cancelled }.map { ($0.text, $0.createdAt) },
+            now: now
+        )
+    }
+
+    /// The same rule over what was sent and when, which is all it reads. A message to a Bloom
+    /// Cloud workspace is not a row in the store, so `CloudSayLedger` hands it this instead, and
+    /// there is still one rule rather than two.
+    public static func refusal(
+        sending text: String, to workspace: String, sent: [(text: String, at: Date)], now: Date = Date()
+    ) -> WorkspaceSayTrouble? {
         let since = now.addingTimeInterval(-window)
-        let counted = recent.filter { $0.state != .cancelled && $0.createdAt >= since }
+        let counted = sent.filter { $0.at >= since }
 
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if counted.contains(where: { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == words }) {
