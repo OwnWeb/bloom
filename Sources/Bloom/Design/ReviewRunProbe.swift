@@ -65,7 +65,7 @@ enum ReviewRunProbe {
            let directory = ProbeHarness.value(for: "--review-run-probe") {
             progress("Drawing the Bloom Cloud settings pane, signed out and signed in")
             let written = CloudSettingsGallery.render(into: directory)
-            check(written.count == 20, "the gallery drew \(written.count) of the twenty images")
+            check(written.count == 21, "the gallery drew \(written.count) of the twenty-one images")
             // The archive popover never changes size once it is open, whatever the machine says.
             check(BloomIconArtwork.hasLayers, "the bundle has no icon layers, so the hero has no icon")
             check(BloomIconArtwork.image(.ground, size: 64) != nil, "a layer could not be filled")

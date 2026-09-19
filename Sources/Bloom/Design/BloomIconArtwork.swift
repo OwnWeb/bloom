@@ -25,6 +25,23 @@ enum BloomIconArtwork {
         case panel
         case ground
 
+        /// How far this layer is lifted towards white beyond its fill, which is the part of the
+        /// system's rendering that is not in the document's colours.
+        ///
+        /// `icon.json` marks the mark's group `specular: true` and the system lifts it hard:
+        /// measured against `Tools/icon-truth.sh`, the ribbon reads #E7FDFE there and its fill
+        /// alone is #A9ECE1. The others are lifted much less. These four numbers were fitted by
+        /// measuring both renderings at the same points rather than chosen by eye.
+        var lift: CGFloat {
+            switch self {
+            case .mark: 0.55
+            case .current: 0.18
+            case .spatie: 0.1
+            case .panel: 0
+            case .ground: 0
+            }
+        }
+
         /// The gradient `icon.json` fills this silhouette with: top colour, bottom colour, and the
         /// unit y the gradient runs between.
         var fill: (top: NSColor, bottom: NSColor, start: CGFloat, stop: CGFloat) {
@@ -71,9 +88,12 @@ enum BloomIconArtwork {
         NSGraphicsContext.restoreGraphicsState()
 
         let fill = layer.fill
+        let lift = layer.lift
+        let top = fill.top.blended(withFraction: lift, of: .white) ?? fill.top
+        let bottom = fill.bottom.blended(withFraction: lift, of: .white) ?? fill.bottom
         guard let gradient = CGGradient(
             colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
-            colors: [fill.top.cgColor, fill.bottom.cgColor] as CFArray, locations: [0, 1]
+            colors: [top.cgColor, bottom.cgColor] as CFArray, locations: [0, 1]
         ) else { return nil }
         context.setBlendMode(.sourceIn)
         // Unit y in `icon.json` runs from the top down; the context's runs from the bottom up.
@@ -84,6 +104,46 @@ enum BloomIconArtwork {
             options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
         )
         return context.makeImage()
+    }
+
+    /// The whole icon as one image, for anywhere that wants the icon rather than the depth: the
+    /// sidebar's Bloom Cloud card, and anything else that would otherwise reach for the running
+    /// copy's tinted icon.
+    ///
+    /// The same layers in the same order as the hero's stack, with the same glass lift over them,
+    /// so the two do not drift apart. Nil without the layers, and the caller falls back.
+    @MainActor
+    static func composite(size: CGFloat, scale: CGFloat = 2) -> NSImage? {
+        guard hasLayers else { return nil }
+        let pixels = Int(size * scale)
+        guard pixels > 0, let context = CGContext(
+            data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        let box = CGRect(x: 0, y: 0, width: CGFloat(pixels), height: CGFloat(pixels))
+        // Clipped to the icon's shape, which is what Icon Composer clips the composition to and why
+        // `ground.svg` is a plain square.
+        context.addPath(CGPath(
+            roundedRect: box, cornerWidth: box.width * 0.2237, cornerHeight: box.height * 0.2237, transform: nil
+        ))
+        context.clip()
+        for layer in [Layer.ground, .panel, .spatie, .current, .mark] {
+            guard let art = image(layer, size: size, scale: scale) else { continue }
+            context.draw(art, in: box)
+        }
+        if let gradient = CGGradient(
+            colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
+            colors: [
+                NSColor.white.withAlphaComponent(0.16).cgColor,
+                NSColor.white.withAlphaComponent(0.04).cgColor,
+            ] as CFArray, locations: [0, 1]
+        ) {
+            context.drawLinearGradient(
+                gradient, start: CGPoint(x: box.midX, y: box.maxY), end: CGPoint(x: box.midX, y: box.minY), options: []
+            )
+        }
+        guard let composed = context.makeImage() else { return nil }
+        return NSImage(cgImage: composed, size: CGSize(width: size, height: size))
     }
 
     /// Where a layer's silhouette is, in an app bundle or in a probe's.

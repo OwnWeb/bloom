@@ -27,8 +27,9 @@ struct CloudSidebarCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.spacing) {
             HStack(spacing: Metrics.spacing) {
-                // The canonical blue mark, never the running copy's tinted icon. See `Brand.mark`.
-                Image(nsImage: Brand.mark)
+                // The app's own layered icon, in its canonical blue, never the running copy's
+                // tinted one. The flat mark is the fallback for a bundle without the layers.
+                Image(nsImage: BloomIconArtwork.composite(size: 24) ?? Brand.mark)
                     .resizable()
                     .frame(width: 24, height: 24)
                     .shadow(color: .black.opacity(0.45), radius: 4, y: 2)

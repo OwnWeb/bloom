@@ -225,6 +225,16 @@ enum CloudSettingsGallery {
             try? png.write(to: URL(filePath: path))
             written.append(path)
         }
+        // The icon alone, at rest, with no sheen and no turn, so it can be held against the system's
+        // own rendering of `Resources/Bloom.icon`. See `Tools/icon-truth.sh`.
+        if let rest = CloudHeroFrames.render(
+            size: CGSize(width: 256, height: 256), markCentreX: 128, markSize: 210, seconds: 0, drawsGlow: false
+        ), let png = NSBitmapImageRep(cgImage: rest).representation(using: .png, properties: [:]) {
+            let restPath = "\(directory)/cloud-hero-at-rest.png"
+            try? png.write(to: URL(filePath: restPath))
+            written.append(restPath)
+        }
+
         let path = "\(directory)/cloud-hero-motion.gif"
         // The longest loop, at eight frames a second: one whole cycle of the light crossing.
         let count = 112

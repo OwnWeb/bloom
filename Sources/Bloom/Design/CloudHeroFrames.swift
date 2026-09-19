@@ -35,12 +35,12 @@ enum CloudHeroFrames {
         return render(layer, pixels: CGSize(width: 64, height: 64), seconds: 0)
     }
 
-    static func render(size: CGSize, markCentreX: CGFloat, markSize: CGFloat, seconds: Double, scale: CGFloat = 2) -> CGImage? {
+    static func render(size: CGSize, markCentreX: CGFloat, markSize: CGFloat, seconds: Double, scale: CGFloat = 2, drawsGlow: Bool = true) -> CGImage? {
         let width = Int(size.width * scale)
         let height = Int(size.height * scale)
         guard width > 0, height > 0 else { return nil }
 
-        let stack = CloudHeroIconStack(markCentreX: markCentreX * scale, markSize: markSize * scale)
+        let stack = CloudHeroIconStack(markCentreX: markCentreX * scale, markSize: markSize * scale, drawsGlow: drawsGlow)
         stack.place(in: CGRect(x: 0, y: 0, width: size.width * scale, height: size.height * scale))
         stack.startAnimations()
         return render(stack.root, pixels: CGSize(width: CGFloat(width), height: CGFloat(height)), seconds: seconds, scale: scale)

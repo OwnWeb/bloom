@@ -113,6 +113,7 @@ final class CloudHeroIconStack {
     private let glow = CAGradientLayer()
     private let shadow = CALayer()
     private let scene = CALayer()
+    private let glass = CAGradientLayer()
     private let sheen = CAGradientLayer()
     private let sheenHost = CALayer()
     private var faces: [CALayer] = []
@@ -133,9 +134,14 @@ final class CloudHeroIconStack {
         .mark: 6, .current: 4, .spatie: 4, .panel: 2, .ground: 0,
     ]
 
-    init(markCentreX: CGFloat, markSize: CGFloat) {
+    /// Whether the water's glow is drawn behind the icon. Off for a picture of the icon alone,
+    /// which is what `Tools/icon-truth.sh`'s answer is held against.
+    private let drawsGlow: Bool
+
+    init(markCentreX: CGFloat, markSize: CGFloat, drawsGlow: Bool = true) {
         self.markCentreX = markCentreX
         self.markSize = markSize
+        self.drawsGlow = drawsGlow
 
         // The water's own light, behind everything, which slides with the icon's.
         glow.type = .radial
@@ -145,6 +151,7 @@ final class CloudHeroIconStack {
         ]
         glow.startPoint = CGPoint(x: 0.5, y: 0.5)
         glow.endPoint = CGPoint(x: 1, y: 1)
+        glow.isHidden = !drawsGlow
         root.addSublayer(glow)
 
         // The contact shadow is the blur alone: a layer with a black background drew a hard slab
@@ -180,6 +187,24 @@ final class CloudHeroIconStack {
             scene.addSublayer(face)
             faces.append(face)
         }
+
+        // **The system's own glass pass, as near as this gets.** Held against `Tools/icon-truth.sh`,
+        // the layers filled from `icon.json` alone came out darker and flatter than the icon macOS
+        // draws from the same document: measured at the ribbon, #A9ECE1 here against #E7FDFE there.
+        // The difference is the passes Icon Composer marks in the document and the system performs:
+        // a specular lift over the whole face, brightest at the top. This is that lift, static,
+        // above every layer and under the travelling sheen.
+        glass.colors = [
+            NSColor.white.withAlphaComponent(0.42).cgColor,
+            NSColor.white.withAlphaComponent(0.16).cgColor,
+            NSColor.white.withAlphaComponent(0.06).cgColor,
+        ]
+        glass.locations = [0, 0.45, 1]
+        glass.startPoint = CGPoint(x: 0.35, y: 1)
+        glass.endPoint = CGPoint(x: 0.65, y: 0)
+        glass.zPosition = 18
+        glass.compositingFilter = "softLightBlendMode"
+        scene.addSublayer(glass)
 
         // The travelling highlight, on the face of the object, clipped to the icon's own outline
         // so it cannot light the air beside it.
@@ -231,6 +256,10 @@ final class CloudHeroIconStack {
             let scale = (Self.eye - face.zPosition) / Self.eye
             face.transform = CATransform3DMakeScale(scale, scale, 1)
         }
+        glass.bounds = CGRect(x: 0, y: 0, width: markSize, height: markSize)
+        glass.position = centre
+        glass.cornerRadius = markSize * 0.2237
+        glass.masksToBounds = true
         sheenHost.bounds = CGRect(x: 0, y: 0, width: markSize, height: markSize)
         sheenHost.position = centre
         sheenHost.cornerRadius = markSize * 0.225
