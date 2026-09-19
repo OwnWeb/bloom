@@ -190,24 +190,42 @@ event stream open for the length of the conversation, as a client does, and read
 
 ### Bloom Cloud to a Mac
 
-**What exists.** The Mac holds a live event stream to every Cloud workspace it has open. The
-machine already uses that stream to ask a client for something (`pane_requested`).
+A Mac cannot be dialled, so whatever reaches it rides a connection the Mac opened. Three shapes,
+weighed against the rule that nobody outside a workspace or team can instruct it, on 19 September
+2026:
 
-**Smallest shape.** A `workspace_message` event on that stream, addressed to a local workspace by
-the name the agent was given, delivered only to streams whose token subject is **the person whose
-turn is running**, never to a colleague's Mac that happens to be connected. The Mac puts it into
-that local workspace as `workspace_say` would, headed with where it came from. If no stream of
-that person's is open, the tool says so and nothing is sent.
+| Shape | Who carries the words | Who could instruct the Mac | Reach | Verdict |
+| --- | --- | --- | --- | --- |
+| **A. Down the event stream the Mac already holds to that machine** | the machine, over a connection the Mac opened with the person's own token | only an agent whose running turn belongs to the Mac's signed-in person | while that Mac has that workspace open | **recommended** |
+| B. A standing outbound connection from the Mac to runbloom.app | runbloom.app, for every message | whoever runbloom.app forwards for, so its routing is now part of the Mac's attack surface | whenever the Mac is running | a relay: a second exception, and a standing one |
+| C. A mailbox runbloom.app keeps and the Mac drains | runbloom.app, stored until read | as B, and the words are at rest on a server | even when the Mac is closed | a relay with storage: the widest exception of the three |
 
-**Why it is the hardest.** Addressing: the machine does not know the names of anybody's local
-workspaces, so the agent has to be told one, and a wrong or stale name can only be refused by the
-Mac, after the fact. Reach: it works only while that Mac is open and connected to this workspace.
-Replies go the other way, Mac to Cloud, as above, so the two together are a conversation.
+**A, because it adds no party and no stored words.** The machine already talks to the Mac over the
+stream (`pane_requested`), authenticated by a token that names the person, and runbloom.app never
+sees what is said. What makes it safe:
 
-**The one case that would need a relay** is delivering to a Mac that is not connected. The
-proposal is not to: refuse, and say that the person's Mac is not connected. If that is not good
-enough, it becomes a second written exception like the opening prompt, bounded the same way
-(encrypted, held for one Mac, deleted when delivered, expiring), and it is Freek's to approve.
+- **The machine delivers only to streams whose token subject is the person whose turn is running.**
+  A colleague prompting the same shared workspace can reach their own Mac and never another's: the
+  person is taken from the turn, which runbloom.app registered, never from anything the agent says.
+- **The Mac checks it again**: the event arrived on a stream it opened as its signed-in person, the
+  named local workspace exists on this Mac, and the message goes in as a crew-style message headed
+  with where it came from, in the untrusted envelope, never as words the person typed.
+- **The team switch that gates Cloud to Cloud gates this too**: the machine asks runbloom.app the
+  same question it asks before minting a token (is this turn's person allowed to message from here),
+  so a team that has not said yes gets nothing.
+- **A turn nobody started refuses**, as every agent-to-anywhere tool does: a crew chat has no person.
+
+**What A cannot do, said plainly:** reach a Mac that is closed, or that has this workspace closed.
+The tool answers that the person's Mac is not connected to this workspace and sends nothing. Keeping
+a stream open to every Cloud workspace a person has, so that it could, would hold every one of those
+machines awake and billing, which is a worse trade than the gap. **B and C close the gap and are
+relays; neither is to be built without Freek's written exception**, bounded like the opening prompt
+(encrypted, for one Mac, deleted when delivered, expiring).
+
+**Addressing** stays the hard part in any shape: the machine knows no Mac's local workspace names, so
+the agent has to be told one, and only the Mac can refuse a wrong one, after the fact. A Mac that
+sends its open local workspaces' names on connect would fix that, and is the first thing to add if A
+is built.
 
 ### Local tools with no Cloud equivalent today
 
