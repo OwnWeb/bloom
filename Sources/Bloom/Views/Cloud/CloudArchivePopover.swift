@@ -90,9 +90,16 @@ struct CloudArchivePopoverBody: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Room for the conversation sentence and three more losses at this width, which is the
-    /// machine's usual worst. A longer list scrolls inside it rather than growing the popover.
-    static let lossesHeight: CGFloat = 116
+    /// Room for the conversation sentence, three more losses and the line about what survives,
+    /// which covers all but the machine's longest answers. A longer list scrolls inside the region
+    /// rather than growing the popover, and the last line it can show is faded off rather than cut,
+    /// so a clipped row reads as more to scroll instead of as a bug.
+    static let lossesHeight: CGFloat = 152
+
+    /// Two lines of the caption, as a height rather than as a reserved line count: `lineLimit(2,
+    /// reservesSpace: true)` alone left the unanswered sentence a point taller than the other two,
+    /// which the probe caught and which is exactly the kind of growth this popover exists to stop.
+    static let statusHeight: CGFloat = 30
 
     var body: some View {
         ConfirmationPopover(
@@ -126,12 +133,18 @@ struct CloudArchivePopoverBody: View {
             }
             .scrollBounceBehavior(.basedOnSize)
             .frame(height: Self.lossesHeight)
+            .mask {
+                LinearGradient(
+                    stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.9), .init(color: .clear, location: 1)],
+                    startPoint: .top, endPoint: .bottom
+                )
+            }
 
             Text(statusText)
                 .font(Typo.caption)
                 .foregroundStyle(statusIsFailure ? Palette.negative : Palette.textSecondary)
-                .lineLimit(2, reservesSpace: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, minHeight: Self.statusHeight, maxHeight: Self.statusHeight, alignment: .topLeading)
                 .id(statusText)
                 .transition(.opacity)
         }

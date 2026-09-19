@@ -45,6 +45,26 @@ final class CloudWorkspaces {
     /// The workspace whose archive confirmation is up. See `CloudArchivePopover`.
     var archiving: CloudWorkspaceID?
 
+    /// Where that confirmation hangs, which is whatever the person clicked.
+    ///
+    /// The popover replaced a sheet, and a popover needs a control that is still on screen. The
+    /// sidebar row's own box is the usual one; the pull request strip asks from its own Archive
+    /// button; and `.window` is the last resort for a caller with nothing on screen to point at,
+    /// which is better than bringing the sheet back for that one case.
+    enum ArchiveAnchor: Equatable { case row, pullRequest, window }
+
+    private(set) var archivingAnchor = ArchiveAnchor.row
+
+    func askToArchive(_ id: CloudWorkspaceID, from anchor: ArchiveAnchor) {
+        archivingAnchor = anchor
+        archiving = id
+    }
+
+    /// Whether the confirmation for `id` belongs to this control.
+    func isAskingToArchive(_ id: CloudWorkspaceID, at anchor: ArchiveAnchor) -> Bool {
+        archiving == id && archivingAnchor == anchor
+    }
+
     /// The open ones. Outside observation, like `AppModel.workspaceModels`: what the window draws
     /// is the state inside each session.
     @ObservationIgnored private var sessions: [CloudWorkspaceID: CloudWorkspaceSession] = [:]

@@ -23,7 +23,8 @@ struct CloudWorkspaceMenuItems: View {
             Divider()
             Button("Archive…") {
                 app.selection = .cloud(id)
-                app.cloud.archiving = id
+                // The menu was opened on the row, so the row is the thing to hang it on.
+                app.cloud.askToArchive(id, from: .row)
             }
         }
     }

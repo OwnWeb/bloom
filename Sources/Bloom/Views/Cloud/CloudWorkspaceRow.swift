@@ -93,7 +93,9 @@ struct CloudWorkspaceRow: View {
         }
     }
 
-    private var isArchiveActive: Bool { app.cloud.archiving == CloudWorkspaceID(item.id) }
+    private var isArchiveActive: Bool {
+        app.cloud.isAskingToArchive(CloudWorkspaceID(item.id), at: .row)
+    }
 
     private var archiveBinding: Binding<Bool> {
         Binding(

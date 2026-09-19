@@ -62,6 +62,7 @@ enum CloudSettingsGallery {
             }
         }
         written += renderQuestion(into: directory)
+        written += renderArchive(into: directory)
         written += renderMotion(into: directory)
         written += renderSidebarCard(into: directory)
         written += renderSidebarList(into: directory)
@@ -142,6 +143,53 @@ enum CloudSettingsGallery {
                 try? png.write(to: URL(filePath: path))
                 written.append(path)
             }
+        }
+        return written
+    }
+
+    /// The Bloom Cloud archive popover in the three states it passes through, photographed and
+    /// measured: as it opens on what runbloom.app knows, once the machine has answered with a
+    /// longer list, and when the machine did not answer at all.
+    ///
+    /// **The sizes are the point.** The sheet this replaced grew twice while somebody was reading
+    /// it. `archiveSizes` is what `ReviewRunProbe` asserts are all equal.
+    private(set) static var archiveSizes: [CGSize] = []
+
+    private static func renderArchive(into directory: String) -> [String] {
+        let fromSummary = CloudArchiveConfirmation(summary: nil)
+        var fromMachine = fromSummary
+        fromMachine.losses = [
+            CloudArchiveConfirmation.conversationSentence,
+            "An agent is still working. It will be stopped.",
+            "There are uncommitted changes.",
+            "3 untracked files.",
+            "2 commits have not been pushed.",
+        ]
+        let states: [(String, CloudArchiveConfirmation, CloudArchivePopoverBody.Status)] = [
+            ("open", fromSummary, .asking),
+            ("answered", fromMachine, .answered),
+            ("unanswered", fromSummary, .unanswered),
+        ]
+        var written: [String] = []
+        archiveSizes = []
+        for (name, confirmation, status) in states {
+            let body = CloudArchivePopoverBody(
+                name: "Reassigning users and teams", confirmation: confirmation, status: status,
+                isArchiving: false, onConfirm: {}, onCancel: {}
+            )
+            .background(Palette.surface)
+            let host = NSHostingView(rootView: body)
+            host.appearance = NSAppearance(named: .aqua)
+            host.frame = NSRect(origin: .zero, size: host.fittingSize)
+            let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+            window.contentView = host
+            window.layoutIfNeeded()
+            archiveSizes.append(host.fittingSize)
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { continue }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let path = "\(directory)/cloud-archive-\(name).png"
+            guard (try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(filePath: path))) != nil else { continue }
+            written.append(path)
         }
         return written
     }

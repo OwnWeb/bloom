@@ -112,7 +112,7 @@ extension CloudWorkspaceSession {
     /// The Cloud archive, which asks the machine what is about to be lost and says that the
     /// conversation is deleted. See `CloudArchivePopover`.
     func requestArchive(presenting: @escaping (ArchiveRequest) -> Void) async {
-        cloud.archiving = id
+        cloud.askToArchive(id, from: .pullRequest)
     }
 
     func confirmArchive(_ request: ArchiveRequest, presenting: @escaping (ArchiveRequest) -> Void) async {}

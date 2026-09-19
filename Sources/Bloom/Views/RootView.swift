@@ -309,6 +309,15 @@ struct RootView: View {
             } onCancel: {
                 cloudStart.answered(false)
             }
+            // The last resort for a Bloom Cloud archive question whose caller has nothing on
+            // screen to point at, so it hangs on the window itself rather than bringing back the
+            // sheet this replaced. Nothing asks for it today; it is here so a caller that has to
+            // cannot leave the question undrawable. See `CloudWorkspaces.ArchiveAnchor`.
+            .popover(isPresented: cloudArchiveOnWindow) {
+                if let id = app.cloud.archiving {
+                    CloudArchivePopover(id: id) { app.cloud.archiving = nil }
+                }
+            }
             // A single OK that does nothing but dismiss, which `errorAlert` says why it leaves to
             // the system rather than spelling out.
             .errorAlert(item: $app.alert) { $0.title } message: { $0.message }
@@ -444,6 +453,17 @@ struct RootView: View {
     /// It is the model's, because the window's own minimum width depends on the same answer and
     /// `BloomApp` cannot read a private computed property on a view. See `AppModel`.
     private var isInspectorPresented: Bool { app.isInspectorPresented }
+
+    /// See the popover above: only ever the `.window` anchor, never the row's or the strip's.
+    private var cloudArchiveOnWindow: Binding<Bool> {
+        Binding(
+            get: {
+                guard let id = app.cloud.archiving else { return false }
+                return app.cloud.isAskingToArchive(id, at: .window)
+            },
+            set: { if !$0 { app.cloud.archiving = nil } }
+        )
+    }
 
     /// What the first column may be dragged out to on the display this window is on, or nil when
     /// there is no room for one at all. See `WindowWidths.sidebarMaximum`.

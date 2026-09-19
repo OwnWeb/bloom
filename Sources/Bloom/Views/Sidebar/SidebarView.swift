@@ -914,7 +914,7 @@ struct SidebarView: View {
                 let target = SidebarSelection.cloud(CloudWorkspaceID(item.id))
                 CloudWorkspaceRow(item: item, isSelected: listSelection == target) {
                     app.selection = target
-                    app.cloud.archiving = CloudWorkspaceID(item.id)
+                    app.cloud.askToArchive(CloudWorkspaceID(item.id), from: .row)
                 }
                     // Indented to the section header's name the way a local workspace is indented
                     // to its project's, in the shape where the local rows are indented at all, so

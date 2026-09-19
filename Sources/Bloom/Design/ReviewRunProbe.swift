@@ -65,7 +65,12 @@ enum ReviewRunProbe {
            let directory = ProbeHarness.value(for: "--review-run-probe") {
             progress("Drawing the Bloom Cloud settings pane, signed out and signed in")
             let written = CloudSettingsGallery.render(into: directory)
-            check(written.count == 17, "the gallery drew \(written.count) of the seventeen images")
+            check(written.count == 20, "the gallery drew \(written.count) of the twenty images")
+            // The archive popover never changes size once it is open, whatever the machine says.
+            let sizes = CloudSettingsGallery.archiveSizes
+            check(sizes.count == 3, "the archive popover was drawn \(sizes.count) times, not three")
+            check(Set(sizes.map(\.height)).count == 1, "the archive popover's heights differ: \(sizes)")
+            check(Set(sizes.map(\.width)).count == 1, "the archive popover's widths differ: \(sizes)")
             let result: JSONValue = .object([
                 "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
                 "images": .strings(written),

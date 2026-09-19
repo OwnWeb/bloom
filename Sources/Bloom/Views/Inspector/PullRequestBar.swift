@@ -32,6 +32,8 @@ private enum PullRequestPolling {
 struct PullRequestBar<Model: WorkspaceSurface>: View {
     let model: Model
 
+    @Environment(AppModel.self) private var app
+
     @State private var isWorking = false
     @State private var pendingArchive: ArchiveRequest?
     @State private var isVisible = false
@@ -44,6 +46,16 @@ struct PullRequestBar<Model: WorkspaceSurface>: View {
 
     var body: some View {
         strip
+            // A Bloom Cloud workspace's archive question, raised from this strip's own Archive
+            // button. On the strip rather than on the button itself, because the button is drawn
+            // inside `PullRequestSummary`, which is shared with local workspaces and knows nothing
+            // about Bloom Cloud; the strip is what the person clicked in, and it is one row high.
+            // See `CloudWorkspaces.ArchiveAnchor`.
+            .popover(isPresented: cloudArchive, arrowEdge: .top) {
+                if case .cloud(let id) = model.surfaceID {
+                    CloudArchivePopover(id: id) { app.cloud.archiving = nil }
+                }
+            }
             .task(id: model.surfaceID) { await poll() }
             .onChange(of: model.surfaceID) { _, _ in pendingArchive = nil }
             .onAppear { isVisible = true }
@@ -292,6 +304,20 @@ struct PullRequestBar<Model: WorkspaceSurface>: View {
                 )
             }
         }
+    }
+
+    private var cloudArchive: Binding<Bool> {
+        Binding(
+            get: {
+                guard case .cloud(let id) = model.surfaceID else { return false }
+                return isVisible && app.cloud.isAskingToArchive(id, at: .pullRequest)
+            },
+            set: { shown in
+                guard !shown, case .cloud(let id) = model.surfaceID,
+                      app.cloud.isAskingToArchive(id, at: .pullRequest) else { return }
+                app.cloud.archiving = nil
+            }
+        )
     }
 
     /// The safety checks stay in AppModel; only their presentation belongs to this button.
