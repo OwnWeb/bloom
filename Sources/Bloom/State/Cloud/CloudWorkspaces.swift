@@ -42,7 +42,7 @@ final class CloudWorkspaces {
     private(set) var listProblem: String?
     /// Prompts typed at create, held until their machine takes them. See `PendingOpeningPrompt`.
     private(set) var pendingPrompts = PendingOpeningPrompts()
-    /// The workspace whose archive confirmation is up. See `CloudArchiveSheet`.
+    /// The workspace whose archive confirmation is up. See `CloudArchivePopover`.
     var archiving: CloudWorkspaceID?
 
     /// The open ones. Outside observation, like `AppModel.workspaceModels`: what the window draws
@@ -438,7 +438,7 @@ final class CloudWorkspaces {
     /// last summary speaks for a machine that cannot answer or a reader who cannot open it.
     /// What runbloom.app's last summary says would be lost, which is known at once and without
     /// anybody's machine. The sheet draws this immediately, so Archive is never disabled while
-    /// something else is being asked. See `CloudArchiveSheet`.
+    /// something else is being asked. See `CloudArchivePopover`.
     func archiveConfirmationFromSummary(_ id: CloudWorkspaceID) -> CloudArchiveConfirmation {
         CloudArchiveConfirmation(summary: item(id)?.summary)
     }

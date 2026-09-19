@@ -13,8 +13,8 @@ import SwiftUI
 struct CloudWorkspaceRow: View {
     var item: CloudWorkspaceItem
     var isSelected: Bool
-    /// Raises the Cloud archive sheet, which asks the machine what is about to be lost and says
-    /// the conversation goes with it. See `CloudArchiveSheet`.
+    /// Raises the Cloud archive popover, which asks the machine what is about to be lost and says
+    /// the conversation goes with it. See `CloudArchivePopover`.
     var onArchive: () -> Void = {}
 
     @Environment(AppModel.self) private var app
@@ -55,7 +55,7 @@ struct CloudWorkspaceRow: View {
             }
             // The local row's own hover control and the ground it clears, so the archive box is
             // under the pointer in the same place in both sections of the column.
-            .modifier(SidebarRowTrailingControl(isShown: isHovered && item.canArchive) { archiveButton })
+            .modifier(SidebarRowTrailingControl(isShown: (isHovered || isArchiveActive) && item.canArchive) { archiveButton })
             .animation(reduceMotion ? nil : Motion.hover, value: isHovered)
         } icon: {
             // The local row's policy, asked of the same status, so a resting Cloud workspace has no
@@ -86,6 +86,20 @@ struct CloudWorkspaceRow: View {
         .foregroundStyle(isEmphasized ? Palette.textInverted : Palette.textSecondary)
         .help("Archive this Bloom Cloud workspace")
         .accessibilityLabel("Archive \(item.displayName)")
+        // Anchored here, as a local row anchors its own. Held open, and the box with it, while
+        // `cloud.archiving` names this workspace, whichever control asked. See `CloudArchivePopover`.
+        .popover(isPresented: archiveBinding, arrowEdge: .leading) {
+            CloudArchivePopover(id: CloudWorkspaceID(item.id)) { app.cloud.archiving = nil }
+        }
+    }
+
+    private var isArchiveActive: Bool { app.cloud.archiving == CloudWorkspaceID(item.id) }
+
+    private var archiveBinding: Binding<Bool> {
+        Binding(
+            get: { isArchiveActive },
+            set: { if !$0, isArchiveActive { app.cloud.archiving = nil } }
+        )
     }
 
     /// Whether other people can see it, which is the one thing about a Cloud workspace's row a
