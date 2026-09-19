@@ -1506,6 +1506,14 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "stop_setup" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "stop_setup"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "transcript" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {

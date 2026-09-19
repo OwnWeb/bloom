@@ -51,6 +51,8 @@ extension WorkspaceRuntime {
             return .text(url)
         case .runSetup:
             return try await runSetupAgain()
+        case .stopSetup:
+            return try await stopSetup(by: caller.author?.name ?? "")
         case .archivePreview:
             return .archivePreview(try await prepareArchive())
         case .archive(let confirmationID):
@@ -80,10 +82,30 @@ extension WorkspaceRuntime {
         await setupStepStarted("setup")
         let manager = WorkspaceManager(store: store)
         let port = await manager.ensurePort(for: workspace)
-        let succeeded = await manager.runSetup(workspace: workspace, repo: repo, port: port, onOutput: { _ in })
+        // Held as a task so `stop_setup` can cancel it: cancelling is how the Mac's Stop ends a
+        // setup script, and `WorkspaceManager.runSetup` files that as stopped rather than broken.
+        let run = Task { await manager.runSetup(workspace: workspace, repo: repo, port: port, onOutput: { _ in }) }
+        manualSetup = run
+        let succeeded = await run.value
+        manualSetup = nil
         await setupFinished(succeeded: succeeded)
+        if run.isCancelled { throw RemoteFailure(.conflict, "Setup was stopped before it finished.") }
         guard succeeded else { throw RemoteFailure(.internal, "Setup failed. Check the setup output before trying again.") }
         return .accepted
+    }
+
+    /// Stops whichever setup is running: one somebody ran by hand, or the machine's own.
+    public func setSetupStopper(_ stopper: @escaping @Sendable (String) async -> Bool) {
+        setupStopper = stopper
+    }
+
+    private func stopSetup(by name: String) async throws -> OperationResult {
+        if let manualSetup {
+            manualSetup.cancel()
+            return .accepted
+        }
+        if let setupStopper, await setupStopper(name) { return .accepted }
+        throw RemoteFailure(.conflict, "Setup is not running, so there is nothing to stop.")
     }
 
     // MARK: - Archive

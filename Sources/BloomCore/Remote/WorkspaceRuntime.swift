@@ -86,6 +86,11 @@ public actor WorkspaceRuntime {
     var setupFinishedAt: Date?
     /// Whether the workspace's prompts must wait: setup has not finished yet.
     var holdsPromptsForSetup = false
+    /// Stops the machine's own setup, given who asked. Set by the machine once its setup exists;
+    /// nil elsewhere. See `stopSetup`.
+    var setupStopper: (@Sendable (String) async -> Bool)?
+    /// A setup somebody ran by hand, while it runs, so it can be stopped. See `runSetupAgain`.
+    var manualSetup: Task<Bool, Never>?
     var archivePreviews: [String: (preview: ArchivePreviewRecord, createdAt: Date)] = [:]
     var isClosed = false
     var shutdownTask: Task<Void, Never>?
@@ -318,7 +323,7 @@ public actor WorkspaceRuntime {
         case .answer(let chatID, let requestID, let answer): try await answerQuestion(chatID, requestID: requestID, answer: answer); return .accepted
         case .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch, .runScripts, .quickPrompts, .notes,
              .pullRequest, .archivePreview, .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace,
-             .runSetup, .runScript, .closeTerminal, .archive, .history, .commitFiles, .commitPatch, .revertFile,
+             .runSetup, .stopSetup, .runScript, .closeTerminal, .archive, .history, .commitFiles, .commitPatch, .revertFile,
              .discardHunk:
             return try await performOnWorktree(operation, as: caller)
         }

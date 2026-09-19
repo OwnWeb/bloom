@@ -116,6 +116,7 @@ OPERATIONS = {
     "discard_hunk": plain({"path": S, "scope": SCOPE, "patch": S}),
     "rename_workspace": plain({"name": S}),
     "run_setup": plain(),
+    "stop_setup": plain(),
     "run_script": plain({"id": S}),
     "close_terminal": plain({"name": S}),
     "archive": plain({"confirmation_id": S}),

@@ -337,6 +337,23 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("stop_setup reaches the machine's setup, and with nothing running says there is nothing to stop")
+    func stoppingSetup() async throws {
+        let fixture = try await fixture()
+        let idle = await fixture.runtime.respond(to: CommandRequest(.stopSetup), as: Self.caller(Self.freek))
+        #expect(idle.error?.code == .conflict)
+
+        let asked = Mutex<[String]>([])
+        await fixture.runtime.setSetupStopper { name in
+            asked.withLock { $0.append(name) }
+            return true
+        }
+        let stopped = await fixture.runtime.respond(to: CommandRequest(.stopSetup), as: Self.caller(Self.freek))
+        #expect(stopped.result == .accepted)
+        #expect(asked.withLock { $0 } == ["Freek"], "the setup is told who stopped it")
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a runtime with nobody to ask says so rather than pretending")
     func cloudWorkspacesNeedRunbloom() async throws {
         let fixture = try await fixture()

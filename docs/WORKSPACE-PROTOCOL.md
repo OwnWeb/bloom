@@ -163,6 +163,7 @@ Changing the worktree (ability `files`, except where noted):
 | `discard_hunk` | `path`, `scope`, `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
 | `rename_workspace` | `name` | `accepted` |
 | `run_setup` | | `accepted` once setup has run again. Sent for a workspace with `setup.enabled` false too: the person is asking for it by hand, which is the whole point of the key |
+| `stop_setup` | | `accepted`, and setup ends as `failed` with a note naming who stopped it: the step running is ended and nothing after it starts, services included. What finished stays installed, and `run_setup` does the rest. Stops the machine's own setup or one run by hand, whichever is running; `conflict` when neither is. A `run_setup` that was stopped answers `conflict` too |
 | `run_script` (`terminal`) | `id` | `terminal`: the terminal it runs in |
 | `close_terminal` (`terminal`) | `name` | `accepted` |
 | `archive` (`share`) | `confirmation_id` | `accepted`, or a fresh `archive_preview` when the answer moved |

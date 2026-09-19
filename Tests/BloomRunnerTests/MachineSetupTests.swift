@@ -412,6 +412,33 @@ struct MachineSetupTests {
         #expect(workspace.setupState == .succeeded)
     }
 
+    /// Somebody stops a setup that is taking too long: the step running is ended, nothing after it
+    /// starts, and the run says who stopped it rather than looking broken.
+    @Test("a stopped setup ends its step, runs nothing after it, and says who stopped it")
+    func stoppingSetup() async throws {
+        let settings = """
+        [scripts]
+        prepare = "sleep 60"
+        setup = "echo setup-ran >> \"$ORDER_FILE\""
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        let setup = try fixture.setup()
+        #expect(await setup.stop(by: "Freek") == false, "nothing to stop before it runs")
+
+        let run = Task { await setup.run() }
+        // A cap on "never", not a measurement: the prepare step starts within a second or two.
+        #expect(await SetupTestSupport.eventually(timeout: .seconds(30)) {
+            ((try? await fixture.workspace())?.setupLog ?? "").contains("prepare")
+        })
+        #expect(await setup.stop(by: "Freek"))
+        await run.value
+
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupState == .failed)
+        #expect(workspace.setupLog.contains("Freek stopped setup"), "\(workspace.setupLog.suffix(400))")
+        #expect(!fixture.order.contains("setup-ran"), "nothing after the stopped step runs")
+    }
+
     @Test("a step that is printing is working, whatever its own clock says")
     func outputIsProgress() async throws {
         let settings = """

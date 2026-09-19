@@ -71,6 +71,8 @@ public actor MachineSetup {
     /// How long this instance waits; a test cannot sit through five minutes to prove a sentence.
     private let stallAfter: TimeInterval
     private var isRunning = false
+    /// Who asked for the run in hand to stop, once somebody has. See `stop(by:)`.
+    private var stoppedBy: String?
     /// What setup is doing now and since when, for the stall watchdog. Nil between runs.
     private var activity: (name: String, since: Date)?
 
@@ -269,6 +271,7 @@ public actor MachineSetup {
     public func runWholeSequence() async -> Bool {
         guard !isRunning else { return false }
         isRunning = true
+        stoppedBy = nil
         defer { isRunning = false }
 
         let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
@@ -302,7 +305,7 @@ public actor MachineSetup {
                 ("setup", scripts.setup, timeouts.setup),
                 ("resume", scripts.resume, timeouts.resume),
             ]
-            for (name, launch, timeout) in steps where succeeded {
+            for (name, launch, timeout) in steps where succeeded && stoppedBy == nil {
                 succeeded = await runScript(name, launch, timeout: timeout, environment: environment, log: log, continuing: interrupted)
             }
         } else if succeeded {
@@ -310,6 +313,12 @@ public actor MachineSetup {
         }
         try? await store.setSetting(Self.skippedSetting, configuration.runsSetup ? "0" : "1")
         if await interruptedByShutdown(log: log) { return false }
+        // A person stopped it: nothing after the step they stopped runs, services included, and the
+        // run is filed as failed with a sentence that says it was stopped rather than broke.
+        if let stoppedBy {
+            await log.note(Self.stoppedNote(by: stoppedBy))
+            succeeded = false
+        }
         if succeeded {
             // Set whether or not the scripts ran: a workspace that asked for no setup has finished
             // its sequence exactly as much as one that ran three scripts, and the next start must
@@ -467,6 +476,25 @@ public actor MachineSetup {
     /// Said when a machine picks setup up again after stopping in the middle of it, so that seeing
     /// the same steps twice reads as an explanation rather than as a fault.
     static let startingAgainNote = "Starting again: this machine stopped while it was setting up."
+
+    static func stoppedNote(by name: String) -> String {
+        let who = name.isEmpty ? "Somebody" : name
+        return "\(who) stopped setup. What finished before stays installed; run setup again to do the rest."
+    }
+
+    /// Stops the run in hand: the step running now is ended, and nothing after it starts.
+    ///
+    /// **Not a cancellation of the run's task.** Cancelling is what a shutdown does, and it files the
+    /// run as interrupted by the machine, which comes back and runs it again by itself; a person
+    /// stopping setup is a different fact, and the opening prompt that runs after setup still has to
+    /// run. So the step's process is ended here and the run settles as failed, with a sentence
+    /// saying who stopped it. Answers false when nothing is running.
+    public func stop(by name: String) async -> Bool {
+        guard isRunning, stoppedBy == nil else { return false }
+        stoppedBy = name
+        child?.terminate()
+        return true
+    }
 
     /// What the one machine in the middle is told: setup turned off, and setup already run.
     static let setupRanBeforeNote =

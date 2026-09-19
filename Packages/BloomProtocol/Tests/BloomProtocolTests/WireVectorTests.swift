@@ -175,6 +175,7 @@ enum WireExamples {
         ("save_notes", .saveNotes(text: "Check the retry limit")),
         ("rename_workspace", .renameWorkspace(name: "Queue retries")),
         ("run_setup", .runSetup),
+        ("stop_setup", .stopSetup),
         ("run_script", .runScript(id: "tests")),
         ("close_terminal", .closeTerminal(name: "terminal-1")),
         ("archive", .archive(confirmationID: "00000000-0000-4000-8000-000000000002")),

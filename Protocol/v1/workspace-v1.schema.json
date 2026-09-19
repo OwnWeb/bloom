@@ -2068,6 +2068,18 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "stop_setup"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "run_script"
             },
             "id": {

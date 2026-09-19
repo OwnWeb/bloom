@@ -178,6 +178,9 @@ public enum ServeCommand {
         let setup = MachineSetup(runtime: runtime, store: store, configuration: configuration, layout: layout,
                                  environment: machineEnvironment, services: services)
         await machineEnvironment.observe { _ in await setup.restartServices() }
+        // `stop_setup` reaches the machine's own setup through here; one run by hand is the
+        // runtime's own to stop. See `MachineSetup.stop(by:)`.
+        await runtime.setSetupStopper { name in await setup.stop(by: name) }
         // Caddy first, so the machine's URL answers while setup runs; a machine without it still
         // serves Bloom Runner on its own port, which is what development on a Mac does.
         do {
