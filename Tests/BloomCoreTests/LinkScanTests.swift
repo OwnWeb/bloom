@@ -83,8 +83,8 @@ struct LinkScanTests {
 
     @Test("a mail address is not a link, bare or schemed")
     func mailAddress() {
-        #expect(written("write to freek@spatie.be about it").isEmpty)
-        #expect(written("mailto:freek@spatie.be").isEmpty)
+        #expect(written("write to freek@example.com about it").isEmpty)
+        #expect(written("mailto:freek@example.com").isEmpty)
     }
 
     @Test("a bare host with no scheme is not a link")

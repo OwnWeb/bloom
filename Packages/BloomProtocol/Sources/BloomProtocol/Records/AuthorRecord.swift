@@ -32,7 +32,7 @@ public struct AuthorRecord: Codable, Sendable, Hashable {
     /// **The rule every client should draw by: the name if it is not empty, the email if it is,
     /// and "somebody" if neither.** Written once here rather than three times in three clients,
     /// because a shared workspace where one person's messages are unlabelled reads as the reader's
-    /// own, which is how `technical@spatie.be` was mistaken for Freek on 18 September 2026.
+    /// own, which is how a shared team address was mistaken for Freek on 18 September 2026.
     public var label: String {
         let stated = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !stated.isEmpty { return stated }

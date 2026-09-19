@@ -6,14 +6,14 @@ import Testing
 @Suite("What an agent is told about a Cloud machine")
 struct BridgeBriefingTests {
     static let briefing = BridgeBriefing.machine(
-        publicURL: "https://bloom-01m2t31b.sprites.app", appPort: 3000,
+        publicURL: "https://bloom-example.sprites.app", appPort: 3000,
         reservedPorts: [(8080, "the preview proxy"), (8081, "Bloom Runner itself")]
     )
 
     /// Each of these cost an agent several actions to discover on 18 September 2026.
     @Test("it says where a page is shown, which ports are taken, and that panes are somewhere else")
     func saysTheExpensiveFacts() {
-        #expect(Self.briefing.contains("https://bloom-01m2t31b.sprites.app"))
+        #expect(Self.briefing.contains("https://bloom-example.sprites.app"))
         #expect(Self.briefing.contains("BLOOM_APP_PORT"))
         #expect(Self.briefing.contains("8081"))
         #expect(Self.briefing.contains("http = true"))

@@ -6,8 +6,8 @@ import Foundation
 
 private func report(
     git: SetupOutcome = .ready(detail: "2.51.0"),
-    claude: SetupOutcome = .ready(detail: "freek@spatie.be"),
-    codex: SetupOutcome = .ready(detail: "freek@spatie.be"),
+    claude: SetupOutcome = .ready(detail: "freek@example.com"),
+    codex: SetupOutcome = .ready(detail: "freek@example.com"),
     grok: SetupOutcome = .ready(detail: "ada@example.com"),
     gitHub: SetupOutcome = .ready(detail: "Signed in")
 ) -> SetupReport {
@@ -348,10 +348,10 @@ struct SetupAccountLineTests {
             version: "2.1.234",
             details: [
                 AgentDetail(label: "Organization", value: "Spatie"),
-                AgentDetail(label: "Email", value: "freek@spatie.be"),
+                AgentDetail(label: "Email", value: "freek@example.com"),
             ]
         )
-        #expect(SetupProbe.accountLine(status) == "freek@spatie.be")
+        #expect(SetupProbe.accountLine(status) == "freek@example.com")
     }
 
     @Test("an unknown field is skipped rather than printed")

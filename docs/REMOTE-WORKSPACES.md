@@ -466,13 +466,13 @@ cannot set labels, so the mapping from Sprite to workspace lives in its database
 sweep deletes a Sprite no Machine owns only when its whole name matches
 `^bloom-[0-9a-hjkmnp-tv-z]{26}$`, never on the prefix alone.
 
-Production Cloud workspaces run in a Fly organisation of their own, `spatie`, created and billed
-separately. Development and tests run in another, `freek-van-der-herten`, which is the one the
-Sprites CLI on the owner's Mac is signed in to. There is no staging environment: end-to-end testing
-runs against runbloom.app itself behind its access and configuration switches. The names keep
-machines apart as well, so a mistake in which organisation a tool points at still cannot touch the
-wrong machine. Machines created by local development are
-named `bloomdev-<...>` and by automated tests `bloomtest-<...>`; neither starts with `bloom-`, so
+Production Cloud workspaces run in a Fly organisation of their own, created and billed separately.
+Development and tests run in another, which is the one the Sprites CLI on the owner's Mac is signed
+in to; the test tools take its name from `BLOOM_TEST_SPRITES_ORG` rather than from this repository.
+There is no staging environment: end-to-end testing runs against runbloom.app itself behind its
+access and configuration switches. The names keep machines apart as well, so a mistake in which
+organisation a tool points at still cannot touch the wrong machine. Machines created by local
+development are named `bloomdev-<...>` and by automated tests `bloomtest-<...>`; neither starts with `bloom-`, so
 the production sweep cannot match them however it is written, and nothing that creates or sweeps
 development or test machines can match a production one. A test deletes what it created in its
 own teardown, and `Tools/sweep-test-machines.sh` deletes `bloomtest-` machines older than a day for
@@ -945,8 +945,8 @@ Measured on real Sprites before implementation started, as the owner asked.
 - Fly and Sprites are invisible to users: one organisation and one token, owned by runbloom.app.
 - Two pull requests, server then Mac client, each from main, porting from #163 selectively.
 - The user-facing name is Cloud workspace.
-- Production runs in its own Fly organisation, `spatie`; development and tests run in
-  `freek-van-der-herten`, and machine name prefixes keep them apart as well. No staging environment.
+- Production runs in its own Fly organisation; development and tests run in another, and machine
+  name prefixes keep them apart as well. No staging environment.
   Nothing on the machine depends on which organisation it is in.
 - A web interface, when it comes, lives in runbloom.app on the same accounts and this contract.
 

@@ -93,11 +93,11 @@ struct WireVectorTests {
 enum WireExamples {
     static let commandID = "00000000-0000-4000-8000-000000000001"
     static let date = Date(timeIntervalSince1970: 1_789_638_002.5)
-    static let author = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2t", name: "Freek", email: "freek@spatie.be")
+    static let author = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2t", name: "Freek", email: "freek@example.com")
     /// Somebody runbloom.app has no display name for, which is the shape a client has to draw from
     /// the email. It used to arrive with an empty name and nothing else, and an unlabelled message
     /// in a shared workspace reads as the reader's own.
-    static let nameless = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2u", name: "", email: "technical@spatie.be")
+    static let nameless = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2u", name: "", email: "technical@example.com")
     static let controls = ComposerControlsRecord(agent: "claude", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits", interactionMode: "build")
     static let setup = SetupRecord(state: "succeeded", step: nil, startedAt: date, finishedAt: date)
     static let chat = ChatRecord(id: "chat-1", title: "Chat", agent: "claude", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits",
@@ -222,7 +222,7 @@ enum WireExamples {
         ("files", .files(paths: ["README.md", "app/Queue.php"])),
         ("history", .history(HistoryRecord(commits: [
             CommitRecord(sha: "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234", subject: "Retry the queue", authorName: "Freek",
-                         authorEmail: "freek@spatie.be", date: Date(timeIntervalSince1970: 1_789_638_000),
+                         authorEmail: "freek@example.com", date: Date(timeIntervalSince1970: 1_789_638_000),
                          body: "Twice, with a wait.", parents: ["0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"], pushed: true),
         ], hasMore: false))),
         ("search", .search(SearchRecord(matches: [

@@ -31,7 +31,8 @@ its kind, so asking whether a payload key is in it fails against a machine that 
 right thing. When adding an assertion about a reply, look the reply up there first.
 
 Environment:
-  BLOOM_TEST_SPRITES_ORG  the organisation (default freek-van-der-herten)
+  BLOOM_TEST_SPRITES_ORG  the development organisation, required; its name stays out of this public
+                          repository
   OPENSSL                 an OpenSSL 3 with Ed25519 (default /opt/homebrew/bin/openssl, then openssl)
 """
 
@@ -60,7 +61,7 @@ sys.path.insert(0, str(HERE))
 os.environ.setdefault("OPENSSL", "/opt/homebrew/bin/openssl" if pathlib.Path("/opt/homebrew/bin/openssl").exists() else "openssl")
 from bloom_fake_runbloom import Issuer  # noqa: E402
 
-ORGANISATION = os.environ.get("BLOOM_TEST_SPRITES_ORG", "freek-van-der-herten")
+ORGANISATION = os.environ.get("BLOOM_TEST_SPRITES_ORG") or sys.exit("Set BLOOM_TEST_SPRITES_ORG to the development Sprites organisation.")
 SPRITE = shutil.which("sprite") or str(pathlib.Path.home() / ".local/bin/sprite")
 USER = "01k5a7c2b0z9y8x7w6v5t4s3rq"
 REPOSITORY_FOR_RELEASES = "spatie/bloom"

@@ -85,7 +85,7 @@
     },
     "composer" : {
       "changed_by" : {
-        "email" : "freek@spatie.be",
+        "email" : "freek@example.com",
         "name" : "Freek",
         "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
       },
@@ -120,7 +120,7 @@
       "kind" : "message",
       "message" : {
         "author" : {
-          "email" : "freek@spatie.be",
+          "email" : "freek@example.com",
           "name" : "Freek",
           "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
         },
@@ -141,7 +141,7 @@
       "kind" : "message",
       "message" : {
         "author" : {
-          "email" : "freek@spatie.be",
+          "email" : "freek@example.com",
           "name" : "Freek",
           "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
         },
@@ -167,7 +167,7 @@
       "kind" : "message",
       "message" : {
         "author" : {
-          "email" : "technical@spatie.be",
+          "email" : "technical@example.com",
           "name" : "",
           "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2u"
         },
@@ -226,7 +226,7 @@
           "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2u"
         },
         "author" : {
-          "email" : "freek@spatie.be",
+          "email" : "freek@example.com",
           "name" : "Freek",
           "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
         },
@@ -295,7 +295,7 @@
         "prompts" : [
           {
             "author" : {
-              "email" : "freek@spatie.be",
+              "email" : "freek@example.com",
               "name" : "Freek",
               "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
             },
@@ -306,7 +306,7 @@
           },
           {
             "author" : {
-              "email" : "freek@spatie.be",
+              "email" : "freek@example.com",
               "name" : "Freek",
               "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
             },
@@ -330,7 +330,7 @@
         "prompts" : [
           {
             "author" : {
-              "email" : "freek@spatie.be",
+              "email" : "freek@example.com",
               "name" : "Freek",
               "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
             },
@@ -707,7 +707,7 @@
         "history" : {
           "commits" : [
             {
-              "author_email" : "freek@spatie.be",
+              "author_email" : "freek@example.com",
               "author_name" : "Freek",
               "body" : "Twice, with a wait.",
               "date" : "2026-09-17T09:40:00.000Z",
@@ -920,7 +920,7 @@
           "messages" : [
             {
               "author" : {
-                "email" : "freek@spatie.be",
+                "email" : "freek@example.com",
                 "name" : "Freek",
                 "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
               },
@@ -952,7 +952,7 @@
             "prompts" : [
               {
                 "author" : {
-                  "email" : "freek@spatie.be",
+                  "email" : "freek@example.com",
                   "name" : "Freek",
                   "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
                 },
@@ -963,7 +963,7 @@
               },
               {
                 "author" : {
-                  "email" : "freek@spatie.be",
+                  "email" : "freek@example.com",
                   "name" : "Freek",
                   "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
                 },

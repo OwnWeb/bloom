@@ -335,19 +335,19 @@ struct TokenAuthorTests {
     /// workspace, where it reads as the reader's own.
     @Test("an empty name is carried as empty rather than as a user id, and the email comes with it")
     func emptyName() throws {
-        let author = try #require(token(name: "", email: "technical@spatie.be").author)
+        let author = try #require(token(name: "", email: "technical@example.com").author)
 
         #expect(author.name.isEmpty)
-        #expect(author.email == "technical@spatie.be")
-        #expect(author.record.label == "technical@spatie.be")
+        #expect(author.email == "technical@example.com")
+        #expect(author.record.label == "technical@example.com")
     }
 
     @Test("a name wins over an address when there is one")
     func nameWins() throws {
-        let author = try #require(token(name: "Freek", email: "freek@spatie.be").author)
+        let author = try #require(token(name: "Freek", email: "freek@example.com").author)
 
         #expect(author.record.label == "Freek")
-        #expect(author.email == "freek@spatie.be", "the address still travels, because mentions match on it")
+        #expect(author.email == "freek@example.com", "the address still travels, because mentions match on it")
     }
 
     /// Neither, which is all a share-link guest has. A client says "somebody" rather than nothing.

@@ -265,9 +265,9 @@ struct FeedbackTests {
     /// and not to the form is dropped the moment somebody attaches a picture. The address was.
     @Test("a report with pictures still carries the address it was given")
     func multipartReportKeepsEmail() throws {
-        let written = text(of: try Feedback.body(for: report(email: "freek@spatie.be", images: [image()]), boundary: "B"))
+        let written = text(of: try Feedback.body(for: report(email: "freek@example.com", images: [image()]), boundary: "B"))
 
-        #expect(written.contains("name=\"email\"\r\n\r\nfreek@spatie.be\r\n"))
+        #expect(written.contains("name=\"email\"\r\n\r\nfreek@example.com\r\n"))
     }
 
     @Test("a prompt with pictures goes as multipart, with every field its JSON body has")
@@ -622,12 +622,12 @@ struct FeedbackEmailTests {
 
     @Test("a report carries the address it was given")
     func reportCarriesTheAddress() throws {
-        #expect(try object(report(email: "freek@spatie.be"))["email"] as? String == "freek@spatie.be")
+        #expect(try object(report(email: "freek@example.com"))["email"] as? String == "freek@example.com")
     }
 
     @Test("a prompt submission carries it too")
     func promptCarriesTheAddress() throws {
-        #expect(try object(submission(email: "freek@spatie.be"))["email"] as? String == "freek@spatie.be")
+        #expect(try object(submission(email: "freek@example.com"))["email"] as? String == "freek@example.com")
     }
 
     @Test("no address means no key at all, rather than a key holding an empty string")
@@ -649,7 +649,7 @@ struct FeedbackEmailTests {
 
     @Test("surrounding whitespace goes, and the case of the local part does not")
     func normalising() {
-        #expect(Feedback.normalisedEmail("  Freek@Spatie.be  ") == "Freek@Spatie.be")
+        #expect(Feedback.normalisedEmail("  Freek@Example.com  ") == "Freek@Example.com")
         #expect(Feedback.normalisedEmail(String(repeating: "a", count: 300)).count == 254)
     }
 
@@ -661,34 +661,34 @@ struct FeedbackEmailTests {
 
     @Test("what the sheet accepts and what it warns about")
     func acceptance() {
-        #expect(Feedback.isAcceptableEmail("freek@spatie.be"))
-        #expect(Feedback.isAcceptableEmail("freek+bloom@spatie.co.uk"))
+        #expect(Feedback.isAcceptableEmail("freek@example.com"))
+        #expect(Feedback.isAcceptableEmail("freek+bloom@example.co.uk"))
         #expect(Feedback.isAcceptableEmail("a@b.c"))
 
         #expect(!Feedback.isAcceptableEmail("freek"))
-        #expect(!Feedback.isAcceptableEmail("freek@spatie"))
-        #expect(!Feedback.isAcceptableEmail("freek @spatie.be"))
-        #expect(!Feedback.isAcceptableEmail("freek@@spatie.be"))
-        #expect(!Feedback.isAcceptableEmail("@spatie.be"))
+        #expect(!Feedback.isAcceptableEmail("freek@example"))
+        #expect(!Feedback.isAcceptableEmail("freek @example.com"))
+        #expect(!Feedback.isAcceptableEmail("freek@@example.com"))
+        #expect(!Feedback.isAcceptableEmail("@example.com"))
     }
 
     /// The credit line is the field that gets published, so it still refuses an address however
     /// many other fields now accept one.
     @Test("the name field still refuses an address, and now says where to put it")
     func theNameFieldStillRefusesOne() {
-        #expect(!Feedback.isAcceptableName("freek@spatie.be"))
+        #expect(!Feedback.isAcceptableName("freek@example.com"))
         #expect(Feedback.nameProblem.contains("field of its own"))
     }
 
     // MARK: - When the sheets may say any of that
 
-    /// The bug this section exists for: `freek@spatie.` marked wrong by the person who had typed
+    /// The bug this section exists for: `freek@example.` marked wrong by the person who had typed
     /// exactly half of it. Nothing is a problem until a send has been attempted, however wrong
     /// the fields would be.
     @Test("a half-typed field is unfinished, not wrong, until Send is pressed")
     func nothingIsWrongBeforeASendIsAttempted() {
         let problems = Feedback.sheetProblems(
-            name: "freek@spatie.be", email: "freek@spatie.", afterSendAttempt: false
+            name: "freek@example.com", email: "freek@example.", afterSendAttempt: false
         )
         #expect(problems.isEmpty)
         #expect(problems.firstField == nil)
@@ -697,7 +697,7 @@ struct FeedbackEmailTests {
     @Test("after a send is attempted, each field says what is wrong with it")
     func problemsAfterAnAttempt() {
         let problems = Feedback.sheetProblems(
-            name: "freek@spatie.be", email: "freek@spatie.", afterSendAttempt: true
+            name: "freek@example.com", email: "freek@example.", afterSendAttempt: true
         )
         #expect(problems.name == Feedback.nameProblem)
         #expect(problems.email == Feedback.emailProblem)
@@ -719,7 +719,7 @@ struct FeedbackEmailTests {
     @Test("a corrected field stops being a problem the moment it is corrected")
     func correctionClears() {
         let problems = Feedback.sheetProblems(
-            name: "Freek", email: "freek@spatie.be", afterSendAttempt: true
+            name: "Freek", email: "freek@example.com", afterSendAttempt: true
         )
         #expect(problems.isEmpty)
     }
@@ -729,7 +729,7 @@ struct FeedbackEmailTests {
     @Test("the first refused field is the one focus should land in")
     func focusOrder() {
         let both = Feedback.sheetProblems(
-            name: "freek@spatie.be", email: "nope", afterSendAttempt: true
+            name: "freek@example.com", email: "nope", afterSendAttempt: true
         )
         #expect(both.firstField == .name)
 

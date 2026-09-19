@@ -161,6 +161,36 @@ jobs:
           chmod +x swiftlint-bin/swiftlint
           PATH="$PWD/swiftlint-bin:$PATH" ./Tools/swiftlint.sh
 
+  # A credential committed to this repository is published: it is public, and
+  # every clone and fork keeps it whatever is rewritten afterwards. gitleaks
+  # reads the whole history of what is being merged, every run, which takes
+  # about a second here, so a secret added and then deleted inside one pull
+  # request is still found. Its default rules, plus the fakes the tests need,
+  # which .gitleaks.toml lists one by one. Pinned by version and checksum,
+  # because this is a binary from the internet, and --redact, so a finding is
+  # not printed into a public log.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan the history for secrets
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" "$url/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git . --config .gitleaks.toml --log-opts=HEAD --redact --no-banner --exit-code 1
+
   # Compiling Sources/Bloom, which is the question "does the app still build".
   #
   # This was one macOS job with the tests after it, and the two steps were 187
