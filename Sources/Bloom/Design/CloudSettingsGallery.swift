@@ -63,7 +63,6 @@ enum CloudSettingsGallery {
         }
         written += renderQuestion(into: directory)
         written += renderArchive(into: directory)
-        written += renderHeroCompositions(into: directory)
         written += renderSidebarCard(into: directory)
         written += renderSidebarList(into: directory)
         return written
@@ -190,41 +189,6 @@ enum CloudSettingsGallery {
             let path = "\(directory)/cloud-archive-\(name).png"
             guard (try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(filePath: path))) != nil else { continue }
             written.append(path)
-        }
-        return written
-    }
-
-    /// The three plates the pane could wear, in both appearances, so the owner can pick one.
-    ///
-    /// The whole pane rather than the plate alone, cropped to the plate and what sits under it: a
-    /// composition is judged against the pane it heads, not on its own.
-    private static func renderHeroCompositions(into directory: String) -> [String] {
-        var written: [String] = []
-        for composition in CloudHeroArt.Composition.allCases {
-            for dark in [false, true] {
-                let pane = CloudSettingsPane(
-                    phase: .signedOut, environment: environment, agentsCreateCloudWorkspaces: .constant(false),
-                    asksBeforeCloudWorkspaceStart: .constant(true), showsInSidebar: .constant(true),
-                    drawing: .drawn, actions: .init(), composition: composition
-                )
-                .frame(width: 640)
-                .background(Palette.surface)
-                .environment(\.colorScheme, dark ? .dark : .light)
-                var image: NSImage?
-                NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
-                    let renderer = ImageRenderer(content: pane)
-                    renderer.scale = 2
-                    image = renderer.nsImage
-                }
-                guard let image, let data = image.tiffRepresentation, let rep = NSBitmapImageRep(data: data),
-                      let cropped = rep.cgImage?.cropping(to: CGRect(
-                          x: 0, y: 0, width: 640 * 2, height: (40 + composition.height + 120) * 2
-                      )),
-                      let png = NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:]) else { continue }
-                let path = "\(directory)/cloud-hero-\(composition.rawValue)-\(dark ? "dark" : "light").png"
-                try? png.write(to: URL(filePath: path))
-                written.append(path)
-            }
         }
         return written
     }

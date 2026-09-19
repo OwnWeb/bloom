@@ -90,9 +90,6 @@ struct CloudSettingsPane: View {
     var drawing: Drawing
     var actions: Actions
 
-    /// Which plate is drawn at the head of the pane. See `CloudHeroArt`.
-    var composition = CloudHeroArt.Composition.chosen
-
     private static let corner: CGFloat = 12
 
     var body: some View {
@@ -148,7 +145,7 @@ struct CloudSettingsPane: View {
     /// The plate at the head of the pane, which is a still picture rather than an animation: see
     /// `CloudHeroArt`, and the note there about what moved and why it does not any more.
     private var hero: some View {
-        CloudHeroArt(composition: composition, environment: environment)
+        CloudHeroArt(environment: environment)
     }
 
     // MARK: - Signed out
