@@ -73,6 +73,51 @@ enum CloudSettingsGallery {
         }
         written += renderQuestion(into: directory)
         written += renderSidebarCard(into: directory, mark: mark)
+        written += renderSidebarList(into: directory, mark: mark)
+        return written
+    }
+
+    /// The card where it really sits: a row of a `.sidebar` `List` after a Projects section, in a
+    /// window never ordered in, drawn through `cacheDisplay` so the list's own insets and row
+    /// chrome are AppKit's rather than a stand-in's. The window's vibrancy does not draw that way,
+    /// so the ground is the sidebar's flat colour.
+    private static func renderSidebarList(into directory: String, mark: NSImage?) -> [String] {
+        var written: [String] = []
+        for dark in [false, true] {
+            let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            let list = List {
+                Section {
+                    ForEach(["Queue retries", "Fix the flaky upload test", "Rename the billing job"], id: \.self) { name in
+                        Label(name, systemImage: "arrow.triangle.branch")
+                    }
+                } header: {
+                    Text("Projects").bold()
+                }
+                Section {
+                    CloudSidebarCard(isSigningIn: false, signIn: {}, cancelSignIn: {}, dismiss: {}, mark: mark, showsDismiss: true)
+                        .padding(.top, Metrics.spacing)
+                        .selectionDisabled()
+                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(Palette.sidebar)
+            let host = NSHostingView(rootView: list)
+            host.appearance = appearance
+            host.frame = NSRect(x: 0, y: 0, width: Metrics.sidebarWidth, height: 360)
+            let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+            window.appearance = appearance
+            window.contentView = host
+            window.layoutIfNeeded()
+            // Two runloop turns for the table to lay out its rows.
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
+            host.layoutSubtreeIfNeeded()
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { continue }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let path = "\(directory)/cloud-sidebar-list-\(dark ? "dark" : "light").png"
+            guard (try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(filePath: path))) != nil else { continue }
+            written.append(path)
+        }
         return written
     }
 

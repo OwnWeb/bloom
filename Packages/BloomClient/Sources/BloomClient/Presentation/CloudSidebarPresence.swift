@@ -11,17 +11,18 @@ import Foundation
 /// Settings, under Bloom Cloud, turns back on. Signing in turns it back on as well, because
 /// somebody who has just signed in is using it.
 ///
-/// **A Mac that has never signed in shows nothing**, as before: see `hasEverSignedIn` on the app's
-/// `CloudWorkspaces`. The card is the way back into an account, not an advertisement.
+/// **A Mac that has never signed in sees the card too.** It used to show nothing there, so as not
+/// to put a standing advertisement in the pane somebody looks at all day. The owner decided the
+/// other way: a card that can be dismissed for good is the choice of the person not using Bloom
+/// Cloud, and they can only make it if they see it.
 public enum CloudSidebarPresence: Sendable, Equatable {
     case hidden
     case signInCard
     case list
 
-    public static func decide(isSignedIn: Bool, hasEverSignedIn: Bool, isShown: Bool) -> CloudSidebarPresence {
+    public static func decide(isSignedIn: Bool, isShown: Bool) -> CloudSidebarPresence {
         guard isShown else { return .hidden }
-        if isSignedIn { return .list }
-        return hasEverSignedIn ? .signInCard : .hidden
+        return isSignedIn ? .list : .signInCard
     }
 
     /// Whether the sidebar shows Bloom Cloud at all, from what the defaults hold under `settingKey`.

@@ -174,8 +174,7 @@ struct SidebarView: View {
                 Section { paneRowsList }
             }
             switch CloudSidebarPresence.decide(
-                isSignedIn: app.cloud.isSignedIn, hasEverSignedIn: app.cloud.hasEverSignedIn,
-                isShown: showsBloomCloud
+                isSignedIn: app.cloud.isSignedIn, isShown: showsBloomCloud
             ) {
             case .list: cloudSection
             case .signInCard: cloudSignInCard

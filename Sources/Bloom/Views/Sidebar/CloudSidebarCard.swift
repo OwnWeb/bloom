@@ -40,9 +40,13 @@ struct CloudSidebarCard: View {
                     .foregroundStyle(Brand.foam)
                     .accessibilityAddTraits(.isHeader)
             }
+            // `lineLimit(nil)` as well as the fixed size: a `.sidebar` list row holds its text to one
+            // line, which cut this to "Run agents on their own machine..." in the real list while
+            // the card on its own showed both lines. It is what truncated the old block too.
             Text(CloudSidebarPresence.cardLine)
                 .font(.callout)
                 .foregroundStyle(Brand.foam.opacity(0.8))
+                .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
             if isSigningIn {
                 HStack(spacing: Metrics.spacing) {

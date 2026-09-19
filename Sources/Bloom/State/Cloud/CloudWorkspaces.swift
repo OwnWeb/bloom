@@ -65,7 +65,6 @@ final class CloudWorkspaces {
     static let pollInterval: Duration = .seconds(20)
     static let backgroundPollInterval: Duration = .seconds(60)
     private static let promptsKey = "cloudWorkspaces.pendingOpeningPrompts"
-    private static let hasEverSignedInKey = "cloudWorkspaces.hasEverSignedIn"
     private static let dismissedBannersKey = "cloudWorkspaces.dismissedBanners"
     private static let originKey = "cloudWorkspaces.runbloomOrigin"
 
@@ -106,15 +105,6 @@ final class CloudWorkspaces {
         }
     }
 
-    /// Whether this Mac has ever been signed in to a Bloom account.
-    ///
-    /// **What decides whether the sidebar has a Cloud section at all when nobody is signed in.** A
-    /// Mac that has never used Cloud workspaces is not asked to: Bloom needs no account, and a
-    /// section inviting one is a standing advertisement in the one pane somebody looks at all day.
-    /// A Mac that has used them keeps the section, with the way back into the account, because
-    /// there the missing thing is a sign in rather than an offer.
-    private(set) var hasEverSignedIn = UserDefaults.standard.bool(forKey: hasEverSignedInKey)
-
     var isSignedIn: Bool {
         switch accountState {
         case .signedOut, .signingIn: false
@@ -127,10 +117,6 @@ final class CloudWorkspaces {
     func attach(_ app: AppModel) {
         self.app = app
         guard signIn.isSignedIn else { return }
-        if !hasEverSignedIn {
-            hasEverSignedIn = true
-            UserDefaults.standard.set(true, forKey: Self.hasEverSignedInKey)
-        }
         accountState = .loading
         startPolling()
         Task { await refresh() }
@@ -156,8 +142,6 @@ final class CloudWorkspaces {
         generation += 1
         do {
             try await signIn.signIn(presenting: window)
-            hasEverSignedIn = true
-            UserDefaults.standard.set(true, forKey: Self.hasEverSignedInKey)
             // Somebody who has just signed in is using Bloom Cloud, so a sidebar they once hid it
             // from shows it again. See `CloudSidebarPresence`.
             UserDefaults.standard.set(true, forKey: CloudSidebarPresence.settingKey)
