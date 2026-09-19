@@ -365,9 +365,11 @@ public actor WorkspaceRuntime {
         case .transcript(let chatID, let afterSeq, let limit): return .transcript(try await transcript(chatID, afterSeq: afterSeq, limit: limit))
         case .composer(let chatID): return .composer(try await composer(chatID))
         case .transcriptSearch(let query, let limit): return .search(try await searchTranscripts(query, limit: limit))
+        case .recentlyClosed: return .recentlyClosed(chats: try await recentlyClosed())
         case .newChat(let controls): return .chat(try await newChat(controls, as: caller))
         case .renameChat(let chatID, let title): try await renameChat(chatID, title: title); return .accepted
         case .closeChat(let chatID): try await closeChat(try chatID.sessionID, notifyingParent: true); return .accepted
+        case .reopenChat(let chatID): return .chat(try await reopenChat(chatID))
         case .markRead(let chatID, let seq):
             _ = try await storedSession(try chatID.sessionID)
             try await store.updateLastReadSeq(sessionID: try chatID.sessionID, seq: seq)

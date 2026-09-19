@@ -130,6 +130,7 @@ Reading (ability `view`):
 | `transcript_search` | `query`, `limit` | `search`: `matches` (chat, seq, cursor, and the excerpt with its matching pieces marked) and `total` |
 | `notes` | | `text` |
 | `pull_request` | | `text`: its URL, or empty |
+| `recently_closed` | | `recently_closed`: at most ten used, top-level chats, newest closure first. Each carries `id`, `title`, `agent`, `message_count` and `closed_at` |
 | `archive_preview` (`share`) | | `archive_preview` |
 
 Changing chats (ability `prompt`):
@@ -139,6 +140,7 @@ Changing chats (ability `prompt`):
 | `new_chat` | `controls` | `chat` |
 | `rename_chat` | `chat_id`, `title` | `accepted` |
 | `close_chat` | `chat_id` | `accepted` |
+| `reopen_chat` | `chat_id` | `chat`: the ordinary open chat record. Only a top-level chat still present in `recently_closed` can be reopened |
 | `mark_read` | `chat_id`, `seq` | `accepted` |
 | `set_composer` | `chat_id`, `controls` | `accepted` |
 | `send` | `chat_id`, `text` | `queued` with the prompt's id |
@@ -149,6 +151,12 @@ Changing chats (ability `prompt`):
 An `answer` is one of `allow_once`, `allow_session`, `allow_project`, `deny` (with `message` and
 `ends_turn`), `approve_plan` (with `permission_mode`) and `question` (with `input`, the agent's own
 answer shape).
+
+`recently_closed` is a fresh read, not part of the workspace snapshot. A client asks again when it
+opens the menu, including after another client closes a chat. The bound is part of the server
+contract: a chat pushed out by ten newer closures is no longer accepted by `reopen_chat`. Empty
+chats, crew members and still-nested side conversations never appear. Reopening preserves the transcript,
+title, provider conversation id, usage and every other session field; it clears only `closed_at`.
 
 Changing the worktree (ability `files`, except where noted):
 
@@ -238,7 +246,7 @@ events. Then live events as they happen.
 | --- | --- | --- |
 | `message` | a transcript row | adds it to its chat, by `seq` |
 | `stream` | `chat_id`, `text`, `snapshot` | replaces the chat's streaming text when `snapshot` is true, appends otherwise |
-| `chat` | a chat | replaces its copy; one carrying `closed_at` is the last about that chat, which was closed, so drop it |
+| `chat` | a chat | replaces its copy; one carrying `closed_at` is the last about that chat, which was closed, so drop it. Reopening publishes the ordinary record again without `closed_at`, so every client restores it by id without adding a duplicate |
 | `mac_message` | a message for a local workspace on this Mac | **Bloom on a Mac only**: check `user_id` is the signed-in person, find the local workspace named `workspace`, and deliver `text` into it as a message from elsewhere, headed with `via`, never as typed words. Sent only down streams opened with `Bloom-Client: mac` by the running turn's person; deliver each `id` once |
 | `queue` | a chat's queued prompts and why it is paused | replaces its copy |
 | `questions` | a chat's waiting questions | replaces its copy |

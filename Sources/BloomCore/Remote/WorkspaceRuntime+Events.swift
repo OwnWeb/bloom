@@ -150,11 +150,14 @@ extension WorkspaceRuntime {
             }
         }
         for id in publishedChats.keys where !seen.contains(id) {
+            // Claim the removal before the first suspension. Two refreshes can overlap while one
+            // waits on the Store actor; leaving the cache entry until afterwards let both publish
+            // the same closing chat event.
+            publishedChats.removeValue(forKey: id)
+            publishedQuestions.removeValue(forKey: id)
             if publishing, let session = try await store.session(id: id) {
                 await events.publish(.chat(session.record(lastSeq: try await store.nextSeq(sessionID: id) - 1)))
             }
-            publishedChats.removeValue(forKey: id)
-            publishedQuestions.removeValue(forKey: id)
         }
         guard let workspace = try await store.workspace(id: workspaceID) else { return }
         let record = workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services)

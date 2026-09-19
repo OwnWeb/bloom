@@ -41,6 +41,18 @@ extension Session {
     }
 }
 
+extension ClosedChat {
+    var record: ClosedChatRecord {
+        ClosedChatRecord(
+            id: id.rawValue,
+            title: title,
+            agent: agentKind.wireName,
+            messageCount: messageCount,
+            closedAt: closedAt
+        )
+    }
+}
+
 extension Message {
     var record: MessageRecord {
         MessageRecord(

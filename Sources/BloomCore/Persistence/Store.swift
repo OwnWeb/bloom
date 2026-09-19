@@ -2042,6 +2042,10 @@ public actor Store {
     /// whichever agent is mid turn. `messages_session` is the index the subquery rides, and the
     /// chat that forced this feature holds 13,872 rows behind it.
     ///
+    /// Empty chats are excluded before `LIMIT`, not discarded afterwards. Otherwise ten empty
+    /// recent tabs could hide an older conversation that has work in it and should occupy one of
+    /// the ten usable slots.
+    ///
     /// **The predicate is `TabSet.tabbable`'s, turned onto archived rows, and that is the decision
     /// rather than the tidiness.** A crew member is a sidebar row and a side conversation is a
     /// pane of the chat that started it, so clearing `archived_at` on either would hand back a
@@ -2060,7 +2064,8 @@ public actor Store {
             FROM sessions s
             WHERE s.workspace_id = ? AND s.archived_at IS NOT NULL
               AND s.parent_session_id IS NULL AND s.side_conversation_parent_id IS NULL
-            ORDER BY s.archived_at DESC
+              AND EXISTS (SELECT 1 FROM messages used WHERE used.session_id = s.id)
+            ORDER BY s.archived_at DESC, s.id ASC
             LIMIT ?
             """,
             [.text(workspaceID), .int(Int64(max(0, limit)))]
@@ -2101,6 +2106,27 @@ public actor Store {
     @discardableResult
     public func reopenSession(id: SessionID) throws -> Session? {
         try update(sessionID: id) { $0.archivedAt = nil }
+    }
+
+    /// Reopens one row only while it is still in the bounded list the caller could have read.
+    ///
+    /// One actor-isolated method for the eligibility read and the write is the concurrency rule.
+    /// Two clients may ask together, but only the first can see an archived row and clear it; the
+    /// second sees `alreadyOpen`. Likewise, ten newer closes cannot land between checking the list
+    /// and reopening a row that has just fallen out of it.
+    func reopenOfferedSession(
+        id: SessionID,
+        workspaceID: WorkspaceID,
+        limit: Int
+    ) throws -> OfferedSessionReopening {
+        guard let session = try session(id: id), session.workspaceID == workspaceID else { return .missing }
+        guard session.parentSessionID == nil, session.sideConversationParentID == nil else { return .notTopLevel }
+        guard session.archivedAt != nil else { return .alreadyOpen }
+        guard !session.state.isMidTurn else { return .running }
+        let offered = SessionReopening.offered(try closedSessions(workspaceID: workspaceID, limit: limit))
+        guard offered.contains(where: { $0.id == id }) else { return .notOffered }
+        guard let reopened = try update(sessionID: id, { $0.archivedAt = nil }) else { return .missing }
+        return .reopened(reopened)
     }
 
     /// The chats one chat started, oldest first. A crew, in `Crew`'s words.

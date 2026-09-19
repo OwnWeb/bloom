@@ -142,9 +142,11 @@ enum WireExamples {
         ("notes", .notes),
         ("pull_request", .pullRequest),
         ("archive_preview", .archivePreview),
+        ("recently_closed", .recentlyClosed),
         ("new_chat", .newChat(controls: controls)),
         ("rename_chat", .renameChat(chatID: "chat-1", title: "Review")),
         ("close_chat", .closeChat(chatID: "chat-1")),
+        ("reopen_chat", .reopenChat(chatID: "chat-1")),
         ("mark_read", .markRead(chatID: "chat-1", seq: 4)),
         ("set_composer", .setComposer(chatID: "chat-1", controls: controls)),
         // A Codex chat switched to fast. Absent `codex_fast_mode` means the chat inherits Codex's
@@ -264,6 +266,9 @@ enum WireExamples {
         ])),
         ("text", .text("https://github.com/spatie/example/pull/12")),
         ("chat", .chat(chat)),
+        ("recently_closed", .recentlyClosed(chats: [
+            ClosedChatRecord(id: "chat-3", title: "Investigate retries", agent: "claude", messageCount: 42, closedAt: date),
+        ])),
         ("queued", .queued(promptID: "delivery-1")),
         ("archive_preview", .archivePreview(ArchivePreviewRecord(confirmationID: "00000000-0000-4000-8000-000000000002", hasUncommittedChanges: true,
             untrackedFiles: ["notes.txt"], unpushedCommits: 2, detachedCommits: 0, isAgentRunning: false, isPullRequestMerged: false, createdAt: date))),

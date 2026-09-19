@@ -331,6 +331,35 @@
       ],
       "additionalProperties": false
     },
+    "ClosedChat": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "message_count": {
+          "type": "integer"
+        },
+        "closed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "agent",
+        "closed_at",
+        "id",
+        "message_count",
+        "title"
+      ],
+      "additionalProperties": false
+    },
     "Message": {
       "type": "object",
       "properties": {
@@ -1769,6 +1798,18 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "recently_closed"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "new_chat"
             },
             "controls": {
@@ -1806,6 +1847,22 @@
           "properties": {
             "kind": {
               "const": "close_chat"
+            },
+            "chat_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "chat_id",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "reopen_chat"
             },
             "chat_id": {
               "type": "string"
@@ -2640,6 +2697,25 @@
           },
           "required": [
             "chat",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "recently_closed"
+            },
+            "chats": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ClosedChat"
+              }
+            }
+          },
+          "required": [
+            "chats",
             "kind"
           ],
           "additionalProperties": false

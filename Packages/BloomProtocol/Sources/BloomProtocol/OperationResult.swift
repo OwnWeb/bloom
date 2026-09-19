@@ -23,12 +23,13 @@ public enum OperationResult: Codable, Sendable, Hashable {
     case search(SearchRecord)
     case text(String)
     case chat(ChatRecord)
+    case recentlyClosed(chats: [ClosedChatRecord])
     /// A `send` that was queued: the prompt's id, which `cancel_queued` names.
     case queued(promptID: String)
     case archivePreview(ArchivePreviewRecord)
     case terminal(TerminalRecord)
 
-    enum Keys: String, CodingKey { case value, paths, scripts, prompts, issues, matches, truncated, files, promptID = "prompt_id" }
+    enum Keys: String, CodingKey { case value, paths, scripts, prompts, issues, matches, truncated, files, chats, promptID = "prompt_id" }
 
     public init(from decoder: any Decoder) throws {
         let kind = try Tagged.kind(from: decoder)
@@ -55,6 +56,7 @@ public enum OperationResult: Codable, Sendable, Hashable {
         case "search": self = .search(try Tagged.record(SearchRecord.self, kind: kind, from: decoder))
         case "text": self = .text(try c.decode(String.self, forKey: .value))
         case "chat": self = .chat(try Tagged.record(ChatRecord.self, kind: kind, from: decoder))
+        case "recently_closed": self = .recentlyClosed(chats: try c.decode([ClosedChatRecord].self, forKey: .chats))
         case "queued": self = .queued(promptID: try c.decode(String.self, forKey: .promptID))
         case "archive_preview": self = .archivePreview(try Tagged.record(ArchivePreviewRecord.self, kind: kind, from: decoder))
         case "terminal": self = .terminal(try Tagged.record(TerminalRecord.self, kind: kind, from: decoder))
@@ -87,6 +89,8 @@ public enum OperationResult: Codable, Sendable, Hashable {
         case .search(let value): try Tagged.encode(kind: "search", to: encoder, record: value)
         case .text(let value): try Tagged.encode(kind: "text", to: encoder); try c.encode(value, forKey: .value)
         case .chat(let value): try Tagged.encode(kind: "chat", to: encoder, record: value)
+        case .recentlyClosed(let chats):
+            try Tagged.encode(kind: "recently_closed", to: encoder); try c.encode(chats, forKey: .chats)
         case .queued(let promptID): try Tagged.encode(kind: "queued", to: encoder); try c.encode(promptID, forKey: .promptID)
         case .archivePreview(let value): try Tagged.encode(kind: "archive_preview", to: encoder, record: value)
         case .terminal(let value): try Tagged.encode(kind: "terminal", to: encoder, record: value)

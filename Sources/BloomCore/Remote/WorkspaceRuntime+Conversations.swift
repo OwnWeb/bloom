@@ -206,6 +206,44 @@ extension WorkspaceRuntime {
         return session.record(lastSeq: -1)
     }
 
+    /// The same bounded list the Mac calls Recently Closed, read afresh on every request so one
+    /// client sees a close made by another without reconnecting its workspace stream.
+    func recentlyClosed() async throws -> [ClosedChatRecord] {
+        _ = try await workspace()
+        let rows = try await store.closedSessions(workspaceID: workspaceID, limit: SessionReopening.limit)
+        return SessionReopening.offered(rows).map(\.record)
+    }
+
+    /// Clears only the closed stamp of one top-level chat that is still in Recently Closed.
+    /// Eligibility and the write are one Store actor call, so two clients cannot both reopen it.
+    func reopenChat(_ chatID: String) async throws -> ChatRecord {
+        _ = try await workspace()
+        let id = try chatID.sessionID
+        switch try await store.reopenOfferedSession(
+            id: id,
+            workspaceID: workspaceID,
+            limit: SessionReopening.limit
+        ) {
+        case .reopened(let session):
+            let record = session.record(lastSeq: try await store.nextSeq(sessionID: id) - 1)
+            // An ordinary chat event is the convergence mechanism. The initiator gets the same
+            // record in its reply; every other client restores it from this event. The published
+            // cache makes the explicit refresh and the Store observation idempotent together.
+            try await refreshPublishedState(publishing: true)
+            return record
+        case .missing:
+            throw RemoteFailure.notFound("This conversation no longer exists.")
+        case .alreadyOpen:
+            throw RemoteFailure(.conflict, "This conversation is already open.")
+        case .running:
+            throw RemoteFailure(.busy, "This conversation still has a turn running.")
+        case .notTopLevel:
+            throw RemoteFailure.notFound("Only top-level conversations appear in Recently Closed.")
+        case .notOffered:
+            throw RemoteFailure.notFound("This conversation is no longer in Recently Closed. Refresh the list.")
+        }
+    }
+
     func renameChat(_ chatID: String, title: String) async throws {
         let id = try chatID.sessionID
         _ = try await storedSession(id)

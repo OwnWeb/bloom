@@ -997,6 +997,249 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// A read is not cached in the connection or inferred from chat events. Another client can
+    /// close a chat and the next list request sees it at once.
+    @Test("Recently Closed refreshes after another client closes a chat")
+    func recentlyClosedRefreshesAcrossClients() async throws {
+        let fixture = try await fixture()
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.session.id,
+            kind: .user,
+            payload: Data(#"{"text":"keep me"}"#.utf8)
+        )
+        let viewer = Self.caller(Self.seb, abilities: ["view"])
+        let before = await fixture.runtime.respond(to: CommandRequest(.recentlyClosed), as: viewer)
+        #expect(before.result == .recentlyClosed(chats: []))
+
+        let closed = await fixture.runtime.respond(
+            to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue)),
+            as: Self.caller(Self.freek)
+        )
+        #expect(closed.result == .accepted)
+
+        let after = await fixture.runtime.respond(to: CommandRequest(.recentlyClosed), as: viewer)
+        guard case .recentlyClosed(let chats) = after.result else {
+            Issue.record("Expected Recently Closed, got \(String(describing: after.error))")
+            await fixture.runtime.shutdown()
+            return
+        }
+        #expect(chats.map(\.id) == [fixture.session.id.rawValue])
+        #expect(chats[0].messageCount == 1)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("Recently Closed is bounded, newest first, and contains only used top-level chats")
+    func recentlyClosedIsBoundedAndTopLevel() async throws {
+        let fixture = try await fixture()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        var expected: [String] = []
+        var parent: Session?
+        for index in 0..<12 {
+            let session = try await fixture.store.upsert(Session(
+                workspaceID: fixture.workspace.id,
+                title: "Closed \(index)"
+            ))
+            _ = try await fixture.store.appendNext(
+                sessionID: session.id,
+                kind: .user,
+                payload: Data(#"{"text":"kept"}"#.utf8)
+            )
+            _ = try await fixture.store.update(sessionID: session.id) {
+                $0.archivedAt = base.addingTimeInterval(Double(index))
+            }
+            expected.insert(session.id.rawValue, at: 0)
+            if index == 0 { parent = session }
+        }
+        let empty = try await fixture.store.upsert(Session(workspaceID: fixture.workspace.id, title: "Empty"))
+        _ = try await fixture.store.update(sessionID: empty.id) { $0.archivedAt = base.addingTimeInterval(100) }
+        let crew = try await fixture.store.upsert(Session(
+            workspaceID: fixture.workspace.id,
+            parentSessionID: try #require(parent).id,
+            title: "Crew"
+        ))
+        _ = try await fixture.store.appendNext(sessionID: crew.id, kind: .user, payload: Data(#"{"text":"crew"}"#.utf8))
+        _ = try await fixture.store.update(sessionID: crew.id) { $0.archivedAt = base.addingTimeInterval(101) }
+
+        let reply = await fixture.runtime.respond(
+            to: CommandRequest(.recentlyClosed),
+            as: Self.caller(Self.seb, abilities: ["view"])
+        )
+        guard case .recentlyClosed(let chats) = reply.result else {
+            Issue.record("Expected Recently Closed, got \(String(describing: reply.error))")
+            await fixture.runtime.shutdown()
+            return
+        }
+        #expect(chats.count == SessionReopening.limit)
+        #expect(chats.map(\.id) == Array(expected.prefix(SessionReopening.limit)))
+        #expect(!chats.contains { $0.id == crew.id.rawValue || $0.id == empty.id.rawValue })
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("reopening refuses missing, open, running, crew and expired chats")
+    func reopeningRefusalCases() async throws {
+        let fixture = try await fixture()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let running = try await fixture.store.upsert(Session(
+            workspaceID: fixture.workspace.id,
+            title: "Running",
+            state: .running,
+            archivedAt: base
+        ))
+        _ = try await fixture.store.appendNext(sessionID: running.id, kind: .user, payload: Data(#"{"text":"running"}"#.utf8))
+        let crew = try await fixture.store.upsert(Session(
+            workspaceID: fixture.workspace.id,
+            parentSessionID: fixture.session.id,
+            title: "Crew",
+            archivedAt: base
+        ))
+        _ = try await fixture.store.appendNext(sessionID: crew.id, kind: .user, payload: Data(#"{"text":"crew"}"#.utf8))
+        let expired = try await fixture.store.upsert(Session(
+            workspaceID: fixture.workspace.id,
+            title: "Expired",
+            archivedAt: base.addingTimeInterval(-1)
+        ))
+        _ = try await fixture.store.appendNext(sessionID: expired.id, kind: .user, payload: Data(#"{"text":"old"}"#.utf8))
+        for index in 0..<SessionReopening.limit {
+            let newer = try await fixture.store.upsert(Session(
+                workspaceID: fixture.workspace.id,
+                title: "Newer \(index)",
+                archivedAt: base.addingTimeInterval(Double(index + 1))
+            ))
+            _ = try await fixture.store.appendNext(sessionID: newer.id, kind: .user, payload: Data(#"{"text":"new"}"#.utf8))
+        }
+
+        let caller = Self.caller(Self.freek)
+        let missing = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: "missing")),
+            as: caller
+        )
+        let open = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: fixture.session.id.rawValue)),
+            as: caller
+        )
+        let stillRunning = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: running.id.rawValue)),
+            as: caller
+        )
+        let member = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: crew.id.rawValue)),
+            as: caller
+        )
+        let tooOld = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: expired.id.rawValue)),
+            as: caller
+        )
+
+        #expect(missing.error?.code == .notFound)
+        #expect(open.error?.code == .conflict)
+        #expect(stillRunning.error?.code == .busy)
+        #expect(member.error?.code == .notFound)
+        #expect(tooOld.error?.code == .notFound)
+        #expect(try await fixture.store.session(id: running.id)?.archivedAt != nil)
+        #expect(try await fixture.store.session(id: crew.id)?.archivedAt != nil)
+        #expect(try await fixture.store.session(id: expired.id)?.archivedAt != nil)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("reopening preserves the chat and publishes one ordinary chat event")
+    func reopeningPreservesAndPublishes() async throws {
+        let fixture = try await fixture()
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.session.id,
+            kind: .user,
+            payload: Data(#"{"text":"the transcript"}"#.utf8)
+        )
+        _ = try await fixture.store.update(sessionID: fixture.session.id) {
+            $0.title = "Long investigation"
+            $0.agentSessionID = "provider-conversation-42"
+            $0.inputTokens = 4_200
+            $0.outputTokens = 900
+            $0.costUSD = 1.25
+            $0.contextTokens = 18_000
+            $0.lastReadSeq = 3
+            $0.sortOrder = 7
+        }
+        let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.seb), after: nil)
+        let chats = Mutex<[ChatRecord]>([])
+        let reader = Task {
+            for await event in stream {
+                if case .chat(let chat) = event, chat.id == fixture.session.id.rawValue {
+                    chats.withLock { $0.append(chat) }
+                }
+            }
+        }
+        await waitUntil("the opening chat event arrives", within: .seconds(30)) {
+            !chats.withLock { $0 }.isEmpty
+        }
+        // Bring the comparison cache to the same row the opening snapshot read, then measure only
+        // the close and reopen transitions below. The preference writes above may otherwise still
+        // have an observation queued when this stream opens.
+        try await fixture.runtime.refreshPublishedState(publishing: false)
+        chats.withLock { $0.removeAll() }
+        let closed = await fixture.runtime.respond(
+            to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue)),
+            as: Self.caller(Self.freek)
+        )
+        #expect(closed.result == .accepted)
+        let before = try #require(try await fixture.store.session(id: fixture.session.id))
+
+        let reply = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: fixture.session.id.rawValue)),
+            as: Self.caller(Self.freek)
+        )
+        guard case .chat(let record) = reply.result else {
+            Issue.record("Expected the reopened chat, got \(String(describing: reply.error))")
+            reader.cancel()
+            await fixture.runtime.shutdown()
+            return
+        }
+        #expect(record.closedAt == nil)
+        let reopened = try #require(try await fixture.store.session(id: fixture.session.id))
+        var expected = before
+        expected.archivedAt = nil
+        #expect(reopened == expected, "reopening changes only archived_at")
+        #expect(try await fixture.store.messageCount(sessionID: fixture.session.id) == 1)
+
+        await waitUntil("the close and reopen chat events arrive", within: .seconds(30)) {
+            chats.withLock { $0 }.count >= 2
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        let seen = chats.withLock { $0 }
+        #expect(seen.map { $0.closedAt != nil } == [true, false])
+        reader.cancel()
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("two clients reopening together produce one reopen")
+    func concurrentReopenRunsOnce() async throws {
+        let fixture = try await fixture()
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.session.id,
+            kind: .user,
+            payload: Data(#"{"text":"keep me"}"#.utf8)
+        )
+        _ = await fixture.runtime.respond(
+            to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue)),
+            as: Self.caller(Self.freek)
+        )
+
+        async let first = fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: fixture.session.id.rawValue), commandID: "reopen-first"),
+            as: Self.caller(Self.freek)
+        )
+        async let second = fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: fixture.session.id.rawValue), commandID: "reopen-second"),
+            as: Self.caller(Self.seb)
+        )
+        let replies = await [first, second]
+
+        #expect(replies.count { if case .chat = $0.result { true } else { false } } == 1)
+        #expect(replies.count { $0.error?.code == .conflict } == 1)
+        #expect(try await fixture.store.session(id: fixture.session.id)?.archivedAt == nil)
+        await fixture.runtime.shutdown()
+    }
+
     @Test("changing the composer names who changed it")
     func composerChangesNameTheirAuthor() async throws {
         let fixture = try await fixture()

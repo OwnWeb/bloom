@@ -776,6 +776,22 @@
       },
       "version" : 1
     },
+    "recently_closed" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "chats" : [
+          {
+            "agent" : "claude",
+            "closed_at" : "2026-09-17T09:40:02.500Z",
+            "id" : "chat-3",
+            "message_count" : 42,
+            "title" : "Investigate retries"
+          }
+        ],
+        "kind" : "recently_closed"
+      },
+      "version" : 1
+    },
     "review_patch" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "result" : {
@@ -1351,6 +1367,14 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "recently_closed" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "recently_closed"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "rename_chat" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
@@ -1366,6 +1390,15 @@
       "operation" : {
         "kind" : "rename_workspace",
         "name" : "Queue retries"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "reopen_chat" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "kind" : "reopen_chat"
       },
       "protocol" : "bloom-workspace",
       "version" : 1

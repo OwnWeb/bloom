@@ -38,11 +38,15 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case notes
     case pullRequest
     case archivePreview
+    /// At most ten top-level chats, newest closure first. The server owns the bound so every
+    /// client sees the same list and cannot turn this menu-sized read into an archive browser.
+    case recentlyClosed
 
     // Conversations
     case newChat(controls: ComposerControlsRecord)
     case renameChat(chatID: String, title: String)
     case closeChat(chatID: String)
+    case reopenChat(chatID: String)
     case markRead(chatID: String, seq: Int)
     case setComposer(chatID: String, controls: ComposerControlsRecord)
     /// `via` says an agent wrote it on the person's behalf. See `ViaRecord`.
@@ -78,7 +82,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         switch self {
         case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
              .runScripts, .quickPrompts, .searchCode, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes, .pullRequest,
-             .archivePreview: false
+             .archivePreview, .recentlyClosed: false
         default: true
         }
     }
@@ -93,8 +97,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         switch self {
         case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
              .runScripts, .quickPrompts, .searchCode, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes,
-             .pullRequest, .markRead: "view"
-        case .send, .cancelQueued, .stop, .answer, .newChat, .closeChat, .renameChat, .setComposer: "prompt"
+             .pullRequest, .recentlyClosed, .markRead: "view"
+        case .send, .cancelQueued, .stop, .answer, .newChat, .closeChat, .reopenChat, .renameChat, .setComposer: "prompt"
         case .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup, .stopSetup, .continueAfterMerge,
              .revertFile, .discardHunk: "files"
         case .runScript, .closeTerminal: "terminal"
@@ -130,9 +134,11 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .notes: "notes"
         case .pullRequest: "pull_request"
         case .archivePreview: "archive_preview"
+        case .recentlyClosed: "recently_closed"
         case .newChat: "new_chat"
         case .renameChat: "rename_chat"
         case .closeChat: "close_chat"
+        case .reopenChat: "reopen_chat"
         case .markRead: "mark_read"
         case .setComposer: "set_composer"
         case .send: "send"
@@ -196,9 +202,11 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case "notes": self = .notes
         case "pull_request": self = .pullRequest
         case "archive_preview": self = .archivePreview
+        case "recently_closed": self = .recentlyClosed
         case "new_chat": self = .newChat(controls: try c.decode(ComposerControlsRecord.self, forKey: .controls))
         case "rename_chat": self = .renameChat(chatID: try c.decode(String.self, forKey: .chatID), title: try c.decode(String.self, forKey: .title))
         case "close_chat": self = .closeChat(chatID: try c.decode(String.self, forKey: .chatID))
+        case "reopen_chat": self = .reopenChat(chatID: try c.decode(String.self, forKey: .chatID))
         case "mark_read": self = .markRead(chatID: try c.decode(String.self, forKey: .chatID), seq: try c.decode(Int.self, forKey: .seq))
         case "set_composer":
             self = .setComposer(chatID: try c.decode(String.self, forKey: .chatID), controls: try c.decode(ComposerControlsRecord.self, forKey: .controls))
@@ -241,11 +249,12 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         try Tagged.encode(kind: kind, to: encoder)
         var c = encoder.container(keyedBy: Keys.self)
         switch self {
-        case .workspace, .setupOutput, .files, .runScripts, .quickPrompts, .notes, .pullRequest, .archivePreview, .push, .runSetup, .stopSetup: break
+        case .workspace, .setupOutput, .files, .runScripts, .quickPrompts, .notes, .pullRequest, .archivePreview, .recentlyClosed,
+             .push, .runSetup, .stopSetup: break
         case .transcript(let chatID, let afterSeq, let limit):
             try c.encode(chatID, forKey: .chatID); try c.encode(afterSeq, forKey: .afterSeq); try c.encodeIfPresent(limit, forKey: .limit)
         case .composer(let chatID), .continueAfterMerge(let chatID): try c.encodeIfPresent(chatID, forKey: .chatID)
-        case .closeChat(let chatID), .stop(let chatID): try c.encode(chatID, forKey: .chatID)
+        case .closeChat(let chatID), .reopenChat(let chatID), .stop(let chatID): try c.encode(chatID, forKey: .chatID)
         case .file(let path), .download(let path): try c.encode(path, forKey: .path)
         case .history(let limit, let before):
             try c.encodeIfPresent(limit, forKey: .limit); try c.encodeIfPresent(before, forKey: .before)
