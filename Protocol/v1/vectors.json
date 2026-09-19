@@ -361,6 +361,17 @@
         "state" : "failed"
       }
     },
+    "setup_failed_needing_a_fresh_machine" : {
+      "kind" : "setup",
+      "setup" : {
+        "enabled" : true,
+        "failure_code" : "setup_needs_fresh_machine",
+        "finished_at" : "2026-09-17T09:40:02.500Z",
+        "note" : "[bloom] `sudo apt-get install -y libpq-dev` was refused. Setup runs as bloom-agent, which cannot install system packages.",
+        "started_at" : "2026-09-17T09:40:02.500Z",
+        "state" : "failed"
+      }
+    },
     "setup_output" : {
       "kind" : "setup_output",
       "text" : "Reading package lists...\n"

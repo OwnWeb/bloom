@@ -1,3 +1,4 @@
+import BloomCore
 import Foundation
 
 /// Reading a setup failure that is really "this needed root, and this run does not have it".
@@ -9,7 +10,7 @@ import Foundation
 enum SandboxRefusal {
     /// What the code is called on the wire and in runbloom.app's own screens, so the web can key its
     /// "Replace the machine" button off it rather than off the words.
-    static let code = "setup_needs_fresh_machine"
+    static let code = SetupFailureCode.needsFreshMachine.rawValue
 
     /// Lines that mean root was refused rather than the project's own failure. sudo's refusal, and
     /// the two shapes apt and dpkg use when they cannot take their locks.

@@ -242,6 +242,10 @@ struct MachineSetupTests {
         #expect(log.contains("`sudo apt-get install -y libpq-dev` was refused"))
         #expect(log.contains("Replace the machine"))
         #expect(log.contains(SandboxRefusal.code))
+        // And as a field, so the web keys its "Replace the machine" button off a code rather than
+        // off words that will be reworded.
+        let record = await WorkspaceRuntime.failureCode(try await fixture.workspace())
+        #expect(record == SetupFailureCode.needsFreshMachine.rawValue)
     }
 
     @Test("a branch that exists on the remote is checked out as it is there")

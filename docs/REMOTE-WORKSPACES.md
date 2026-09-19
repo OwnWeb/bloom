@@ -170,6 +170,42 @@ short lifetimes and (later, per project) the Sprite's DNS egress allowlist. Runn
 terminals and scripts as a second Unix user without sudo, so that none of them can read the secret,
 is being designed after the security review of 19 September 2026.
 
+### The sandbox user
+
+**Everything the repository or an agent controls runs as `bloom-agent`, which has no sudo**: the
+agents, the tmux server behind the terminals, the setup and resume scripts, the run scripts and the
+services. The Runner keeps its own user, which has sudo, because updates need it. H1 in the security
+review of 19 September 2026 is why, and `Tools/provision-sandbox.sh` is what makes it, on install and
+on every update, idempotently.
+
+**A second user alone isolates nothing on a Sprite, which is the part worth knowing.** `/.sprite/api.sock`
+is world-writable on a read-only mount, so any local user can create a service that runs as the
+Runner's user; measured on 19 September 2026. So a sandboxed command is
+`sudo -E unshare --mount --propagation private -- sh -c 'mount --bind /dev/null /.sprite/api.sock &&
+exec setpriv --reuid=bloom-agent …'`. The namespace is private, so the mask is that process tree's
+alone and the Runner keeps its own access; inside it, `umount` needs superuser and `unshare` is
+refused. The environment is passed with `-E` rather than in arguments, because a turn's keys travel
+in it and `ps` shows arguments to everybody. See `MachineSandbox`.
+
+**What the two users share, and what they do not.** The worktree is group `bloom-work`, setgid, so
+both work in one checkout; `/var/lib/bloom/shared` holds what the Runner writes for the sandbox user,
+which is the tmux configuration and the credential socket. The Runner's data directory stays 0700:
+the database, and `~/.bloom/local-secret`, are not the sandbox user's to read. The agent CLIs are
+copied to `/usr/local/lib/bloom-agents`, root-owned and world-readable, because the image installs
+them under a 0750 home.
+
+**Root for the first setup of a pristine checkout, and nothing else.** A workspace cut from the base
+branch runs its first setup as the Runner's user, so a project can install packages, add a PPA or
+build an extension. Every later run, and any first setup on a pull request's code, runs as
+`bloom-agent`: what a script runs is the worktree's code, so an agent that edits `package.json` would
+otherwise get root out of the next `npm install`. Whether a checkout is pristine is read from git,
+never claimed. A script refused root gets a sentence naming the command and the code
+`setup_needs_fresh_machine`, which is also `setup.failure_code` on the wire.
+
+**A machine built before this runs as it always did.** `MachineSandbox.available()` answers nil where
+the user or `unshare` or `setpriv` is missing, and everything runs as the Runner's user, which is
+what the Runner says at start.
+
 ## Agent credentials
 
 Anthropic's Claude Code terms settle this. A product that hosts Claude Code needs the Commercial

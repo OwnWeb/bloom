@@ -109,6 +109,16 @@
               "type": "null"
             }
           ]
+        },
+        "failure_code": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

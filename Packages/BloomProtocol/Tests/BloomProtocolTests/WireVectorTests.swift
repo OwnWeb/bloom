@@ -341,6 +341,13 @@ enum WireExamples {
                                             note: "[bloom] Running the setup script.\n"
                                                 + "Your requirements could not be resolved to an installable set of packages.\n"
                                                 + "[bloom] The setup script exited with status 2."))),
+        // Setup that failed for a reason the machine can name, so a client offers the right action
+        // rather than reading the note. See `SetupFailureCode`.
+        ("setup_failed_needing_a_fresh_machine", .setup(SetupRecord(
+            state: "failed", startedAt: date, finishedAt: date,
+            note: "[bloom] `sudo apt-get install -y libpq-dev` was refused. Setup runs as bloom-agent, "
+                + "which cannot install system packages.",
+            failureCode: "setup_needs_fresh_machine"))),
         ("setup_output", .setupOutput(text: "Reading package lists...\n")),
         // An agent on a machine asking for a browser pane. It names the chat it is speaking for, so
         // a client can put the pane beside it, and no url at all means this workspace's own public

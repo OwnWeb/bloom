@@ -106,9 +106,18 @@ public struct SetupRecord: Codable, Sendable, Hashable {
     /// other end. **Two audiences, two words, on purpose**, and both ends say so, because an
     /// inconsistency with no defence beside it is one somebody helpfully removes later.
     public var isEnabled: Bool
+    /// Why a failed setup failed, when the machine can name it, so a client can offer the right
+    /// action without reading the log. `setup_needs_fresh_machine` is the one code today: setup
+    /// asked for root, and only the first setup of a brand new machine has it. Nil on a failure
+    /// that is the project's own, and nil on every machine older than the code.
+    ///
+    /// **A code rather than a sentence**, because the sentence is in `note` and in the log and will
+    /// be reworded; the web keys a primary button off this.
+    public var failureCode: String?
 
     public init(state: String, step: String? = nil, startedAt: Date? = nil, finishedAt: Date? = nil,
-                note: String? = nil, isEnabled: Bool = true) {
+                note: String? = nil, isEnabled: Bool = true, failureCode: String? = nil) {
+        self.failureCode = failureCode
         self.state = state
         self.step = step
         self.startedAt = startedAt
@@ -122,6 +131,7 @@ public struct SetupRecord: Codable, Sendable, Hashable {
         case startedAt = "started_at"
         case finishedAt = "finished_at"
         case isEnabled = "enabled"
+        case failureCode = "failure_code"
     }
 
     /// Absent means yes, for the reason `MachineConfiguration.runSetup` gives: a client reading an
@@ -134,6 +144,7 @@ public struct SetupRecord: Codable, Sendable, Hashable {
         finishedAt = try container.decodeIfPresent(Date.self, forKey: .finishedAt)
         note = try container.decodeIfPresent(String.self, forKey: .note)
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        failureCode = try container.decodeIfPresent(String.self, forKey: .failureCode)
     }
 }
 

@@ -82,7 +82,16 @@ extension WorkspaceRuntime {
 
     func setupRecord(_ workspace: Workspace) -> SetupRecord {
         SetupRecord(state: workspace.setupState.rawValue, step: setupStep, startedAt: setupStartedAt,
-                    finishedAt: setupFinishedAt, note: Self.failureNote(workspace), isEnabled: runsSetup)
+                    finishedAt: setupFinishedAt, note: Self.failureNote(workspace), isEnabled: runsSetup,
+                    failureCode: Self.failureCode(workspace))
+    }
+
+    /// Why a failed setup failed, when the machine said so in its log. **Read from the log rather
+    /// than kept in a column**, so it cannot disagree with what the log says and needs no migration:
+    /// the sentence and the code are written together, by `SandboxRefusal`.
+    static func failureCode(_ workspace: Workspace) -> String? {
+        guard workspace.setupState == .failed else { return nil }
+        return SetupFailureCode.allCases.first { workspace.setupLog.contains("(\($0.rawValue))") }?.rawValue
     }
 
     /// The tail of a failed run's log: enough for a client to say what went wrong in the sidebar

@@ -466,6 +466,14 @@ name would read as a command. The machine's own configuration file does call it 
 is right where it is written: a file is read once and obeyed, so the key is a property there. It is absent only from a machine older than the key, and absent means
 enabled, which is what those machines do.
 
+**A failure the machine can name carries `setup.failure_code`.** `setup_needs_fresh_machine` is the
+only code today: setup asked for root, and only the first setup of a brand new machine on the base
+branch's own code gets it (see "The sandbox user" in docs/REMOTE-WORKSPACES.md). `note` and the log
+say the same thing in words and name the command that was refused, but the code is what a client
+should offer an action from, because the words will be reworded. It is absent on an ordinary failure
+and on any machine older than the field, and both mean "read the note". The codes live in one list,
+`SetupFailureCode`.
+
 **A client never has to guess what a new chat starts with.** `composer_defaults` on the workspace
 snapshot is what a chat that does not exist yet would open on, as the machine answers it: the
 repository's own settings file, then the built-in fallbacks, with the backend moved to one this

@@ -204,7 +204,7 @@ RECORDS = {
     # `enabled` is optional here for the reason at the head of RECORDS: a machine older than the
     # field does not send it, and a client decodes its absence as true.
     "Setup": obj({"state": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]}},
-                 {"step": S, "started_at": DATE, "finished_at": DATE, "note": S, "enabled": B}),
+                 {"step": S, "started_at": DATE, "finished_at": DATE, "note": S, "enabled": B, "failure_code": S}),
     "SetupOutput": obj({"setup": ref("Setup"), "log": S}),
     "Workspace": obj({"id": S, "name": S, "branch": S, "base_branch": S, "setup": ref("Setup")},
                      {"reporting": ref("Reporting"),
