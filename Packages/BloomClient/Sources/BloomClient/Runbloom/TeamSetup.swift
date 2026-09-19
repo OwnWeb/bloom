@@ -82,9 +82,11 @@ public struct TeamSetup: Codable, Sendable, Hashable {
     ///
     /// **The same page for every step, opened as given.** It used to have `projects` or
     /// `agent-keys` put on the end of it for those two steps, which was this Mac building
-    /// runbloom.app's addresses: the page moved from `/account/<team>` to `/app/<team>`, the
-    /// workspaces page with the whole setup checklist on it, and the two pages under it were never
-    /// carried across. The step still names the button; the page is runbloom.app's to say.
+    /// runbloom.app's addresses: the page moved from `/account/<team>` to `/app/<team>`, and one
+    /// of the two pages under it was renamed on the way (`credentials`), which is exactly how a
+    /// built address goes wrong without anybody noticing. `/app/<team>` is the workspaces page with
+    /// the whole setup checklist on it, which links to each step, so the button opens that. The
+    /// step still names the button; the page is runbloom.app's to say.
     public func setupPage(on environment: RunbloomEnvironment, for step: TeamSetupStep? = nil) -> URL? {
         guard let setupURL, BloomAuthDocument.sameOrigin(setupURL, environment.origin) else { return nil }
         return setupURL
