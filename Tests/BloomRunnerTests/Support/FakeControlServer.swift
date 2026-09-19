@@ -211,6 +211,9 @@ final class FakeControlServer: Sendable {
             return Response(status: .ok, headers: [.contentType: "application/json"], body: .init(byteBuffer: ByteBuffer(bytes: jwks)))
         }
         guard fullPath.hasPrefix(prefix + "/") else {
+            // A path of its own that a test scripted stands for another machine, such as the one
+            // `RunbloomPeers` speaks to with a minted token rather than this workspace's secret.
+            if let scripted { return Self.response(scripted) }
             return Self.response(.refusal(status: 404, code: "not_found", message: "No such workspace."))
         }
         guard recorded.authorization == "Bearer \(secret)" else {
