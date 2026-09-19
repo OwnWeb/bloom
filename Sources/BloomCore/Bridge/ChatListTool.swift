@@ -64,7 +64,7 @@ public struct ChatListTool: BridgeToolHandling {
         }
     }
 
-    static func title(of session: Session) -> String {
+    public static func title(of session: Session) -> String {
         session.title.isEmpty ? PaneNaming.untitledChat : session.title
     }
 }

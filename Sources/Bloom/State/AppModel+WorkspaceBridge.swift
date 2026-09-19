@@ -53,6 +53,18 @@ extension AppModel {
                     order, in: project, from: identity, origin: origin
                 )
             },
+            ChatCreateTool { [weak self] workspaceID, order in
+                guard let self else { return .refused("Bloom is still starting up.") }
+                return await self.createChatForBridge(order, in: workspaceID)
+            },
+            ChatCloseTool { [weak self] workspaceID, sessionID in
+                guard let self else { return .refused("Bloom is still starting up.") }
+                return await self.closeChatForBridge(sessionID, in: workspaceID)
+            },
+            ChatRenameTool { [weak self] workspaceID, sessionID, title in
+                guard let self else { return .refused("Bloom is still starting up.") }
+                return await self.renameChatForBridge(sessionID, to: title, in: workspaceID)
+            },
             PaneOpenTool { [weak self] order, workspaceID in
                 guard let self else { return .refused("Bloom is still starting up.") }
                 return await self.openPaneForBridge(order, in: workspaceID)
@@ -306,6 +318,72 @@ extension AppModel {
         for order: AgentWorkspaceOrder,
         inheriting inherited: ComposerControls
     ) async throws -> ComposerControls {
+        try await agentControls(
+            agent: order.agent,
+            model: order.model,
+            effort: nil,
+            inheriting: inherited
+        )
+    }
+
+    /// Applies every agent control the create-workspace composer carries to its first chat. Nil
+    /// fields keep the target project's resolved defaults. Backend-specific controls are refused
+    /// on a backend that has no corresponding picker rather than accepted and silently ignored.
+    private func chatControls(
+        for order: ChatCreateOrder,
+        inheriting inherited: ComposerControls
+    ) async throws -> ComposerControls {
+        var controls = try await agentControls(
+            agent: order.agent,
+            model: order.model,
+            effort: order.effort,
+            inheriting: inherited
+        )
+
+        if let permission = order.permissionMode {
+            guard controls.availablePermissionModes.contains(permission) else {
+                throw BridgeAgentControlFailure.unsupportedPermission(permission, agent: controls.agentKind)
+            }
+            controls.permissionMode = permission
+        }
+        if let interaction = order.interactionMode {
+            guard interaction.nearest(on: controls.agentKind) == interaction else {
+                throw BridgeAgentControlFailure.unsupportedInteraction(interaction, agent: controls.agentKind)
+            }
+            if interaction == .plan, !ComposerPlanningSupport.shared.isAvailable {
+                throw InteractionModeFailure.unsupported
+            }
+            controls.interactionMode = interaction
+        }
+        if let fast = order.fastMode {
+            guard controls.agentKind == .claudeCode || controls.agentKind == .codex else {
+                throw BridgeAgentControlFailure.unsupportedFastMode(controls.agentKind)
+            }
+            controls = controls.settingFastMode(fast)
+        }
+        if let style = order.outputStyle {
+            guard controls.offersOutputStyle else {
+                throw BridgeAgentControlFailure.unsupportedOutputStyle(controls.agentKind)
+            }
+            controls.outputStyle = style
+        }
+        if let contextWindow = order.contextWindow {
+            guard controls.offersContextWindow else {
+                throw BridgeAgentControlFailure.unsupportedContextWindow(controls.agentKind)
+            }
+            controls.codexContextWindow = contextWindow
+        }
+        return controls
+    }
+
+    /// Keeps backend, model and effort one valid choice for both workspace and chat creation.
+    /// Changing only the backend must not carry the previous backend's model across with it.
+    private func agentControls(
+        agent requestedAgent: AgentKind?,
+        model requestedModel: String?,
+        effort requestedEffort: String?,
+        inheriting inherited: ComposerControls
+    ) async throws -> ComposerControls {
         var controls = inherited
         let inheritedAgent = controls.agentKind
         // A caller that names a model and no agent has named an agent, because a model id says
@@ -315,8 +393,8 @@ extension AppModel {
         // same call into "opus is not a Codex model". No list is fetched to answer it: the four
         // families `ClaudeModelRank` knows are what the old reading covered, and anything else
         // stays on the backend that was inherited. See `DefaultBackend`.
-        let agent = order.agent
-            ?? order.model.map {
+        let agent = requestedAgent
+            ?? requestedModel.map {
                 DefaultBackend.kind(ofModel: $0, running: inheritedAgent, models: [:])
             }
             ?? inheritedAgent
@@ -324,9 +402,9 @@ extension AppModel {
 
         if agent == .claudeCode {
             let models = Set(ComposerOption.models.map(\.id))
-            if let model = order.model {
+            if let model = requestedModel {
                 guard models.contains(model) else {
-                    throw BridgeWorkspaceModelFailure.invalid(
+                    throw BridgeAgentControlFailure.invalidModel(
                         model: model,
                         agent: agent,
                         available: models.sorted()
@@ -336,25 +414,51 @@ extension AppModel {
             } else if agent != inheritedAgent {
                 controls.model = AppDefaults.fallbackModel
             }
+            if let effort = requestedEffort {
+                let available = ComposerOption.efforts.map(\.id)
+                guard available.contains(effort) else {
+                    throw BridgeAgentControlFailure.invalidEffort(
+                        effort: effort,
+                        model: controls.model,
+                        available: available
+                    )
+                }
+                controls.effort = effort
+            }
         } else {
             guard let source = AgentModelSource.live(store: store)[agent] else {
-                throw BridgeWorkspaceModelFailure.noneAvailable(agent)
+                throw BridgeAgentControlFailure.noneAvailable(agent)
             }
-            if order.model == nil, agent == inheritedAgent { return controls }
+            if requestedModel == nil, requestedEffort == nil, agent == inheritedAgent { return controls }
 
             let models = try await source.models()
-            guard let chosen = AgentModel.selection(requested: order.model, from: models) else {
-                if let requested = order.model {
-                    throw BridgeWorkspaceModelFailure.invalid(
+            let model = requestedModel ?? (agent == inheritedAgent ? controls.model : nil)
+            let chosen = model.flatMap { id in models.first { $0.id == id } }
+                ?? AgentModel.selection(requested: requestedModel, from: models)
+            guard let chosen else {
+                if let requested = requestedModel {
+                    throw BridgeAgentControlFailure.invalidModel(
                         model: requested,
                         agent: agent,
                         available: models.filter { !$0.hidden }.map(\.id)
                     )
                 }
-                throw BridgeWorkspaceModelFailure.noneAvailable(agent)
+                throw BridgeAgentControlFailure.noneAvailable(agent)
             }
             controls.model = chosen.id
-            controls.effort = chosen.resolvedEffort(preferring: controls.effort)
+            if let effort = requestedEffort {
+                let available = chosen.supportedEfforts.map(\.id)
+                guard available.contains(effort) else {
+                    throw BridgeAgentControlFailure.invalidEffort(
+                        effort: effort,
+                        model: chosen.id,
+                        available: available
+                    )
+                }
+                controls.effort = effort
+            } else {
+                controls.effort = chosen.resolvedEffort(preferring: controls.effort)
+            }
         }
 
         return controls
@@ -422,6 +526,116 @@ extension AppModel {
 
     static let noWorkspaceForPane =
         "That workspace is not open in Bloom any more, so there is nowhere to put a pane."
+
+    /// Adds a chat through the same lifecycle as the `+` menu, without selecting another
+    /// workspace in the owner's window. `createChat` also settles the project's current defaults
+    /// and any terminal-backed chat before the result is exposed.
+    func createChatForBridge(_ order: ChatCreateOrder, in workspaceID: WorkspaceID) async -> ChatCreateOutcome {
+        guard let model = paneTarget(workspaceID) else {
+            return .refused("That workspace is not open in Bloom any more, so a chat was not created.")
+        }
+        guard let repo = repo(for: model.workspace) else {
+            return .refused("Bloom cannot find that workspace's project any more.")
+        }
+
+        let controls: ComposerControls
+        do {
+            let defaults = try await resolvedControls(for: repo)
+            controls = try await chatControls(for: order, inheriting: defaults)
+        } catch {
+            return .refused(error.readableMessage)
+        }
+
+        guard let content = await model.createChat(
+            title: order.title,
+            controls: controls,
+            usesCLI: order.terminalChat
+        ),
+              case .chat(let sessionID) = content,
+              let session = model.sessions.first(where: { $0.id == sessionID }) else {
+            return .refused("Bloom could not create a chat in '\(model.workspace.name)'.")
+        }
+
+        // Reveal means it earns its place in the target workspace's strip without taking the
+        // selected workspace or tab away from the owner. The session itself is active there, so
+        // `workspace_say` immediately after this call has an unambiguous destination.
+        WorkspaceTabsStore.shared.reveal(content, in: model)
+        return .created(bridgeSummary(session, in: model.workspace))
+    }
+
+    /// Closes only a settled chat and leaves at least one top-level conversation behind. Those
+    /// two checks are what make this safe to self-approve: a bridge call cannot cut off work in
+    /// flight or leave a workspace with no handover destination. `closeSession` keeps the
+    /// transcript in Recently Closed and performs all runner, tab and bridge-token cleanup.
+    func closeChatForBridge(_ sessionID: SessionID, in workspaceID: WorkspaceID) async -> ChatCloseOutcome {
+        guard let model = paneTarget(workspaceID) else {
+            return .refused("That workspace is not open in Bloom any more, so no chat was closed.")
+        }
+        await model.reloadSessions()
+        guard let session = model.sessions.first(where: {
+            $0.id == sessionID && $0.parentSessionID == nil && $0.sideConversationParentID == nil
+        }) else {
+            return .refused("That chat is not open in '\(model.workspace.name)' any more. Refresh chat_list.")
+        }
+        if let refusal = BridgeChatClosure.refusal(
+            title: ChatListTool.title(of: session),
+            isRunning: model.isRunning(session),
+            otherTopLevelChats: TabSet.tabbable(model.sessions).count - 1
+        ) {
+            return .refused(refusal)
+        }
+
+        let summary = bridgeSummary(session, in: model.workspace)
+        await model.closeSession(session)
+        guard !model.sessions.contains(where: { $0.id == session.id }) else {
+            return .refused("Bloom could not close that chat.")
+        }
+        return .closed(summary)
+    }
+
+    /// Renames the row through the same column-only write the tab strip uses. The handler has
+    /// already resolved the workspace and chat; this side revalidates both after crossing actors
+    /// so a close racing the call cannot rename a stale copy or claim success.
+    func renameChatForBridge(
+        _ sessionID: SessionID,
+        to title: String,
+        in workspaceID: WorkspaceID
+    ) async -> ChatRenameOutcome {
+        guard let model = paneTarget(workspaceID), let store else {
+            return .refused("That workspace is not open in Bloom any more, so no chat was renamed.")
+        }
+        await model.reloadSessions()
+        guard let session = model.sessions.first(where: {
+            $0.id == sessionID && $0.parentSessionID == nil && $0.sideConversationParentID == nil
+        }) else {
+            return .refused("That chat is not open in '\(model.workspace.name)' any more. Refresh chat_list.")
+        }
+
+        do {
+            try await store.updateSessionPreferences(id: session.id, title: title)
+        } catch {
+            return .refused("Bloom could not rename that chat: \(error.readableMessage)")
+        }
+        await model.reloadSessions()
+        guard let renamed = model.sessions.first(where: { $0.id == session.id }), renamed.title == title else {
+            return .refused("Bloom could not rename that chat.")
+        }
+        return .renamed(chat: bridgeSummary(renamed, in: model.workspace), previousTitle: session.title)
+    }
+
+    private func bridgeSummary(_ session: Session, in workspace: Workspace) -> BridgeChatSummary {
+        BridgeChatSummary(
+            chatID: session.id,
+            title: ChatListTool.title(of: session),
+            agent: session.agentKind,
+            model: session.model,
+            effort: session.effort,
+            permissionMode: session.permissionMode,
+            interactionMode: session.interactionMode,
+            workspaceID: workspace.id,
+            workspace: workspace.name
+        )
+    }
 
     /// `pane_open`, through the same door the title bar's `+` menu uses.
     ///
@@ -572,17 +786,36 @@ extension AppModel {
     }
 }
 
-private enum BridgeWorkspaceModelFailure: LocalizedError {
-    case invalid(model: String, agent: AgentKind, available: [String])
+private enum BridgeAgentControlFailure: LocalizedError {
+    case invalidModel(model: String, agent: AgentKind, available: [String])
+    case invalidEffort(effort: String, model: String, available: [String])
     case noneAvailable(AgentKind)
+    case unsupportedPermission(PermissionMode, agent: AgentKind)
+    case unsupportedInteraction(InteractionMode, agent: AgentKind)
+    case unsupportedFastMode(AgentKind)
+    case unsupportedOutputStyle(AgentKind)
+    case unsupportedContextWindow(AgentKind)
 
     var errorDescription: String? {
         switch self {
-        case let .invalid(model, agent, available):
+        case let .invalidModel(model, agent, available):
             let choices = available.isEmpty ? "none were reported" : available.joined(separator: ", ")
             return "The model '\(model)' is not available for \(agent.label). Available models: \(choices)."
+        case let .invalidEffort(effort, model, available):
+            let choices = available.isEmpty ? "none were reported" : available.joined(separator: ", ")
+            return "The effort '\(effort)' is not available for '\(model)'. Available efforts: \(choices)."
         case .noneAvailable(let agent):
             return "Bloom could not find an available model for \(agent.label)."
+        case let .unsupportedPermission(mode, agent):
+            return "The permission mode '\(mode.rawValue)' is not available for \(agent.label)."
+        case let .unsupportedInteraction(mode, agent):
+            return "The interaction mode '\(mode.rawValue)' is not available for \(agent.label)."
+        case .unsupportedFastMode(let agent):
+            return "Fast mode is not available for \(agent.label)."
+        case .unsupportedOutputStyle(let agent):
+            return "Output styles are not available for \(agent.label)."
+        case .unsupportedContextWindow(let agent):
+            return "A context-window override is not available for \(agent.label)."
         }
     }
 }

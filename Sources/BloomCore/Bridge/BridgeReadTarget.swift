@@ -94,15 +94,19 @@ public enum BridgeReadTrouble: Error, Sendable, Equatable {
     case ambiguous(given: String, ids: [String])
     case archived(name: String)
 
-    /// `tool` is the tool's own name, so the sentence says which call it is about.
-    public func sentence(tool: String) -> String {
+    /// `tool` is the tool's own name, so the sentence says which call it is about. Reads keep the
+    /// default purpose; the two chat mutations name the action the workspace would be used for.
+    public func sentence(tool: String, workspacePurpose: String = "read") -> String {
         switch self {
         case .notText:
-            return "\(tool) takes 'workspace' as a string: a workspace id or name. Leave it out to read your own."
+            return """
+                \(tool) takes 'workspace' as a string: a workspace id or name. Leave it out to use \
+                your own workspace.
+                """
 
         case .noWorkspaceNamed:
             return """
-                \(tool) needs to be told which workspace to read, because this connection is not \
+                \(tool) needs to be told which workspace to \(workspacePurpose), because this connection is not \
                 working in one. Pass 'workspace' with the id workspace_list reports, or a name no \
                 other workspace shares.
                 """
@@ -122,7 +126,7 @@ public enum BridgeReadTrouble: Error, Sendable, Equatable {
 
         case .archived(let name):
             return """
-                The workspace '\(name)' has been archived, so \(tool) has nothing there to read. \
+                The workspace '\(name)' has been archived, so \(tool) cannot \(workspacePurpose) it. \
                 Retrying will not change that.
                 """
         }

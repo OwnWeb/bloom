@@ -31,12 +31,12 @@ public struct BridgeToolbox: Sendable {
     /// where that was answered, and its head says which tools Bloom answers for and why the rest
     /// are not on the list. See `LiveBridgeTests`.
     ///
-    /// `workspace_start`, `workspace_archive`, `workspace_merge`, `reveal` and the pane and tab tools are the
+    /// `workspace_start`, `workspace_archive`, `workspace_merge`, `reveal`, the chat mutation tools and the pane and tab tools are the
     /// exceptions and are added by `AppModel.bridgeToolbox()`, because starting a workspace has to
     /// reach the main-actor graph that runs one, asking one to merge has to reach the same path
     /// the Merge button takes, moving the selection is the window's own, and a pane is a thing the
     /// window owns; see `WorkspaceStarting`, `WorkspaceMergeRequesting`, `Revealing`,
-    /// `PaneOpening`, `PaneSplitting`, `PaneClosing`, `PaneRenaming`, `PaneListing`,
+    /// `ChatCreating`, `ChatClosing`, `ChatRenaming`, `PaneOpening`, `PaneSplitting`, `PaneClosing`, `PaneRenaming`, `PaneListing`,
     /// `BrowserPaneCommanding`, `MediaShowing`, `WorkspaceTabListing`,
     /// `WorkspaceTabSelecting`, `CrewStarting`, `CrewSaying` and `CrewStopping`.
     /// Four of those are the ones that read: a `WKWebView` is as much a part of the UI graph as a

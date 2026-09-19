@@ -144,7 +144,7 @@ uses, so Bloom and Bloom Dev can never land on one. The landmine there is `socka
 
 ## 3. The tools
 
-Forty, each a type of its own in `Sources/BloomCore/Bridge/`, each carrying its own role
+Forty-three, each a type of its own in `Sources/BloomCore/Bridge/`, each carrying its own role
 gate. A list of handlers rather than a switch, because a switch would put every tool in three
 places: the listing, the dispatch and the gate.
 
@@ -170,6 +170,9 @@ places: the listing, the dispatch and the gate.
 | `workspace_tabs` | The same window read as a strip: every tab in order, what it is called, which one is in front, and one true thing about what is in it | ✓ | |
 | `chat_list` | Unarchived chats in a workspace, including subagents, with IDs, titles, states and message counts. The caller's own by default; another, named out loud, for a workspace agent; always named, for the owner | ✓ | ✓ |
 | `chat_read` | Read one of those chats by ID or exact title, with bounded pages of stored transcript content, marked as quoted history | ✓ | ✓ |
+| `chat_create` | Add a top-level chat using the target project's defaults or explicit composer choices: agent, model, effort, permissions, work mode, speed, output style, context window and terminal-backed mode. The caller's own by default; another, named out loud, for a workspace agent; always named, for the owner | ✓ | ✓ |
+| `chat_close` | Close an idle top-level chat by ID or exact title, preserving it in Recently Closed. Refuses the last chat and a turn in flight. Same workspace rules as `chat_create` | ✓ | ✓ |
+| `chat_rename` | Rename a top-level chat by ID or exact title and return its previous title. Same workspace rules as `chat_create` | ✓ | ✓ |
 | `workspace_diff` | What a workspace has changed since its branch left its base, committed or not: branch, base, each file with lines added and removed, and the unified diff in bounded pages. Same defaults as `chat_list` | ✓ | ✓ |
 | `workspace_tab_select` | Make one of those tabs the one in front, by its number or by its name. It cannot make one | ✓ | |
 | `browser_read` | One browser's toolbar: address, page title, load state, whether Back and Forward would do anything | ✓ | |
@@ -318,15 +321,15 @@ One number kept its old sense deliberately: `WorkspaceStartAllowance.running`, t
 eight on the workspaces one agent has started, counts workspaces that are not archived and says so in its own
 doc comment. That is a brake on worktrees held open, not on turns in flight.
 
-### The twenty-five that need the app, and the fifteen that do not
+### The twenty-eight that need the app, and the fifteen that do not
 
 `BridgeToolbox.standard` holds the fifteen that reach nothing but the store, and it is what a
 `BridgeServer` built without the app serves, which is every test that did not ask for more.
-`AppModel.bridgeToolbox()` adds the other twenty-five to it, because starting a workspace has to reach
+`AppModel.bridgeToolbox()` adds the other twenty-eight to it, because starting a workspace has to reach
 the main-actor graph that runs one, asking for a merge has to reach the same path the Merge button
 takes, moving the selection is the window's own, and a pane is a thing the window owns. Each of
 those crosses the line as an injected closure
-(`WorkspaceStarting`, `WorkspaceMergeRequesting`, `Revealing`, `PaneOpening`, `PaneSplitting`,
+(`WorkspaceStarting`, `WorkspaceMergeRequesting`, `Revealing`, `ChatCreating`, `ChatClosing`, `ChatRenaming`, `PaneOpening`, `PaneSplitting`,
 `PaneClosing`, `PaneRenaming`, `PaneListing`, `BrowserPaneCommanding`, `TerminalStarting`,
 `TerminalPaneCommanding`, `WorkspaceTabListing`, `WorkspaceTabSelecting`, `CrewStarting`, `CrewSaying`, `CrewStopping`, `WorkspaceMessageDelivering`), so a pane an agent asks for is the pane the
 menu makes, unchanged and not copied. It adds them **to** `.standard` rather than listing its
@@ -877,7 +880,7 @@ So `BridgeToolApproval` names the tools Bloom answers for itself:
 
 | Self-approved | Not |
 | --- | --- |
-| `whoami`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list` | everything else |
+| `whoami`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `chat_create`, `chat_close`, `chat_rename`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list` | everything else |
 
 It is a list rather than "anything with our prefix", so a tool added later is opted in by somebody
 thinking about it rather than by inheriting a decision made before it existed.

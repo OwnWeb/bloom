@@ -518,19 +518,24 @@ final class WorkspaceModel {
         return stored
     }
 
-    func createChat(title: String? = nil) async -> PaneContent? {
+    func createChat(
+        title: String? = nil,
+        controls suppliedControls: ComposerControls? = nil,
+        usesCLI suppliedCLIChoice: Bool? = nil
+    ) async -> PaneContent? {
         guard let store, let repo = app.repo(for: workspace) else { return nil }
         let defaults = await AppDefaults.loadForNewSessions(from: store)
-        let controls = ComposerControls(
-            defaults: ComposerDefaults.resolve(
-                repo: SettingsLoader.load(repo: workspace.path), app: defaults,
-                models: ComposerModelCatalog.shared.models
-            ),
-            isFastMode: defaults.fastMode, outputStyle: defaults.outputStyle,
-            codexContextWindow: defaults.codexContextWindow
-        )
+        let controls = suppliedControls ?? ComposerControls(
+                defaults: ComposerDefaults.resolve(
+                    repo: SettingsLoader.load(repo: workspace.path), app: defaults,
+                    models: ComposerModelCatalog.shared.models
+                ),
+                isFastMode: defaults.fastMode, outputStyle: defaults.outputStyle,
+                codexContextWindow: defaults.codexContextWindow
+            )
         guard let session = await createSession(title: title, controls: controls) else { return nil }
-        guard WorkspaceStartMode.chat(usesCLI: defaults.terminalChat, agent: controls.agentKind).cliAgentKind != nil
+        let usesCLI = suppliedCLIChoice ?? defaults.terminalChat
+        guard WorkspaceStartMode.chat(usesCLI: usesCLI, agent: controls.agentKind).cliAgentKind != nil
         else { return .chat(session.id) }
         CenterTabStore.shared.add(
             kind: .terminal, workspaceID: workspace.id,

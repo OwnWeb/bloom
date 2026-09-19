@@ -182,6 +182,15 @@ public enum BridgeToolApproval {
         // words.
         "chat_list",
         "chat_read",
+        // These three are the cross-workspace handover tools. Creation uses the target project's
+        // defaults or explicit composer choices and adds a visible, restorable chat. Closing
+        // refuses a turn in flight and the last top-level chat, and keeps the transcript in
+        // Recently Closed. Renaming changes only its visible label and returns the previous one.
+        // Together an unattended agent can put a fresh backend in an existing worktree without
+        // destroying either the worktree or the conversation it replaces.
+        "chat_create",
+        "chat_close",
+        "chat_rename",
         // What a workspace has changed, read the way the review pane reads it. It is `chat_read`
         // for a worktree: it writes no file, moves no ref and touches no index, since every git
         // call under it runs with `GIT_OPTIONAL_LOCKS=0`, so there is nothing to weigh, and an ask
