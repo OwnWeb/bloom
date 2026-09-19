@@ -8,6 +8,27 @@ struct TokenVerifierTests {
     let issuer = TestTokenIssuer()
     let clock = TestClock()
 
+    // MARK: The replay cache
+
+    /// L3 in the review of 19 September 2026, and the replay cap it rests on: a flood of preview
+    /// links fills the preview table and nothing else, so `revoke` still gets through.
+    @Test func aFullPreviewCacheRefusesPreviewsAndNotControl() async throws {
+        let verifier = issuer.verifier(clock: clock)
+        let first = issuer.preview(issuedAt: clock.now)
+        _ = try await verifier.verify(first, as: .preview)
+        await #expect(throws: RemoteFailure.self, "a preview link is good for one request") {
+            _ = try await verifier.verify(first, as: .preview)
+        }
+        for _ in 1..<TokenVerifier.replayCapacity {
+            _ = try await verifier.verify(issuer.preview(issuedAt: clock.now), as: .preview)
+        }
+        await #expect(throws: RemoteFailure.self, "at the cap a new preview is refused rather than an old one forgotten") {
+            _ = try await verifier.verify(issuer.preview(issuedAt: clock.now), as: .preview)
+        }
+        let control = try await verifier.verify(issuer.control(issuedAt: clock.now), as: .control)
+        #expect(control.use == .control)
+    }
+
     // MARK: Accepted
 
     @Test func aSessionTokenVerifiesWithItsClaims() async throws {

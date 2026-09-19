@@ -35,9 +35,11 @@ public actor TokenVerifier {
     /// alike, rather than each route remembering to.
     public nonisolated let revocations: Revocations
 
-    /// `use:jti` of every single-use token accepted and not yet expired, with when it can be
-    /// forgotten.
-    private var used: [String: Date] = [:]
+    /// The `jti` of every single-use token accepted and not yet expired, with when it can be
+    /// forgotten, **one table per use**. They shared one, so a flood of validly signed preview
+    /// tokens filled it and every control call was refused, `revoke` included (L3 in the review of
+    /// 19 September 2026). Now previews can only crowd out previews.
+    private var used: [TokenUse: [String: Date]] = [:]
 
     /// `revocations` nil keeps them in memory, on this verifier's clock.
     public init(issuer: String, workspaceID: String, keys: KeySet, revocations: Revocations? = nil,
@@ -126,7 +128,7 @@ public actor TokenVerifier {
         }
 
         if use.isSingleUse {
-            try remember("\(use.rawValue):\(jti)", until: expiresAt.addingTimeInterval(Self.clockSkew), at: moment)
+            try remember(jti, use: use, until: expiresAt.addingTimeInterval(Self.clockSkew), at: moment)
         }
 
         return WorkspaceToken(
@@ -146,17 +148,20 @@ public actor TokenVerifier {
 
     /// Checked and recorded with no suspension in between, so two requests racing with the same
     /// preview link cannot both see it unused.
-    private func remember(_ key: String, until forgettable: Date, at moment: Date) throws {
-        if let seen = used[key], seen > moment {
+    private func remember(_ jti: String, use: TokenUse, until forgettable: Date, at moment: Date) throws {
+        var table = used[use] ?? [:]
+        if let seen = table[jti], seen > moment {
             throw Self.refusal("This workspace token has already been used.")
         }
-        if used.count >= Self.replayCapacity {
-            used = used.filter { $0.value > moment }
+        if table.count >= Self.replayCapacity {
+            table = table.filter { $0.value > moment }
         }
-        guard used.count < Self.replayCapacity else {
+        guard table.count < Self.replayCapacity else {
+            used[use] = table
             throw Self.refusal("Too many workspace tokens have been used in the last minute.")
         }
-        used[key] = forgettable
+        table[jti] = forgettable
+        used[use] = table
     }
 
     private static func refusal(_ message: String) -> RemoteFailure {
