@@ -93,6 +93,39 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// M4 in the review of 19 September 2026: a search that reads for ten seconds used to hold the
+    /// actor, and with it every command, stop and revoke, for all ten.
+    @Test("disk work runs beside the runtime, one search per person and a few at a time")
+    func diskWorkDoesNotHoldTheRuntime() async throws {
+        let fixture = try await fixture()
+        let release = DispatchSemaphore(value: 0)
+        let started = Mutex(false)
+        let caller = Self.caller(.init(userID: "u1", name: "Freek"))
+        let search = Task {
+            try await fixture.runtime.blocking(search: caller) {
+                started.withLock { $0 = true }
+                release.wait()
+                return 1
+            }
+        }
+        await waitUntil("the search is running") { started.withLock { $0 } }
+        // The runtime still answers while the search is reading.
+        let reply = await fixture.runtime.respond(to: CommandRequest(.workspace), as: caller)
+        #expect(reply.error == nil)
+        // The same person's second search is turned away rather than queued behind the first.
+        await #expect(throws: RemoteFailure.self) {
+            _ = try await fixture.runtime.blocking(search: caller) { 2 }
+        }
+        // Somebody else's is not.
+        let other = try await fixture.runtime.blocking(search: Self.caller(.init(userID: "u2", name: "Seb"))) { 3 }
+        #expect(other == 3)
+        release.signal()
+        #expect(try await search.value == 1)
+        // Finished, so the first person may search again.
+        #expect(try await fixture.runtime.blocking(search: caller) { 4 } == 4)
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a report written with no token says nothing about one")
     func aReportWithNoTokenLeavesItOut() {
         let report = AddressedReport(sessionID: SessionID("s"), userID: "u", connected: false, sentAt: Date(), from: .guest)

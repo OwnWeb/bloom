@@ -196,7 +196,10 @@ extension WorkspaceRuntime {
             return .files(paths: try await listedFiles(workspace))
         case .searchCode(let query, let limit):
             // The same list `files` answers, so a client searches exactly what it can open.
-            return try RemoteCodeSearch.search(workspace: workspace, paths: try await listedFiles(workspace), query: query, limit: limit)
+            let paths = try await listedFiles(workspace)
+            return try await blocking(search: caller) {
+                try RemoteCodeSearch.search(workspace: workspace, paths: paths, query: query, limit: limit)
+            }
         case .history(let limit, let before):
             return .history(try await RemoteHistory.page(workspace: workspace, limit: limit, before: before))
         case .revertFile(let path, let scope):
@@ -210,17 +213,17 @@ extension WorkspaceRuntime {
         case .commitPatch(let sha, let path):
             return .reviewPatch(try await RemoteHistory.patch(workspace: workspace, sha: sha, path: path))
         case .file(let path):
-            return .file(try RemoteReview.file(workspace: workspace, path: path))
+            return .file(try await blocking { try RemoteReview.file(workspace: workspace, path: path) })
         case .download(let path):
-            return .download(try RemoteFileOperations.download(workspace: workspace, path: path))
+            return .download(try await blocking { try RemoteFileOperations.download(workspace: workspace, path: path) })
         case .reviewSnapshot(let scope, let knownRevision, let wait):
             return .reviewSnapshot(try await reviewCache.snapshot(workspace: workspace, scope: scope, knownRevision: knownRevision, wait: wait))
         case .reviewPatch(let path, let scope, let knownRevision):
             return .reviewPatch(try await reviewCache.patch(workspace: workspace, path: path, scope: scope, knownRevision: knownRevision))
         case .writeFile(let path, let text, let revision):
-            return .file(try RemoteFileOperations.write(workspace: workspace, path: path, text: text, revision: revision))
+            return .file(try await blocking { try RemoteFileOperations.write(workspace: workspace, path: path, text: text, revision: revision) })
         case .uploadFile(let name, let data):
-            return .text(try RemoteFileOperations.upload(workspace: workspace, name: name, data: data))
+            return .text(try await blocking { try RemoteFileOperations.upload(workspace: workspace, name: name, data: data) })
         case .runScript(let id):
             let settings = SettingsLoader.load(repo: workspace.path)
             guard let script = settings.runScripts.first(where: { $0.id == id }) else {
@@ -238,6 +241,34 @@ extension WorkspaceRuntime {
             throw RemoteFailure(.internal, "This operation is not a file operation.")
         }
     }
+
+    /// **Disk work off the actor, a few at a time.** A search reads every file for up to ten
+    /// seconds, a download reads 8 MB and a write syncs to disk, and done inside the actor each of
+    /// them held up every command, stop, event and revoke until it finished; a viewer looping a
+    /// search that matches nothing kept the workspace deaf (M4 in the review of 19 September 2026).
+    /// Now they run on a detached task, at most `blockingLimit` at once and one search per person,
+    /// and anything over that is answered busy rather than queued behind it.
+    func blocking<Value: Sendable>(search caller: RemoteCaller? = nil,
+                                   _ work: @escaping @Sendable () throws -> Value) async throws -> Value {
+        guard blockingInFlight < Self.blockingLimit else {
+            throw RemoteFailure(.busy, "This workspace is busy reading files. Try again in a moment.")
+        }
+        let searcher = caller.map { $0.author?.userID ?? "" }
+        if let searcher {
+            guard !searchesInFlight.contains(searcher) else {
+                throw RemoteFailure(.busy, "A search of yours is still running here. Wait for it before starting another.")
+            }
+            searchesInFlight.insert(searcher)
+        }
+        blockingInFlight += 1
+        defer {
+            blockingInFlight -= 1
+            if let searcher { searchesInFlight.remove(searcher) }
+        }
+        return try await Task.detached(priority: .utility) { try work() }.value
+    }
+
+    static let blockingLimit = 4
 
     /// The workspace's terminals, started the first time anybody needs one.
     public func terminals() async throws -> RemoteTerminals {

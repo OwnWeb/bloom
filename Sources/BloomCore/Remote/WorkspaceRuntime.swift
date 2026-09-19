@@ -35,6 +35,9 @@ public actor WorkspaceRuntime {
     let admissions = RemoteAdmissions()
     let reviewCache = RemoteReviewCache()
     var terminalService: RemoteTerminals?
+    /// Disk work running off the actor, and whose searches are among it. See `blocking`.
+    var blockingInFlight = 0
+    var searchesInFlight: Set<String> = []
     /// Turns a push or pull request is running under right now, which the git credential route
     /// accepts a turn id for. See `RemotePublishing`.
     var publishingTurns: Set<String> = []
