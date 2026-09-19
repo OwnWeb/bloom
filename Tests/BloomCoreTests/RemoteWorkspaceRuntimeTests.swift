@@ -222,8 +222,11 @@ struct RemoteWorkspaceRuntimeTests {
         #expect(queued.first?.author?.userID == Self.freek.userID)
 
         #expect(try await fixture.runtime.deliverStoredOpening() == nil, "nothing is kept once it is queued")
+        #expect(try await fixture.runtime.hasDeliveredOpening(turnID: "01jopen"))
+        // Fetched again because its acknowledgement was lost: recognised by its turn, whether or not
+        // its prompt is still waiting, and never queued into a second chat.
         try await fixture.runtime.storeOpening(opening)
-        #expect(try await fixture.runtime.deliverStoredOpening() == chat, "a boot that finds it again finds it queued")
+        #expect(try await fixture.runtime.deliverStoredOpening() == nil)
         #expect(try await fixture.store.pendingDeliveries(sessionID: chat).count == 1)
         #expect(try await fixture.store.sessions(workspaceID: fixture.workspace.id).count == 2, "no second chat")
         await fixture.runtime.shutdown()

@@ -30,18 +30,37 @@ public struct OpeningHandoff: Sendable {
 
     /// Whether a prompt was queued. Failures are said once on stderr and left for the next boot,
     /// because runbloom.app keeps an opening it was not told about until it expires.
+    ///
+    /// **Acknowledging is not a condition of queueing.** It used to be, so an acknowledgement that
+    /// failed held the person's instruction back until the next boot. Once the opening is kept here
+    /// it is queued whether or not runbloom.app heard, and an unacknowledged one that comes back is
+    /// recognised by its turn and acknowledged again rather than queued twice.
     @discardableResult
     public func run() async -> Bool {
         do {
             // One kept by a boot that stopped before queueing it.
-            if try await runtime.deliverStoredOpening() != nil { return true }
-            guard let opening = try await fetch() else { return false }
+            var queued = try await runtime.deliverStoredOpening() != nil
+            guard let opening = try await fetch() else { return queued }
+            if try await runtime.hasDeliveredOpening(turnID: opening.turnID) {
+                await acknowledgeOrSay()
+                return queued
+            }
             try await runtime.storeOpening(opening)
-            try await acknowledge()
-            return try await runtime.deliverStoredOpening() != nil
+            await acknowledgeOrSay()
+            queued = try await runtime.deliverStoredOpening() != nil || queued
+            return queued
         } catch {
             FileHandle.standardError.write(Data("bloom-runner: the opening prompt was not queued yet: \(error)\n".utf8))
             return false
+        }
+    }
+
+    /// Said once on stderr when it fails, and tried again the next time the opening is fetched.
+    private func acknowledgeOrSay() async {
+        do {
+            try await acknowledge()
+        } catch {
+            FileHandle.standardError.write(Data("bloom-runner: runbloom.app was not told the opening arrived: \(error)\n".utf8))
         }
     }
 }

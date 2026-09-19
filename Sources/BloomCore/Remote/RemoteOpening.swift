@@ -52,11 +52,21 @@ public struct RemoteOpening: Codable, Sendable, Hashable {
     /// Where a fetched opening waits between being fetched and being queued, so a machine that
     /// stops in between still has it: runbloom.app forgets it once told this machine has it.
     static let storedKey = "remote.opening"
+    /// The turn of the opening this machine queued. **An opening is queued once, ever**: one whose
+    /// acknowledgement was lost is fetched again on the next boot, by which time its turn may have
+    /// run and left no queued prompt to recognise it by, and queueing it again opened a second chat
+    /// that runbloom.app then refused to start.
+    static let deliveredKey = "remote.opening.delivered"
 }
 
 extension WorkspaceRuntime {
     /// Keeps the opening where a restart finds it. The first half of the hand-off; runbloom.app is
     /// told this machine has it only after this returns.
+    /// Whether the opening for this turn has already been queued here. See `deliveredKey`.
+    public func hasDeliveredOpening(turnID: String) async throws -> Bool {
+        try await store.setting(RemoteOpening.deliveredKey) == turnID
+    }
+
     public func storeOpening(_ opening: RemoteOpening) async throws {
         let text = String(decoding: try JSONEncoder().encode(opening), as: UTF8.self)
         try await store.setSetting(RemoteOpening.storedKey, text)
@@ -76,6 +86,10 @@ extension WorkspaceRuntime {
     public func deliverStoredOpening() async throws -> SessionID? {
         guard let text = try await store.setting(RemoteOpening.storedKey),
               let opening = try? JSONDecoder().decode(RemoteOpening.self, from: Data(text.utf8)) else { return nil }
+        if try await hasDeliveredOpening(turnID: opening.turnID) {
+            try await store.setSetting(RemoteOpening.storedKey, nil)
+            return nil
+        }
         for chat in try await chatIDs()
         where try await store.pendingDeliveries(sessionID: chat).contains(where: { $0.remoteTurnID == opening.turnID }) {
             try await store.setSetting(RemoteOpening.storedKey, nil)
@@ -89,6 +103,8 @@ extension WorkspaceRuntime {
             targetSessionID: session, body: opening.prompt, interactionMode: InteractionMode(rawValue: controls.interactionMode),
             author: author, remoteTurnID: opening.turnID
         ))
+        // Marked before the kept copy goes, so no order of stopping leaves it queueable again.
+        try await store.setSetting(RemoteOpening.deliveredKey, opening.turnID)
         try await store.setSetting(RemoteOpening.storedKey, nil)
         return session
     }
