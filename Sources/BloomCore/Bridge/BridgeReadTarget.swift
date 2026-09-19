@@ -52,8 +52,7 @@ public enum BridgeReadTarget: Sendable, Equatable {
     static let schemaProperty: JSONValue = .object([
         "type": .string("string"),
         "description": .string(
-            "Another workspace to read, by the id workspace_start reports (or workspace_list, from a "
-                + "client of the owner's own), or by "
+            "Another workspace to read, by the id workspace_start or workspace_list reports, or by "
                 + "its name when no other active workspace shares it. A Bloom Cloud workspace's id or "
                 + "name works too. Leave it out to read your own. "
                 + "Required from a client that is not working in a workspace."

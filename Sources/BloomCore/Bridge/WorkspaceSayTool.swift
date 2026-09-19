@@ -66,8 +66,8 @@ public struct WorkspaceSayTool: BridgeToolHandling {
             chat and starts a turn there, the way agent_say does for a subagent in your own \
             workspace, or waits for the turn that is running.
 
-            Name the workspace by the id workspace_start reports (or workspace_list, from a client \
-            of the owner's own), or by its name when no other workspace shares it. To answer a message that reached you from another \
+            Name the workspace by the id workspace_start or workspace_list reports, or by \
+            its name when no other workspace shares it. To answer a message that reached you from another \
             workspace, pass the id it names: your answer goes to the chat there that most recently \
             wrote to you.
 

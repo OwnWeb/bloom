@@ -130,10 +130,11 @@ struct BridgeServerTests {
         // reaches nothing but the store, while starting, saying and stopping all need the window.
         // `workspace_diff` reads a worktree through git, which needs no window either.
         // `project_list` is here because a workspace agent may name another project to
-        // `workspace_start`, and this is how it learns the names.
+        // `workspace_start`, and this is how it learns the names; `workspace_list` for the same
+        // reason one level down.
         #expect(names == [
             "agent_list", "chat_list", "chat_read", "project_list", "quick_prompt_create",
-            "quick_prompt_list", "whoami", "workspace_diff", "workspace_rename",
+            "quick_prompt_list", "whoami", "workspace_diff", "workspace_list", "workspace_rename",
         ])
 
         let called = try await caller.call(

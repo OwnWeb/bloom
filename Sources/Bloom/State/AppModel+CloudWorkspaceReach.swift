@@ -45,7 +45,7 @@ extension AppModel {
 
     private func reachableCloudWorkspaces() -> [CloudWorkspaceTarget] {
         cloud.items
-            .filter { $0.canOpen && $0.archivedAt == nil && $0.state != "archiving" && $0.state != "archived" }
+            .filter(\.isReachableFromBridge)
             .map {
                 CloudWorkspaceTarget(
                     id: $0.id, name: $0.displayName, state: $0.state,

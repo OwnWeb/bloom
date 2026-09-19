@@ -22,8 +22,7 @@ public struct ChatReadTool: BridgeToolHandling {
             chat_list or an exact title from it. Duplicate titles require an ID. Only unarchived chats are reachable.
 
             Without 'workspace' it reads a chat in your own workspace. Pass 'workspace' with an id \
-            (workspace_start reports one, and so does workspace_list from a client of the owner's \
-            own), or a name no other active workspace shares, to read a chat in another one. A client that is not working in a workspace must pass it.
+            (workspace_start and workspace_list report one), or a name no other active workspace shares, to read a chat in another one. A client that is not working in a workspace must pass it.
 
             Messages arrive oldest first, with sequence numbers, kinds, timestamps and content. \
             User and assistant prose, thinking and crew messages are plain text; other records \

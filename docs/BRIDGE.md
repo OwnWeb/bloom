@@ -155,7 +155,7 @@ places: the listing, the dispatch and the gate.
 | `project_add` | Register a git repository that **already exists** as a project | | ✓ |
 | `project_hide` | Take a project out of the sidebar. A view preference and nothing more | | ✓ |
 | `project_unhide` | Put it back, in the place it already had | | ✓ |
-| `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why | | ✓ |
+| `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why, then the Bloom Cloud workspaces the signed-in person can open. Read only | ✓ | ✓ |
 | `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. A workspace agent starts it in its own project, or in another one it names With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
 | `cloud_workspace_start` | Create a Bloom Cloud workspace on runbloom.app, which is a machine and costs money. Refused unless the owner has turned on "Let agents create Bloom Cloud workspaces" under Settings, Bloom Cloud. Never answered by Bloom itself, and Bloom asks the owner in its own window first unless "Ask before an agent creates a Bloom Cloud workspace" is off. Same arguments as a machine's own copy: `prompt`, `name`, `branch`, `base_branch`, `run_setup`, `project`. A workspace agent leaving `project` out gets the project whose repository is its own. Returns `{"workspace": {id, name, state}}` as soon as it exists, without selecting it | ✓ | ✓ |
 | `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own, or one it started (by name or id), for a workspace agent; any of them, named out loud, for the owner | ✓ | ✓ |
@@ -413,9 +413,9 @@ as the signed-in person (`CloudWorkspaceReach`, filled in by `AppModel+CloudWork
 - **Known: a message sent to a Bloom Cloud workspace draws in the sending chat as an ordinary tool
   row**, not as the "To" bubble a local one gets. The bubble is drawn from a `message_id` in this
   Mac's store (`WorkspaceSayRecord`), and a Cloud send makes no row here to have one.
-- **Known: a workspace agent cannot list Bloom Cloud workspaces**, because `workspace_list` is the
-  owner's alone. It reaches one by a name or id it was given. Widening that is a permissions
-  decision for the owner, and has not been taken.
+- **A workspace agent lists them too**, since the owner widened `workspace_list` to the workspace
+  role. What it lists is `CloudWorkspaceItem.isReachableFromBridge`: never a teammate's private
+  workspace that an owner or admin is sent only to see and archive, and never an archived one.
 
 ## 4. What an agent cannot reach through it
 
@@ -907,7 +907,7 @@ So `BridgeToolApproval` names the tools Bloom answers for itself:
 
 | Self-approved | Not |
 | --- | --- |
-| `whoami`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list` | everything else |
+| `whoami`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list`, `workspace_list` | everything else |
 
 It is a list rather than "anything with our prefix", so a tool added later is opted in by somebody
 thinking about it rather than by inheriting a decision made before it existed.

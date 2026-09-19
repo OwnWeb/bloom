@@ -22,16 +22,17 @@ import Foundation
 /// would be a fifth place to drift out of step with the four. So this calls them and emits their
 /// answers verbatim, sentences included, rather than restating any of their reasoning.
 ///
-/// ## Owner only, for now
+/// ## Workspace agents too, since the owner said so
 ///
-/// A workspace agent could reasonably be shown the workspaces it started, and
-/// `store.workspaces(startedBy:)` makes that one query. It is still owner only, and the reason is
-/// `workspace_start`'s own closing instruction: "There is no way to wait for it from here, so do
-/// not ask for one and then sit idle." Handing an agent a cheap status call is handing it a polling
-/// loop, and the answer Bloom gives to that question is `notify_when_done`, a fact put in the
-/// calling chat when the other turn comes to rest, rather than a status the starter watches. There
-/// is no reason of cost or of secrecy, so the workspace case is a thing to add if that proves
-/// short, not a thing that was refused.
+/// It was the owner's alone, on the argument that a cheap status call hands an agent a polling
+/// loop, and `workspace_start` tells an agent not to sit and wait. The owner widened it: an agent
+/// that reaches another workspace by name has to learn the names somewhere, and the same read is
+/// what `project_list` already gives a workspace agent one level up. It reads and changes nothing,
+/// so nothing that can act comes with it. The polling point is still made, in the description.
+///
+/// **Bloom Cloud workspaces only where the signed-in person can open them.** The list the app hands
+/// in is `CloudWorkspaceItem.isReachableFromBridge`, tested in BloomClient: a teammate's private
+/// workspace, which an owner or admin can see exists and archive, is not in it.
 public struct WorkspaceListTool: BridgeToolHandling {
     /// The way into Bloom Cloud workspaces, when there is one. See `CloudWorkspaceReach`.
     private let cloud: CloudWorkspaceReach?
@@ -40,7 +41,7 @@ public struct WorkspaceListTool: BridgeToolHandling {
         self.cloud = cloud
     }
 
-    public let roles: Set<BridgeRole> = [.owner]
+    public let roles: Set<BridgeRole> = [.workspace, .owner]
 
     public let tool = BridgeTool(
         name: "workspace_list",
@@ -56,6 +57,9 @@ public struct WorkspaceListTool: BridgeToolHandling {
             whether there is output nobody has read, the size of its diff, who asked for it, its \
             chats with their cost and context size, and any messages queued for those chats with \
             the reason the queue is not moving.
+
+            Do not call it in a loop to wait for a workspace you started: pass notify_when_done \
+            to workspace_start instead, and Bloom tells your chat when that work comes to rest.
 
             The worktree path is the most useful thing here. It is an ordinary git checkout, so \
             read the diff, the log and the files in it with your own tools rather than asking \
@@ -79,7 +83,7 @@ public struct WorkspaceListTool: BridgeToolHandling {
             refreshes every few seconds. With Bloom closed they are as old as the last time it \
             was open. Read only. It changes nothing and starts nothing.
 
-            Bloom Cloud workspaces the owner can open are listed after this Mac's, marked \
+            Bloom Cloud workspaces the signed-in person can open are listed after this Mac's, marked \
             "cloud": true, with runbloom.app's id, name, state, repository and branch and nothing \
             else: they have no worktree here. workspace_say, chat_list, chat_read and \
             workspace_diff take their id or name as they take a local one's. Naming a project \

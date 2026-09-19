@@ -28,15 +28,14 @@ struct WorkspaceListToolTests {
 
     // MARK: Who may call it
 
-    /// A workspace agent is deliberately left out for now: a cheap status call is a polling loop,
-    /// and `workspace_start` tells a workspace agent in as many words not to sit and wait.
-    @Test("only the owner sees it")
+    /// Read only, so a workspace agent may call it as the owner's client does. The owner decided.
+    @Test("a workspace agent and the owner both see it")
     func roleGate() {
         let toolbox = BridgeToolbox(handlers: [WorkspaceListTool()])
 
-        #expect(toolbox.tools(for: .workspace).isEmpty)
+        #expect(toolbox.tools(for: .workspace).map(\.name) == ["workspace_list"])
         #expect(toolbox.tools(for: .owner).map(\.name) == ["workspace_list"])
-        #expect(toolbox.handler(named: "workspace_list", for: .workspace) == nil)
+        #expect(BridgeToolApproval.isSelfApproved(toolName: "\(BridgeToolApproval.toolPrefix)workspace_list"))
     }
 
     @Test("it is served by a Bloom with no app behind it, because it needs no seam into one")

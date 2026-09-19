@@ -213,6 +213,10 @@ public enum BridgeToolApproval {
         // to weigh: the names are the owner's own sidebar. `project_add` and `project_hide` stay
         // off the list and off the workspace role, because they change that sidebar.
         "project_list",
+        // The workspaces Bloom has, and the Bloom Cloud ones the signed-in person can open. Read
+        // only, for the reason `project_list` is: it is how an agent learns the name it is about
+        // to hand `workspace_say` or `chat_read`, and nothing in it is for a person to weigh.
+        "workspace_list",
     ]
 
     /// Whether this ask is Bloom answering itself.

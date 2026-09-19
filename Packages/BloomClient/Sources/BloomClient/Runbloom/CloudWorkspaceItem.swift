@@ -148,6 +148,17 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
 
     /// Whether the machine was awake when it last reported. A sleeping workspace is still ready.
     public var isAwake: Bool { summary?.awake ?? false }
+
+    /// Whether an agent on this Mac may reach it through the bridge: list it, read it, message it.
+    ///
+    /// **Only what the signed-in person could open themselves**, and not archived or on its way
+    /// there. A team owner or admin is sent a teammate's private workspace so they can see it
+    /// exists and archive it, with `canOpen` false, and an agent working for them must not be
+    /// handed what they cannot open. `workspace_list` lists these and nothing else, and every
+    /// other bridge call on a Bloom Cloud workspace is refused for anything not among them.
+    public var isReachableFromBridge: Bool {
+        canOpen && archivedAt == nil && state != "archiving" && state != "archived"
+    }
 }
 
 /// The summary a machine last posted, as runbloom.app stored it. Only what a client draws is

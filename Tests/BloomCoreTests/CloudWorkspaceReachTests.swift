@@ -229,4 +229,16 @@ struct CloudWorkspaceReachTests {
         ).text))
         #expect(narrowed["workspaces"]?.arrayValue?.contains { $0["cloud"]?.boolValue == true } == false)
     }
+
+    /// A workspace agent is given the same list, and the list is only ever what the reach hands
+    /// in, which the app fills with `CloudWorkspaceItem.isReachableFromBridge`: nothing the
+    /// signed-in person cannot open.
+    @Test("a workspace agent is given the same list, and nothing beyond what the reach offers")
+    func listedToAgents() async throws {
+        let (store, identity) = try await fixture("cloud-list-agent")
+        let tool = WorkspaceListTool(cloud: Machine().reach())
+        let answer = try #require(JSONValue.parse(await tool.call(request("workspace_list", [:]), as: identity, store: store).text))
+        let cloud = try #require(answer["workspaces"]?.arrayValue).filter { $0["cloud"]?.boolValue == true }
+        #expect(cloud.compactMap { $0["id"]?.stringValue } == ["01cloud"])
+    }
 }
