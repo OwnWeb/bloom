@@ -20,6 +20,8 @@ import SwiftUI
 struct CloudSettingsView: View {
     @Environment(AppModel.self) private var app
     @AppStorage(CloudWorkspaceStartTool.settingKey) private var agentsCreateCloudWorkspaces = false
+    // On when absent, as `CloudWorkspaceStartQuestion.asks` reads it: each one costs money.
+    @AppStorage(CloudWorkspaceStartQuestion.settingKey) private var asksBeforeCloudWorkspaceStart = true
 
     private var cloud: CloudWorkspaces { app.cloud }
 
@@ -29,6 +31,7 @@ struct CloudSettingsView: View {
                 phase: phase,
                 environment: cloud.environment,
                 agentsCreateCloudWorkspaces: $agentsCreateCloudWorkspaces,
+                asksBeforeCloudWorkspaceStart: $asksBeforeCloudWorkspaceStart,
                 drawing: .live,
                 actions: CloudSettingsPane.Actions(
                     signIn: { Task { await cloud.beginSignIn() } },
@@ -80,6 +83,7 @@ struct CloudSettingsPane: View {
     var phase: Phase
     var environment: RunbloomEnvironment
     @Binding var agentsCreateCloudWorkspaces: Bool
+    @Binding var asksBeforeCloudWorkspaceStart: Bool
     var drawing: Drawing
     var actions: Actions
     /// The mark in the hero. Nil is this app's own icon; the gallery passes one, because the
@@ -304,6 +308,23 @@ struct CloudSettingsPane: View {
                 Spacer(minLength: 0)
                 toggle($agentsCreateCloudWorkspaces, label: CloudWorkspaceStartTool.settingTitle)
             }
+            Divider().padding(.vertical, Metrics.gutter)
+            HStack(alignment: .top, spacing: Metrics.gutter) {
+                VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
+                    Text(CloudWorkspaceStartQuestion.settingTitle).font(Typo.title)
+                    // A promise this time, and a true one: Bloom asks in its own window, so the
+                    // chat's permission mode does not come into it. See `CloudWorkspaceStartQuestion`.
+                    Text("Bloom shows you what the agent wants to create and waits for your answer, whatever the chat's permission mode. When this is off, the switch above decides alone.")
+                        .font(Typo.caption)
+                        .foregroundStyle(Palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                toggle($asksBeforeCloudWorkspaceStart, label: CloudWorkspaceStartQuestion.settingTitle)
+            }
+            // Meaningless while agents may not create any, so it steps back rather than going.
+            .disabled(!agentsCreateCloudWorkspaces)
+            .opacity(agentsCreateCloudWorkspaces ? 1 : 0.5)
         }
 
         HStack(spacing: Metrics.spacing) {

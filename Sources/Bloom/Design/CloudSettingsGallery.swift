@@ -46,7 +46,8 @@ enum CloudSettingsGallery {
             for dark in [false, true] {
                 let pane = CloudSettingsPane(
                     phase: phase, environment: environment,
-                    agentsCreateCloudWorkspaces: .constant(false), drawing: .drawn, actions: .init(),
+                    agentsCreateCloudWorkspaces: .constant(name.hasSuffix("signed-in")),
+                    asksBeforeCloudWorkspaceStart: .constant(true), drawing: .drawn, actions: .init(),
                     // Read, never written: the installed app's icon is the compiled mark this probe
                     // bundle does not have.
                     mark: mark
@@ -68,6 +69,42 @@ enum CloudSettingsGallery {
                 try? png.write(to: URL(filePath: path))
                 written.append(path)
             }
+        }
+        written += renderQuestion(into: directory)
+        return written
+    }
+
+    /// The question Bloom asks before an agent's Bloom Cloud workspace is created, light and dark.
+    ///
+    /// Through a hosting view in a window that is never ordered in, and `cacheDisplay`, rather than
+    /// `ImageRenderer`, because the sheet's buttons are AppKit's and are the half worth seeing.
+    private static func renderQuestion(into directory: String) -> [String] {
+        let question = CloudWorkspaceStartQuestion(
+            requestedBy: "\u{201C}group occurrences\u{201D}", name: "Port the importer", project: "spatie/flare",
+            branch: "freekmurze/port-the-importer", baseBranch: "main", runSetup: true
+        )
+        var written: [String] = []
+        for dark in [false, true] {
+            let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            let host = NSHostingView(rootView: ConfirmationSheet(
+                confirmation: Confirmation(
+                    title: question.title, message: question.message,
+                    confirmLabel: question.confirmLabel, cancelLabel: question.cancelLabel,
+                    tone: .completing, layout: .compact
+                ),
+                onConfirm: {}, onCancel: {}
+            ).background(Palette.surface))
+            host.appearance = appearance
+            host.frame = NSRect(origin: .zero, size: host.fittingSize)
+            let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+            window.appearance = appearance
+            window.contentView = host
+            window.layoutIfNeeded()
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { continue }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let path = "\(directory)/cloud-start-question-\(dark ? "dark" : "light").png"
+            guard (try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(filePath: path))) != nil else { continue }
+            written.append(path)
         }
         return written
     }

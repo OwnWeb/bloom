@@ -52,8 +52,8 @@ struct CloudWorkspaceStartToolTests {
     }
 
     /// It spends money, so Bloom never answers its ask itself, the argument that keeps
-    /// `workspace_archive` off the list too. Whether the owner is then asked is the chat's
-    /// permission mode, which is why the pane does not promise it.
+    /// `workspace_archive` off the list too. Whether the CLI then asks the owner is the chat's
+    /// permission mode, which is why Bloom asks as well: see `CloudWorkspaceStartQuestion`.
     @Test("Bloom never answers its permission ask itself")
     func notSelfApproved() {
         #expect(!BridgeToolApproval.isSelfApproved(toolName: "\(BridgeToolApproval.toolPrefix)cloud_workspace_start"))
@@ -118,7 +118,7 @@ struct CloudWorkspaceStartToolTests {
         #expect(!result.isError)
         #expect(recorder.orders == [CloudWorkspaceOrder(
             branch: "freekmurze/importer", baseBranch: "develop", prompt: "Port the importer",
-            runSetup: false, callerRepository: "spatie/flare"
+            runSetup: false, callerRepository: "spatie/flare", requestedBy: "\u{201C}group occurrences\u{201D}"
         )])
         #expect(result.text.contains("\"cw-1\""))
         #expect(result.text.contains("setting_up"))
@@ -135,6 +135,31 @@ struct CloudWorkspaceStartToolTests {
         )
 
         #expect(recorder.orders == [CloudWorkspaceOrder(name: "Empty", project: "p1")])
+    }
+
+    /// On unless turned off, because each one costs money; and when it is asked, it says who asked,
+    /// what would be made where, and that it costs money.
+    @Test("Bloom's own question is on by default and names what would be created")
+    func question() {
+        #expect(CloudWorkspaceStartQuestion.asks(stored: nil))
+        #expect(CloudWorkspaceStartQuestion.asks(stored: true))
+        #expect(!CloudWorkspaceStartQuestion.asks(stored: false))
+
+        let question = CloudWorkspaceStartQuestion(
+            requestedBy: "\u{201C}group occurrences\u{201D}", name: "Port the importer", project: "spatie/flare",
+            branch: "freekmurze/port-the-importer", baseBranch: "main", runSetup: false
+        )
+        #expect(question.message.hasPrefix("An agent in \u{201C}group occurrences\u{201D} wants to create"))
+        #expect(question.message.contains("spatie/flare"))
+        #expect(question.message.contains("freekmurze/port-the-importer from main"))
+        #expect(question.message.contains("costs money"))
+        #expect(question.message.contains("skips the project's setup"))
+
+        let fromOwner = CloudWorkspaceStartQuestion(
+            requestedBy: nil, name: "Empty", project: "spatie/flare", branch: "b", baseBranch: "main", runSetup: true
+        )
+        #expect(fromOwner.message.hasPrefix("An agent wants to create"))
+        #expect(!fromOwner.message.contains("setup"))
     }
 
     @Test("the window's refusal is passed on as it was said")

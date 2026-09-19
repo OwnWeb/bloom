@@ -22,6 +22,7 @@ struct RootView: View {
     @Bindable private var projectSetup = ProjectSetup.shared
     @Bindable private var closeSession = CloseSessionAlert.shared
     @Bindable private var setupRun = SetupRunAlert.shared
+    @Bindable private var cloudStart = CloudStartAlert.shared
     /// The two Help menu sheets, and the drafts typed into them. See `FeedbackPresenter`.
     @Bindable private var feedback = FeedbackPresenter.shared
 
@@ -292,6 +293,23 @@ struct RootView: View {
                 )
             } onConfirm: { request in
                 request.model.runSetupAgain()
+            }
+            // The question asked before an agent's Bloom Cloud workspace is created. On the window
+            // because the ask comes from the bridge, which has no control of its own to hang it on.
+            // See `CloudStartAlert`.
+            .confirmation($cloudStart.request) { request in
+                Confirmation(
+                    title: request.question.title,
+                    message: request.question.message,
+                    confirmLabel: request.question.confirmLabel,
+                    cancelLabel: request.question.cancelLabel,
+                    tone: .completing,
+                    layout: .compact
+                )
+            } onConfirm: { _ in
+                cloudStart.answered(true)
+            } onCancel: {
+                cloudStart.answered(false)
             }
             // A single OK that does nothing but dismiss, which `errorAlert` says why it leaves to
             // the system rather than spelling out.

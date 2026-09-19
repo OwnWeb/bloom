@@ -48,11 +48,26 @@ extension AppModel {
         if let problem = CloudBranchName.problem(branch) {
             return .refused("'\(branch)' cannot be a branch. \(problem)")
         }
+        let baseBranch = order.baseBranch ?? project.defaultBranch
+
+        // Asked here, with everything worked out and nothing spent yet. See
+        // `CloudWorkspaceStartQuestion`.
+        if CloudWorkspaceStartQuestion.asks(stored: UserDefaults.standard.object(forKey: CloudWorkspaceStartQuestion.settingKey)) {
+            let question = CloudWorkspaceStartQuestion(
+                requestedBy: order.requestedBy, name: name, project: project.repository,
+                branch: branch, baseBranch: baseBranch, runSetup: order.runSetup
+            )
+            switch await CloudStartAlert.shared.ask(question) {
+            case nil: return .refused(CloudWorkspaceStartQuestion.busySentence)
+            case false?: return .refused(CloudWorkspaceStartQuestion.declinedSentence)
+            case true?: break
+            }
+        }
 
         do {
             let item = try await cloud.create(CloudWorkspaces.CreateRequest(
                 team: team, project: project, name: name, branch: branch,
-                baseBranch: order.baseBranch ?? project.defaultBranch, prompt: prompt, runSetup: order.runSetup
+                baseBranch: baseBranch, prompt: prompt, runSetup: order.runSetup
             ), selecting: false)
             // The address runbloom.app gave, passed through. Absent from an older server, and then
             // absent here too rather than built from a team slug and an id: it is somebody else's

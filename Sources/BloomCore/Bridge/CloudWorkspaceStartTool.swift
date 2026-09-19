@@ -23,10 +23,14 @@ public struct CloudWorkspaceOrder: Sendable, Hashable {
     /// The caller's own repository as GitHub names it, `owner/name`, when the caller is standing
     /// in a workspace whose repository is on GitHub. What a nil `project` is matched against.
     public let callerRepository: String?
+    /// The workspace whose agent asked, by name, for the question Bloom asks the owner. Nil for
+    /// the owner's own client. See `CloudWorkspaceStartQuestion`.
+    public let requestedBy: String?
 
     public init(
         name: String? = nil, branch: String? = nil, baseBranch: String? = nil, prompt: String? = nil,
-        runSetup: Bool = true, project: String? = nil, callerRepository: String? = nil
+        runSetup: Bool = true, project: String? = nil, callerRepository: String? = nil,
+        requestedBy: String? = nil
     ) {
         self.name = name
         self.branch = branch
@@ -35,6 +39,7 @@ public struct CloudWorkspaceOrder: Sendable, Hashable {
         self.runSetup = runSetup
         self.project = project
         self.callerRepository = callerRepository
+        self.requestedBy = requestedBy
     }
 }
 
@@ -94,8 +99,9 @@ public typealias CloudWorkspaceStartAllowed = @Sendable () async -> Bool
 /// answers for, the same argument that keeps `workspace_archive` off it. **What that buys depends on
 /// the chat, and it is not a promise that the owner is asked.** The ask is the agent CLI's own
 /// permission check, so a chat that asks before using tools asks the owner before each one, and a
-/// chat set to bypass permissions asks nobody. The setting is the only thing in front of it in
-/// every chat.
+/// chat set to bypass permissions asks nobody. So Bloom asks as well, in its own window and
+/// whatever the chat is set to, unless the owner has turned that off: see
+/// `CloudWorkspaceStartQuestion`, which the app half asks once the order is worked out.
 ///
 /// **One level, like `workspace_start`.** A workspace an agent started may not start more of
 /// either kind: the lock that stops a runaway agent cutting worktrees stops it making machines.
@@ -146,7 +152,8 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
             to have turned "\(settingTitle)" on in Bloom's Settings. Create one only when the owner \
             would want to pay for it. Create one because the work belongs on a machine: it should keep going while \
             this Mac sleeps, or somebody else on the team should be able to open it. For work that \
-            belongs on this Mac, use workspace_start.
+            belongs on this Mac, use workspace_start. Bloom may ask the owner before creating \
+            it; if they decline, nothing is created and you should not ask again unless they say so.
 
             Give it a 'prompt' and it is sent as the first message once the machine is up. Leave \
             the prompt out to make an empty workspace, and then 'name' is required. With a prompt, \
@@ -216,6 +223,7 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
         }
 
         var callerRepository: String?
+        var requestedBy: String?
         if let workspaceID = identity.workspaceID {
             do {
                 guard let caller = try await store.workspace(id: workspaceID) else {
@@ -228,6 +236,7 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
                             + "Do the work here, or report back and let the owner decide."
                     )
                 }
+                requestedBy = "\u{201C}\(caller.name)\u{201D}"
                 if let repo = try await store.repo(id: caller.repoID) {
                     callerRepository = await repositoryOf(repo.path)
                 }
@@ -240,7 +249,7 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
             name: name, branch: filled(request.stringParam("branch")),
             baseBranch: filled(request.stringParam("base_branch")), prompt: prompt,
             runSetup: runSetup, project: filled(request.stringParam("project")),
-            callerRepository: callerRepository
+            callerRepository: callerRepository, requestedBy: requestedBy
         )
         switch await start(order) {
         case .started(let workspace): return .json(workspace.json)

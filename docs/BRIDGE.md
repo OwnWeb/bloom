@@ -157,7 +157,7 @@ places: the listing, the dispatch and the gate.
 | `project_unhide` | Put it back, in the place it already had | | ✓ |
 | `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why | | ✓ |
 | `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. A workspace agent starts it in its own project, or in another one it names With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
-| `cloud_workspace_start` | Create a Bloom Cloud workspace on runbloom.app, which is a machine and costs money. Refused unless the owner has turned on "Let agents create Bloom Cloud workspaces" under Settings, Bloom Cloud. Never answered by Bloom itself, so a chat that asks before using tools asks the owner; one that bypasses permissions does not. Same arguments as a machine's own copy: `prompt`, `name`, `branch`, `base_branch`, `run_setup`, `project`. A workspace agent leaving `project` out gets the project whose repository is its own. Returns `{"workspace": {id, name, state}}` as soon as it exists, without selecting it | ✓ | ✓ |
+| `cloud_workspace_start` | Create a Bloom Cloud workspace on runbloom.app, which is a machine and costs money. Refused unless the owner has turned on "Let agents create Bloom Cloud workspaces" under Settings, Bloom Cloud. Never answered by Bloom itself, and Bloom asks the owner in its own window first unless "Ask before an agent creates a Bloom Cloud workspace" is off. Same arguments as a machine's own copy: `prompt`, `name`, `branch`, `base_branch`, `run_setup`, `project`. A workspace agent leaving `project` out gets the project whose repository is its own. Returns `{"workspace": {id, name, state}}` as soon as it exists, without selecting it | ✓ | ✓ |
 | `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own, or one it started (by name or id), for a workspace agent; any of them, named out loud, for the owner | ✓ | ✓ |
 | `workspace_archive` | Archive a workspace through normal safety checks, keeping its branch and history. For a workspace agent, its own once the turn asking for it has ended, or one it started, by id and at once; any of them, named out loud and at once, for the owner | ✓ | ✓ |
 | `workspace_merge` | Ask a workspace's own agent to merge its pull request | | ✓ |
@@ -914,12 +914,16 @@ thinking about it rather than by inheriting a decision made before it existed.
 
 `cloud_workspace_start` is off that list on purpose: Bloom cannot weigh whether a machine is worth
 what it costs, and that is the one thing a person can, so Bloom never answers its ask itself.
-**That is not a promise that the owner is asked.** The ask is the agent CLI's own permission
-check: a chat that asks before using tools asks the owner before each one, and a chat set to bypass
-permissions asks nobody. The setting "Let agents create Bloom Cloud workspaces", off by default, is
-the only thing in front of the tool in every chat. It is a preference this client keeps, not an
-authorisation: anything holding the owner's sign in can create Bloom Cloud workspaces with the
-setting on or off.
+The CLI's ask alone is not a promise that the owner is asked: a chat that asks before using tools
+asks the owner before each one, and a chat set to bypass permissions asks nobody. So Bloom asks as
+well. With "Ask before an agent creates a Bloom Cloud workspace" on, which is the default, the
+window shows what would be created (who asked, the name, the project, the branch and its base) and
+nothing is created on runbloom.app until the owner answers, whatever the chat's permission mode. One
+question at a time: a second call while one is up is refused, and so is a call the owner declines,
+with a sentence telling the agent not to ask again unprompted. With it off, the setting "Let agents
+create Bloom Cloud workspaces", itself off by default, decides alone. Both are preferences this
+client keeps, not an authorisation: anything holding the owner's sign in can create Bloom Cloud
+workspaces with either setting on or off.
 
 Answering is not a shortcut round consent, because **Bloom is on both ends of this question**. It
 wrote the tool, it minted the token, it knows which workspace is asking, and it enforces every
