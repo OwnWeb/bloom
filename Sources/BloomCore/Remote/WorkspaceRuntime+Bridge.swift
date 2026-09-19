@@ -20,7 +20,13 @@ extension WorkspaceRuntime {
     /// the queue restores is launched with its tools.
     func startBridge() throws {
         guard bridge == nil, let bridgeSocketPath else { return }
-        let server = BridgeServer(store: store, socketPath: bridgeSocketPath, toolbox: bridgeToolbox())
+        let access: BridgeServer.Access = sandbox == nil ? .ownerOnly : .sharedGroup
+        let server = BridgeServer(
+            store: store,
+            socketPath: bridgeSocketPath,
+            toolbox: bridgeToolbox(),
+            access: access
+        )
         try server.start()
         bridge = server
     }
@@ -48,7 +54,11 @@ extension WorkspaceRuntime {
             return BridgeHandle(attachment: attachment, mcpConfigPath: nil)
         case .claudeCode, .cursor, .openCode:
             guard let path = try? BridgeRegistration.writeClaudeConfig(
-                attachment, sessionID: session.id, directory: server.configDirectory
+                attachment,
+                sessionID: session.id,
+                directory: server.configDirectory,
+                directoryPermissions: server.access.configDirectoryPermissions,
+                filePermissions: server.access.configFilePermissions
             ) else { return nil }
             server.sweepConfigDirectory()
             return BridgeHandle(attachment: attachment, mcpConfigPath: path)

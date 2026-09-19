@@ -192,7 +192,8 @@ public enum BridgeRegistration {
         return try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys])
     }
 
-    /// Writes that file mode 0600 and answers with its path.
+    /// Writes that file with owner-only permissions by default and answers with its path. A machine
+    /// passes group-readable permissions for the separate user that runs its agents.
     ///
     /// Rewritten from scratch on every process start rather than updated, because the token in it
     /// is minted per launch and a file that survived with a stale one would register a server that
@@ -200,19 +201,24 @@ public enum BridgeRegistration {
     public static func writeClaudeConfig(
         _ attachment: BridgeAttachment,
         sessionID: SessionID,
-        directory: String
+        directory: String,
+        directoryPermissions: Int = 0o700,
+        filePermissions: Int = 0o600
     ) throws -> String {
         try FileManager.default.createDirectory(
             atPath: directory,
             withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
+            attributes: [.posixPermissions: directoryPermissions]
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: directoryPermissions], ofItemAtPath: directory
         )
         let path = (directory as NSString).appendingPathComponent("\(sessionID).mcp.json")
         let data = try claudeConfig(attachment)
         // Written and then chmodded rather than created with attributes, because `createFile`
         // leaves an existing file's mode alone and this path is reused every launch.
         try data.write(to: URL(fileURLWithPath: path), options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        try FileManager.default.setAttributes([.posixPermissions: filePermissions], ofItemAtPath: path)
         return path
     }
 

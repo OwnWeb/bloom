@@ -119,6 +119,32 @@ struct BridgeRegistrationTests {
             FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
         )
         #expect(mode.int16Value == 0o600)
+        let directoryMode = try #require(
+            FileManager.default.attributesOfItem(atPath: directory)[.posixPermissions] as? NSNumber
+        )
+        #expect(directoryMode.int16Value == 0o700)
+    }
+
+    @Test("the sandbox group can traverse and read its Claude config")
+    func claudeConfigCanBeSharedWithSandboxGroup() throws {
+        let directory = TestScratch.unique("bridge-config-shared")
+        let path = try BridgeRegistration.writeClaudeConfig(
+            attachment,
+            sessionID: SessionID("abc"),
+            directory: directory,
+            directoryPermissions: 0o750,
+            filePermissions: 0o640
+        )
+
+        let manager = FileManager.default
+        let directoryMode = try #require(
+            manager.attributesOfItem(atPath: directory)[.posixPermissions] as? NSNumber
+        )
+        let fileMode = try #require(
+            manager.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
+        )
+        #expect(directoryMode.int16Value == 0o750)
+        #expect(fileMode.int16Value == 0o640)
     }
 
     @Test("the Codex overrides carry the command, empty arguments and the environment")

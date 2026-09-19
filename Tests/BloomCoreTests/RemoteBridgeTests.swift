@@ -32,7 +32,7 @@ struct RemoteBridgeTests {
         }
     }
 
-    func fixture(bridgeSocketPath: String? = nil) async throws -> Fixture {
+    func fixture(bridgeSocketPath: String? = nil, sandbox: MachineSandbox? = nil) async throws -> Fixture {
         let store = try makeTestStore("remote-bridge")
         let repo = try await store.upsert(Repo(name: "bloom", path: TestScratch.unique("repo")))
         let path = TestScratch.unique("worktree")
@@ -46,7 +46,9 @@ struct RemoteBridgeTests {
                 agents.make(session: session, store: store, environment: environment, bridge: bridge)
             },
             installedAgents: { [.claudeCode, .codex] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50),
-            bridgeSocketPath: bridgeSocketPath, bridgeShimPath: "/usr/local/bin/bloom-bridge"
+            bridgeSocketPath: bridgeSocketPath,
+            bridgeShimPath: "/usr/local/bin/bloom-bridge",
+            sandbox: sandbox
         )
         try await runtime.start()
         return Fixture(store: store, workspace: workspace, orchestrator: orchestrator, runtime: runtime, agents: agents)
@@ -301,10 +303,16 @@ struct RemoteBridgeTests {
         await fixture.runtime.shutdown()
     }
 
-    @Test("with a socket, each chat's agent is launched with its own bridge registration, retired when the chat closes")
-    func registration() async throws {
+    @Test(
+        "with a socket, each chat's agent is launched with its own bridge registration, retired when the chat closes",
+        arguments: [false, true]
+    )
+    func registration(sandboxed: Bool) async throws {
         let socket = "/tmp/bloom-rb-\(UUID().uuidString.prefix(8)).sock"
-        let fixture = try await fixture(bridgeSocketPath: socket)
+        let fixture = try await fixture(
+            bridgeSocketPath: socket,
+            sandbox: sandboxed ? MachineSandbox() : nil
+        )
         let server = try #require(await fixture.runtime.bridge)
         defer { try? FileManager.default.removeItem(atPath: server.configDirectory) }
 
@@ -318,6 +326,19 @@ struct RemoteBridgeTests {
         #expect(FileManager.default.fileExists(atPath: config))
         #expect(handle.attachment.socketPath == socket)
         #expect(server.registry.identity(forToken: handle.attachment.token)?.sessionID == fixture.orchestrator.id)
+        let manager = FileManager.default
+        let socketMode = try #require(
+            manager.attributesOfItem(atPath: socket)[.posixPermissions] as? NSNumber
+        )
+        let directoryMode = try #require(
+            manager.attributesOfItem(atPath: server.configDirectory)[.posixPermissions] as? NSNumber
+        )
+        let configMode = try #require(
+            manager.attributesOfItem(atPath: config)[.posixPermissions] as? NSNumber
+        )
+        #expect(socketMode.int16Value == (sandboxed ? 0o660 : 0o700))
+        #expect(directoryMode.int16Value == (sandboxed ? 0o750 : 0o700))
+        #expect(configMode.int16Value == (sandboxed ? 0o640 : 0o600))
 
         let closed = await fixture.runtime.respond(to: CommandRequest(.closeChat(chatID: chat)), as: caller)
         #expect(closed.result == .accepted, "\(String(describing: closed.error))")

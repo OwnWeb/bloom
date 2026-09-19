@@ -49,6 +49,7 @@ public enum ServeCommand {
         FileHandle.standardError.write(Data((sandbox.map { "bloom-runner: agents run as \($0.user)\n" }
             ?? "bloom-runner: no sandbox user on this machine, so agents run as this process does\n").utf8))
         let binDirectory = layout.dataDirectory + "/bin"
+        let bridgeDirectory = sandbox == nil ? layout.dataDirectory : MachineSandbox.sharedDirectory
         // Who may be addressed, pulled from runbloom.app and refetched on a miss so that somebody
         // who joined the team this morning is addressable this afternoon. See `MachineMembers`.
         let members = MachineMembers { try await client.members() }
@@ -73,9 +74,9 @@ public enum ServeCommand {
             publishing: RemotePublishing { turnID in
                 try await client.gitCredentials(repository: configuration.repository, operation: .write, turnID: turnID).token
             },
-            // Short and under the data directory, because a Unix socket path has a length limit and
-            // only the machine's own user should reach it. The shim is bloom-bridge beside this binary.
-            bridgeSocketPath: layout.dataDirectory + "/bridge.sock",
+            // Short and group-shared when the sandboxed agent has to reach it. A machine without
+            // that second user keeps the socket beside its private data, as it did before.
+            bridgeSocketPath: bridgeDirectory + "/bridge.sock",
             runsSetup: configuration.runsSetup,
             briefing: BridgeBriefing.machine(
                 publicURL: configuration.publicURL, appPort: layout.appPort, reservedPorts: layout.reservedPorts
