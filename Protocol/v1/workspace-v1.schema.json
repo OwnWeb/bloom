@@ -2080,6 +2080,28 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "continue_after_merge"
+            },
+            "chat_id": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "run_script"
             },
             "id": {

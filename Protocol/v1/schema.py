@@ -117,6 +117,7 @@ OPERATIONS = {
     "rename_workspace": plain({"name": S}),
     "run_setup": plain(),
     "stop_setup": plain(),
+    "continue_after_merge": plain({}, {"chat_id": S}),
     "run_script": plain({"id": S}),
     "close_terminal": plain({"name": S}),
     "archive": plain({"confirmation_id": S}),

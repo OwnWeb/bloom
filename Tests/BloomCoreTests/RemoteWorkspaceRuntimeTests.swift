@@ -354,6 +354,21 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// The Mac's gate decides, so a workspace whose pull request has not merged is refused in the
+    /// Mac's own words, and moving the branch needs the ability to prompt as well as to write.
+    @Test("continue_after_merge is refused without a merged pull request, and to a caller who cannot prompt")
+    func continuingIsGated() async throws {
+        let fixture = try await fixture()
+        let refused = await fixture.runtime.respond(to: CommandRequest(.continueAfterMerge(chatID: nil)), as: Self.caller(Self.freek))
+        #expect(refused.error?.code == .conflict)
+        #expect(refused.error?.message == ContinuationRefusal.notMerged.sentence)
+
+        let writer = Self.caller(Self.seb, abilities: ["view", "files"])
+        let noPrompt = await fixture.runtime.respond(to: CommandRequest(.continueAfterMerge(chatID: nil)), as: writer)
+        #expect(noPrompt.error?.code == .missingAbility)
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a runtime with nobody to ask says so rather than pretending")
     func cloudWorkspacesNeedRunbloom() async throws {
         let fixture = try await fixture()

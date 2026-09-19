@@ -53,6 +53,8 @@ extension WorkspaceRuntime {
             return try await runSetupAgain()
         case .stopSetup:
             return try await stopSetup(by: caller.author?.name ?? "")
+        case .continueAfterMerge(let chatID):
+            return try await continueAfterMerge(chatID: chatID, as: caller)
         case .archivePreview:
             return .archivePreview(try await prepareArchive())
         case .archive(let confirmationID):
