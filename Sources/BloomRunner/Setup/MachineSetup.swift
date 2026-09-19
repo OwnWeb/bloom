@@ -285,6 +285,7 @@ public actor MachineSetup {
         currentLog = log
         defer { currentLog = nil; activity = nil }
         let environment = await scriptEnvironment()
+        await log.hide(await machineEnvironment.values.values)
         let scripts = MachineScripts.load(repo: layout.worktree)
         var succeeded = await runScript("setup", scripts.setup, timeout: timeouts.setup, environment: environment,
                                         log: log, continuing: false)
@@ -320,6 +321,7 @@ public actor MachineSetup {
         if interrupted { await log.note(Self.startingAgainNote) }
         await machineEnvironment.refresh()
         let environment = await scriptEnvironment()
+        await log.hide(await machineEnvironment.values.values)
         await log.endStep()
         await begin("git", log: log, continuing: interrupted)
         await configureGit(environment: environment, log: log)
@@ -394,6 +396,7 @@ public actor MachineSetup {
         await machineEnvironment.refresh()
         let environment = await scriptEnvironment()
         let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
+        await log.hide(await machineEnvironment.values.values)
         currentLog = log
         defer { currentLog = nil; activity = nil }
         moved(to: "configuring git")

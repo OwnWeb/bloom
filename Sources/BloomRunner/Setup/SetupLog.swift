@@ -26,6 +26,7 @@ actor SetupLog {
     /// Set once the run is filed. A flush that had already woken when `finish` ran would otherwise
     /// apply `runStarted` again and reopen a finished run.
     private var finished = false
+    private var hidden: [String] = []
 
     /// The row's own cap, `Workspace.setupLogLimit`, which is internal to the core. Held here too
     /// so the text kept in memory cannot grow without bound during a long run.
@@ -79,9 +80,27 @@ actor SetupLog {
     /// instead: the line keeps every character it had and stops being at the start of a line, which
     /// is the whole of what the marker means.
     func append(_ line: String) {
-        let safe = line.hasPrefix(Self.marker) ? " " + line : line
+        let masked = Self.masking(line, hiding: hidden)
+        let safe = masked.hasPrefix(Self.marker) ? " " + masked : masked
         stepFile?.append(safe)
         add(safe)
+    }
+
+    /// **The team's and the project's values never reach the log.** Scripts get them in their
+    /// environment, and a script that runs with `set -x` or prints its configuration writes them
+    /// out, into a log every viewer of the workspace can read and that is kept on disk (L5 in the
+    /// review of 19 September 2026). Each value is replaced wherever it appears in a line, longest
+    /// first so one value inside another is not half shown. Values under `shortestHidden`
+    /// characters are left, because masking `1` or `true` would hide every number and flag.
+    func hide(_ values: some Sequence<String>) {
+        hidden = Array(Set(values.filter { $0.count >= Self.shortestHidden })).sorted { $0.count > $1.count }
+    }
+
+    static let shortestHidden = 6
+    static let mask = "******"
+
+    static func masking(_ line: String, hiding values: [String]) -> String {
+        values.reduce(line) { $0.replacingOccurrences(of: $1, with: mask) }
     }
 
     /// What every line Bloom writes itself begins with. See `docs/WORKSPACE-PROTOCOL.md`.
