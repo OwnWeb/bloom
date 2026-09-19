@@ -28,11 +28,11 @@ struct OpeningHandoffTests {
         )
 
         #expect(await handoff.run(), "queued even though runbloom.app never heard")
-        let chats = try await fixture.store.sessions(workspaceID: fixture.session.workspaceID).count
+        let chats = try await fixture.store.sessions(workspaceID: fixture.runtime.workspaceID).count
 
         #expect(await handoff.run() == false, "the same opening again is not queued again")
         #expect(acknowledged.withLock { $0 } == 2, "but it is acknowledged again")
-        #expect(try await fixture.store.sessions(workspaceID: fixture.session.workspaceID).count == chats, "no second chat")
+        #expect(try await fixture.store.sessions(workspaceID: fixture.runtime.workspaceID).count == chats, "no second chat")
         await fixture.runtime.shutdown()
     }
 }
