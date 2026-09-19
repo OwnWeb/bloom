@@ -68,9 +68,16 @@ extension WorkspaceRuntime {
     }
 
     /// Runs the setup script again, by hand, with every chat quiet.
+    ///
+    /// **Answers once the run has started, not when it ends.** It used to hold the request open
+    /// for the whole script, which is minutes for a real project, past the timeouts of the clients
+    /// and proxies in between, so a slow setup that was going perfectly well read as a failed call.
+    /// What is refused is still refused on the spot (setup already running, an agent working, a
+    /// prompt waiting); what happens after is told the way every setup is, through the `setup`
+    /// events and the log, which is where a client was already watching it.
     private func runSetupAgain() async throws -> OperationResult {
         let workspace = try await workspace()
-        guard !holdsPromptsForSetup, workspace.setupState != .running else {
+        guard !holdsPromptsForSetup, workspace.setupState != .running, manualSetup == nil else {
             throw RemoteFailure(.busy, "Setup is already running.")
         }
         for id in try await chatIDs() {
@@ -88,12 +95,16 @@ extension WorkspaceRuntime {
         // setup script, and `WorkspaceManager.runSetup` files that as stopped rather than broken.
         let run = Task { await manager.runSetup(workspace: workspace, repo: repo, port: port, onOutput: { _ in }) }
         manualSetup = run
-        let succeeded = await run.value
+        Task { [weak self] in
+            let succeeded = await run.value
+            await self?.manualSetupEnded(succeeded: succeeded)
+        }
+        return .accepted
+    }
+
+    private func manualSetupEnded(succeeded: Bool) async {
         manualSetup = nil
         await setupFinished(succeeded: succeeded)
-        if run.isCancelled { throw RemoteFailure(.conflict, "Setup was stopped before it finished.") }
-        guard succeeded else { throw RemoteFailure(.internal, "Setup failed. Check the setup output before trying again.") }
-        return .accepted
     }
 
     /// Stops whichever setup is running: one somebody ran by hand, or the machine's own.

@@ -369,6 +369,28 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// **A slow setup that is going well must not read as a failed call.** The call answers once the
+    /// run has started, a second one while it runs is refused on the spot, and the outcome arrives
+    /// the way every setup's does, on the workspace row.
+    @Test("run_setup answers as soon as setup starts, refuses a second, and settles on the row")
+    func runSetupAnswersAtOnce() async throws {
+        let fixture = try await fixture()
+        let repo = try #require(try await fixture.store.repo(id: fixture.workspace.repoID))
+        try FileManager.default.createDirectory(atPath: repo.path + "/.bloom", withIntermediateDirectories: true)
+        try "[scripts]\nsetup = 'sleep 2'\n".write(toFile: repo.path + "/.bloom/settings.toml", atomically: true, encoding: .utf8)
+
+        let first = await fixture.runtime.respond(to: CommandRequest(.runSetup), as: Self.caller(Self.freek))
+        #expect(first.result == .accepted, "\(String(describing: first.error))")
+        let second = await fixture.runtime.respond(to: CommandRequest(.runSetup), as: Self.caller(Self.freek))
+        #expect(second.error?.code == .busy, "the first is still running")
+
+        // A cap on "never", not a measurement of the script.
+        await waitUntil("setup settles on the row", within: .seconds(30)) {
+            (try? await fixture.store.workspace(id: fixture.workspace.id))?.setupState == .succeeded
+        }
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a runtime with nobody to ask says so rather than pretending")
     func cloudWorkspacesNeedRunbloom() async throws {
         let fixture = try await fixture()
