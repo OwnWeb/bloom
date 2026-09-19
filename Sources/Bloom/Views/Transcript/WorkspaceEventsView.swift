@@ -101,6 +101,18 @@ struct WorkspaceEventsView: View, Equatable {
         return { @MainActor in Task { await session.run(.runSetup) } }
     }
 
+    /// Stopping a running setup, which both kinds can do: a worktree's script is this Mac's to end,
+    /// and a machine is told with `stop_setup`, which ends the step running and starts nothing
+    /// after it. Nil while nothing is running or for a reader who may not change files.
+    private var stopSetup: (@MainActor () -> Void)? {
+        if let model {
+            guard model.isRunningSetup else { return nil }
+            return { @MainActor in model.stopSetup() }
+        }
+        guard let session, session.allows("files"), session.state.setup?.state == "running" else { return nil }
+        return { @MainActor in Task { await session.run(.stopSetup) } }
+    }
+
     var body: some View {
         let events = events
 
@@ -115,6 +127,7 @@ struct WorkspaceEventsView: View, Equatable {
                     paneHeight: paneHeight,
                     model: model,
                     runSetupAgain: runSetupAgain,
+                    stopSetup: stopSetup,
                     onShowLogEnd: onShowLogEnd
                 )
             }
@@ -159,6 +172,8 @@ struct WorkspaceEventRow: View {
     /// What the Run setup again link does, or nil where this reader may not. Handed in rather than
     /// taken off the model, because a Cloud workspace has no model here and does have the verb.
     var runSetupAgain: (@MainActor () -> Void)?
+    /// What Stop setup does, handed in for the same reason. See `WorkspaceEventsView.stopSetup`.
+    var stopSetup: (@MainActor () -> Void)?
     /// See `endID`, and `WorkspaceEventsView.onShowLogEnd`.
     var onShowLogEnd: (@MainActor (Bool) -> Void)?
 
@@ -580,8 +595,8 @@ struct WorkspaceEventRow: View {
 
                     // No confirmation, unlike the run: stopping costs nothing that "Run setup
                     // again" on the failed row it leaves behind cannot give back.
-                    if showsStopSetup, let model {
-                        Button("Stop setup") { model.stopSetup() }
+                    if showsStopSetup, let stopSetup {
+                        Button("Stop setup", action: stopSetup)
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                             .font(Typo.caption)
@@ -629,7 +644,7 @@ struct WorkspaceEventRow: View {
 
     /// Whether this row offers to stop the run, which is for as long as the script is going.
     private var showsStopSetup: Bool {
-        event.kind == .setup && event.isRunning && model?.isRunningSetup == true
+        event.kind == .setup && event.isRunning && stopSetup != nil
     }
 
     /// Whether unfolding this row would actually show anything the reader cannot already see.

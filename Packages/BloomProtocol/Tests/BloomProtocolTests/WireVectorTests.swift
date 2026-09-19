@@ -156,6 +156,7 @@ enum WireExamples {
         ("save_notes", .saveNotes(text: "Check the retry limit")),
         ("rename_workspace", .renameWorkspace(name: "Queue retries")),
         ("run_setup", .runSetup),
+        ("stop_setup", .stopSetup),
         // Continuing after the merge, telling the agent in a chat of the caller's choosing. Without
         // `chat_id` the machine picks the most recent chat.
         ("continue_after_merge", .continueAfterMerge(chatID: "chat-1")),

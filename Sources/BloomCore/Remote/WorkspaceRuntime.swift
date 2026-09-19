@@ -291,11 +291,11 @@ public actor WorkspaceRuntime {
              .runSetup, .runScript, .closeTerminal, .archive, .history, .commitFiles, .commitPatch, .revertFile,
              .discardHunk:
             return try await performOnWorktree(operation, as: caller)
-        case .continueAfterMerge:
+        case .continueAfterMerge, .stopSetup:
             // The machine's half is the server branch's, which owns this runtime and is what a
             // machine runs. This branch only speaks the operation, so a runner built from it says
             // so rather than doing half of it.
-            throw RemoteFailure(.conflict, "This machine's runner cannot continue after a merge yet.")
+            throw RemoteFailure(.conflict, "This machine's runner cannot do that yet.")
         }
     }
 

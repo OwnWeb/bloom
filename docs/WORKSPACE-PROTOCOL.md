@@ -162,6 +162,7 @@ Changing the worktree (ability `files`, except where noted):
 | `discard_hunk` | `path`, `scope`, `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
 | `rename_workspace` | `name` | `accepted` |
 | `run_setup` | | `accepted` once setup has run again |
+| `stop_setup` | | `accepted`, and setup ends as `failed` with a note naming who stopped it: the step running is ended and nothing after it starts, services included. What finished stays installed, and `run_setup` does the rest. Stops the machine's own setup or one run by hand, whichever is running; `conflict` when neither is. A `run_setup` that was stopped answers `conflict` too |
 | `continue_after_merge` | `chat_id`, optional | `text`: the new branch. After the pull request merged: a new branch cut from the base in this worktree, the same session kept, and the agent told in `chat_id` or the most recent chat, as the person who asked. Refused with `conflict` and the Mac's own sentence when the pull request has not merged, an agent is working, a rebase is half done, or the worktree is on another branch or detached. Needs `prompt` as well as `files` |
 | `run_script` (`terminal`) | `id` | `terminal`: the terminal it runs in |
 | `close_terminal` (`terminal`) | `name` | `accepted` |

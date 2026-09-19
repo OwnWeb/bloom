@@ -115,6 +115,7 @@ OPERATIONS = {
     "discard_hunk": plain({"path": S, "scope": SCOPE, "patch": S}),
     "rename_workspace": plain({"name": S}),
     "run_setup": plain(),
+    "stop_setup": plain(),
     "continue_after_merge": plain({}, {"chat_id": S}),
     "run_script": plain({"id": S}),
     "close_terminal": plain({"name": S}),
