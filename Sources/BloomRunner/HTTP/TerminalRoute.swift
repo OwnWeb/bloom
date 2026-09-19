@@ -46,6 +46,7 @@ enum TerminalRoute {
         guard token.abilities.contains("view"), token.abilities.contains("terminal") else {
             throw RemoteFailure(.missingAbility, "Your access to this Bloom Cloud workspace does not include the terminal.")
         }
+        try token.refuseIfMintedForAnAgent()
         return token
     }
 
@@ -145,7 +146,8 @@ enum TerminalRoute {
                     // shell past the moment its owner's access narrowed.
                     guard let fresh = try? await dependencies.verifier.verify(raw, as: .session),
                           fresh.author?.userID == token.author?.userID,
-                          fresh.abilities.contains("view"), fresh.abilities.contains("terminal") else { continue }
+                          fresh.abilities.contains("view"), fresh.abilities.contains("terminal"),
+                          fresh.actor == nil else { continue }
                     await expiry.extend(to: fresh.expiresAt)
                 case .auth: continue
                 }

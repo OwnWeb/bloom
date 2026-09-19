@@ -102,6 +102,15 @@ public struct WorkspaceToken: Sendable, Hashable {
         return MessageAuthor(userID: subject, name: stated, email: address.isEmpty ? nil : address)
     }
 
+    /// Refuses a token minted for an agent in another workspace, at a door that is not the RPC one.
+    /// Such a token may send a message and nothing else (see `RemoteCaller.agentMayRun`), so it
+    /// does not watch the event stream and does not open a terminal.
+    public func refuseIfMintedForAnAgent() throws {
+        guard actor == nil else {
+            throw RemoteFailure(.missingAbility, "A token minted for an agent in another workspace can only send a message here.")
+        }
+    }
+
     /// A preview opened through a share link rather than by a member of the team.
     public var isShare: Bool { subject.hasPrefix("share:") }
 

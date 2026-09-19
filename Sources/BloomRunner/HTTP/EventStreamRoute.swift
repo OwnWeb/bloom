@@ -24,6 +24,7 @@ enum EventStreamRoute {
             do {
                 token = try await verifier.verify(request.bearerToken ?? "", as: .session)
                 guard token.abilities.contains("view") else { throw RemoteFailure(.missingAbility, "Your access does not include viewing this workspace.") }
+                try token.refuseIfMintedForAnAgent()
             } catch {
                 return WireResponses.failure(error)
             }
@@ -64,6 +65,7 @@ enum EventStreamRoute {
                 guard token.abilities.contains("view") else {
                     throw RemoteFailure(.missingAbility, "Your access does not include viewing this workspace.")
                 }
+                try token.refuseIfMintedForAnAgent()
                 try await streams.refresh(id, with: token)
                 return Response(status: .noContent)
             } catch {

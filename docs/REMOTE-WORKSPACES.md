@@ -152,15 +152,23 @@ environment.
 ### The workspace secret
 
 Generated at create, stored hashed on runbloom.app, written to the Sprite at
-`/etc/bloom/workspace.json` (mode 600) at bootstrap, and revoked on archive. It authorises the Sprite towards runbloom.app and nothing wider than its own workspace:
-posting its own summary, fetching git tokens for its own repository, fetching team and project
-environment, and starting a turn a user has already registered (below).
+`/etc/bloom/workspace.json` (mode 600) at bootstrap, and revoked on archive. It authorises the Sprite
+towards runbloom.app: posting its own summary, fetching git tokens for its own repository, fetching
+team and project environment, and starting a turn a user has already registered (below). **It also
+reaches past its own workspace**, while a turn is running and the team's switches allow it: listing
+the other workspaces that turn's person can open and minting a token to message one
+(`RunbloomPeers`), creating a Cloud workspace (`RunbloomCloudWorkspaces`), and mailing a member
+through `/addressed`.
 
 An agent in the Sprite has passwordless sudo and can read that file, and it can read the
-environment of its own process. That is accepted: the Sprite is the isolation boundary, everything
-reachable from it is scoped to one workspace, and the agent credential is visible to the agent in
-every design where the unmodified CLI runs. What narrows the damage is short lifetimes, a narrow
-secret, and (later, per project) the Sprite's DNS egress allowlist.
+environment of its own process, so it can make every one of those calls itself. The agent
+credential is visible to the agent in every design where the unmodified CLI runs, and within one
+workspace that is accepted. Beyond it, what holds is the other end: a token minted for an agent
+may only send a message on the receiving machine (see `RemoteCaller.agentMayRun`), runbloom.app
+limits minting per origin, and each switch is off by default. What narrows the damage otherwise is
+short lifetimes and (later, per project) the Sprite's DNS egress allowlist. Running the agent,
+terminals and scripts as a second Unix user without sudo, so that none of them can read the secret,
+is being designed after the security review of 19 September 2026.
 
 ## Agent credentials
 

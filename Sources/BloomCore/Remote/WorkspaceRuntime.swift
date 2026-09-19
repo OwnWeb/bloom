@@ -219,7 +219,7 @@ public actor WorkspaceRuntime {
             return CommandReply(commandID: request.commandID, error: WireError(.invalidRequest, "A command needs an id of up to 128 characters."))
         }
         do {
-            try caller.requires(request.operation.ability)
+            try caller.requires(request.operation)
         } catch {
             return CommandReply(commandID: request.commandID, error: RemoteFailure.wire(error))
         }

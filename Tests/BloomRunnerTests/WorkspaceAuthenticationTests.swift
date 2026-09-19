@@ -191,4 +191,49 @@ extension WorkspaceHTTPServerTests {
         #expect(queued.via != nil, "labelled from the signed claim, not from the body")
         await fixture.runtime.shutdown()
     }
+
+    /// **H1 in the review of 19 September 2026.** A token runbloom.app minted for an agent, holding
+    /// every ability a person can, reaches `workspace`, `new_chat` and `send` and nothing else: not
+    /// a file, a download, a transcript, the composer's permission mode or an answer to a question.
+    /// Every operation is tried, read from `Protocol/v1/vectors.json`, whose `schema.py --check`
+    /// holds one example of every kind the Swift type has, so a new operation is tried here the
+    /// day it gets its vector and is refused until `RemoteCaller.agentMayRun` names it.
+    @Test("a token minted for an agent can find a chat, open one and send, and do nothing else")
+    func anActorTokenCanOnlySend() async throws {
+        let fixture = try await fixture()
+        let token = fixture.issuer.session(overrides: ["act": ["sub": "bloom-workspace:01k5origin", "turn": "01jturn"]])
+        let vectors = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Protocol/v1/vectors.json").standardizedFileURL
+        let file = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: vectors)) as? [String: Any])
+        let requests = try #require(file["requests"] as? [String: [String: Any]])
+        let tried: [(name: String, kind: String, body: Data)] = try requests.sorted(by: { $0.key < $1.key }).map { name, request in
+            let kind = try #require((request["operation"] as? [String: Any])?["kind"] as? String)
+            return (name, kind, try JSONSerialization.data(withJSONObject: request))
+        }
+        try await fixture.server.application(port: 0).test(.router) { client in
+            for (name, kind, data) in tried {
+                let body = ByteBuffer(bytes: data)
+                try await client.execute(uri: "/_bloom/v1/rpc", method: .post, headers: Self.bearer(token), body: body) { response in
+                    let reply = try WireJSON.decode(CommandReply.self, from: Data(buffer: response.body))
+                    if ["workspace", "new_chat", "send"].contains(kind) {
+                        #expect(reply.error?.code != .missingAbility, "\(name) is what an agent's message needs")
+                    } else {
+                        #expect(reply.error?.code == .missingAbility, "\(name) was let through on an agent's token")
+                    }
+                }
+            }
+            try await client.execute(uri: "/_bloom/v1/events", method: .get, headers: Self.bearer(token)) { response in
+                #expect(response.status == .forbidden, "an agent's token watched the workspace")
+            }
+            try await client.execute(uri: "/_bloom/v1/streams/any/token", method: .post, headers: Self.bearer(token)) { response in
+                #expect(response.status == .forbidden, "an agent's token renewed a stream")
+            }
+        }
+        // Forty-three kinds when this was written; fewer means the vectors were not read.
+        #expect(Set(tried.map(\.kind)).count >= 43)
+        await #expect(throws: RemoteFailure.self, "an agent's token opened a terminal") {
+            _ = try await TerminalRoute.authorise(token, verifier: fixture.verifier)
+        }
+        await fixture.runtime.shutdown()
+    }
 }

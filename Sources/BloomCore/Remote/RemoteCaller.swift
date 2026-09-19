@@ -1,3 +1,4 @@
+import BloomProtocol
 import Foundation
 
 /// Who is asking the runtime for something, as the server established it from their token.
@@ -25,6 +26,29 @@ public struct RemoteCaller: Sendable, Hashable {
 
     /// Every ability a person can hold, and no author: the runtime's own calls, and tests.
     public static let server = RemoteCaller(author: nil, abilities: ["view", "prompt", "terminal", "files", "preview", "share"])
+
+    /// The ability `operation` needs, and for a token minted for an agent, whether it is one of the
+    /// three that `workspace_say` sends.
+    public func requires(_ operation: WorkspaceOperation) throws {
+        if agentOrigin != nil, !Self.agentMayRun(operation) {
+            throw RemoteFailure(.missingAbility, "A token minted for an agent in another workspace can only send a message here.")
+        }
+        try requires(operation.ability)
+    }
+
+    /// **What a token carrying `act` may do, whatever abilities it claims:** read the workspace to
+    /// find a chat, open one, and send into it, which is all `RunbloomPeers.say` does. Everything
+    /// else is refused, because the agent that caused the mint runs as a user that can read the
+    /// workspace secret, and a token that could read files, set a chat's permission mode or answer
+    /// a question would be that agent reaching into every workspace its person can open. The
+    /// security review of 19 September 2026 found exactly that, as H1. Listed rather than derived
+    /// from `ability`, so an operation added later is closed to agents until somebody opens it here.
+    public static func agentMayRun(_ operation: WorkspaceOperation) -> Bool {
+        switch operation {
+        case .workspace, .newChat, .send: true
+        default: false
+        }
+    }
 
     public func requires(_ ability: String) throws {
         guard abilities.contains("view"), abilities.contains(ability) else {

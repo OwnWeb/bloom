@@ -159,12 +159,17 @@ workspace (answered as if it did not exist), a removed member, a share guest, a 
 running and a switch that is off, and limits minting to 20 a minute and 100 an hour per origin. The
 machine refuses a crew chat before asking. See `RunbloomPeers`.
 
-**`prompt` on the other machine also allows stopping, renaming, closing and cancelling there as the
-person**, because that is what `prompt` means in the protocol. **The token never reaches the agent**:
-`bloom-runner` holds it for the one call it was minted for and uses it for `workspace`, `new_chat`
-and `send` and nothing else, so an agent can say something to another workspace and cannot stop or
-close anything in it. Widening what the tools do there is a change to `RunbloomPeers`, where the
-token lives, not to what runbloom.app mints.
+**The agent can mint such a token itself.** `bloom-runner` holds the token it asks for and uses it
+for `workspace`, `new_chat` and `send`, but the agent runs as a user with passwordless sudo, can
+read the workspace secret and a running turn's id, and so can call `POST .../tokens` directly. What
+holds is therefore the receiving machine: **a token carrying `act` may run `workspace`, `new_chat`
+and `send` and nothing else, whatever abilities it claims**, and is refused on the event stream and
+the terminal (`RemoteCaller.agentMayRun`, `WorkspaceToken.refuseIfMintedForAnAgent`, and
+`anActorTokenCanOnlySend`, which tries every operation in the vectors). An agent can say something
+to another workspace its person can open, labelled as an agent's, and cannot read a file there,
+stop or close anything, change a chat's permission mode or answer a question. The security review
+of 19 September 2026 found the wider version as H1; the structural fix, a second Unix user without
+sudo for the agent, is being designed.
 
 **What exists.** Nothing: no machine knows another's address, and no machine holds a token for
 another.
