@@ -22,7 +22,9 @@ struct RemoteWorkspaceRuntimeTests {
         createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil,
         models: @escaping WorkspaceRuntime.ModelDiscovery = { _ in [] },
         settings: String? = nil,
-        peers: WorkspacePeers? = nil
+        peers: WorkspacePeers? = nil,
+        lookUpMember: @escaping @Sendable (String) async -> MemberLookup = { _ in .unknown },
+        addressed: (@Sendable (AddressedReport) async -> Void)? = nil
     ) async throws -> Fixture {
         let store = try makeTestStore("remote-runtime")
         let repo = try await store.upsert(Repo(name: "bloom", path: TestScratch.unique("repo")))
@@ -39,6 +41,7 @@ struct RemoteWorkspaceRuntimeTests {
             store: store, workspaceID: workspace.id, gate: gate,
             makeRunner: { session, _, store, environment, _ in runners.make(session: session, store: store, environment: environment) },
             installedAgents: { [.claudeCode, .codex] }, models: models, runnerExitGrace: .milliseconds(50),
+            lookUpMember: lookUpMember, addressed: addressed,
             createCloudWorkspace: createCloudWorkspace, peers: peers
         )
         try await runtime.start()
@@ -65,6 +68,35 @@ struct RemoteWorkspaceRuntimeTests {
         let messages = try await fixture.store.messages(sessionID: fixture.session.id)
         #expect(messages.isEmpty)
         await fixture.runtime.shutdown()
+    }
+
+    /// M2 in the review of 19 September 2026: the report is what causes mail, and runbloom.app can
+    /// only check who wrote the message against the token the words arrived on.
+    @Test("a message to a person is reported with the sender's own token, and forgets it once sent")
+    func addressingCarriesTheSendersToken() async throws {
+        let reports = Mutex<[AddressedReport]>([])
+        let fixture = try await fixture(
+            lookUpMember: { .member(WorkspaceMember(userID: $0, name: "Seb", handle: "sebdd")) },
+            addressed: { report in reports.withLock { $0.append(report) } }
+        )
+        let audience = AudienceRecord(kind: "person", userID: "user-seb", mention: "@sebdd")
+        _ = try await fixture.runtime.send(fixture.session.id.rawValue, text: "@sebdd yours",
+                                           audience: audience, as: Self.caller(.init(userID: "u1", name: "Freek")))
+
+        let sent = try #require(reports.withLock { $0.first })
+        #expect(sent.senderToken == "token-for-u1")
+        #expect(sent.body["sender_token"]?.stringValue == "token-for-u1")
+        let stored = try #require(try await fixture.store.unsentAddressedReports().first)
+        #expect(stored.senderToken == "token-for-u1", "kept, so a retry after a restart can still prove it")
+        try await fixture.store.markAddressedReported(id: stored.id)
+        #expect(try await fixture.store.unsentAddressedReports().isEmpty)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a report written with no token says nothing about one")
+    func aReportWithNoTokenLeavesItOut() {
+        let report = AddressedReport(sessionID: SessionID("s"), userID: "u", connected: false, sentAt: Date(), from: .guest)
+        #expect(report.body["sender_token"] == nil)
     }
 
     /// What the machine found under a step travels in the summary, so runbloom.app decides on an

@@ -332,7 +332,7 @@ extension WorkspaceRuntime {
         // message sends no mail: the machine says what happened, the server says what it means.
         let report = AddressedReport(
             sessionID: session.id, userID: userID, connected: presence.isConnected(userID),
-            sentAt: message.createdAt, from: .of(caller.author), text: body
+            sentAt: message.createdAt, from: .of(caller.author), text: body, senderToken: caller.sessionToken
         )
         try? await store.recordAddressed(report)
         await addressed?(report)

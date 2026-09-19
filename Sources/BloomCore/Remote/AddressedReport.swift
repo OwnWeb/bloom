@@ -42,9 +42,17 @@ public struct AddressedReport: Sendable, Hashable {
     /// message and one recipient, so it can never carry anybody else's words. Capped at
     /// `textLimit`. Nil on a report written before the words were kept, which is sent without them.
     public var text: String?
+    /// **The sender's own session token, from the request that wrote the message**, so runbloom.app
+    /// can check the report against something the machine did not state itself: its signature,
+    /// this workspace, `sub` equal to `from.user_id`, no `act`, and `iat` within minutes of
+    /// `sent_at`. Expiry is not checked there, because a report can go late after a restart. The
+    /// review of 19 September 2026 found, as M2, that without it code on a machine could mail
+    /// anybody as anybody. A person's message never becomes a turn, which is why this is a token
+    /// and not a turn id. Nil for a message written with no token, on a Mac or by the server.
+    public var senderToken: String?
 
     public init(id: String = newID(), sessionID: SessionID, userID: String, connected: Bool,
-                sentAt: Date, from: Sender, text: String? = nil) {
+                sentAt: Date, from: Sender, text: String? = nil, senderToken: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.userID = userID
@@ -52,6 +60,7 @@ public struct AddressedReport: Sendable, Hashable {
         self.sentAt = sentAt
         self.from = from
         self.text = text
+        self.senderToken = senderToken
     }
 
     /// Enough for any message somebody writes to a colleague in a chat, and short enough that a
@@ -87,6 +96,7 @@ public struct AddressedReport: Sendable, Hashable {
             let excerpt = Self.excerpt(text)
             body["person_message"] = .object(["text": .string(excerpt), "truncated": .bool(excerpt != text)])
         }
+        if let senderToken, !senderToken.isEmpty { body["sender_token"] = .string(senderToken) }
         return .object(body)
     }
 }

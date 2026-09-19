@@ -296,6 +296,19 @@ runbloom.app escapes them, never stores or logs them, and keeps its own 2,000-ch
 mail. A report queued before the words were kept goes without the field, and the mail goes out as it
 did. Agreed with the control server on 19 September 2026.
 
+**It carries the sender's own session token, as `sender_token`**, the one the words arrived on, so
+runbloom.app checks the author against something the machine did not state itself. It refuses the
+whole report, and mails nobody, unless the token is its own signature, names this workspace, is a
+`session` token whose `sub` is `from.user_id`, carries no `act`, was issued between ten minutes
+before `sent_at` and a minute after, and was not revoked since; and `sent_at` is under a day old.
+Expiry is not checked, because a report can go late after a restart, which is also why the machine
+keeps the token with the report row until it is sent and then clears it. A message to a person never
+becomes a turn, so a turn id could not do this. **The limit, stated honestly:** code on the machine
+that can read the database can take a live token from it, so this narrows forging to people who were
+on this workspace in the last few minutes rather than ending it; running the agent as a user that
+cannot read the database is what ends it. Optional until every machine sends it, then required.
+Agreed with the control server on 19 September 2026, after the security review's M2.
+
 **A guest's message is reported too, and runbloom.app decides it sends no mail.** The machine says
 what happened and the server says what it means, so that policy is one deploy rather than a release
 to every machine, and there is an answer when somebody asks how often guests try to reach people who

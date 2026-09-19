@@ -1261,6 +1261,14 @@ public actor Store {
                     }
                 }
             },
+            // The sender's own session token, kept until the report is sent so a retry after a
+            // restart can prove who wrote the message. See `AddressedReport.senderToken`.
+            { db in
+                let reports = Set(try db.query("PRAGMA table_info(addressed_reports);").compactMap { $0.string("name") })
+                if !reports.contains("sender_token") {
+                    try db.execute("ALTER TABLE addressed_reports ADD COLUMN sender_token TEXT;")
+                }
+            },
         ]
 
         let current = Int(try db.readUserVersion())
@@ -4367,8 +4375,8 @@ public actor Store {
         try db.run(
             """
             INSERT OR IGNORE INTO addressed_reports
-                (id, session_id, user_id, connected, sent_at, from_kind, from_user_id, reported_at, text)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                (id, session_id, user_id, connected, sent_at, from_kind, from_user_id, reported_at, text, sender_token)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
             """,
             [
                 .text(report.id), .text(report.sessionID), .text(report.userID),
@@ -4376,6 +4384,7 @@ public actor Store {
                 .text(report.from.kind),
                 { if case .member(let id) = report.from { return .text(id) } else { return .null } }(),
                 report.text.map { .text($0) } ?? .null,
+                report.senderToken.map { .text($0) } ?? .null,
             ]
         )
     }
@@ -4392,12 +4401,15 @@ public actor Store {
                     : row.string("from_user_id").map { .member($0) } ?? .guest
                 return AddressedReport(id: id, sessionID: SessionID(session), userID: user,
                                        connected: (row.int("connected") ?? 0) == 1,
-                                       sentAt: Date(timeIntervalSince1970: sentAt), from: from, text: row.string("text"))
+                                       sentAt: Date(timeIntervalSince1970: sentAt), from: from, text: row.string("text"),
+                                       senderToken: row.string("sender_token"))
             }
     }
 
     public func markAddressedReported(id: String, at date: Date = Date()) throws {
-        try db.run("UPDATE addressed_reports SET reported_at = ? WHERE id = ?", [.double(date.timeIntervalSince1970), .text(id)])
+        // The token goes with it: it was kept only so this report could be sent.
+        try db.run("UPDATE addressed_reports SET reported_at = ?, sender_token = NULL WHERE id = ?",
+                   [.double(date.timeIntervalSince1970), .text(id)])
     }
 
     private static func audience(from row: Row) -> MessageAudience? {
