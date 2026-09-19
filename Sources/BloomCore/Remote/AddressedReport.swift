@@ -82,7 +82,8 @@ public struct AddressedReport: Sendable, Hashable {
         ]
         // **Named for what it is: words one person wrote to another.** Never a prompt and never
         // agent traffic, and the key says so to whoever reads the body at the other end.
-        if let text {
+        // Only with words in it: runbloom.app refuses an empty `text`, and a refused report mails nobody.
+        if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let excerpt = Self.excerpt(text)
             body["person_message"] = .object(["text": .string(excerpt), "truncated": .bool(excerpt != text)])
         }

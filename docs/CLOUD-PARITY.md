@@ -201,7 +201,7 @@ a Mac-only role for the person's own client, not an agent.
 | Local tool | On a machine | Could it be | Note |
 | --- | --- | --- | --- |
 | `whoami`, `chat_list`, `chat_read`, `workspace_diff`, `agent_*`, `cloud_setup` | yes | | reading tools are held to this workspace |
-| `workspace_start` | `cloud_workspace_start` | yes, v1 empty, v2 with the opening prompt | |
+| `workspace_start` | `cloud_workspace_start` | yes, with an optional opening prompt | the prompt is handed over once; see `OpeningHandoff` |
 | `workspace_list` | no | yes, through runbloom.app | needed by any cross-workspace tool |
 | `workspace_say` | no | yes, part 2 | |
 | `workspace_rename` | no | yes, trivially | the protocol already has `rename_workspace` |

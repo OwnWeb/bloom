@@ -21,6 +21,7 @@ struct AddressedReporterTests {
         #expect(body["person_message"]?["text"]?.stringValue == "@sebdd could you look at the migration?")
         #expect(body["person_message"]?["truncated"]?.boolValue == false)
         #expect(report().body["person_message"] == nil, "absent, so the mail goes out as it did")
+        #expect(report(text: "  ").body["person_message"] == nil, "runbloom.app refuses empty words, so none are sent")
     }
 
     /// runbloom.app refuses more than 16 KiB, and a refused report mails nobody, so the cut is by

@@ -184,6 +184,45 @@ struct RunbloomClientTests {
         }
     }
 
+    /// With a prompt, the creating chat's agent and model travel as `controls`, which runbloom.app
+    /// requires so the opening turn is registered with the agent whose key it hands out.
+    @Test func aPromptTravelsWithTheCreatingChatsControls() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("POST", "/cloud-workspaces", .json(201, ["workspace": [
+                "id": "01k5new", "name": "Spike", "state": "setting_up", "url": "https://runbloom.app/w/01k5new",
+            ]]))
+            let request = CloudWorkspaceRequest(order: CloudWorkspaceOrder(name: "Spike", prompt: "Try the retry queue"),
+                                                turnID: "01jturn", idempotencyKey: "key-1", agent: "codex", model: "gpt-5.6-sol")
+            _ = await client.createCloudWorkspace(request)
+            let sent = try #require(fake.requests("POST", "/cloud-workspaces").first?.json)
+            #expect(sent["prompt"] as? String == "Try the retry queue")
+            let controls = try #require(sent["controls"] as? [String: Any])
+            #expect(controls["agent"] as? String == "codex")
+            #expect(controls["model"] as? String == "gpt-5.6-sol")
+        }
+    }
+
+    @Test func anOpeningIsFetchedAndNoneIsNil() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("GET", "/opening", .json(200, ["opening": [
+                "turn_id": "01jopen", "prompt": "Try the retry queue", "controls": ["agent": "codex"],
+                "prompted_by": ["user_id": "01k5freek", "name": "Freek", "handle": "freek"], "expires_at": "2026-09-19T12:00:00Z",
+            ]]))
+            let opening = try #require(try await client.opening())
+            #expect(opening.turnID == "01jopen")
+            #expect(opening.prompt == "Try the retry queue")
+            #expect(opening.controls["agent"] == .string("codex"))
+            #expect(opening.promptedBy.userID == "01k5freek")
+
+            fake.script("GET", "/opening", .refusal(status: 404, code: "not_found", message: "No opening."))
+            #expect(try await client.opening() == nil, "a workspace a person made has none")
+
+            fake.script("DELETE", "/opening", .noContent)
+            try await client.acknowledgeOpening()
+            #expect(fake.requests("DELETE", "/opening").count == 1)
+        }
+    }
+
     @Test func expiryReadsWithAndWithoutAFraction() throws {
         let whole = try #require(RunbloomGitCredentialBody.date("2026-09-17T10:00:00Z"))
         let micro = try #require(RunbloomGitCredentialBody.date("2026-09-17T10:00:00.500000Z"))

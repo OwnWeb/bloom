@@ -17,6 +17,12 @@ extension RunbloomClient {
         body["branch"] = request.order.branch
         body["base_branch"] = request.order.baseBranch
         body["project"] = request.order.project
+        body["prompt"] = request.order.prompt
+        if request.order.prompt != nil, let agent = request.agent {
+            var controls: [String: Any] = ["agent": agent]
+            controls["model"] = request.model
+            body["controls"] = controls
+        }
         do {
             let data = try await send(.POST, "/cloud-workspaces", body: JSONSerialization.data(withJSONObject: body),
                                       headers: ["Idempotency-Key": request.idempotencyKey], expecting: [200, 201])

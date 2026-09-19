@@ -190,7 +190,14 @@ public enum ServeCommand {
         await awake.start()
         await measurements.start()
         // After the first summary and with the server about to listen, so setup can be watched live.
-        let setupRun = Task { await setup.run() }
+        // The opening prompt, when an agent created this workspace with one, after setup so it runs
+        // on an installed project; after a failed setup too, so the person sees why. See
+        // `OpeningHandoff`.
+        let openings = OpeningHandoff(client: client, runtime: runtime)
+        let setupRun = Task {
+            await setup.run()
+            if !Task.isCancelled { await openings.run() }
+        }
         // An update waits for this file to go: deleting it once listening is how a new release says
         // it came up, which works whether or not the script that restarted the service survived it.
         let application = server.application(port: layout.serverPort) { _ in

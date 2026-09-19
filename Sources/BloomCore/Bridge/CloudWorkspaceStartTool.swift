@@ -8,14 +8,23 @@ public struct CloudWorkspaceOrder: Sendable, Hashable {
     public var baseBranch: String?
     public var runSetup: Bool
     public var project: String?
+    /// The new workspace's first message, sent as the same person once its setup has run. Nil makes
+    /// an empty workspace for them to open.
+    public var prompt: String?
 
-    public init(name: String, branch: String? = nil, baseBranch: String? = nil, runSetup: Bool = true, project: String? = nil) {
+    public init(name: String, branch: String? = nil, baseBranch: String? = nil, runSetup: Bool = true, project: String? = nil,
+                prompt: String? = nil) {
         self.name = name
         self.branch = branch
         self.baseBranch = baseBranch
         self.runSetup = runSetup
         self.project = project
+        self.prompt = prompt
     }
+
+    /// runbloom.app refuses more, and the machine's own front refuses a body over 1 MiB before
+    /// runbloom.app ever sees it.
+    public static let promptLimit = 512 * 1_024
 }
 
 /// The workspace runbloom.app made. **All the agent will ever know about it**: nothing on a
@@ -54,11 +63,11 @@ public enum CloudWorkspaceAnswer: Sendable, Hashable {
 /// without asking, and an agent told "no such tool" cannot help anybody find the setting;
 /// runbloom.app's refusal names it, and that sentence is what the agent gets.
 ///
-/// **No `prompt` yet.** Delivering one means runbloom.app holding the words until the new machine
-/// boots, which its design says it never does. Freek approved it as a written exception on 18
-/// September 2026, a one-time handoff fetched by the new machine and deleted once it is stored, and
-/// until that handoff exists the workspace is made empty, the description says so, and the
-/// argument is not offered: a parameter that can only be refused is advice to a dead end.
+/// **`prompt` is handed over once.** Delivering one means runbloom.app holding the words until the
+/// new machine boots, which its design says it never does; Freek approved it as a written exception
+/// on 18 September 2026. The new machine fetches it with its own secret, keeps it, tells
+/// runbloom.app it has it, and runs it as the person who asked, on the creating chat's agent and
+/// model, after its setup. See `RemoteOpening`.
 public struct CloudWorkspaceStartTool: BridgeToolHandling {
     public typealias Starting = @Sendable (
         _ order: CloudWorkspaceOrder, _ sessionID: SessionID?, _ workspaceID: WorkspaceID
@@ -78,12 +87,14 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
         name: CloudWorkspaceStartTool.name,
         description: """
             Create another Bloom Cloud workspace in this project: a machine of its own, with its \
-            own branch, for a person to open. It is created as the person whose message you are \
-            answering, and it costs them real money for as long as it runs.
+            own branch. It is created as the person whose message you are answering, and it costs \
+            them real money for as long as it runs.
 
-            Nothing runs in it yet. It starts empty, with no agent working and no task, so do not \
-            tell anybody you handed work to it. Say what it is for, give them the url, and let them \
-            open it and write the first message themselves.
+            Pass 'prompt' to give it a task: an agent starts on it once the new workspace has set \
+            itself up, which takes minutes, as the same person, on the agent and model you are \
+            running on. It cannot see this conversation, so write the prompt as if to someone who \
+            has just opened the project. Leave 'prompt' out for an empty workspace a person opens \
+            and writes the first message in themselves.
 
             Only when the work genuinely needs its own branch and its own pull request. For help \
             on this branch, use agent_start instead, which costs nothing extra.
@@ -115,6 +126,10 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
                     "type": .string("boolean"),
                     "description": .string("Whether its setup scripts run. Defaults to true."),
                 ]),
+                "prompt": .object([
+                    "type": .string("string"),
+                    "description": .string("The new workspace's first task. Leave it out for an empty workspace."),
+                ]),
                 "project": .object([
                     "type": .string("string"),
                     "description": .string("Leave it out: from here only this project is supported."),
@@ -133,7 +148,11 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
             return .failure("Give the new workspace a name.")
         }
         var order = CloudWorkspaceOrder(name: name, branch: Self.text(request, "branch"),
-                                        baseBranch: Self.text(request, "base_branch"), project: Self.text(request, "project"))
+                                        baseBranch: Self.text(request, "base_branch"), project: Self.text(request, "project"),
+                                        prompt: Self.text(request, "prompt"))
+        if let prompt = order.prompt, prompt.utf8.count > CloudWorkspaceOrder.promptLimit {
+            return .failure("The prompt is longer than 512 KB. Write a shorter one, and put the rest in a file in the repository.")
+        }
         if let stated = request.param("run_setup"), stated != .null {
             guard let flag = stated.boolValue else { return .failure("run_setup is true or false.") }
             order.runSetup = flag
@@ -147,7 +166,9 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
                 "name": .string(workspace.name),
                 "state": .string(workspace.state),
                 "url": .string(workspace.url),
-                "note": .string("Created empty: no agent is working in it. Give the person the url to open it."),
+                "note": .string(order.prompt == nil
+                    ? "Created empty: no agent is working in it. Give the person the url to open it."
+                    : "Created. Its agent starts on the prompt once setup has run, which takes minutes. Give the person the url."),
             ]))
         }
     }

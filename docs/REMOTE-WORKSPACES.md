@@ -269,6 +269,17 @@ person was connected at that moment**, which is the fact only the machine holds.
 dedupes per message **and addressed person**, so a retry is free, and the id must never be reused:
 a repeat is treated as a retry and mails nobody, which fails without a symptom.
 
+**`cloud-workspaces` and `opening` hand a new workspace its first message**, the one written
+exception to runbloom.app never carrying agent traffic, approved by Freek on 18 September 2026. The
+creating machine sends `prompt` with `controls.agent` and `controls.model` from the chat that asked,
+never chosen by the agent, and runbloom.app registers the opening turn for that chat's person with
+that agent. The new machine, after setup on every boot, `GET`s `opening`, keeps it in its own
+database, `DELETE`s it (so runbloom.app forgets it), and only then queues it under that turn and
+person, where it waits behind setup like any prompt and starts through `turns/{id}/start`. **Kept
+before acknowledged**, so a machine that stops in between fetches the same opening again; **queued
+once per turn**, so a boot that finds its kept copy already queued does not queue it twice. A
+missing key in `controls` means the machine's own default for it. See `OpeningHandoff`.
+
 **It carries the words, as `person_message: {"text", "truncated"}`**, so the mail can say what was
 asked. Only the message that addressed that person, as typed with its mention, capped at 2,000
 characters and 16,000 bytes of UTF-8 and cut between characters, with `truncated` saying so. **The

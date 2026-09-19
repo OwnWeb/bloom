@@ -13,11 +13,17 @@ public struct CloudWorkspaceRequest: Sendable, Hashable {
     /// `WorkspaceRuntime.startCloudWorkspace`.
     public var turnID: String
     public var idempotencyKey: String
+    /// The creating chat's agent and model, sent with a prompt so the opening turn runs on what
+    /// the person was already using. Never chosen by the agent. Nil without a prompt.
+    public var agent: String?
+    public var model: String?
 
-    public init(order: CloudWorkspaceOrder, turnID: String, idempotencyKey: String) {
+    public init(order: CloudWorkspaceOrder, turnID: String, idempotencyKey: String, agent: String? = nil, model: String? = nil) {
         self.order = order
         self.turnID = turnID
         self.idempotencyKey = idempotencyKey
+        self.agent = agent
+        self.model = model
     }
 
     /// **The turn and the name, not the call.** A key per call would stop the machine's own retry
@@ -50,10 +56,19 @@ extension WorkspaceRuntime {
             return .refused("Only a chat a person is prompting can create a Bloom Cloud workspace, because it is "
                 + "created as that person and they pay for it. Ask from the chat they wrote to.")
         }
-        let request = CloudWorkspaceRequest(
+        var request = CloudWorkspaceRequest(
             order: order, turnID: turnID,
             idempotencyKey: CloudWorkspaceRequest.idempotencyKey(turnID: turnID, name: order.name)
         )
+        if order.prompt != nil, let session = try? await store.session(id: sessionID) {
+            // runbloom.app starts an opening turn with a Claude Code or a Codex key and nothing else.
+            guard [.claudeCode, .codex].contains(session.agentKind) else {
+                return .refused("Only a Claude Code or Codex chat can hand a new Bloom Cloud workspace its first task. "
+                    + "Create it without a prompt, and the person can write the first message there.")
+            }
+            request.agent = session.agentKind.wireName
+            request.model = session.model
+        }
         return await createCloudWorkspace(request)
     }
 }

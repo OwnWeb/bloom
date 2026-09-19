@@ -194,6 +194,54 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// The opening is queued once, under runbloom.app's turn and the person who asked, on the
+    /// creating chat's agent laid over this machine's defaults; a boot that finds the kept copy
+    /// again after queueing it does not queue it twice.
+    @Test("a kept opening becomes one queued prompt in a new chat, under its turn and its person")
+    func anOpeningIsQueuedOnce() async throws {
+        let fixture = try await fixture()
+        // Held behind setup, as every prompt is, which is also what keeps it in the queue to look at.
+        await fixture.runtime.setupStepStarted("setup")
+        let opening = RemoteOpening(turnID: "01jopen", prompt: "Try the retry queue", controls: ["agent": .string("codex")],
+                                    promptedBy: .init(userID: Self.freek.userID, name: "Freek", handle: "freek"))
+        try await fixture.runtime.storeOpening(opening)
+
+        let chat = try #require(try await fixture.runtime.deliverStoredOpening())
+        let session = try #require(try await fixture.store.session(id: chat))
+        #expect(session.agentKind == .codex, "the creating chat's agent, over this machine's Claude default")
+        let queued = try await fixture.store.pendingDeliveries(sessionID: chat)
+        #expect(queued.map(\.body) == ["Try the retry queue"])
+        #expect(queued.first?.remoteTurnID == "01jopen", "runbloom.app's turn, which is what start hands a key out for")
+        #expect(queued.first?.author?.userID == Self.freek.userID)
+
+        #expect(try await fixture.runtime.deliverStoredOpening() == nil, "nothing is kept once it is queued")
+        try await fixture.runtime.storeOpening(opening)
+        #expect(try await fixture.runtime.deliverStoredOpening() == chat, "a boot that finds it again finds it queued")
+        #expect(try await fixture.store.pendingDeliveries(sessionID: chat).count == 1)
+        #expect(try await fixture.store.sessions(workspaceID: fixture.workspace.id).count == 2, "no second chat")
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a prompt is sent with the creating chat's agent and model, never ones the agent chose")
+    func aPromptCarriesTheCreatingChat() async throws {
+        let gate = RemoteTestGate()
+        let asked = Mutex<[CloudWorkspaceRequest]>([])
+        let fixture = try await fixture(gate: gate, createCloudWorkspace: { request in
+            asked.withLock { $0.append(request) }
+            return .created(CloudWorkspaceCreated(id: "01k5new", name: request.order.name, state: "setting_up", url: "https://x"))
+        })
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Make a spike")),
+                                          as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Make a spike"] }
+
+        _ = await fixture.runtime.startCloudWorkspace(CloudWorkspaceOrder(name: "Spike", prompt: "Try it"), sessionID: fixture.session.id)
+        let request = try #require(asked.withLock { $0 }.first)
+        #expect(request.agent == fixture.session.agentKind.wireName)
+        #expect(request.model == fixture.session.model)
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a runtime with nobody to ask says so rather than pretending")
     func cloudWorkspacesNeedRunbloom() async throws {
         let fixture = try await fixture()
