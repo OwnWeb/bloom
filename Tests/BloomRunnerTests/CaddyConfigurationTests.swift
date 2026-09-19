@@ -141,3 +141,23 @@ struct ListeningPortsTests {
         #expect(ListeningPorts.current(paths: ["/no/such/file"]).isEmpty)
     }
 }
+
+/// Where the preview lands after its cookie is set: a path on this origin, and never anywhere else.
+@Suite("The preview's landing path")
+struct PreviewLandingTests {
+    @Test("a path on this origin is kept, with its query")
+    func keepsAPath() {
+        #expect(PreviewRoutes.landing("/dashboard") == "/dashboard")
+        #expect(PreviewRoutes.landing("/orders?status=open#top") == "/orders?status=open#top")
+        #expect(PreviewRoutes.landing(nil) == "/")
+    }
+
+    @Test("anything that could leave this origin, split the header or reach the machine lands on the root")
+    func refusesEverythingElse() {
+        for hostile in ["https://evil.example", "//evil.example/x", "/\\evil.example", "dashboard",
+                        "/a\r\nSet-Cookie: x=1", "/_bloom/preview/check", "/_bloom", "/_bloom?x=1",
+                        "/" + String(repeating: "a", count: 3_000)] {
+            #expect(PreviewRoutes.landing(hostile) == "/", "\(hostile) was let through")
+        }
+    }
+}

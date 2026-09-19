@@ -517,9 +517,12 @@ missing or bad token and with the reason `token_expired` when the token ran out.
 ## Preview
 
 Open `https://<machine>/_bloom/preview/enter?token=<preview token>` in a browser, top level. The
-machine sets `__Host-bloom-preview` (HttpOnly, Secure, SameSite=Lax, eight hours, one hour for a
-share link) and redirects to `/`. Every other path is the project's own app, reached only with that
-cookie; the app never sees the cookie.
+machine sets `__Host-bloom-preview` (HttpOnly, Secure, SameSite=Lax, one hour, for a person and a
+share link alike) and redirects to `/`, or to `path` when one is given: `&path=/dashboard`, for a
+`pane_requested` that named a page. **Only a path on this origin is taken**: it has to start with one
+`/`, carry no backslash or control character, stay out of `/_bloom`, and fit in 2,048 bytes; anything
+else lands on `/`, so the entrance can never be used as an open redirect. Every other path is the
+project's own app, reached only with that cookie; the app never sees the cookie.
 
 ## The client chapter
 

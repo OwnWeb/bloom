@@ -15,6 +15,22 @@ import Hummingbird
 enum PreviewRoutes {
     static let cookieName = "__Host-bloom-preview"
 
+    /// Where entering the preview lands: `path` when it is a path on this origin, `/` otherwise.
+    ///
+    /// **A redirect target is the classic open redirect**, and this one sits behind a token, which
+    /// makes a link through it look trustworthy. So only a path is taken, never a place: it has to
+    /// begin with one `/` (`//host` is another origin to a browser), carry no backslash (which some
+    /// browsers read as a slash) and no control character (which would split the header), and
+    /// stay out of `/_bloom`, which is this machine's own and never the app's. Anything else lands
+    /// on the root, as every preview did before this existed.
+    static func landing(_ path: String?) -> String {
+        guard let path, path.hasPrefix("/"), !path.hasPrefix("//"), !path.contains("\\"),
+              path.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }),
+              path != "/_bloom", !path.hasPrefix("/_bloom/"), !path.hasPrefix("/_bloom?"), path.utf8.count <= 2_048
+        else { return "/" }
+        return path
+    }
+
     /// **One hour, for a person and a share link alike**, and it is the longest-lived credential a
     /// machine honours. It used to be eight hours for a person, which made it the one thing a lost
     /// `revoke` left open for a working day: a removed person kept the running app, admin screens
@@ -102,7 +118,7 @@ enum PreviewRoutes {
             let cookie = await sessions.create(subject: token.subject, lifetime: lifetime)
             var headers = HTTPFields()
             headers[.setCookie] = "\(cookieName)=\(cookie); Path=/; Max-Age=\(Int(lifetime)); HttpOnly; Secure; SameSite=Lax"
-            headers[.location] = "/"
+            headers[.location] = Self.landing(request.uri.queryParameters.get("path"))
             headers[.cacheControl] = "no-store"
             return Response(status: .seeOther, headers: headers)
         }
