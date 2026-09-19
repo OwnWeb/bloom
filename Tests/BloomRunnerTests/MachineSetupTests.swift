@@ -244,7 +244,7 @@ struct MachineSetupTests {
         #expect(log.contains(SandboxRefusal.code))
         // And as a field, so the web keys its "Replace the machine" button off a code rather than
         // off words that will be reworded.
-        let record = await WorkspaceRuntime.failureCode(try await fixture.workspace())
+        let record = WorkspaceRuntime.failureCode(try await fixture.workspace())
         #expect(record == SetupFailureCode.needsFreshMachine.rawValue)
     }
 
