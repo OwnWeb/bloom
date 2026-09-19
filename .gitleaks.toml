@@ -25,6 +25,8 @@ regexes = [
   '''^Curve25519\.Signing\.PrivateKey$''',
   # Tools/icon: `BLEEDKEYS = gen10.BLEEDKEYS`, a list of layer names.
   '''^gen10\.[A-Z]+KEYS$''',
+  # SetupLogMaskingTests: a made-up key the setup log has to mask.
+  '''^sk-live-abcdef123456$''',
   # Redaction tests: the header of a private key and no key after it.
   '''^-----BEGIN OPENSSH PRIVATE KEY-----["']\)''',
 ]

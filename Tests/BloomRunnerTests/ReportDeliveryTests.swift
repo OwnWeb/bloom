@@ -66,7 +66,7 @@ struct ReportDeliveryTests {
         let delivery = ReportDelivery(sender: recorder.sender, sleep: recorder.instantSleep)
         await delivery.submitSummary(Self.data("s1"))
         await delivery.submitUsage(Self.data("u1"))
-        let delivered = await delivery.flush(timeout: .seconds(5))
+        let delivered = await delivery.flush(timeout: .seconds(30))
         #expect(delivered)
         #expect(recorder.summaries == ["s1"])
         #expect(recorder.usage == ["u1"])
@@ -90,7 +90,7 @@ struct ReportDeliveryTests {
         await delivery.submitSummary(Self.data("revision 3"))
         await gate.release()
 
-        let delivered = await delivery.flush(timeout: .seconds(5))
+        let delivered = await delivery.flush(timeout: .seconds(30))
         #expect(delivered)
         #expect(recorder.summaries == ["revision 1", "revision 3"])
     }
@@ -103,7 +103,7 @@ struct ReportDeliveryTests {
         await delivery.submitUsage(Self.data("2"))
         await delivery.submitUsage(Self.data("3"))
 
-        let delivered = await delivery.flush(timeout: .seconds(5))
+        let delivered = await delivery.flush(timeout: .seconds(30))
         #expect(delivered)
         #expect(recorder.usage == ["1", "2", "3"])
         #expect(recorder.attempts == 5)
@@ -147,7 +147,7 @@ struct ReportDeliveryTests {
 
         recorder.fail(Self.down)
         await delivery.submitUsage(Self.data("1"))
-        #expect(await delivery.flush(timeout: .seconds(5)))
+        #expect(await delivery.flush(timeout: .seconds(30)))
 
         #expect(recorder.usage == ["1"], "the report itself still got through on the retry")
         #expect(statuses.withLock { $0.allSatisfy { $0.unreachableSince == nil } },
@@ -168,7 +168,7 @@ struct ReportDeliveryTests {
                                          limit: nil, retryAfter: 1)
         recorder.fail(contentsOf: Array(repeating: busy, count: 6))
         await delivery.submitUsage(Self.data("1"))
-        #expect(await delivery.flush(timeout: .seconds(5)))
+        #expect(await delivery.flush(timeout: .seconds(30)))
 
         #expect(recorder.usage == ["1"], "the report is kept and tried again rather than dropped")
         #expect(statuses.withLock { $0.allSatisfy { $0.unreachableSince == nil } })
@@ -193,7 +193,7 @@ struct ReportDeliveryTests {
 
         // One that gets through. That moment is when contact was last had.
         await delivery.submitUsage(Self.data("1"))
-        #expect(await delivery.flush(timeout: .seconds(5)))
+        #expect(await delivery.flush(timeout: .seconds(30)))
         let reachedAt = clock.withLock { $0 }
         #expect(await delivery.status.unreachableSince == nil)
 
@@ -204,7 +204,7 @@ struct ReportDeliveryTests {
         // Enough failures, over enough time, to be an outage rather than a machine that blinked.
         recorder.fail(contentsOf: Array(repeating: Self.down, count: 8))
         await delivery.submitUsage(Self.data("2"))
-        #expect(await delivery.flush(timeout: .seconds(5)))
+        #expect(await delivery.flush(timeout: .seconds(30)))
         #expect(statuses.withLock { $0.compactMap(\.unreachableSince).first } == reachedAt)
 
         // And the report that got through cleared it, so a flap does not read as an outage that
@@ -247,7 +247,7 @@ struct ReportDeliveryTests {
         await delivery.submitUsage(Self.data("also rejected"))
         await delivery.submitUsage(Self.data("fine"))
 
-        let delivered = await delivery.flush(timeout: .seconds(5))
+        let delivered = await delivery.flush(timeout: .seconds(30))
         #expect(delivered)
         #expect(recorder.usage == ["fine"])
         #expect(recorder.attempts == 3)
@@ -321,10 +321,13 @@ private actor Gate {
     }
 }
 
-/// Polls a condition the delivery reaches on its own worker, for at most five seconds.
+/// Polls a condition the delivery reaches on its own worker. **Sixty seconds is a cap on infinity,
+/// not a measurement**: the sleeps are instant, so a working delivery gets there in milliseconds on
+/// a quiet machine. It was five, and on a loaded Linux runner the eight retries of the backoff test
+/// had reached six when it ran out.
 private func waitUntil(_ condition: @Sendable () -> Bool) async {
     let clock = ContinuousClock()
-    let deadline = clock.now + .seconds(5)
+    let deadline = clock.now + .seconds(60)
     while !condition(), clock.now < deadline {
         try? await Task.sleep(for: .milliseconds(5))
     }
