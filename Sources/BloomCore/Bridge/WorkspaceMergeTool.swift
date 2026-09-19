@@ -91,9 +91,9 @@ public typealias WorkspaceMergeRequesting =
 ///
 /// A workspace agent merging the work of a workspace it started is a different and more dangerous
 /// thing: it is an agent approving an agent's work and publishing it, with the review step nobody
-/// performed. Archiving and renaming a workspace it started are allowed because both keep
-/// everything and neither leaves the machine; a merge is published to a server other people share,
-/// and nothing on the far side restores it. So this stays with the owner.
+/// performed. Archiving a workspace it started and renaming any workspace are allowed because both
+/// keep everything and neither leaves the machine; a merge is published to a server other people
+/// share, and nothing on the far side restores it. So this stays with the owner.
 public struct WorkspaceMergeTool: BridgeToolHandling {
     /// How the pull request and the worktree's local work are read. Injected so every refusal can
     /// be tested without gh, a network or a real repository.

@@ -41,8 +41,8 @@ struct WorkspaceRenameToolTests {
 
     // MARK: - Who may call it
 
-    /// A workspace agent renames its own, or one it started, and the owner names one out loud,
-    /// which is the same split `workspace_start` draws over `project`.
+    /// A workspace agent gets its own by default and may name another out loud. The owner must
+    /// always name one because its connection is not sitting in a workspace.
     @Test("a workspace agent and the owner may call it")
     func roleGate() {
         let toolbox = BridgeToolbox(handlers: [WorkspaceRenameTool()])
@@ -120,7 +120,7 @@ struct WorkspaceRenameToolTests {
         #expect(try await store.workspace(id: workspace.id)?.name == "App redesign")
     }
 
-    // MARK: - A workspace agent renames its own, or one it started, and nothing else
+    // MARK: - A workspace agent renames its own, or another it names
 
     @Test("a workspace agent renames the workspace its token speaks for")
     func agentRenamesItsOwn() async throws {
@@ -144,71 +144,50 @@ struct WorkspaceRenameToolTests {
         #expect(json["branch"]?.stringValue == "bloom/redesign")
     }
 
-    /// A call that named another workspace and quietly got this one would look like it worked, so
-    /// a name outside what it started is refused rather than read as its own. Its own id is not
-    /// one it started either, and leaving the argument out is how that one is renamed.
-    @Test("a workspace agent naming one it did not start is refused rather than having the argument ignored")
-    func agentMayNotNameAnother() async throws {
-        let store = try makeTestStore("rename-named")
+    /// A coordinator is an ordinary workspace. Replacing it must not strand the names of the old
+    /// coordinator or the role workspaces that coordinator created.
+    @Test("a new coordinator renames workspaces created by a previous coordinator")
+    func agentRenamesAnyNamedWorkspace() async throws {
+        let store = try makeTestStore("rename-cross-workspace")
         let mine = try await seed(store)
-        let theirs = try await store.upsert(Workspace(
-            repoID: mine.repoID, name: "somebody else", branch: "b2",
+        let previousCoordinator = try await store.upsert(Workspace(
+            repoID: mine.repoID, name: "Old coordinator", branch: "b2",
             path: TestScratch.unique("worktree"), baseBranch: "main"
         ))
-        let startedByThem = try await started(by: theirs, named: "their helper", in: store)
+        let role = try await started(by: previousCoordinator, named: "Web client", in: store)
 
-        for given in ["somebody else", theirs.id.rawValue, "their helper", startedByThem.id.rawValue, mine.id.rawValue] {
-            let result = await WorkspaceRenameTool().call(
-                request(["name": .string("App redesign"), "workspace": .string(given)]),
-                as: agent(mine), store: store
-            )
-            #expect(result.isError)
-            #expect(result.text == WorkspaceRenameTrouble.namedAnother(given).sentence)
-        }
-
-        #expect(try await store.workspace(id: mine.id)?.name == "test")
-        #expect(try await store.workspace(id: theirs.id)?.name == "somebody else")
-        #expect(try await store.workspace(id: startedByThem.id)?.name == "their helper")
-    }
-
-    /// The agent that handed out a job is the one that knows what the job turned out to be.
-    @Test("a workspace agent renames one it started, by name or by id")
-    func agentRenamesOneItStarted() async throws {
-        let store = try makeTestStore("rename-started")
-        let mine = try await seed(store)
-        let helper = try await started(by: mine, named: "Foxglove", in: store)
-        // The same name on a workspace it did not start: only what it started is searched, so
-        // this is neither a match nor an ambiguity.
-        let unrelated = try await store.upsert(Workspace(
-            repoID: mine.repoID, name: "Foxglove", branch: "b3",
-            path: TestScratch.unique("worktree"), baseBranch: "main"
-        ))
-
-        let byName = await WorkspaceRenameTool().call(
-            request(["name": .string("Sentry importer"), "workspace": .string("foxglove")]),
+        let coordinatorResult = await WorkspaceRenameTool().call(
+            request([
+                "name": .string("Bloom Cloud: Coordinator History"),
+                "workspace": .string("old coordinator"),
+            ]),
             as: agent(mine), store: store
         )
-        #expect(!byName.isError, "\(byName.text)")
-        #expect(try await store.workspace(id: helper.id)?.name == "Sentry importer")
-        #expect(try answer(byName)["workspace_id"]?.stringValue == helper.id.rawValue)
+        #expect(!coordinatorResult.isError, "\(coordinatorResult.text)")
+        #expect(try await store.workspace(id: previousCoordinator.id)?.name == "Bloom Cloud: Coordinator History")
 
-        let byID = await WorkspaceRenameTool().call(
-            request(["name": .string("Sentry importer, v2"), "workspace": .string(helper.id.rawValue)]),
+        let roleResult = await WorkspaceRenameTool().call(
+            request([
+                "name": .string("Bloom Cloud: Web Client"),
+                "workspace": .string(role.id.rawValue),
+            ]),
             as: agent(mine), store: store
         )
-        #expect(!byID.isError, "\(byID.text)")
-        #expect(try await store.workspace(id: helper.id)?.name == "Sentry importer, v2")
-
+        #expect(!roleResult.isError, "\(roleResult.text)")
+        #expect(try await store.workspace(id: role.id)?.name == "Bloom Cloud: Web Client")
         #expect(try await store.workspace(id: mine.id)?.name == "test")
-        #expect(try await store.workspace(id: unrelated.id)?.name == "Foxglove")
     }
 
-    @Test("a name two workspaces it started share is refused, and neither is touched")
-    func startedAmbiguous() async throws {
-        let store = try makeTestStore("rename-started-ambiguous")
+    @Test("a shared name is ambiguous across all workspaces, and neither is touched")
+    func namedWorkspaceIsAmbiguous() async throws {
+        let store = try makeTestStore("rename-workspace-ambiguous")
         let mine = try await seed(store)
         let first = try await started(by: mine, named: "helper", in: store)
-        let second = try await started(by: mine, named: "Helper", in: store)
+        let otherCoordinator = try await store.upsert(Workspace(
+            repoID: mine.repoID, name: "other coordinator", branch: "b2",
+            path: TestScratch.unique("worktree"), baseBranch: "main"
+        ))
+        let second = try await started(by: otherCoordinator, named: "Helper", in: store)
 
         let result = await WorkspaceRenameTool().call(
             request(["name": .string("App redesign"), "workspace": .string("helper")]),
@@ -220,6 +199,21 @@ struct WorkspaceRenameToolTests {
         #expect(result.text.contains(second.id.rawValue))
         #expect(try await store.workspace(id: first.id)?.name == "helper")
         #expect(try await store.workspace(id: second.id)?.name == "Helper")
+    }
+
+    @Test("an unknown workspace named by an agent is refused with the names there are")
+    func agentNamesUnknownWorkspace() async throws {
+        let store = try makeTestStore("rename-workspace-unknown")
+        let mine = try await seed(store)
+
+        let result = await WorkspaceRenameTool().call(
+            request(["name": .string("App redesign"), "workspace": .string("missing")]),
+            as: agent(mine), store: store
+        )
+
+        #expect(result.isError)
+        #expect(result.text.contains("no workspace called 'missing'"))
+        #expect(result.text.contains("test"))
     }
 
     /// The workspace was archived away underneath a turn that was still running in it. The

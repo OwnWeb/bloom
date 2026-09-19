@@ -93,15 +93,14 @@ other ways to say so. It follows that regenerating the token from Settings cuts 
 what a revocation should do.
 
 Identity is minted by Bloom and handed to the CLI through the shim's environment, never claimed by
-the agent. That is what lets a tool be implicitly scoped: **nothing a workspace agent calls takes a
-workspace id as a parameter**, so there is nothing for a model to forge, mistype or hold on to after
+the agent. That is what lets a tool be implicitly scoped: a workspace agent names nothing when it
+acts inside its own worktree, so there is nothing for a model to forge, mistype or hold on to after
 it has gone stale. The owner's own client is the exception and has to be, because it is sitting in
 no workspace: `reveal`, `workspace_merge` and `workspace_rename` are named a workspace out loud,
 resolved against the rows that exist, and refused when a name is shared by two of them. A workspace
-agent calling `workspace_rename` or `workspace_archive` names none to act on its own, and may name
-only a workspace it started; any other is refused rather than quietly read as its own. Which
-workspaces it started is read off `WorkspaceOrigin.parentWorkspaceID`, written once when the start
-happened, so there is still nothing for the model to forge.
+agent also names one out loud for cross-workspace reads, chat management, messages and renames.
+`workspace_archive` keeps the narrower rule: an agent names only a workspace it started, read from
+`WorkspaceOrigin.parentWorkspaceID`, because that action removes a worktree.
 
 The token is **not a secret and must not be commented as one**. Any process running as the user can
 read `ps`, the mode 0600 config file and the socket itself, and an agent has the user's whole home
@@ -157,7 +156,7 @@ places: the listing, the dispatch and the gate.
 | `project_unhide` | Put it back, in the place it already had | | ✓ |
 | `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why | | ✓ |
 | `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. A workspace agent starts it in its own project, or in another one it names With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
-| `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own, or one it started (by name or id), for a workspace agent; any of them, named out loud, for the owner | ✓ | ✓ |
+| `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own by default, or any workspace named out loud by name or id; the owner must name one | ✓ | ✓ |
 | `workspace_archive` | Archive a workspace through normal safety checks, keeping its branch and history. For a workspace agent, its own once the turn asking for it has ended, or one it started, by id and at once; any of them, named out loud and at once, for the owner | ✓ | ✓ |
 | `workspace_merge` | Ask a workspace's own agent to merge its pull request | | ✓ |
 | `workspace_say` | Put a message in another workspace's chat, with the owner's authority, headed with the workspace, project and chat it came from. The owner can delete it from the receiving chat while it is queued. With `notify_when_done`, Bloom tells the calling chat once when the turn it caused finishes, fails or blocks on the owner. Refused past thirty messages to one workspace in ten minutes, or for the same words twice in that window, except from the owner's own client | ✓ | ✓ |
@@ -409,10 +408,9 @@ no force or branch-deletion argument. Already archived workspaces are a no-op. T
 self-approved for either role: removing a worktree is a question a person answers, and `reveal` can
 show candidates before the owner chooses which to archive.
 
-**Its arms are shaped like `workspace_rename`'s, and one of them answers differently.** The
-owner's own client takes an exact workspace id from `workspace_list`, is acted on at once, and only
-answers success after completion. A workspace agent passes nothing to archive its own: the token
-says which workspace is asking, so there is nothing to name and nothing to forge.
+The owner's own client takes an exact workspace id from `workspace_list`, is acted on at once, and
+only answers success after completion. A workspace agent passes nothing to archive its own: the
+token says which workspace is asking, so there is nothing to name and nothing to forge.
 
 **A workspace agent may also name, by `id`, a workspace it started, and no other.** That is the
 case that forced the widening: one workspace hands a job to another, the other reports back, and
@@ -440,6 +438,13 @@ the worktree, the pull request and the directory keep the names they have. That 
 loud in the tool's own description as well, because a model asked to "rename this workspace" that
 believed the branch moved with it would report something to the owner that never happened.
 
+A workspace agent may name any workspace for a rename, not only one it started. Coordinators are
+ordinary workspaces, and a replacement coordinator otherwise cannot correct the labels left by its
+predecessor. Every workspace agent works for the same owner, the changed label is immediately
+visible, and the result carries the old value for a one-call undo. The parentage restriction still
+belongs on `workspace_archive`, where the operation removes a worktree, but buys no protection for
+a label-only write.
+
 Nothing merges. `workspace_merge` **does not merge**: it composes the request Bloom's own Merge
 button composes and sends it into that workspace's chat as an ordinary message, so the agent runs
 `gh pr merge` there, in front of the owner, under whatever permission mode they set. Its
@@ -463,9 +468,10 @@ the two hiding tools stay with the owner, because they change the owner's sideba
 Naming another project changes where the worktree is cut and nothing else. The new workspace is
 still `.agent` origin with the caller as its parent, and every rule that reads parentage reads the
 parent's workspace id rather than its repository: the ceiling on running children counts it, the
-parent may rename and archive it by id, `workspace_say` and `workspace_diff` reach it by id, and it
-may not start workspaces of its own. It is drawn in the sidebar under the project it was started in,
-which is where its worktree is, and not under the parent's.
+parent may archive it by id, and it may not start workspaces of its own. Cross-workspace tools such
+as `workspace_rename`, `workspace_say` and `workspace_diff` reach it by id regardless of parentage.
+It is drawn in the sidebar under the project it was started in, which is where its worktree is, and
+not under the parent's.
 
 The spawn key is scoped by the parent, as before, and by the project as well when the parent named
 one other than its own. Otherwise the same prompt sent to two projects would be answered the second
