@@ -484,6 +484,34 @@
       ],
       "additionalProperties": false
     },
+    "MacMessage": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "via": {
+          "$ref": "#/$defs/Via"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "user_id",
+        "via",
+        "workspace"
+      ],
+      "additionalProperties": false
+    },
     "Member": {
       "type": "object",
       "properties": {
@@ -2667,6 +2695,22 @@
           },
           "required": [
             "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "mac_message"
+            },
+            "mac_message": {
+              "$ref": "#/$defs/MacMessage"
+            }
+          },
+          "required": [
+            "kind",
+            "mac_message"
           ],
           "additionalProperties": false
         },

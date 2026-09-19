@@ -54,6 +54,10 @@ public struct MachineClient: Sendable {
         request.timeoutInterval = timeout
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        // Which kind of client is watching, which the machine believes only for choosing which of
+        // one person's streams a `mac_message` goes down, so their browser is never handed a
+        // message meant for their Mac. This package is only ever Bloom on a Mac.
+        request.setValue("mac", forHTTPHeaderField: "Bloom-Client")
         if let cursor { request.setValue(String(cursor), forHTTPHeaderField: "Last-Event-ID") }
         let response: HTTPURLResponse
         let lines: AsyncThrowingStream<String, any Error>

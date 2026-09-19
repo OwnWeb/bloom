@@ -54,6 +54,9 @@ final class AppModel {
     /// which leaves every chat exactly as it was before the bridge existed rather than refusing to
     /// start one.
     @ObservationIgnored private(set) var bridge: BridgeServer?
+    /// The `mac_message` ids already put into a chat, so one sent down two streams goes in once.
+    /// See `AppModel+MacMessages`.
+    @ObservationIgnored var macMessagesDelivered = MacMessageLedger()
 
     private(set) var repos: [Repo] = []
     private(set) var workspaces: [Workspace] = []

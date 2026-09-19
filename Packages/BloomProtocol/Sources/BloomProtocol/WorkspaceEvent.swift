@@ -45,6 +45,9 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
     /// it may be asking nobody. The tool that sends this tells the agent how many clients were
     /// told, so an agent never reports opening something that did not open.
     case paneRequested(url: String?, chatID: String?, placement: String?)
+    /// A message from an agent here for a workspace on its person's Mac, sent only down that
+    /// person's streams. See `MacMessageRecord`.
+    case macMessage(MacMessageRecord)
     /// Who has the workspace open.
     case presence([PresenceRecord])
     /// The workspace's name, branch or pull request changed.
@@ -68,6 +71,7 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
         case .setupOutput: "setup_output"
         case .review: "review"
         case .paneRequested: "pane_requested"
+        case .macMessage: "mac_message"
         case .presence: "presence"
         case .workspace: "workspace"
         case .sleeping: "sleeping"
@@ -105,6 +109,7 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
             self = .paneRequested(url: try c.decodeIfPresent(String.self, forKey: .url),
                                   chatID: try c.decodeIfPresent(String.self, forKey: .chatID),
                                   placement: try c.decodeIfPresent(String.self, forKey: .placement))
+        case "mac_message": self = .macMessage(try Tagged.record(MacMessageRecord.self, kind: kind, from: decoder))
         case "presence": self = .presence(try c.decode([PresenceRecord].self, forKey: .users))
         case "workspace": self = .workspace(try Tagged.record(WorkspaceRecord.self, kind: kind, from: decoder))
         case "sleeping": self = .sleeping
@@ -135,6 +140,7 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
             try Tagged.encode(kind: kind, to: encoder)
             try c.encodeIfPresent(url, forKey: .url); try c.encodeIfPresent(chatID, forKey: .chatID)
             try c.encodeIfPresent(placement, forKey: .placement)
+        case .macMessage(let value): try Tagged.encode(kind: kind, to: encoder, record: value)
         case .presence(let users): try Tagged.encode(kind: kind, to: encoder); try c.encode(users, forKey: .users)
         case .workspace(let value): try Tagged.encode(kind: kind, to: encoder, record: value)
         case .sleeping: try Tagged.encode(kind: kind, to: encoder)

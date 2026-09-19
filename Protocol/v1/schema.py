@@ -166,6 +166,7 @@ EVENTS = {
     # `placement` is `split` or `tab`, absent meaning `tab`, which is what every client did before
     # the field existed.
     "pane_requested": plain({}, {"url": S, "chat_id": S, "placement": {"enum": ["split", "tab"]}}),
+    "mac_message": record("mac_message", "MacMessage"),
     "presence": plain({"users": array(ref("Presence"))}),
     "workspace": record("workspace", "Workspace"),
     "sleeping": plain(),
@@ -204,6 +205,8 @@ RECORDS = {
     "Audience": obj({"kind": {"enum": ["agent", "person"]}}, {"user_id": S, "mention": S}),
     # A label: an agent wrote this on its author's behalf, from this workspace and chat, by name.
     "Via": obj({"kind": {"enum": ["agent"]}}, {"workspace": S, "chat": S}),
+    # For a workspace on the Mac of the running turn's person, sent only down their streams.
+    "MacMessage": obj({"id": S, "user_id": S, "workspace": S, "text": S, "via": ref("Via")}),
     # Who may be addressed with `@`, which is not `presence`: that is who is here, and somebody who
     # is away is exactly who a mention is for. No addresses; a share-link guest reads this too.
     "Member": obj({"user_id": S, "name": S, "handle": S}),

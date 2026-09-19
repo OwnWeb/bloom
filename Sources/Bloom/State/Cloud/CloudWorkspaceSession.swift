@@ -302,6 +302,8 @@ final class CloudWorkspaceSession {
                 Task { await changes.refresh(quietly: changes.hasRead) }
             case .paneRequested(let url, let chatID, let placement):
                 Task { await openRequestedPane(url: url, chatID: chatID, placement: placement) }
+            case .macMessage(let record):
+                Task { await cloud.appModel?.receiveMacMessage(record) }
             case .turnEnded:
                 // A workspace that has just had files written to it is the definition of one whose
                 // changes are stale. The `review` event above is the machine volunteering that,

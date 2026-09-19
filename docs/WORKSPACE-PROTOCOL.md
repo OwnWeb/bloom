@@ -235,6 +235,7 @@ events. Then live events as they happen.
 | `message` | a transcript row | adds it to its chat, by `seq` |
 | `stream` | `chat_id`, `text`, `snapshot` | replaces the chat's streaming text when `snapshot` is true, appends otherwise |
 | `chat` | a chat | replaces its copy |
+| `mac_message` | a message for a local workspace on this Mac | **Bloom on a Mac only**: check `user_id` is the signed-in person, find the local workspace named `workspace`, and deliver `text` into it as a message from elsewhere, headed with `via`, never as typed words. Sent only down streams opened with `Bloom-Client: mac` by the running turn's person; deliver each `id` once |
 | `queue` | a chat's queued prompts and why it is paused | replaces its copy |
 | `questions` | a chat's waiting questions | replaces its copy |
 | `composer` | a chat's controls and `changed_by` | replaces its copy, and may say who changed it |
@@ -305,6 +306,12 @@ cookie; the app never sees the cookie.
 ## The client chapter
 
 What #163 kept inside its Swift client, written down so every client gets it right.
+
+### Which client is watching
+
+Bloom on a Mac opens the event stream with `Bloom-Client: mac`. The machine believes it only for
+choosing which of one person's own streams a `mac_message` goes down, so a browser holding the same
+person's stream is never handed a message meant for their Mac. Other clients send nothing.
 
 ### Opening a workspace
 

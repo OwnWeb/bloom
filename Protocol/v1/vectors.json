@@ -67,6 +67,20 @@
       },
       "kind" : "composer"
     },
+    "mac_message" : {
+      "kind" : "mac_message",
+      "mac_message" : {
+        "id" : "01k5mac000000000000000000",
+        "text" : "The migration is done on the Cloud branch; rebase yours on it.",
+        "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t",
+        "via" : {
+          "chat" : "Chat",
+          "kind" : "agent",
+          "workspace" : "Queue retries in the Cloud"
+        },
+        "workspace" : "Queue retries"
+      }
+    },
     "message" : {
       "kind" : "message",
       "message" : {
