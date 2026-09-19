@@ -132,7 +132,7 @@ struct BridgeRegistrationTests {
             attachment,
             sessionID: SessionID("abc"),
             directory: directory,
-            directoryPermissions: 0o750,
+            directoryPermissions: 0o2750,
             filePermissions: 0o640
         )
 
@@ -143,7 +143,9 @@ struct BridgeRegistrationTests {
         let fileMode = try #require(
             manager.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
         )
-        #expect(directoryMode.int16Value == 0o750)
+        // The config is written atomically through a new inode. Setgid is what makes that inode
+        // inherit the shared directory's group instead of the Runner's primary group.
+        #expect(directoryMode.int16Value == 0o2750)
         #expect(fileMode.int16Value == 0o640)
     }
 

@@ -315,6 +315,7 @@ struct RemoteBridgeTests {
         )
         let server = try #require(await fixture.runtime.bridge)
         defer { try? FileManager.default.removeItem(atPath: server.configDirectory) }
+        #expect(server.access.configDirectoryPermissions == (sandboxed ? 0o2750 : 0o700))
 
         let caller = RemoteCaller(author: RemoteWorkspaceRuntimeTests.freek, abilities: ["view", "prompt"], sessionToken: "token")
         let chat = fixture.orchestrator.id.rawValue
@@ -337,7 +338,10 @@ struct RemoteBridgeTests {
             manager.attributesOfItem(atPath: config)[.posixPermissions] as? NSNumber
         )
         #expect(socketMode.int16Value == (sandboxed ? 0o660 : 0o700))
-        #expect(directoryMode.int16Value == (sandboxed ? 0o750 : 0o700))
+        // This fixture lives directly under macOS /tmp, whose group the test user does not own,
+        // so the kernel may clear setgid. BridgeRegistrationTests exercises the full 02750 mode
+        // in an owned directory; this assertion still pins the traversal permissions here.
+        #expect(directoryMode.int16Value & 0o777 == (sandboxed ? 0o750 : 0o700))
         #expect(configMode.int16Value == (sandboxed ? 0o640 : 0o600))
 
         let closed = await fixture.runtime.respond(to: CommandRequest(.closeChat(chatID: chat)), as: caller)

@@ -32,7 +32,10 @@ public final class BridgeServer: Sendable {
         )
         public static let sharedGroup = Access(
             socketPermissions: 0o660,
-            configDirectoryPermissions: 0o750,
+            // Keep setgid on the directory so atomic config writes inherit `bloom-work` rather
+            // than the Runner's primary group. A 0640 file in that other group is invisible to
+            // the sandbox user even though the directory itself is traversable.
+            configDirectoryPermissions: 0o2750,
             configFilePermissions: 0o640
         )
     }
