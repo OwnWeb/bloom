@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import BloomClient
 import BloomCore
 import SwiftUI
@@ -32,15 +33,7 @@ enum CloudSettingsGallery {
         ]
     )
 
-    /// Bloom's mark, from the bundle's own resources, because the probe bundle has no compiled
-    /// icon. Not the installed app's icon through `NSWorkspace`: asking it for one greyed the whole
-    /// photograph, measured at 58 per cent on a white ground, whatever was then done with the image.
-    private static var mark: NSImage? {
-        Bundle.main.url(forResource: "BloomMark", withExtension: "svg").flatMap(NSImage.init(contentsOf:))
-    }
-
     static func render(into directory: String) -> [String] {
-        let mark = self.mark
         let pages: [(String, CloudSettingsPane.Phase)] = [("cloud-settings-signed-out", .signedOut), ("cloud-settings-signed-in", .signedIn(account))]
         var written: [String] = []
         for (name, phase) in pages {
@@ -48,10 +41,7 @@ enum CloudSettingsGallery {
                 let pane = CloudSettingsPane(
                     phase: phase, environment: environment,
                     agentsCreateCloudWorkspaces: .constant(name.hasSuffix("signed-in")),
-                    asksBeforeCloudWorkspaceStart: .constant(true), showsInSidebar: .constant(true), drawing: .drawn, actions: .init(),
-                    // Read, never written: the installed app's icon is the compiled mark this probe
-                    // bundle does not have.
-                    mark: mark
+                    asksBeforeCloudWorkspaceStart: .constant(true), showsInSidebar: .constant(true), drawing: .drawn, actions: .init()
                 )
                 .frame(width: 640)
                 .background(Palette.surface)
@@ -72,8 +62,9 @@ enum CloudSettingsGallery {
             }
         }
         written += renderQuestion(into: directory)
-        written += renderSidebarCard(into: directory, mark: mark)
-        written += renderSidebarList(into: directory, mark: mark)
+        written += renderMotion(into: directory)
+        written += renderSidebarCard(into: directory)
+        written += renderSidebarList(into: directory)
         return written
     }
 
@@ -81,7 +72,7 @@ enum CloudSettingsGallery {
     /// window never ordered in, drawn through `cacheDisplay` so the list's own insets and row
     /// chrome are AppKit's rather than a stand-in's. The window's vibrancy does not draw that way,
     /// so the ground is the sidebar's flat colour.
-    private static func renderSidebarList(into directory: String, mark: NSImage?) -> [String] {
+    private static func renderSidebarList(into directory: String) -> [String] {
         var written: [String] = []
         for dark in [false, true] {
             let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -94,7 +85,7 @@ enum CloudSettingsGallery {
                     Text("Projects").bold()
                 }
                 Section {
-                    CloudSidebarCard(isSigningIn: false, signIn: {}, cancelSignIn: {}, dismiss: {}, mark: mark, showsDismiss: true)
+                    CloudSidebarCard(isSigningIn: false, signIn: {}, cancelSignIn: {}, dismiss: {}, showsDismiss: true)
                         .padding(.top, Metrics.spacing)
                         .selectionDisabled()
                 }
@@ -124,7 +115,7 @@ enum CloudSettingsGallery {
     /// The sidebar's signed-out card, at the sidebar's width on its ground, at rest and under the
     /// pointer, light and dark. A heading row above it stands in for the Projects list, so the
     /// photograph shows the card against what it sits beneath.
-    private static func renderSidebarCard(into directory: String, mark: NSImage?) -> [String] {
+    private static func renderSidebarCard(into directory: String) -> [String] {
         var written: [String] = []
         for (state, hovered) in [("rest", false), ("hover", true)] {
             for dark in [false, true] {
@@ -132,7 +123,7 @@ enum CloudSettingsGallery {
                     Text("Projects").bold().foregroundStyle(Palette.textSecondary)
                     CloudSidebarCard(
                         isSigningIn: false, signIn: {}, cancelSignIn: {}, dismiss: {},
-                        mark: mark, showsDismiss: hovered
+                        showsDismiss: hovered
                     )
                 }
                 .padding(Metrics.spacingWide)
@@ -152,6 +143,51 @@ enum CloudSettingsGallery {
                 written.append(path)
             }
         }
+        return written
+    }
+
+    /// The hero's motion: four stills three seconds apart at full resolution, and a twelve second
+    /// GIF at eight frames a second to show the movement. Each frame is the real pane drawn with
+    /// `CloudHeroMotionView.apply(seconds:)` at that moment, cropped to the hero.
+    private static func renderMotion(into directory: String) -> [String] {
+        var written: [String] = []
+        func frame(at seconds: Double, scale: CGFloat) -> CGImage? {
+            let pane = CloudSettingsPane(
+                phase: .signedOut, environment: environment, agentsCreateCloudWorkspaces: .constant(false),
+                asksBeforeCloudWorkspaceStart: .constant(true), showsInSidebar: .constant(true),
+                drawing: .drawn, actions: .init(), motionSeconds: seconds
+            )
+            .frame(width: 640)
+            .background(Palette.surface)
+            .environment(\.colorScheme, .dark)
+            var image: CGImage?
+            NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
+                let renderer = ImageRenderer(content: pane)
+                renderer.scale = scale
+                image = renderer.cgImage
+            }
+            // The pane's padding, the hero and the same padding again below it.
+            let height = (20 + 148 + 20) * scale
+            return image?.cropping(to: CGRect(x: 0, y: 0, width: 640 * scale, height: height))
+        }
+        for seconds in [0.0, 3, 6, 9] {
+            guard let image = frame(at: seconds, scale: 2),
+                  let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { continue }
+            let path = "\(directory)/cloud-hero-\(Int(seconds))s.png"
+            try? png.write(to: URL(filePath: path))
+            written.append(path)
+        }
+        let path = "\(directory)/cloud-hero-motion.gif"
+        let count = 96
+        guard let gif = CGImageDestinationCreateWithURL(URL(filePath: path) as CFURL, "com.compuserve.gif" as CFString, count, nil) else {
+            return written
+        }
+        CGImageDestinationSetProperties(gif, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+        for index in 0..<count {
+            guard let image = frame(at: Double(index) / 8, scale: 1) else { continue }
+            CGImageDestinationAddImage(gif, image, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.125]] as CFDictionary)
+        }
+        if CGImageDestinationFinalize(gif) { written.append(path) }
         return written
     }
 

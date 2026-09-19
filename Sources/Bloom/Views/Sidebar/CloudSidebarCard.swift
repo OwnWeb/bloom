@@ -17,9 +17,6 @@ struct CloudSidebarCard: View {
     var signIn: () -> Void
     var cancelSignIn: () -> Void
     var dismiss: () -> Void
-    /// The mark. Nil is this app's own icon; the gallery passes one, because the probe bundle has
-    /// no compiled icon of its own.
-    var mark: NSImage?
     /// Forces the dismiss button into view, for a photograph of the hovered card.
     var showsDismiss = false
 
@@ -30,7 +27,8 @@ struct CloudSidebarCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.spacing) {
             HStack(spacing: Metrics.spacing) {
-                Image(nsImage: mark ?? NSApp.applicationIconImage)
+                // The canonical blue mark, never the running copy's tinted icon. See `Brand.mark`.
+                Image(nsImage: Brand.mark)
                     .resizable()
                     .frame(width: 24, height: 24)
                     .shadow(color: .black.opacity(0.45), radius: 4, y: 2)

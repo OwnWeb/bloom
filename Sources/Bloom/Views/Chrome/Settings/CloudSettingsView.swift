@@ -89,12 +89,9 @@ struct CloudSettingsPane: View {
     @Binding var showsInSidebar: Bool
     var drawing: Drawing
     var actions: Actions
-    /// The mark in the hero. Nil is this app's own icon; the gallery passes one, because the
-    /// probe bundle it runs in has no compiled icon of its own.
-    var mark: NSImage?
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var glows = false
+    /// The moment of the hero's motion a drawn pane shows. See `CloudHeroMotionPlan`.
+    var motionSeconds: Double = 0
 
     private static let corner: CGFloat = 12
     private static let heroHeight: CGFloat = 148
@@ -149,29 +146,23 @@ struct CloudSettingsPane: View {
 
     // MARK: - The hero
 
-    /// The brand's plinth, as the About window draws it: Depth with the water breathing in it, the
-    /// mark on a shadow, and the name in the display serif. The one addition is a slow glow behind
-    /// the mark, the runbloom.app gate's own "alive, not animated" breath, which stops for Reduce
-    /// Motion like the water does.
+    /// The brand's plinth, as the About window draws it: Depth with the water breathing in it and
+    /// the name in the display serif. The mark is Bloom's canonical blue one (`Brand.mark`), never
+    /// the running copy's icon, and it moves: `CloudHeroMotion` floats it on a breathing halo with
+    /// two machines on orbits round it and a band of light crossing now and then, in Core Animation,
+    /// paused while the window is hidden and still under Reduce Motion.
     private var hero: some View {
         ZStack(alignment: .leading) {
             ZStack {
                 Brand.depth
                 water
+                motion
             }
-            HStack(spacing: Metrics.gutter) {
-                Image(nsImage: mark ?? NSApp.applicationIconImage)
-                    .resizable()
-                    .frame(width: 64, height: 64)
-                    .shadow(color: .black.opacity(0.55), radius: 12, y: 7)
-                    // Behind the mark and outside its layout, so the glow widens nothing.
-                    .background {
-                        Circle()
-                            .fill(Brand.shallow)
-                            .frame(width: 84, height: 84)
-                            .blur(radius: 26)
-                            .opacity(glows ? 0.55 : 0.25)
-                    }
+            // Wider than the mark alone needs, so the orbits round it clear the name.
+            HStack(spacing: Metrics.gutter + Metrics.spacingWide * 2) {
+                // The mark is drawn by `motion`, which floats it; this holds its place in the row.
+                Color.clear
+                    .frame(width: Self.markSize, height: Self.markSize)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
                     Text(verbatim: "Bloom Cloud")
@@ -184,14 +175,30 @@ struct CloudSettingsPane: View {
                         .foregroundStyle(Brand.mistDim)
                 }
             }
-            .padding(.horizontal, Metrics.gutter + Metrics.spacingWide + Metrics.spacingWide)
+            .padding(.horizontal, Self.heroInset)
         }
         .frame(height: Self.heroHeight)
         .frame(maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
-        .onAppear {
-            guard drawing == .live, !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 3.5).repeatForever(autoreverses: true)) { glows = true }
+    }
+
+    private static let markSize: CGFloat = 64
+    private static let heroInset: CGFloat = Metrics.gutter + Metrics.spacingWide + Metrics.spacingWide
+
+    @ViewBuilder
+    private var motion: some View {
+        switch drawing {
+        case .live:
+            CloudHeroMotion(markCentreX: Self.heroInset + Self.markSize / 2, markSize: Self.markSize)
+        case .drawn:
+            GeometryReader { proxy in
+                if let still = CloudHeroMotionView.still(
+                    size: proxy.size, markCentreX: Self.heroInset + Self.markSize / 2,
+                    markSize: Self.markSize, seconds: motionSeconds
+                ) {
+                    Image(nsImage: still).resizable()
+                }
+            }
         }
     }
 

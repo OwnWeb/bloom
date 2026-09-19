@@ -298,7 +298,10 @@ compile_asset_catalogue
 # they are the exact bitmaps the download email on runbloom.app renders, copied from that
 # repository's public/mail/ rather than redrawn, because a product's own mark is not ours to
 # approximate. At 192 pixels for a mark drawn about twenty points wide they stay sharp on Retina.
-for art in Resources/Spatie*.pdf(N) Resources/BloomMenuBar.pdf(N) Resources/Maker*.png(N); do
+# BloomMark.svg is the canonical blue mark, drawn by the Bloom Cloud hero and the sidebar's Bloom
+# Cloud card rather than the app's own icon, which a dev or Cloud build tints another colour.
+# AppKit reads an SVG as vector art, as it does a PDF.
+for art in Resources/Spatie*.pdf(N) Resources/BloomMenuBar.pdf(N) Resources/BloomMark.svg(N) Resources/Maker*.png(N); do
   cp "$art" "$APP/Contents/Resources/"
 done
 
