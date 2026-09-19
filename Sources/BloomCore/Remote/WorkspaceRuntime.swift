@@ -35,6 +35,7 @@ public actor WorkspaceRuntime {
     let admissions = RemoteAdmissions()
     let reviewCache = RemoteReviewCache()
     var terminalService: RemoteTerminals?
+    var lastJournalPrune: Date?
     /// Disk work running off the actor, and whose searches are among it. See `blocking`.
     var blockingInFlight = 0
     var searchesInFlight: Set<String> = []
@@ -167,6 +168,7 @@ public actor WorkspaceRuntime {
         publishedCursor = try await store.latestMessageID(workspaceID: workspaceID)
         try await refreshPublishedState(publishing: false)
         try await queue().restore(sessions: chatIDs())
+        await pruneJournal()
         observation = Task { [weak self, store] in
             for await domains in store.changes(of: [.messages, .sessions, .permissionAsks, .workspaces]) {
                 guard !Task.isCancelled, let self else { return }
@@ -231,7 +233,9 @@ public actor WorkspaceRuntime {
             presence.noteInput(author, at: Date())
             await report(.humanInput)
         }
-        guard request.operation.mutates else { return await execute(request, as: caller) }
+        // `mark_read` is not journalled: it needs only `view`, is harmless to repeat, and was the
+        // one way a viewer could write rows here (L2 in the review of 19 September 2026).
+        guard request.operation.mutates, request.operation.kind != "mark_read" else { return await execute(request, as: caller) }
         let key = Self.journalKey(request.commandID, caller: caller)
         if let task = commands[key] {
             _ = await task.value
@@ -248,17 +252,57 @@ public actor WorkspaceRuntime {
     /// Scoped to the person as well as the id. A command id is chosen by the client, so one keyed
     /// by id alone let anybody who learnt another person's id read that person's recorded reply.
     private static func journalKey(_ commandID: String, caller: RemoteCaller) -> String {
-        "remote.command." + (caller.author?.userID ?? "machine") + "." + commandID
+        journalPrefix + (caller.author?.userID ?? "machine") + "." + commandID
     }
 
+    static let journalPrefix = "remote.command."
+    /// How long a command's outcome is kept for a retry. A client retries within seconds or at its
+    /// next reconnect; a day covers a laptop closed overnight.
+    static let journalLifetime: TimeInterval = 24 * 60 * 60
+
+    /// **The request's hash, not the request.** An `upload_file` journalled whole left about 11 MB
+    /// of base64 in `settings` for ever, and a saved file its whole text (L2 in the review of
+    /// 19 September 2026). A retry is told apart from a reused id by the hash as well as by the
+    /// body. `request` is read from rows written before this, and never written.
     private struct JournalEntry: Codable {
-        var request: CommandRequest
+        var requestHash: String?
+        var request: CommandRequest?
         var reply: CommandReply?
         var recordedAt: Date
 
+        init(request: CommandRequest, reply: CommandReply?, recordedAt: Date) {
+            self.requestHash = Self.hash(request)
+            self.reply = reply
+            self.recordedAt = recordedAt
+        }
+
+        func matches(_ other: CommandRequest) -> Bool {
+            if let requestHash { return requestHash == Self.hash(other) }
+            return request == other
+        }
+
+        static func hash(_ request: CommandRequest) -> String {
+            RemoteFileOperations.revision((try? WireJSON.encode(request)) ?? Data())
+        }
+
         enum CodingKeys: String, CodingKey {
             case request, reply
+            case requestHash = "request_hash"
             case recordedAt = "recorded_at"
+        }
+    }
+
+    /// Forgets outcomes older than `journalLifetime`. Run at start and after every write, at most
+    /// once an hour, so the table holds a day of commands rather than every command ever sent.
+    func pruneJournal(now: Date = Date()) async {
+        guard lastJournalPrune.map({ now.timeIntervalSince($0) >= 60 * 60 }) ?? true else { return }
+        lastJournalPrune = now
+        guard let rows = try? await store.settings(prefix: Self.journalPrefix) else { return }
+        for (key, value) in rows {
+            let entry = try? WireJSON.decode(JournalEntry.self, from: Data(value.utf8))
+            if entry.map({ now.timeIntervalSince($0.recordedAt) > Self.journalLifetime }) ?? true {
+                try? await store.setSetting(key, nil)
+            }
         }
     }
 
@@ -280,7 +324,7 @@ public actor WorkspaceRuntime {
                 throw RemoteFailure(.outcomeUnknown, "The outcome of this command is unknown. Refresh before trying again.")
             }
             let entry = try WireJSON.decode(JournalEntry.self, from: Data(text.utf8))
-            guard entry.request == request else {
+            guard entry.matches(request) else {
                 throw RemoteFailure(.commandIDReused, "A command id cannot be reused for a different operation.")
             }
             return entry.reply ?? CommandReply(commandID: request.commandID, error: WireError(.outcomeUnknown,
@@ -293,6 +337,7 @@ public actor WorkspaceRuntime {
     private func journal(_ entry: JournalEntry, key: String) async throws {
         let data = try WireJSON.encode(entry)
         try await store.setSetting(key, String(decoding: data, as: UTF8.self))
+        await pruneJournal()
     }
 
     private func execute(_ request: CommandRequest, as caller: RemoteCaller) async -> CommandReply {

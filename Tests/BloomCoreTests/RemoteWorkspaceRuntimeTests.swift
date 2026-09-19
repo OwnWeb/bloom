@@ -198,6 +198,28 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// L2 in the review of 19 September 2026: whole requests kept for ever, uploads included.
+    @Test("the journal keeps a hash of the command for a day, and never a mark_read")
+    func theJournalKeepsLittleAndNotForLong() async throws {
+        let fixture = try await fixture()
+        let rename = CommandRequest(.renameChat(chatID: fixture.session.id.rawValue, title: "Secret plans"), commandID: "hashed")
+        _ = await fixture.runtime.respond(to: rename, as: Self.caller(Self.freek))
+        let kept = try #require(try await fixture.store.setting("remote.command.\(Self.freek.userID).hashed"))
+        #expect(!kept.contains("Secret plans"), "the request's words are not kept, only its hash")
+        #expect(kept.contains("request_hash"))
+
+        let read = CommandRequest(.markRead(chatID: fixture.session.id.rawValue, seq: 0), commandID: "read")
+        _ = await fixture.runtime.respond(to: read, as: Self.caller(Self.seb, abilities: ["view"]))
+        #expect(try await fixture.store.setting("remote.command.\(Self.seb.userID).read") == nil)
+
+        let stale = #"{"recorded_at":"2026-01-01T00:00:00.000Z","request_hash":"x"}"#
+        try await fixture.store.setSetting("remote.command.\(Self.freek.userID).old", stale)
+        await fixture.runtime.pruneJournal(now: Date().addingTimeInterval(2 * 60 * 60))
+        #expect(try await fixture.store.setting("remote.command.\(Self.freek.userID).old") == nil)
+        #expect(try await fixture.store.setting("remote.command.\(Self.freek.userID).hashed") != nil, "a fresh one stays")
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a command the server stopped in the middle of is unknown rather than run again")
     func anInterruptedCommandIsUnknown() async throws {
         let fixture = try await fixture()

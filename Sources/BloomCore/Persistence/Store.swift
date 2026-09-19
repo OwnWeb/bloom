@@ -4010,6 +4010,16 @@ public actor Store {
         }
     }
 
+    /// Every setting whose key starts with `prefix`, for a caller that keeps a family of them.
+    public func settings(prefix: String) throws -> [(key: String, value: String)] {
+        let pattern = prefix.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_") + "%"
+        return try db.query("SELECT key, value FROM settings WHERE key LIKE ? ESCAPE '\\'", [.text(pattern)]).compactMap { row in
+            guard let key = row.string("key"), let value = row.string("value") else { return nil }
+            return (key, value)
+        }
+    }
+
     public func setSetting(_ key: String, _ value: String?) throws {
         if let value {
             try db.run(
