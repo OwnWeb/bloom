@@ -76,16 +76,6 @@ struct WorkspaceFileAccessTests {
         let final = try RemoteReview.file(workspace: workspace, path: "nested/value.txt").text
         #expect(["first save", "second save"].contains(final))
     }
-}
-
-private actor RemoteFileSaveGate {
-    private var first: CheckedContinuation<Void, Never>?
-    private var count = 0
-    func arrive() async {
-        count += 1
-        if count == 2 { first?.resume(); first = nil; return }
-        await withCheckedContinuation { first = $0 }
-    }
 
     /// A settings file a project does not have yet is added with an empty revision, which means
     /// "only if there is none", and one that exists is never overwritten that way.
@@ -104,5 +94,15 @@ private actor RemoteFileSaveGate {
         let edited = try RemoteFileOperations.write(workspace: workspace, path: ".bloom/settings.toml",
                                                     text: "[[quick_prompts]]\nname = \"x\"\n", revision: created.revision)
         #expect(edited.revision != created.revision, "the revision it answered is the one to save with next")
+    }
+}
+
+private actor RemoteFileSaveGate {
+    private var first: CheckedContinuation<Void, Never>?
+    private var count = 0
+    func arrive() async {
+        count += 1
+        if count == 2 { first?.resume(); first = nil; return }
+        await withCheckedContinuation { first = $0 }
     }
 }
