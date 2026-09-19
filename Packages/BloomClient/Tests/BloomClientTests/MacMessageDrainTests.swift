@@ -32,12 +32,17 @@ struct MacMessageDrainTests {
         #expect(try await Fixtures.api(wrapped).macMessages().map(\.id) == ["m1"])
     }
 
-    @Test("acknowledging is a DELETE on the message")
+    @Test("acknowledging is a DELETE on the message, and a 404 on a repeat is already done")
     func acknowledges() async throws {
         let transport = FakeTransport()
         transport.on("DELETE", "/me/mac-messages/m1", .noContent())
         try await Fixtures.api(transport).acknowledgeMacMessage("m1")
         #expect(transport.requests(to: "/me/mac-messages/m1").map(\.httpMethod) == ["DELETE"])
+
+        // A repeat answers 404, which is the same as done.
+        let again = FakeTransport()
+        again.on("DELETE", "/me/mac-messages/m1", .json(#"{"message":"Not found."}"#, status: 404))
+        try await Fixtures.api(again).acknowledgeMacMessage("m1")
     }
 
     private func message(_ id: String) -> DepositedMacMessage {

@@ -51,9 +51,17 @@ public struct RunbloomAPI: Sendable {
         }
     }
 
-    /// Acknowledges one once it has landed. Idempotent: 204 every time.
+    /// Acknowledges one once it has landed.
+    ///
+    /// **A 404 is already acknowledged, not a failure.** runbloom.app answers 204 the first time and
+    /// 404 after, because the row is gone and "not yours" must look the same as "not there". A
+    /// retry after an answer that was lost on the way back is the ordinary way to meet it.
     public func acknowledgeMacMessage(_ id: String) async throws {
-        try await sendIgnoringBody("DELETE", "me/mac-messages/\(id)")
+        do {
+            try await sendIgnoringBody("DELETE", "me/mac-messages/\(id)")
+        } catch let refusal as RunbloomRefusal where refusal.status == 404 {
+            return
+        }
     }
 
     // MARK: Cloud workspaces
