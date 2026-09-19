@@ -150,13 +150,20 @@ struct PreviewLandingTests {
         #expect(PreviewRoutes.landing("/dashboard") == "/dashboard")
         #expect(PreviewRoutes.landing("/orders?status=open#top") == "/orders?status=open#top")
         #expect(PreviewRoutes.landing(nil) == "/")
+        #expect(PreviewRoutes.landing("/app/./orders/../orders") == "/app/./orders/../orders",
+                "a path that normalises to somewhere safe is sent as given")
     }
 
     @Test("anything that could leave this origin, split the header or reach the machine lands on the root")
     func refusesEverythingElse() {
         for hostile in ["https://evil.example", "//evil.example/x", "/\\evil.example", "dashboard",
                         "/a\r\nSet-Cookie: x=1", "/_bloom/preview/check", "/_bloom", "/_bloom?x=1",
-                        "/" + String(repeating: "a", count: 3_000)] {
+                        "/" + String(repeating: "a", count: 3_000),
+                        // Encoded or dotted, each of these is `/_bloom` or another host by the time a
+                        // browser or Caddy reads it; runbloom.app's check on the way in is literal.
+                        "/%5Fbloom/preview/check", "/%5fbloom", "/./_bloom/x", "/app/../_bloom/x",
+                        "/%2F%2Fevil.example", "/%252F%252Fevil.example", "/%5C%5Cevil.example",
+                        "/%255Fbloom/x", "/_BLOOM/x", "/a%0D%0ASet-Cookie:x=1"] {
             #expect(PreviewRoutes.landing(hostile) == "/", "\(hostile) was let through")
         }
     }

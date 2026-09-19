@@ -23,12 +23,46 @@ enum PreviewRoutes {
     /// browsers read as a slash) and no control character (which would split the header), and
     /// stay out of `/_bloom`, which is this machine's own and never the app's. Anything else lands
     /// on the root, as every preview did before this existed.
+    ///
+    /// **Checked as the browser and Caddy will read it, not as it arrived.** `/%5Fbloom/…` and
+    /// `/./_bloom/…` are `/_bloom/…` once decoded and normalised, and an encoded `//host` is a host;
+    /// runbloom.app's own check on the way in compares literally, so this one decodes, repeatedly
+    /// until nothing changes, and removes dot segments, and judges that. What is sent on is the
+    /// path as given, since it passed as the thing it turns into.
     static func landing(_ path: String?) -> String {
-        guard let path, path.hasPrefix("/"), !path.hasPrefix("//"), !path.contains("\\"),
-              path.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }),
-              path != "/_bloom", !path.hasPrefix("/_bloom/"), !path.hasPrefix("/_bloom?"), path.utf8.count <= 2_048
-        else { return "/" }
+        guard let path, path.utf8.count <= 2_048, isSafe(path), isSafe(normalised(path)) else { return "/" }
         return path
+    }
+
+    private static func isSafe(_ path: String) -> Bool {
+        let route = String(path.prefix { $0 != "?" && $0 != "#" })
+        return path.hasPrefix("/") && !path.hasPrefix("//") && !path.contains("\\")
+            && path.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
+            && route.lowercased() != "/_bloom" && !route.lowercased().hasPrefix("/_bloom/")
+    }
+
+    /// Percent-decoded until it stops changing (a few rounds at most, which is every layer anybody
+    /// nests), with `.` and `..` segments removed as RFC 3986 section 5.2.4 does.
+    static func normalised(_ path: String) -> String {
+        var decoded = path
+        for _ in 0..<4 {
+            guard let next = decoded.removingPercentEncoding, next != decoded else { break }
+            decoded = next
+        }
+        let route = String(decoded.prefix { $0 != "?" && $0 != "#" })
+        let rest = String(decoded.dropFirst(route.count))
+        var output: [Substring] = []
+        let segments = route.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
+        for segment in segments {
+            switch segment {
+            case ".": continue
+            case "..": if !output.isEmpty { output.removeLast() }
+            default: output.append(segment)
+            }
+        }
+        // A trailing `.` or `..` still names a directory.
+        if let last = segments.last, last == "." || last == ".." { output.append("") }
+        return "/" + output.joined(separator: "/") + rest
     }
 
     /// **One hour, for a person and a share link alike**, and it is the longest-lived credential a
