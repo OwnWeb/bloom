@@ -24,8 +24,26 @@ enum SetupTestSupport {
     }
 
     /// Runs a bash command and returns its output, throwing when it fails.
+    ///
+    /// **Retried when Linux says "Text file busy", and only then.** A script a test has just
+    /// written can be held open for writing by a child another test forked at that instant, which
+    /// inherits the descriptor, and exec refuses a file open for writing until it closes. That is a
+    /// race between parallel tests on one kernel, not anything the code under test did, and it
+    /// failed the gh wrapper test on #298's Linux run. A few quick tries outlast the other child.
     @discardableResult
     static func bash(_ command: String, in directory: String? = nil, environment: [String: String] = [:]) throws -> String {
+        var attempt = 0
+        while true {
+            do {
+                return try bashOnce(command, in: directory, environment: environment)
+            } catch let failure as CommandFailed where failure.description.contains("Text file busy") && attempt < 5 {
+                attempt += 1
+                Thread.sleep(forTimeInterval: 0.2)
+            }
+        }
+    }
+
+    private static func bashOnce(_ command: String, in directory: String?, environment: [String: String]) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["-c", command]

@@ -471,7 +471,10 @@ struct MachineSetupTests {
 
         let workspace = try await fixture.workspace()
         #expect(workspace.setupLog.contains("working 8"))
-        #expect(!workspace.setupLog.contains("with nothing new"), "a printing script is not a stall")
+        // The script's own step, not the whole run: with the watchdog at two seconds, a `git config`
+        // on a loaded runner can sit that long before the script starts, and that says nothing about
+        // whether printing counts as progress. It failed #298's Linux run exactly that way.
+        #expect(!workspace.setupLog.contains("Setup has been in prepare"), "a printing script is not a stall")
     }
 
     @Test("a failed step says which script it was")
