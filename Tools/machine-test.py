@@ -432,6 +432,9 @@ def main():
     parser.add_argument("--update", action="store_true",
                         help="also move the machine to another release through control/update, and back from a broken one")
     parser.add_argument("--keep", action="store_true", help="do not delete the machine, for looking at it afterwards")
+    parser.add_argument("--capture", type=pathlib.Path, metavar="DIR",
+                        help="save the raw replies a client reads, as the machine sent them, into DIR: composer for a "
+                             "chat that does not exist yet, and download of a picture where media_show copies one")
     arguments = parser.parse_args()
     if not arguments.package and not arguments.from_release:
         raise SystemExit("--package or --from-release is needed.")
@@ -582,6 +585,29 @@ def main():
                 assert service["state"] in ("waiting", "starting", "running", "not_ready", "crashed", "stopped"), service
             listed = ", ".join(s["name"] + " " + s["state"] for s in drawn)
             step("services: " + (listed or "(none declared)"))
+
+            # Raw replies for a client to test against, byte for byte what this release sends. A
+            # client cannot reach a machine of its own, and a fake it writes itself agrees with its
+            # own mistakes. A media row needs an agent to call media_show, which is a paid turn, so
+            # the picture is put where media_show would copy it and downloaded the way a client
+            # downloads one: the reply is the same either way.
+            if arguments.capture:
+                arguments.capture.mkdir(parents=True, exist_ok=True)
+
+                def raw(operation):
+                    status, _, body = https(url, "POST", "/_bloom/v1/rpc", token=session(), body={
+                        "protocol": "bloom-workspace", "version": 1, "command_id": secrets.token_hex(8), "operation": operation,
+                    }, timeout=90)
+                    assert status == 200, (operation["kind"], status, body[:300])
+                    return body
+
+                (arguments.capture / "composer.json").write_bytes(raw({"kind": "composer"}))
+                png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+                media = f".bloom/scratch/media/{hashlib.sha256(png).hexdigest()}.png"
+                run_on(name, f"mkdir -p ~/workspace/.bloom/scratch/media && printf '*\\n' > ~/workspace/.bloom/scratch/.gitignore "
+                             f"&& base64 -d > ~/workspace/{media}", stdin=base64.b64encode(png).decode())
+                (arguments.capture / "download.json").write_bytes(raw({"kind": "download", "path": media}))
+                step(f"captured composer and download into {arguments.capture}")
 
             # Reading is not human input; a rename is, so it starts the presence lease and the hold.
             rpc(url, session(), {"kind": "rename_workspace", "name": "Machine test, renamed"})
