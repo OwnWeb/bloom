@@ -88,9 +88,14 @@ public actor ServiceSupervisor {
     private var generation = 0
     private var operation: Task<Void, Never>?
 
-    public init(layout: MachineLayout, tuning: Tuning = .standard,
+    /// The user a service runs as, or nil for this process's own. A service is the project's code,
+    /// so it belongs in the sandbox with the agents and the scripts. See `MachineSandbox`.
+    private let sandbox: MachineSandbox?
+
+    public init(layout: MachineLayout, tuning: Tuning = .standard, sandbox: MachineSandbox? = nil,
                 observer: (@Sendable ([Status]) async -> Void)? = nil) {
         self.layout = layout
+        self.sandbox = sandbox
         self.tuning = tuning
         self.observer = observer
     }
@@ -236,9 +241,12 @@ public actor ServiceSupervisor {
                 continue
             }
             let generation = generation
+            let command = sandbox.map { $0.wrap(executable: "/bin/sh", arguments: ["-c", entry.service.command]) }
+                ?? (executable: "/bin/sh", arguments: ["-c", entry.service.command])
             let process = SupervisedProcess(
-                command: .init(executable: "/bin/sh", arguments: ["-c", entry.service.command],
-                               workingDirectory: layout.worktree, environment: environment),
+                command: .init(executable: command.executable, arguments: command.arguments,
+                               workingDirectory: layout.worktree,
+                               environment: sandbox.map { $0.environment(environment) } ?? environment),
                 logPath: logPath(for: name), logLimit: tuning.logLimit, backoff: tuning.backoff, stopGrace: tuning.stopGrace
             ) { [weak self] event in
                 await self?.handle(event, service: name, generation: generation)

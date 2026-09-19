@@ -25,7 +25,8 @@ struct MachineSetupTests {
         let gitConfig: String
 
         func setup(timeouts: MachineSetup.Timeouts = .standard, origin: String? = nil,
-                   stallAfter: TimeInterval = MachineSetup.stallAfter, runSetup: Bool? = nil) throws -> MachineSetup {
+                   stallAfter: TimeInterval = MachineSetup.stallAfter, runSetup: Bool? = nil,
+                   sandbox: MachineSandbox? = nil) throws -> MachineSetup {
             // Written only when the test is about it, because the key being absent is the state
             // every machine bootstrapped before it existed is in, and that has to keep working.
             let runSetupKey = runSetup.map { ", \"run_setup\": \($0)" } ?? ""
@@ -40,7 +41,8 @@ struct MachineSetupTests {
                 runtime: runtime, store: store, configuration: configuration, layout: layout,
                 environment: MachineEnvironment { ["ORDER_FILE": orderFile, "TEAM_VALUE": "from the team"] },
                 services: services, serverExecutable: root + "/fake-bloom-runner",
-                cloneURL: { _ in origin }, gitGlobalConfig: gitConfig, timeouts: timeouts, stallAfter: stallAfter
+                cloneURL: { _ in origin }, gitGlobalConfig: gitConfig, timeouts: timeouts, stallAfter: stallAfter,
+                sandbox: sandbox
             )
         }
 
@@ -146,6 +148,49 @@ struct MachineSetupTests {
         #expect(gitConfig.contains("useHttpPath = true"))
         #expect(FileManager.default.isExecutableFile(atPath: setup.binDirectory + "/gh"))
         await fixture.runtime.shutdown()
+    }
+
+    /// **Root for the first setup of untouched code, and for nothing else**, agreed with Freek on
+    /// 19 September 2026. The code a script runs is the worktree's, not the script's own text: an
+    /// agent that edits `package.json` would otherwise get root out of the next `npm install`.
+    @Test("a fresh clone of the base branch is pristine, and one commit is enough to end that")
+    func pristineIsTheBaseBranchAsItStands() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings, ".bloom/setup.sh": Self.setupScript],
+                                        executables: [".bloom/setup.sh"])
+        let setup = try fixture.setup()
+        await setup.run()
+        #expect(await setup.isPristineBaseCheckout(), "a workspace cut from main sits on main's own commit")
+
+        try SetupTestSupport.write("touched by the agent\n", to: fixture.worktree + "/note.txt")
+        _ = try SetupTestSupport.bash("git -c user.name=T -c user.email=t@b.local -c commit.gpgsign=false "
+            + "add -A && git -c user.name=T -c user.email=t@b.local -c commit.gpgsign=false commit -q -m touched", in: fixture.worktree)
+        #expect(await setup.isPristineBaseCheckout() == false, "code somebody has committed to is not the base branch as it stands")
+    }
+
+    /// The rerun is the case that matters: whatever the first setup was allowed to do, a rerun after
+    /// an agent has been at the worktree runs as the sandbox user.
+    @Test("a rerun goes through the sandbox, with the script inside it and the keys out of the arguments")
+    func rerunIsSandboxed() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings, ".bloom/setup.sh": Self.setupScript],
+                                        executables: [".bloom/setup.sh"])
+        let recorder = fixture.root + "/fake-sudo"
+        let script = """
+        #!/bin/bash
+        printf '%s\\n' "$*" >> "\(fixture.root)/sudo.log"
+        """
+        try SetupTestSupport.write(script + "\n", to: recorder, executable: true)
+        let sandbox = MachineSandbox(user: "bloom-agent", sudo: recorder)
+        let setup = try fixture.setup(sandbox: sandbox)
+        await setup.run()
+        #expect(fixture.order == ["prepare", "setup", "resume"], "the first setup of a pristine checkout is not sandboxed")
+        #expect(SetupTestSupport.read(fixture.root + "/sudo.log").isEmpty)
+
+        _ = await setup.rerunSetup()
+        let recorded = SetupTestSupport.read(fixture.root + "/sudo.log")
+        #expect(recorded.contains("--reuid=bloom-agent"))
+        #expect(recorded.contains("mount --bind /dev/null '/.sprite/api.sock'"))
+        #expect(recorded.contains(".bloom/setup.sh") || recorded.contains("setup.sh"))
+        #expect(!recorded.contains("from the team"), "the team's values stay in the environment, never in arguments")
     }
 
     @Test("a branch that exists on the remote is checked out as it is there")

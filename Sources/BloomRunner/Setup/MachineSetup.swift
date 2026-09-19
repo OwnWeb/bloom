@@ -66,6 +66,8 @@ public actor MachineSetup {
     private let services: ServiceSupervisor
     private let gitTools: MachineGitTools
     private let cloneURL: @Sendable (_ repository: String) -> String
+    /// The user scripts and services run as, or nil where there is none. See `MachineSandbox`.
+    private let sandbox: MachineSandbox?
     private let gitGlobalConfig: String?
     private let timeouts: Timeouts
     /// How long this instance waits; a test cannot sit through five minutes to prove a sentence.
@@ -97,8 +99,10 @@ public actor MachineSetup {
         cloneURL: @escaping @Sendable (_ repository: String) -> String = MachineSetup.gitHubCloneURL,
         gitGlobalConfig: String? = nil,
         timeouts: Timeouts = .standard,
-        stallAfter: TimeInterval = MachineSetup.stallAfter
+        stallAfter: TimeInterval = MachineSetup.stallAfter,
+        sandbox: MachineSandbox? = nil
     ) {
+        self.sandbox = sandbox
         self.runtime = runtime
         self.store = store
         self.configuration = configuration
@@ -328,6 +332,14 @@ public actor MachineSetup {
         await log.endStep()
 
         var succeeded = await cloneIfNeeded(environment: environment, log: log, continuing: interrupted)
+        // **The clone is the Runner's, so the sandbox user has to be let into it.** Provisioning did
+        // this at install, when there was no worktree yet, and it is idempotent, so it is run again
+        // here rather than repeating what it does. Its failure is not setup's failure: the Runner
+        // asks `MachineSandbox.available()` for whether to sandbox at all.
+        if succeeded, sandbox != nil, FileManager.default.isExecutableFile(atPath: Self.provisionScript) {
+            _ = await runProcess(Self.provisionScript, [], directory: layout.worktree, timeout: .seconds(120),
+                                 environment: environment, log: log)
+        }
         let scripts = MachineScripts.load(repo: layout.worktree)
         if succeeded, configuration.runsSetup {
             for problem in scripts.problems { await log.note(problem) }
@@ -337,8 +349,16 @@ public actor MachineSetup {
                 ("setup", scripts.setup, timeouts.setup),
                 ("resume", scripts.resume, timeouts.resume),
             ]
+            // Root for this one run only, and only on code nobody has touched yet.
+            let pristine = await isPristineBaseCheckout()
+            let privileged = !interrupted && pristine
             for (name, launch, timeout) in steps where succeeded && stoppedBy == nil {
-                succeeded = await runScript(name, launch, timeout: timeout, environment: environment, log: log, continuing: interrupted)
+                succeeded = await runScript(name, launch, timeout: timeout, environment: environment, log: log,
+                                            continuing: interrupted, privileged: privileged)
+            }
+            if !privileged, sandbox != nil {
+                await log.note("Setup ran as \(sandbox?.user ?? "the sandbox user"), which cannot install system packages, "
+                    + "because this workspace did not start from \(configuration.baseBranch) as it stands.")
             }
         } else if succeeded {
             await log.note(Self.setupNotAskedForNote(hasServices: !scripts.services.isEmpty))
@@ -658,8 +678,15 @@ public actor MachineSetup {
         return succeeded
     }
 
+    /// **`privileged` is the one exception to the sandbox, and it is narrow.** The first setup of a
+    /// pristine checkout runs as this process's user, which has sudo, because that is what lets a
+    /// project install packages, add a PPA or build a PHP extension. Everything after it, and any
+    /// first setup on code that is not the base branch's own, runs as the sandbox user: an agent can
+    /// edit a script, or the `package.json` a script runs, so a rerun as root would hand it root.
+    /// Agreed with Freek on 19 September 2026. See `MachineSandbox` and H1 in the security review.
     private func runScript(
-        _ step: String, _ launch: ScriptLaunch?, timeout: Duration, environment: [String: String], log: SetupLog, continuing: Bool
+        _ step: String, _ launch: ScriptLaunch?, timeout: Duration, environment: [String: String], log: SetupLog,
+        continuing: Bool, privileged: Bool = false
     ) async -> Bool {
         guard let launch else { return true }
         guard let command = MachineScripts.command(for: launch) else {
@@ -674,16 +701,22 @@ public actor MachineSetup {
         await begin(step, log: log, continuing: continuing)
         didWork = true
         let succeeded = await runProcess(command.executable, command.arguments, directory: layout.worktree, timeout: timeout,
-                                         environment: environment, log: log, step: step)
+                                         environment: environment, log: log, step: step, privileged: privileged)
         await log.endStep()
         return succeeded
     }
 
     private func runProcess(
         _ executable: String, _ arguments: [String], directory: String?, timeout: Duration, environment: [String: String],
-        log: SetupLog, step: String? = nil
+        log: SetupLog, step: String? = nil, privileged: Bool = true
     ) async -> Bool {
-        let process = StreamingProcess(executable: executable, arguments: arguments, cwd: directory, environment: environment)
+        // The machine's own work (git, the clone, provisioning) is privileged by default; a script
+        // from the repository asks for it explicitly and almost never gets it.
+        let command = privileged ? nil : sandbox
+        let launch = command.map { $0.wrap(executable: executable, arguments: arguments) }
+            ?? (executable: executable, arguments: arguments)
+        let process = StreamingProcess(executable: launch.executable, arguments: launch.arguments, cwd: directory,
+                                       environment: command.map { $0.environment(environment) } ?? environment)
         // Held so the watchdog can ask what is alive under it. The pid is read at the moment of
         // asking rather than kept, because `lines` is what starts the process and there is no pid
         // until then.
@@ -737,6 +770,23 @@ public actor MachineSetup {
         }
         return ending.isSuccess
     }
+
+    /// Whether the checkout is the base branch as it stands, which is what "nobody has touched this
+    /// code yet" means in practice: a workspace cut from `main` has HEAD at `origin/main`'s commit,
+    /// while one started from somebody's pull request does not. Read from git rather than from a
+    /// field, so it cannot be claimed.
+    func isPristineBaseCheckout() async -> Bool {
+        let base = configuration.baseBranch
+        guard !base.isEmpty else { return false }
+        guard let head = try? await Git.headSHA(of: layout.worktree),
+              let tip = try? await Git.mergeBase("refs/remotes/origin/" + base, "HEAD", in: layout.worktree) else { return false }
+        // The merge base of HEAD and the base branch is HEAD itself only when HEAD is on the base
+        // branch, which is what a workspace cut from it looks like before anybody commits.
+        return !head.isEmpty && head == tip
+    }
+
+    /// Provisioning, beside this build of the Runner. See `Tools/provision-sandbox.sh`.
+    static let provisionScript = "/opt/bloom/current/bin/provision-sandbox.sh"
 
     static func minutes(_ duration: Duration) -> String {
         let seconds = duration.components.seconds

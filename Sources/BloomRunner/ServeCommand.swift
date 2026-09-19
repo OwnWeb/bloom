@@ -166,7 +166,7 @@ public enum ServeCommand {
         // The supervisor's own states, on the workspace record, because a service that never
         // started is otherwise a sentence held in this process's memory and reachable only through
         // a preview page that a project's own proxy can make unreachable. See `ServiceRecord`.
-        let services = ServiceSupervisor(layout: layout, observer: { [weak runtime] statuses in
+        let services = ServiceSupervisor(layout: layout, sandbox: sandbox, observer: { [weak runtime] statuses in
             await runtime?.servicesChanged(statuses.map {
                 ServiceRecord(name: $0.name, state: $0.state.rawValue, restarts: $0.restarts,
                               message: $0.message, isHTTP: $0.isHTTP)
@@ -185,7 +185,7 @@ public enum ServeCommand {
 
         let caddy = CaddySupervisor(layout: layout, publicURL: configuration.publicURL)
         let setup = MachineSetup(runtime: runtime, store: store, configuration: configuration, layout: layout,
-                                 environment: machineEnvironment, services: services)
+                                 environment: machineEnvironment, services: services, sandbox: sandbox)
         await machineEnvironment.observe { _ in await setup.restartServices() }
         // `stop_setup` reaches the machine's own setup through here; one run by hand is the
         // runtime's own to stop. See `MachineSetup.stop(by:)`.
