@@ -12,13 +12,13 @@ public actor MachineSupervisor: MachineControl {
     private let environment: MachineEnvironment
     private let secret: WorkspaceSecret
     private let revocations: Revocations
-    private let updater: @Sendable (_ version: String, _ sha256: String, _ tag: String?) async throws -> Void
+    private let updater: @Sendable (_ version: String, _ sha256: String, _ tag: String?, _ downloadURL: String?) async throws -> Void
 
     public init(
         runtime: WorkspaceRuntime, awake: AwakeController, reporter: MachineReporter, streams: EventStreams,
         terminals: TerminalConnections, environment: MachineEnvironment, secret: WorkspaceSecret,
         revocations: Revocations,
-        updater: @escaping @Sendable (_ version: String, _ sha256: String, _ tag: String?) async throws -> Void
+        updater: @escaping @Sendable (_ version: String, _ sha256: String, _ tag: String?, _ downloadURL: String?) async throws -> Void
     ) {
         self.runtime = runtime
         self.awake = awake
@@ -63,8 +63,8 @@ public actor MachineSupervisor: MachineControl {
         secret.reload()
     }
 
-    public func update(version: String, sha256: String, tag: String?) async throws {
-        try await updater(version, sha256, tag)
+    public func update(version: String, sha256: String, tag: String?, downloadURL: String?) async throws {
+        try await updater(version, sha256, tag, downloadURL)
     }
 
     public func environmentChanged() async {

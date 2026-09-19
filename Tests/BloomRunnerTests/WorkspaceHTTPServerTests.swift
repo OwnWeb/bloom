@@ -161,6 +161,10 @@ struct WorkspaceHTTPServerTests {
                                      body: ByteBuffer(string: #"{"version":"1.4.0","sha256":"abc","tag":"runner-v1.4.0"}"#)) { response in
                 #expect(response.status == .accepted)
             }
+            try await client.execute(uri: "/_bloom/v1/control/update", method: .post, headers: Self.bearer(fixture.issuer.control()),
+                                     body: ByteBuffer(string: #"{"version":"1.5.0","sha256":"def","tag":"runner-v1.5.0","download_url":"https://objects.githubusercontent.com/a?sig=1"}"#)) { response in
+                #expect(response.status == .accepted)
+            }
             try await client.execute(uri: "/_bloom/v1/control/stop", method: .post, headers: Self.bearer(fixture.issuer.control()),
                                      body: ByteBuffer(string: #"{}"#)) { response in
                 #expect(response.status == .badRequest)
@@ -180,6 +184,7 @@ struct WorkspaceHTTPServerTests {
         }
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3rq"))
         #expect(fixture.control.calls.withLock { $0 }.contains("update 1.4.0 abc runner-v1.4.0"))
+        #expect(fixture.control.calls.withLock { $0 }.contains("update 1.5.0 def runner-v1.5.0 https://objects.githubusercontent.com/a?sig=1"))
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3r1"))
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3r2"))
         #expect(fixture.control.calls.withLock { $0 }.contains("secret-rotated"))
@@ -372,8 +377,8 @@ final class RecordingControl: MachineControl {
     func stop(limit: String) async { calls.withLock { $0.append("stop \(limit)") } }
     func limitsCleared() async { calls.withLock { $0.append("limits-cleared") } }
     func revoke(userID: String) async { calls.withLock { $0.append("revoke \(userID)") } }
-    func update(version: String, sha256: String, tag: String?) async throws {
-        calls.withLock { $0.append("update \(version) \(sha256) \(tag ?? "-")") }
+    func update(version: String, sha256: String, tag: String?, downloadURL: String?) async throws {
+        calls.withLock { $0.append("update \(version) \(sha256) \(tag ?? "-")" + (downloadURL.map { " \($0)" } ?? "")) }
     }
     func environmentChanged() async { calls.withLock { $0.append("environment") } }
     func secretRotated() async { calls.withLock { $0.append("secret-rotated") } }
@@ -391,4 +396,28 @@ actor NeverRunner: SessionRunner {
     nonisolated func cancelNow() {}
     nonisolated func terminateNow() {}
     func answer(requestID: String, decision: PermissionDecision) async {}
+}
+
+/// The repository went private on 19 September 2026, so an update downloads from a signed URL
+/// runbloom.app resolves, and only from where GitHub serves release assets.
+@Suite("Where an update downloads from")
+struct MachineUpdateDownloadTests {
+    @Test("a signed asset URL is taken, and anything else is refused without repeating it")
+    func onlyAssetHosts() throws {
+        #expect(try MachineUpdate.checkedDownloadURL(nil) == nil)
+        let signed = "https://release-assets.githubusercontent.com/github-production-release-asset/1?sig=x"
+        #expect(try MachineUpdate.checkedDownloadURL(signed) == signed)
+        for refused in [
+            "http://objects.githubusercontent.com/a", "https://github.com/spatie/bloom/releases/download/x",
+            "https://evil.example/objects.githubusercontent.com", "https://user:pass@objects.githubusercontent.com/a",
+            "file:///tmp/archive.tar.gz",
+        ] {
+            do {
+                _ = try MachineUpdate.checkedDownloadURL(refused)
+                Issue.record("\(refused) was accepted")
+            } catch let failure as RemoteFailure {
+                #expect(!failure.wire.message.contains(refused), "a bearer URL is never repeated")
+            }
+        }
+    }
 }

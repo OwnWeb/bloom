@@ -998,6 +998,10 @@ and its builder confirmed them.
   `token`, `expires_at` and `username`. `control/update` carries `version`, `sha256` and `tag`, and the
   machine downloads the asset from that tag, `v<version>` for a Bloom release or `runner-v<version>`
   for a runner-only test release, which `release.yml` builds without the app. Any other tag is refused.
+  Since the repository went private on 19 September 2026 it also carries `download_url`, a
+  short-lived signed URL runbloom.app resolves with its own credential; the machine fetches exactly
+  that, from a GitHub asset host only, with no redirect followed and without logging it, and an
+  expired one fails the update for runbloom.app to send again (`MachineUpdate`).
 - **Version 1 lays a tagged value out flat, except a whole record.** An operation is one object
   with `kind` and its fields beside it. A result or an event that carries a record puts it under a
   key named after the kind, `{"kind": "transcript", "transcript": {...}}`, because a transcript

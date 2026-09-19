@@ -115,6 +115,13 @@ check "install creates the service once" "1" "$(grep -c 'services create bloom' 
 run_bootstrap install 9.9.9 "$(printf '%064d' 0)"
 check "a release with the wrong sha256 is not installed" "no" "$([[ -d "$bootstrap_prefix/9.9.9" ]] && echo yes || echo no)"
 
+# A signed download URL is used instead of the release base, over https only, and never printed:
+# plain http is refused outright, which also shows the release base was not what got fetched.
+secret_url="http://127.0.0.1:9/signed?token=do-not-print-me"
+BLOOM_DOWNLOAD_URL="$secret_url" run_bootstrap install 2.0.1 "$sum_200"
+check "a download_url that is not https installs nothing" "no" "$([[ -d "$bootstrap_prefix/2.0.1" ]] && echo yes || echo no)"
+check "the download_url is never written to the log" "0" "$(grep -c 'do-not-print-me' "$root/bootstrap.log" || true)"
+
 # An update to a release that never answers: the script moves the symlink and leaves the marker for
 # the start wrapper, because the restart it asks for is what kills this script. The revert is the
 # wrapper's, and the checks above already cover it.

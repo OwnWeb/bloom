@@ -152,7 +152,9 @@ public enum ServeCommand {
         let terminals = TerminalConnections()
         let supervisor = MachineSupervisor(
             runtime: runtime, awake: awake, reporter: reporter, streams: streams, terminals: terminals,
-            environment: machineEnvironment, secret: secret, revocations: verifier.revocations, updater: { version, sha256, tag in try MachineUpdate.start(version: version, sha256: sha256, tag: tag) }
+            environment: machineEnvironment, secret: secret, revocations: verifier.revocations, updater: { version, sha256, tag, downloadURL in
+                try MachineUpdate.start(version: version, sha256: sha256, tag: tag, downloadURL: downloadURL)
+            }
         )
         // The supervisor's own states, on the workspace record, because a service that never
         // started is otherwise a sentence held in this process's memory and reachable only through
