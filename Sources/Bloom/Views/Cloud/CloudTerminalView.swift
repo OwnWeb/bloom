@@ -10,10 +10,15 @@ final class CloudTerminalView: SwiftTerm.TerminalView, @preconcurrency TerminalV
     var onInput: ((ArraySlice<UInt8>) -> Void)?
     var onResize: ((Int, Int) -> Void)?
 
+    /// The system's overlay scroller, faded the way a scroll view fades it. See
+    /// `TerminalScrollerPresenter`.
+    private(set) var scrollerPresenter: TerminalScrollerPresenter?
+
     override init(frame: CGRect) {
         super.init(frame: frame, font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
         terminalDelegate = self
         applyLook()
+        scrollerPresenter = TerminalScrollerPresenter(terminal: self)
     }
 
     /// **The same settings the local terminal draws with**, which is what the owner asked for and

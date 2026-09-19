@@ -136,7 +136,12 @@ final class BloomTerminalView: LocalProcessTerminalView {
         configure()
     }
 
+    /// The system's overlay scroller, faded the way a scroll view fades it. See
+    /// `TerminalScrollerPresenter`.
+    private(set) var scrollerPresenter: TerminalScrollerPresenter?
+
     private func configure() {
+        scrollerPresenter = TerminalScrollerPresenter(terminal: self)
         processObserver.owner = self
         processDelegate = processObserver
         updateTheme()

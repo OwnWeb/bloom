@@ -50,6 +50,17 @@ enum ReviewRunProbe {
             exit(failures.isEmpty ? 0 : 1)
         }
 
+        if CommandLine.arguments.contains("--terminal-scroller-only") {
+            progress("Checking the terminals' scroll bars are the system's")
+            TerminalScrollerProbe.run(check: check)
+            let result: JSONValue = .object([
+                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
+                "terminal": .string(TerminalScrollerProbe.summary),
+            ])
+            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         if CommandLine.arguments.contains("--cloud-settings-only"),
            let directory = ProbeHarness.value(for: "--review-run-probe") {
             progress("Drawing the Bloom Cloud settings pane, signed out and signed in")
