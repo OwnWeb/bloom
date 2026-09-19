@@ -63,7 +63,7 @@ enum CloudSettingsGallery {
         }
         written += renderQuestion(into: directory)
         written += renderArchive(into: directory)
-        written += renderMotion(into: directory)
+        written += renderHeroCompositions(into: directory)
         written += renderSidebarCard(into: directory)
         written += renderSidebarList(into: directory)
         return written
@@ -194,59 +194,38 @@ enum CloudSettingsGallery {
         return written
     }
 
-    /// The hero's motion: four stills three seconds apart at full resolution, and a twelve second
-    /// GIF at eight frames a second to show the movement. Each frame is the real pane drawn with
-    /// `CloudHeroMotionView.apply(seconds:)` at that moment, cropped to the hero.
-    private static func renderMotion(into directory: String) -> [String] {
+    /// The three plates the pane could wear, in both appearances, so the owner can pick one.
+    ///
+    /// The whole pane rather than the plate alone, cropped to the plate and what sits under it: a
+    /// composition is judged against the pane it heads, not on its own.
+    private static func renderHeroCompositions(into directory: String) -> [String] {
         var written: [String] = []
-        func frame(at seconds: Double, scale: CGFloat) -> CGImage? {
-            let pane = CloudSettingsPane(
-                phase: .signedOut, environment: environment, agentsCreateCloudWorkspaces: .constant(false),
-                asksBeforeCloudWorkspaceStart: .constant(true), showsInSidebar: .constant(true),
-                drawing: .drawn, actions: .init(), motionSeconds: seconds
-            )
-            .frame(width: 640)
-            .background(Palette.surface)
-            .environment(\.colorScheme, .dark)
-            var image: CGImage?
-            NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
-                let renderer = ImageRenderer(content: pane)
-                renderer.scale = scale
-                image = renderer.cgImage
+        for composition in CloudHeroArt.Composition.allCases {
+            for dark in [false, true] {
+                let pane = CloudSettingsPane(
+                    phase: .signedOut, environment: environment, agentsCreateCloudWorkspaces: .constant(false),
+                    asksBeforeCloudWorkspaceStart: .constant(true), showsInSidebar: .constant(true),
+                    drawing: .drawn, actions: .init(), composition: composition
+                )
+                .frame(width: 640)
+                .background(Palette.surface)
+                .environment(\.colorScheme, dark ? .dark : .light)
+                var image: NSImage?
+                NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+                    let renderer = ImageRenderer(content: pane)
+                    renderer.scale = 2
+                    image = renderer.nsImage
+                }
+                guard let image, let data = image.tiffRepresentation, let rep = NSBitmapImageRep(data: data),
+                      let cropped = rep.cgImage?.cropping(to: CGRect(
+                          x: 0, y: 0, width: 640 * 2, height: (40 + composition.height + 120) * 2
+                      )),
+                      let png = NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:]) else { continue }
+                let path = "\(directory)/cloud-hero-\(composition.rawValue)-\(dark ? "dark" : "light").png"
+                try? png.write(to: URL(filePath: path))
+                written.append(path)
             }
-            // The pane's padding, the hero and the same padding again below it.
-            let height = (20 + 148 + 20) * scale
-            return image?.cropping(to: CGRect(x: 0, y: 0, width: 640 * scale, height: height))
         }
-        for seconds in [0.0, 3, 6, 9] {
-            guard let image = frame(at: seconds, scale: 2),
-                  let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { continue }
-            let path = "\(directory)/cloud-hero-\(Int(seconds))s.png"
-            try? png.write(to: URL(filePath: path))
-            written.append(path)
-        }
-        // The icon alone, at rest, with no sheen and no turn, so it can be held against the system's
-        // own rendering of `Resources/Bloom.icon`. See `Tools/icon-truth.sh`.
-        if let rest = CloudHeroFrames.render(
-            size: CGSize(width: 256, height: 256), markCentreX: 128, markSize: 210, seconds: 0, drawsGlow: false
-        ), let png = NSBitmapImageRep(cgImage: rest).representation(using: .png, properties: [:]) {
-            let restPath = "\(directory)/cloud-hero-at-rest.png"
-            try? png.write(to: URL(filePath: restPath))
-            written.append(restPath)
-        }
-
-        let path = "\(directory)/cloud-hero-motion.gif"
-        // The longest loop, at eight frames a second: one whole cycle of the light crossing.
-        let count = 112
-        guard let gif = CGImageDestinationCreateWithURL(URL(filePath: path) as CFURL, "com.compuserve.gif" as CFString, count, nil) else {
-            return written
-        }
-        CGImageDestinationSetProperties(gif, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
-        for index in 0..<count {
-            guard let image = frame(at: Double(index) / 8, scale: 1) else { continue }
-            CGImageDestinationAddImage(gif, image, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.125]] as CFDictionary)
-        }
-        if CGImageDestinationFinalize(gif) { written.append(path) }
         return written
     }
 

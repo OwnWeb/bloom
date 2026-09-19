@@ -14,8 +14,10 @@ import CoreGraphics
 /// copy's icon happens to be. Change the icon's colours and this file has to be changed with it;
 /// nothing else here reads `icon.json` at runtime, because a dev build's copy is the wrong one.
 ///
-/// The layers are handed out separately so `CloudHeroMotionView` can put them at different depths
-/// and let perspective do the rest.
+/// The layers are handed out separately as well as composited, because the icon was once stacked
+/// in depth and turned; that is gone (see `CloudHeroArt`), and `composite` is what the hero and the
+/// sidebar card draw now. The separate layers stay because the composite is built from them and
+/// because `Tools/icon-truth.sh` is what says whether either is right.
 enum BloomIconArtwork {
     /// Front to back, which is the order `icon.json` lists its groups in.
     enum Layer: String, CaseIterable {

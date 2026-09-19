@@ -90,11 +90,10 @@ struct CloudSettingsPane: View {
     var drawing: Drawing
     var actions: Actions
 
-    /// The moment of the hero's motion a drawn pane shows. See `CloudHeroMotionPlan`.
-    var motionSeconds: Double = 0
+    /// Which plate is drawn at the head of the pane. See `CloudHeroArt`.
+    var composition = CloudHeroArt.Composition.chosen
 
     private static let corner: CGFloat = 12
-    private static let heroHeight: CGFloat = 148
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.gutter + Metrics.spacingWide) {
@@ -146,68 +145,10 @@ struct CloudSettingsPane: View {
 
     // MARK: - The hero
 
-    /// The brand's plinth, as the About window draws it: Depth with the water breathing in it and
-    /// the name in the display serif. The mark is Bloom's canonical blue one (`Brand.mark`), never
-    /// the running copy's icon, and it moves: `CloudHeroMotion` floats it on a breathing halo with
-    /// two machines on orbits round it and a band of light crossing now and then, in Core Animation,
-    /// paused while the window is hidden and still under Reduce Motion.
+    /// The plate at the head of the pane, which is a still picture rather than an animation: see
+    /// `CloudHeroArt`, and the note there about what moved and why it does not any more.
     private var hero: some View {
-        ZStack(alignment: .leading) {
-            ZStack {
-                Brand.depth
-                water
-                motion
-            }
-            // Wider than the mark alone needs, so the orbits round it clear the name.
-            HStack(spacing: Metrics.gutter + Metrics.spacingWide * 2) {
-                // The mark is drawn by `motion`, which floats it; this holds its place in the row.
-                Color.clear
-                    .frame(width: Self.markSize, height: Self.markSize)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
-                    Text(verbatim: "Bloom Cloud")
-                        .font(Typo.display)
-                        .tracking(Typo.displayTracking)
-                        .foregroundStyle(Brand.foam)
-                        .accessibilityAddTraits(.isHeader)
-                    Text("Your agents, on machines of their own.")
-                        .font(Typo.body)
-                        .foregroundStyle(Brand.mistDim)
-                }
-            }
-            .padding(.horizontal, Self.heroInset)
-        }
-        .frame(height: Self.heroHeight)
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
-    }
-
-    private static let markSize: CGFloat = 64
-    private static let heroInset: CGFloat = Metrics.gutter + Metrics.spacingWide + Metrics.spacingWide
-
-    @ViewBuilder
-    private var motion: some View {
-        switch drawing {
-        case .live:
-            CloudHeroMotion(markCentreX: Self.heroInset + Self.markSize / 2, markSize: Self.markSize)
-        case .drawn:
-            GeometryReader { proxy in
-                if let still = CloudHeroFrames.image(
-                    size: proxy.size, markCentreX: Self.heroInset + Self.markSize / 2,
-                    markSize: Self.markSize, seconds: motionSeconds
-                ) {
-                    Image(nsImage: still).resizable()
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var water: some View {
-        switch drawing {
-        case .live: BrandWater()
-        case .drawn: CloudSettingsWaterStill()
-        }
+        CloudHeroArt(composition: composition, environment: environment)
     }
 
     // MARK: - Signed out
