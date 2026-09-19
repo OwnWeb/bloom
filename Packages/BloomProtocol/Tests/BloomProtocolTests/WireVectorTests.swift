@@ -154,6 +154,10 @@ enum WireExamples {
         ("send", .send(chatID: "chat-1", text: "Run the tests")),
         // The same call addressed to somebody rather than to the agent. **Absent means the agent**,
         // so the vector above is what an installed client keeps sending and it keeps working.
+        // Sent by an agent on the person's behalf, from a workspace on their Mac. The token is still
+        // the person's; `via` is a label every client draws under the author. See `ViaRecord`.
+        ("send_by_an_agent", .send(chatID: "chat-1", text: "Rebase on main and push when the tests pass",
+                                   via: ViaRecord(workspace: "Queue retries", chat: "Chat"))),
         ("send_to_a_person", .send(chatID: "chat-1", text: "@sebdd can you look at the migration?",
                                    audience: AudienceRecord(kind: "person", userID: "01k5bx7j9d3v2r8q6m4n0p1s2u",
                                                             mention: "@sebdd"))),
@@ -296,6 +300,12 @@ enum WireExamples {
         // closing row carries how long the turn took.
         // A picture an agent showed with `media_show` on a machine. The payload names a copy in the
         // worktree's ignored scratch folder, fetched with `download`: never the bytes themselves.
+        // The same message as the machine keeps it: the person is the author, and `via` says an
+        // agent wrote it.
+        ("message_by_an_agent", .message(MessageRecord(
+            cursor: 124, chatID: "chat-1", seq: 10, kind: "user",
+            payload: .object(["type": .string("user"), "message": .object(["role": .string("user")])]),
+            author: author, createdAt: date, via: ViaRecord(workspace: "Queue retries", chat: "Chat")))),
         ("message_media", .message(MessageRecord(
             cursor: 123, chatID: "chat-1", seq: 9, kind: "media",
             payload: .object([

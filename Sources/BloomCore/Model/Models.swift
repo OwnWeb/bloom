@@ -608,6 +608,8 @@ public struct Message: Identifiable, Sendable, Hashable, Codable {
     /// existed. **A row addressed to a person is one the agent must never be given**; see
     /// `MessageAudience`.
     public var audience: MessageAudience?
+    /// Set when an agent wrote it on the author's behalf. See `MessageVia`.
+    public var via: MessageVia?
 
     public init(
         id: Int64 = 0,
@@ -619,10 +621,12 @@ public struct Message: Identifiable, Sendable, Hashable, Codable {
         durationMS: Int? = nil,
         refID: String? = nil,
         author: MessageAuthor? = nil,
-        audience: MessageAudience? = nil
+        audience: MessageAudience? = nil,
+        via: MessageVia? = nil
     ) {
         self.author = author
         self.audience = audience
+        self.via = via
         self.id = id
         self.sessionID = sessionID
         self.seq = seq

@@ -88,10 +88,14 @@ public struct MessageRecord: Codable, Sendable, Hashable {
     /// Who it was for. Absent means the agent, which is every message sent before mentions existed.
     /// See `AudienceRecord`.
     public var audience: AudienceRecord?
+    /// Set when an agent wrote this on its author's behalf; draw it under the author. Absent means
+    /// the author typed it. See `ViaRecord`.
+    public var via: ViaRecord?
 
     public init(
         cursor: Int64, chatID: String, seq: Int, kind: String, payload: WireValue, author: AuthorRecord? = nil,
-        createdAt: Date, durationMS: Int? = nil, refID: String? = nil, audience: AudienceRecord? = nil
+        createdAt: Date, durationMS: Int? = nil, refID: String? = nil, audience: AudienceRecord? = nil,
+        via: ViaRecord? = nil
     ) {
         self.cursor = cursor
         self.chatID = chatID
@@ -103,10 +107,11 @@ public struct MessageRecord: Codable, Sendable, Hashable {
         self.durationMS = durationMS
         self.refID = refID
         self.audience = audience
+        self.via = via
     }
 
     enum CodingKeys: String, CodingKey {
-        case cursor, seq, kind, payload, author, audience
+        case cursor, seq, kind, payload, author, audience, via
         case chatID = "chat_id"
         case createdAt = "created_at"
         case durationMS = "duration_ms"

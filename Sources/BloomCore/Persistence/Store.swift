@@ -1251,6 +1251,16 @@ public actor Store {
                     try db.execute("ALTER TABLE addressed_reports ADD COLUMN text TEXT;")
                 }
             },
+            // That an agent sent a message on its author's behalf, on the row and on the queued
+            // prompt it becomes. One JSON column, read whole and never queried. See `MessageVia`.
+            { db in
+                for table in ["messages", "deliveries"] {
+                    let columns = Set(try db.query("PRAGMA table_info(\(table));").compactMap { $0.string("name") })
+                    if !columns.contains("via") {
+                        try db.execute("ALTER TABLE \(table) ADD COLUMN via TEXT;")
+                    }
+                }
+            },
         ]
 
         let current = Int(try db.readUserVersion())
@@ -2517,7 +2527,8 @@ public actor Store {
         refID: String? = nil,
         createdAt: Date = Date(),
         author: MessageAuthor? = nil,
-        audience: MessageAudience? = nil
+        audience: MessageAudience? = nil,
+        via: MessageVia? = nil
     ) throws -> Message {
         var lastError: Error?
         for _ in 0..<Self.seqAllocationAttempts {
@@ -2533,7 +2544,8 @@ public actor Store {
                         durationMS: durationMS,
                         refID: refID,
                         author: author,
-                        audience: audience
+                        audience: audience,
+                        via: via
                     )
                     message.id = try insert(message)
                     return message
@@ -2566,8 +2578,8 @@ public actor Store {
             """
             INSERT INTO messages (session_id, seq, kind, payload, created_at, duration_ms, ref_id,
                                   author_user_id, author_name, author_email,
-                                  audience_kind, audience_user_id, audience_mention)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  audience_kind, audience_user_id, audience_mention, via)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(message.sessionID), .int(Int64(message.seq)), .text(message.kind.rawValue),
@@ -2580,6 +2592,7 @@ public actor Store {
                 message.audience.map { .text($0.kind.rawValue) } ?? .null,
                 message.audience?.userID.map { .text($0) } ?? .null,
                 message.audience?.mention.map { .text($0) } ?? .null,
+                message.via?.column.map { .text($0) } ?? .null,
             ]
         )
         // Here rather than in a trigger, and here rather than in a task afterwards: this is the
@@ -3001,8 +3014,8 @@ public actor Store {
             INSERT INTO deliveries
                 (id, target_session_id, source_workspace_id, kind, verdict, body, crew_payload,
                  created_at, delivered_at, delivered_seq, delivery_state, interaction_mode, provider_turn_id,
-                 author_user_id, author_name, author_email, audience_mention, remote_turn_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 author_user_id, author_name, author_email, audience_mention, remote_turn_id, via)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(delivery.id),
@@ -3023,6 +3036,7 @@ public actor Store {
                 delivery.author?.email.map { .text($0) } ?? .null,
                 delivery.audienceMention.map { .text($0) } ?? .null,
                 delivery.remoteTurnID.map { .text($0) } ?? .null,
+                delivery.via?.column.map { .text($0) } ?? .null,
             ]
         )
         return delivery
@@ -3047,7 +3061,8 @@ public actor Store {
                 _ = try insert(Message(sessionID: delivery.targetSessionID, seq: next,
                     kind: delivery.crewPayload == nil ? .user : .crew, payload: payload,
                     createdAt: delivery.createdAt, author: delivery.author,
-                    audience: delivery.audienceMention.map { MessageAudience(kind: .agent, mention: $0) }))
+                    audience: delivery.audienceMention.map { MessageAudience(kind: .agent, mention: $0) },
+                    via: delivery.via))
                 seq = next
             }
             try db.run("UPDATE deliveries SET delivery_state = 'claimed', delivered_seq = ? WHERE id = ?", [
@@ -4146,7 +4161,8 @@ public actor Store {
             author: author(from: row),
             audienceMention: row.string("audience_mention"),
             remoteTurnID: row.string("remote_turn_id"),
-            block: row.string("blocked_limit").map { DeliveryBlock(limit: $0, message: row.string("blocked_message") ?? "") }
+            block: row.string("blocked_limit").map { DeliveryBlock(limit: $0, message: row.string("blocked_message") ?? "") },
+            via: MessageVia.from(column: row.string("via"))
         )
     }
 
@@ -4340,7 +4356,8 @@ public actor Store {
             durationMS: row.int("duration_ms").map(Int.init),
             refID: row.string("ref_id"),
             author: Self.author(from: row),
-            audience: Self.audience(from: row)
+            audience: Self.audience(from: row),
+            via: MessageVia.from(column: row.string("via"))
         )
     }
 

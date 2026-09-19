@@ -92,6 +92,8 @@ public struct Delivery: Identifiable, Sendable, Hashable {
     /// The turn runbloom.app registered for this prompt, which is what starting it asks a key for.
     /// Nil outside a Cloud workspace.
     public var remoteTurnID: String?
+    /// Set when an agent sent it on the author's behalf; copied onto the row. See `MessageVia`.
+    public var via: MessageVia?
     /// Why runbloom.app refused to start it, while it is refused. See `DeliveryBlock`.
     public var block: DeliveryBlock?
 
@@ -112,8 +114,10 @@ public struct Delivery: Identifiable, Sendable, Hashable {
         author: MessageAuthor? = nil,
         audienceMention: String? = nil,
         remoteTurnID: String? = nil,
-        block: DeliveryBlock? = nil
+        block: DeliveryBlock? = nil,
+        via: MessageVia? = nil
     ) {
+        self.via = via
         self.author = author
         self.audienceMention = audienceMention
         self.remoteTurnID = remoteTurnID

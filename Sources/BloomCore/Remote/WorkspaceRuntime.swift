@@ -305,7 +305,8 @@ public actor WorkspaceRuntime {
             try await store.updateLastReadSeq(sessionID: try chatID.sessionID, seq: seq)
             return .accepted
         case .setComposer(let chatID, let controls): try await setComposer(chatID, controls: controls, as: caller); return .accepted
-        case .send(let chatID, let text, let audience): return try await send(chatID, text: text, audience: audience, as: caller)
+        case .send(let chatID, let text, let audience, let via):
+            return try await send(chatID, text: text, audience: audience, via: via, as: caller)
         case .cancelQueued(let chatID, let promptID):
             try await queue().cancel(DeliveryID(promptID), sessionID: try chatID.sessionID)
             return .accepted

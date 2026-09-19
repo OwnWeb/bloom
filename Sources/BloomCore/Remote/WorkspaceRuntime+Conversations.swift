@@ -237,8 +237,12 @@ extension WorkspaceRuntime {
     /// a message to a person is written into the transcript and becomes nothing, because the whole
     /// of what `@seb` means is that this one is not for the agent. They answer differently on
     /// purpose: `queued` with a prompt id, or `accepted` with no turn to wait for.
-    func send(_ chatID: String, text: String, audience stated: AudienceRecord?, as caller: RemoteCaller) async throws -> OperationResult {
+    func send(_ chatID: String, text: String, audience stated: AudienceRecord?, via statedVia: ViaRecord? = nil,
+              as caller: RemoteCaller) async throws -> OperationResult {
         let id = try chatID.sessionID
+        // Read before anything is written, so a label this machine cannot draw refuses the send
+        // rather than landing as a message nobody can tell apart from a typed one.
+        let via = try statedVia.map(MessageVia.init(record:))
         guard stopping[id] == nil else { throw RemoteFailure(.busy, "This conversation is being stopped.") }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { throw RemoteFailure.invalid("Type a message before sending.") }
@@ -261,14 +265,14 @@ extension WorkspaceRuntime {
         // thought about it. Written this way so the compiler refuses instead.
         switch audience?.kind {
         case .person:
-            return try await sendToPerson(body, audience: audience ?? MessageAudience(kind: .person),
+            return try await sendToPerson(body, audience: audience ?? MessageAudience(kind: .person), via: via,
                                           session: session, as: caller)
         case .agent, nil:
             break
         }
         try await requireInstalled(session.agentKind)
         _ = try await workspace()
-        let delivery = try await queue().enqueue(body, session: session, caller: caller, mention: audience?.mention)
+        let delivery = try await queue().enqueue(body, session: session, caller: caller, mention: audience?.mention, via: via)
         return .queued(promptID: delivery.rawValue)
     }
 
@@ -280,7 +284,7 @@ extension WorkspaceRuntime {
     /// arriving tomorrow colours it, and so that **the one place the transcript is handed to an
     /// agent can leave it out**; see `ChatReadTool`.
     private func sendToPerson(
-        _ body: String, audience: MessageAudience, session: Session, as caller: RemoteCaller
+        _ body: String, audience: MessageAudience, via: MessageVia?, session: Session, as caller: RemoteCaller
     ) async throws -> OperationResult {
         guard let userID = audience.userID, !userID.isEmpty else {
             throw RemoteFailure.invalid("A message to a person has to name which person.")
@@ -304,7 +308,7 @@ extension WorkspaceRuntime {
             ])]),
         ]).compactJSON
         let message = try await store.appendNext(sessionID: session.id, kind: .user, payload: Data(payload.utf8),
-                                                 author: caller.author, audience: audience)
+                                                 author: caller.author, audience: audience, via: via)
         // **Whether they were here is recorded now, not when the report goes.** Presence is the one
         // fact only this machine holds, and asked ten minutes later it would be answering a
         // different question. runbloom.app decides what to do with it, including that a guest's

@@ -380,6 +380,16 @@
               "type": "null"
             }
           ]
+        },
+        "via": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Via"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -412,6 +422,40 @@
           ]
         },
         "mention": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "Via": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "agent"
+          ]
+        },
+        "workspace": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "chat": {
           "oneOf": [
             {
               "type": "string"
@@ -1741,6 +1785,16 @@
               "oneOf": [
                 {
                   "$ref": "#/$defs/Audience"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "via": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Via"
                 },
                 {
                   "type": "null"

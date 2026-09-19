@@ -307,6 +307,21 @@ agent reads** and nowhere else: the agent is asked "Fix the server", not "@agent
 while the stored row keeps what was typed because the bubble draws it. A client must not strip it
 early.
 
+### Sent by an agent
+
+A client that sends on a person's behalf because an agent asked it to, the Mac's `workspace_say` to
+a Bloom Cloud workspace being the first, adds `via` to `send`: `{"kind": "agent", "workspace",
+"chat"}`, the sending workspace's name and chat's title. **The token is still the person's, so the
+message is theirs**: their author, their turn, their bill. `via` is what stops it reading as words
+they typed. The machine keeps it on the row, and every client draws it under the author.
+
+- **A label, never a permission.** It grants nothing, changes nothing about the author, and is
+  never handed to an agent. The machine believes it only for what it says on screen.
+- **Names, not ids**, because it is only ever read, and a Mac's workspace id means nothing here.
+- `kind` is `agent` and nothing else yet; the machine refuses any other with `invalid_value`, before
+  anything is written. Each label is trimmed and cut at 200 characters.
+- From a person's own client, with no agent involved, there is no `via`.
+
 ## The terminal socket
 
 Verified against the code rather than described from memory, because two clients have now had to

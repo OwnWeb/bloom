@@ -102,7 +102,7 @@ OPERATIONS = {
     "close_chat": plain({"chat_id": S}),
     "mark_read": plain({"chat_id": S, "seq": I}),
     "set_composer": plain({"chat_id": S, "controls": ref("ComposerControls")}),
-    "send": plain({"chat_id": S, "text": S}, {"audience": ref("Audience")}),
+    "send": plain({"chat_id": S, "text": S}, {"audience": ref("Audience"), "via": ref("Via")}),
     "cancel_queued": plain({"chat_id": S, "prompt_id": S}),
     "stop": plain({"chat_id": S}),
     "answer": plain({"chat_id": S, "request_id": S, "answer": ref("Answer")}),
@@ -212,10 +212,13 @@ RECORDS = {
                  "state": S, "last_seq": I, "created_at": DATE, "updated_at": DATE},
                 {"parent_chat_id": S, "closed_at": DATE}),
     "Message": obj({"cursor": I, "chat_id": S, "seq": I, "kind": S, "payload": ANY, "created_at": DATE},
-                   {"author": ref("Author"), "duration_ms": I, "ref_id": S, "audience": ref("Audience")}),
+                   {"author": ref("Author"), "duration_ms": I, "ref_id": S, "audience": ref("Audience"),
+                    "via": ref("Via")}),
     # Who a message was for. Absent means the agent, which is every message written before mentions
     # existed. A message whose kind is `person` is one the agent is never given.
     "Audience": obj({"kind": {"enum": ["agent", "person"]}}, {"user_id": S, "mention": S}),
+    # A label: an agent wrote this on its author's behalf, from this workspace and chat, by name.
+    "Via": obj({"kind": {"enum": ["agent"]}}, {"workspace": S, "chat": S}),
     "Blocked": obj({"limit": S, "message": S}),
     "QueuedPrompt": obj({"id": S, "text": S, "state": {"enum": ["queued", "blocked", "uncertain"]}, "created_at": DATE},
                         {"author": ref("Author"), "blocked": ref("Blocked")}),

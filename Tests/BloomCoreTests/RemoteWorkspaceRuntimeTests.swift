@@ -242,6 +242,33 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// A message an agent sent through a person's token is still the person's, and says an agent
+    /// wrote it; a label this machine cannot draw is refused before anything is written.
+    @Test("via reaches the transcript row, and a kind the machine does not know refuses the send")
+    func viaIsKeptOnTheRow() async throws {
+        let fixture = try await fixture()
+        let chat = fixture.session.id.rawValue
+        let long = String(repeating: "x", count: 500)
+        let reply = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Rebase and push",
+            via: ViaRecord(workspace: "Queue retries", chat: long))), as: Self.caller(Self.freek))
+        guard case .queued = reply.result else { Issue.record("Not queued: \(String(describing: reply.error))"); return }
+        await waitUntil("the prompt becomes a row", within: .seconds(30)) {
+            ((try? await fixture.store.messages(sessionID: fixture.session.id)) ?? []).contains { $0.kind == .user }
+        }
+        let row = try #require(try await fixture.store.messages(sessionID: fixture.session.id).first { $0.kind == .user })
+        #expect(row.author?.userID == Self.freek.userID, "still the person's message")
+        #expect(row.via?.workspace == "Queue retries")
+        #expect(row.via?.chat?.count == 200, "a label cannot carry a paragraph into somebody's transcript")
+        #expect(row.record.via?.kind == "agent")
+
+        let refused = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Something else",
+            via: ViaRecord(kind: "robot"))), as: Self.caller(Self.freek))
+        #expect(refused.error?.code == .invalidValue)
+        #expect(try await fixture.store.messages(sessionID: fixture.session.id).filter { $0.kind == .user }.count == 1)
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a runtime with nobody to ask says so rather than pretending")
     func cloudWorkspacesNeedRunbloom() async throws {
         let fixture = try await fixture()
