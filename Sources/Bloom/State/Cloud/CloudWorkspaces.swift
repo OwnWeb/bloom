@@ -213,6 +213,10 @@ final class CloudWorkspaces {
             gathered.sort { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
             absorb(gathered)
             listProblem = nil
+            // Every refresh, and not only signing in and reconnecting: Bloom is often open with no
+            // stream to the workspace that wrote, and a message would otherwise wait for hours.
+            // Signing in and coming back to the app both refresh, so this covers them too.
+            Task { await app?.drainMacMessages() }
         } catch let failure as SignInFailure where failure == .signedOut {
             if began == generation { await signOut() }
         } catch let refusal as RunbloomRefusal where refusal.isUnauthenticated {

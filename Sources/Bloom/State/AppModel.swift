@@ -57,6 +57,8 @@ final class AppModel {
     /// The `mac_message` ids already put into a chat, so one sent down two streams goes in once.
     /// See `AppModel+MacMessages`.
     @ObservationIgnored var macMessagesDelivered = MacMessageLedger()
+    /// Taking what runbloom.app held for this Mac, one drain at a time. See `drainMacMessages`.
+    @ObservationIgnored let macMessageDrain = MacMessageDrain()
 
     private(set) var repos: [Repo] = []
     private(set) var workspaces: [Workspace] = []

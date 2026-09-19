@@ -240,6 +240,9 @@ final class CloudWorkspaceSession {
                 // Not awaited: this loop is what drains the stream, and the opening prompt can take
                 // a minute on a machine that is still waking.
                 Task { await sendOpeningPromptIfHeld() }
+                // A stream coming up is one of the moments runbloom.app is asked for what it held
+                // while no stream was open. See `AppModel.drainMacMessages`.
+                Task { await cloud.appModel?.drainMacMessages() }
                 // What changed, once, on the way up.
                 //
                 // **Not gated on a review tab any more, and the gate was a bug.** It was, on the

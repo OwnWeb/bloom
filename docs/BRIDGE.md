@@ -417,6 +417,17 @@ as the signed-in person (`CloudWorkspaceReach`, filled in by `AppModel+CloudWork
   role. What it lists is `CloudWorkspaceItem.isReachableFromBridge`: never a teammate's private
   workspace that an owner or admin is sent only to see and archive, and never an archived one.
 
+### Messages from Bloom Cloud agents to this Mac
+
+An agent in a Bloom Cloud workspace can write to a workspace on this Mac. With a stream open to that
+workspace it arrives as the `mac_message` event; without one, runbloom.app holds it, and Bloom
+drains `GET /api/v1/me/mac-messages` on every list refresh (so also on signing in and on coming
+back to the app) and whenever a stream comes up. Either way it goes through `MacMessageIntake`: the
+signed-in person's own, a workspace here by that name, once per id, in the untrusted envelope and
+without the owner's authority. A held message is acknowledged (`DELETE .../{id}`) only once it has
+landed, one drain at a time (`MacMessageDrain`). One for a workspace name this Mac does not have is
+told to the person in a notice that carries the words and stays until dismissed.
+
 ## 4. What an agent cannot reach through it
 
 Nothing here writes a file directly or changes Git state. `workspace_diff` reads a worktree

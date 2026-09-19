@@ -36,6 +36,26 @@ public struct RunbloomAPI: Sendable {
         try await get("teams/\(team)/members")
     }
 
+    // MARK: Messages held for this Mac
+
+    /// What agents in Bloom Cloud workspaces sent to this person's Mac while it had no stream open
+    /// to them, oldest first. Only ever the signed-in person's own. Read bare or in the resource
+    /// envelope. See `DepositedMacMessage`.
+    public func macMessages() async throws -> [DepositedMacMessage] {
+        let data = try await perform("GET", "me/mac-messages", body: nil)
+        if let wrapped = try? JSONDecoder().decode(Envelope<DepositedMacMessages>.self, from: data) { return wrapped.data.messages }
+        do {
+            return try JSONDecoder().decode(DepositedMacMessages.self, from: data).messages
+        } catch {
+            throw RunbloomRefusal(status: 200, code: "unreadable_answer", message: "runbloom.app answered in a way this version of Bloom cannot read. Check for an update.")
+        }
+    }
+
+    /// Acknowledges one once it has landed. Idempotent: 204 every time.
+    public func acknowledgeMacMessage(_ id: String) async throws {
+        try await sendIgnoringBody("DELETE", "me/mac-messages/\(id)")
+    }
+
     // MARK: Cloud workspaces
 
     /// The team's Cloud workspaces, newest first, without archived ones. Never wakes a machine.
