@@ -216,6 +216,12 @@ extension WorkspaceRuntime {
         await sessions[id]?.shutdown()
         sessions.removeValue(forKey: id)
         _ = try await store.update(sessionID: id) { $0.archivedAt = Date() }
+        // **Published here rather than left to the store's observation.** A client keeps a closed
+        // chat in its strip until it is told, and the observation coalesces commits: the state
+        // change from stopping and the archive can arrive as one batch, and then nothing says the
+        // chat has gone. On the Linux runner that lost the event outright. Publishing it once here
+        // is idempotent, because the comparison against `publishedChats` sends nothing twice.
+        try? await refreshPublishedState(publishing: true)
     }
 
     /// Last writer wins, and the event names who wrote it.
