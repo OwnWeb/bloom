@@ -419,7 +419,7 @@ struct MachineSetupTests {
         let settings = """
         [scripts]
         prepare = "sleep 60"
-        setup = "echo setup-ran >> \"$ORDER_FILE\""
+        setup = 'echo setup-ran >> "$ORDER_FILE"'
         """
         let fixture = try await fixture(files: [".bloom/settings.toml": settings])
         let setup = try fixture.setup()
