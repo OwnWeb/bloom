@@ -12,6 +12,7 @@ struct CloudWorkspaceReachTests {
     /// two people in the middle of it.
     private final class Machine: @unchecked Sendable {
         var sent: [(chat: String, text: String)] = []
+        var vias: [MessageVia?] = []
         var transcriptAsks = 0
         var sendAnswer: Result<Bool, CloudReachTrouble> = .success(true)
 
@@ -44,8 +45,9 @@ struct CloudWorkspaceReachTests {
                     let rest = all.filter { $0.seq > after }
                     return .success((Array(rest.prefix(limit)), rest.count > limit))
                 },
-                send: { [self] _, chat, text in
+                send: { [self] _, chat, text, via in
                     sent.append((chat, text))
+                    vias.append(via)
                     return sendAnswer
                 },
                 changes: { _ in
@@ -178,6 +180,8 @@ struct CloudWorkspaceReachTests {
         #expect(answer["state"]?.stringValue == "sent")
         #expect(answer["cloud"]?.boolValue == true)
         #expect(answer["notify_when_done"]?.boolValue == false)
+        #expect(machine.vias == [MessageVia(workspace: "Here", chat: "Chat")],
+                "the machine is told which agent wrote it, by name")
     }
 
     @Test("the same brake as a local message: the same words twice are refused, but not from the owner")
@@ -195,6 +199,7 @@ struct CloudWorkspaceReachTests {
         let fromOwner = await tool.call(words, as: .owner, store: store)
         #expect(!fromOwner.isError)
         #expect(machine.sent.count == 2)
+        #expect(machine.vias.last == .some(nil), "the owner's own client is the person typing, so no label")
     }
 
     @Test("the machine's refusal is passed on as its sentence")

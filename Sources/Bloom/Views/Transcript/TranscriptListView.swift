@@ -618,12 +618,15 @@ struct TranscriptListView: View {
             let addressee = MessageAuthorship.addressee(row.audience, names: addresseeNames)
             let caption = row.kind == .user
                 ? MessageAuthorship.caption(
-                    author: row.authorID,
-                    name: row.authorName,
-                    addressee: addressee,
-                    previousAuthor: previousAuthorID,
-                    previousAddressee: previousAddressee,
-                    reader: readerID
+                    MessageAuthorship.caption(
+                        author: row.authorID,
+                        name: row.authorName,
+                        addressee: addressee,
+                        previousAuthor: previousAuthorID,
+                        previousAddressee: previousAddressee,
+                        reader: readerID
+                    ),
+                    via: row.via
                 )
                 : nil
             let fill = MessageAuthorship.fill(

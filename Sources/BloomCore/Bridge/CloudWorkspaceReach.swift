@@ -86,7 +86,10 @@ public struct CloudWorkspaceReach: Sendable {
     public var transcript: @Sendable (_ workspace: String, _ chat: String, _ afterSeq: Int, _ limit: Int) async
         -> Result<(messages: [Message], hasMore: Bool), CloudReachTrouble>
     /// Puts a prompt in a chat. True when it started a turn, false when it waits in the queue.
-    public var send: @Sendable (_ workspace: String, _ chat: String, _ text: String) async -> Result<Bool, CloudReachTrouble>
+    /// `via` says which agent wrote it, for the machine to draw under the person; nil from the
+    /// owner's own client, where the person is the one typing.
+    public var send: @Sendable (_ workspace: String, _ chat: String, _ text: String, _ via: MessageVia?) async
+        -> Result<Bool, CloudReachTrouble>
     public var changes: @Sendable (_ workspace: String) async -> Result<CloudWorkspaceChanges, CloudReachTrouble>
     public var patch: @Sendable (_ workspace: String, _ path: String) async -> Result<String, CloudReachTrouble>
     /// What has been sent to Bloom Cloud workspaces from here, for `WorkspaceSayThrottle`. A local
@@ -99,7 +102,7 @@ public struct CloudWorkspaceReach: Sendable {
         chats: @escaping @Sendable (String) async -> Result<[CloudChatSummary], CloudReachTrouble>,
         transcript: @escaping @Sendable (String, String, Int, Int) async
             -> Result<(messages: [Message], hasMore: Bool), CloudReachTrouble>,
-        send: @escaping @Sendable (String, String, String) async -> Result<Bool, CloudReachTrouble>,
+        send: @escaping @Sendable (String, String, String, MessageVia?) async -> Result<Bool, CloudReachTrouble>,
         changes: @escaping @Sendable (String) async -> Result<CloudWorkspaceChanges, CloudReachTrouble>,
         patch: @escaping @Sendable (String, String) async -> Result<String, CloudReachTrouble>,
         sent: CloudSayLedger = CloudSayLedger()

@@ -153,6 +153,22 @@ public enum MessageAuthorship {
         return sender + " to " + recipient
     }
 
+    /// The caption with the words saying an agent wrote the message, when one did.
+    ///
+    /// **On every such message, not once per run.** The run rule above keeps a name from repeating
+    /// down a conversation between the same two people; this is not a fact about who is talking,
+    /// it is a fact about one message, and the one without it would read as typed by its author.
+    /// So a message of your own that an agent sent reads "Via an agent in Queue retries · Chat",
+    /// and one of a colleague's reads "Seb, via an agent in Queue retries · Chat". The names are the
+    /// sending client's own and nothing else is read from it. See `MessageVia`.
+    public static func caption(_ caption: String?, via: MessageVia?) -> String? {
+        guard let via else { return caption }
+        let place = [via.workspace, via.chat].compactMap { $0 }.map(clean).filter { !$0.isEmpty }
+        let label = place.isEmpty ? "via an agent" : "via an agent in " + place.joined(separator: " \u{00B7} ")
+        guard let caption, !caption.isEmpty else { return label.prefix(1).uppercased() + label.dropFirst() }
+        return caption + ", " + label
+    }
+
     private static func clean(_ text: String?) -> String {
         text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }

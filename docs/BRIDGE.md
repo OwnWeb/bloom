@@ -399,8 +399,9 @@ as the signed-in person (`CloudWorkspaceReach`, filled in by `AppModel+CloudWork
 - **`workspace_list`** puts them after this Mac's, marked `"cloud": true`, with runbloom.app's id,
   name, state, repository and branch. Naming a project leaves them out.
 - **`workspace_say`** becomes the machine's `send` on the most recently active top-level chat, never
-  a subagent's. The words go as written: the label saying an agent sent them is the machine's to
-  draw, from a `via` field on `send` still to come. The same throttle as a local message applies,
+  a subagent's. The words go as written, with `via` on `send` naming the sending workspace and chat
+  (none from the owner's own client), and every client draws it under the author: "Via an agent in
+  Queue retries · Chat" (`MessageAuthorship.caption(_:via:)`). The same throttle as a local message applies,
   read from `CloudSayLedger`. No reply can come back and `notify_when_done` is not available,
   because a machine cannot reach this Mac, and the answer says to read the chat instead.
 - **`chat_list` and `chat_read`** read the machine's chats and transcript in the local answer's

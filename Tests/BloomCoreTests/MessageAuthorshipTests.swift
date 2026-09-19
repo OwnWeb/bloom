@@ -141,4 +141,15 @@ struct MessageAuthorshipTests {
         ) == "somebody else")
         #expect(caption(to: "somebody else") == "To somebody else")
     }
+
+    /// A message an agent sent on somebody's behalf says so on every such message, whoever wrote it.
+    @Test("an agent's message says so under the author, and a plain one is left alone")
+    func viaAnAgent() {
+        let via = MessageVia(workspace: "Queue retries", chat: "Chat")
+        #expect(MessageAuthorship.caption(nil, via: via) == "Via an agent in Queue retries \u{00B7} Chat")
+        #expect(MessageAuthorship.caption("Seb", via: via) == "Seb, via an agent in Queue retries \u{00B7} Chat")
+        #expect(MessageAuthorship.caption("Seb", via: MessageVia()) == "Seb, via an agent")
+        #expect(MessageAuthorship.caption("Seb", via: nil) == "Seb")
+        #expect(MessageAuthorship.caption(nil, via: nil) == nil)
+    }
 }

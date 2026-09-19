@@ -230,8 +230,9 @@ public struct WorkspaceSayTool: BridgeToolHandling {
     /// owner's own client is exempt here too.
     ///
     /// **It arrives as the person's own prompt**, because the token is theirs, and nothing is
-    /// written into the words to say otherwise: the label saying an agent sent it is the machine's
-    /// to draw, from a field on `send` the machine is adding, not text a model could forge.
+    /// written into the words to say otherwise. `via` says an agent sent it, from which workspace
+    /// and chat by name, and every client draws that under the person: a label on the record, not
+    /// text a model could forge. None from the owner's own client, which is the person typing.
     ///
     /// **No answer comes back this way.** A machine cannot reach this Mac, so the agent there
     /// cannot `workspace_say` in reply and `notify_when_done` has nothing to report with; the
@@ -259,7 +260,10 @@ public struct WorkspaceSayTool: BridgeToolHandling {
             chat = chosen
         }
         let started: Bool
-        switch await reach.send(target.id, chat.id, text) {
+        let via = identity.role == .owner ? nil : MessageVia(
+            workspace: sender.workspace?.name, chat: sender.session.map { ChatListTool.title(of: $0) }
+        )
+        switch await reach.send(target.id, chat.id, text, via) {
         case .failure(let trouble):
             return .failure(WorkspaceSayTrouble.appRefused(trouble.sentence).sentence)
         case .success(let value):

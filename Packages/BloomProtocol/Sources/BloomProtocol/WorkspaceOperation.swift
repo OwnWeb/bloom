@@ -41,7 +41,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case closeChat(chatID: String)
     case markRead(chatID: String, seq: Int)
     case setComposer(chatID: String, controls: ComposerControlsRecord)
-    case send(chatID: String, text: String, audience: AudienceRecord? = nil)
+    /// `via` says an agent wrote it on the person's behalf. See `ViaRecord`.
+    case send(chatID: String, text: String, audience: AudienceRecord? = nil, via: ViaRecord? = nil)
     case cancelQueued(chatID: String, promptID: String)
     case stop(chatID: String)
     case answer(chatID: String, requestID: String, answer: Answer)
@@ -138,7 +139,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     enum Keys: String, CodingKey {
         case chatID = "chat_id", afterSeq = "after_seq", limit, path, scope, knownRevision = "known_revision", wait
         case controls, title, seq, text, promptID = "prompt_id", requestID = "request_id", answer, before, sha, patch, query
-        case revision, name, data, message, body, draft, id, confirmationID = "confirmation_id", audience
+        case revision, name, data, message, body, draft, id, confirmationID = "confirmation_id", audience, via
     }
 
     public init(from decoder: any Decoder) throws {
@@ -179,7 +180,8 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
             self = .setComposer(chatID: try c.decode(String.self, forKey: .chatID), controls: try c.decode(ComposerControlsRecord.self, forKey: .controls))
         case "send":
             self = .send(chatID: try c.decode(String.self, forKey: .chatID), text: try c.decode(String.self, forKey: .text),
-                         audience: try c.decodeIfPresent(AudienceRecord.self, forKey: .audience))
+                         audience: try c.decodeIfPresent(AudienceRecord.self, forKey: .audience),
+                         via: try c.decodeIfPresent(ViaRecord.self, forKey: .via))
         case "cancel_queued": self = .cancelQueued(chatID: try c.decode(String.self, forKey: .chatID), promptID: try c.decode(String.self, forKey: .promptID))
         case "stop": self = .stop(chatID: try c.decode(String.self, forKey: .chatID))
         case "answer":
@@ -236,9 +238,9 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .renameChat(let chatID, let title): try c.encode(chatID, forKey: .chatID); try c.encode(title, forKey: .title)
         case .markRead(let chatID, let seq): try c.encode(chatID, forKey: .chatID); try c.encode(seq, forKey: .seq)
         case .setComposer(let chatID, let controls): try c.encode(chatID, forKey: .chatID); try c.encode(controls, forKey: .controls)
-        case .send(let chatID, let text, let audience):
+        case .send(let chatID, let text, let audience, let via):
             try c.encode(chatID, forKey: .chatID); try c.encode(text, forKey: .text)
-            try c.encodeIfPresent(audience, forKey: .audience)
+            try c.encodeIfPresent(audience, forKey: .audience); try c.encodeIfPresent(via, forKey: .via)
         case .cancelQueued(let chatID, let promptID): try c.encode(chatID, forKey: .chatID); try c.encode(promptID, forKey: .promptID)
         case .answer(let chatID, let requestID, let answer):
             try c.encode(chatID, forKey: .chatID); try c.encode(requestID, forKey: .requestID); try c.encode(answer, forKey: .answer)

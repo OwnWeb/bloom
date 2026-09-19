@@ -55,6 +55,9 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
     /// Who the message was addressed to, which in a shared Cloud workspace is a different question
     /// from who sent it. Nil for the agent, which is every local row. See `MessageAuthorship`.
     var audience: MessageAudience?
+    /// Which agent wrote it on its author's behalf, when one did. Only a Cloud row has one. See
+    /// `MessageAuthorship.caption(_:via:)`.
+    var via: MessageVia?
 
     init(message: Message) {
         id = message.id
@@ -67,6 +70,7 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
         authorName = message.author?.name
         authorID = message.author?.userID
         audience = message.audience
+        via = message.via
     }
 
     /// This row in the only terms `TranscriptFold` cares about.

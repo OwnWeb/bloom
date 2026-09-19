@@ -26,9 +26,9 @@ extension AppModel {
                 guard let self else { return .failure(Self.notReady) }
                 return await self.cloudTranscript(id, chat: chat, after: after, limit: limit)
             },
-            send: { [weak self] id, chat, text in
+            send: { [weak self] id, chat, text, via in
                 guard let self else { return .failure(Self.notReady) }
-                return await self.cloudSend(id, chat: chat, text: text)
+                return await self.cloudSend(id, chat: chat, text: text, via: via)
             },
             changes: { [weak self] id in
                 guard let self else { return .failure(Self.notReady) }
@@ -102,8 +102,10 @@ extension AppModel {
         }
     }
 
-    private func cloudSend(_ id: String, chat: String, text: String) async -> Result<Bool, CloudReachTrouble> {
-        switch await performInCloud(id, .send(chatID: chat, text: text)) {
+    /// An older machine ignores `via` and the message arrives unlabelled, which is the worst it
+    /// can do: nothing is refused for carrying it.
+    private func cloudSend(_ id: String, chat: String, text: String, via: MessageVia?) async -> Result<Bool, CloudReachTrouble> {
+        switch await performInCloud(id, .send(chatID: chat, text: text, via: via?.record)) {
         case .failure(let trouble): return .failure(trouble)
         case .success(.queued): return .success(false)
         case .success: return .success(true)

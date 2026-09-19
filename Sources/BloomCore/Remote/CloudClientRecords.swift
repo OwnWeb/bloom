@@ -60,7 +60,10 @@ extension Message {
             // which `MessageAudience.init(_:)` does by failing. A row that then reads as addressed
             // to the agent is a row drawn without a caption, which is what every message written
             // before audiences existed looks like, and is the only safe way to be wrong here.
-            audience: record.audience.flatMap(MessageAudience.init)
+            audience: record.audience.flatMap(MessageAudience.init),
+            // A label the machine has already checked; one this version cannot read is dropped
+            // rather than drawn as a guess.
+            via: record.via.flatMap { try? MessageVia(record: $0) }
         )
     }
 }

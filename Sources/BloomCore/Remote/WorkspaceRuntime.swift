@@ -267,7 +267,10 @@ public actor WorkspaceRuntime {
             try await store.updateLastReadSeq(sessionID: try chatID.sessionID, seq: seq)
             return .accepted
         case .setComposer(let chatID, let controls): try await setComposer(chatID, controls: controls, as: caller); return .accepted
-        case .send(let chatID, let text, let audience):
+        // `via` is a label for the window, kept and returned by the server branch's runtime, which
+        // is the one that runs on a machine. This branch's runner drops it, which is what an older
+        // machine does too: the message arrives unlabelled and nothing is refused for it.
+        case .send(let chatID, let text, let audience, _):
             // **Refused rather than ignored, and this branch is not where it is honoured.** The
             // machine's half of addressing a message to a person is on the server branch, which
             // owns this runtime; what matters here is that a runner built from this one cannot
