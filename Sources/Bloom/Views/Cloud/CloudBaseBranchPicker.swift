@@ -162,25 +162,33 @@ struct CloudBaseBranchPicker: View {
     private func search(_ text: String) async {
         list.search(text)
         settleSelection()
-        let asked = list.query
-        do {
-            let page = try await load(asked, nil)
-            list.receive(page.names, next: page.next, for: asked)
-        } catch {
-            list.fail(Self.reason(error), for: asked)
-        }
+        await fetch(list.query, cursor: nil)
         settleSelection()
     }
 
     private func more() async {
-        let asked = list.query
         let cursor = list.next
         list.loadingMore()
-        do {
-            let page = try await load(asked, cursor)
-            list.receive(page.names, next: page.next, for: asked)
-        } catch {
-            list.fail(Self.reason(error), for: asked)
+        await fetch(list.query, cursor: cursor)
+    }
+
+    /// One page, with a rate limit waited out rather than shown: the rows on screen stay and the
+    /// list asks again after runbloom.app's `retry_after`, for as long as the search is still this
+    /// one. See `CloudBaseBranches.retryDelay`. Three waits at most, then the refusal is shown.
+    private func fetch(_ asked: String, cursor: String?) async {
+        for attempt in 1...4 {
+            do {
+                let page = try await load(asked, cursor)
+                list.receive(page.names, next: page.next, for: asked)
+                return
+            } catch {
+                guard attempt < 4, let delay = CloudBaseBranches.retryDelay(for: error) else {
+                    list.fail(Self.reason(error), for: asked)
+                    return
+                }
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, list.query == asked else { return }
+            }
         }
     }
 

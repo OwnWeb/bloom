@@ -69,4 +69,13 @@ struct CloudBaseBranchesTests {
         #expect(page.hasMore)
         #expect(!page.truncated)
     }
+
+    @Test("too many requests is waited out for retry_after, within bounds, and nothing else is")
+    func retryDelay() {
+        let limited = RunbloomRefusal(status: 429, code: "too_many_requests", message: "Slow down.", retryAfter: 12)
+        #expect(CloudBaseBranches.retryDelay(for: limited) == .seconds(12))
+        #expect(CloudBaseBranches.retryDelay(for: RunbloomRefusal(status: 429, code: "too_many_requests", message: "", retryAfter: 0)) == .seconds(1))
+        #expect(CloudBaseBranches.retryDelay(for: RunbloomRefusal(status: 429, code: "too_many_requests", message: "", retryAfter: 900)) == .seconds(60))
+        #expect(CloudBaseBranches.retryDelay(for: RunbloomRefusal(status: 502, code: "github_unavailable", message: "")) == nil)
+    }
 }

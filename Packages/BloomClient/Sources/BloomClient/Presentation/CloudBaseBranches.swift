@@ -79,6 +79,19 @@ public struct CloudBaseBranches: Sendable, Equatable {
         return query
     }
 
+    /// How long to wait before asking again, when runbloom.app said too many requests; nil for any
+    /// other refusal, which is shown as it is.
+    ///
+    /// **A limit is waited out quietly, not shown.** It is thirty lists a minute per person, shared
+    /// with the web, and somebody refining a search with pauses between the words can meet it
+    /// without doing anything wrong, so the rows already on screen stay and the list asks again
+    /// once runbloom.app's `retry_after` has passed. Bounded at a minute, so a wild value cannot
+    /// leave the list spinning, and at least a second, so a zero cannot make it ask in a loop.
+    public static func retryDelay(for error: any Error) -> Duration? {
+        guard let refusal = error as? RunbloomRefusal, refusal.status == 429 else { return nil }
+        return .seconds(min(max(refusal.retryAfter ?? 5, 1), 60))
+    }
+
     /// Whether the row for `name` is only there because it was typed.
     public func isTyped(_ name: String) -> Bool {
         name == typed && !loaded.contains(name) && name != defaultBranch
