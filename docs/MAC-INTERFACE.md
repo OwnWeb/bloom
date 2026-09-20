@@ -577,9 +577,10 @@ for a Cloud one, which is built from the same pieces. Left to right: **[checked]
 
 A Cloud row has **no pin or subagent chip**. It adds **a two-person mark** when it is shared with
 the team or with the reader. Its right-click menu offers the personal colour mark. The current
-`project.settings_url` is a bearer-authenticated API endpoint, not a browser address, so the Mac
-does not invent a Project Settings page from it. The action stays absent until runbloom.app supplies
-the browser URL. Its diff is `summary.diff`, shown when `files > 0`.
+`project.settings_url` remains a bearer-authenticated API endpoint. When runbloom.app separately
+supplies `project.browser_settings_url`, the menu offers Project Settings and opens that exact URL
+in the default browser, where normal browser sign in applies. The Mac neither invents the page nor
+adds credentials. Its diff is `summary.diff`, shown when `files > 0`.
 
 **Hovering a row opens a card** (`WorkspaceHoverCardView`, decisions in `WorkspaceHoverCard`) with
 the branch, the diff in full colour, the pull request, its checks and the age. The row has no
