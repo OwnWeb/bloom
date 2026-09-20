@@ -242,8 +242,19 @@ public enum ServeCommand {
             FileHandle.standardError.write(Data("bloom-runner: \(error)\n".utf8))
         }
 
+        let projectIcons = ProjectIconDiscoveryMonitor(
+            repositoryPath: layout.worktree,
+            loadRequest: { try await client.projectIconRequest() },
+            report: { try await client.reportProjectIcon($0) },
+            loadState: { try await store.setting(ProjectIconDiscoveryMonitor.stateSetting) },
+            saveState: { try await store.setSetting(ProjectIconDiscoveryMonitor.stateSetting, $0) },
+            isAwake: { await awake.holding }
+        )
         let measurements = WorktreeMeasurements(runtime: runtime, reporter: reporter)
-        await awake.whenWaking { await machineEnvironment.refresh() }
+        await awake.whenWaking {
+            await machineEnvironment.refresh()
+            await projectIcons.woke()
+        }
         await awake.start()
         await measurements.start()
         // After the first summary and with the server about to listen, so setup can be watched live.
@@ -253,7 +264,9 @@ public enum ServeCommand {
         let openings = OpeningHandoff(client: client, runtime: runtime)
         let setupRun = Task {
             await setup.run()
-            if !Task.isCancelled { await openings.run() }
+            guard !Task.isCancelled else { return }
+            await projectIcons.start(initialRequest: configuration.projectIconRequest)
+            await openings.run()
         }
         // An update waits for this file to go: deleting it once listening is how a new release says
         // it came up, which works whether or not the script that restarted the service survived it.
@@ -270,6 +283,7 @@ public enum ServeCommand {
             // Setup first, filed as interrupted, so nothing it would start begins now.
             setupRun.cancel()
             await setupRun.value
+            await projectIcons.stop()
             await measurements.stop()
             // Turns before the report, so the last usage report has every turn finishing in it.
             // This also closes every event stream.

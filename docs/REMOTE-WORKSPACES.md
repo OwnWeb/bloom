@@ -811,6 +811,8 @@ No provider name in any path. All take the workspace secret except where noted.
 | `POST /api/machine/workspaces/{id}/turns/{turn}/start` | the key and personal environment, or a limit refusal |
 | `DELETE /api/machine/workspaces/{id}/turns/{turn}` | ending a turn or terminal session |
 | `POST /api/machine/workspaces/{id}/git-credentials` | a short-lived GitHub token for the current turn, or read-only outside one |
+| `GET /api/machine/workspaces/{id}/project-icon-request` | the current server-authored discovery revision and polling interval for this authenticated machine |
+| `PUT /api/machine/workspaces/{id}/project-icon` | one revisioned, canonical PNG or explicit no-icon result from the repository default branch |
 | `GET /.well-known/jwks.json` | public, the key set for workspace and control tokens |
 
 Clients use `POST /api/v1/cloud-workspaces/{id}/session-token` and the rest of `/api/v1/cloud-workspaces`, which accepts a
@@ -1013,7 +1015,17 @@ and its builder confirmed them.
 - **Control paths are hyphenated**: `POST /_bloom/v1/control/limits-cleared`, beside `revoke`,
   `update`, `environment` and `stop`.
 - **`/etc/bloom/workspace.json`** holds `workspace_id`, `issuer`, `jwks_url`, `base_url`,
-  `workspace_secret` and `allowed_origins`. Ids on every wire to runbloom.app are lowercase ULIDs.
+  `workspace_secret` and `allowed_origins`. Its optional `project_icon` object carries
+  `should_discover`, `requested_revision`, `detector_version` and `repository_default_branch`.
+  Missing or false `should_discover` means the Runner performs no discovery and sends no result.
+  Once setup finishes, the running machine reloads the same server-authored request through its
+  authenticated `project-icon-request` endpoint, again after a wake, and then at the response's
+  bounded interval while awake. The reload has no body or query authority. Stale, duplicate and
+  unsupported detector revisions never run. The highest authority, completion and exact prepared
+  report bytes share one durable Store record, so a restart cannot regress or re-render a retry.
+  A durable PUT retry is followed by the promised authenticated reload; a 403 or 404 gates every
+  overlapping trigger until the five-minute awake cadence rather than retrying the PUT in a loop.
+  Ids on every wire to runbloom.app are lowercase ULIDs.
 - **The release margin is runbloom.app's configuration** (five seconds there), not a number this
   document fixes.
 - **The summary carries what is at stake, and leaves it out when it does not know.** `uncommitted`,
@@ -1033,7 +1045,10 @@ and its builder confirmed them.
   `agent_keys` (per agent: `key`, `identity`, `source`) and `environment`, or the limit refusal, or
   `no_agent_key`, `not_a_collaborator`, `github_not_connected`, or 409 `turn_not_startable`;
   `git-credentials` takes `repository`, `operation` (`read` or `write`) and `turn_id`, and answers
-  `token`, `expires_at` and `username`. `control/update` carries `version`, `sha256` and `tag`, and the
+  `token`, `expires_at` and `username`. `project-icon-request` answers `project_icon` plus
+  `poll_after_seconds`; a null or false `should_discover` resolves to no work. `project-icon` takes the configured `requested_revision`
+  and `detector_version`, the exact default-branch `source_commit`, and either a base64 canonical
+  PNG with its SHA-256 or `icon: null`. `control/update` carries `version`, `sha256` and `tag`, and the
   machine downloads the asset from that tag, `v<version>` for a Bloom release or `runner-v<version>`
   for a runner-only test release, which `release.yml` builds without the app. Any other tag is refused.
   Since the repository went private on 19 September 2026 it also carries `download_url`, a

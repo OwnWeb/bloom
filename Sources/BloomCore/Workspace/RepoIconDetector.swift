@@ -78,7 +78,7 @@ public enum RepoIconDetector {
     /// own layout put it, so that half is a bounded walk which skips the directories that make a
     /// checkout large.
     public static func candidates(in repo: String) -> [RepoIconCandidate] {
-        let root = (repo as NSString).expandingTildeInPath
+        guard let root = canonicalDirectory(repo) else { return [] }
         var found = webCandidates(in: root) + manifestCandidates(in: root) + appCandidates(in: root)
 
         // A file can be reached by more than one of the rules above: `public` is both a web root
@@ -108,7 +108,7 @@ public enum RepoIconDetector {
             for name in (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [] {
                 guard let origin = origin(ofFileNamed: name) else { continue }
                 let path = (directory as NSString).appendingPathComponent(name)
-                if let candidate = candidate(at: path, origin: origin) {
+                if let candidate = candidate(at: path, origin: origin, under: root) {
                     candidates.append(candidate)
                 }
             }
@@ -145,7 +145,11 @@ public enum RepoIconDetector {
             guard let match = entries.first(where: { $0 == component })
                 ?? entries.sorted().first(where: { $0.lowercased() == component })
             else { return nil }
-            path = (path as NSString).appendingPathComponent(match)
+            let joined = (path as NSString).appendingPathComponent(match)
+            guard let confined = canonicalExistingPath(joined, under: root),
+                  !passesThroughSkippedDirectory(confined, under: root)
+            else { return nil }
+            path = confined
         }
         return isDirectory(path) ? path : nil
     }
@@ -259,7 +263,8 @@ public enum RepoIconDetector {
         for directory in searchDirectories(in: root) {
             for name in ["site.webmanifest", "manifest.webmanifest", "manifest.json"] {
                 let path = (directory as NSString).appendingPathComponent(name)
-                guard let data = boundedContents(ofFile: path, limit: 256 * 1024),
+                guard let manifest = canonicalExistingPath(path, under: root),
+                      let data = boundedContents(ofFile: manifest, limit: 256 * 1024),
                       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let icons = object["icons"] as? [[String: Any]]
                 else { continue }
@@ -272,7 +277,7 @@ public enum RepoIconDetector {
                     let relative = source.hasPrefix("/") ? String(source.dropFirst()) : source
                     guard !relative.isEmpty, !relative.contains("://") else { continue }
                     let resolved = (directory as NSString).appendingPathComponent(relative)
-                    if let candidate = candidate(at: resolved, origin: .manifest) {
+                    if let candidate = candidate(at: resolved, origin: .manifest, under: root) {
                         candidates.append(candidate)
                     }
                 }
@@ -290,8 +295,8 @@ public enum RepoIconDetector {
     /// contains the very icon being looked for, and finding it inside `.build` would mean the
     /// answer changed depending on whether the project had been compiled.
     static let skippedDirectories: Set<String> = [
-        ".git", ".svn", ".hg", "node_modules", "vendor", "Pods", "Carthage", "build", ".build",
-        "DerivedData", "dist", "out", "target", ".venv", "venv", "__pycache__", ".next", ".nuxt",
+        ".git", ".svn", ".hg", "node_modules", "vendor", "pods", "carthage", "build", ".build",
+        "deriveddata", "dist", "out", "target", ".venv", "venv", "__pycache__", ".next", ".nuxt",
         ".cache", "coverage", "tmp", "bower_components", ".gradle", ".idea", ".swiftpm",
     ]
 
@@ -307,6 +312,7 @@ public enum RepoIconDetector {
         var candidates: [RepoIconCandidate] = []
         var visited = 0
         var queue: [(path: String, depth: Int)] = [(root, 0)]
+        var seenDirectories: Set<String> = [root]
 
         while !queue.isEmpty, visited < maximumEntries {
             let (directory, depth) = queue.removeFirst()
@@ -314,26 +320,29 @@ public enum RepoIconDetector {
             for name in names {
                 visited += 1
                 if visited >= maximumEntries { break }
-                let path = (directory as NSString).appendingPathComponent(name)
+                let joined = (directory as NSString).appendingPathComponent(name)
+                guard let path = canonicalExistingPath(joined, under: root) else { continue }
 
                 if name.hasSuffix(".icns") {
-                    if let candidate = candidate(at: path, origin: .appIcon) { candidates.append(candidate) }
+                    if let candidate = candidate(at: path, origin: .appIcon, under: root) { candidates.append(candidate) }
                     continue
                 }
                 guard isDirectory(path) else { continue }
 
                 if name.hasSuffix(".appiconset") {
-                    if let candidate = largestImage(inAppIconSet: path) { candidates.append(candidate) }
+                    if let candidate = largestImage(inAppIconSet: path, under: root) { candidates.append(candidate) }
                     continue
                 }
                 if name.hasSuffix(".icon") {
-                    if let candidate = candidate(at: path, origin: .appIcon) { candidates.append(candidate) }
+                    if let candidate = candidate(at: path, origin: .appIcon, under: root) { candidates.append(candidate) }
                     continue
                 }
                 guard depth + 1 <= maximumDepth,
-                      !skippedDirectories.contains(name),
+                      !skippedDirectories.contains(name.lowercased()),
+                      !passesThroughSkippedDirectory(path, under: root),
                       !name.hasPrefix("."),
-                      !name.hasSuffix(".app")
+                      !name.hasSuffix(".app"),
+                      seenDirectories.insert(path).inserted
                 else { continue }
                 queue.append((path, depth + 1))
             }
@@ -347,18 +356,22 @@ public enum RepoIconDetector {
     /// sizes with a scale beside them and the file is what actually has to be drawn. An icon set
     /// whose PNGs are all missing, which is what a catalogue looks like after a bad merge, has no
     /// candidate rather than a broken one.
-    private static func largestImage(inAppIconSet path: String) -> RepoIconCandidate? {
+    private static func largestImage(inAppIconSet path: String, under root: String) -> RepoIconCandidate? {
         let names = ((try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []).sorted()
         return names
-            .compactMap { candidate(at: (path as NSString).appendingPathComponent($0), origin: .appIcon) }
+            .compactMap { candidate(at: (path as NSString).appendingPathComponent($0), origin: .appIcon, under: root) }
             .min { $0.isBetter(than: $1) }
     }
 
     // MARK: - Measuring
 
     /// One file weighed up, or nil when it is too small, unreadable, or not the thing it is named.
-    static func candidate(at path: String, origin: RepoIconOrigin) -> RepoIconCandidate? {
-        guard let measurement = RepoIconFile.measure(path) else { return nil }
+    static func candidate(at path: String, origin: RepoIconOrigin, under root: String) -> RepoIconCandidate? {
+        guard let path = canonicalExistingPath(path, under: root),
+              !passesThroughSkippedDirectory(path, under: root),
+              !isUnsuitableVariant(path),
+              let measurement = RepoIconFile.measure(path)
+        else { return nil }
         if measurement.format.isRaster, measurement.pixels < smallestUsefulPixels { return nil }
         if let aspect = measurement.aspect, aspect > widestUsefulAspect { return nil }
         return RepoIconCandidate(
@@ -399,6 +412,50 @@ public enum RepoIconDetector {
     }
 
     // MARK: - Files
+
+    /// The one directory all discovery is confined to. The caller may name it through `..` or a
+    /// symlink, so the boundary is the resolved directory rather than the spelling it arrived as.
+    static func canonicalDirectory(_ path: String) -> String? {
+        let expanded = (path as NSString).expandingTildeInPath
+        let resolved = URL(fileURLWithPath: expanded).standardizedFileURL.resolvingSymlinksInPath().path
+        return isDirectory(resolved) ? resolved : nil
+    }
+
+    /// An existing path after every symlink has been followed, only while it remains under root.
+    /// A string prefix is not containment: `/repo-other` is not inside `/repo`.
+    static func canonicalExistingPath(_ path: String, under root: String) -> String? {
+        let canonicalRoot = URL(fileURLWithPath: root).standardizedFileURL.resolvingSymlinksInPath().path
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+        let rootComponents = URL(fileURLWithPath: canonicalRoot).pathComponents
+        let candidateComponents = URL(fileURLWithPath: candidate).pathComponents
+        guard candidateComponents.starts(with: rootComponents),
+              FileManager.default.fileExists(atPath: candidate)
+        else { return nil }
+        return candidate
+    }
+
+    /// Canonical paths close the escape, and this keeps an in-root symlink from renaming a
+    /// dependency or build directory into one of the locations discovery deliberately searches.
+    static func passesThroughSkippedDirectory(_ path: String, under root: String) -> Bool {
+        let rootComponents = URL(fileURLWithPath: root).standardizedFileURL.pathComponents
+        let candidateComponents = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        guard candidateComponents.starts(with: rootComponents) else { return true }
+        return candidateComponents.dropFirst(rootComponents.count).contains { component in
+            let lower = component.lowercased()
+            return skippedDirectories.contains(lower) || lower.hasSuffix(".app")
+        }
+    }
+
+    /// A dark-mode or notification-badged asset is a stateful variant, not a project's identity.
+    /// A plain sibling already outranked it; when it is alone the monogram is the honest answer.
+    static func isUnsuitableVariant(_ path: String) -> Bool {
+        let stem = ((path as NSString).lastPathComponent as NSString).deletingPathExtension.lowercased()
+        let words = Set(stem.split { !$0.isLetter }.map(String.init))
+        let variants: Set<String> = [
+            "dark", "night", "unread", "notification", "notifications", "notify", "alert", "badge", "badged",
+        ]
+        return !words.isDisjoint(with: variants)
+    }
 
     static func isDirectory(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false

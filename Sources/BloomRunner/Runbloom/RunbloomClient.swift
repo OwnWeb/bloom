@@ -15,6 +15,11 @@ import NIOHTTP1
 /// The `HTTPClient` is passed in rather than made here, because it owns an event loop and has to
 /// be shut down by whoever owns the process, and one client is shared by every caller.
 public struct RunbloomClient: Sendable {
+    struct TransportResponse: Sendable {
+        var status: Int
+        var body: Data
+        var retryAfter: String?
+    }
     /// `{base}/api/machine/workspaces/{id}`, built once. Held as the path rather than the id so
     /// the id is never mistaken for one of Bloom's own.
     private let workspaceURL: String
@@ -130,6 +135,11 @@ public struct RunbloomClient: Sendable {
     /// makes sending it twice safe.
     func send(_ method: HTTPMethod, _ path: String, body: Data? = nil, headers: [String: String] = [:],
               expecting success: Set<Int>) async throws -> Data {
+        try await sendResponse(method, path, body: body, headers: headers, expecting: success).body
+    }
+
+    func sendResponse(_ method: HTTPMethod, _ path: String, body: Data? = nil, headers: [String: String] = [:],
+                      expecting success: Set<Int>) async throws -> TransportResponse {
         do {
             return try await sendOnce(method, path, body: body, headers: headers, expecting: success)
         } catch let error as RunbloomError where error.isTerminal && secret.reload() {
@@ -138,7 +148,7 @@ public struct RunbloomClient: Sendable {
     }
 
     private func sendOnce(_ method: HTTPMethod, _ path: String, body: Data?, headers: [String: String],
-                          expecting success: Set<Int>) async throws -> Data {
+                          expecting success: Set<Int>) async throws -> TransportResponse {
         var request = HTTPClientRequest(url: workspaceURL + path)
         request.method = method
         request.headers.add(name: "Authorization", value: "Bearer \(secret.current)")
@@ -151,9 +161,11 @@ public struct RunbloomClient: Sendable {
 
         let status: Int
         let answer: Data
+        let retryAfter: String?
         do {
             let response = try await http.execute(request, timeout: timeout)
             status = Int(response.status.code)
+            retryAfter = response.headers.first(name: "Retry-After")
             let buffer = try await response.body.collect(upTo: Self.largestAnswer)
             answer = Data(buffer.readableBytesView)
         } catch {
@@ -164,7 +176,7 @@ public struct RunbloomClient: Sendable {
             throw RunbloomError.unreachable(String(describing: error))
         }
 
-        if success.contains(status) { return answer }
+        if success.contains(status) { return TransportResponse(status: status, body: answer, retryAfter: retryAfter) }
         if status >= 500 { throw RunbloomError.unreachable("runbloom.app answered \(status).") }
         throw Self.refusal(status: status, answer)
     }

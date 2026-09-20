@@ -95,6 +95,12 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-crypto.git", from: "4.5.2"),
     ],
     targets: [
+        .systemLibrary(
+            name: "CZlib",
+            path: "Sources/CZlib",
+            pkgConfig: "zlib",
+            providers: [.apt(["zlib1g-dev"])]
+        ),
         // The SDK carries SQLite on a Mac; on Linux it is the system library from libsqlite3-dev.
         .systemLibrary(
             name: "SQLite3",
@@ -118,14 +124,14 @@ let package = Package(
         ),
         .target(
             name: "BloomRunner",
-            dependencies: serverDependencies + [.product(name: "Crypto", package: "swift-crypto")],
+            dependencies: ["CZlib"] + serverDependencies + [.product(name: "Crypto", package: "swift-crypto")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(name: "bloom-runner", dependencies: ["BloomRunner"], swiftSettings: [.swiftLanguageMode(.v6)]),
         .testTarget(
             name: "BloomRunnerTests",
             dependencies: [
-                "BloomRunner", "BloomCore", .product(name: "BloomProtocol", package: "BloomProtocol"),
+                "BloomRunner", "BloomCore", "CZlib", .product(name: "BloomProtocol", package: "BloomProtocol"),
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
@@ -181,6 +187,11 @@ let package = Package(
         .package(url: "https://github.com/spatie/flare-client-swift.git", from: "1.0.0"),
     ],
     targets: [
+        .systemLibrary(
+            name: "CZlib",
+            path: "Sources/CZlib",
+            pkgConfig: "zlib"
+        ),
         .target(
             name: "BloomCore",
             dependencies: [.product(name: "BloomProtocol", package: "BloomProtocol")],
@@ -215,7 +226,7 @@ let package = Package(
         .target(
             name: "BloomRunner",
             dependencies: [
-                "BloomCore",
+                "BloomCore", "CZlib",
                 .product(name: "BloomProtocol", package: "BloomProtocol"),
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
@@ -229,7 +240,7 @@ let package = Package(
         .testTarget(
             name: "BloomRunnerTests",
             dependencies: [
-                "BloomRunner", "BloomCore", .product(name: "BloomProtocol", package: "BloomProtocol"),
+                "BloomRunner", "BloomCore", "CZlib", .product(name: "BloomProtocol", package: "BloomProtocol"),
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]

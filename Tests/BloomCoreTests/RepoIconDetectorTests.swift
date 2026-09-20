@@ -203,10 +203,10 @@ struct RepoIconDetectorTests {
         ])
         #expect(name(of: RepoIconDetector.detect(in: root)) == "logo.svg")
 
-        // On its own it is still an answer: a project that ships only the dark one has still said
-        // what it looks like.
+        // On its own it is a theme-specific surface that can disappear against another client's
+        // background, not a safe project identity.
         let onlyDark = try repository(["assets/logo-dark.svg": svgData()])
-        #expect(name(of: RepoIconDetector.detect(in: onlyDark)) == "logo-dark.svg")
+        #expect(RepoIconDetector.detect(in: onlyDark) == nil)
     }
 
     @Test("the plain favicon beats the ones with an unread count drawn on them")
@@ -241,10 +241,10 @@ struct RepoIconDetectorTests {
         ])
         #expect(name(of: RepoIconDetector.detect(in: invented)) == "favicon.svg")
 
-        // And with no plain one to lose to, the decorated file is still the answer: it is the
-        // artwork this project has.
+        // A notification count is transient state, not project identity, even when it is the only
+        // image left in a checkout.
         let onlyBadged = try repository(["public/favicon-unread-1.svg": svgData()])
-        #expect(name(of: RepoIconDetector.detect(in: onlyBadged)) == "favicon-unread-1.svg")
+        #expect(RepoIconDetector.detect(in: onlyBadged) == nil)
     }
 
     @Test("a size in a name is not a word added to it")
@@ -597,7 +597,10 @@ struct RepoIconDetectorTests {
     func skippedDirectories() throws {
         let root = try repository([
             "node_modules/some-package/icon.png": png(512, 512),
+            "Node_Modules/Another/icon.png": png(512, 512),
             "vendor/other/public/favicon.svg": svgData(),
+            "Vendor/Other/icon.png": png(512, 512),
+            "BUILD/output/icon.png": png(512, 512),
             ".build/debug/Bloom.app/Contents/Resources/AppIcon.icns": icns(["ic10"]),
             "Pods/Thing/Assets.xcassets/AppIcon.appiconset/icon-1024.png": png(1024, 1024),
             ".git/hooks/logo.svg": svgData(),
@@ -612,6 +615,47 @@ struct RepoIconDetectorTests {
             "public/storage/uploads/avatar.jpg": jpeg(1024, 1024),
         ])
         #expect(RepoIconDetector.candidates(in: root).isEmpty)
+    }
+
+    @Test("the canonical repository root accepts its own spelling and confines every symlink")
+    func canonicalRootAndSymlinks() throws {
+        let root = try repository(["public/favicon.png": png(128, 128)])
+        let parent = (root as NSString).deletingLastPathComponent
+        let rootLink = (parent as NSString).appendingPathComponent("bloom-icon-root-link-\(UUID().uuidString)")
+        try FileManager.default.createSymbolicLink(atPath: rootLink, withDestinationPath: root)
+        defer { try? FileManager.default.removeItem(atPath: rootLink) }
+
+        let spelled = root + "/public/../"
+        #expect(RepoIconDetector.detect(in: spelled)?.path == root + "/public/favicon.png")
+        #expect(RepoIconDetector.detect(in: rootLink)?.path == root + "/public/favicon.png")
+
+        let outside = try repository(["favicon.png": png(512, 512)])
+        let escapedFile = root + "/public/icon.png"
+        try FileManager.default.createSymbolicLink(atPath: escapedFile, withDestinationPath: outside + "/favicon.png")
+        let escapedDirectory = root + "/assets"
+        try FileManager.default.createSymbolicLink(atPath: escapedDirectory, withDestinationPath: outside)
+
+        let names = RepoIconDetector.candidates(in: root).map { ($0.path as NSString).lastPathComponent }
+        #expect(names == ["favicon.png"])
+    }
+
+    @Test("an in-root symlink cannot rename a dependency or make the bounded walk cycle")
+    func inRootSymlinkAliases() throws {
+        let root = try repository([
+            "vendor/package/icon.png": png(1024, 1024),
+            "public/favicon.png": png(128, 128),
+        ])
+        try FileManager.default.createSymbolicLink(
+            atPath: root + "/assets",
+            withDestinationPath: root + "/vendor/package"
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: root + "/loop",
+            withDestinationPath: root
+        )
+
+        let names = RepoIconDetector.candidates(in: root).map { ($0.path as NSString).lastPathComponent }
+        #expect(names == ["favicon.png"])
     }
 
     // MARK: - Web manifests
@@ -650,11 +694,48 @@ struct RepoIconDetectorTests {
 
     @Test("a manifest naming a remote icon or an escape from the repository is ignored")
     func hostileManifest() throws {
+        let outside = try repository(["icon.png": png(512, 512)])
         let root = try repository([
             "public/manifest.json": Data("""
-            {"icons": [{"src": "https://example.com/icon.png"}, {"src": ""}]}
+            {"icons": [
+              {"src": "https://example.com/icon.png"},
+              {"src": "../../\((outside as NSString).lastPathComponent)/icon.png"},
+              {"src": ""}
+            ]}
             """.utf8),
         ])
+        #expect(RepoIconDetector.detect(in: root) == nil)
+    }
+
+    @Test("an Icon Composer document cannot read a manifest or layer through an escaping symlink")
+    func hostileIconBundleSymlinks() throws {
+        let outside = try repository([
+            "icon.json": Data(#"{"groups":[{"layers":[{"image-name":"mark.svg"}]}]}"#.utf8),
+            "mark.svg": svgData(),
+        ])
+        let root = try repository([:])
+        let bundle = root + "/App.icon"
+        try FileManager.default.createDirectory(atPath: bundle + "/Assets", withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            atPath: bundle + "/icon.json",
+            withDestinationPath: outside + "/icon.json"
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: bundle + "/Assets/mark.svg",
+            withDestinationPath: outside + "/mark.svg"
+        )
+
+        let layerBundle = root + "/Layer.icon"
+        try FileManager.default.createDirectory(atPath: layerBundle + "/Assets", withIntermediateDirectories: true)
+        try Data(#"{"groups":[{"layers":[{"image-name":"mark.svg"}]}]}"#.utf8)
+            .write(to: URL(fileURLWithPath: layerBundle + "/icon.json"))
+        try FileManager.default.createSymbolicLink(
+            atPath: layerBundle + "/Assets/mark.svg",
+            withDestinationPath: outside + "/mark.svg"
+        )
+
+        #expect(RepoIconDetector.layers(ofIconBundle: bundle).isEmpty)
+        #expect(RepoIconDetector.layers(ofIconBundle: layerBundle).isEmpty)
         #expect(RepoIconDetector.detect(in: root) == nil)
     }
 

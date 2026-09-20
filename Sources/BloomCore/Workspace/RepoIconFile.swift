@@ -296,8 +296,11 @@ enum RepoIconFile {
     /// `.icns` beside a document goes on outranking it: this is the artwork in its own colours,
     /// not the finished macOS 26 icon.
     static func layers(ofIconBundle path: String) -> [RepoIconLayer] {
-        let manifest = (path as NSString).appendingPathComponent("icon.json")
-        guard let data = RepoIconDetector.boundedContents(ofFile: manifest, limit: 1024 * 1024),
+        guard let root = RepoIconDetector.canonicalDirectory(path),
+              let manifest = RepoIconDetector.canonicalExistingPath(
+                (root as NSString).appendingPathComponent("icon.json"), under: root
+              ),
+              let data = RepoIconDetector.boundedContents(ofFile: manifest, limit: 1024 * 1024),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let groups = object["groups"] as? [[String: Any]]
         else { return [] }
@@ -319,12 +322,14 @@ enum RepoIconFile {
         }
 
         return described.reversed().compactMap { layer in
-            let assets = (path as NSString).appendingPathComponent("Assets/\(layer.name)")
-            if FileManager.default.fileExists(atPath: assets) {
+            let assets = (root as NSString).appendingPathComponent("Assets/\(layer.name)")
+            if let assets = RepoIconDetector.canonicalExistingPath(assets, under: root),
+               !RepoIconDetector.isDirectory(assets) {
                 return RepoIconLayer(path: assets, fill: layer.fill, opacity: layer.opacity)
             }
-            let loose = (path as NSString).appendingPathComponent(layer.name)
-            if FileManager.default.fileExists(atPath: loose) {
+            let loose = (root as NSString).appendingPathComponent(layer.name)
+            if let loose = RepoIconDetector.canonicalExistingPath(loose, under: root),
+               !RepoIconDetector.isDirectory(loose) {
                 return RepoIconLayer(path: loose, fill: layer.fill, opacity: layer.opacity)
             }
             return nil

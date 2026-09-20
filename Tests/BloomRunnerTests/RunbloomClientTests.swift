@@ -150,6 +150,121 @@ struct RunbloomClientTests {
         }
     }
 
+    @Test func aProjectIconAndAnExplicitMissUseTheAuthenticatedMachineEndpoint() async throws {
+        try await Self.withFake { fake, client in
+            let icon = Data("canonical-png".utf8)
+            try await client.reportProjectIcon(ProjectIconReport(
+                requestedRevision: 4,
+                detectorVersion: 2,
+                sourceCommit: String(repeating: "a", count: 40),
+                icon: icon
+            ))
+            try await client.reportProjectIcon(ProjectIconReport(
+                requestedRevision: 5,
+                detectorVersion: 2,
+                sourceCommit: String(repeating: "b", count: 40),
+                icon: nil
+            ))
+
+            let requests = fake.requests("PUT", "/project-icon")
+            #expect(requests.count == 2)
+            #expect(requests.allSatisfy { $0.authorization == "Bearer secret-for-tests" })
+            #expect(requests.allSatisfy { $0.contentType == "application/json" })
+            let first = try #require(requests.first?.json)
+            #expect(first["requested_revision"] as? Int == 4)
+            #expect(first["detector_version"] as? Int == 2)
+            #expect(first["source_commit"] as? String == String(repeating: "a", count: 40))
+            let sentIcon = try #require(first["icon"] as? [String: Any])
+            #expect(sentIcon["data"] as? String == icon.base64EncodedString())
+            #expect(sentIcon["sha256"] as? String == "d33a5e3a7ed7cc0d9db661342609a33db44f10cdab3cc1cd5c3ed833b52c3d22")
+            #expect(requests.last?.json?["icon"] is NSNull)
+        }
+    }
+
+    @Test func theProjectIconRequestComesOnlyFromTheAuthenticatedMachineEndpoint() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("GET", "/project-icon-request", .json(200, [
+                "project_icon": [
+                    "requested_revision": 2,
+                    "detector_version": 1,
+                    "repository_default_branch": "main",
+                    "should_discover": true,
+                ],
+                "poll_after_seconds": 300,
+            ]))
+
+            let answer = try await client.projectIconRequest()
+
+            #expect(answer.projectIcon?.identityRequest == ProjectIconDiscoveryRequest(
+                requestedRevision: 2,
+                detectorVersion: 1,
+                repositoryDefaultBranch: "main"
+            ))
+            #expect(answer.projectIcon?.shouldDiscover == true)
+            #expect(answer.pollAfter == .seconds(300))
+            let requests = fake.requests("GET", "/project-icon-request")
+            #expect(requests.count == 1)
+            let sent = try #require(requests.first)
+            #expect(sent.authorization == "Bearer secret-for-tests")
+            #expect(sent.body.isEmpty)
+            #expect(sent.contentType == nil)
+        }
+    }
+
+    @Test func resolvedAndMissingProjectIconRequestsDoNotInventDiscoveryWork() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("GET", "/project-icon-request",
+                        .json(200, [
+                            "project_icon": [
+                                "requested_revision": 3,
+                                "detector_version": 1,
+                                "repository_default_branch": "main",
+                                "should_discover": false,
+                            ],
+                            "poll_after_seconds": 300,
+                        ]),
+                        .json(200, ["project_icon": NSNull(), "poll_after_seconds": 300]))
+
+            let resolved = try await client.projectIconRequest()
+            let missing = try await client.projectIconRequest()
+
+            #expect(resolved.projectIcon?.identityRequest?.requestedRevision == 3)
+            #expect(resolved.projectIcon?.discoveryRequest == nil)
+            #expect(missing.projectIcon == nil)
+        }
+    }
+
+    @Test func projectIconRequestUnavailableHonoursTheBoundedRetryAfter() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("GET", "/project-icon-request", .init(
+                status: 503,
+                body: #"{"code":"project_icon_request_unavailable","message":"Try again."}"#,
+                headers: ["Retry-After": "60"]
+            ))
+
+            await #expect(throws: ProjectIconRequestUnavailable(retryAfter: .seconds(60))) {
+                try await client.projectIconRequest()
+            }
+        }
+    }
+
+    @Test func projectIconRequestPreservesFeatureAndReplacementRefusals() async throws {
+        try await Self.withFake { fake, client in
+            let refusals: [(Int, String)] = [(403, "github_disabled"), (404, "not_found"), (401, "invalid_workspace_secret")]
+            for (status, code) in refusals {
+                fake.script("GET", "/project-icon-request", .refusal(status: status, code: code, message: "Refused."))
+                do {
+                    _ = try await client.projectIconRequest()
+                    Issue.record("A refused request was accepted.")
+                } catch let error as RunbloomError {
+                    #expect(error == .refused(status: status, code: code, message: "Refused.", limit: nil, retryAfter: nil))
+                } catch {
+                    Issue.record("The refusal changed type: \(error)")
+                }
+            }
+        }
+    }
+
     /// runbloom.app decides; the machine passes the turn and the key, and hands the agent whatever
     /// runbloom.app said, word for word, because that sentence is the only place the team switch
     /// is named.
