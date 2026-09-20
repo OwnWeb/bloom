@@ -13,17 +13,27 @@ public struct CloudWorkspaceRequest: Sendable, Hashable {
     /// `WorkspaceRuntime.startCloudWorkspace`.
     public var turnID: String
     public var idempotencyKey: String
-    /// The creating chat's agent and model, sent with a prompt so the opening turn runs on what
-    /// the person was already using. Never chosen by the agent. Nil without a prompt.
+    /// The creating chat's agent, model and effort, sent with a prompt so the opening turn runs on
+    /// what the person was already using. The agent and model cannot be overridden here; effort may
+    /// be explicitly changed to another value that model offers. Nil without a prompt.
     public var agent: String?
     public var model: String?
+    public var effort: String?
 
-    public init(order: CloudWorkspaceOrder, turnID: String, idempotencyKey: String, agent: String? = nil, model: String? = nil) {
+    public init(
+        order: CloudWorkspaceOrder,
+        turnID: String,
+        idempotencyKey: String,
+        agent: String? = nil,
+        model: String? = nil,
+        effort: String? = nil
+    ) {
         self.order = order
         self.turnID = turnID
         self.idempotencyKey = idempotencyKey
         self.agent = agent
         self.model = model
+        self.effort = effort
     }
 
     /// **The turn and the name, not the call.** A key per call would stop the machine's own retry
@@ -68,6 +78,25 @@ extension WorkspaceRuntime {
             }
             request.agent = session.agentKind.wireName
             request.model = session.model
+            if let effort = order.effort {
+                guard let workspace = try? await workspace() else {
+                    return .refused("This machine could not read its workspace, so it cannot verify that reasoning effort.")
+                }
+                let listed = await models(workspace.path)
+                let offered = listed.first {
+                    $0.agent == session.agentKind.wireName && $0.id == session.model
+                }
+                let available = offered?.efforts ?? (session.agentKind == .claudeCode
+                    ? Array(Set(listed.filter { $0.agent == session.agentKind.wireName }.flatMap(\.efforts))).sorted()
+                    : [])
+                guard available.contains(effort) else {
+                    let choices = available.isEmpty ? "none" : available.joined(separator: ", ")
+                    return .refused("The current model does not offer reasoning effort '\(effort)'. Available efforts: \(choices).")
+                }
+                request.effort = effort
+            } else {
+                request.effort = session.effort
+            }
         }
         return await createCloudWorkspace(request)
     }

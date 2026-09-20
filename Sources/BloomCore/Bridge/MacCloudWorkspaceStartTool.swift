@@ -3,8 +3,10 @@ import Foundation
 /// The current Runner order, plus the two facts only the Mac knows when it resolves a project and
 /// asks the owner. Keeping the wire-shaped order whole makes the Mac and Runner tools accept the
 /// same arguments without putting Mac-only state on the Runner request.
-public struct MacCloudWorkspaceOrder: Sendable, Hashable {
+public struct MacCloudWorkspaceOrder: Sendable, Equatable {
     public let order: CloudWorkspaceOrder
+    /// The creating chat's controls, when there is one. Nil for an owner client with no chat.
+    public let callerControls: ComposerControls?
     /// The caller's own repository as GitHub names it, `owner/name`, when the caller is standing
     /// in a workspace whose repository is on GitHub. What a nil `project` is matched against.
     public let callerRepository: String?
@@ -13,9 +15,13 @@ public struct MacCloudWorkspaceOrder: Sendable, Hashable {
     public let requestedBy: String?
 
     public init(
-        order: CloudWorkspaceOrder, callerRepository: String? = nil, requestedBy: String? = nil
+        order: CloudWorkspaceOrder,
+        callerControls: ComposerControls? = nil,
+        callerRepository: String? = nil,
+        requestedBy: String? = nil
     ) {
         self.order = order
+        self.callerControls = callerControls
         self.callerRepository = callerRepository
         self.requestedBy = requestedBy
     }
@@ -101,6 +107,10 @@ public struct MacCloudWorkspaceStartTool: BridgeToolHandling {
             the prompt out to make an empty workspace. 'name' is always required, as it is when \
             the same tool runs on a Bloom Cloud machine.
 
+            Pass 'effort' to choose the opening chat's reasoning effort, or leave it out to use \
+            the effort of the chat making this call. An empty workspace has no opening chat, so \
+            it takes no effort.
+
             'project' is a runbloom.app project. Inside a Bloom workspace, leave it out to use the \
             project whose repository is this workspace's. 'run_setup' is true unless you say false; \
             false makes it usable sooner, without the project's setup.
@@ -116,6 +126,13 @@ public struct MacCloudWorkspaceStartTool: BridgeToolHandling {
                     "description": .string(
                         "The opening instruction, sent once the machine is up. Write it for someone "
                             + "with no context beyond the project."
+                    ),
+                ]),
+                "effort": .object([
+                    "type": .string("string"),
+                    "description": .string(
+                        "The opening chat's exact reasoning effort id, such as low, medium or "
+                            + "high. Leave it out to inherit the creating chat's effort."
                     ),
                 ]),
                 "name": .object([
@@ -151,11 +168,15 @@ public struct MacCloudWorkspaceStartTool: BridgeToolHandling {
         guard await allowed() else { return .failure(Self.offSentence) }
 
         let prompt = CloudWorkspaceStartTool.text(request, "prompt")
+        let effort = CloudWorkspaceStartTool.text(request, "effort")
         guard let name = CloudWorkspaceStartTool.text(request, "name") else {
             return .failure("Give the new workspace a name.")
         }
         if let prompt, prompt.utf8.count > CloudWorkspaceOrder.promptLimit {
             return .failure("The prompt is longer than 512 KB. Write a shorter one, and put the rest in a file in the repository.")
+        }
+        if prompt == nil, effort != nil {
+            return .failure("effort needs a prompt, because an empty workspace has no opening chat to apply it to.")
         }
         let runSetup: Bool
         switch request.param("run_setup") {
@@ -166,6 +187,7 @@ public struct MacCloudWorkspaceStartTool: BridgeToolHandling {
 
         var callerRepository: String?
         var requestedBy: String?
+        var callerControls: ComposerControls?
         if let workspaceID = identity.workspaceID {
             do {
                 guard let caller = try await store.workspace(id: workspaceID) else {
@@ -186,13 +208,39 @@ public struct MacCloudWorkspaceStartTool: BridgeToolHandling {
                 return .failure("Bloom could not read this workspace: \(error.readableMessage)")
             }
         }
+        if prompt != nil, let sessionID = identity.sessionID {
+            do {
+                guard let session = try await store.session(id: sessionID) else {
+                    return .failure("This chat is no longer open in Bloom, so its composer settings cannot be handed over.")
+                }
+                let fast = try await store.setting(ComposerControls.fastModeKey(sessionID: sessionID)) == "1"
+                let output = try await store.setting(ComposerControls.outputStyleKey(sessionID: sessionID))
+                    ?? OutputStyle.defaultName
+                let contextWindow = CodexContextWindow.normalised(
+                    try await store.setting(ComposerControls.contextWindowKey(sessionID: sessionID))
+                )
+                let codexFastMode = CodexSpeed.override(stored: try await store.setting(
+                    CodexSpeed.key(sessionID: sessionID)
+                ))
+                callerControls = ComposerControls(
+                    session: session,
+                    isFastMode: fast,
+                    outputStyle: output,
+                    codexContextWindow: contextWindow,
+                    codexFastMode: codexFastMode
+                )
+            } catch {
+                return .failure("Bloom could not read this chat's composer settings: \(error.readableMessage)")
+            }
+        }
 
         let order = MacCloudWorkspaceOrder(
             order: CloudWorkspaceOrder(
                 name: name, branch: CloudWorkspaceStartTool.text(request, "branch"),
                 baseBranch: CloudWorkspaceStartTool.text(request, "base_branch"), runSetup: runSetup,
-                project: CloudWorkspaceStartTool.text(request, "project"), prompt: prompt
+                project: CloudWorkspaceStartTool.text(request, "project"), prompt: prompt, effort: effort
             ),
+            callerControls: callerControls,
             callerRepository: callerRepository, requestedBy: requestedBy
         )
         switch await start(order) {

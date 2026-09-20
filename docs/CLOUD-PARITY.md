@@ -255,7 +255,7 @@ a Mac-only role for the person's own client, not an agent.
 | Local tool | On a machine | Could it be | Note |
 | --- | --- | --- | --- |
 | `whoami`, `chat_list`, `chat_read`, `workspace_diff`, `agent_*`, `cloud_setup` | yes | | reading tools are held to this workspace |
-| `workspace_start` | `cloud_workspace_start` | yes, with an optional opening prompt | the prompt is handed over once; see `OpeningHandoff` |
+| `workspace_start` | `cloud_workspace_start` | yes, with an optional opening prompt and reasoning effort | the prompt and its validated effort are handed over once; see `OpeningHandoff` |
 | `workspace_list` | yes, the team's other Bloom Cloud workspaces | | through runbloom.app; see "Bloom Cloud to Bloom Cloud" |
 | `workspace_say` | yes, to another Bloom Cloud workspace | | through a token runbloom.app mints; labelled there |
 | `workspace_rename` | no | yes, trivially | the protocol already has `rename_workspace` |

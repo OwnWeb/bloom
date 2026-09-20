@@ -144,6 +144,7 @@ struct WorkspaceStartToolTests {
                 "base_branch": .string("develop"),
                 "agent": .string("codex"),
                 "model": .string("gpt-5.6-sol"),
+                "effort": .string("medium"),
             ]),
             as: fixture.identity,
             store: fixture.store
@@ -154,6 +155,7 @@ struct WorkspaceStartToolTests {
         #expect(order.baseBranch == "develop")
         #expect(order.agent == .codex)
         #expect(order.model == "gpt-5.6-sol")
+        #expect(order.effort == "medium")
 
         _ = await recorder.tool().call(
             request(["prompt": .string("do a thing"), "name": .string("   ")]),
@@ -739,7 +741,8 @@ struct WorkspaceStartToolTests {
     /// costs money.
     @Test("the description tells the model the three things it would otherwise assume")
     func descriptionSaysWhatMatters() {
-        let description = Recorder().tool().tool.description
+        let tool = Recorder().tool().tool
+        let description = tool.description
 
         #expect(description.contains("not when its work is done"))
         #expect(description.contains("cannot see this conversation"))
@@ -750,6 +753,7 @@ struct WorkspaceStartToolTests {
         #expect(description.contains(WorkspaceSourceTab.existingBranch.explanation))
         #expect(description.contains("existing_branch"))
         #expect(description.contains("real money"))
+        #expect(tool.inputSchema["properties"]?["effort"] != nil)
         #expect(!description.lowercased().contains("subagent"))
     }
 }
@@ -789,6 +793,10 @@ struct WorkspaceStartDedupTests {
         #expect(order().spawnID(parentWorkspaceID: parent, otherProject: RepoID("r-bloom")) != base)
         #expect(
             AgentWorkspaceOrder(prompt: "Import the webhooks", model: "gpt-5.6-sol")
+                .spawnID(parentWorkspaceID: parent) != base
+        )
+        #expect(
+            AgentWorkspaceOrder(prompt: "Import the webhooks", effort: "medium")
                 .spawnID(parentWorkspaceID: parent) != base
         )
     }

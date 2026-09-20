@@ -339,7 +339,7 @@ extension AppModel {
         try await agentControls(
             agent: order.agent,
             model: order.model,
-            effort: nil,
+            effort: order.effort,
             inheriting: inherited
         )
     }
@@ -396,7 +396,7 @@ extension AppModel {
 
     /// Keeps backend, model and effort one valid choice for both workspace and chat creation.
     /// Changing only the backend must not carry the previous backend's model across with it.
-    private func agentControls(
+    func agentControls(
         agent requestedAgent: AgentKind?,
         model requestedModel: String?,
         effort requestedEffort: String?,

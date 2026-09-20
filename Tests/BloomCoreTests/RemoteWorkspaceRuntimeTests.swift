@@ -319,22 +319,83 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
-    @Test("a prompt is sent with the creating chat's agent and model, never ones the agent chose")
+    @Test("a prompt is sent with the creating chat's agent, model and chosen or inherited effort")
     func aPromptCarriesTheCreatingChat() async throws {
         let gate = RemoteTestGate()
         let asked = Mutex<[CloudWorkspaceRequest]>([])
-        let fixture = try await fixture(gate: gate, createCloudWorkspace: { request in
-            asked.withLock { $0.append(request) }
-            return .created(CloudWorkspaceCreated(id: "01k5new", name: request.order.name, state: "setting_up", url: "https://x"))
-        })
+        let fixture = try await fixture(
+            gate: gate,
+            createCloudWorkspace: { request in
+                asked.withLock { $0.append(request) }
+                return .created(CloudWorkspaceCreated(
+                    id: "01k5new",
+                    name: request.order.name,
+                    state: "setting_up",
+                    url: "https://x"
+                ))
+            },
+            models: Self.claudeList
+        )
         _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Make a spike")),
                                           as: Self.caller(Self.freek))
         await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Make a spike"] }
 
-        _ = await fixture.runtime.startCloudWorkspace(CloudWorkspaceOrder(name: "Spike", prompt: "Try it"), sessionID: fixture.session.id)
+        let answer = await fixture.runtime.startCloudWorkspace(
+            CloudWorkspaceOrder(name: "Spike", prompt: "Try it", effort: "medium"),
+            sessionID: fixture.session.id
+        )
+        guard case .created = answer else {
+            Issue.record("Expected the explicit effort to be accepted, got \(answer)")
+            await fixture.runners.finishTurn()
+            await fixture.runtime.shutdown()
+            return
+        }
         let request = try #require(asked.withLock { $0 }.first)
         #expect(request.agent == fixture.session.agentKind.wireName)
         #expect(request.model == fixture.session.model)
+        #expect(request.effort == "medium")
+
+        _ = await fixture.runtime.startCloudWorkspace(
+            CloudWorkspaceOrder(name: "Inherited", prompt: "Try that too"),
+            sessionID: fixture.session.id
+        )
+        let inherited = try #require(asked.withLock { $0 }.last)
+        #expect(inherited.effort == fixture.session.effort)
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("an unsupported opening effort is refused before the server is asked")
+    func anUnsupportedOpeningEffortIsRefused() async throws {
+        let gate = RemoteTestGate()
+        let asked = Mutex<[CloudWorkspaceRequest]>([])
+        let fixture = try await fixture(
+            gate: gate,
+            createCloudWorkspace: { request in
+                asked.withLock { $0.append(request) }
+                return .refused("should not be called")
+            },
+            models: Self.claudeList
+        )
+        _ = await fixture.runtime.respond(
+            to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Make a spike")),
+            as: Self.caller(Self.freek)
+        )
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Make a spike"] }
+
+        let answer = await fixture.runtime.startCloudWorkspace(
+            CloudWorkspaceOrder(name: "Spike", prompt: "Try it", effort: "maximum"),
+            sessionID: fixture.session.id
+        )
+
+        guard case .refused(let message) = answer else {
+            Issue.record("Expected the unsupported effort to be refused, got \(answer)")
+            await fixture.runners.finishTurn()
+            await fixture.runtime.shutdown()
+            return
+        }
+        #expect(message.contains("Available efforts: high, low, medium"))
+        #expect(asked.withLock { $0 }.isEmpty)
         await fixture.runners.finishTurn()
         await fixture.runtime.shutdown()
     }

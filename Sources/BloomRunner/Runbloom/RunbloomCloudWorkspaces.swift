@@ -21,6 +21,7 @@ extension RunbloomClient {
         if request.order.prompt != nil, let agent = request.agent {
             var controls: [String: Any] = ["agent": agent]
             controls["model"] = request.model
+            controls["effort"] = request.effort
             body["controls"] = controls
         }
         do {

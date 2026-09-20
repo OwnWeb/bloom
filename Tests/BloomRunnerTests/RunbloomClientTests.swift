@@ -306,14 +306,21 @@ struct RunbloomClientTests {
             fake.script("POST", "/cloud-workspaces", .json(201, ["workspace": [
                 "id": "01k5new", "name": "Spike", "state": "setting_up", "url": "https://runbloom.app/w/01k5new",
             ]]))
-            let request = CloudWorkspaceRequest(order: CloudWorkspaceOrder(name: "Spike", prompt: "Try the retry queue"),
-                                                turnID: "01jturn", idempotencyKey: "key-1", agent: "codex", model: "gpt-5.6-sol")
+            let request = CloudWorkspaceRequest(
+                order: CloudWorkspaceOrder(name: "Spike", prompt: "Try the retry queue", effort: "medium"),
+                turnID: "01jturn",
+                idempotencyKey: "key-1",
+                agent: "codex",
+                model: "gpt-5.6-sol",
+                effort: "medium"
+            )
             _ = await client.createCloudWorkspace(request)
             let sent = try #require(fake.requests("POST", "/cloud-workspaces").first?.json)
             #expect(sent["prompt"] as? String == "Try the retry queue")
             let controls = try #require(sent["controls"] as? [String: Any])
             #expect(controls["agent"] as? String == "codex")
             #expect(controls["model"] as? String == "gpt-5.6-sol")
+            #expect(controls["effort"] as? String == "medium")
         }
     }
 

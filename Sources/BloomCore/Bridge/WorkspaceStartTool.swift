@@ -35,6 +35,8 @@ public struct AgentWorkspaceOrder: Sendable, Hashable {
     public let agent: AgentKind?
     /// An exact model id, or nil for the selected backend's current default.
     public let model: String?
+    /// An exact reasoning effort id, or nil to inherit the calling session or Bloom's default.
+    public let effort: String?
 
     /// What the worktree is cut from, or nil for the project's default. Nil for a checkout too,
     /// which brings its own base.
@@ -45,13 +47,15 @@ public struct AgentWorkspaceOrder: Sendable, Hashable {
         name: String? = nil,
         source: AgentStartSource = .newBranch(from: nil),
         agent: AgentKind? = nil,
-        model: String? = nil
+        model: String? = nil,
+        effort: String? = nil
     ) {
         self.prompt = prompt
         self.name = name
         self.source = source
         self.agent = agent
         self.model = model
+        self.effort = effort
     }
 }
 
@@ -124,6 +128,7 @@ extension AgentWorkspaceOrder {
             agent?.rawValue ?? "",
         ]
         if let model { parts.append(model) }
+        if let effort { parts.append(effort) }
         let material = parts.joined(separator: "\u{0}")
 
         let digest = SHA256.hash(data: Data(material.utf8))
@@ -259,6 +264,10 @@ public struct WorkspaceStartTool: BridgeToolHandling {
 
             Name only one of base_branch, existing_branch or pull_request.
 
+            'model' and 'effort' are optional. Leave either out to inherit the calling chat's \
+            setting, or Bloom's default when the caller has no chat. An explicit effort must be \
+            one the selected model supports.
+
             It returns as soon as the workspace exists, not when its work is done. The new agent \
             starts on its own and keeps running while you carry on. There is no way to wait for \
             it from here, so do not ask for one and then sit idle: say what you started and get on \
@@ -341,6 +350,14 @@ public struct WorkspaceStartTool: BridgeToolHandling {
                             + "example gpt-5.6-sol. Do not use a Claude Code model with codex or "
                             + "a Codex model with claudeCode. Leave this out to use the selected "
                             + "agent's default model."
+                    ),
+                ]),
+                "effort": .object([
+                    "type": .string("string"),
+                    "description": .string(
+                        "The exact reasoning effort id, such as low, medium or high. Leave it out "
+                            + "to inherit the calling chat's effort, or Bloom's default when the "
+                            + "caller has no chat."
                     ),
                 ]),
                 WorkspaceDoneWatch.argument: .object([
@@ -429,7 +446,8 @@ public struct WorkspaceStartTool: BridgeToolHandling {
             name: WorkspaceName.given(request.stringParam("name")),
             source: source,
             agent: agent,
-            model: filled(request.param("model"))
+            model: filled(request.param("model")),
+            effort: filled(request.param("effort"))
         )
         let origin = origin(of: order, project: project, parent: parent)
 

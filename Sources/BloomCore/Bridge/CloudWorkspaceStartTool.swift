@@ -11,15 +11,18 @@ public struct CloudWorkspaceOrder: Sendable, Hashable {
     /// The new workspace's first message, sent as the same person once its setup has run. Nil makes
     /// an empty workspace for them to open.
     public var prompt: String?
+    /// The reasoning effort for the opening chat, or nil to inherit the creating chat or machine default.
+    public var effort: String?
 
     public init(name: String, branch: String? = nil, baseBranch: String? = nil, runSetup: Bool = true, project: String? = nil,
-                prompt: String? = nil) {
+                prompt: String? = nil, effort: String? = nil) {
         self.name = name
         self.branch = branch
         self.baseBranch = baseBranch
         self.runSetup = runSetup
         self.project = project
         self.prompt = prompt
+        self.effort = effort
     }
 
     /// runbloom.app refuses more, and the machine's own front refuses a body over 1 MiB before
@@ -92,7 +95,8 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
 
             Pass 'prompt' to give it a task: an agent starts on it once the new workspace has set \
             itself up, which takes minutes, as the same person, on the agent and model you are \
-            running on. It cannot see this conversation, so write the prompt as if to someone who \
+            running on. Pass 'effort' to choose that opening chat's reasoning effort, or leave it \
+            out to inherit your current effort. It cannot see this conversation, so write the prompt as if to someone who \
             has just opened the project. Leave 'prompt' out for an empty workspace a person opens \
             and writes the first message in themselves.
 
@@ -130,6 +134,13 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
                     "type": .string("string"),
                     "description": .string("The new workspace's first task. Leave it out for an empty workspace."),
                 ]),
+                "effort": .object([
+                    "type": .string("string"),
+                    "description": .string(
+                        "The opening chat's exact reasoning effort id, such as low, medium or "
+                            + "high. Leave it out to inherit the creating chat's effort."
+                    ),
+                ]),
                 "project": .object([
                     "type": .string("string"),
                     "description": .string("Leave it out: from here only this project is supported."),
@@ -149,7 +160,10 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
         }
         var order = CloudWorkspaceOrder(name: name, branch: Self.text(request, "branch"),
                                         baseBranch: Self.text(request, "base_branch"), project: Self.text(request, "project"),
-                                        prompt: Self.text(request, "prompt"))
+                                        prompt: Self.text(request, "prompt"), effort: Self.text(request, "effort"))
+        if order.prompt == nil, order.effort != nil {
+            return .failure("effort needs a prompt, because an empty workspace has no opening chat to apply it to.")
+        }
         if let prompt = order.prompt, prompt.utf8.count > CloudWorkspaceOrder.promptLimit {
             return .failure("The prompt is longer than 512 KB. Write a shorter one, and put the rest in a file in the repository.")
         }

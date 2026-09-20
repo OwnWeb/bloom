@@ -51,6 +51,29 @@ extension AppModel {
         }
         let baseBranch = order.baseBranch ?? project.defaultBranch
 
+        var openingControls = macOrder.callerControls
+        if let controls = openingControls {
+            guard [.claudeCode, .codex].contains(controls.agentKind) else {
+                return .refused(
+                    "Only a Claude Code or Codex chat can hand a new Bloom Cloud workspace its first task. "
+                        + "Create it without a prompt, and the person can write the first message there."
+                )
+            }
+        }
+        if let effort = order.effort {
+            do {
+                let inherited = openingControls ?? ComposerControls()
+                openingControls = try await agentControls(
+                    agent: inherited.agentKind,
+                    model: inherited.model,
+                    effort: effort,
+                    inheriting: inherited
+                )
+            } catch {
+                return .refused(error.localizedDescription)
+            }
+        }
+
         // Asked here, with everything worked out and nothing spent yet. See
         // `CloudWorkspaceStartQuestion`.
         if CloudWorkspaceStartQuestion.asks(stored: UserDefaults.standard.object(forKey: CloudWorkspaceStartQuestion.settingKey)) {
@@ -68,7 +91,8 @@ extension AppModel {
         do {
             let item = try await cloud.create(CloudWorkspaces.CreateRequest(
                 team: team, project: project, name: name, branch: branch,
-                baseBranch: baseBranch, prompt: prompt, runSetup: order.runSetup
+                baseBranch: baseBranch, prompt: prompt, runSetup: order.runSetup,
+                controls: openingControls
             ), selecting: false)
             // The address runbloom.app gave, passed through. Absent from an older server, and then
             // absent here too rather than built from a team slug and an id: it is somebody else's

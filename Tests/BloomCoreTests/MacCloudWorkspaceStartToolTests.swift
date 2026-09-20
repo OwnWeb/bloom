@@ -49,6 +49,7 @@ struct MacCloudWorkspaceStartToolTests {
         let tool = Recorder().tool()
         #expect(tool.roles == [.workspace, .owner])
         #expect(tool.tool.description.contains("costs real money"))
+        #expect(tool.tool.inputSchema["properties"]?["effort"] != nil)
     }
 
     /// It spends money, so Bloom never answers its ask itself, the argument that keeps
@@ -109,21 +110,33 @@ struct MacCloudWorkspaceStartToolTests {
     func order() async throws {
         let (store, identity) = try await fixture(label: "cloud-order")
         let recorder = Recorder()
+        let sessionID = try #require(identity.sessionID)
+        try await store.setSetting(ComposerControls.fastModeKey(sessionID: sessionID), "1")
+        try await store.setSetting(ComposerControls.outputStyleKey(sessionID: sessionID), "Concise")
 
         let result = await recorder.tool().call(request([
             "name": .string(" Port the importer "), "prompt": .string(" Move it "),
             "branch": .string("freekmurze/importer"),
             "base_branch": .string("develop"), "run_setup": .bool(false),
+            "effort": .string("medium"),
         ]), as: identity, store: store)
 
         #expect(!result.isError)
-        #expect(recorder.orders == [MacCloudWorkspaceOrder(
-            order: CloudWorkspaceOrder(
-                name: "Port the importer", branch: "freekmurze/importer", baseBranch: "develop",
-                runSetup: false, prompt: "Move it"
-            ),
-            callerRepository: "spatie/flare", requestedBy: "\u{201C}group occurrences\u{201D}"
-        )])
+        let order = try #require(recorder.orders.first)
+        #expect(order.order == CloudWorkspaceOrder(
+            name: "Port the importer",
+            branch: "freekmurze/importer",
+            baseBranch: "develop",
+            runSetup: false,
+            prompt: "Move it",
+            effort: "medium"
+        ))
+        #expect(order.callerControls?.model == AppDefaults.fallbackModel)
+        #expect(order.callerControls?.effort == AppDefaults.fallbackEffort)
+        #expect(order.callerControls?.isFastMode == true)
+        #expect(order.callerControls?.outputStyle == "Concise")
+        #expect(order.callerRepository == "spatie/flare")
+        #expect(order.requestedBy == "\u{201C}group occurrences\u{201D}")
         #expect(result.text.contains("\"cw-1\""))
         #expect(result.text.contains("setting_up"))
     }
@@ -141,6 +154,28 @@ struct MacCloudWorkspaceStartToolTests {
         #expect(recorder.orders == [MacCloudWorkspaceOrder(
             order: CloudWorkspaceOrder(name: "Empty", project: "p1")
         )])
+    }
+
+    @Test("a prompt from a missing chat is refused rather than handed fallback controls")
+    func missingChatIsRefused() async throws {
+        let (store, identity) = try await fixture(label: "cloud-missing-chat")
+        let recorder = Recorder()
+        let workspaceID = try #require(identity.workspaceID)
+        let missing = BridgeIdentity(
+            sessionID: SessionID("missing"),
+            workspaceID: workspaceID,
+            role: .workspace
+        )
+
+        let result = await recorder.tool().call(
+            request(["name": .string("Do it"), "prompt": .string("Fix it")]),
+            as: missing,
+            store: store
+        )
+
+        #expect(result.isError)
+        #expect(result.text.contains("no longer open"))
+        #expect(recorder.orders.isEmpty)
     }
 
     /// On unless turned off, because each one costs money; and when it is asked, it says who asked,

@@ -20,13 +20,25 @@ struct CloudWorkspaceStartToolTests {
             asked.withLock { $0 = order }
             return .created(CloudWorkspaceCreated(id: "01k5new", name: order.name, state: "setting_up", url: "https://runbloom.app/w/01k5new"))
         }
-        let answer = try await call(tool, ["name": .string(" Try the retry "), "base_branch": .string("main"), "run_setup": .bool(false)])
+        let answer = try await call(tool, [
+            "name": .string(" Try the retry "),
+            "base_branch": .string("main"),
+            "run_setup": .bool(false),
+            "prompt": .string("Fix it"),
+            "effort": .string("medium"),
+        ])
 
         #expect(!answer.isError)
-        #expect(asked.withLock { $0 } == CloudWorkspaceOrder(name: "Try the retry", baseBranch: "main", runSetup: false))
+        #expect(asked.withLock { $0 } == CloudWorkspaceOrder(
+            name: "Try the retry",
+            baseBranch: "main",
+            runSetup: false,
+            prompt: "Fix it",
+            effort: "medium"
+        ))
         #expect(answer.text.contains("https://runbloom.app/w/01k5new"),
                 "nothing on a machine can look the workspace up afterwards, so the answer is all there is")
-        #expect(answer.text.contains("no agent is working in it"))
+        #expect(answer.text.contains("Its agent starts on the prompt"))
     }
 
     /// The sentence names the team switch, and it is runbloom.app's: the agent passes it on.
@@ -47,6 +59,13 @@ struct CloudWorkspaceStartToolTests {
         #expect(try await call(never, [:]).isError)
         #expect(try await call(never, ["name": .string("   ")]).isError)
         #expect(try await call(never, ["name": .string("Spike"), "run_setup": .string("yes")]).isError)
+        #expect(try await call(never, ["name": .string("Spike"), "effort": .string("medium")]).isError)
+    }
+
+    @Test("the schema exposes the opening chat's reasoning effort")
+    func effortSchema() {
+        let tool = CloudWorkspaceStartTool { _, _, _ in .refused("") }.tool
+        #expect(tool.inputSchema["properties"]?["effort"] != nil)
     }
 
     /// **The turn and the name**, so the agent asking again after a timeout gets the workspace the
