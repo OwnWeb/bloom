@@ -167,7 +167,6 @@ struct TranscriptRowView: View, Equatable {
             if let media = sharedMedia {
                 CloudMediaRowView(media: media, home: home, link: cloudLink)
             }
-
         case .thinking:
             if let text = thinkingText, !text.isEmpty {
                 ThinkingRowView(text: text, isExpanded: isExpanded, onToggle: onToggle)

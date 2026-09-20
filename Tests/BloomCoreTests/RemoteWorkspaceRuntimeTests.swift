@@ -17,18 +17,32 @@ struct RemoteWorkspaceRuntimeTests {
         let runners: RemoteTestRunners
     }
 
-    func fixture(gate: any RemoteTurnGate = UngatedTurns()) async throws -> Fixture {
+    func fixture(
+        gate: any RemoteTurnGate = UngatedTurns(),
+        createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil,
+        models: @escaping WorkspaceRuntime.ModelDiscovery = { _ in [] },
+        settings: String? = nil,
+        peers: WorkspacePeers? = nil,
+        lookUpMember: @escaping @Sendable (String) async -> MemberLookup = { _ in .unknown },
+        addressed: (@Sendable (AddressedReport) async -> Void)? = nil
+    ) async throws -> Fixture {
         let store = try makeTestStore("remote-runtime")
         let repo = try await store.upsert(Repo(name: "bloom", path: TestScratch.unique("repo")))
         let path = TestScratch.unique("worktree")
         try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        if let settings {
+            try FileManager.default.createDirectory(atPath: path + "/.bloom", withIntermediateDirectories: true)
+            try settings.write(toFile: path + "/.bloom/settings.toml", atomically: true, encoding: .utf8)
+        }
         let workspace = try await store.upsert(Workspace(repoID: repo.id, name: "Queue retries", branch: "queue-retries", path: path, baseBranch: "main"))
         let session = try await store.upsert(Session(workspaceID: workspace.id, title: "Chat"))
         let runners = RemoteTestRunners()
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id, gate: gate,
             makeRunner: { session, _, store, environment, _ in runners.make(session: session, store: store, environment: environment) },
-            installedAgents: { [.claudeCode, .codex] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50)
+            installedAgents: { [.claudeCode, .codex] }, models: models, runnerExitGrace: .milliseconds(50),
+            lookUpMember: lookUpMember, addressed: addressed,
+            createCloudWorkspace: createCloudWorkspace, peers: peers
         )
         try await runtime.start()
         return Fixture(store: store, workspace: workspace, session: session, runtime: runtime, runners: runners)
@@ -36,6 +50,117 @@ struct RemoteWorkspaceRuntimeTests {
 
     static func caller(_ author: MessageAuthor, abilities: Set<String> = ["view", "prompt", "terminal", "files"]) -> RemoteCaller {
         RemoteCaller(author: author, abilities: abilities, sessionToken: "token-for-\(author.userID)")
+    }
+
+    /// **Refused rather than stored when the machine cannot vouch for the id.** Writing a message
+    /// addressed to somebody nobody has confirmed exists is addressing the wrong person, done
+    /// convincingly, which is the failure mentions exist to prevent.
+    @Test("a message to a person is refused while this machine does not know who the team is")
+    func addressingSomebodyUnknown() async throws {
+        let fixture = try await fixture()
+        let audience = AudienceRecord(kind: "person", userID: "user-seb", mention: "@sebdd")
+
+        await #expect(throws: RemoteFailure.self) {
+            _ = try await fixture.runtime.send(fixture.session.id.rawValue, text: "@sebdd yours",
+                                               audience: audience, as: Self.caller(.init(userID: "u1", name: "Freek")))
+        }
+        // Nothing was written, so nothing can be read back as though it had been sent.
+        let messages = try await fixture.store.messages(sessionID: fixture.session.id)
+        #expect(messages.isEmpty)
+        await fixture.runtime.shutdown()
+    }
+
+    /// M2 in the review of 19 September 2026: the report is what causes mail, and runbloom.app can
+    /// only check who wrote the message against the token the words arrived on.
+    @Test("a message to a person is reported with the sender's own token, and forgets it once sent")
+    func addressingCarriesTheSendersToken() async throws {
+        let reports = Mutex<[AddressedReport]>([])
+        let fixture = try await fixture(
+            lookUpMember: { .member(WorkspaceMember(userID: $0, name: "Seb", handle: "sebdd")) },
+            addressed: { report in reports.withLock { $0.append(report) } }
+        )
+        let audience = AudienceRecord(kind: "person", userID: "user-seb", mention: "@sebdd")
+        _ = try await fixture.runtime.send(fixture.session.id.rawValue, text: "@sebdd yours",
+                                           audience: audience, as: Self.caller(.init(userID: "u1", name: "Freek")))
+
+        let sent = try #require(reports.withLock { $0.first })
+        #expect(sent.senderToken == "token-for-u1")
+        #expect(sent.body["sender_token"]?.stringValue == "token-for-u1")
+        let stored = try #require(try await fixture.store.unsentAddressedReports().first)
+        #expect(stored.senderToken == "token-for-u1", "kept, so a retry after a restart can still prove it")
+        try await fixture.store.markAddressedReported(id: stored.id)
+        #expect(try await fixture.store.unsentAddressedReports().isEmpty)
+        await fixture.runtime.shutdown()
+    }
+
+    /// M4 in the review of 19 September 2026: a search that reads for ten seconds used to hold the
+    /// actor, and with it every command, stop and revoke, for all ten.
+    @Test("disk work runs beside the runtime, one search per person and a few at a time")
+    func diskWorkDoesNotHoldTheRuntime() async throws {
+        let fixture = try await fixture()
+        let release = DispatchSemaphore(value: 0)
+        let started = Mutex(false)
+        let caller = Self.caller(.init(userID: "u1", name: "Freek"))
+        let search = Task {
+            try await fixture.runtime.blocking(search: caller) {
+                started.withLock { $0 = true }
+                release.wait()
+                return 1
+            }
+        }
+        await waitUntil("the search is running") { started.withLock { $0 } }
+        // The runtime still answers while the search is reading.
+        let reply = await fixture.runtime.respond(to: CommandRequest(.workspace), as: caller)
+        #expect(reply.error == nil)
+        // The same person's second search is turned away rather than queued behind the first.
+        await #expect(throws: RemoteFailure.self) {
+            _ = try await fixture.runtime.blocking(search: caller) { 2 }
+        }
+        // Somebody else's is not.
+        let other = try await fixture.runtime.blocking(search: Self.caller(.init(userID: "u2", name: "Seb"))) { 3 }
+        #expect(other == 3)
+        release.signal()
+        #expect(try await search.value == 1)
+        // Finished, so the first person may search again.
+        #expect(try await fixture.runtime.blocking(search: caller) { 4 } == 4)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a report written with no token says nothing about one")
+    func aReportWithNoTokenLeavesItOut() {
+        let report = AddressedReport(sessionID: SessionID("s"), userID: "u", connected: false, sentAt: Date(), from: .guest)
+        #expect(report.body["sender_token"] == nil)
+    }
+
+    /// What the machine found under a step travels in the summary, so runbloom.app decides on an
+    /// observation rather than on the age of a field.
+    @Test("the summary carries what is alive under the setup step, and loses it when setup ends")
+    func summaryCarriesSetupLiveness() async throws {
+        let fixture = try await fixture()
+        let at = Date(timeIntervalSince1970: 1_700_000_000)
+
+        #expect(try await Self.summary(of: fixture.runtime).setup.liveness == nil,
+                "a machine with nothing to say says nothing, which is not a stall")
+
+        await fixture.runtime.setupStepStarted("setup")
+        await fixture.runtime.setupLivenessChanged(.init(verdict: "nothing_alive", running: 0, defunct: 1, at: at))
+        let stalled = try await Self.summary(of: fixture.runtime).setup
+
+        #expect(stalled.liveness?.verdict == "nothing_alive")
+        #expect(stalled.liveness?.defunct == 1)
+        #expect(stalled.step == "setup")
+
+        // A verdict about a step that has ended would be read as one about whatever runs next.
+        await fixture.runtime.setupFinished(succeeded: true)
+        #expect(try await Self.summary(of: fixture.runtime).setup.liveness == nil)
+        await fixture.runtime.shutdown()
+    }
+
+    private static func summary(of runtime: WorkspaceRuntime) async throws -> RemoteSummary {
+        try await runtime.summary(
+            revision: 1, observedAt: Date(), version: "test", awake: true, leaseUntil: nil,
+            diff: .init(files: 0, additions: 0, deletions: 0), pullRequest: nil, atStake: nil
+        )
     }
 
     @Test("a prompt is queued under its author and reaches the agent with that author on the row")
@@ -73,6 +198,28 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// L2 in the review of 19 September 2026: whole requests kept for ever, uploads included.
+    @Test("the journal keeps a hash of the command for a day, and never a mark_read")
+    func theJournalKeepsLittleAndNotForLong() async throws {
+        let fixture = try await fixture()
+        let rename = CommandRequest(.renameChat(chatID: fixture.session.id.rawValue, title: "Secret plans"), commandID: "hashed")
+        _ = await fixture.runtime.respond(to: rename, as: Self.caller(Self.freek))
+        let kept = try #require(try await fixture.store.setting("remote.command.\(Self.freek.userID).hashed"))
+        #expect(!kept.contains("Secret plans"), "the request's words are not kept, only its hash")
+        #expect(kept.contains("request_hash"))
+
+        let read = CommandRequest(.markRead(chatID: fixture.session.id.rawValue, seq: 0), commandID: "read")
+        _ = await fixture.runtime.respond(to: read, as: Self.caller(Self.seb, abilities: ["view"]))
+        #expect(try await fixture.store.setting("remote.command.\(Self.seb.userID).read") == nil)
+
+        let stale = #"{"recorded_at":"2026-01-01T00:00:00.000Z","request_hash":"x"}"#
+        try await fixture.store.setSetting("remote.command.\(Self.freek.userID).old", stale)
+        await fixture.runtime.pruneJournal(now: Date().addingTimeInterval(2 * 60 * 60))
+        #expect(try await fixture.store.setting("remote.command.\(Self.freek.userID).old") == nil)
+        #expect(try await fixture.store.setting("remote.command.\(Self.freek.userID).hashed") != nil, "a fresh one stays")
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a command the server stopped in the middle of is unknown rather than run again")
     func anInterruptedCommandIsUnknown() async throws {
         let fixture = try await fixture()
@@ -94,6 +241,318 @@ struct RemoteWorkspaceRuntimeTests {
         guard case .workspace(let snapshot) = read.result else { Issue.record("A viewer could not read the workspace"); return }
         #expect(snapshot.chats.map(\.id) == [fixture.session.id.rawValue])
         #expect(snapshot.workspace.name == "Queue retries")
+        await fixture.runtime.shutdown()
+    }
+
+    /// The tier the Mac's `CodexSpeed` reads, carried rather than thrown away, so a web client can
+    /// offer fast mode on a Codex model without a probe of its own.
+    @Test("a Codex model carries its fast tier onto the wire, and one without a tier carries none")
+    func codexModelsCarryTheirFastTier() {
+        let fast = ModelRecord(agent: "codex", codex: CodexModel(id: "gpt-5.5", displayName: "GPT-5.5", fastServiceTier: "priority"))
+        let plain = ModelRecord(agent: "codex", codex: CodexModel(id: "gpt-5.5-mini", displayName: "GPT-5.5 mini"))
+
+        #expect(fast.fastTier == "priority")
+        #expect(plain.fastTier == nil, "absent is what no fast mode looks like")
+    }
+
+    /// runbloom.app decides who is asking from the turn, so the machine sends the turn it is really
+    /// running and never a guess. A chat with no person's turn in it is refused before anything is
+    /// sent.
+    @Test("a Cloud workspace is asked for under the running turn, and refused from a chat with none")
+    func cloudWorkspacesAreAskedForUnderTheTurn() async throws {
+        let gate = RemoteTestGate()
+        let asked = Mutex<[CloudWorkspaceRequest]>([])
+        let fixture = try await fixture(gate: gate, createCloudWorkspace: { request in
+            asked.withLock { $0.append(request) }
+            return .created(CloudWorkspaceCreated(id: "01k5new", name: request.order.name, state: "setting_up", url: "https://runbloom.app/w/01k5new"))
+        })
+        let order = CloudWorkspaceOrder(name: "Spike")
+
+        guard case .refused(let between) = await fixture.runtime.startCloudWorkspace(order, sessionID: fixture.session.id) else {
+            Issue.record("A chat with no turn running asked runbloom.app anyway"); return
+        }
+        #expect(between.contains("a person is prompting"))
+        #expect(asked.withLock { $0 }.isEmpty)
+
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Make a spike")),
+                                          as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Make a spike"] }
+        let answer = await fixture.runtime.startCloudWorkspace(order, sessionID: fixture.session.id)
+
+        guard case .created = answer else { Issue.record("Expected created, got \(answer)"); return }
+        let turnID = try #require(gate.registered.withLock { $0 }.first?.turnID)
+        let request = try #require(asked.withLock { $0 }.first)
+        #expect(request.turnID == turnID, "runbloom.app's own id for the turn, which is how it knows who asked")
+        #expect(request.idempotencyKey == CloudWorkspaceRequest.idempotencyKey(turnID: turnID, name: "Spike"))
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
+    /// The opening is queued once, under runbloom.app's turn and the person who asked, on the
+    /// creating chat's agent laid over this machine's defaults; a boot that finds the kept copy
+    /// again after queueing it does not queue it twice.
+    @Test("a kept opening becomes one queued prompt in a new chat, under its turn and its person")
+    func anOpeningIsQueuedOnce() async throws {
+        let fixture = try await fixture()
+        // Held behind setup, as every prompt is, which is also what keeps it in the queue to look at.
+        await fixture.runtime.setupStepStarted("setup")
+        let opening = RemoteOpening(turnID: "01jopen", prompt: "Try the retry queue", controls: ["agent": .string("codex")],
+                                    promptedBy: .init(userID: Self.freek.userID, name: "Freek", handle: "freek"))
+        try await fixture.runtime.storeOpening(opening)
+
+        let chat = try #require(try await fixture.runtime.deliverStoredOpening())
+        let session = try #require(try await fixture.store.session(id: chat))
+        #expect(session.agentKind == .codex, "the creating chat's agent, over this machine's Claude default")
+        let queued = try await fixture.store.pendingDeliveries(sessionID: chat)
+        #expect(queued.map(\.body) == ["Try the retry queue"])
+        #expect(queued.first?.remoteTurnID == "01jopen", "runbloom.app's turn, which is what start hands a key out for")
+        #expect(queued.first?.author?.userID == Self.freek.userID)
+
+        #expect(try await fixture.runtime.deliverStoredOpening() == nil, "nothing is kept once it is queued")
+        #expect(try await fixture.runtime.hasDeliveredOpening(turnID: "01jopen"))
+        // Fetched again because its acknowledgement was lost: recognised by its turn, whether or not
+        // its prompt is still waiting, and never queued into a second chat.
+        try await fixture.runtime.storeOpening(opening)
+        #expect(try await fixture.runtime.deliverStoredOpening() == nil)
+        #expect(try await fixture.store.pendingDeliveries(sessionID: chat).count == 1)
+        #expect(try await fixture.store.sessions(workspaceID: fixture.workspace.id).count == 2, "no second chat")
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a prompt is sent with the creating chat's agent and model, never ones the agent chose")
+    func aPromptCarriesTheCreatingChat() async throws {
+        let gate = RemoteTestGate()
+        let asked = Mutex<[CloudWorkspaceRequest]>([])
+        let fixture = try await fixture(gate: gate, createCloudWorkspace: { request in
+            asked.withLock { $0.append(request) }
+            return .created(CloudWorkspaceCreated(id: "01k5new", name: request.order.name, state: "setting_up", url: "https://x"))
+        })
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Make a spike")),
+                                          as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Make a spike"] }
+
+        _ = await fixture.runtime.startCloudWorkspace(CloudWorkspaceOrder(name: "Spike", prompt: "Try it"), sessionID: fixture.session.id)
+        let request = try #require(asked.withLock { $0 }.first)
+        #expect(request.agent == fixture.session.agentKind.wireName)
+        #expect(request.model == fixture.session.model)
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
+    /// A message an agent sent through a person's token is still the person's, and says an agent
+    /// wrote it; a label this machine cannot draw is refused before anything is written.
+    @Test("via reaches the transcript row, and a kind the machine does not know refuses the send")
+    func viaIsKeptOnTheRow() async throws {
+        let fixture = try await fixture()
+        let chat = fixture.session.id.rawValue
+        let long = String(repeating: "x", count: 500)
+        let reply = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Rebase and push",
+            via: ViaRecord(workspace: "Queue retries", chat: long))), as: Self.caller(Self.freek))
+        guard case .queued = reply.result else { Issue.record("Not queued: \(String(describing: reply.error))"); return }
+        await waitUntil("the prompt becomes a row", within: .seconds(30)) {
+            ((try? await fixture.store.messages(sessionID: fixture.session.id)) ?? []).contains { $0.kind == .user }
+        }
+        let row = try #require(try await fixture.store.messages(sessionID: fixture.session.id).first { $0.kind == .user })
+        #expect(row.author?.userID == Self.freek.userID, "still the person's message")
+        #expect(row.via?.workspace == "Queue retries")
+        #expect(row.via?.chat?.count == 200, "a label cannot carry a paragraph into somebody's transcript")
+        #expect(row.record.via?.kind == "agent")
+
+        let refused = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "Something else",
+            via: ViaRecord(kind: "robot"))), as: Self.caller(Self.freek))
+        #expect(refused.error?.code == .invalidValue)
+        #expect(try await fixture.store.messages(sessionID: fixture.session.id).filter { $0.kind == .user }.count == 1)
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
+    /// Claude Code's list, as a machine signed out of any account reads it.
+    static let claudeList: WorkspaceRuntime.ModelDiscovery = { _ in [
+        ModelRecord(agent: "claude", id: "opus[1m]", label: "Opus 5 with 1M context", efforts: ["low", "medium", "high"],
+                    defaultEffort: nil, isDefault: true),
+        ModelRecord(agent: "claude", id: "sonnet", label: "Sonnet 5", efforts: ["low", "medium", "high"], defaultEffort: nil, isDefault: false),
+    ] }
+
+    /// **A picker's current model is in its own menu.** The real machine showed the built-in default
+    /// `opus` beside a list that has `opus[1m]` and no `opus`, the same class of mistake as a client
+    /// reading `name` where the wire says `label`: every fake agreed with itself.
+    @Test("with nothing pinned, the default model is one the list offers")
+    func theDefaultIsInTheList() async throws {
+        let fixture = try await fixture(models: Self.claudeList)
+        let reply = await fixture.runtime.respond(to: CommandRequest(.composer(chatID: nil)), as: Self.caller(Self.freek))
+        guard case .composer(let composer) = reply.result else { Issue.record("No composer"); return }
+        let offered = composer.models.filter { $0.agent == composer.controls.agent }.map(\.id)
+        #expect(offered.contains(composer.controls.model), "\(composer.controls.model) is not in \(offered)")
+        #expect(composer.controls.model == "opus[1m]", "the one the list marks as its default")
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a model the project pinned is kept, even one the list does not offer")
+    func aPinnedModelIsKept() async throws {
+        let fixture = try await fixture(models: Self.claudeList, settings: "[models]\ndefault = \"opus\"\n")
+        let reply = await fixture.runtime.respond(to: CommandRequest(.composer(chatID: nil)), as: Self.caller(Self.freek))
+        guard case .composer(let composer) = reply.result else { Issue.record("No composer"); return }
+        #expect(composer.controls.model == "opus", "the project asked for it; a client draws it as its own row")
+        await fixture.runtime.shutdown()
+    }
+
+    /// runbloom.app decides who is asking from the turn, so the machine sends the one really
+    /// running, and the other machine is told which workspace and chat the agent was in, by name.
+    @Test("a message to another workspace goes under the running turn, with this workspace's name and chat")
+    func messagesToPeersCarryTheTurnAndTheLabel() async throws {
+        let gate = RemoteTestGate()
+        let sent = Mutex<[PeerMessage]>([])
+        let peers = WorkspacePeers(list: { _ in .listed([]) }, say: { message in
+            sent.withLock { $0.append(message) }
+            return .sent(workspace: "Other", chat: "Chat", queued: false)
+        })
+        let fixture = try await fixture(gate: gate, peers: peers)
+
+        guard case .refused = await fixture.runtime.sayToPeer(workspace: "Other", chat: nil, text: "Hi", sessionID: fixture.session.id) else {
+            Issue.record("A chat with no turn running reached another workspace"); return
+        }
+        #expect(sent.withLock { $0 }.isEmpty)
+
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Tell the other one")),
+                                          as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Tell the other one"] }
+        _ = await fixture.runtime.sayToPeer(workspace: "Other", chat: nil, text: "Rebase on main", sessionID: fixture.session.id)
+
+        let message = try #require(sent.withLock { $0 }.first)
+        #expect(message.turnID == gate.registered.withLock { $0 }.first?.turnID)
+        #expect(message.via.workspace == "Queue retries")
+        #expect(message.via.chat == fixture.session.title)
+        #expect(message.text == "Rebase on main")
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
+    /// Direct to a Mac of the turn's person when one has this workspace open, and left with
+    /// runbloom.app only when none has: a browser tab on the workspace does not count.
+    @Test("a message for a Mac goes down its stream, and is left with runbloom.app when no Mac is here")
+    func macMessagesAreDepositedOnlyWhenNoMacIsConnected() async throws {
+        let gate = RemoteTestGate()
+        let deposits = Mutex<[MacDeposit]>([])
+        let peers = WorkspacePeers(list: { _ in .listed([]) }, say: { _ in .refused("unused") }, depositForMac: { deposit in
+            deposits.withLock { $0.append(deposit) }
+            return .queued(expiresAt: "2026-09-26T13:00:00Z")
+        })
+        let fixture = try await fixture(gate: gate, peers: peers)
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Tell my Mac")),
+                                          as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Tell my Mac"] }
+
+        // Only a browser is watching, so it is deposited, for the running turn, from this chat.
+        let browser = try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil, client: nil)
+        let queued = await fixture.runtime.sayToMac(workspace: "fix-login", text: "Done", sessionID: fixture.session.id)
+        #expect(queued == .queued(expiresAt: "2026-09-26T13:00:00Z"))
+        let deposit = try #require(deposits.withLock { $0 }.first)
+        #expect(deposit.turnID == gate.registered.withLock { $0 }.first?.turnID)
+        #expect(deposit.workspace == "fix-login")
+        #expect(deposit.chat == fixture.session.title)
+        #expect(!deposit.idempotencyKey.isEmpty)
+
+        // With their Mac here, it goes straight there and nothing is left with runbloom.app.
+        let mac = MacMessages(try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil, client: WorkspaceRuntime.macClient))
+        let direct = await fixture.runtime.sayToMac(workspace: "fix-login", text: "Again", sessionID: fixture.session.id)
+        #expect(direct == .sent(connections: 1))
+        #expect(deposits.withLock { $0 }.count == 1)
+        await waitUntil("the Mac saw it") { mac.seen.records.withLock { $0 }.map(\.text) == ["Again"] }
+        mac.reader.cancel()
+        _ = browser
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("stop_setup reaches the machine's setup, and with nothing running says there is nothing to stop")
+    func stoppingSetup() async throws {
+        let fixture = try await fixture()
+        let idle = await fixture.runtime.respond(to: CommandRequest(.stopSetup), as: Self.caller(Self.freek))
+        #expect(idle.error?.code == .conflict)
+
+        let asked = Mutex<[String]>([])
+        await fixture.runtime.setSetupStopper { name in
+            asked.withLock { $0.append(name) }
+            return true
+        }
+        let stopped = await fixture.runtime.respond(to: CommandRequest(.stopSetup), as: Self.caller(Self.freek))
+        #expect(stopped.result == .accepted)
+        #expect(asked.withLock { $0 } == ["Freek"], "the setup is told who stopped it")
+        await fixture.runtime.shutdown()
+    }
+
+    /// The Mac's gate decides, so a workspace whose pull request has not merged is refused in the
+    /// Mac's own words, and moving the branch needs the ability to prompt as well as to write.
+    @Test("continue_after_merge is refused without a merged pull request, and to a caller who cannot prompt")
+    func continuingIsGated() async throws {
+        let fixture = try await fixture()
+        let refused = await fixture.runtime.respond(to: CommandRequest(.continueAfterMerge(chatID: nil)), as: Self.caller(Self.freek))
+        #expect(refused.error?.code == .conflict)
+        #expect(refused.error?.message == ContinuationRefusal.notMerged.sentence)
+
+        let writer = Self.caller(Self.seb, abilities: ["view", "files"])
+        let noPrompt = await fixture.runtime.respond(to: CommandRequest(.continueAfterMerge(chatID: nil)), as: writer)
+        #expect(noPrompt.error?.code == .missingAbility)
+        await fixture.runtime.shutdown()
+    }
+
+    /// **A slow setup that is going well must not read as a failed call.** The call answers once the
+    /// run has started, and a second one while it runs is refused on the spot. The run itself is the
+    /// machine's (`MachineSetup.rerunSetup`, tested with a real script on Linux); here it stands in.
+    @Test("run_setup answers as soon as setup starts, and refuses a second while it runs")
+    func runSetupAnswersAtOnce() async throws {
+        let fixture = try await fixture()
+        let release = AsyncStream<Void>.makeStream()
+        let runtime = fixture.runtime
+        await runtime.setSetupRerunner {
+            await runtime.setupStepStarted("setup")
+            for await _ in release.stream { break }
+            await runtime.setupFinished(succeeded: true)
+            return true
+        }
+
+        let first = await runtime.respond(to: CommandRequest(.runSetup), as: Self.caller(Self.freek))
+        #expect(first.result == .accepted, "\(String(describing: first.error))")
+        await waitUntil("setup has started") { await runtime.holdsPromptsForSetup }
+        let second = await runtime.respond(to: CommandRequest(.runSetup), as: Self.caller(Self.freek))
+        #expect(second.error?.code == .busy, "the first is still running")
+
+        release.continuation.yield()
+        await waitUntil("setup has finished") { await !runtime.holdsPromptsForSetup }
+        await runtime.shutdown()
+    }
+
+    @Test("a runtime with nobody to ask says so rather than pretending")
+    func cloudWorkspacesNeedRunbloom() async throws {
+        let fixture = try await fixture()
+        guard case .refused(let sentence) = await fixture.runtime.startCloudWorkspace(CloudWorkspaceOrder(name: "Spike"),
+                                                                                      sessionID: fixture.session.id) else {
+            Issue.record("Created a workspace with nobody to ask"); return
+        }
+        #expect(sentence.contains("not connected to runbloom.app"))
+        await fixture.runtime.shutdown()
+    }
+
+    /// **Asked for, not pushed**, so what has to hold is that the answer is the file as it is now:
+    /// somebody edits it in the workspace and opens the menu again.
+    @Test("quick_prompts reads the checkout on every call, and a viewer may ask")
+    func quickPromptsFollowTheFile() async throws {
+        let fixture = try await fixture()
+        let viewer = Self.caller(Self.seb, abilities: ["view"])
+        let file = (fixture.workspace.path as NSString).appendingPathComponent(".bloom/settings.toml")
+        try FileManager.default.createDirectory(atPath: (file as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+
+        func names() async -> [String]? {
+            let reply = await fixture.runtime.respond(to: CommandRequest(.quickPrompts), as: viewer)
+            guard case .quickPrompts(let prompts, _) = reply.result else { return nil }
+            return prompts.map(\.name)
+        }
+
+        #expect(await names() == [], "no settings file is an empty menu, not an error")
+        try "[[quick_prompts]]\nname = \"Tests\"\nprompt = \"Run the tests.\"\n".write(toFile: file, atomically: true, encoding: .utf8)
+        #expect(await names() == ["Tests"])
+        try "[[quick_prompts]]\nname = \"Lint\"\nprompt = \"Run the linter.\"\n".write(toFile: file, atomically: true, encoding: .utf8)
+        #expect(await names() == ["Lint"])
         await fixture.runtime.shutdown()
     }
 
@@ -225,7 +684,7 @@ struct RemoteWorkspaceRuntimeTests {
     @Test("a turn refused for a limit stays queued and marked, and starts once the limit lifts")
     func limitsBlockAndClear() async throws {
         let gate = RemoteTestGate()
-        gate.refusal.withLock { $0 = .blocked(DeliveryBlock(limit: "concurrent_machines", message: "Your team already has 20 Cloud workspaces running.")) }
+        gate.refusal.withLock { $0 = .blocked(DeliveryBlock(limit: "concurrent_machines", message: "Your team already has 20 Bloom Cloud workspaces running. Close one to open this.")) }
         let fixture = try await fixture(gate: gate)
         let reply = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "When there is room")),
                                                   as: Self.caller(Self.freek))
@@ -516,6 +975,337 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// A client that did not close the chat learns it has gone from the last event about it, rather
+    /// than keeping it in its strip until the next full read and being told "closed" on a send.
+    @Test("closing a chat publishes a last chat event that says it is closed")
+    func closingAChatSaysSo() async throws {
+        let fixture = try await fixture()
+        let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil)
+        // Read beside the test rather than in it, so an event that never comes is a failure that
+        // says what did come, not a suite that waits for ever: this hung the Linux job for thirty
+        // minutes the first time, with nothing in the log to say why.
+        let chats = Mutex<[ChatRecord]>([])
+        let reader = Task {
+            for await event in stream {
+                if case .chat(let chat) = event { chats.withLock { $0.append(chat) } }
+            }
+        }
+        let reply = await fixture.runtime.respond(to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue)), as: Self.caller(Self.seb))
+        #expect(reply.result == .accepted)
+        // A cap on "never" rather than a measurement, well under the suite's own limit.
+        await waitUntil("a chat event saying the chat is closed", within: .seconds(30)) {
+            chats.withLock { $0 }.contains { $0.id == fixture.session.id.rawValue && $0.closedAt != nil }
+        }
+        let seen = chats.withLock { $0 }
+        #expect(seen.contains { $0.closedAt != nil }, "chat events seen: \(seen.map { "\($0.id) \($0.state) closed=\($0.closedAt != nil)" })")
+        reader.cancel()
+        await fixture.runtime.shutdown()
+    }
+
+    /// A read is not cached in the connection or inferred from chat events. Another client can
+    /// close a chat and the next list request sees it at once.
+    @Test("Recently Closed refreshes after another client closes a chat")
+    func recentlyClosedRefreshesAcrossClients() async throws {
+        let fixture = try await fixture()
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.session.id,
+            kind: .user,
+            payload: Data(#"{"text":"keep me"}"#.utf8)
+        )
+        let viewer = Self.caller(Self.seb, abilities: ["view"])
+        let before = await fixture.runtime.respond(to: CommandRequest(.recentlyClosed), as: viewer)
+        #expect(before.result == .recentlyClosed(chats: []))
+
+        let closed = await fixture.runtime.respond(
+            to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue)),
+            as: Self.caller(Self.freek)
+        )
+        #expect(closed.result == .accepted)
+
+        let after = await fixture.runtime.respond(to: CommandRequest(.recentlyClosed), as: viewer)
+        guard case .recentlyClosed(let chats) = after.result else {
+            Issue.record("Expected Recently Closed, got \(String(describing: after.error))")
+            await fixture.runtime.shutdown()
+            return
+        }
+        #expect(chats.map(\.id) == [fixture.session.id.rawValue])
+        #expect(chats[0].messageCount == 1)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("Recently Closed is bounded, newest first, and contains only used top-level chats")
+    func recentlyClosedIsBoundedAndTopLevel() async throws {
+        let fixture = try await fixture()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        var expected: [String] = []
+        var parent: Session?
+        for index in 0..<12 {
+            let session = try await fixture.store.upsert(Session(
+                workspaceID: fixture.workspace.id,
+                title: "Closed \(index)"
+            ))
+            _ = try await fixture.store.appendNext(
+                sessionID: session.id,
+                kind: .user,
+                payload: Data(#"{"text":"kept"}"#.utf8)
+            )
+            _ = try await fixture.store.update(sessionID: session.id) {
+                $0.archivedAt = base.addingTimeInterval(Double(index))
+            }
+            expected.insert(session.id.rawValue, at: 0)
+            if index == 0 { parent = session }
+        }
+        let empty = try await fixture.store.upsert(Session(workspaceID: fixture.workspace.id, title: "Empty"))
+        _ = try await fixture.store.update(sessionID: empty.id) { $0.archivedAt = base.addingTimeInterval(100) }
+        let crew = try await fixture.store.upsert(Session(
+            workspaceID: fixture.workspace.id,
+            parentSessionID: try #require(parent).id,
+            title: "Crew"
+        ))
+        _ = try await fixture.store.appendNext(sessionID: crew.id, kind: .user, payload: Data(#"{"text":"crew"}"#.utf8))
+        _ = try await fixture.store.update(sessionID: crew.id) { $0.archivedAt = base.addingTimeInterval(101) }
+
+        let reply = await fixture.runtime.respond(
+            to: CommandRequest(.recentlyClosed),
+            as: Self.caller(Self.seb, abilities: ["view"])
+        )
+        guard case .recentlyClosed(let chats) = reply.result else {
+            Issue.record("Expected Recently Closed, got \(String(describing: reply.error))")
+            await fixture.runtime.shutdown()
+            return
+        }
+        #expect(chats.count == SessionReopening.limit)
+        #expect(chats.map(\.id) == Array(expected.prefix(SessionReopening.limit)))
+        #expect(!chats.contains { $0.id == crew.id.rawValue || $0.id == empty.id.rawValue })
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("reopening refuses missing, open, running, crew and expired chats")
+    func reopeningRefusalCases() async throws {
+        let fixture = try await fixture()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let running = try await fixture.store.upsert(Session(
+            workspaceID: fixture.workspace.id,
+            title: "Running",
+            state: .running,
+            archivedAt: base
+        ))
+        _ = try await fixture.store.appendNext(sessionID: running.id, kind: .user, payload: Data(#"{"text":"running"}"#.utf8))
+        let crew = try await fixture.store.upsert(Session(
+            workspaceID: fixture.workspace.id,
+            parentSessionID: fixture.session.id,
+            title: "Crew",
+            archivedAt: base
+        ))
+        _ = try await fixture.store.appendNext(sessionID: crew.id, kind: .user, payload: Data(#"{"text":"crew"}"#.utf8))
+        let expired = try await fixture.store.upsert(Session(
+            workspaceID: fixture.workspace.id,
+            title: "Expired",
+            archivedAt: base.addingTimeInterval(-1)
+        ))
+        _ = try await fixture.store.appendNext(sessionID: expired.id, kind: .user, payload: Data(#"{"text":"old"}"#.utf8))
+        for index in 0..<SessionReopening.limit {
+            let newer = try await fixture.store.upsert(Session(
+                workspaceID: fixture.workspace.id,
+                title: "Newer \(index)",
+                archivedAt: base.addingTimeInterval(Double(index + 1))
+            ))
+            _ = try await fixture.store.appendNext(sessionID: newer.id, kind: .user, payload: Data(#"{"text":"new"}"#.utf8))
+        }
+
+        let caller = Self.caller(Self.freek)
+        let missing = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: "missing")),
+            as: caller
+        )
+        let open = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: fixture.session.id.rawValue)),
+            as: caller
+        )
+        let stillRunning = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: running.id.rawValue)),
+            as: caller
+        )
+        let member = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: crew.id.rawValue)),
+            as: caller
+        )
+        let tooOld = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: expired.id.rawValue)),
+            as: caller
+        )
+
+        #expect(missing.error?.code == .notFound)
+        #expect(open.error?.code == .conflict)
+        #expect(stillRunning.error?.code == .busy)
+        #expect(member.error?.code == .notFound)
+        #expect(tooOld.error?.code == .notFound)
+        #expect(try await fixture.store.session(id: running.id)?.archivedAt != nil)
+        #expect(try await fixture.store.session(id: crew.id)?.archivedAt != nil)
+        #expect(try await fixture.store.session(id: expired.id)?.archivedAt != nil)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("reopening preserves the chat and publishes one ordinary chat event")
+    func reopeningPreservesAndPublishes() async throws {
+        let fixture = try await fixture()
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.session.id,
+            kind: .user,
+            payload: Data(#"{"text":"the transcript"}"#.utf8)
+        )
+        _ = try await fixture.store.update(sessionID: fixture.session.id) {
+            $0.title = "Long investigation"
+            $0.agentSessionID = "provider-conversation-42"
+            $0.inputTokens = 4_200
+            $0.outputTokens = 900
+            $0.costUSD = 1.25
+            $0.contextTokens = 18_000
+            $0.lastReadSeq = 3
+            $0.sortOrder = 7
+        }
+        let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.seb), after: nil)
+        let events = RemoteChatEventRecorder(chatID: fixture.session.id.rawValue)
+        let reader = Task {
+            for await event in stream {
+                await events.record(event)
+            }
+        }
+        await events.waitForChats(1)
+        // Bring the comparison cache to the same row the opening snapshot read, then measure only
+        // the close and reopen transitions below. The preference writes above may otherwise still
+        // have an observation queued when this stream opens.
+        try await fixture.runtime.refreshPublishedState(publishing: false)
+        await events.resetChats()
+        let closed = await fixture.runtime.respond(
+            to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue)),
+            as: Self.caller(Self.freek)
+        )
+        #expect(closed.result == .accepted)
+        let before = try #require(try await fixture.store.session(id: fixture.session.id))
+
+        let reply = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: fixture.session.id.rawValue)),
+            as: Self.caller(Self.freek)
+        )
+        guard case .chat(let record) = reply.result else {
+            Issue.record("Expected the reopened chat, got \(String(describing: reply.error))")
+            reader.cancel()
+            await fixture.runtime.shutdown()
+            return
+        }
+        #expect(record.closedAt == nil)
+        let reopened = try #require(try await fixture.store.session(id: fixture.session.id))
+        var expected = before
+        expected.archivedAt = nil
+        #expect(reopened == expected, "reopening changes only archived_at")
+        #expect(try await fixture.store.messageCount(sessionID: fixture.session.id) == 1)
+
+        await events.waitForChats(2)
+        // A marker published after both commands is a deterministic drain barrier for the event
+        // reader. When it arrives, every chat event enqueued before it has been recorded.
+        let barrier = "reopen-published-\(UUID().uuidString)"
+        await fixture.runtime.events.publish(.setupOutput(text: barrier))
+        await events.waitForBarrier(barrier)
+        let seen = await events.chatRecords
+        #expect(seen.map { $0.closedAt != nil } == [true, false])
+        reader.cancel()
+        await fixture.runtime.shutdown()
+    }
+
+    /// The reviewed race: a close refresh had captured the archived row, reopening published the
+    /// open row while that refresh waited for `nextSeq`, then the older refresh published closed
+    /// last. The gate forces that exact overlap without a clock or a scheduler guess.
+    @Test("a paused close publication cannot overtake a reopen")
+    func reopenWinsAStaleClosePublication() async throws {
+        let fixture = try await fixture()
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.session.id,
+            kind: .user,
+            payload: Data(#"{"text":"keep me"}"#.utf8)
+        )
+        let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.seb), after: nil)
+        let events = RemoteChatEventRecorder(chatID: fixture.session.id.rawValue)
+        let reader = Task {
+            for await event in stream { await events.record(event) }
+        }
+        await events.waitForChats(1)
+        try await fixture.runtime.refreshPublishedState(publishing: false)
+        await events.resetChats()
+
+        let gate = ClosedChatPublicationGate()
+        let chatID = fixture.session.id
+        await fixture.runtime.setBeforeClosedChatPublication { id in
+            if id == chatID { await gate.hold() }
+        }
+        let close = Task {
+            await fixture.runtime.respond(
+                to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue), commandID: "racing-close"),
+                as: Self.caller(Self.freek)
+            )
+        }
+        await gate.waitUntilHeld()
+
+        let reopened = await fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: fixture.session.id.rawValue), commandID: "racing-reopen"),
+            as: Self.caller(Self.seb)
+        )
+        await gate.release()
+        let closed = await close.value
+        await fixture.runtime.setBeforeClosedChatPublication(nil)
+
+        #expect(closed.result == .accepted)
+        guard case .chat(let record) = reopened.result else {
+            Issue.record("Expected the reopen to win, got \(String(describing: reopened.error))")
+            reader.cancel()
+            await fixture.runtime.shutdown()
+            return
+        }
+        #expect(record.closedAt == nil)
+        try await fixture.runtime.refreshPublishedState(publishing: true)
+        let barrier = "racing-reopen-published-\(UUID().uuidString)"
+        await fixture.runtime.events.publish(.setupOutput(text: barrier))
+        await events.waitForBarrier(barrier)
+
+        let seen = await events.chatRecords
+        #expect(!seen.isEmpty)
+        #expect(seen.last?.closedAt == nil, "the final client-visible chat state is open")
+        #expect(!seen.contains { $0.closedAt != nil }, "no stale closed event followed the reopen")
+        #expect(try await fixture.store.session(id: fixture.session.id)?.archivedAt == nil)
+        reader.cancel()
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("two clients reopening together produce one reopen")
+    func concurrentReopenRunsOnce() async throws {
+        let fixture = try await fixture()
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.session.id,
+            kind: .user,
+            payload: Data(#"{"text":"keep me"}"#.utf8)
+        )
+        _ = await fixture.runtime.respond(
+            to: CommandRequest(.closeChat(chatID: fixture.session.id.rawValue)),
+            as: Self.caller(Self.freek)
+        )
+
+        async let first = fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: fixture.session.id.rawValue), commandID: "reopen-first"),
+            as: Self.caller(Self.freek)
+        )
+        async let second = fixture.runtime.respond(
+            to: CommandRequest(.reopenChat(chatID: fixture.session.id.rawValue), commandID: "reopen-second"),
+            as: Self.caller(Self.seb)
+        )
+        let replies = await [first, second]
+
+        #expect(replies.count { if case .chat = $0.result { true } else { false } } == 1)
+        #expect(replies.count { $0.error?.code == .conflict } == 1)
+        #expect(try await fixture.store.session(id: fixture.session.id)?.archivedAt == nil)
+        await fixture.runtime.shutdown()
+    }
+
     @Test("changing the composer names who changed it")
     func composerChangesNameTheirAuthor() async throws {
         let fixture = try await fixture()
@@ -533,6 +1323,78 @@ struct RemoteWorkspaceRuntimeTests {
         let stored = try await fixture.store.session(id: fixture.session.id)
         #expect(stored?.model == "claude-opus-5")
         await fixture.runtime.shutdown()
+    }
+}
+
+private actor RemoteChatEventRecorder {
+    let chatID: String
+    private(set) var chatRecords: [ChatRecord] = []
+    private var chatWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var barriers: Set<String> = []
+    private var barrierWaiters: [String: CheckedContinuation<Void, Never>] = [:]
+
+    init(chatID: String) {
+        self.chatID = chatID
+    }
+
+    func record(_ event: WorkspaceEvent) {
+        switch event {
+        case .chat(let chat) where chat.id == chatID:
+            chatRecords.append(chat)
+            let count = chatRecords.count
+            chatWaiters.removeAll { waiter in
+                guard count >= waiter.count else { return false }
+                waiter.continuation.resume()
+                return true
+            }
+        case .setupOutput(let text):
+            barriers.insert(text)
+            barrierWaiters.removeValue(forKey: text)?.resume()
+        default:
+            break
+        }
+    }
+
+    func waitForChats(_ count: Int) async {
+        guard chatRecords.count < count else { return }
+        await withCheckedContinuation { continuation in
+            chatWaiters.append((count, continuation))
+        }
+    }
+
+    func resetChats() {
+        chatRecords.removeAll()
+    }
+
+    func waitForBarrier(_ marker: String) async {
+        guard !barriers.contains(marker) else { return }
+        await withCheckedContinuation { barrierWaiters[marker] = $0 }
+    }
+}
+
+private actor ClosedChatPublicationGate {
+    private var isHeld = false
+    private var isReleased = false
+    private var arrival: CheckedContinuation<Void, Never>?
+    private var held: CheckedContinuation<Void, Never>?
+
+    func hold() async {
+        isHeld = true
+        arrival?.resume()
+        arrival = nil
+        guard !isReleased else { return }
+        await withCheckedContinuation { held = $0 }
+    }
+
+    func waitUntilHeld() async {
+        guard !isHeld else { return }
+        await withCheckedContinuation { arrival = $0 }
+    }
+
+    func release() {
+        isReleased = true
+        held?.resume()
+        held = nil
     }
 }
 
@@ -626,5 +1488,22 @@ actor RemoteTestRunner: SessionRunner {
 
     func finish() {
         sink.yield(.result(AgentResult()))
+    }
+}
+
+/// The `mac_message` events one stream received, read beside the test.
+final class MacMessages: Sendable {
+    final class Seen: Sendable {
+        let records = Mutex<[MacMessageRecord]>([])
+    }
+
+    let seen = Seen()
+    let reader: Task<Void, Never>
+
+    init(_ stream: AsyncStream<WorkspaceEvent>) {
+        let seen = self.seen
+        reader = Task {
+            for await event in stream { if case .macMessage(let record) = event { seen.records.withLock { $0.append(record) } } }
+        }
     }
 }

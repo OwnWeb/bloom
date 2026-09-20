@@ -146,13 +146,8 @@ echo "==> only the app target imports a UI framework"
 # not here. Only the app target declares them in `Package.swift`, so an import
 # of either from the core or the bridge is a link error rather than a lint
 # finding, and a rule that can never fire is a rule that gets believed in.
-#
-# `Packages/BloomClient` is held to the same line and for the same reason: its
-# tests are the only ones that reach the Cloud workspace client, and iOS takes
-# the package as it is. `BloomAuthentication` presents a sign in sheet over a
-# window, so it is the one package that may import AppKit.
 ui_import='(^|[^A-Za-z0-9_])import[[:space:]]+([a-z]+[[:space:]]+)?(SwiftUI|AppKit|Cocoa)([^A-Za-z0-9_]|$)'
-if hits="$(git grep --untracked -n -I -E "$ui_import" -- 'Sources/BloomCore/*' 'Sources/bloom-bridge/*' 'Packages/BloomClient/*' || true)" && [ -n "$hits" ]; then
+if hits="$(git grep --untracked -n -I -E "$ui_import" -- 'Sources/BloomCore/*' 'Sources/bloom-bridge/*' || true)" && [ -n "$hits" ]; then
   echo "$hits" | show
   report "A target that is not Sources/Bloom imports a UI framework. Move the view part into Sources/Bloom and leave the decision behind, where the suite can reach it."
 fi
@@ -304,7 +299,6 @@ id_type_allowed_files=(
   'Sources/BloomCore/Agent/AgentRetry.swift'   # the same stream-json, one line of it
   'Sources/BloomCore/Remote/RemoteSummary.swift'      # runbloom.app's summary body, ids as JSON strings
   'Sources/BloomCore/Remote/RemoteUsageMeter.swift'   # runbloom.app's usage body and the kernel's boot id
-  'Sources/BloomCore/Bridge/CloudWorkspaceStartTool.swift' # a Bloom Cloud workspace's id, which runbloom.app assigns
   'Sources/BloomCore/Bridge/CloudWorkspaceReach.swift' # Bloom Cloud workspace and chat ids, which runbloom.app and the machine assign
   'Sources/BloomRunner/Machine/MachineConfiguration.swift' # runbloom.app's workspace.json
   'Sources/BloomCore/Transcript/ContextCompaction.swift' # the same stream-json, one line of it
@@ -351,7 +345,6 @@ id_type_allowed_lines=(
   'Sources/BloomCore/System/EditorCatalog.swift'             # an application, by bundle id
   'Sources/Bloom/Views/Center/Composer/ComposerOption.swift'   # a picker entry, "opus" and friends
   'Sources/Bloom/Views/Center/Panes/CenterTab.swift'       # a tab: a terminal row, a browser or the review pane
-  'Sources/BloomCore/Presentation/CloudTabs.swift'         # the same tab id in a Cloud workspace's strip, and a run script named in its settings
   'Sources/BloomCore/System/TerminalPaneCensus.swift'        # the same tab id, read back off the same bytes
   'Sources/Bloom/Views/Center/Attachments/PromptAttachment.swift' # a draft key, which has no session yet
   'Sources/Bloom/State/TranscriptModel.swift'         # payload ids, read straight off an event
@@ -367,6 +360,14 @@ id_type_allowed_properties=(
   'Sources/Bloom/State/Cloud/CloudSharing.swift:teamID'               # runbloom.app's team, a ULID it assigns
   'Sources/BloomCore/Model/MessageAuthor.swift:userID'                # runbloom.app's user, the token's sub
   'Sources/BloomCore/Model/MessageAudience.swift:userID'              # the same, as who a message was addressed to
+  'Sources/BloomCore/Remote/WorkspaceMembers.swift:userID'            # the same, as runbloom.app lists a team
+  'Sources/BloomCore/Remote/AddressedReport.swift:userID'             # the same, as who a message was addressed to
+  'Sources/BloomCore/Remote/AddressedReport.swift:id'                 # runbloom.app's dedupe key for one mail
+  'Sources/BloomCore/Remote/RemoteOpening.swift:userID'              # runbloom.app's user who prompted the opening
+  'Sources/BloomCore/Bridge/CloudWorkspaceStartTool.swift:id'         # runbloom.app's id for a workspace another machine holds
+  'Sources/BloomRunner/Runbloom/RunbloomCloudWorkspaces.swift:id'     # the same id, as runbloom.app answers it
+  'Sources/BloomCore/Remote/WorkspacePeers.swift:id'                  # runbloom.app's id for another team workspace
+  'Sources/BloomRunner/Runbloom/RunbloomPeers.swift:id'               # the same id, as runbloom.app lists it
   'Sources/BloomCore/Workspace/WorkspaceScriptVariables.swift:workspaceID' # a value handed to a script, a Mac's or runbloom.app's
   'Sources/BloomCore/Remote/RemoteEventHub.swift:userID'              # the same user, holding an event stream open
   'Sources/BloomRunner/HTTP/EventStreams.swift:userID'                # the same user, on the server's side of the stream

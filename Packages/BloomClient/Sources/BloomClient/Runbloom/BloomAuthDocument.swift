@@ -110,6 +110,12 @@ public struct RunbloomEnvironment: Sendable, Hashable {
     /// runbloom.app named no page of its own.
     public var teamPage: URL { origin.appending(path: "app") }
 
+    /// The browser page for one Cloud project's settings. The API workspace record decides
+    /// whether it may be offered; this only spells the matching page inside the same environment.
+    public func projectSettingsPage(teamSlug: String, projectID: String) -> URL {
+        origin.appending(path: "app/\(teamSlug)/projects/\(projectID)/settings")
+    }
+
     /// Reads the environment: `BLOOM_RUNBLOOM_URL` (a development runbloom.app) wins over the
     /// setting, which wins over production. An address that is not an origin is ignored rather
     /// than trusted, because sign in sends credentials wherever this points.

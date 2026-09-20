@@ -69,7 +69,7 @@ struct MarkdownHTMLTests {
         #expect(MarkdownHTML.safeAddress("docs/plan.md#costs") == "docs/plan.md#costs")
         #expect(MarkdownHTML.safeAddress("#costs") == "#costs")
         #expect(MarkdownHTML.safeAddress("https://spatie.be") == "https://spatie.be")
-        #expect(MarkdownHTML.safeAddress("mailto:freek@spatie.be") == "mailto:freek@spatie.be")
+        #expect(MarkdownHTML.safeAddress("mailto:freek@example.com") == "mailto:freek@example.com")
         #expect(MarkdownHTML.safeAddress("notes/a:b.md") == "notes/a:b.md")
         #expect(MarkdownHTML.safeAddress("data:image/png;base64,AAAA", forImage: true) != nil)
         #expect(MarkdownHTML.safeAddress("data:text/html,<script>", forImage: true) == nil)

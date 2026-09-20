@@ -190,9 +190,10 @@ public typealias PullRequestCheckoutResolving =
 /// are refused in the same words when the name matches nothing or matches too much.
 ///
 /// Naming another project changes nothing else about the call. The workspace is still `.agent`
-/// origin with the caller as its parent, so the running ceiling counts it, the parent may rename
-/// and archive it, and it may not start more. Every one of those is keyed on the parent's
-/// workspace id and none on its repository, which is what lets the child live somewhere else.
+/// origin with the caller as its parent, so the running ceiling counts it, the parent may archive
+/// it, and it may not start more. Every one of those is keyed on the parent's workspace id and
+/// none on its repository, which is what lets the child live somewhere else. Renaming is broader:
+/// any workspace may name another explicitly, regardless of parentage.
 ///
 /// A workspace agent's workspaces are `.agent` origin and carry its id; the owner's are `.ownerClient`
 /// origin and carry no parent. How many either may start is not decided here: `WorkspaceOrigin`

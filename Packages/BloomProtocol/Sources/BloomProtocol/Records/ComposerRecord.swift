@@ -40,6 +40,28 @@ public struct ComposerControlsRecord: Codable, Sendable, Hashable {
         case outputStyle = "output_style"
         case codexContextWindow = "codex_context_window"
     }
+
+    /// **Everything added after the first five is read as absent-means-default**, because a machine
+    /// built before a key existed does not send it and a synthesised decoder throws on a key that
+    /// is not there. The symptom is not a composer with the wrong defaults: this record is inside
+    /// the workspace snapshot, so **the workspace will not open at all**.
+    ///
+    /// Found by a test written for `members`, which threw on `fast_mode` instead. `fast_mode`,
+    /// `output_style` and `codex_context_window` were all added later and all had the same trap,
+    /// silently, waiting for somebody to open a machine older than they are. The default on the
+    /// stored property is not what `Decodable` uses; only this is.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agent = try container.decode(String.self, forKey: .agent)
+        model = try container.decode(String.self, forKey: .model)
+        effort = try container.decode(String.self, forKey: .effort)
+        permissionMode = try container.decode(String.self, forKey: .permissionMode)
+        interactionMode = try container.decode(String.self, forKey: .interactionMode)
+        fastMode = try container.decodeIfPresent(Bool.self, forKey: .fastMode) ?? false
+        codexFastMode = try container.decodeIfPresent(Bool.self, forKey: .codexFastMode)
+        outputStyle = try container.decodeIfPresent(String.self, forKey: .outputStyle) ?? "default"
+        codexContextWindow = try container.decodeIfPresent(Int.self, forKey: .codexContextWindow) ?? 0
+    }
 }
 
 /// A chat's composer and the choices the server can offer it.
@@ -81,20 +103,30 @@ public struct ModelRecord: Codable, Sendable, Hashable {
     public var efforts: [String]
     public var defaultEffort: String?
     public var isDefault: Bool
+    /// The service tier that makes this model fast, such as `priority`, from the agent's own model
+    /// list. **Absent means no fast mode**: a model without one, a machine older than the field,
+    /// and every Claude model, whose fast mode is the agent's rather than the model's. Read without
+    /// starting a turn, from the list `models` already comes from. Whether the project's Codex
+    /// configuration turns fast mode off is not in it yet; a client offering the switch on a model
+    /// with a tier will be right unless somebody has opted out there.
+    public var fastTier: String?
 
-    public init(agent: String, id: String, label: String, efforts: [String], defaultEffort: String?, isDefault: Bool) {
+    public init(agent: String, id: String, label: String, efforts: [String], defaultEffort: String?, isDefault: Bool,
+                fastTier: String? = nil) {
         self.agent = agent
         self.id = id
         self.label = label
         self.efforts = efforts
         self.defaultEffort = defaultEffort
         self.isDefault = isDefault
+        self.fastTier = fastTier
     }
 
     enum CodingKeys: String, CodingKey {
         case agent, id, label, efforts
         case defaultEffort = "default_effort"
         case isDefault = "is_default"
+        case fastTier = "fast_tier"
     }
 }
 

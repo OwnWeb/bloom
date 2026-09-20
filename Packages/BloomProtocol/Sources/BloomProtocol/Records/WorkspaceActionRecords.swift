@@ -31,6 +31,22 @@ public struct ArchivePreviewRecord: Codable, Sendable, Hashable {
         self.createdAt = createdAt
     }
 
+    /// `deletes_conversation` was added after this record existed, and a machine that predates it
+    /// does not send it. The default is the answer that was true before the key: archiving took the
+    /// conversation with it. Same rule as `WorkspaceSnapshotRecord.init(from:)`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        confirmationID = try container.decode(String.self, forKey: .confirmationID)
+        hasUncommittedChanges = try container.decode(Bool.self, forKey: .hasUncommittedChanges)
+        untrackedFiles = try container.decode([String].self, forKey: .untrackedFiles)
+        unpushedCommits = try container.decode(Int.self, forKey: .unpushedCommits)
+        detachedCommits = try container.decode(Int.self, forKey: .detachedCommits)
+        isAgentRunning = try container.decode(Bool.self, forKey: .isAgentRunning)
+        isPullRequestMerged = try container.decode(Bool.self, forKey: .isPullRequestMerged)
+        deletesConversation = try container.decodeIfPresent(Bool.self, forKey: .deletesConversation) ?? true
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+    }
+
     enum CodingKeys: String, CodingKey {
         case confirmationID = "confirmation_id"
         case hasUncommittedChanges = "has_uncommitted_changes"
@@ -107,14 +123,7 @@ public struct WorkspaceSnapshotRecord: Codable, Sendable, Hashable {
     /// costs no round trip; the choices to go with it (models, commands, output styles) stay on
     /// `composer`, because discovering those costs a subprocess and a walk of the filesystem and
     /// this record is read on every connect.
-    ///
-    /// **Optional on the way in, and required on the way out.** The schema has it in
-    /// `WorkspaceSnapshot`'s `required` and every machine on a current runner sends it, which is
-    /// what a server is held to. A client is held to something else: a workspace whose machine was
-    /// made before this field existed and has not updated itself yet still answers, and a client
-    /// that threw on its snapshot would not be reading an old field, it would be unable to open
-    /// that workspace at all. So it decodes as absent and the client falls back to its own choice.
-    public var composerDefaults: ComposerControlsRecord?
+    public var composerDefaults: ComposerControlsRecord
     /// Everybody who may be addressed with `@`, which is **not the same list as `presence`**: that
     /// is who is here, and this is who has access. Somebody who is away is exactly the person a
     /// mention is most useful for.
@@ -130,7 +139,7 @@ public struct WorkspaceSnapshotRecord: Codable, Sendable, Hashable {
     public var members: [MemberRecord]
 
     public init(workspace: WorkspaceRecord, chats: [ChatRecord], presence: [PresenceRecord], cursor: Int64,
-                composerDefaults: ComposerControlsRecord? = nil, members: [MemberRecord] = []) {
+                composerDefaults: ComposerControlsRecord, members: [MemberRecord] = []) {
         self.workspace = workspace
         self.chats = chats
         self.presence = presence
@@ -144,21 +153,25 @@ public struct WorkspaceSnapshotRecord: Codable, Sendable, Hashable {
         case composerDefaults = "composer_defaults"
     }
 
-    /// **Absent members read as none, for the same reason absent defaults read as nil.** A machine
-    /// made before this field existed and not yet updated still answers a `workspace` call, and a
-    /// client that threw on its snapshot would not be missing a list of names, it would be unable
-    /// to open that workspace at all. A server is held to sending it, which is what the schema
-    /// says; a client is held to reading what a machine in the field actually sends.
+    /// **A field this build requires is a workspace an older machine cannot open.**
     ///
-    /// Written out rather than synthesised because a default on a stored property is not what
-    /// `Decodable` uses when a key is missing.
+    /// The asymmetry is deliberate and is the same one `composer_defaults` already taught us: a
+    /// **server** is held to sending every field the schema says it sends, and a **client** is held
+    /// to reading what a machine in the field actually sends, which is whatever was true when that
+    /// machine was built. Every machine running today was made before `members` existed, and a
+    /// synthesised decoder throws on a key that is not there: not "a workspace with no names in it"
+    /// but **"that workspace will not open"**, which is how a small addition becomes an outage.
+    ///
+    /// Written out rather than left to the property's default, because a default on a stored
+    /// property is not what `Decodable` uses for a missing key. That is the trap, and it is silent
+    /// until somebody opens an older machine.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workspace = try container.decode(WorkspaceRecord.self, forKey: .workspace)
         chats = try container.decode([ChatRecord].self, forKey: .chats)
         presence = try container.decode([PresenceRecord].self, forKey: .presence)
         cursor = try container.decode(Int64.self, forKey: .cursor)
-        composerDefaults = try container.decodeIfPresent(ComposerControlsRecord.self, forKey: .composerDefaults)
+        composerDefaults = try container.decode(ComposerControlsRecord.self, forKey: .composerDefaults)
         members = try container.decodeIfPresent([MemberRecord].self, forKey: .members) ?? []
     }
 }

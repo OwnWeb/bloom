@@ -227,13 +227,13 @@ struct RemoteTerminalsTests {
             let second = try await terminals.attach(name: "https", owner: "freek")
             // The screen comes back from tmux's copy, so the first command is on it before
             // anything new is typed.
-            let restored = Task { () -> Bool in
+            let restored = Task { () -> String in
                 var text = ""
                 for await chunk in second.output {
                     text += String(decoding: chunk, as: UTF8.self)
-                    if text.contains("first $BLOOM_TERMINAL_FIXTURE") { return true }
+                    if text.contains("first $BLOOM_TERMINAL_FIXTURE") { return text }
                 }
-                return false
+                return text
             }
             await second.write(Data("printf 'second\\n' >> stream.txt\r".utf8))
             await waitUntil("reconnected terminal executes once") {
@@ -241,7 +241,9 @@ struct RemoteTerminalsTests {
             }
             #expect(try String(contentsOfFile: repo.path + "/stream.txt", encoding: .utf8) == "first from-attach\nsecond\n")
             await second.close()
-            #expect(await restored.value)
+            // What came back is in the message, so a failure on a runner nobody can reach says why.
+            let screen = await restored.value
+            #expect(screen.contains("first $BLOOM_TERMINAL_FIXTURE"), "the reattached screen was: \(screen.debugDescription)")
             try await terminals.close(name: "https")
         } catch {
             await terminals.shutdown()

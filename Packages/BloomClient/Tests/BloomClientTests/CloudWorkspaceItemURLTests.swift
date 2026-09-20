@@ -14,4 +14,24 @@ struct CloudWorkspaceItemURLTests {
         #expect(given.url == "https://runbloom.app/app/spatie/workspaces/01k5")
         #expect(try item(#"{"id":"01k5","state":"setting_up"}"#).url == nil)
     }
+
+    @Test("personal colour and project settings links are taken as given")
+    func workspaceActions() throws {
+        let given = try item("""
+        {"id":"01k5","state":"idle","colour":"4C8DF6","can_colour":true,
+         "colour_url":"https://runbloom.app/api/v1/cloud-workspaces/01k5/mark",
+         "project":{"id":"p1","repository":"spatie/bloom",
+                    "settings_url":"https://runbloom.app/api/v1/teams/t1/projects/p1/settings"}}
+        """)
+        #expect(given.colour == "4C8DF6")
+        #expect(given.canColour)
+        #expect(given.colourURL == "https://runbloom.app/api/v1/cloud-workspaces/01k5/mark")
+        #expect(given.project?.settingsURL == "https://runbloom.app/api/v1/teams/t1/projects/p1/settings")
+
+        let old = try item(#"{"id":"01k5","state":"idle","project":{"id":"p1","repository":"spatie/bloom"}}"#)
+        #expect(old.colour == nil)
+        #expect(!old.canColour)
+        #expect(old.colourURL == nil)
+        #expect(old.project?.settingsURL == nil)
+    }
 }

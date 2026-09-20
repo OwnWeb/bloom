@@ -93,7 +93,11 @@ struct WireVectorTests {
 enum WireExamples {
     static let commandID = "00000000-0000-4000-8000-000000000001"
     static let date = Date(timeIntervalSince1970: 1_789_638_002.5)
-    static let author = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2t", name: "Freek")
+    static let author = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2t", name: "Freek", email: "freek@example.com")
+    /// Somebody runbloom.app has no display name for, which is the shape a client has to draw from
+    /// the email. It used to arrive with an empty name and nothing else, and an unlabelled message
+    /// in a shared workspace reads as the reader's own.
+    static let nameless = AuthorRecord(userID: "01k5bx7j9d3v2r8q6m4n0p1s2u", name: "", email: "technical@example.com")
     static let controls = ComposerControlsRecord(agent: "claude", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits", interactionMode: "build")
     static let setup = SetupRecord(state: "succeeded", step: nil, startedAt: date, finishedAt: date)
     static let chat = ChatRecord(id: "chat-1", title: "Chat", agent: "claude", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits",
@@ -103,7 +107,7 @@ enum WireExamples {
     static let queue = QueueRecord(chatID: "chat-1", prompts: [
         QueuedPromptRecord(id: "delivery-1", text: "And the docs", author: author, state: "queued", createdAt: date),
         QueuedPromptRecord(id: "delivery-2", text: "Then push", author: author, state: "blocked",
-                           blocked: BlockedRecord(limit: "concurrent_machines", message: "Your team already has 20 Cloud workspaces running."), createdAt: date),
+                           blocked: BlockedRecord(limit: "concurrent_machines", message: "Your team already has 20 Bloom Cloud workspaces running. Close one to open this."), createdAt: date),
     ])
     static let question = QuestionRecord(requestID: "ask-1", chatID: "chat-1", ask: .object(["tool_name": .string("Bash")]), askedAt: date)
     static let workspace = WorkspaceRecord(id: "01k5bx7j9d3v2r8q6m4n0p1s2w", name: "Queue retries", branch: "freek/queue-retries", baseBranch: "main", setup: setup)
@@ -116,6 +120,8 @@ enum WireExamples {
         ("setup_output", .setupOutput),
         ("files", .files),
         ("history", .history(limit: 50, before: nil)),
+        // The next page, which is the only time `before` is sent.
+        ("history_next_page", .history(limit: 50, before: "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234")),
         ("revert_file", .revertFile(path: "app/Queue.php", scope: .uncommitted)),
         ("transcript_search", .transcriptSearch(query: "retry the queue", limit: 30)),
         ("discard_hunk", .discardHunk(path: "app/Queue.php", scope: .uncommitted,
@@ -125,23 +131,39 @@ enum WireExamples {
         ("file", .file(path: "README.md")),
         ("download", .download(path: "storage/logs/laravel.log")),
         ("review_snapshot", .reviewSnapshot(scope: .branch, knownRevision: nil, wait: true)),
+        // Asked again with the revision already held, which is how a client waits for a change.
+        ("review_snapshot_known_revision", .reviewSnapshot(scope: .branch, knownRevision: "revision-2", wait: true)),
         ("review_snapshot_staged", .reviewSnapshot(scope: .staged, knownRevision: nil, wait: false)),
         ("review_patch_unstaged", .reviewPatch(path: "app/Queue.php", scope: .unstaged, knownRevision: nil)),
         ("review_patch", .reviewPatch(path: "README.md", scope: .uncommitted, knownRevision: "revision-1")),
         ("run_scripts", .runScripts),
+        ("quick_prompts", .quickPrompts),
+        ("search_code", .searchCode(query: "retryAfter", limit: 50)),
         ("notes", .notes),
         ("pull_request", .pullRequest),
         ("archive_preview", .archivePreview),
+        ("recently_closed", .recentlyClosed),
         ("new_chat", .newChat(controls: controls)),
         ("rename_chat", .renameChat(chatID: "chat-1", title: "Review")),
         ("close_chat", .closeChat(chatID: "chat-1")),
+        ("reopen_chat", .reopenChat(chatID: "chat-1")),
         ("mark_read", .markRead(chatID: "chat-1", seq: 4)),
         ("set_composer", .setComposer(chatID: "chat-1", controls: controls)),
+        // A Codex chat switched to fast. Absent `codex_fast_mode` means the chat inherits Codex's
+        // own configuration; an explicit false is standard speed and must survive as that.
+        ("set_composer_codex_fast", .setComposer(chatID: "chat-2", controls: ComposerControlsRecord(
+            agent: "codex", model: "gpt-5.5", effort: "medium", permissionMode: "acceptEdits", interactionMode: "build",
+            codexFastMode: true))),
         ("send", .send(chatID: "chat-1", text: "Run the tests")),
+        // The same call addressed to somebody rather than to the agent. **Absent means the agent**,
+        // so the vector above is what an installed client keeps sending and it keeps working.
         // Sent by an agent on the person's behalf, from a workspace on their Mac. The token is still
         // the person's; `via` is a label every client draws under the author. See `ViaRecord`.
         ("send_by_an_agent", .send(chatID: "chat-1", text: "Rebase on main and push when the tests pass",
                                    via: ViaRecord(workspace: "Queue retries", chat: "Chat"))),
+        ("send_to_a_person", .send(chatID: "chat-1", text: "@sebdd can you look at the migration?",
+                                   audience: AudienceRecord(kind: "person", userID: "01k5bx7j9d3v2r8q6m4n0p1s2u",
+                                                            mention: "@sebdd"))),
         ("cancel_queued", .cancelQueued(chatID: "chat-1", promptID: "delivery-1")),
         ("stop", .stop(chatID: "chat-1")),
         ("answer_allow_once", .answer(chatID: "chat-1", requestID: "ask-1", answer: .allowOnce)),
@@ -170,18 +192,28 @@ enum WireExamples {
         ("workspace", .workspace(WorkspaceSnapshotRecord(workspace: workspace, chats: [chat],
                                                           presence: [PresenceRecord(userID: author.userID, name: author.name, lastInputAt: date)], cursor: 118,
                                                           composerDefaults: controls,
-                                                          // Who may be addressed, which is who has
-                                                          // access rather than who is connected:
-                                                          // somebody away is exactly who a mention
-                                                          // is most useful for.
+                                                          // Two people with access, one of whom is
+                                                          // not connected: the list a client offers
+                                                          // completion from is who has access, not
+                                                          // who is here.
                                                           members: [
-                                                              MemberRecord(userID: author.userID, name: author.name, handle: "freek"),
-                                                              MemberRecord(userID: "01k5usr2", name: "Seb De Deyne", handle: "sebdd"),
+                                                              MemberRecord(userID: author.userID, name: "Freek", handle: "freek"),
+                                                              MemberRecord(userID: nameless.userID, name: "", handle: "sebdd"),
                                                           ]))),
         ("transcript", .transcript(TranscriptRecord(chat: chat, messages: [message], hasMore: false, questions: [question], busy: true,
                                                     streamingText: "Running", queue: queue))),
+        // Two models so the vector shows both: one with a fast tier, and one whose `fast_tier` is
+        // absent, which is what no fast mode looks like.
         ("composer", .composer(ComposerRecord(chatID: "chat-1", controls: controls, availableAgents: ["claude", "codex"],
-            models: [ModelRecord(agent: "codex", id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium", isDefault: true)],
+            models: [ModelRecord(agent: "codex", id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium", isDefault: true,
+                                 fastTier: "priority"),
+                     ModelRecord(agent: "codex", id: "gpt-5.5-mini", label: "GPT-5.5 mini", efforts: ["low", "medium"], defaultEffort: "low", isDefault: false),
+                     // Claude Code's own list, read from the CLI: the `[1m]` variant is its own
+                     // model id, and the CLI names no default effort.
+                     ModelRecord(agent: "claude", id: "opus[1m]", label: "Opus 5 with 1M context",
+                                 efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: nil, isDefault: true),
+                     ModelRecord(agent: "claude", id: "sonnet", label: "Sonnet 5",
+                                 efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: nil, isDefault: false)],
             commands: [SlashCommandRecord(name: "review", description: "Review the branch")], outputStyles: ["default", "Explanatory"]))),
         // The same answer about a chat nobody has made yet, which is what `composer` with no
         // `chat_id` asks: no `chat_id` comes back either.
@@ -192,7 +224,7 @@ enum WireExamples {
         ("files", .files(paths: ["README.md", "app/Queue.php"])),
         ("history", .history(HistoryRecord(commits: [
             CommitRecord(sha: "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234", subject: "Retry the queue", authorName: "Freek",
-                         authorEmail: "freek@spatie.be", date: Date(timeIntervalSince1970: 1_789_638_000),
+                         authorEmail: "freek@example.com", date: Date(timeIntervalSince1970: 1_789_638_000),
                          body: "Twice, with a wait.", parents: ["0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"], pushed: true),
         ], hasMore: false))),
         ("search", .search(SearchRecord(matches: [
@@ -214,8 +246,29 @@ enum WireExamples {
         ("review_snapshot_unchanged", .reviewSnapshot(ReviewSnapshotRecord(revision: "revision-2", files: nil))),
         ("review_patch", .reviewPatch(PatchSnapshotRecord(revision: "file-revision", patch: "diff --git a/README.md b/README.md\n"))),
         ("run_scripts", .runScripts(scripts: [RunScriptRecord(id: "tests", name: "Tests", command: "composer test")])),
+        // Two matching lines, and more that were not returned.
+        ("code_matches", .codeMatches(matches: [
+            CodeMatchRecord(path: "app/Queue.php", line: 42, column: 17, text: "        $this->retryAfter = 90;"),
+            CodeMatchRecord(path: "config/queue.php", line: 12, column: 9, text: "        'retry_after' => 90,"),
+        ], truncated: true)),
+        // A worked example of everything a menu has to draw: a prompt that composes in the chat on
+        // screen, one that opens a new chat, and the sentence for one that was left out. **No
+        // `send_immediately` on any of them**, and there never will be: see `QuickPromptRecord`.
+        ("quick_prompts", .quickPrompts(prompts: [
+            QuickPromptRecord(id: "explain changes", name: "Explain changes", prompt: "Explain what changed on this branch and why.",
+                              symbol: "doc.text", isNewChat: false, source: ".bloom/settings.toml"),
+            QuickPromptRecord(id: "release notes", name: "Release notes", prompt: "Draft release notes for the commits since the last tag.",
+                              symbol: "\u{1F4DD}", isNewChat: true, source: ".bloom/settings.toml"),
+        ], issues: [
+            SettingsIssueRecord(source: ".bloom/settings.toml",
+                                message: "Quick prompt \u{201C}Deploy\u{201D} will not send on its own: send_immediately is not supported in a shared settings file.",
+                                line: 14),
+        ])),
         ("text", .text("https://github.com/spatie/example/pull/12")),
         ("chat", .chat(chat)),
+        ("recently_closed", .recentlyClosed(chats: [
+            ClosedChatRecord(id: "chat-3", title: "Investigate retries", agent: "claude", messageCount: 42, closedAt: date),
+        ])),
         ("queued", .queued(promptID: "delivery-1")),
         ("archive_preview", .archivePreview(ArchivePreviewRecord(confirmationID: "00000000-0000-4000-8000-000000000002", hasUncommittedChanges: true,
             untrackedFiles: ["notes.txt"], unpushedCommits: 2, detachedCommits: 0, isAgentRunning: false, isPullRequestMerged: false, createdAt: date))),
@@ -230,6 +283,36 @@ enum WireExamples {
 
     static let events: [(String, WorkspaceEvent)] = [
         ("message", .message(message)),
+        // A message one person wrote to another. **The agent is never given this**, now or on any
+        // later replay; see `AudienceRecord`. The mention travels resolved rather than re-parsed.
+        ("message_to_a_person", .message(MessageRecord(
+            cursor: 120, chatID: "chat-1", seq: 6, kind: "user",
+            payload: .object(["type": .string("user"), "message": .object(["role": .string("user")])]),
+            author: author, createdAt: date,
+            audience: AudienceRecord(kind: "person", userID: nameless.userID, mention: "@sebdd")))),
+        // The same message from somebody with no display name, which is the case a client has to
+        // draw from the address instead. See `AuthorRecord.label`.
+        ("message_from_a_nameless_author", .message(MessageRecord(
+            cursor: 119, chatID: message.chatID, seq: 5, kind: message.kind,
+            payload: message.payload, author: nameless, createdAt: message.createdAt))),
+        ("stream_snapshot", .stream(chatID: "chat-1", text: "Reading the queue", snapshot: true)),
+        ("stream_delta", .stream(chatID: "chat-1", text: " worker", snapshot: false)),
+        ("chat", .chat(chat)),
+        ("queue", .queue(queue)),
+        // A crew chat an agent opened with `agent_start`, which names the chat that asked for it.
+        // The last event about a chat somebody closed. A client that did not close it removes it
+        // from its strip on this, rather than waiting for the next full read.
+        ("chat_closed", .chat(ChatRecord(id: chat.id, title: chat.title, agent: chat.agent, model: chat.model, effort: chat.effort,
+                                         permissionMode: chat.permissionMode, interactionMode: chat.interactionMode, state: "idle",
+                                         lastSeq: chat.lastSeq, createdAt: date, updatedAt: date, closedAt: date))),
+        ("chat_from_a_crew", .chat(ChatRecord(id: "chat-2", title: "Check the migrations", agent: "claude", model: "claude-opus-5",
+                                              effort: "high", permissionMode: "acceptEdits", interactionMode: "build", state: "running",
+                                              parentChatID: "chat-1", lastSeq: 0, createdAt: date, updatedAt: date))),
+        // A queue that stopped, with the sentence the machine writes when it does.
+        ("queue_paused", .queue(QueueRecord(chatID: "chat-1", prompts: [queue.prompts[0]],
+                                            error: "Queue paused. Send a message to resume."))),
+        // A tool call carries the tool's own id as `ref_id`, which its result names; the turn's
+        // closing row carries how long the turn took.
         // A picture an agent showed with `media_show` on a machine. The payload names a copy in the
         // worktree's ignored scratch folder, fetched with `download`: never the bytes themselves.
         // The same message as the machine keeps it: the person is the author, and `via` says an
@@ -246,15 +329,36 @@ enum WireExamples {
                 "kind": .string("image"), "mime": .string("image/png"), "bytes": .number(48213),
             ]),
             createdAt: date))),
-        ("stream_snapshot", .stream(chatID: "chat-1", text: "Reading the queue", snapshot: true)),
-        ("stream_delta", .stream(chatID: "chat-1", text: " worker", snapshot: false)),
-        ("chat", .chat(chat)),
-        ("queue", .queue(queue)),
+        ("message_tool_use", .message(MessageRecord(
+            cursor: 121, chatID: "chat-1", seq: 7, kind: "toolUse",
+            payload: .object(["type": .string("tool_use"), "id": .string("toolu_01"), "name": .string("Bash")]),
+            createdAt: date, refID: "toolu_01"))),
+        ("message_result", .message(MessageRecord(
+            cursor: 122, chatID: "chat-1", seq: 8, kind: "result",
+            payload: .object(["type": .string("result"), "subtype": .string("success")]),
+            createdAt: date, durationMS: 48_200))),
         ("questions", .questions(chatID: "chat-1", questions: [question])),
         ("composer", .composer(chatID: "chat-1", controls: controls, changedBy: author)),
         ("setup", .setup(SetupRecord(state: "running", step: "prepare", startedAt: date))),
+        // Setup that failed. `note` is the tail of the log, at most eight lines, so a client can say
+        // why without fetching the whole of it.
+        ("setup_failed", .setup(SetupRecord(state: "failed", startedAt: date, finishedAt: date,
+                                            note: "[bloom] Running the setup script.\n"
+                                                + "Your requirements could not be resolved to an installable set of packages.\n"
+                                                + "[bloom] The setup script exited with status 2."))),
+        // Setup that failed for a reason the machine can name, so a client offers the right action
+        // rather than reading the note. See `SetupFailureCode`.
+        ("setup_failed_needing_a_fresh_machine", .setup(SetupRecord(
+            state: "failed", startedAt: date, finishedAt: date,
+            note: "[bloom] `sudo apt-get install -y libpq-dev` was refused. Setup runs as bloom-agent, "
+                + "which cannot install system packages.",
+            failureCode: "setup_needs_fresh_machine"))),
         ("setup_output", .setupOutput(text: "Reading package lists...\n")),
-        ("review", .review(revision: 7)),
+        // An agent on a machine asking for a browser pane. It names the chat it is speaking for, so
+        // a client can put the pane beside it, and no url at all means this workspace's own public
+        // address, which a client connected to it already has.
+        ("pane_requested", .paneRequested(url: "http://127.0.0.1:3000/dashboard", chatID: chat.id,
+                                          placement: "split")),
         // An agent on the machine telling its person's Mac something, for a local workspace there.
         // Sent only down that person's streams; the Mac checks `user_id` and the name again.
         ("mac_message", .macMessage(MacMessageRecord(
@@ -264,10 +368,23 @@ enum WireExamples {
         ("presence", .presence([PresenceRecord(userID: author.userID, name: author.name, lastInputAt: nil)])),
         ("workspace", .workspace(workspace)),
         // The same record while the machine cannot reach runbloom.app, which is the only time it
-        // carries `reporting` and the shape a client draws that warning from.
+        // carries `reporting` and the shape a client draws that warning from. It carries services
+        // too, in the three states worth drawing differently: one up, one that cannot have its port
+        // and is restarting, and one that has never been launched at all because what it waits for
+        // never came up. The third is the one nothing could show before this record existed.
         ("workspace_not_reporting", .workspace(WorkspaceRecord(
             id: workspace.id, name: workspace.name, branch: workspace.branch, baseBranch: workspace.baseBranch,
-            setup: workspace.setup, reporting: ReportingRecord(unreachableSince: date, shed: 3)))),
+            setup: workspace.setup, reporting: ReportingRecord(unreachableSince: date, shed: 3),
+            services: [
+                ServiceRecord(name: "vite", state: "running"),
+                // The one the preview routes to, which here is neither the healthy one nor the
+                // one everything is waiting on: that is the whole reason the mark is on the wire.
+                ServiceRecord(name: "web", state: "waiting", message: "Waiting for db.", isHTTP: true),
+                ServiceRecord(name: "app", state: "crashed", restarts: 412,
+                              message: "Exited with status 1. Starting again in 1 s. It asked for port 8081, "
+                                  + "which is Bloom Runner itself."),
+                ServiceRecord(name: "horizon", state: "waiting", message: "Waiting for app."),
+            ]))),
         ("sleeping", .sleeping),
         ("closing", .closing(WireError(.tokenExpired, "The session token expired."))),
     ]
@@ -277,4 +394,96 @@ enum WireExamples {
         ("reauth", .reauth(token: "eyJhbGciOiJFZERTQSJ9.example.signature")),
         ("resize", .resize(columns: 120, rows: 40)),
     ]
+}
+
+/// What a client does with a reply from a machine older than a key it now reads.
+@Suite("Decoding a setup record")
+struct SetupRecordDecodingTests {
+    @Test("a setup record with no enabled key reads as enabled")
+    func absentEnabledIsTrue() throws {
+        let record = try JSONDecoder().decode(SetupRecord.self, from: Data(#"{"state": "succeeded"}"#.utf8))
+        #expect(record.isEnabled)
+    }
+
+    @Test("a setup record that says setup is off is read as off")
+    func statedEnabledIsKept() throws {
+        let record = try JSONDecoder().decode(SetupRecord.self, from: Data(#"{"state": "skipped", "enabled": false}"#.utf8))
+        #expect(!record.isEnabled)
+        #expect(record.state == "skipped")
+    }
+
+    /// The machine writes the key on every reply, which is the half that lets a client tell a
+    /// workspace with setup turned off from one whose setup has not been reached yet.
+    @Test("a setup record always encodes the key")
+    func alwaysEncoded() throws {
+        let data = try JSONEncoder().encode(SetupRecord(state: "pending"))
+        #expect(String(decoding: data, as: UTF8.self).contains("\"enabled\":true"))
+    }
+}
+
+/// What a client does with a machine built before a field existed.
+@Suite("Reading an older machine")
+struct OlderMachineDecodingTests {
+    /// **Every machine running today was made before `members` existed.** A synthesised decoder
+    /// throws on a missing key, and the symptom is not a missing list of names: it is that the
+    /// workspace will not open at all.
+    @Test("a snapshot with no members reads as none rather than throwing")
+    func snapshotWithoutMembers() throws {
+        let json = #"""
+        {"workspace": {"id": "w1", "name": "Queue", "branch": "queue", "base_branch": "main",
+                       "services": [], "setup": {"state": "succeeded", "enabled": true}},
+         "chats": [], "presence": [], "cursor": 4,
+         "composer_defaults": {"agent": "claude", "model": "", "effort": "", "permission_mode": "default",
+                               "interaction_mode": "normal"}}
+        """#
+        let snapshot = try JSONDecoder().decode(WorkspaceSnapshotRecord.self, from: Data(json.utf8))
+
+        #expect(snapshot.members.isEmpty)
+        #expect(snapshot.workspace.name == "Queue")
+    }
+
+    /// The same rule, two records over. **Found by asking where else it had not been applied**,
+    /// which is where four separate bugs came from in one day: a rule written for one case and not
+    /// carried to the next.
+    @Test("a workspace record with no services reads as none rather than throwing")
+    func workspaceWithoutServices() throws {
+        let json = #"""
+        {"id": "w1", "name": "Queue", "branch": "queue", "base_branch": "main",
+         "setup": {"state": "succeeded"}}
+        """#
+        let workspace = try JSONDecoder().decode(WorkspaceRecord.self, from: Data(json.utf8))
+
+        #expect(workspace.services.isEmpty)
+        #expect(workspace.setup.isEnabled, "and the setup record's own absent-means-true still holds")
+    }
+
+    /// Before the key existed, archiving always took the conversation with it, so that is what its
+    /// absence means.
+    @Test("an archive preview with no deletes_conversation reads as the answer that used to be true")
+    func archivePreviewWithoutTheKey() throws {
+        let json = #"""
+        {"confirmation_id": "c1", "has_uncommitted_changes": false, "untracked_files": [],
+         "unpushed_commits": 0, "detached_commits": 0, "is_agent_running": false,
+         "is_pull_request_merged": false, "created_at": "2026-09-18T10:00:00.000Z"}
+        """#
+        let preview = try WireJSON.decode(ArchivePreviewRecord.self, from: Data(json.utf8))
+
+        #expect(preview.deletesConversation)
+    }
+
+    /// And a machine new enough to send it is read as it meant.
+    @Test("a snapshot with members keeps them")
+    func snapshotWithMembers() throws {
+        let json = #"""
+        {"workspace": {"id": "w1", "name": "Queue", "branch": "queue", "base_branch": "main",
+                       "services": [], "setup": {"state": "succeeded", "enabled": true}},
+         "chats": [], "presence": [], "cursor": 4,
+         "composer_defaults": {"agent": "claude", "model": "", "effort": "", "permission_mode": "default",
+                               "interaction_mode": "normal"},
+         "members": [{"user_id": "u1", "name": "Sebastian", "handle": "sebdd"}]}
+        """#
+        let snapshot = try JSONDecoder().decode(WorkspaceSnapshotRecord.self, from: Data(json.utf8))
+
+        #expect(snapshot.members.map(\.handle) == ["sebdd"])
+    }
 }

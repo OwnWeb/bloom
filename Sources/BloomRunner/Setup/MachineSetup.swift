@@ -1,5 +1,6 @@
 import BloomCore
 import Foundation
+import Synchronization
 
 /// Brings the machine's one workspace up: the checkout, the repository's scripts, then its
 /// services.
@@ -23,6 +24,17 @@ import Foundation
 /// disk. A script that writes them into `.env` has made that choice itself.
 public actor MachineSetup {
     public static let completedSetting = "remote.setup.completed"
+    /// Whether the last whole sequence skipped the scripts because the workspace asked for no
+    /// setup, as distinct from having run them.
+    ///
+    /// **`completedSetting` cannot answer this**, because it is set either way: a workspace that
+    /// asked for no setup has finished its sequence exactly as much as one that ran three scripts.
+    /// What needs telling apart is a machine where nothing was ever installed from one where setup
+    /// really ran, and there is one machine in the world of the second kind: a workspace created
+    /// with the box unticked, whose runner was older than this key and set it up anyway. Updating
+    /// that machine must not stop its services or rewrite its setup log with a sentence saying
+    /// nothing was run, because something was, and its preview is somebody's working project.
+    static let skippedSetting = "remote.setup.skipped"
 
     public struct Timeouts: Sendable, Hashable {
         public var clone: Duration
@@ -55,11 +67,15 @@ public actor MachineSetup {
     private let services: ServiceSupervisor
     private let gitTools: MachineGitTools
     private let cloneURL: @Sendable (_ repository: String) -> String
+    /// The user scripts and services run as, or nil where there is none. See `MachineSandbox`.
+    private let sandbox: MachineSandbox?
     private let gitGlobalConfig: String?
     private let timeouts: Timeouts
     /// How long this instance waits; a test cannot sit through five minutes to prove a sentence.
     private let stallAfter: TimeInterval
     private var isRunning = false
+    /// Who asked for the run in hand to stop, once somebody has. See `stop(by:)`.
+    private var stoppedBy: String?
     /// What setup is doing now and since when, for the stall watchdog. Nil between runs.
     private var activity: (name: String, since: Date)?
 
@@ -84,8 +100,10 @@ public actor MachineSetup {
         cloneURL: @escaping @Sendable (_ repository: String) -> String = MachineSetup.gitHubCloneURL,
         gitGlobalConfig: String? = nil,
         timeouts: Timeouts = .standard,
-        stallAfter: TimeInterval = MachineSetup.stallAfter
+        stallAfter: TimeInterval = MachineSetup.stallAfter,
+        sandbox: MachineSandbox? = nil
     ) {
+        self.sandbox = sandbox
         self.runtime = runtime
         self.store = store
         self.configuration = configuration
@@ -154,12 +172,49 @@ public actor MachineSetup {
         return Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
+                // A child that was being read and is now gone is a step ending under this tick,
+                // not a stall: reading it as "cannot tell" gave restart advice for a step that had
+                // just finished, which the Linux job caught with a `sleep 4` exiting mid-tick.
+                guard let childEnded = await self?.checkLiveness(), !childEnded else { continue }
                 await self?.reportStall()
             }
         }
     }
 
     private var stalledSince: Date?
+    /// The script running now, for the liveness read. Nil between steps.
+    private var child: StreamingProcess?
+    private var lastReading: StepLiveness.Reading?
+    private var lastVerdict: StepLiveness.Verdict?
+
+    /// What is alive under the step in hand, told to runbloom.app so that its decision to restart a
+    /// machine rests on something the machine observed rather than on a timestamp going stale.
+    ///
+    /// **The evidence is about the child, never about this process.** During the one hang anybody
+    /// has seen, the runner was healthy in every way something could be asked: it answered health,
+    /// answered RPC, posted summaries, and this very watchdog woke on its timer, all over a child
+    /// that had been dead for seventeen minutes. Anything sourced from here would have called that
+    /// hang healthy for its whole duration. See `StepLiveness`.
+    /// Returns whether a child that was being read has just gone, which the caller takes as the
+    /// step ending rather than as a machine that cannot tell.
+    private func checkLiveness() async -> Bool {
+        guard let pid = child?.processIdentifier, pid > 0, let reading = StepLiveness.read(child: pid) else {
+            // Between steps, or not on a machine. No signal is not a stall, and saying nothing is
+            // how that is said.
+            guard lastVerdict != nil else { return false }
+            lastReading = nil
+            lastVerdict = nil
+            await runtime.setupLivenessChanged(nil)
+            return true
+        }
+        let verdict = StepLiveness.verdict(reading, since: lastReading)
+        lastReading = reading
+        lastVerdict = verdict
+        await runtime.setupLivenessChanged(
+            .init(verdict: verdict.rawValue, running: reading.running, defunct: reading.defunct, at: Date())
+        )
+        return false
+    }
 
     private func reportStall() async {
         guard let activity else {
@@ -176,9 +231,32 @@ public actor MachineSetup {
         if let stalledSince, Date().timeIntervalSince(stalledSince) < stallAfter { return }
         stalledSince = Date()
         let waited = waiting >= 60 ? "\(Int(waiting / 60)) minutes" : "\(Int(waiting)) seconds"
-        let sentence = "Setup has been in \(activity.name) for \(waited) with nothing new. "
-            + "If it never moves, restarting this machine's server clears it: the one case measured "
-            + "was a subprocess launch that never returned, and a restart ran the same step at once."
+        // **The advice is given only when it is correct.** This used to end by suggesting a restart
+        // whatever was happening, which is advice handed to everybody whose `composer install` is
+        // four minutes into being perfectly fine, and advice that is usually wrong is advice
+        // somebody learns to ignore on the day it is right. The verdict is the same signal the
+        // summary carries, so there is one definition of alive rather than two that drift, and it
+        // is spent here on the difference between reassurance and an instruction.
+        let quiet = "Setup has been in \(activity.name) for \(waited) with nothing new. "
+        let sentence: String
+        switch lastVerdict {
+        case .working:
+            sentence = quiet + "Something under it is still working, so this is a quiet step rather "
+                + "than a stuck one."
+        case .waiting:
+            sentence = quiet + "Something is still running under it, waiting on something rather than "
+                + "using the processor. Nothing needs doing."
+        case .nothingAlive, nil:
+            // Nil is a machine that cannot tell rather than one saying the step is dead, and the
+            // advice is the same in both: this is the only shape where a restart is the answer, and
+            // saying why is what stops it reading as a ritual.
+            let because = lastVerdict == nil
+                ? "If it never moves, "
+                : "Nothing is running under it at all. "
+            sentence = quiet + because
+                + "restarting this machine's server clears it: the one case measured was a "
+                + "subprocess launch that never returned, and a restart ran the same step at once."
+        }
         await currentLog?.note(sentence)
         FileHandle.standardError.write(Data("bloom-runner: \(sentence)\n".utf8))
     }
@@ -193,29 +271,78 @@ public actor MachineSetup {
         stalledSince = nil
     }
 
+    /// `run_setup` by hand: the project's setup script again, as the whole sequence runs it. Nil when
+    /// a run is already in progress.
+    ///
+    /// **Through this, never through the Mac's `WorkspaceManager.runSetup`.** That one launches an
+    /// inline script with zsh, and a machine is Ubuntu with no zsh, so a setup somebody asked for by
+    /// hand on a machine failed before running a line; the Linux job found it on 19 September 2026.
+    /// Here it is bash, with the same log, the same stall watchdog and the same `stop(by:)`.
+    public func rerunSetup() async -> Bool? {
+        guard !isRunning else { return nil }
+        isRunning = true
+        stoppedBy = nil
+        didWork = false
+        defer { isRunning = false }
+        let watchdog = watchForStalls()
+        defer { watchdog.cancel() }
+        let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
+        currentLog = log
+        defer { currentLog = nil; activity = nil }
+        let environment = await scriptEnvironment()
+        await log.hide(await machineEnvironment.values.values)
+        let scripts = MachineScripts.load(repo: layout.worktree)
+        var succeeded = await runScript("setup", scripts.setup, timeout: timeouts.setup, environment: environment,
+                                        log: log, continuing: false)
+        if let stoppedBy {
+            await log.note(Self.stoppedNote(by: stoppedBy))
+            succeeded = false
+        }
+        await settle(log: log, succeeded: succeeded)
+        return succeeded
+    }
+
     /// Clone, `prepare`, `setup`, `resume`, then the services. Returns whether setup succeeded.
     @discardableResult
     public func runWholeSequence() async -> Bool {
         guard !isRunning else { return false }
         isRunning = true
+        stoppedBy = nil
         defer { isRunning = false }
 
-        moved(to: "reading the team's environment")
-        await machineEnvironment.refresh()
-        let environment = await scriptEnvironment()
         let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
         currentLog = log
         defer { currentLog = nil; activity = nil }
-        // Named because this is where the one measured hang sat, before any step exists to blame.
-        moved(to: "configuring git")
-        await configureGit(environment: environment, log: log)
-
         // A run the machine was stopped in the middle of left its output in the row; a person
         // watching setup should see this run added to it rather than the first attempt vanishing.
         let interrupted = (try? await store.workspace(id: runtime.workspaceID))?.setupState == .running
+
+        // **The first two are steps, and they did not used to be.** Before this, a brand new
+        // workspace said `pending` with no step through a call to runbloom.app and the whole of
+        // the git configuration, so **the first thing anybody saw of a Cloud workspace was nothing
+        // happening**, and this is the phase the one measured eighteen-minute hang sat in. A
+        // phase with no name is a phase nobody can be told about.
+        await begin("environment", log: log, continuing: interrupted)
+        if interrupted { await log.note(Self.startingAgainNote) }
+        await machineEnvironment.refresh()
+        let environment = await scriptEnvironment()
+        await log.hide(await machineEnvironment.values.values)
+        await log.endStep()
+        await begin("git", log: log, continuing: interrupted)
+        await configureGit(environment: environment, log: log)
+        await log.endStep()
+
         var succeeded = await cloneIfNeeded(environment: environment, log: log, continuing: interrupted)
+        // **The clone is the Runner's, so the sandbox user has to be let into it.** Provisioning did
+        // this at install, when there was no worktree yet, and it is idempotent, so it is run again
+        // here rather than repeating what it does. Its failure is not setup's failure: the Runner
+        // asks `MachineSandbox.available()` for whether to sandbox at all.
+        if succeeded, sandbox != nil, FileManager.default.isExecutableFile(atPath: Self.provisionScript) {
+            _ = await runProcess(Self.provisionScript, [], directory: layout.worktree, timeout: .seconds(120),
+                                 environment: environment, log: log)
+        }
         let scripts = MachineScripts.load(repo: layout.worktree)
-        if succeeded {
+        if succeeded, configuration.runsSetup {
             for problem in scripts.problems { await log.note(problem) }
             if !scripts.hasCloudSetup { await log.note(Self.noCloudSetupNote(hasSetupScript: scripts.setup != nil)) }
             let steps: [(String, ScriptLaunch?, Duration)] = [
@@ -223,16 +350,60 @@ public actor MachineSetup {
                 ("setup", scripts.setup, timeouts.setup),
                 ("resume", scripts.resume, timeouts.resume),
             ]
-            for (name, launch, timeout) in steps where succeeded {
-                succeeded = await runScript(name, launch, timeout: timeout, environment: environment, log: log, continuing: interrupted)
+            // Root for this one run only, and only on code nobody has touched yet.
+            let pristine = await isPristineBaseCheckout()
+            let privileged = !interrupted && pristine
+            for (name, launch, timeout) in steps where succeeded && stoppedBy == nil {
+                succeeded = await runScript(name, launch, timeout: timeout, environment: environment, log: log,
+                                            continuing: interrupted, privileged: privileged)
+            }
+            if !privileged, sandbox != nil {
+                await log.note("Setup ran as \(sandbox?.user ?? "the sandbox user"), which cannot install system packages, "
+                    + "because this workspace did not start from \(configuration.baseBranch) as it stands.")
+            }
+        } else if succeeded {
+            await log.note(Self.setupNotAskedForNote(hasServices: !scripts.services.isEmpty))
+        }
+        try? await store.setSetting(Self.skippedSetting, configuration.runsSetup ? "0" : "1")
+        if await interruptedByShutdown(log: log) { return false }
+        // A person stopped it: nothing after the step they stopped runs, services included, and the
+        // run is filed as failed with a sentence that says it was stopped rather than broke.
+        if let stoppedBy {
+            await log.note(Self.stoppedNote(by: stoppedBy))
+            succeeded = false
+        }
+        if succeeded {
+            // Set whether or not the scripts ran: a workspace that asked for no setup has finished
+            // its sequence exactly as much as one that ran three scripts, and the next start must
+            // resume rather than begin again.
+            try? await store.setSetting(Self.completedSetting, "1")
+            if configuration.runsSetup {
+                await startServices(scripts.services, environment: environment, log: log, continuing: interrupted)
             }
         }
-        if await interruptedByShutdown(log: log) { return false }
         await settle(log: log, succeeded: succeeded)
-        guard succeeded else { return false }
-        try? await store.setSetting(Self.completedSetting, "1")
-        await services.start(scripts.services, environment: environment)
-        return true
+        return succeeded
+    }
+
+    /// Starting the project's services, as a step of its own **before** setup is reported finished.
+    ///
+    /// **"Setup succeeded" used to be said while nothing was running yet.** The services were
+    /// started after the outcome, and a service with a readiness check has up to five minutes, so
+    /// the ordinary first impression was a workspace that said it was ready beside a preview that
+    /// was blank, with nothing on screen to explain the gap. Launching them inside a step closes
+    /// the part that is honestly closable: **this waits for them to be launched, not for them to be
+    /// ready**, because prompts are held until setup finishes and holding somebody's first prompt
+    /// for five minutes to be tidier about a caption would be the worse trade. Readiness after that
+    /// is on the workspace record, service by service.
+    private func startServices(
+        _ services: [RemoteProjectSettings.Service], environment: [String: String], log: SetupLog, continuing: Bool
+    ) async {
+        guard !services.isEmpty else { return }
+        await begin("services", log: log, continuing: continuing)
+        await self.services.start(services, environment: environment)
+        await log.note("Started \(services.count == 1 ? "1 service" : "\(services.count) services"). "
+            + "Whether each is ready is on the workspace itself.")
+        await log.endStep()
     }
 
     /// `resume` with fresh environment, then the services.
@@ -246,18 +417,49 @@ public actor MachineSetup {
         await machineEnvironment.refresh()
         let environment = await scriptEnvironment()
         let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
+        await log.hide(await machineEnvironment.values.values)
         currentLog = log
         defer { currentLog = nil; activity = nil }
         moved(to: "configuring git")
         await configureGit(environment: environment, log: log)
         let scripts = MachineScripts.load(repo: layout.worktree)
+        // A workspace that asked for no setup asks for none at every start, not only the first.
+        // `resume` is one of the three scripts, and a service is declared in the same settings file
+        // they are, so starting one here would run half of what was refused.
+        //
+        // Unless setup has actually run here, which is a machine whose runner was older than the
+        // key and set it up before anybody could honour it. Stopping its services and replacing its
+        // log with "nothing was run" would be both untrue and destructive, so such a machine carries
+        // on as it was and says why.
+        if !configuration.runsSetup {
+            // Absent means an older runner finished the sequence, and an older runner always ran
+            // setup: this is the machine the setting exists for, so absence must read as "it ran"
+            // rather than as "we do not know". Getting this the other way round is what would stop
+            // that machine's services on the very update meant to help it.
+            let skippedBefore = (try? await store.setting(Self.skippedSetting)) == "1"
+            guard skippedBefore else {
+                await log.note(Self.setupRanBeforeNote)
+                moved(to: "resume")
+                let resumed = await runScript("resume", scripts.resume, timeout: timeouts.resume,
+                                              environment: environment, log: log, continuing: true)
+                if await interruptedByShutdown(log: log) { return false }
+                if resumed { await startServices(scripts.services, environment: environment, log: log, continuing: true) }
+                await settle(log: log, succeeded: resumed)
+                return resumed
+            }
+            await log.note(Self.setupNotAskedForNote(hasServices: !scripts.services.isEmpty))
+            await settle(log: log, succeeded: true)
+            return true
+        }
         moved(to: "resume")
         let succeeded = await runScript("resume", scripts.resume, timeout: timeouts.resume, environment: environment, log: log, continuing: true)
         if await interruptedByShutdown(log: log) { return false }
-        if await log.hasBegun { await settle(log: log, succeeded: succeeded) }
-        guard succeeded else { return false }
-        await services.start(scripts.services, environment: environment)
-        return true
+        // Started before the outcome is reported, and inside a step, for the reason in
+        // `startServices`: "setup succeeded" beside a blank preview is the machine saying something
+        // untrue at the moment somebody is looking hardest.
+        if succeeded { await startServices(scripts.services, environment: environment, log: log, continuing: true) }
+        await settle(log: log, succeeded: succeeded)
+        return succeeded
     }
 
     /// Stops the services and starts them again with the environment as it is now, for when
@@ -285,6 +487,10 @@ public actor MachineSetup {
         environment["BLOOM_PUBLIC_URL"] = configuration.publicURL
         environment["BLOOM_PUBLIC_HOST"] = configuration.publicHost
         environment["BLOOM_APP_PORT"] = String(layout.appPort)
+        // The other half of the port contract: which numbers are already taken. A project that
+        // picks one of these crash-loops with `Address already in use`, and until this existed
+        // there was nowhere it could have read them from.
+        environment["BLOOM_RESERVED_PORTS"] = layout.reservedPorts.map { String($0.port) }.joined(separator: ",")
         environment["BLOOM_WORKSPACE_ID"] = configuration.workspaceID
         environment["BLOOM_BRANCH"] = configuration.branch
         environment["BLOOM_REPOSITORY"] = configuration.repository
@@ -304,9 +510,55 @@ public actor MachineSetup {
         WorkspaceScriptVariables.identifier(repository.split(separator: "/").last.map(String.init) ?? repository)
     }
 
+    /// What somebody is told when the workspace itself asked for no setup.
+    ///
+    /// **A sentence rather than an empty log.** A workspace whose setup log is blank and whose
+    /// state is `skipped` reads as something that went wrong quietly, which is what a person
+    /// looking at a machine assumes about any silence. This says the machine did what it was asked
+    /// and where to go from here, and it names the services too, because a repository that
+    /// declares one and does not get it is the surprising half.
+    static func setupNotAskedForNote(hasServices: Bool) -> String {
+        let start = "This workspace was created with setup turned off, so the repository was cloned "
+            + "and nothing else was run."
+        let ending = " Open a terminal to set it up by hand, or create the workspace again with setup on."
+        return hasServices
+            ? start + " The services this project declares were not started either, because they "
+                + "expect what setup installs." + ending
+            : start + ending
+    }
+
+    /// Said when a machine picks setup up again after stopping in the middle of it, so that seeing
+    /// the same steps twice reads as an explanation rather than as a fault.
+    static let startingAgainNote = "Starting again: this machine stopped while it was setting up."
+
+    static func stoppedNote(by name: String) -> String {
+        let who = name.isEmpty ? "Somebody" : name
+        return "\(who) stopped setup. What finished before stays installed; run setup again to do the rest."
+    }
+
+    /// Stops the run in hand: the step running now is ended, and nothing after it starts.
+    ///
+    /// **Not a cancellation of the run's task.** Cancelling is what a shutdown does, and it files the
+    /// run as interrupted by the machine, which comes back and runs it again by itself; a person
+    /// stopping setup is a different fact, and the opening prompt that runs after setup still has to
+    /// run. So the step's process is ended here and the run settles as failed, with a sentence
+    /// saying who stopped it. Answers false when nothing is running.
+    public func stop(by name: String) async -> Bool {
+        guard isRunning, stoppedBy == nil else { return false }
+        stoppedBy = name
+        child?.terminate()
+        return true
+    }
+
+    /// What the one machine in the middle is told: setup turned off, and setup already run.
+    static let setupRanBeforeNote =
+        "This workspace was created with setup turned off, but it was set up anyway before this "
+        + "machine's server understood that. What is installed stays, and its services keep "
+        + "running, because stopping them now would break a project that works."
+
     /// What somebody is told before a repository with no Cloud workspace setup is set up anyway.
     static func noCloudSetupNote(hasSetupScript: Bool) -> String {
-        let start = "This project has no Cloud workspace setup yet. Add .bloom/settings.toml with a "
+        let start = "This project has no Bloom Cloud workspace setup yet. Add .bloom/settings.toml with a "
             + "[scripts] prepare (what the machine needs installed), setup (this workspace's own "
             + "setup) and [[services]] (what to run and how to know it is up)."
         return hasSetupScript
@@ -328,15 +580,34 @@ public actor MachineSetup {
 
     /// The row's state and the runtime's record both say how it ended. A sequence where nothing
     /// ran is filed as skipped, as the Mac files a workspace with no setup script.
+    /// **"Did anything run" is asked of the steps, not of the log.** It used to be `log.hasBegun`,
+    /// which was the same question while the first thing to write to the log was the clone. Naming
+    /// the environment and git phases made every run begin the log, so that proxy would have filed
+    /// every skipped run as a finished one. What is being asked is whether any *work* happened, so
+    /// it is tracked where the work is.
     private func settle(log: SetupLog, succeeded: Bool) async {
-        if await log.hasBegun {
+        if didWork {
             await log.finish(succeeded: succeeded)
         } else {
-            let notes = await log.text.trimmingCharacters(in: .newlines)
+            // **Closed first, then filed.** The row is `running` by now, because the phases before
+            // any work are steps of their own, and `runSkipped` is refused from `running` for a
+            // reason that still holds where it was written: on the Mac, reaching it from there
+            // means filing a live process as a run that never happened. So the run is ended
+            // honestly and then recorded as having done nothing, which is two events and two true
+            // statements rather than one weakened rule.
+            // Only if it was opened. On a later start nothing names a step before this, so the row
+            // is still `pending` and finishing it would be refused, which is a recorded bug rather
+            // than a harmless no-op.
+            if await log.hasBegun { await log.finish(succeeded: true) }
+            let notes = await log.noteText.trimmingCharacters(in: .newlines)
             _ = try? await store.update(workspaceID: runtime.workspaceID) { $0.apply(.runSkipped(note: notes.isEmpty ? nil : notes)) }
         }
         await runtime.setupFinished(succeeded: succeeded)
     }
+
+    /// Whether this sequence did anything a person would call setting up: a clone, or a script.
+    /// Reading the environment and configuring git are preparation and happen on every start.
+    private var didWork = false
 
     private func begin(_ step: String, log: SetupLog, continuing: Bool) async {
         moved(to: step)
@@ -374,6 +645,7 @@ public actor MachineSetup {
         let completed = (try? await store.setting(Self.completedSetting)) == "1"
         if FileManager.default.fileExists(atPath: worktree + "/.git") && (cloned || completed) { return true }
         await begin("clone", log: log, continuing: continuing)
+        didWork = true
         // Only an earlier attempt of this step has written here. Prompts wait for setup, so before
         // the clone is marked finished there is no work of anybody's in it to lose.
         try? FileManager.default.removeItem(atPath: worktree)
@@ -407,8 +679,15 @@ public actor MachineSetup {
         return succeeded
     }
 
+    /// **`privileged` is the one exception to the sandbox, and it is narrow.** The first setup of a
+    /// pristine checkout runs as this process's user, which has sudo, because that is what lets a
+    /// project install packages, add a PPA or build a PHP extension. Everything after it, and any
+    /// first setup on code that is not the base branch's own, runs as the sandbox user: an agent can
+    /// edit a script, or the `package.json` a script runs, so a rerun as root would hand it root.
+    /// Agreed with Freek on 19 September 2026. See `MachineSandbox` and H1 in the security review.
     private func runScript(
-        _ step: String, _ launch: ScriptLaunch?, timeout: Duration, environment: [String: String], log: SetupLog, continuing: Bool
+        _ step: String, _ launch: ScriptLaunch?, timeout: Duration, environment: [String: String], log: SetupLog,
+        continuing: Bool, privileged: Bool = false
     ) async -> Bool {
         guard let launch else { return true }
         guard let command = MachineScripts.command(for: launch) else {
@@ -421,17 +700,29 @@ public actor MachineSetup {
             return true
         }
         await begin(step, log: log, continuing: continuing)
+        didWork = true
         let succeeded = await runProcess(command.executable, command.arguments, directory: layout.worktree, timeout: timeout,
-                                         environment: environment, log: log, step: step)
+                                         environment: environment, log: log, step: step, privileged: privileged)
         await log.endStep()
         return succeeded
     }
 
     private func runProcess(
         _ executable: String, _ arguments: [String], directory: String?, timeout: Duration, environment: [String: String],
-        log: SetupLog, step: String? = nil
+        log: SetupLog, step: String? = nil, privileged: Bool = true
     ) async -> Bool {
-        let process = StreamingProcess(executable: executable, arguments: arguments, cwd: directory, environment: environment)
+        // The machine's own work (git, the clone, provisioning) is privileged by default; a script
+        // from the repository asks for it explicitly and almost never gets it.
+        let command = privileged ? nil : sandbox
+        let launch = command.map { $0.wrap(executable: executable, arguments: arguments) }
+            ?? (executable: executable, arguments: arguments)
+        let process = StreamingProcess(executable: launch.executable, arguments: launch.arguments, cwd: directory,
+                                       environment: command.map { $0.environment(environment) } ?? environment)
+        // Held so the watchdog can ask what is alive under it. The pid is read at the moment of
+        // asking rather than kept, because `lines` is what starts the process and there is no pid
+        // until then.
+        child = process
+        defer { child = nil }
         let lines = process.lines
         let watchdog = Task<Bool, Never> {
             do {
@@ -449,13 +740,25 @@ public actor MachineSetup {
         // A shutdown cancels this task, which ends `lines` and with it sends SIGTERM. A script that
         // ignores it would hold shutdown until its step timeout, up to an hour, so it gets the
         // same grace as the watchdog gives and is then killed.
-        let status = await withTaskCancellationHandler {
+        // Kept only while a sandboxed script runs, and only the tail: it is read to tell "this asked
+        // for root" from an ordinary failure. See `SandboxRefusal`.
+        let tail = Mutex<[String]>([])
+        let watching = command != nil
+        let ending = await withTaskCancellationHandler {
             do {
-                for try await line in lines { await log.append(line) }
+                for try await line in lines {
+                    if watching {
+                        tail.withLock { lines in
+                            lines.append(line)
+                            if lines.count > Self.refusalTail { lines.removeFirst() }
+                        }
+                    }
+                    await log.append(line)
+                }
             } catch {
                 await log.append("[bloom] \(error)")
             }
-            return await process.exitStatus
+            return await process.ending
         } onCancel: {
             process.terminate()
             Task {
@@ -468,13 +771,42 @@ public actor MachineSetup {
             await log.note("This step took longer than \(Self.minutes(timeout)) and was stopped.")
             return false
         }
-        if status != 0 {
+        if !ending.isSuccess {
             // Named, because a workspace's own summary shows the last lines of this and "exited
             // with status 1" alone does not say which of three scripts it was.
-            await log.note(step.map { "The \($0) script exited with status \(status)." } ?? "Exited with status \(status).")
+            //
+            // **And how it ended rather than only its number.** A script killed by SIGPIPE was
+            // reported as "exited with status 13", because Foundation puts the signal in
+            // `terminationStatus`; somebody read that as the script's own verdict and spent twenty
+            // actions rebuilding by hand what setup should have done. See `ProcessEnding`.
+            await log.note(step.map { "The \($0) script \(ending.sentence)." } ?? "The script \(ending.sentence).")
+            // What the failure really was, when it was root and not the project's own code.
+            if let user = command?.user, let advice = SandboxRefusal.advice(lines: tail.withLock { $0 }, user: user) {
+                await log.note(advice)
+            }
         }
-        return status == 0
+        return ending.isSuccess
     }
+
+    /// Whether the checkout is the base branch as it stands, which is what "nobody has touched this
+    /// code yet" means in practice: a workspace cut from `main` has HEAD at `origin/main`'s commit,
+    /// while one started from somebody's pull request does not. Read from git rather than from a
+    /// field, so it cannot be claimed.
+    func isPristineBaseCheckout() async -> Bool {
+        let base = configuration.baseBranch
+        guard !base.isEmpty else { return false }
+        guard let head = try? await Git.headSHA(of: layout.worktree),
+              let tip = try? await Git.mergeBase("refs/remotes/origin/" + base, "HEAD", in: layout.worktree) else { return false }
+        // The merge base of HEAD and the base branch is HEAD itself only when HEAD is on the base
+        // branch, which is what a workspace cut from it looks like before anybody commits.
+        return !head.isEmpty && head == tip
+    }
+
+    /// How many of a sandboxed script's last lines are kept to read a permission refusal out of.
+    static let refusalTail = 40
+
+    /// Provisioning, beside this build of the Runner. See `Tools/provision-sandbox.sh`.
+    static let provisionScript = "/opt/bloom/current/bin/provision-sandbox.sh"
 
     static func minutes(_ duration: Duration) -> String {
         let seconds = duration.components.seconds

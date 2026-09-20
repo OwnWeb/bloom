@@ -38,8 +38,6 @@ public struct CloudWorkspaceState: Sendable, Hashable {
 
     public var setup: SetupRecord?
     public var setupLog = ""
-    /// Bumped by a `review` event; the review asks for a new snapshot when it moves.
-    public var reviewRevision = 0
     /// Where the next event stream resumes.
     public private(set) var cursor: Int64?
 
@@ -58,7 +56,7 @@ public struct CloudWorkspaceState: Sendable, Hashable {
         apply(.workspace(snapshot.workspace))
         for chat in snapshot.chats { upsert(chat) }
         presence = snapshot.presence
-        if let defaults = snapshot.composerDefaults { composerDefaults = defaults }
+        composerDefaults = snapshot.composerDefaults
         members = snapshot.members
         advance(to: snapshot.cursor)
     }
@@ -88,12 +86,12 @@ public struct CloudWorkspaceState: Sendable, Hashable {
         case sleeping
         /// The stream is closing for this reason.
         case closing(WireError)
-        /// The review should ask for a new snapshot.
-        case reviewMoved
         /// Somebody other than the reader changed a chat's composer.
         case composerChanged(chatID: String, by: AuthorRecord?)
         /// A chat this client had not seen appeared, so its history should be read.
         case newChat(String)
+        /// A chat was closed, so a client can refresh the bounded list that can bring it back.
+        case chatClosed(String)
         /// The agent asked for a browser pane. A request rather than an instruction: see
         /// `WorkspaceEvent.paneRequested` and `CloudPaneRequest`.
         case paneRequested(url: String?, chatID: String?, placement: String?)
@@ -121,6 +119,11 @@ public struct CloudWorkspaceState: Sendable, Hashable {
         case .stream(let chatID, let text, let snapshot):
             chats[chatID, default: CloudChatState(id: chatID)].appendStreaming(text, snapshot: snapshot)
         case .chat(let record):
+            if record.closedAt != nil {
+                chats.removeValue(forKey: record.id)
+                chatOrder.removeAll { $0 == record.id }
+                return .chatClosed(record.id)
+            }
             let isNew = chats[record.id]?.chat == nil
             let wasRunning = chats[record.id]?.chat?.state == "running"
             upsert(record)
@@ -144,9 +147,6 @@ public struct CloudWorkspaceState: Sendable, Hashable {
             if setupLog.utf8.count > Self.setupLogLimit {
                 setupLog = String(setupLog.suffix(Self.setupLogLimit / 2))
             }
-        case .review(let revision):
-            reviewRevision = revision
-            return .reviewMoved
         case .paneRequested(let url, let chatID, let placement):
             // Nothing is kept: a request is a moment rather than state, and a client that was not
             // listening when it was made has not missed a fact about the workspace.

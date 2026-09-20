@@ -7,13 +7,41 @@ import Foundation
 /// runbloom.app's own design document, which reads exactly these fields.
 public struct RemoteSummary: Codable, Sendable, Hashable {
     public struct Setup: Codable, Sendable, Hashable {
+        /// What the machine found under the step it is running, so that runbloom.app can act on a
+        /// fact rather than on the age of a timestamp.
+        ///
+        /// **The machine is the only party that can see the child**, which is the whole reason this
+        /// exists. A step that has printed nothing for five minutes looks identical from outside to
+        /// one that has died, and acting on that inference restarted a machine while `composer` and
+        /// `bun` were still installing, throwing away their caches so the retry was slower than the
+        /// run it killed. Only `nothing_alive` is a reason to act on. **Absent is no signal at all
+        /// and must not be read as a stall**: an older machine says nothing here, and so does a
+        /// machine between steps.
+        public struct Liveness: Codable, Sendable, Hashable {
+            /// `working`, `waiting` or `nothing_alive`. See `StepLiveness.Verdict`.
+            public var verdict: String
+            /// Processes alive under the step's own child, including it.
+            public var running: Int
+            /// Processes that exited and were not collected.
+            public var defunct: Int
+            public var at: Date
+
+            public init(verdict: String, running: Int, defunct: Int, at: Date) {
+                self.verdict = verdict
+                self.running = running
+                self.defunct = defunct
+                self.at = at
+            }
+        }
+
         public var state: String
         public var step: String?
         public var startedAt: Date?
         public var finishedAt: Date?
+        public var liveness: Liveness?
 
         enum CodingKeys: String, CodingKey {
-            case state, step
+            case state, step, liveness
             case startedAt = "started_at"
             case finishedAt = "finished_at"
         }
@@ -24,6 +52,7 @@ public struct RemoteSummary: Codable, Sendable, Hashable {
             try container.encodeOrNull(step, forKey: .step)
             try container.encodeOrNull(startedAt, forKey: .startedAt)
             try container.encodeOrNull(finishedAt, forKey: .finishedAt)
+            try container.encodeOrNull(liveness, forKey: .liveness)
         }
     }
 

@@ -23,6 +23,10 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case reviewSnapshot(scope: DiffScope, knownRevision: String?, wait: Bool)
     case reviewPatch(path: String, scope: DiffScope, knownRevision: String?)
     case runScripts
+    /// The project's quick prompts, read off the checkout on this call. See `QuickPromptRecord`.
+    case quickPrompts
+    /// The workspace's code searched for `query`, case-insensitively, over what `files` lists.
+    case searchCode(query: String, limit: Int?)
     /// The branch's commits, newest first. `before` is a sha to page from, exclusive.
     case history(limit: Int?, before: String?)
     /// One commit's changed files, for a History row somebody opened.
@@ -34,11 +38,15 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case notes
     case pullRequest
     case archivePreview
+    /// At most ten top-level chats, newest closure first. The server owns the bound so every
+    /// client sees the same list and cannot turn this menu-sized read into an archive browser.
+    case recentlyClosed
 
     // Conversations
     case newChat(controls: ComposerControlsRecord)
     case renameChat(chatID: String, title: String)
     case closeChat(chatID: String)
+    case reopenChat(chatID: String)
     case markRead(chatID: String, seq: Int)
     case setComposer(chatID: String, controls: ComposerControlsRecord)
     /// `via` says an agent wrote it on the person's behalf. See `ViaRecord`.
@@ -73,21 +81,28 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     public var mutates: Bool {
         switch self {
         case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
-             .runScripts, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes, .pullRequest,
-             .archivePreview: false
+             .runScripts, .quickPrompts, .searchCode, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes, .pullRequest,
+             .archivePreview, .recentlyClosed: false
         default: true
         }
     }
 
     /// The token ability this operation needs. Every operation needs `view` as well.
+    ///
+    /// **Every case is named, and there is no `default`.** It ended in `default: "view"`, so an
+    /// operation added later, however much it changed, was open to anybody who could look; the
+    /// security review of 19 September 2026 found it as L1. Now a new case does not compile until
+    /// somebody decides what it needs, and `OperationAbilityTests` pins the whole table.
     public var ability: String {
         switch self {
-        case .send, .cancelQueued, .stop, .answer, .newChat, .closeChat, .renameChat, .setComposer: "prompt"
-        case .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup,
-             .stopSetup, .continueAfterMerge, .revertFile, .discardHunk: "files"
+        case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
+             .runScripts, .quickPrompts, .searchCode, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes,
+             .pullRequest, .recentlyClosed, .markRead: "view"
+        case .send, .cancelQueued, .stop, .answer, .newChat, .closeChat, .reopenChat, .renameChat, .setComposer: "prompt"
+        case .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup, .stopSetup, .continueAfterMerge,
+             .revertFile, .discardHunk: "files"
         case .runScript, .closeTerminal: "terminal"
         case .archive, .archivePreview: "share"
-        default: "view"
         }
     }
 
@@ -114,12 +129,16 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .reviewSnapshot: "review_snapshot"
         case .reviewPatch: "review_patch"
         case .runScripts: "run_scripts"
+        case .quickPrompts: "quick_prompts"
+        case .searchCode: "search_code"
         case .notes: "notes"
         case .pullRequest: "pull_request"
         case .archivePreview: "archive_preview"
+        case .recentlyClosed: "recently_closed"
         case .newChat: "new_chat"
         case .renameChat: "rename_chat"
         case .closeChat: "close_chat"
+        case .reopenChat: "reopen_chat"
         case .markRead: "mark_read"
         case .setComposer: "set_composer"
         case .send: "send"
@@ -177,12 +196,17 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
             self = .reviewPatch(path: try c.decode(String.self, forKey: .path), scope: try c.decode(DiffScope.self, forKey: .scope),
                                 knownRevision: try c.decodeIfPresent(String.self, forKey: .knownRevision))
         case "run_scripts": self = .runScripts
+        case "quick_prompts": self = .quickPrompts
+        case "search_code":
+            self = .searchCode(query: try c.decode(String.self, forKey: .query), limit: try c.decodeIfPresent(Int.self, forKey: .limit))
         case "notes": self = .notes
         case "pull_request": self = .pullRequest
         case "archive_preview": self = .archivePreview
+        case "recently_closed": self = .recentlyClosed
         case "new_chat": self = .newChat(controls: try c.decode(ComposerControlsRecord.self, forKey: .controls))
         case "rename_chat": self = .renameChat(chatID: try c.decode(String.self, forKey: .chatID), title: try c.decode(String.self, forKey: .title))
         case "close_chat": self = .closeChat(chatID: try c.decode(String.self, forKey: .chatID))
+        case "reopen_chat": self = .reopenChat(chatID: try c.decode(String.self, forKey: .chatID))
         case "mark_read": self = .markRead(chatID: try c.decode(String.self, forKey: .chatID), seq: try c.decode(Int.self, forKey: .seq))
         case "set_composer":
             self = .setComposer(chatID: try c.decode(String.self, forKey: .chatID), controls: try c.decode(ComposerControlsRecord.self, forKey: .controls))
@@ -225,17 +249,18 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         try Tagged.encode(kind: kind, to: encoder)
         var c = encoder.container(keyedBy: Keys.self)
         switch self {
-        case .workspace, .setupOutput, .files, .runScripts, .notes, .pullRequest, .archivePreview, .push, .runSetup, .stopSetup: break
+        case .workspace, .setupOutput, .files, .runScripts, .quickPrompts, .notes, .pullRequest, .archivePreview, .recentlyClosed,
+             .push, .runSetup, .stopSetup: break
         case .transcript(let chatID, let afterSeq, let limit):
             try c.encode(chatID, forKey: .chatID); try c.encode(afterSeq, forKey: .afterSeq); try c.encodeIfPresent(limit, forKey: .limit)
         case .composer(let chatID), .continueAfterMerge(let chatID): try c.encodeIfPresent(chatID, forKey: .chatID)
-        case .closeChat(let chatID), .stop(let chatID): try c.encode(chatID, forKey: .chatID)
+        case .closeChat(let chatID), .reopenChat(let chatID), .stop(let chatID): try c.encode(chatID, forKey: .chatID)
         case .file(let path), .download(let path): try c.encode(path, forKey: .path)
         case .history(let limit, let before):
             try c.encodeIfPresent(limit, forKey: .limit); try c.encodeIfPresent(before, forKey: .before)
         case .commitFiles(let sha): try c.encode(sha, forKey: .sha)
         case .commitPatch(let sha, let path): try c.encode(sha, forKey: .sha); try c.encode(path, forKey: .path)
-        case .transcriptSearch(let query, let limit):
+        case .transcriptSearch(let query, let limit), .searchCode(let query, let limit):
             try c.encode(query, forKey: .query); try c.encodeIfPresent(limit, forKey: .limit)
         case .revertFile(let path, let scope): try c.encode(path, forKey: .path); try c.encode(scope, forKey: .scope)
         case .discardHunk(let path, let scope, let patch):

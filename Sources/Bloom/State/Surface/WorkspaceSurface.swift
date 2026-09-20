@@ -158,11 +158,11 @@ protocol WorkspaceSurface: AnyObject, Observable {
 
     /// The chats this workspace has closed and would offer back, newest first.
     ///
-    /// **Empty is the whole of the answer for a workspace that cannot do it**, which is a Cloud
-    /// one today: the section in the `+` menu is absent rather than greyed, exactly as a project
-    /// with no run scripts gets no Run Scripts heading. So the two verbs below have defaults that
-    /// do nothing, and a machine learning to reopen a chat is one implementation rather than a
-    /// second menu. See `SessionReopening` for the words and `NewTabMenu` for the rows.
+    /// **Empty is the whole of the answer for a workspace that cannot do it.** The section in the
+    /// `+` menu is absent rather than greyed, exactly as a project with no run scripts gets no Run
+    /// Scripts heading. The defaults below keep that capability optional; local and Cloud
+    /// workspaces both implement it today. See `SessionReopening` for the words and `NewTabMenu`
+    /// for the rows.
     var closedChats: [ClosedChat] { get }
     /// Reads that list. A `Menu` builds its items before it opens and cannot await anything while
     /// it does, so this is called on the way to the button and after every close.

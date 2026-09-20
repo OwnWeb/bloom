@@ -28,6 +28,8 @@ final class CloudWorkspaceSession {
     private(set) var composerChange: (chatID: String, name: String)?
     /// A new chat being opened.
     private(set) var isOpeningChat = false
+    /// Closed chats the machine currently offers back through the shared new-tab menu.
+    private(set) var closedChats: [ClosedChat] = []
 
     @ObservationIgnored private var connection: WorkspaceConnection?
     @ObservationIgnored private var listener: Task<Void, Never>?
@@ -252,10 +254,10 @@ final class CloudWorkspaceSession {
                 // only the review tab, so somebody sitting in the inspector with no review tab
                 // open watched "Reading the worktree" spin for ever. The workspace whose
                 // connection has just gone live is one somebody is looking at, so the read is
-                // wanted; what stays gated is asking AGAIN, which is what the `reviewMoved` event
-                // does.
+                // wanted. Later turns refresh it when they finish.
                 Task { await changes.refresh() }
                 changes.reconsiderWatching()
+                Task { await refreshClosedChats() }
                 // **And the setup log, which nothing was ever asking for.** The stream only
                 // appends what happens after it opens, so a workspace opened after its setup had
                 // finished had no log at all: `setup_output` exists for exactly this and had no
@@ -292,26 +294,23 @@ final class CloudWorkspaceSession {
                 }
             case .composerChanged(let chatID, let author):
                 if let author, author.userID != readerID { composerChange = (chatID, author.name) }
-            case .reviewMoved:
-                // **Ungated, and the gate was the second half of the same bug as the one above.**
-                // It read "only while somebody has the review open", on the argument that a
-                // machine trying to sleep should not be asked for a list nothing is drawing. Two
-                // things are wrong with that. The inspector's Changes tab draws the same list and
-                // is not a review tab, so a workspace whose agent had just written a file sat in
-                // front of the owner saying "No changes yet" while the machine and runbloom.app
-                // both said one file had changed. And the argument itself does not hold: this
-                // event arrives over an open stream from a machine that has just done the work,
-                // so there is no sleeping machine to spare.
-                Task { await changes.refresh(quietly: changes.hasRead) }
+            case .chatClosed(let chatID):
+                let content = PaneContent.chat(SessionID(chatID))
+                WorkspaceTabsStore.shared.prepareToClose(content, in: self)
+                WorkspaceTabsStore.shared.forget(content, workspaceID: surfaceID)
+                transcripts[chatID]?.teardown()
+                transcripts[chatID] = nil
+                streaming[chatID] = nil
+                historyReads.remove(chatID)
+                Task { await refreshClosedChats() }
             case .paneRequested(let url, let chatID, let placement):
                 Task { await openRequestedPane(url: url, chatID: chatID, placement: placement) }
             case .macMessage(let record):
                 Task { await cloud.appModel?.receiveMacMessage(record) }
             case .turnEnded:
                 // A workspace that has just had files written to it is the definition of one whose
-                // changes are stale. The `review` event above is the machine volunteering that,
-                // and this is the same read asked for by something this Mac can see for itself, so
-                // the pane is right even on a machine that sends no review event for the edit.
+                // changes are stale. The chat state is the machine volunteering that, so the pane
+                // is right after every turn.
                 Task { await changes.refresh(quietly: changes.hasRead) }
             default:
                 break
@@ -416,7 +415,24 @@ final class CloudWorkspaceSession {
     }
 
     func closeChat(_ id: SessionID) async {
-        await run(.closeChat(chatID: id.rawValue))
+        guard await run(.closeChat(chatID: id.rawValue)) == nil else { return }
+        await refreshClosedChats()
+    }
+
+    /// Re-reads the bounded list the machine owns. A failed read keeps the last useful answer.
+    func refreshClosedChats() async {
+        guard let result = try? await perform(.recentlyClosed), case .recentlyClosed(let records) = result else { return }
+        let offered = SessionReopening.offered(records.compactMap(ClosedChat.init(record:)))
+        if closedChats != offered { closedChats = offered }
+    }
+
+    /// Reopens one of the machine's offered chats and brings its ordinary tab back to the front.
+    func reopen(_ chat: ClosedChat) async {
+        guard let result = await runForResult(.reopenChat(chatID: chat.id.rawValue)),
+              case .chat(let record) = result else { return }
+        _ = state.apply(.chat(record))
+        WorkspaceTabsStore.shared.select(.chat(chat.id), in: self)
+        await refreshClosedChats()
     }
 
     func acknowledgeComposerChange() { composerChange = nil }

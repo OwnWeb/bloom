@@ -162,3 +162,16 @@ public enum SessionReopening {
         Trying again will not find it.
         """
 }
+
+/// The complete answer to an atomic reopen from the bounded Recently Closed list.
+///
+/// Kept in the core rather than expressed as wire errors so the store decides eligibility and
+/// clears `archived_at` without another actor call slipping between those two acts.
+enum OfferedSessionReopening: Sendable, Hashable {
+    case reopened(Session)
+    case missing
+    case alreadyOpen
+    case running
+    case notTopLevel
+    case notOffered
+}

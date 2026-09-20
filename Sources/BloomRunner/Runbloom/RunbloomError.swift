@@ -34,6 +34,16 @@ public enum RunbloomError: Error, LocalizedError, Sendable, Hashable, CustomStri
         return false
     }
 
+    /// runbloom.app answered and asked for the report later: too many at once, or a timeout on its
+    /// own side. **Retried like a failure and recorded like a success**, because the one thing this
+    /// proves is that the machine can reach it.
+    public var isBackpressure: Bool {
+        switch self {
+        case .unreachable: false
+        case .refused(let status, _, _, _, _), .unexpected(let status): status == 408 || status == 429
+        }
+    }
+
     public var isWorthRetrying: Bool {
         switch self {
         case .unreachable: true

@@ -32,7 +32,7 @@ struct RemoteBridgeTests {
         }
     }
 
-    func fixture(bridgeSocketPath: String? = nil) async throws -> Fixture {
+    func fixture(bridgeSocketPath: String? = nil, sandbox: MachineSandbox? = nil) async throws -> Fixture {
         let store = try makeTestStore("remote-bridge")
         let repo = try await store.upsert(Repo(name: "bloom", path: TestScratch.unique("repo")))
         let path = TestScratch.unique("worktree")
@@ -46,21 +46,148 @@ struct RemoteBridgeTests {
                 agents.make(session: session, store: store, environment: environment, bridge: bridge)
             },
             installedAgents: { [.claudeCode, .codex] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50),
-            bridgeSocketPath: bridgeSocketPath, bridgeShimPath: "/usr/local/bin/bloom-bridge"
+            bridgeSocketPath: bridgeSocketPath,
+            bridgeShimPath: "/usr/local/bin/bloom-bridge",
+            sandbox: sandbox
         )
         try await runtime.start()
         return Fixture(store: store, workspace: workspace, orchestrator: orchestrator, runtime: runtime, agents: agents)
     }
 
+    /// **The rule the whole mentions feature rests on.** `chat_read` is the only way an agent can
+    /// read a transcript, so it is the only place a message addressed to a person could leak, and a
+    /// leak here is the feature not existing.
+    @Test("an agent reading a chat is not shown a message addressed to a person")
+    func chatReadHidesMessagesToPeople() async throws {
+        let fixture = try await fixture()
+        let payload = { (text: String) in Data(JSONValue.object([
+            "type": .string("user"),
+            "message": .object(["role": .string("user"), "content": .array([
+                .object(["type": .string("text"), "text": .string(text)]),
+            ])]),
+        ]).compactJSON.utf8) }
+        _ = try await fixture.store.appendNext(sessionID: fixture.orchestrator.id, kind: .user,
+                                               payload: payload("for the agent"))
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.orchestrator.id, kind: .user, payload: payload("@sebdd this bit is yours"),
+            audience: MessageAudience(kind: .person, userID: "user-seb", mention: "@sebdd")
+        )
+        // **The message after the addressed one, with no audience at all.** This is the shape the
+        // feature is actually about: the address stuck for one message, the next one went to the
+        // agent as normal, and the agent still never saw the one in between.
+        _ = try await fixture.store.appendNext(sessionID: fixture.orchestrator.id, kind: .user,
+                                               payload: payload("carry on"))
+
+        let toolbox = fixture.runtime.bridgeToolbox()
+        let handler = try #require(toolbox.handler(named: "chat_read", for: .workspace))
+        let identity = BridgeIdentity(sessionID: fixture.orchestrator.id, workspaceID: fixture.workspace.id, role: .workspace)
+        let answer = await handler.call(
+            MCPRequest(id: .integer(1), method: "chat_read",
+                       params: .object(["chat": .string(fixture.orchestrator.id.rawValue)])),
+            as: identity, store: fixture.store
+        )
+
+        // **The count is part of the same promise.** An agent told there are three messages that
+        // can only read two has been told a private one exists, which is the fact being kept.
+        let listing = try #require(toolbox.handler(named: "chat_list", for: .workspace))
+        let chats = await listing.call(MCPRequest(id: .integer(2), method: "chat_list"), as: identity, store: fixture.store)
+        #expect(chats.text.contains("\"messages\" : 2"), "two of the three rows are the agent's: \(chats.text)")
+
+        #expect(answer.text.contains("for the agent"))
+        #expect(answer.text.contains("carry on"))
+        #expect(!answer.text.contains("this bit is yours"))
+        #expect(!answer.text.contains("@sebdd"))
+        // And nothing says a message was left out: a marker invites the agent to ask what it missed.
+        #expect(!answer.text.lowercased().contains("hidden"))
+        await fixture.runtime.shutdown()
+    }
+
+    /// The whole of it end to end: the agent shows a picture, the chat gets a row naming a copy, and
+    /// a client fetches that copy through `download`, the same door and the same token as any file.
+    @Test("media_show writes a media row a client can download the picture from")
+    func mediaShowReachesAClient() async throws {
+        let fixture = try await fixture()
+        let shot = TestScratch.unique("shot") + ".png"
+        try MachineMediaShowTests.png.write(to: URL(filePath: shot))
+
+        let answer = await fixture.call("media_show", ["path": shot, "caption": "After the fix"], as: fixture.orchestrator)
+        #expect(!answer.isError, "\(answer.text)")
+
+        let row = try #require(try await fixture.store.messages(sessionID: fixture.orchestrator.id).last)
+        #expect(row.kind == .media)
+        let media = try JSONDecoder().decode(SharedMedia.self, from: row.payload)
+        #expect(media.caption == "After the fix")
+        #expect(media.mime == "image/png")
+
+        let caller = RemoteCaller(author: MessageAuthor(userID: "u1", name: "Freek"), abilities: ["view"], sessionToken: "t")
+        let reply = await fixture.runtime.respond(to: CommandRequest(.download(path: media.path)), as: caller)
+        guard case .download(let file) = reply.result else { Issue.record("No download: \(String(describing: reply.error))"); return }
+        #expect(file.data == MachineMediaShowTests.png)
+        await fixture.runtime.shutdown()
+    }
+
+    /// **Advice to a dead end** is what the agent Freek was testing with found: `agent_start` told it
+    /// to use `workspace_start`, and three reading tools to pass "an id from workspace_list", on a
+    /// machine that has neither. Every name a listing mentions has to be one the same listing offers.
+    @Test("no tool on a machine names a tool the machine does not offer")
+    func noDeadEnds() async throws {
+        let fixture = try await fixture()
+        let tools = fixture.runtime.bridgeToolbox().tools(for: .workspace)
+        let offered = Set(tools.map(\.name))
+        for tool in tools {
+            let text = tool.description + String(describing: tool.inputSchema)
+            // Whole names, not substrings: `workspace_start` is inside `cloud_workspace_start`.
+            let words = try NSRegularExpression(pattern: "[a-z]+(?:_[a-z]+)+")
+                .matches(in: text, range: NSRange(text.startIndex..., in: text))
+                .compactMap { Range($0.range, in: text).map { String(text[$0]) } }
+            let named = Self.everyToolName.intersection(words)
+            #expect(named.isSubset(of: offered), "\(tool.name) names \(named.subtracting(offered).sorted())")
+        }
+        // And the arguments the dead ends came with are gone, not only the words.
+        for name in ["chat_list", "chat_read", "workspace_diff"] {
+            let schema = try #require(tools.first { $0.name == name }?.inputSchema)
+            #expect(!String(describing: schema).contains("\"workspace\""), "\(name) still takes a workspace")
+        }
+        await fixture.runtime.shutdown()
+    }
+
+    /// Every bridge tool on either side. The Mac's own come from `AppModel.bridgeToolbox()`, which
+    /// the core cannot build, so they are named here; the core's are read from the toolbox.
+    /// `reveal` is left out because it is also a word.
+    static let everyToolName: Set<String> = Set(BridgeToolbox.standard.handlers.map(\.tool.name)).union([
+        "workspace_start", "workspace_say", "workspace_archive", "workspace_merge", "workspace_tabs",
+        "workspace_tab_select", "pane_open", "pane_split", "pane_close", "pane_rename", "pane_list",
+        "browser_go", "browser_read", "browser_click", "browser_fill", "browser_press", "browser_screenshot",
+        "browser_snapshot", "browser_text", "browser_console", "browser_network", "browser_reload",
+        "browser_scroll", "browser_wait", "media_show", "terminal_start", "terminal_read", "terminal_write",
+        "terminal_send_key", "agent_start", "agent_say", "agent_stop", "request_pane", "cloud_workspace_start",
+    ])
+
     @Test("only the tools about this one workspace are offered, and only to agents working in it")
     func theToolList() async throws {
         let fixture = try await fixture()
         let toolbox = fixture.runtime.bridgeToolbox()
+        // Pinned on purpose, so adding a tool to a machine is a decision somebody takes rather
+        // than a thing that happens. `request_pane` was added on 18 September 2026 and is the only
+        // one here that reaches out of the machine at all: it asks a client to open a browser pane
+        // and cannot open one itself. See `RequestPaneTool`. `cloud_setup` is guidance and touches
+        // nothing; see `CloudSetupGuide`.
+        // `media_show` was added on 19 September 2026 and writes into this workspace only: a copy
+        // in its scratch folder and a row in the chat that called it. See `MachineMediaShowTool`.
+        // `cloud_workspace_start` was added the night before, and it too only asks: runbloom.app makes
+        // the workspace, or refuses with a sentence naming the team switch. See
+        // `CloudWorkspaceStartTool`.
         #expect(toolbox.tools(for: .workspace).map(\.name) == [
-            "agent_list", "agent_say", "agent_start", "agent_stop", "chat_list", "chat_read", "whoami", "workspace_diff",
+            "agent_list", "agent_say", "agent_start", "agent_stop", "chat_list", "chat_read",
+            "cloud_setup", "cloud_workspace_start", "mac_workspace_say", "media_show", "request_pane", "whoami",
+            "workspace_diff", "workspace_list", "workspace_say",
         ])
         #expect(toolbox.tools(for: .owner).isEmpty)
-        for absent in ["workspace_start", "workspace_say", "workspace_archive", "pane_open", "browser_go", "project_list"] {
+        // `pane_open` in particular: the machine can ask for a pane and cannot open one, and the
+        // names say which is which.
+        // `workspace_list` and `workspace_say` reach the team's other Bloom Cloud workspaces through
+        // runbloom.app's tokens, added on 19 September 2026; see `WorkspacePeers`.
+        for absent in ["workspace_start", "workspace_archive", "pane_open", "browser_go", "project_list"] {
             #expect(toolbox.handler(named: absent, for: .workspace) == nil, "\(absent) is not offered")
         }
 
@@ -140,6 +267,27 @@ struct RemoteBridgeTests {
         await fixture.runtime.shutdown()
     }
 
+    /// **A person closing a crew member's chat is the Mac's Stop Subagent**: the member stops, its
+    /// chat is archived, and the agent that started it is told it was stopped by the person, so it
+    /// does not sit waiting for a report that will never come. A client sends `close_chat` on the
+    /// member's chat and nothing else.
+    @Test("close_chat on a crew member's chat archives it and tells the parent it was stopped")
+    func closingAMembersChatTellsTheParent() async throws {
+        let fixture = try await fixture()
+        _ = await fixture.call("agent_start", ["name": "tests", "task": "Run the suite"], as: fixture.orchestrator)
+        let member = try await fixture.member("tests")
+        await waitUntil("the brief reached the member") { fixture.agents.sent(to: member.id).count == 1 }
+
+        let caller = RemoteCaller(author: RemoteWorkspaceRuntimeTests.freek, abilities: ["view", "prompt"], sessionToken: "token")
+        let closed = await fixture.runtime.respond(to: CommandRequest(.closeChat(chatID: member.id.rawValue)), as: caller)
+        #expect(closed.result == .accepted, "\(String(describing: closed.error))")
+        #expect(try await fixture.store.session(id: member.id)?.archivedAt != nil)
+        await waitUntil("the parent is told", within: .seconds(30)) {
+            fixture.agents.sent(to: fixture.orchestrator.id).contains { $0.contains("Your subagent \"tests\" was stopped by the owner") }
+        }
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a crew member cannot start a crew member of its own")
     func noNesting() async throws {
         let fixture = try await fixture()
@@ -155,12 +303,19 @@ struct RemoteBridgeTests {
         await fixture.runtime.shutdown()
     }
 
-    @Test("with a socket, each chat's agent is launched with its own bridge registration, retired when the chat closes")
-    func registration() async throws {
+    @Test(
+        "with a socket, each chat's agent is launched with its own bridge registration, retired when the chat closes",
+        arguments: [false, true]
+    )
+    func registration(sandboxed: Bool) async throws {
         let socket = "/tmp/bloom-rb-\(UUID().uuidString.prefix(8)).sock"
-        let fixture = try await fixture(bridgeSocketPath: socket)
+        let fixture = try await fixture(
+            bridgeSocketPath: socket,
+            sandbox: sandboxed ? MachineSandbox() : nil
+        )
         let server = try #require(await fixture.runtime.bridge)
         defer { try? FileManager.default.removeItem(atPath: server.configDirectory) }
+        #expect(server.access.configDirectoryPermissions == (sandboxed ? 0o2750 : 0o700))
 
         let caller = RemoteCaller(author: RemoteWorkspaceRuntimeTests.freek, abilities: ["view", "prompt"], sessionToken: "token")
         let chat = fixture.orchestrator.id.rawValue
@@ -172,6 +327,22 @@ struct RemoteBridgeTests {
         #expect(FileManager.default.fileExists(atPath: config))
         #expect(handle.attachment.socketPath == socket)
         #expect(server.registry.identity(forToken: handle.attachment.token)?.sessionID == fixture.orchestrator.id)
+        let manager = FileManager.default
+        let socketMode = try #require(
+            manager.attributesOfItem(atPath: socket)[.posixPermissions] as? NSNumber
+        )
+        let directoryMode = try #require(
+            manager.attributesOfItem(atPath: server.configDirectory)[.posixPermissions] as? NSNumber
+        )
+        let configMode = try #require(
+            manager.attributesOfItem(atPath: config)[.posixPermissions] as? NSNumber
+        )
+        #expect(socketMode.int16Value == (sandboxed ? 0o660 : 0o700))
+        // This fixture lives directly under macOS /tmp, whose group the test user does not own,
+        // so the kernel may clear setgid. BridgeRegistrationTests exercises the full 02750 mode
+        // in an owned directory; this assertion still pins the traversal permissions here.
+        #expect(directoryMode.int16Value & 0o777 == (sandboxed ? 0o750 : 0o700))
+        #expect(configMode.int16Value == (sandboxed ? 0o640 : 0o600))
 
         let closed = await fixture.runtime.respond(to: CommandRequest(.closeChat(chatID: chat)), as: caller)
         #expect(closed.result == .accepted, "\(String(describing: closed.error))")

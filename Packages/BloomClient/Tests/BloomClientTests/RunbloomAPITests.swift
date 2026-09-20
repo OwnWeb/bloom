@@ -114,6 +114,38 @@ import Testing
         #expect(sent == ["project": "01k5proj", "name": "Queue retries", "branch": "freek/queue-retries"])
     }
 
+    @Test func changesAndClearsAPersonalWorkspaceColourAtTheSuppliedEndpoint() async throws {
+        let transport = FakeTransport()
+        let endpoint = "https://runbloom.test/api/v1/cloud-workspaces/01k5ws/mark"
+        transport.on(
+            "PUT", "/cloud-workspaces/01k5ws/mark",
+            .json("""
+            {"data":{"id":"01k5ws","state":"idle","colour":"4C8DF6","can_colour":true,
+             "colour_url":"\(endpoint)"}}
+            """),
+            .json("""
+            {"data":{"id":"01k5ws","state":"idle","colour":null,"can_colour":true,
+             "colour_url":"\(endpoint)"}}
+            """)
+        )
+        let api = Fixtures.api(transport)
+
+        let marked = try await api.updateCloudWorkspaceColour("4C8DF6", at: endpoint)
+        let cleared = try await api.updateCloudWorkspaceColour(nil, at: endpoint)
+
+        #expect(marked.colour == "4C8DF6")
+        #expect(cleared.colour == nil)
+        #expect(transport.requests.map { String(decoding: $0.httpBody ?? Data(), as: UTF8.self) }
+            == [#"{"colour":"4C8DF6"}"#, #"{"colour":null}"#])
+    }
+
+    @Test func refusesAWorkspaceColourEndpointOutsideTheSignedInAPI() async {
+        let api = Fixtures.api(FakeTransport())
+        await #expect(throws: RunbloomRefusal.self) {
+            try await api.updateCloudWorkspaceColour("4C8DF6", at: "https://elsewhere.test/api/v1/cloud-workspaces/w/mark")
+        }
+    }
+
     @Test func readsASessionToken() async throws {
         let transport = FakeTransport()
         transport.on("POST", "/session-token", .json(Fixtures.sessionToken(awake: false)))
@@ -229,6 +261,16 @@ import Testing
         let cloud = RunbloomEnvironment.resolve(environment: [:], setting: nil, urlSchemes: ["bloomcloud"])
         #expect(cloud.redirect == "bloomcloud://oauth/callback")
         #expect(cloud.origin == RunbloomEnvironment.productionOrigin)
+    }
+
+    @Test func aProjectSettingsPageStaysInsideTheSelectedEnvironment() {
+        let environment = RunbloomEnvironment(
+            origin: URL(string: "https://runbloom.test")!, urlScheme: "bloomcloud"
+        )
+        #expect(
+            environment.projectSettingsPage(teamSlug: "spatie", projectID: "01k5project").absoluteString
+                == "https://runbloom.test/app/spatie/projects/01k5project/settings"
+        )
     }
 
     @Test func aDevelopmentServerIsTakenOnlyAsAnOrigin() {

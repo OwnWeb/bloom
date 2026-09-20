@@ -91,6 +91,28 @@ public struct RunbloomAPI: Sendable {
         try await sendIgnoringBody("POST", "cloud-workspaces/\(id)/read")
     }
 
+    /// Changes this person's private workspace mark through the endpoint the list supplied.
+    public func updateCloudWorkspaceColour(_ colour: String?, at endpoint: String) async throws -> CloudWorkspaceItem {
+        struct Body: Encodable {
+            var colour: String?
+
+            enum CodingKeys: CodingKey { case colour }
+
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(colour, forKey: .colour)
+            }
+        }
+
+        guard let path = sameAPIPath(endpoint) else {
+            throw RunbloomRefusal(
+                status: 0, code: "unsafe_endpoint",
+                message: "runbloom.app supplied a workspace colour address outside its API. Refresh and try again."
+            )
+        }
+        return try await send("PUT", path, body: Body(colour: colour))
+    }
+
     public func sessionToken(for id: String) async throws -> SessionToken {
         try await send("POST", "cloud-workspaces/\(id)/session-token", body: Empty())
     }
@@ -228,6 +250,19 @@ public struct RunbloomAPI: Sendable {
             return try Self.check(second)
         }
         return try Self.check(first)
+    }
+
+    /// A server-supplied mutation URL is followed only inside this signed-in API. This keeps the
+    /// bearer token from travelling to a host or API root named by an untrusted response.
+    private func sameAPIPath(_ value: String) -> String? {
+        guard let url = URL(string: value, relativeTo: baseURL)?.absoluteURL,
+              url.scheme == baseURL.scheme,
+              url.host == baseURL.host,
+              url.port == baseURL.port else { return nil }
+        let root = baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard path == root || path.hasPrefix(root + "/") else { return nil }
+        return String(path.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
     private func request(

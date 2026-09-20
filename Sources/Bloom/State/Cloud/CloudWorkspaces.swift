@@ -275,6 +275,21 @@ final class CloudWorkspaces {
         try? await api.markRead(id.rawValue)
     }
 
+    /// Changes only this person's colour mark. The answer replaces the row so every permission
+    /// and link remains the server's current one rather than a locally patched copy.
+    func setColour(_ colour: String?, for id: CloudWorkspaceID) async {
+        guard let item = item(id), item.canColour, let endpoint = item.colourURL else { return }
+        do {
+            let updated = try await api.updateCloudWorkspaceColour(colour, at: endpoint)
+            guard let index = items.firstIndex(where: { $0.id == updated.id }) else { return }
+            items[index] = updated
+        } catch let refusal as RunbloomRefusal {
+            app?.notice = BloomNotice(message: refusal.message)
+        } catch {
+            app?.notice = BloomNotice(message: "The workspace colour could not be changed. \(error.localizedDescription)")
+        }
+    }
+
     func item(_ id: CloudWorkspaceID) -> CloudWorkspaceItem? {
         items.first { $0.id == id.rawValue }
     }
@@ -308,6 +323,14 @@ final class CloudWorkspaces {
         let team: RunbloomTeam? = workspace.flatMap { self.team($0.teamID) }
         if let page = team?.setup?.setupPage(on: environment) { return page }
         return environment.teamPage
+    }
+
+    /// The web page matching the authorised settings endpoint on the API record. No endpoint
+    /// means no action, and no team slug means this client cannot spell the browser route safely.
+    func projectSettingsPage(for item: CloudWorkspaceItem) -> URL? {
+        guard let project = item.project, project.settingsURL != nil,
+              let team = team(item.teamID), !team.slug.isEmpty else { return nil }
+        return environment.projectSettingsPage(teamSlug: team.slug, projectID: project.id)
     }
 
     func team(_ id: String) -> RunbloomTeam? {

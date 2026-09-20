@@ -161,7 +161,10 @@ enum TranscriptLink {
             }
         }
 
-        addSourceIcons(to: output)
+        addSourceIcons(
+            to: output,
+            tint: chipGround == .userBubble ? NSColor(Palette.linkInverted) : Palette.linkNSColor
+        )
 
         // Said once over the whole turn, so the line a chip sits on is led like every other line.
         output.addAttribute(
@@ -189,22 +192,57 @@ enum TranscriptLink {
     }
 
     @MainActor
-    static func addSourceIcons(to text: NSMutableAttributedString) {
-        var links: [(NSRange, CodeLocation)] = []
+    static func addSourceIcons(
+        to text: NSMutableAttributedString,
+        tint: NSColor = Palette.linkNSColor
+    ) {
+        var links: [NSRange] = []
         text.enumerateAttribute(.link, in: NSRange(location: 0, length: text.length)) { value, range, _ in
-            guard let url = value as? URL, let location = SourceReference.location(url) else { return }
-            links.append((range, location))
+            guard let url = value as? URL, SourceReference.location(url) != nil else { return }
+            links.append(range)
         }
-        for (range, location) in links.reversed() {
+        for range in links.reversed() {
             let attributes = text.attributes(at: range.location, effectiveRange: nil)
             let font = attributes[.font] as? NSFont ?? .systemFont(ofSize: NSFont.systemFontSize)
-            let size = ceil(font.pointSize)
             let attachment = NSTextAttachment()
-            attachment.image = FileTypeIcon.icon(for: location.path)
-            attachment.bounds = CGRect(x: 0, y: (font.capHeight - size) / 2, width: size, height: size)
+            attachment.image = sourceIcon(for: font, tint: tint)
+            let height = ceil(font.pointSize)
+            attachment.bounds = CGRect(
+                x: 0,
+                y: (font.capHeight - height) / 2,
+                width: height + Metrics.spacingSmall,
+                height: height
+            )
             let icon = NSMutableAttributedString(attachment: attachment)
             icon.addAttributes(attributes, range: NSRange(location: 0, length: icon.length))
             text.insert(icon, at: range.location)
+        }
+    }
+
+    /// A source reference is already set in a monospace face and tinted as a link, so its mark
+    /// should belong to that treatment rather than introduce Finder's full-colour file artwork
+    /// at twelve points. The extra transparent width is the gap between the mark and the path.
+    /// Keeping it inside the attachment means selection and copying still see one decorative
+    /// character, which `selectedText` removes below.
+    @MainActor
+    private static func sourceIcon(for font: NSFont, tint: NSColor) -> NSImage {
+        let height = ceil(font.pointSize)
+        let width = height + Metrics.spacingSmall
+        let symbol = NSImage(
+            systemSymbolName: "doc.text",
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: height - 2, weight: .regular)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [tint]))
+        )
+        return NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
+            symbol?.draw(
+                in: NSRect(x: 0, y: 0, width: height, height: height),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+            return true
         }
     }
 

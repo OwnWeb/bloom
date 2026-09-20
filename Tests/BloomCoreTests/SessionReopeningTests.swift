@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import BloomProtocol
 @testable import BloomCore
 
 private func chat(
@@ -21,6 +22,21 @@ private func chat(
 @Suite("Session reopening")
 struct SessionReopeningTests {
     // MARK: - Which chats are offered
+
+    @Test("wire rows keep the agent and reject one this client does not know")
+    func wireRows() throws {
+        let closedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let record = ClosedChatRecord(
+            id: "c1", title: "Review", agent: "codex", messageCount: 12, closedAt: closedAt
+        )
+        let closed = try #require(ClosedChat(record: record))
+        #expect(closed.id == SessionID("c1"))
+        #expect(closed.agentKind == .codex)
+        #expect(closed.messageCount == 12)
+        #expect(ClosedChat(record: ClosedChatRecord(
+            id: "c2", title: "Future", agent: "future-agent", messageCount: 1, closedAt: closedAt
+        )) == nil)
+    }
 
     @Test("the newest closures come first")
     func newestFirst() {
@@ -171,6 +187,29 @@ struct SessionReopeningTests {
         #expect(!closed.contains { $0.title == "Still open" })
     }
 
+    /// The SQL limit and the in-memory offer use the same tie-break. Otherwise eleven chats
+    /// closed in one gesture could choose a different ten on different reads before Swift ever
+    /// had a chance to order the rows it received.
+    @Test("the bounded store list has a stable tie-break", .tags(.persistence), .scratchDirectory)
+    func storeBoundIsStableForTiedClosures() async throws {
+        let store = try makeTestStore("reopen-bound-tie")
+        let workspace = try await makeWorkspace(in: store)
+        let closedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        for index in 0...SessionReopening.limit {
+            let id = SessionID(String(format: "closed-%02d", index))
+            _ = try await store.upsert(Session(id: id, workspaceID: workspace.id, title: id.rawValue))
+            try await append(to: id, in: store)
+            _ = try await store.update(sessionID: id) { $0.archivedAt = closedAt }
+        }
+
+        let closed = try await store.closedSessions(
+            workspaceID: workspace.id,
+            limit: SessionReopening.limit
+        )
+
+        #expect(closed.map(\.id.rawValue) == (0..<SessionReopening.limit).map { String(format: "closed-%02d", $0) })
+    }
+
     /// Clearing `archived_at` on a crew member or a side conversation would hand back a chat the
     /// tab strip never draws: reachable in the database, invisible in the app, which is the bug
     /// this feature exists to fix wearing a different coat.
@@ -211,23 +250,38 @@ struct SessionReopeningTests {
     func reopeningWritesOneColumn() async throws {
         let store = try makeTestStore("reopen-write")
         let workspace = try await makeWorkspace(in: store)
-        let session = try await store.upsert(Session(workspaceID: workspace.id, title: "Long one"))
+        let created = Date(timeIntervalSince1970: 1_600_000_000)
+        let updated = Date(timeIntervalSince1970: 1_700_000_000)
+        let session = try await store.upsert(Session(
+            id: SessionID("rich-chat"),
+            workspaceID: workspace.id,
+            title: "Long one",
+            agentSessionID: "f93932c9-cf0b-40d8-881c-ac75db3f8740",
+            model: "gpt-5.5",
+            effort: "high",
+            agentKind: .codex,
+            permissionMode: .autoReview,
+            interactionMode: .build,
+            state: .failed,
+            sortOrder: 7,
+            createdAt: created,
+            updatedAt: updated,
+            lastReadSeq: 8,
+            inputTokens: 4_200,
+            outputTokens: 900,
+            costUSD: 1.25,
+            contextTokens: 18_000
+        ))
         try await append(to: session.id, in: store)
-
-        // The runner's columns, written while the chat was live.
-        _ = try await store.update(sessionID: session.id) {
-            $0.agentSessionID = "f93932c9-cf0b-40d8-881c-ac75db3f8740"
-            $0.inputTokens = 4_200
-        }
         _ = try await store.update(sessionID: session.id) { $0.archivedAt = Date() }
         #expect(try await store.sessions(workspaceID: workspace.id).isEmpty)
+        let closed = try #require(try await store.session(id: session.id))
 
         let reopened = try #require(try await store.reopenSession(id: session.id))
 
-        #expect(reopened.archivedAt == nil)
-        #expect(reopened.agentSessionID == "f93932c9-cf0b-40d8-881c-ac75db3f8740")
-        #expect(reopened.inputTokens == 4_200)
-        #expect(reopened.title == "Long one")
+        var expected = closed
+        expected.archivedAt = nil
+        #expect(reopened == expected, "archived_at is the only session field reopening changes")
         // And it is back in the list the tab strip is built from.
         #expect(try await store.sessions(workspaceID: workspace.id).map(\.id) == [session.id])
         // With its messages, which were never deleted. This is the whole promise.

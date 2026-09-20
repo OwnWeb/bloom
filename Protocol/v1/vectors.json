@@ -42,6 +42,40 @@
       },
       "kind" : "chat"
     },
+    "chat_closed" : {
+      "chat" : {
+        "agent" : "claude",
+        "closed_at" : "2026-09-17T09:40:02.500Z",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "effort" : "high",
+        "id" : "chat-1",
+        "interaction_mode" : "build",
+        "last_seq" : 4,
+        "model" : "claude-opus-5",
+        "permission_mode" : "acceptEdits",
+        "state" : "idle",
+        "title" : "Chat",
+        "updated_at" : "2026-09-17T09:40:02.500Z"
+      },
+      "kind" : "chat"
+    },
+    "chat_from_a_crew" : {
+      "chat" : {
+        "agent" : "claude",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "effort" : "high",
+        "id" : "chat-2",
+        "interaction_mode" : "build",
+        "last_seq" : 0,
+        "model" : "claude-opus-5",
+        "parent_chat_id" : "chat-1",
+        "permission_mode" : "acceptEdits",
+        "state" : "running",
+        "title" : "Check the migrations",
+        "updated_at" : "2026-09-17T09:40:02.500Z"
+      },
+      "kind" : "chat"
+    },
     "closing" : {
       "error" : {
         "code" : "token_expired",
@@ -51,6 +85,7 @@
     },
     "composer" : {
       "changed_by" : {
+        "email" : "freek@example.com",
         "name" : "Freek",
         "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
       },
@@ -85,6 +120,7 @@
       "kind" : "message",
       "message" : {
         "author" : {
+          "email" : "freek@example.com",
           "name" : "Freek",
           "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
         },
@@ -105,6 +141,7 @@
       "kind" : "message",
       "message" : {
         "author" : {
+          "email" : "freek@example.com",
           "name" : "Freek",
           "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
         },
@@ -126,6 +163,27 @@
         }
       }
     },
+    "message_from_a_nameless_author" : {
+      "kind" : "message",
+      "message" : {
+        "author" : {
+          "email" : "technical@example.com",
+          "name" : "",
+          "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2u"
+        },
+        "chat_id" : "chat-1",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "cursor" : 119,
+        "kind" : "user",
+        "payload" : {
+          "message" : {
+            "role" : "user"
+          },
+          "type" : "user"
+        },
+        "seq" : 5
+      }
+    },
     "message_media" : {
       "kind" : "message",
       "message" : {
@@ -143,6 +201,69 @@
         },
         "seq" : 9
       }
+    },
+    "message_result" : {
+      "kind" : "message",
+      "message" : {
+        "chat_id" : "chat-1",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "cursor" : 122,
+        "duration_ms" : 48200,
+        "kind" : "result",
+        "payload" : {
+          "subtype" : "success",
+          "type" : "result"
+        },
+        "seq" : 8
+      }
+    },
+    "message_to_a_person" : {
+      "kind" : "message",
+      "message" : {
+        "audience" : {
+          "kind" : "person",
+          "mention" : "@sebdd",
+          "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2u"
+        },
+        "author" : {
+          "email" : "freek@example.com",
+          "name" : "Freek",
+          "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+        },
+        "chat_id" : "chat-1",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "cursor" : 120,
+        "kind" : "user",
+        "payload" : {
+          "message" : {
+            "role" : "user"
+          },
+          "type" : "user"
+        },
+        "seq" : 6
+      }
+    },
+    "message_tool_use" : {
+      "kind" : "message",
+      "message" : {
+        "chat_id" : "chat-1",
+        "created_at" : "2026-09-17T09:40:02.500Z",
+        "cursor" : 121,
+        "kind" : "toolUse",
+        "payload" : {
+          "id" : "toolu_01",
+          "name" : "Bash",
+          "type" : "tool_use"
+        },
+        "ref_id" : "toolu_01",
+        "seq" : 7
+      }
+    },
+    "pane_requested" : {
+      "chat_id" : "chat-1",
+      "kind" : "pane_requested",
+      "placement" : "split",
+      "url" : "http://127.0.0.1:3000/dashboard"
     },
     "presence" : {
       "kind" : "presence",
@@ -174,6 +295,7 @@
         "prompts" : [
           {
             "author" : {
+              "email" : "freek@example.com",
               "name" : "Freek",
               "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
             },
@@ -184,12 +306,13 @@
           },
           {
             "author" : {
+              "email" : "freek@example.com",
               "name" : "Freek",
               "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
             },
             "blocked" : {
               "limit" : "concurrent_machines",
-              "message" : "Your team already has 20 Cloud workspaces running."
+              "message" : "Your team already has 20 Bloom Cloud workspaces running. Close one to open this."
             },
             "created_at" : "2026-09-17T09:40:02.500Z",
             "id" : "delivery-2",
@@ -199,9 +322,25 @@
         ]
       }
     },
-    "review" : {
-      "kind" : "review",
-      "revision" : 7
+    "queue_paused" : {
+      "kind" : "queue",
+      "queue" : {
+        "chat_id" : "chat-1",
+        "error" : "Queue paused. Send a message to resume.",
+        "prompts" : [
+          {
+            "author" : {
+              "email" : "freek@example.com",
+              "name" : "Freek",
+              "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
+            },
+            "created_at" : "2026-09-17T09:40:02.500Z",
+            "id" : "delivery-1",
+            "state" : "queued",
+            "text" : "And the docs"
+          }
+        ]
+      }
     },
     "setup" : {
       "kind" : "setup",
@@ -210,6 +349,27 @@
         "started_at" : "2026-09-17T09:40:02.500Z",
         "state" : "running",
         "step" : "prepare"
+      }
+    },
+    "setup_failed" : {
+      "kind" : "setup",
+      "setup" : {
+        "enabled" : true,
+        "finished_at" : "2026-09-17T09:40:02.500Z",
+        "note" : "[bloom] Running the setup script.\nYour requirements could not be resolved to an installable set of packages.\n[bloom] The setup script exited with status 2.",
+        "started_at" : "2026-09-17T09:40:02.500Z",
+        "state" : "failed"
+      }
+    },
+    "setup_failed_needing_a_fresh_machine" : {
+      "kind" : "setup",
+      "setup" : {
+        "enabled" : true,
+        "failure_code" : "setup_needs_fresh_machine",
+        "finished_at" : "2026-09-17T09:40:02.500Z",
+        "note" : "[bloom] `sudo apt-get install -y libpq-dev` was refused. Setup runs as bloom-agent, which cannot install system packages.",
+        "started_at" : "2026-09-17T09:40:02.500Z",
+        "state" : "failed"
       }
     },
     "setup_output" : {
@@ -261,7 +421,33 @@
           "unreachable_since" : "2026-09-17T09:40:02.500Z"
         },
         "services" : [
-
+          {
+            "http" : false,
+            "name" : "vite",
+            "restarts" : 0,
+            "state" : "running"
+          },
+          {
+            "http" : true,
+            "message" : "Waiting for db.",
+            "name" : "web",
+            "restarts" : 0,
+            "state" : "waiting"
+          },
+          {
+            "http" : false,
+            "message" : "Exited with status 1. Starting again in 1 s. It asked for port 8081, which is Bloom Runner itself.",
+            "name" : "app",
+            "restarts" : 412,
+            "state" : "crashed"
+          },
+          {
+            "http" : false,
+            "message" : "Waiting for app.",
+            "name" : "horizon",
+            "restarts" : 0,
+            "state" : "waiting"
+          }
         ],
         "setup" : {
           "enabled" : true,
@@ -320,6 +506,28 @@
       },
       "version" : 1
     },
+    "code_matches" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "code_matches",
+        "matches" : [
+          {
+            "column" : 17,
+            "line" : 42,
+            "path" : "app/Queue.php",
+            "text" : "        $this->retryAfter = 90;"
+          },
+          {
+            "column" : 9,
+            "line" : 12,
+            "path" : "config/queue.php",
+            "text" : "        'retry_after' => 90,"
+          }
+        ],
+        "truncated" : true
+      },
+      "version" : 1
+    },
     "commit_files" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "result" : {
@@ -371,9 +579,47 @@
                 "medium",
                 "high"
               ],
+              "fast_tier" : "priority",
               "id" : "gpt-5.5",
               "is_default" : true,
               "label" : "GPT-5.5"
+            },
+            {
+              "agent" : "codex",
+              "default_effort" : "low",
+              "efforts" : [
+                "low",
+                "medium"
+              ],
+              "id" : "gpt-5.5-mini",
+              "is_default" : false,
+              "label" : "GPT-5.5 mini"
+            },
+            {
+              "agent" : "claude",
+              "efforts" : [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "id" : "opus[1m]",
+              "is_default" : true,
+              "label" : "Opus 5 with 1M context"
+            },
+            {
+              "agent" : "claude",
+              "efforts" : [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "id" : "sonnet",
+              "is_default" : false,
+              "label" : "Sonnet 5"
             }
           ],
           "output_styles" : [
@@ -472,7 +718,7 @@
         "history" : {
           "commits" : [
             {
-              "author_email" : "freek@spatie.be",
+              "author_email" : "freek@example.com",
               "author_name" : "Freek",
               "body" : "Twice, with a wait.",
               "date" : "2026-09-17T09:40:00.000Z",
@@ -495,6 +741,54 @@
       "result" : {
         "kind" : "queued",
         "prompt_id" : "delivery-1"
+      },
+      "version" : 1
+    },
+    "quick_prompts" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "issues" : [
+          {
+            "line" : 14,
+            "message" : "Quick prompt “Deploy” will not send on its own: send_immediately is not supported in a shared settings file.",
+            "source" : ".bloom/settings.toml"
+          }
+        ],
+        "kind" : "quick_prompts",
+        "prompts" : [
+          {
+            "id" : "explain changes",
+            "name" : "Explain changes",
+            "new_chat" : false,
+            "prompt" : "Explain what changed on this branch and why.",
+            "source" : ".bloom/settings.toml",
+            "symbol" : "doc.text"
+          },
+          {
+            "id" : "release notes",
+            "name" : "Release notes",
+            "new_chat" : true,
+            "prompt" : "Draft release notes for the commits since the last tag.",
+            "source" : ".bloom/settings.toml",
+            "symbol" : "📝"
+          }
+        ]
+      },
+      "version" : 1
+    },
+    "recently_closed" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "chats" : [
+          {
+            "agent" : "claude",
+            "closed_at" : "2026-09-17T09:40:02.500Z",
+            "id" : "chat-3",
+            "message_count" : 42,
+            "title" : "Investigate retries"
+          }
+        ],
+        "kind" : "recently_closed"
       },
       "version" : 1
     },
@@ -653,6 +947,7 @@
           "messages" : [
             {
               "author" : {
+                "email" : "freek@example.com",
                 "name" : "Freek",
                 "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
               },
@@ -684,6 +979,7 @@
             "prompts" : [
               {
                 "author" : {
+                  "email" : "freek@example.com",
                   "name" : "Freek",
                   "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
                 },
@@ -694,12 +990,13 @@
               },
               {
                 "author" : {
+                  "email" : "freek@example.com",
                   "name" : "Freek",
                   "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2t"
                 },
                 "blocked" : {
                   "limit" : "concurrent_machines",
-                  "message" : "Your team already has 20 Cloud workspaces running."
+                  "message" : "Your team already has 20 Bloom Cloud workspaces running. Close one to open this."
                 },
                 "created_at" : "2026-09-17T09:40:02.500Z",
                 "id" : "delivery-2",
@@ -752,8 +1049,8 @@
             },
             {
               "handle" : "sebdd",
-              "name" : "Seb De Deyne",
-              "user_id" : "01k5usr2"
+              "name" : "",
+              "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2u"
             }
           ],
           "presence" : [
@@ -1000,6 +1297,16 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "history_next_page" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "before" : "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234",
+        "kind" : "history",
+        "limit" : 50
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "mark_read" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
@@ -1052,6 +1359,22 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "quick_prompts" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "quick_prompts"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "recently_closed" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "recently_closed"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "rename_chat" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
@@ -1067,6 +1390,15 @@
       "operation" : {
         "kind" : "rename_workspace",
         "name" : "Queue retries"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "reopen_chat" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-1",
+        "kind" : "reopen_chat"
       },
       "protocol" : "bloom-workspace",
       "version" : 1
@@ -1106,6 +1438,17 @@
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
         "kind" : "review_snapshot",
+        "scope" : "branch",
+        "wait" : true
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "review_snapshot_known_revision" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "review_snapshot",
+        "known_revision" : "revision-2",
         "scope" : "branch",
         "wait" : true
       },
@@ -1156,6 +1499,16 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "search_code" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "search_code",
+        "limit" : 50,
+        "query" : "retryAfter"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "send" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
@@ -1181,6 +1534,21 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "send_to_a_person" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "audience" : {
+          "kind" : "person",
+          "mention" : "@sebdd",
+          "user_id" : "01k5bx7j9d3v2r8q6m4n0p1s2u"
+        },
+        "chat_id" : "chat-1",
+        "kind" : "send",
+        "text" : "@sebdd can you look at the migration?"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "set_composer" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {
@@ -1192,6 +1560,26 @@
           "fast_mode" : false,
           "interaction_mode" : "build",
           "model" : "claude-opus-5",
+          "output_style" : "default",
+          "permission_mode" : "acceptEdits"
+        },
+        "kind" : "set_composer"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "set_composer_codex_fast" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "chat_id" : "chat-2",
+        "controls" : {
+          "agent" : "codex",
+          "codex_context_window" : 0,
+          "codex_fast_mode" : true,
+          "effort" : "medium",
+          "fast_mode" : false,
+          "interaction_mode" : "build",
+          "model" : "gpt-5.5",
           "output_style" : "default",
           "permission_mode" : "acceptEdits"
         },

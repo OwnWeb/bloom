@@ -193,6 +193,9 @@ def package(bin_directory, output_directory, version):
         fetch_caddy(machine, bundle / "bin" / "caddy", notices)
         shutil.copy2(root / "Tools/bootstrap-machine.sh", bundle / "bin" / "bootstrap-machine.sh")
         (bundle / "bin" / "bootstrap-machine.sh").chmod(0o755)
+        # The sandbox user's provisioning, which bootstrap-machine.sh runs beside itself.
+        shutil.copy2(root / "Tools/provision-sandbox.sh", bundle / "bin" / "provision-sandbox.sh")
+        (bundle / "bin" / "provision-sandbox.sh").chmod(0o755)
         (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         (bundle / "README.txt").write_text(
             "bloom-runner\n\n"

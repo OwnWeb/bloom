@@ -35,6 +35,8 @@ public actor ServiceSupervisor {
         public var restarts: Int
         /// A sentence for a person: what it is waiting for, or how it ended.
         public var message: String?
+        /// The one the preview routes to, from the project's own `http = true`.
+        public var isHTTP: Bool = false
     }
 
     public struct Tuning: Sendable, Hashable {
@@ -62,6 +64,8 @@ public actor ServiceSupervisor {
         var service: RemoteProjectSettings.Service
         var state: State = .waiting
         var restarts = 0
+        /// Whether the reserved-port sentence has been said about this service already.
+        var saidAboutPorts = false
         var message: String?
         var up = false
         var process: SupervisedProcess?
@@ -69,6 +73,11 @@ public actor ServiceSupervisor {
     }
 
     private let layout: MachineLayout
+    /// Told whenever the states change, so a client sees a service that never started. Pulling this
+    /// was enough while the only reader was the preview's failure page; it is not enough now that
+    /// the workspace record carries it, because nothing asks a machine for a page it never opens.
+    private let observer: (@Sendable ([Status]) async -> Void)?
+    private var announced: [Status]?
     private let tuning: Tuning
     private var services: [RemoteProjectSettings.Service] = []
     private var environment: [String: String] = [:]
@@ -79,19 +88,77 @@ public actor ServiceSupervisor {
     private var generation = 0
     private var operation: Task<Void, Never>?
 
-    public init(layout: MachineLayout, tuning: Tuning = .standard) {
+    /// The user a service runs as, or nil for this process's own. A service is the project's code,
+    /// so it belongs in the sandbox with the agents and the scripts. See `MachineSandbox`.
+    private let sandbox: MachineSandbox?
+
+    public init(layout: MachineLayout, tuning: Tuning = .standard, sandbox: MachineSandbox? = nil,
+                observer: (@Sendable ([Status]) async -> Void)? = nil) {
         self.layout = layout
+        self.sandbox = sandbox
         self.tuning = tuning
+        self.observer = observer
+    }
+
+    /// Tells the observer, once per change rather than once per event, and in order.
+    ///
+    /// Chained rather than spawned loose, because two changes a millisecond apart delivered the
+    /// wrong way round would leave a client holding the older one for ever: the reader replaces its
+    /// copy, so the last to arrive wins whatever it says.
+    private var announcing: Task<Void, Never>?
+
+    private func announce() {
+        let current = status
+        guard current != announced else { return }
+        announced = current
+        guard let observer else { return }
+        let previous = announcing
+        announcing = Task { [current] in
+            await previous?.value
+            await observer(current)
+        }
     }
 
     public nonisolated var logDirectory: String { layout.dataDirectory + "/services" }
+
+    /// The end of a service's own log, for reading why it exited. Bounded because this is on the
+    /// path of a service restarting every second.
+    private func tail(of name: String, limit: Int = 4_000) -> String {
+        guard let text = try? String(contentsOfFile: logPath(for: name), encoding: .utf8) else { return "" }
+        return String(text.suffix(limit))
+    }
+
+    /// The sentence for a service that could not have the port it asked for, when the port is one
+    /// of ours.
+    ///
+    /// **A project cannot be expected to know which ports a machine has taken, and until now the
+    /// machine never said.** `there-there.app` asked for 8081, which is Bloom Runner's own port,
+    /// and the whole of what anybody was told was `Address already in use` in a service log behind
+    /// a preview that could not be reached, restarting every second. The collision is the project's
+    /// to fix; **being told is ours**.
+    ///
+    /// Matched on the message the operating system produces rather than on anything a program
+    /// chooses, so PHP, node and Python all reach it. A port that is not one of ours gets nothing:
+    /// two of a project's own services fighting over a port is not a thing Bloom knows about.
+    static func portAdvice(in output: String, reserved: [(port: Int, holder: String)]) -> String? {
+        let lower = output.lowercased()
+        guard lower.contains("address already in use") else { return nil }
+        guard let taken = reserved.first(where: { lower.contains(":\($0.port)") }) else { return nil }
+        let list = reserved.map { "\($0.port) (\($0.holder))" }.joined(separator: " and ")
+        return "It asked for port \(taken.port), which is \(taken.holder). This machine keeps "
+            + "\(list), and names them in BLOOM_RESERVED_PORTS. Serve on $BLOOM_APP_PORT, which is "
+            + "what the preview reads, or on any other free port."
+    }
 
     public nonisolated func logPath(for name: String) -> String {
         logDirectory + "/" + Self.fileName(name) + ".log"
     }
 
     public var status: [Status] {
-        order.compactMap { entries[$0] }.map { Status(name: $0.service.name, state: $0.state, restarts: $0.restarts, message: $0.message) }
+        order.compactMap { entries[$0] }.map {
+            Status(name: $0.service.name, state: $0.state, restarts: $0.restarts, message: $0.message,
+                   isHTTP: $0.service.http)
+        }
     }
 
     /// Starts these services, stopping whatever was running first. A service with no name, or a
@@ -161,6 +228,7 @@ public actor ServiceSupervisor {
                 group.addTask { await process.stop() }
             }
         }
+        announce()
     }
 
     private func launchWhatIsReady() {
@@ -173,9 +241,12 @@ public actor ServiceSupervisor {
                 continue
             }
             let generation = generation
+            let command = sandbox.map { $0.wrap(executable: "/bin/sh", arguments: ["-c", entry.service.command]) }
+                ?? (executable: "/bin/sh", arguments: ["-c", entry.service.command])
             let process = SupervisedProcess(
-                command: .init(executable: "/bin/sh", arguments: ["-c", entry.service.command],
-                               workingDirectory: layout.worktree, environment: environment),
+                command: .init(executable: command.executable, arguments: command.arguments,
+                               workingDirectory: layout.worktree,
+                               environment: sandbox.map { $0.environment(environment) } ?? environment),
                 logPath: logPath(for: name), logLimit: tuning.logLimit, backoff: tuning.backoff, stopGrace: tuning.stopGrace
             ) { [weak self] event in
                 await self?.handle(event, service: name, generation: generation)
@@ -186,6 +257,7 @@ public actor ServiceSupervisor {
             entries[name] = entry
             process.start()
         }
+        announce()
     }
 
     private func handle(_ event: SupervisedProcess.Event, service name: String, generation: Int) {
@@ -212,8 +284,19 @@ public actor ServiceSupervisor {
             entry.state = .crashed
             entry.restarts += 1
             entry.message = "Exited with status \(status). Starting again in \(SupervisedProcess.describe(delay))."
+            if let advice = Self.portAdvice(in: tail(of: name), reserved: layout.reservedPorts) {
+                entry.message = (entry.message ?? "") + " " + advice
+                // Once, rather than once a second for the rest of the machine's life: a service
+                // that cannot have its port will say this on every restart, and the point is to be
+                // read by somebody, which one line achieves and three thousand do not.
+                if !entry.saidAboutPorts {
+                    entry.saidAboutPorts = true
+                    FileHandle.standardError.write(Data("bloom-runner: \(name): \(advice)\n".utf8))
+                }
+            }
         }
         entries[name] = entry
+        announce()
         launchWhatIsReady()
     }
 
@@ -229,6 +312,7 @@ public actor ServiceSupervisor {
             entry.message = "Running, but \(url) did not answer within \(SupervisedProcess.describe(tuning.readinessDeadline))."
         }
         entries[name] = entry
+        announce()
         launchWhatIsReady()
     }
 

@@ -18,10 +18,16 @@ public struct ChatRecord: Codable, Sendable, Hashable {
     public var lastSeq: Int
     public var createdAt: Date
     public var updatedAt: Date
+    /// When the chat was closed. **Only ever on the last `chat` event about it**, which is how a
+    /// client that did not close it learns it is gone: a snapshot leaves closed chats out, so
+    /// without this the last event looked like any other update and the chat stayed in every other
+    /// client's strip until the next full read. Absent on every chat that is open.
+    public var closedAt: Date?
 
     public init(
         id: String, title: String, agent: String, model: String, effort: String, permissionMode: String,
-        interactionMode: String, state: String, parentChatID: String? = nil, lastSeq: Int, createdAt: Date, updatedAt: Date
+        interactionMode: String, state: String, parentChatID: String? = nil, lastSeq: Int, createdAt: Date, updatedAt: Date,
+        closedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -35,10 +41,12 @@ public struct ChatRecord: Codable, Sendable, Hashable {
         self.lastSeq = lastSeq
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.closedAt = closedAt
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, agent, model, effort, state
+        case closedAt = "closed_at"
         case permissionMode = "permission_mode"
         case interactionMode = "interaction_mode"
         case parentChatID = "parent_chat_id"

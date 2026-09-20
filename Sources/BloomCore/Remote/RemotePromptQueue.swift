@@ -75,11 +75,15 @@ actor RemotePromptQueue {
 
     /// Registers the prompt with runbloom.app under its author's token, then queues it. A refusal
     /// to register (no GitHub, no ability) reaches the sender as a failure and queues nothing.
-    func enqueue(_ text: String, session: Session, caller: RemoteCaller) async throws -> DeliveryID {
+    func enqueue(_ text: String, session: Session, caller: RemoteCaller, mention: String? = nil,
+                 via: MessageVia? = nil) async throws -> DeliveryID {
         guard !closed else { throw RemoteFailure.shuttingDown }
         let turnID = try await gate.register(.turn, chat: session.id, agent: session.agentKind, caller: caller)
+        // The mention travels with the prompt so the transcript keeps it and the agent does not
+        // read it; see `Delivery.sent`.
         let delivery = Delivery(targetSessionID: session.id, body: text, interactionMode: session.interactionMode,
-                                author: caller.author, remoteTurnID: turnID.isEmpty ? nil : turnID)
+                                author: caller.author, audienceMention: mention,
+                                remoteTurnID: turnID.isEmpty ? nil : turnID, via: via)
         _ = try await store.enqueueDelivery(delivery)
         // Somebody sending a message is somebody asking for the queue to move again.
         try await store.setSetting(Self.pauseKey(session.id), nil)
@@ -179,6 +183,8 @@ actor RemotePromptQueue {
 
     /// The runbloom.app turn a chat is running, if any.
     func runningTurn(_ id: SessionID) -> String? { running[id] }
+    /// The person whose turn a chat is running, as runbloom.app registered it.
+    func runningAuthor(_ id: SessionID) -> String? { runningAuthors[id] }
 
     func turnEnded(_ id: SessionID, ending: RemoteTurnEnd) async {
         runningAuthors.removeValue(forKey: id)
@@ -194,7 +200,7 @@ actor RemotePromptQueue {
         start(id)
     }
 
-    static let shutdownSentence = "The Cloud workspace stopped while this turn was running."
+    static let shutdownSentence = "The Bloom Cloud workspace stopped while this turn was running."
 
     func shutdown() async {
         closed = true

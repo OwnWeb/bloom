@@ -18,7 +18,10 @@ enum Records {
     }
 
     static func workspace(
-        cursor: Int64 = 0, chats: [ChatRecord] = [chat()], composerDefaults: ComposerControlsRecord? = nil,
+        cursor: Int64 = 0, chats: [ChatRecord] = [chat()],
+        composerDefaults: ComposerControlsRecord = ComposerControlsRecord(
+            agent: "claude", model: "sonnet", effort: "", permissionMode: "default", interactionMode: "build"
+        ),
         members: [MemberRecord] = []
     ) -> WorkspaceSnapshotRecord {
         WorkspaceSnapshotRecord(

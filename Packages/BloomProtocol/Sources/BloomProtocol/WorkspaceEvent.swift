@@ -26,8 +26,6 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
     case setup(SetupRecord)
     /// Setup wrote output.
     case setupOutput(text: String)
-    /// The changes on disk moved, so a review should ask for a new snapshot.
-    case review(revision: Int)
     /// An agent on the machine is **asking** for a browser pane. No url means this workspace's own
     /// public address, which a client connected to it already knows.
     ///
@@ -69,7 +67,6 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
         case .composer: "composer"
         case .setup: "setup"
         case .setupOutput: "setup_output"
-        case .review: "review"
         case .paneRequested: "pane_requested"
         case .macMessage: "mac_message"
         case .presence: "presence"
@@ -85,7 +82,7 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
     }
 
     enum Keys: String, CodingKey {
-        case chatID = "chat_id", text, snapshot, questions, controls, changedBy = "changed_by", revision, users, error, url, placement
+        case chatID = "chat_id", text, snapshot, questions, controls, changedBy = "changed_by", users, error, url, placement
     }
 
     public init(from decoder: any Decoder) throws {
@@ -104,7 +101,6 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
                              changedBy: try c.decodeIfPresent(AuthorRecord.self, forKey: .changedBy))
         case "setup": self = .setup(try Tagged.record(SetupRecord.self, kind: kind, from: decoder))
         case "setup_output": self = .setupOutput(text: try c.decode(String.self, forKey: .text))
-        case "review": self = .review(revision: try c.decode(Int.self, forKey: .revision))
         case "pane_requested":
             self = .paneRequested(url: try c.decodeIfPresent(String.self, forKey: .url),
                                   chatID: try c.decodeIfPresent(String.self, forKey: .chatID),
@@ -135,7 +131,6 @@ public enum WorkspaceEvent: Codable, Sendable, Hashable {
             try c.encode(chatID, forKey: .chatID); try c.encode(controls, forKey: .controls); try c.encodeIfPresent(changedBy, forKey: .changedBy)
         case .setup(let value): try Tagged.encode(kind: kind, to: encoder, record: value)
         case .setupOutput(let text): try Tagged.encode(kind: kind, to: encoder); try c.encode(text, forKey: .text)
-        case .review(let revision): try Tagged.encode(kind: kind, to: encoder); try c.encode(revision, forKey: .revision)
         case .paneRequested(let url, let chatID, let placement):
             try Tagged.encode(kind: kind, to: encoder)
             try c.encodeIfPresent(url, forKey: .url); try c.encodeIfPresent(chatID, forKey: .chatID)

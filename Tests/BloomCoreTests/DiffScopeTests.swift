@@ -133,7 +133,7 @@ struct DiffScopeTests {
         let record = { (sha: String, subject: String, author: String, date: String) in
             // No separator after the email: the join between records supplies it, as git's own
             // trailing `%x00` does.
-            "\(sha)\(unit)\(subject)\(unit)\(author)\(unit)\(date)\(unit)\(unit)\(unit)\(author.lowercased())@spatie.be"
+            "\(sha)\(unit)\(subject)\(unit)\(author)\(unit)\(date)\(unit)\(unit)\(unit)\(author.lowercased())@example.com"
         }
         let stream = [
             record("1111111111111111111111111111111111111111", "Teach the parser about renames", "Freek", "2026-08-20T09:15:00+02:00"),
@@ -152,7 +152,7 @@ struct DiffScopeTests {
         #expect(commits[1].subject == "Fix the thing\nand the other thing")
         #expect(commits[2].subject == "Café: rename the module")
         #expect(commits[2].author == "Seb")
-        #expect(commits[2].authorEmail == "seb@spatie.be")
+        #expect(commits[2].authorEmail == "seb@example.com")
         #expect(commits[0].date > commits[1].date)
     }
 

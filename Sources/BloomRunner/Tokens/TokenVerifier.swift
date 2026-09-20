@@ -35,9 +35,11 @@ public actor TokenVerifier {
     /// alike, rather than each route remembering to.
     public nonisolated let revocations: Revocations
 
-    /// `use:jti` of every single-use token accepted and not yet expired, with when it can be
-    /// forgotten.
-    private var used: [String: Date] = [:]
+    /// The `jti` of every single-use token accepted and not yet expired, with when it can be
+    /// forgotten, **one table per use**. They shared one, so a flood of validly signed preview
+    /// tokens filled it and every control call was refused, `revoke` included (L3 in the review of
+    /// 19 September 2026). Now previews can only crowd out previews.
+    private var used: [TokenUse: [String: Date]] = [:]
 
     /// `revocations` nil keeps them in memory, on this verifier's clock.
     public init(issuer: String, workspaceID: String, keys: KeySet, revocations: Revocations? = nil,
@@ -97,7 +99,11 @@ public actor TokenVerifier {
         else { throw Self.refusal("This workspace token is missing a claim.") }
         switch use {
         case .session:
-            guard let name = claims.name, !name.isEmpty else { throw Self.refusal("This workspace token is missing a claim.") }
+            // **A name is not required and used to be.** A person runbloom.app has no display name
+            // for was refused the workspace outright, which is a worse answer than an unlabelled
+            // message: the identity that matters is the subject, which is checked above, and what
+            // a client draws is a presentation question answered by `AuthorRecord.label`.
+            break
         case .preview:
             break
         case .control:
@@ -118,39 +124,44 @@ public actor TokenVerifier {
         }
 
         if use != .control, await revocations.isRevoked(subject, issuedAt: issuedAt) {
-            throw RemoteFailure(.unauthenticated, "Your access to this Cloud workspace was removed.")
+            throw RemoteFailure(.unauthenticated, "Your access to this Bloom Cloud workspace was removed.")
         }
 
         if use.isSingleUse {
-            try remember("\(use.rawValue):\(jti)", until: expiresAt.addingTimeInterval(Self.clockSkew), at: moment)
+            try remember(jti, use: use, until: expiresAt.addingTimeInterval(Self.clockSkew), at: moment)
         }
 
         return WorkspaceToken(
             use: use,
             subject: subject,
             name: use == .session ? claims.name : nil,
+            email: use == .session ? claims.email : nil,
             team: use == .session ? claims.team : nil,
             abilities: abilities.intersection(use.grantableAbilities),
             issuedAt: issuedAt,
             expiresAt: expiresAt,
             jti: jti,
-            signingKey: kid
+            signingKey: kid,
+            actor: use == .session ? claims.act?.sub.flatMap { $0.isEmpty ? nil : $0 } : nil
         )
     }
 
     /// Checked and recorded with no suspension in between, so two requests racing with the same
     /// preview link cannot both see it unused.
-    private func remember(_ key: String, until forgettable: Date, at moment: Date) throws {
-        if let seen = used[key], seen > moment {
+    private func remember(_ jti: String, use: TokenUse, until forgettable: Date, at moment: Date) throws {
+        var table = used[use] ?? [:]
+        if let seen = table[jti], seen > moment {
             throw Self.refusal("This workspace token has already been used.")
         }
-        if used.count >= Self.replayCapacity {
-            used = used.filter { $0.value > moment }
+        if table.count >= Self.replayCapacity {
+            table = table.filter { $0.value > moment }
         }
-        guard used.count < Self.replayCapacity else {
+        guard table.count < Self.replayCapacity else {
+            used[use] = table
             throw Self.refusal("Too many workspace tokens have been used in the last minute.")
         }
-        used[key] = forgettable
+        table[jti] = forgettable
+        used[use] = table
     }
 
     private static func refusal(_ message: String) -> RemoteFailure {
@@ -171,20 +182,29 @@ public actor TokenVerifier {
         }
     }
 
+    /// The standard actor claim: who is acting on the subject's behalf. runbloom.app writes it when
+    /// it mints a token for an agent in another workspace.
+    private struct Actor: Decodable {
+        var sub: String?
+        var turn: String?
+    }
+
     private struct Claims: Decodable {
         var iss: String?
         var aud: String?
         var sub: String?
         var name: String?
+        var email: String?
         var team: String?
         var tokenUse: String?
         var abilities: [String]?
         var iat: Double?
         var exp: Double?
         var jti: String?
+        var act: Actor?
 
         enum CodingKeys: String, CodingKey {
-            case iss, aud, sub, name, team, abilities, iat, exp, jti
+            case iss, aud, sub, name, email, team, abilities, iat, exp, jti, act
             case tokenUse = "token_use"
         }
     }

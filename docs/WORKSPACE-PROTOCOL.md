@@ -122,12 +122,15 @@ Reading (ability `view`):
 | `review_snapshot` | `scope` (`branch`, `uncommitted`, `staged` or `unstaged`), `known_revision`, `wait` | `review_snapshot`: `revision`, and `files` unless you already had that revision |
 | `review_patch` | `path`, `scope`, `known_revision` | `review_patch`: `revision`, and `patch` unless you already had it |
 | `run_scripts` | | `run_scripts` |
+| `quick_prompts` | | `quick_prompts`: the project's `prompts` (`id`, `name`, `prompt`, `symbol`, `new_chat`, `source`) and the `issues` with them |
+| `search_code` | `query` (1 to 256 characters), `limit` (at most 200) | `code_matches`: `matches` (`path`, `line`, `column` in UTF-16 units, `text` cut at 400) and `truncated`. Case-insensitive, over exactly what `files` lists, skipping files over 1 MB and anything binary or not UTF-8. Every file is opened without following links, so a symlink out of the worktree is never read. Stops at the limit or after ten seconds, with `truncated` true |
 | `history` | `limit`, `before` | `history`: `commits` (newest first, each with `pushed` when the branch has a remote) and `has_more` |
 | `commit_files` | `sha` | `commit_files`: that commit's own changed files |
 | `commit_patch` | `sha`, `path` | `review_patch`: the file's diff inside that commit, refused when the commit or the file is not in it |
 | `transcript_search` | `query`, `limit` | `search`: `matches` (chat, seq, cursor, and the excerpt with its matching pieces marked) and `total` |
 | `notes` | | `text` |
 | `pull_request` | | `text`: its URL, or empty |
+| `recently_closed` | | `recently_closed`: at most ten used, top-level chats, newest closure first. Each carries `id`, `title`, `agent`, `message_count` and `closed_at` |
 | `archive_preview` (`share`) | | `archive_preview` |
 
 Changing chats (ability `prompt`):
@@ -137,6 +140,7 @@ Changing chats (ability `prompt`):
 | `new_chat` | `controls` | `chat` |
 | `rename_chat` | `chat_id`, `title` | `accepted` |
 | `close_chat` | `chat_id` | `accepted` |
+| `reopen_chat` | `chat_id` | `chat`: the ordinary open chat record. Only a top-level chat still present in `recently_closed` can be reopened |
 | `mark_read` | `chat_id`, `seq` | `accepted` |
 | `set_composer` | `chat_id`, `controls` | `accepted` |
 | `send` | `chat_id`, `text` | `queued` with the prompt's id |
@@ -148,11 +152,17 @@ An `answer` is one of `allow_once`, `allow_session`, `allow_project`, `deny` (wi
 `ends_turn`), `approve_plan` (with `permission_mode`) and `question` (with `input`, the agent's own
 answer shape).
 
+`recently_closed` is a fresh read, not part of the workspace snapshot. A client asks again when it
+opens the menu, including after another client closes a chat. The bound is part of the server
+contract: a chat pushed out by ten newer closures is no longer accepted by `reopen_chat`. Empty
+chats, crew members and still-nested side conversations never appear. Reopening preserves the transcript,
+title, provider conversation id, usage and every other session field; it clears only `closed_at`.
+
 Changing the worktree (ability `files`, except where noted):
 
 | Kind | Fields | Result |
 | --- | --- | --- |
-| `write_file` | `path`, `text`, `revision` | `file` with the new revision, or `conflict` |
+| `write_file` | `path`, `text`, `revision` | `file` with the new revision, or `conflict` when the file changed since that revision. **An empty `revision` creates the file, and its folders, only if there is none**, answering `conflict` if one exists: that is how a client adds a `.bloom/settings.toml` a project does not have yet |
 | `upload_file` | `name`, `data` | `text`: the path it was saved at, under `.bloom/attachments/` |
 | `commit` | `message` | `accepted` |
 | `push` | | `accepted` |
@@ -161,8 +171,8 @@ Changing the worktree (ability `files`, except where noted):
 | `revert_file` | `path`, `scope` | `accepted`: the file goes back, in the sense that scope has |
 | `discard_hunk` | `path`, `scope`, `patch` | `accepted`, or a conflict when that hunk is no longer what the file holds |
 | `rename_workspace` | `name` | `accepted` |
-| `run_setup` | | `accepted` once setup has run again |
-| `stop_setup` | | `accepted`, and setup ends as `failed` with a note naming who stopped it: the step running is ended and nothing after it starts, services included. What finished stays installed, and `run_setup` does the rest. Stops the machine's own setup or one run by hand, whichever is running; `conflict` when neither is. A `run_setup` that was stopped answers `conflict` too |
+| `run_setup` | | `accepted` as soon as setup has started again, not when it ends: follow it through the `setup` event and `setup_output`, as for any setup. Refused on the spot with `busy` when setup is already running, an agent is working or a prompt is waiting. Sent for a workspace with `setup.enabled` false too: the person is asking for it by hand, which is the whole point of the key |
+| `stop_setup` | | `accepted`, and setup ends as `failed` with a note naming who stopped it: the step running is ended and nothing after it starts, services included. What finished stays installed, and `run_setup` does the rest. Stops the machine's own setup or one run by hand, whichever is running; `conflict` when neither is |
 | `continue_after_merge` | `chat_id`, optional | `text`: the new branch. After the pull request merged: a new branch cut from the base in this worktree, the same session kept, and the agent told in `chat_id` or the most recent chat, as the person who asked. Refused with `conflict` and the Mac's own sentence when the pull request has not merged, an agent is working, a rebase is half done, or the worktree is on another branch or detached. Needs `prompt` as well as `files` |
 | `run_script` (`terminal`) | `id` | `terminal`: the terminal it runs in |
 | `close_terminal` (`terminal`) | `name` | `accepted` |
@@ -236,18 +246,241 @@ events. Then live events as they happen.
 | --- | --- | --- |
 | `message` | a transcript row | adds it to its chat, by `seq` |
 | `stream` | `chat_id`, `text`, `snapshot` | replaces the chat's streaming text when `snapshot` is true, appends otherwise |
-| `chat` | a chat | replaces its copy |
+| `chat` | a chat | replaces its copy; one carrying `closed_at` is the last about that chat, which was closed, so drop it. Reopening publishes the ordinary record again without `closed_at`, so every client restores it by id without adding a duplicate |
 | `mac_message` | a message for a local workspace on this Mac | **Bloom on a Mac only**: check `user_id` is the signed-in person, find the local workspace named `workspace`, and deliver `text` into it as a message from elsewhere, headed with `via`, never as typed words. Sent only down streams opened with `Bloom-Client: mac` by the running turn's person; deliver each `id` once |
 | `queue` | a chat's queued prompts and why it is paused | replaces its copy |
 | `questions` | a chat's waiting questions | replaces its copy |
 | `composer` | a chat's controls and `changed_by` | replaces its copy, and may say who changed it |
 | `setup` | setup's state and step | replaces its copy |
 | `setup_output` | new output | appends it to the log |
-| `review` | a revision number | asks `review_snapshot` again |
+| `pane_requested` | a `url` the agent named, or none for this workspace's own address, and the `chat_id` it is speaking for | **open a browser pane, if you want to**; see below |
 | `presence` | who has the workspace open | replaces its copy |
 | `workspace` | name, branch, pull request, `reporting` | replaces its copy |
 | `sleeping` | nothing | see "Sleeping and waking" |
 | `closing` | a failure | the stream ends; act on the code |
+
+**Refuse at the edge, be liberal at the leaf.** A word the machine does not know is refused there,
+because an agent told it got what it asked for is the failure that matters; **a client draws an
+unknown one as the default rather than discarding the event**, because a client that goes silent
+over a word it has not learned goes blind the day a value is added. The two ends are deliberately
+not symmetric, and both halves of that were argued for by the people who own them.
+
+**`pane_requested` carries `placement`, `split` or `tab`, and absent means `tab`.** An agent asked
+to put a browser "next to this chat" had no way to say so and got a tab, which is a different thing:
+locally the two are different verbs, `pane_split` and `pane_open`. **A split belongs beside the pane
+showing the chat that asked**, and a client that cannot split, or whose reader is not looking at
+that chat, opens a tab instead. **The reader's selection is never moved for either**, which is a
+bigger liberty than opening something.
+
+**`pane_requested` is an agent on the machine asking, not telling.** It cannot open a pane: a pane
+belongs to the window of whoever is looking, and the machine is not there. So a client shows one if
+it wants to, and may ignore it. **Several clients may receive the same request**, and there is no
+"the" window, so each decides for itself. No `url` means this workspace's own public address, which
+a client connected to it already knows. The tool that sends it tells the agent how many clients were
+told, and tells it plainly when there were none, so **an agent is never in a position to report
+opening something that did not open**.
+
+**Knowing when the diff changed is the waiting `review_snapshot` call.** Ask with the `revision` you
+hold and `wait` true: the machine answers at once with a new `revision` and `files` when the diff has
+moved, and after about fifteen seconds with the same `revision` and no `files` when it has not, which
+is the signal to ask again.
+
+**There used to be a `review` event here and it was removed on 18 September 2026, because no machine
+had ever sent one.** Nothing constructed it: the case and its decoder were the only two places it
+appeared in the whole of Bloom, and its `revision` was an integer where the snapshot's is a digest
+string, so the two could not have been compared even if it had arrived. A client had already written
+a refresh path on it, which therefore never ran. **An event nothing emits is worse than no event**:
+it reads as a mechanism, and the client that trusts it has no symptom to debug.
+
+## Addressing a message
+
+**`send` takes an optional `audience`, and absent means the agent**, so a client that has never
+heard of this keeps working. It is `{"kind": "agent"}` or `{"kind": "person", "user_id": "…"}`,
+**always by id and never by a typed name**: addressing by display name sends to the wrong person the
+day two people share one. A `kind` the machine does not know is refused rather than read as the
+agent.
+
+**A message addressed to a person does not become a turn.** It is not queued, it sends no queue
+event, it does not change the chat's state, it does not interrupt whatever the agent is doing, and
+`send` answers `accepted` rather than `queued`: there is no prompt to wait for.
+
+**And the agent is never given it.** Not filtered at the client, not marked and passed on, and not
+included by any later replay or compaction: `chat_read`, the only way an agent can read a
+transcript, leaves these rows out. **The agent is told nothing about the gap**, because a "messages
+not shown" marker invites it to ask what it missed. **This is a property of the protocol rather than
+of one implementation**, so a client may rely on it and a machine may not weaken it.
+
+**The mention travels resolved, in `audience.mention`, and is never re-parsed.** It is the text that
+was typed, `@sebdd` or `@agent`, and it is **always a prefix**, so its extent is its own length and
+there are no offsets to disagree about; two clients that each hunt for the `@` will differ the first
+time somebody types `@seb.dd`, and an offset computed in UTF-16 code units by one client and
+graphemes by another puts a highlight in two places. **The machine strips the mention from what the
+agent reads** and nowhere else: the agent is asked "Fix the server", not "@agent Fix the server",
+while the stored row keeps what was typed because the bubble draws it. A client must not strip it
+early.
+
+### Which client is watching
+
+Bloom on a Mac opens the event stream with `Bloom-Client: mac`. The machine believes it only for
+choosing which of one person's own streams a `mac_message` goes down, so a browser holding the same
+person's stream is never handed a message meant for their Mac. Other clients send nothing.
+
+### Sent by an agent
+
+A client that sends on a person's behalf because an agent asked it to, the Mac's `workspace_say` to
+a Bloom Cloud workspace being the first, adds `via` to `send`: `{"kind": "agent", "workspace",
+"chat"}`, the sending workspace's name and chat's title. **The token is still the person's, so the
+message is theirs**: their author, their turn, their bill. `via` is what stops it reading as words
+they typed. The machine keeps it on the row, and every client draws it under the author.
+
+- **A label, never a permission.** It grants nothing, changes nothing about the author, and is
+  never handed to an agent. The machine believes it only for what it says on screen.
+- **Names, not ids**, because it is only ever read, and a Mac's workspace id means nothing here.
+- `kind` is `agent` and nothing else yet; the machine refuses any other with `invalid_value`, before
+  anything is written. Each label is trimmed and cut at 200 characters.
+- From a person's own client, with no agent involved, there is no `via`.
+
+## The terminal socket
+
+Verified against the code rather than described from memory, because two clients have now had to
+work it out for themselves.
+
+**`GET {machine_url}/_bloom/v1/terminal?name={name}`, upgraded.** The scheme is the machine URL's
+with `http` swapped for `ws`. **No token in the URL and none in a header**: a browser's `WebSocket`
+can send neither, so it goes in the first frame and every client takes the same path, which is the
+one that gets tested.
+
+**The first frame must be `auth` and must arrive within five seconds**, or the machine closes with
+`1008`. Anything before it is refused the same way. **A `1008` means refused, and reconnecting will
+not fix it**: the reason says which refusal it was, and `token_expired` is the one a client acts on
+by getting a fresh token rather than retrying. The abilities needed are `view` and `terminal`.
+Frames are capped at 1 MB in both directions.
+
+**Binary up is keystrokes. Binary down is raw PTY bytes with no envelope**, which is what a terminal
+emulator wants and nothing else. **Text up is the three control frames** (`auth`, `reauth`,
+`resize`); **nothing comes down as text.** What a machine has to say beyond bytes it says by closing
+with a reason.
+
+**Connecting with a name attaches to that shell, or creates it.** There is no `open_terminal`
+operation and that is not an omission: the name is the request. `run_script` is a different thing,
+for the scripts `run_scripts` lists. **The shell outlives the socket**, so closing a tab and opening
+another with the same name is the same session with its scrollback and its running command.
+
+**`reauth` is the client's own clock.** A session token lives minutes and a terminal lives hours;
+the machine never asks for a renewal and closes with `token_expired` when the deadline passes, so a
+client watches its own expiry and sends `reauth` before it. **A renewal is verified as the same
+person, still holding both abilities, and is ignored silently otherwise**: `reauth` cannot hand a
+running shell to somebody else, and cannot carry one past the moment its owner's access narrowed.
+
+**A server is held to sending every field; a client is held to reading what a machine actually
+sends.** The two halves of this protocol are not held to the same standard on purpose. What a
+machine sends is whatever was true when that machine was built, and every machine in the field was
+built before the newest field existed. **So a client decodes an absent field as its default and
+never as an error**, and a machine that has been running for a month keeps working when a client is
+updated. The failure this prevents does not look like a missing field: a required key inside the
+workspace snapshot means **that workspace will not open at all**. `members`, `fast_mode`,
+`output_style` and `codex_context_window` are all read that way, and a default written on a stored
+property does not do it: only an explicit decoder does.
+
+**Who may be addressed is `members` on the workspace snapshot, and it is not `presence`.** Presence
+is who is here; this is who has access, and **somebody who is away is exactly who a mention is most
+useful for**. Each carries a `handle`, which is what a person types after `@`: a display name is not
+typeable and an address is not either. **A handle belongs to a membership rather than to a person**,
+so the same person may be `seb` in one team and `sebdd` in another, and a client must not cache one
+across workspaces. There are no addresses in the list, because a share-link guest reads this
+snapshot too and a directory of every member's email would be a way to collect them by typing `@`.
+It is empty until the machine has been told, which is a real state and not an empty team.
+
+**The machine refuses an audience it cannot vouch for**, and says which of the two it is: the person
+is not a member of this team, or this machine has not been told who the team is yet. Both are
+refusals rather than a stored guess.
+
+**`author` is absent when nobody wrote it, and it is never cleared for whoever is reading.** It is
+missing on the agent's own rows, on anything the machine wrote, and on every row in a Mac workspace,
+where there is one person and no author to record. **It is present, with the same value, for
+everybody**: the event stream encodes one `message` record and sends it to every subscriber, so a
+per-reader field is not something this protocol can express, and anything that has to differ by
+reader has to be a reply to a call rather than an event.
+
+**So a client decides whether a message is its own by comparing `author.user_id` with the subject of
+the token it authenticated with, never by the field being absent.** The subject, rather than "the
+signed-in account", because that is the id the machine records and it is the one every caller has,
+including before an account object has finished loading.
+
+**A share-link guest does not come into it.** A share mints a **preview** token, whose only ability
+is `preview`: it cannot open a chat, cannot send, and carries no author at all. **There are no
+guest-written messages to decide the ownership of**, so a client that finds itself reasoning about
+one has a different problem.
+
+ "No author means mine" is true on a Mac, where nobody
+has one, and wrong in a shared Cloud workspace, where it draws the reader's own words as somebody
+else's, in somebody else's colour, with a caption naming them over the top of their own sentence.
+
+**Every message has an author, and drawing it is one rule: the name if it is not empty, the email
+if it is, and "somebody" if neither.** `AuthorRecord` carries `user_id`, `name` and an optional
+`email`, and **`name` may be empty**, because not everybody has a display name. An empty name drawn
+as-is is an empty label, which in a shared workspace is indistinguishable from no label, which reads
+as the reader's own message: on 18 September 2026 Freek read a colleague's message as his. The email
+is a field of its own rather than something put in `name` when a name is missing, because **mention
+completion matches on these**, and a field that is sometimes a name and sometimes an address is how
+a message meant for one person reaches another. `email` is absent for a share-link guest.
+
+**A person with no display name is not refused.** The machine used to require a `name` claim on a
+session token and turn away anybody runbloom.app had no name for, which is a worse answer than an
+unlabelled message.
+
+**The workspace record carries the project's services, and a client should draw them.** One entry
+per `[[services]]` the repository declares, each with its `state` (`waiting`, `starting`, `running`,
+`not_ready`, `crashed`, `stopped`), how many times it has restarted, a sentence for a person, and
+**`http`, which marks the one the preview routes to**. That mark is a fact rather than an
+instruction: **"can I open the preview yet" is that service and no other, and "why is it not up" is
+usually a different one**, because what holds an app back is the database it waits for. Two clients
+wanted opposite things from it and both were right, so the machine says which it is and neither has
+to guess from a name.
+**The state worth drawing loudest is `waiting`**: the machine starts a service only once everything
+in its `depends_on` is ready, so one whose dependency never comes up is never launched, never fails
+and never restarts, and before this record its only account was a sentence on the preview's own
+error page, which a project running its own proxy on the previewed port makes unreachable. The list
+is empty for a project that declares no services, and `workspace_not_reporting` in the vectors shows
+the three shapes together.
+
+**Every line the machine writes into the setup log itself begins `[bloom] `, and every other line is
+the script's own output.** A client can draw the two differently on that alone: the step headings
+(`[bloom] Cloning the repository.`), the notes (a settings problem, a run starting again, why
+nothing ran) and the outcome sentences are Bloom speaking; everything else is what the project
+printed.
+
+**The step ids, which are the whole set**: `environment`, `git`, `clone`, `prepare`, `setup`,
+`resume`, `services`. A run shows the ones it needs, in that order: a project with no scripts shows
+`environment`, `git`, `clone` and, if it declares any, `services`, and a later start shows
+`environment`, `git`, `resume`, `services`. **Three of them normally print nothing worth reading**:
+`environment` and `git` are silent unless something goes wrong, and `services` says one line. So
+**an empty log under a named step is the ordinary case rather than a sign that nothing is
+happening**, and **the step is always set before the work starts**, which makes it a promise the
+machine has already kept rather than one it is about to. The step is the state; the log is the
+detail.
+
+**A script cannot speak in Bloom's voice**: a line of script output that begins with the marker is
+indented by one space before it is stored, so it keeps every character and stops being a line that
+starts with `[bloom] `.
+
+**A workspace can be created with setup turned off, and `setup.enabled` is how a client knows.**
+It is false when somebody asked for no setup scripts at all: the repository is cloned and nothing
+else is run, no services are started, and `setup.state` settles at `skipped` with a note saying so.
+**`skipped` is then the ordinary outcome rather than something to fix**, so a client should offer to
+run setup rather than report that it failed to, and `run_setup` is how a person asks for it. The
+field is not named `run_setup` on purpose, because that is the method beside it and a field of that
+name would read as a command. The machine's own configuration file does call it `run_setup`, which
+is right where it is written: a file is read once and obeyed, so the key is a property there. It is absent only from a machine older than the key, and absent means
+enabled, which is what those machines do.
+
+**A failure the machine can name carries `setup.failure_code`.** `setup_needs_fresh_machine` is the
+only code today: setup asked for root, and only the first setup of a brand new machine on the base
+branch's own code gets it (see "The sandbox user" in docs/REMOTE-WORKSPACES.md). `note` and the log
+say the same thing in words and name the command that was refused, but the code is what a client
+should offer an action from, because the words will be reworded. It is absent on an ordinary failure
+and on any machine older than the field, and both mean "read the note". The codes live in one list,
+`SetupFailureCode`.
 
 **A client never has to guess what a new chat starts with.** `composer_defaults` on the workspace
 snapshot is what a chat that does not exist yet would open on, as the machine answers it: the
@@ -301,19 +534,16 @@ missing or bad token and with the reason `token_expired` when the token ran out.
 ## Preview
 
 Open `https://<machine>/_bloom/preview/enter?token=<preview token>` in a browser, top level. The
-machine sets `__Host-bloom-preview` (HttpOnly, Secure, SameSite=Lax, eight hours, one hour for a
-share link) and redirects to `/`. Every other path is the project's own app, reached only with that
-cookie; the app never sees the cookie.
+machine sets `__Host-bloom-preview` (HttpOnly, Secure, SameSite=Lax, one hour, for a person and a
+share link alike) and redirects to `/`, or to `path` when one is given: `&path=/dashboard`, for a
+`pane_requested` that named a page. **Only a path on this origin is taken**: it has to start with one
+`/`, carry no backslash or control character, stay out of `/_bloom`, and fit in 2,048 bytes; anything
+else lands on `/`, so the entrance can never be used as an open redirect. Every other path is the
+project's own app, reached only with that cookie; the app never sees the cookie.
 
 ## The client chapter
 
 What #163 kept inside its Swift client, written down so every client gets it right.
-
-### Which client is watching
-
-Bloom on a Mac opens the event stream with `Bloom-Client: mac`. The machine believes it only for
-choosing which of one person's own streams a `mac_message` goes down, so a browser holding the same
-person's stream is never handed a message meant for their Mac. Other clients send nothing.
 
 ### Opening a workspace
 
@@ -370,6 +600,45 @@ answer wins; a second gets `already_answered`, and the `questions` event that fo
 
 `set_composer` is last writer wins. The `composer` event says who changed it; show that when it was
 somebody else. A chat that has messages keeps its agent: to change agents, open a new chat.
+
+**A model's own efforts and fast tier are on its record.** `models` lists Codex's and Claude
+Code's, each with the `efforts` it takes; Codex's also carry a `default_effort`. `fast_tier` names
+the service tier that makes a Codex model fast, from the same model list and without starting a
+turn. **Absent means no fast mode**, which is also what a machine older than the field sends, and
+it is always absent on a Claude Code model, whose fast mode is a switch on the chat. A project's
+Codex configuration can still turn fast mode off, and that is not on the wire yet.
+
+**Claude Code's list is the `claude` CLI's own**, read from its `initialize` answer, and it depends
+on who asks. A machine asks without an account, because it holds no key outside a turn, and the
+CLI then leaves out models an account unlocks: **Fable is absent from a machine's list, and that is
+not a bug.** A chat can still be set to a model the list does not carry; the list is what the machine
+can vouch for, not everything that will run. `[1m]` variants such as `opus[1m]` are their own model
+ids, and `is_default` marks the one the CLI recommends.
+
+**Quick prompts come from two places, and the machine answers for one.** The person's own are in
+their client's database and are that client's to show. The project's are `[[quick_prompts]]` in the
+repository's settings files, which only the machine can read, and `quick_prompts` answers with
+them, read by the Mac's loader so the two menus cannot disagree about a file.
+
+- **Ask when the menu opens, not once.** The file is read again on every call and nothing is
+  pushed, so an edit in the workspace, a pull, or an agent rewriting the file is in the next menu.
+  Quick prompts are the same for every reader, so this could have been the snapshot; it is a call
+  because a snapshot is fetched once and the file is not.
+- **A project prompt never sends.** Put `prompt` in the composer for the person to read. There is
+  no `send_immediately` on the wire: the machine refuses it on the way in and says so in `issues`,
+  because these are words whoever last edited a committed file wrote, and an agent with the run of
+  the worktree acts on them the moment they are sent.
+- **`new_chat`** opens a new chat for the words, titled with `name`. Where a new chat cannot be
+  opened, compose in the one on screen.
+- **`symbol`** is always one Bloom draws: an SF Symbol name from Bloom's picker, or one emoji. A web
+  client that cannot draw the first needs its own mapping or a fallback glyph.
+- **`id`** is the name trimmed and lowercased, stable across reads and unique in one answer, so a
+  highlighted row stays highlighted when the menu is read again.
+- **`issues`** are sentences about the project's prompts only, each with its `source` relative to
+  the worktree and a `line` when the parser had one: a prompt left out, one that will not send on
+  its own, a file that would not parse and took its prompts with it.
+- **A machine older than this call answers 400 `invalid_request`.** Treat that as no project
+  prompts.
 
 ### Media
 
@@ -434,7 +703,7 @@ accepted; the machine answers 202 and carries the work on.
 | `stop` | `{"limit": "..."}` | stops running turns, marks queued prompts blocked, reports and lets the machine sleep |
 | `limits-cleared` | `{}` | tries blocked prompts again |
 | `revoke` | `{"user_id": "..."}` or `{"user_ids": [...]}` | refuses their tokens and preview cookies issued before it, closes their streams, removes their queued prompts, stops their running turn and ends the shells they opened; a `share:<id>` subject withdraws a share link's preview |
-| `update` | `{"version": "...", "sha256": "...", "tag": "v... or runner-v..."}` | starts the bootstrap script for that release, which restarts the server |
+| `update` | `{"version": "...", "sha256": "...", "tag": "v... or runner-v...", "download_url": "https://objects.githubusercontent.com/..."}` | starts the bootstrap script for that release, which restarts the server. `download_url` is optional: a short-lived signed URL on `objects.githubusercontent.com` or `release-assets.githubusercontent.com`, fetched with no redirect followed and never logged, since the repository is private; the sha256 still decides |
 | `environment` | `{}` | fetches team and project environment again |
 | `shared` | `{}` | stops every agent process and ends every terminal holding a personal key or personal environment; a turn running on one ends with a row saying why, and queued prompts start on the team key |
 | `secret-rotated` | `{}` | reads `/etc/bloom/workspace.json` again and uses its new workspace secret |

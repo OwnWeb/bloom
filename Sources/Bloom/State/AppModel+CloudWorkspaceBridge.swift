@@ -14,7 +14,8 @@ import Foundation
 /// Every failure is a sentence rather than a thrown error, because the reader is an agent that
 /// will pass it on, and runbloom.app's own refusals already say what to do in words a person reads.
 extension AppModel {
-    func startCloudWorkspaceForBridge(_ order: CloudWorkspaceOrder) async -> CloudWorkspaceStartOutcome {
+    func startCloudWorkspaceForBridge(_ macOrder: MacCloudWorkspaceOrder) async -> CloudWorkspaceAnswer {
+        let order = macOrder.order
         guard let account = cloud.account else {
             return .refused("Bloom is not signed in to a Bloom account, so it cannot create Bloom Cloud workspaces. The owner signs in under Settings, Bloom Cloud.")
         }
@@ -36,14 +37,14 @@ extension AppModel {
         }
 
         let teamID: String, project: RunbloomProject
-        switch CloudProjectChoice.choose(named: order.project, callerRepository: order.callerRepository, among: candidates) {
+        switch CloudProjectChoice.choose(named: order.project, callerRepository: macOrder.callerRepository, among: candidates) {
         case .chosen(let chosenTeam, let chosenProject): (teamID, project) = (chosenTeam, chosenProject)
         case .refused(let sentence): return .refused(sentence)
         }
         guard let team = cloud.team(teamID) else { return .refused("That team is no longer on the Bloom account.") }
 
         let prompt = order.prompt ?? ""
-        let name = order.name ?? Git.title(from: prompt)
+        let name = order.name
         let branch = order.branch ?? Git.branchStem(prompt: prompt.isEmpty ? name : prompt, prefix: account.branchPrefix)
         if let problem = CloudBranchName.problem(branch) {
             return .refused("'\(branch)' cannot be a branch. \(problem)")
@@ -54,7 +55,7 @@ extension AppModel {
         // `CloudWorkspaceStartQuestion`.
         if CloudWorkspaceStartQuestion.asks(stored: UserDefaults.standard.object(forKey: CloudWorkspaceStartQuestion.settingKey)) {
             let question = CloudWorkspaceStartQuestion(
-                requestedBy: order.requestedBy, name: name, project: project.repository,
+                requestedBy: macOrder.requestedBy, name: name, project: project.repository,
                 branch: branch, baseBranch: baseBranch, runSetup: order.runSetup
             )
             switch await CloudStartAlert.shared.ask(question) {
@@ -72,7 +73,10 @@ extension AppModel {
             // The address runbloom.app gave, passed through. Absent from an older server, and then
             // absent here too rather than built from a team slug and an id: it is somebody else's
             // routing.
-            return .started(StartedCloudWorkspace(id: item.id, name: item.name, state: item.state, url: item.url))
+            guard let url = item.url else {
+                return .refused("runbloom.app created the workspace without an address to open it. Refresh Bloom Cloud and open it from the sidebar.")
+            }
+            return .created(CloudWorkspaceCreated(id: item.id, name: item.name, state: item.state, url: url))
         } catch let refusal as RunbloomRefusal {
             return .refused(LimitNotice(refusal: refusal).map { "\($0.message) \($0.detail)" } ?? refusal.message)
         } catch {

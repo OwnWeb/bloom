@@ -152,15 +152,59 @@ environment.
 ### The workspace secret
 
 Generated at create, stored hashed on runbloom.app, written to the Sprite at
-`/etc/bloom/workspace.json` (mode 600) at bootstrap, and revoked on archive. It authorises the Sprite towards runbloom.app and nothing wider than its own workspace:
-posting its own summary, fetching git tokens for its own repository, fetching team and project
-environment, and starting a turn a user has already registered (below).
+`/etc/bloom/workspace.json` (mode 600) at bootstrap, and revoked on archive. It authorises the Sprite
+towards runbloom.app: posting its own summary, fetching git tokens for its own repository, fetching
+team and project environment, and starting a turn a user has already registered (below). **It also
+reaches past its own workspace**, while a turn is running and the team's switches allow it: listing
+the other workspaces that turn's person can open and minting a token to message one
+(`RunbloomPeers`), creating a Cloud workspace (`RunbloomCloudWorkspaces`), and mailing a member
+through `/addressed`.
 
 An agent in the Sprite has passwordless sudo and can read that file, and it can read the
-environment of its own process. That is accepted: the Sprite is the isolation boundary, everything
-reachable from it is scoped to one workspace, and the agent credential is visible to the agent in
-every design where the unmodified CLI runs. What narrows the damage is short lifetimes, a narrow
-secret, and (later, per project) the Sprite's DNS egress allowlist.
+environment of its own process, so it can make every one of those calls itself. The agent
+credential is visible to the agent in every design where the unmodified CLI runs, and within one
+workspace that is accepted. Beyond it, what holds is the other end: a token minted for an agent
+may only send a message on the receiving machine (see `RemoteCaller.agentMayRun`), runbloom.app
+limits minting per origin, and each switch is off by default. What narrows the damage otherwise is
+short lifetimes and (later, per project) the Sprite's DNS egress allowlist. Running the agent,
+terminals and scripts as a second Unix user without sudo, so that none of them can read the secret,
+is being designed after the security review of 19 September 2026.
+
+### The sandbox user
+
+**Everything the repository or an agent controls runs as `bloom-agent`, which has no sudo**: the
+agents, the tmux server behind the terminals, the setup and resume scripts, the run scripts and the
+services. The Runner keeps its own user, which has sudo, because updates need it. H1 in the security
+review of 19 September 2026 is why, and `Tools/provision-sandbox.sh` is what makes it, on install and
+on every update, idempotently.
+
+**A second user alone isolates nothing on a Sprite, which is the part worth knowing.** `/.sprite/api.sock`
+is world-writable on a read-only mount, so any local user can create a service that runs as the
+Runner's user; measured on 19 September 2026. So a sandboxed command is
+`sudo -E unshare --mount --propagation private -- sh -c 'mount --bind /dev/null /.sprite/api.sock &&
+exec setpriv --reuid=bloom-agent …'`. The namespace is private, so the mask is that process tree's
+alone and the Runner keeps its own access; inside it, `umount` needs superuser and `unshare` is
+refused. The environment is passed with `-E` rather than in arguments, because a turn's keys travel
+in it and `ps` shows arguments to everybody. See `MachineSandbox`.
+
+**What the two users share, and what they do not.** The worktree is group `bloom-work`, setgid, so
+both work in one checkout; `/var/lib/bloom/shared` holds what the Runner writes for the sandbox user,
+which is the tmux configuration and the credential socket. The Runner's data directory stays 0700:
+the database, and `~/.bloom/local-secret`, are not the sandbox user's to read. The agent CLIs are
+copied to `/usr/local/lib/bloom-agents`, root-owned and world-readable, because the image installs
+them under a 0750 home.
+
+**Root for the first setup of a pristine checkout, and nothing else.** A workspace cut from the base
+branch runs its first setup as the Runner's user, so a project can install packages, add a PPA or
+build an extension. Every later run, and any first setup on a pull request's code, runs as
+`bloom-agent`: what a script runs is the worktree's code, so an agent that edits `package.json` would
+otherwise get root out of the next `npm install`. Whether a checkout is pristine is read from git,
+never claimed. A script refused root gets a sentence naming the command and the code
+`setup_needs_fresh_machine`, which is also `setup.failure_code` on the wire.
+
+**A machine built before this runs as it always did.** `MachineSandbox.available()` answers nil where
+the user or `unshare` or `setpriv` is missing, and everything runs as the Runner's user, which is
+what the Runner says at start.
 
 ## Agent credentials
 
@@ -246,6 +290,66 @@ and messages have no sender. Phase 1 adds:
   request once; a second answer gets "already answered by <name>".
 - **Presence**: Bloom Runner keeps the set of users with an open event stream and the last human
   input per user, and publishes it as an event and in the summary.
+
+### Addressing somebody instead of the agent
+
+`@name` at the start of a message means it is for a person and not for the agent. The wire is in
+docs/WORKSPACE-PROTOCOL.md; two machine calls make it work.
+
+**`GET /api/machine/workspaces/{workspace}/members`** answers `user_id`, `name` and `handle` for
+everybody on the team, and **no addresses**. A share-link guest is on the machine and completion is
+offered to whoever is typing, so a directory of every member's email would be a way for somebody
+outside the team to read them by typing `@`. That is a different exposure from the `email` on a
+message's author, which names somebody whose message the reader can already see. **It is a pull, and
+a miss refetches**, because a machine holding a list from three weeks ago refuses a colleague who
+joined last week; `MachineMembers` puts a cooldown on that, since a mistyped handle is a miss too
+and a request per keystroke is not a well behaved machine.
+
+**`POST /api/machine/workspaces/{workspace}/addressed`** tells runbloom.app somebody was addressed,
+so it can mail them if they were not here. **Its own call rather than a fold into a report, because
+it causes mail**: anything coalesced, retried for unrelated reasons or replayed sends two emails or
+none. It carries the message's own id, when it was sent, who sent it, and **whether each addressed
+person was connected at that moment**, which is the fact only the machine holds. The other end
+dedupes per message **and addressed person**, so a retry is free, and the id must never be reused:
+a repeat is treated as a retry and mails nobody, which fails without a symptom.
+
+**`cloud-workspaces` and `opening` hand a new workspace its first message**, the one written
+exception to runbloom.app never carrying agent traffic, approved by Freek on 18 September 2026. The
+creating machine sends `prompt` with `controls.agent` and `controls.model` from the chat that asked,
+never chosen by the agent, and runbloom.app registers the opening turn for that chat's person with
+that agent. The new machine, after setup on every boot, `GET`s `opening`, keeps it in its own
+database, `DELETE`s it (so runbloom.app forgets it), and only then queues it under that turn and
+person, where it waits behind setup like any prompt and starts through `turns/{id}/start`. **Kept
+before acknowledged**, so a machine that stops in between fetches the same opening again; **queued
+once per turn**, so a boot that finds its kept copy already queued does not queue it twice. A
+missing key in `controls` means the machine's own default for it. See `OpeningHandoff`.
+
+**It carries the words, as `person_message: {"text", "truncated"}`**, so the mail can say what was
+asked. Only the message that addressed that person, as typed with its mention, capped at 2,000
+characters and 16,000 bytes of UTF-8 and cut between characters, with `truncated` saying so. **The
+key names what it is: words one person wrote to another**, never a prompt and never agent traffic;
+runbloom.app escapes them, never stores or logs them, and keeps its own 2,000-character cap in the
+mail. A report queued before the words were kept goes without the field, and the mail goes out as it
+did. Agreed with the control server on 19 September 2026.
+
+**It carries the sender's own session token, as `sender_token`**, the one the words arrived on, so
+runbloom.app checks the author against something the machine did not state itself. It refuses the
+whole report, and mails nobody, unless the token is its own signature, names this workspace, is a
+`session` token whose `sub` is `from.user_id`, carries no `act`, was issued between ten minutes
+before `sent_at` and a minute after, and was not revoked since; and `sent_at` is under a day old.
+Expiry is not checked, because a report can go late after a restart, which is also why the machine
+keeps the token with the report row until it is sent and then clears it. A message to a person never
+becomes a turn, so a turn id could not do this. **The limit, stated honestly:** code on the machine
+that can read the database can take a live token from it, so this narrows forging to people who were
+on this workspace in the last few minutes rather than ending it; running the agent as a user that
+cannot read the database is what ends it. Optional until every machine sends it, then required.
+Agreed with the control server on 19 September 2026, after the security review's M2.
+
+**A guest's message is reported too, and runbloom.app decides it sends no mail.** The machine says
+what happened and the server says what it means, so that policy is one deploy rather than a release
+to every machine, and there is an answer when somebody asks how often guests try to reach people who
+are away. See `AddressedReporter`: the queue is a table, because a machine that stopped between
+writing the message and sending the report would otherwise never send it.
 
 ## Awake, asleep, and what it costs
 
@@ -349,6 +453,29 @@ browser now rather than discovered to be native-only then.
 
 ## Preview
 
+**The preview is opened as a page, never inside a frame, and that is a decision rather than an
+omission.** Authorisation is a cookie on the machine's origin, because **nothing can attach a token
+to a subresource**: the preview serves somebody's real app and the browser fetches its own images,
+scripts and XHR with whatever it has. In a frame on runbloom.app that cookie is third party, which
+Safari blocks outright and Chrome is part way through removing, so the enter would succeed and
+everything after it would arrive unauthenticated, **looking like a broken app rather than a blocked
+cookie**. `SameSite=None` plus the Storage Access API would work in one browser today and needs a
+prompt; a first-party page works in all of them with the code that already exists. The Mac's pane is
+a `WKWebView`, which is first party already, so it needs nothing special; a browser client opens a
+tab.
+
+**If an embedded preview ever matters more than a tab, the design is a proxy and not a cookie
+policy**: runbloom.app serves the preview path itself and forwards to the machine, so the frame is
+same origin with the page around it and no machine cookie is involved at all. It costs every preview
+byte and every Vite socket going through the control server. **Written here so nobody arrives at the
+proxy as a workaround for a blocked cookie**, which is the route that ends in `SameSite=None` and a
+year of browser-specific bugs.
+
+**And the machine not refusing a frame is not the same as a frame working.** Nothing here sets
+`X-Frame-Options` or `frame-ancestors`, but the project's own app does: Laravel, Rails and Next all
+ship something in some configuration, so "can this be framed" would be a per-project question
+answered silently at runtime.
+
 The Sprite URL has one port, so it cannot give control and the preview separate origins. A Caddy
 supervised by Bloom Runner listens on it and routes `/_bloom/*` to Bloom Runner and everything else
 to the project's app on `BLOOM_APP_PORT`. Caddy rather than a proxy in Swift, because streaming,
@@ -365,6 +492,15 @@ link is `https://runbloom.app/share/<id>`: runbloom.app checks the share is live
 preview token for `sub: "share:<id>"` and redirects to the exchange, which sets a cookie lasting
 one hour rather than eight. There is no long-lived share token.
 
+**A project that serves on its own port is told so.** The preview proxies to `BLOOM_APP_PORT`,
+which every script is handed, and a project whose dev server listens elsewhere used to get a page
+saying the app was not answering: true, and no help at all, because nothing said there was an agreed
+port. One workspace served on 8091 while the preview read 3000, and an agent spent twenty-odd
+actions building a second proxy to bridge them. The unavailable page now names the port it reads,
+says nothing is listening there, and lists the ports that are, leaving out Bloom's own so nobody is
+sent to proxy the preview at itself. The ports come from `/proc/net/tcp`, not from running `ss`: it
+is an HTTP handler, and a subprocess in one is a hang waiting to happen.
+
 ## Setup
 
 Every create is cold. A Sprite cannot start from another's checkpoint, and phase 1 has no pool of
@@ -379,13 +515,13 @@ cannot set labels, so the mapping from Sprite to workspace lives in its database
 sweep deletes a Sprite no Machine owns only when its whole name matches
 `^bloom-[0-9a-hjkmnp-tv-z]{26}$`, never on the prefix alone.
 
-Production Cloud workspaces run in a Fly organisation of their own, `spatie`, created and billed
-separately. Development and tests run in another, `freek-van-der-herten`, which is the one the
-Sprites CLI on the owner's Mac is signed in to. There is no staging environment: end-to-end testing
-runs against runbloom.app itself behind its access and configuration switches. The names keep
-machines apart as well, so a mistake in which organisation a tool points at still cannot touch the
-wrong machine. Machines created by local development are
-named `bloomdev-<...>` and by automated tests `bloomtest-<...>`; neither starts with `bloom-`, so
+Production Cloud workspaces run in a Fly organisation of their own, created and billed separately.
+Development and tests run in another, which is the one the Sprites CLI on the owner's Mac is signed
+in to; the test tools take its name from `BLOOM_TEST_SPRITES_ORG` rather than from this repository.
+There is no staging environment: end-to-end testing runs against runbloom.app itself behind its
+access and configuration switches. The names keep machines apart as well, so a mistake in which
+organisation a tool points at still cannot touch the wrong machine. Machines created by local
+development are named `bloomdev-<...>` and by automated tests `bloomtest-<...>`; neither starts with `bloom-`, so
 the production sweep cannot match them however it is written, and nothing that creates or sweeps
 development or test machines can match a production one. A test deletes what it created in its
 own teardown, and `Tools/sweep-test-machines.sh` deletes `bloomtest-` machines older than a day for
@@ -860,8 +996,8 @@ Measured on real Sprites before implementation started, as the owner asked.
 - Fly and Sprites are invisible to users: one organisation and one token, owned by runbloom.app.
 - Two pull requests, server then Mac client, each from main, porting from #163 selectively.
 - The user-facing name is Cloud workspace.
-- Production runs in its own Fly organisation, `spatie`; development and tests run in
-  `freek-van-der-herten`, and machine name prefixes keep them apart as well. No staging environment.
+- Production runs in its own Fly organisation; development and tests run in another, and machine
+  name prefixes keep them apart as well. No staging environment.
   Nothing on the machine depends on which organisation it is in.
 - A web interface, when it comes, lives in runbloom.app on the same accounts and this contract.
 
@@ -900,6 +1036,10 @@ and its builder confirmed them.
   `token`, `expires_at` and `username`. `control/update` carries `version`, `sha256` and `tag`, and the
   machine downloads the asset from that tag, `v<version>` for a Bloom release or `runner-v<version>`
   for a runner-only test release, which `release.yml` builds without the app. Any other tag is refused.
+  Since the repository went private on 19 September 2026 it also carries `download_url`, a
+  short-lived signed URL runbloom.app resolves with its own credential; the machine fetches exactly
+  that, from a GitHub asset host only, with no redirect followed and without logging it, and an
+  expired one fails the update for runbloom.app to send again (`MachineUpdate`).
 - **Version 1 lays a tagged value out flat, except a whole record.** An operation is one object
   with `kind` and its fields beside it. A result or an event that carries a record puts it under a
   key named after the kind, `{"kind": "transcript", "transcript": {...}}`, because a transcript
@@ -968,7 +1108,14 @@ and its builder confirmed them.
   turn is looked up by `BLOOM_CHAT_ID`, a terminal's by `BLOOM_TERMINAL` (the turn of whichever
   connection to it is open, since a shell outlives the connection it started with), and a bare
   `turn_id` is accepted only while a push or pull request runs under it. Every shell can read the
-  local secret, so a named turn is otherwise another person's push waiting to happen.
+  local secret, so a named turn is otherwise another person's push waiting to happen. **And the
+  caller has to be what it names**: the route finds the calling process from its loopback port in
+  `/proc`, walks up to the child Bloom Runner started, and honours a chat only under that chat's
+  agent, a terminal only in a pane of the Runner's own tmux server, and a turn only under the
+  publishing command started for it. A setup script, a service or another chat's agent gets a
+  read-only token whatever it names (`LocalProcessTable`, M1 in the review of 19 September 2026).
+  Code running as the same user can still reach into those processes or the tmux server, which
+  running the agent as a second user is what ends.
 - **A terminal belongs to whoever opened it.** Its shell holds that person's key, personal
   environment and turn, so nobody else attaches to it or closes it by name. Keys reach tmux through
   the creating client's environment (`update-environment`), never its arguments. A renewal of a

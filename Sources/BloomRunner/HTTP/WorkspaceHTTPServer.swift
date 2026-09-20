@@ -4,6 +4,7 @@ import Foundation
 import HTTPTypes
 import Hummingbird
 import HummingbirdWebSocket
+import NIOCore
 
 /// Everything Bloom Runner answers on its port, behind Caddy.
 ///
@@ -34,11 +35,19 @@ public struct WorkspaceHTTPServer: Sendable {
         /// The project's services as the supervisor has them, for the page somebody sees when the
         /// preview has nothing to show.
         public var services: @Sendable () async -> [ServiceSupervisor.Status]
+        /// Where the preview proxies, so the page that says the app is not answering can say what
+        /// port it read.
+        public var appPort: Int
+        /// The ports Bloom itself holds, from `MachineLayout.reservedPorts`. Passed rather than
+        /// restated, because both of them can be moved by the environment.
+        public var reservedPorts: [Int]
 
         public init(runtime: WorkspaceRuntime, verifier: TokenVerifier, gate: any RemoteTurnGate, control: any MachineControl,
                     store: Store, allowedOrigins: [String], version: String, streams: EventStreams = EventStreams(),
                     terminals: TerminalConnections = TerminalConnections(), gitCredentials: GitCredentials? = nil,
-                    services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] }) {
+                    services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] },
+                    appPort: Int = 3000,
+                    reservedPorts: [Int] = []) {
             self.runtime = runtime
             self.verifier = verifier
             self.gate = gate
@@ -50,6 +59,8 @@ public struct WorkspaceHTTPServer: Sendable {
             self.terminals = terminals
             self.gitCredentials = gitCredentials
             self.services = services
+            self.appPort = appPort
+            self.reservedPorts = reservedPorts
         }
     }
 
@@ -57,6 +68,8 @@ public struct WorkspaceHTTPServer: Sendable {
         public var secret: String
         public var repository: String
         public var fetch: @Sendable (String, RunbloomGitOperation, String?) async throws -> RunbloomGitCredential
+        /// Who a local caller is, by its port. Nil reads it from `/proc`; tests say it themselves.
+        var origin: (@Sendable (Int?) async -> LocalOrigin?)?
 
         public init(secret: String, repository: String, fetch: @escaping @Sendable (String, RunbloomGitOperation, String?) async throws -> RunbloomGitCredential) {
             self.secret = secret
@@ -83,10 +96,16 @@ public struct WorkspaceHTTPServer: Sendable {
         EventStreamRoute.register(on: router, runtime: dependencies.runtime, verifier: dependencies.verifier, streams: streams)
         ControlRoutes.register(on: router, verifier: dependencies.verifier, control: dependencies.control)
         PreviewRoutes.register(on: router, verifier: dependencies.verifier, sessions: PreviewSessions(store: dependencies.store, revocations: dependencies.verifier.revocations),
-                               runtime: dependencies.runtime, services: dependencies.services)
+                               runtime: dependencies.runtime, services: dependencies.services,
+                               appPort: dependencies.appPort, reservedPorts: dependencies.reservedPorts)
         if let credentials = dependencies.gitCredentials {
             GitCredentialRoute.register(on: router, secret: credentials.secret, repository: credentials.repository,
                                         runtime: dependencies.runtime, liveTerminalTurn: { [terminals] in await terminals.liveTurn(terminal: $0) },
+                                        origin: credentials.origin ?? { [runtime = dependencies.runtime] port in
+                                            guard let port else { return nil }
+                                            let server = await runtime.terminalServerProcessID()
+                                            return LocalProcessTable().origin(ofLocalPort: port, terminalServer: server)
+                                        },
                                         fetch: credentials.fetch)
         }
         return router
@@ -99,13 +118,19 @@ public struct WorkspaceHTTPServer: Sendable {
         return router
     }
 
+    static let idleTimeout: TimeAmount = .seconds(30)
+
     /// The application, listening on loopback only: Caddy is the one thing on the machine's URL.
     public func application(port: Int, host: String = "127.0.0.1",
                             onServerRunning: @escaping @Sendable (Int) async -> Void = { _ in }) -> some ApplicationProtocol {
         let responder = CORSResponder(wrapped: router().buildResponder(), allowedOrigins: Set(dependencies.allowedOrigins))
         return Application(
             responder: responder,
-            server: .http1WebSocketUpgrade(webSocketRouter: webSocketRouter()),
+            // A connection that sends nothing, or nothing more after a reply, is closed after
+            // thirty seconds rather than held for ever (L4 in the review of 19 September 2026).
+            // An event stream is a request in progress, so its minutes of quiet are not idle.
+            server: .http1WebSocketUpgrade(webSocketRouter: webSocketRouter(),
+                                           configuration: .init(http1: .init(idleTimeout: Self.idleTimeout))),
             configuration: .init(address: .hostname(host, port: port), serverName: "bloom-runner"),
             onServerRunning: { channel in await onServerRunning(channel.localAddress?.port ?? port) }
         )

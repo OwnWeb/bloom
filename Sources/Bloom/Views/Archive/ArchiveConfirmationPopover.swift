@@ -26,11 +26,17 @@ struct ArchiveConfirmationPopover: View {
             onCancel: onCancel,
             width: 380
         ) {
-            if currentRequest.isChecking {
+            // Keep the row after the check finishes. Removing it made the popover contract around
+            // its arrow just as the checked result arrived, so the decision moved under the
+            // pointer. `request` is the initial value and tells us whether this popover had a
+            // checking state at all; already-checked confirmations do not get an empty row.
+            if request.isChecking {
                 HStack {
                     ProgressView().controlSize(.small)
                     Text("Checking for unsaved work…")
                 }
+                .opacity(currentRequest.isChecking ? 1 : 0)
+                .accessibilityHidden(!currentRequest.isChecking)
             }
             ViewThatFits(in: .vertical) {
                 Text(currentRequest.message).fixedSize(horizontal: false, vertical: true)

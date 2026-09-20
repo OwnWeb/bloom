@@ -93,15 +93,14 @@ other ways to say so. It follows that regenerating the token from Settings cuts 
 what a revocation should do.
 
 Identity is minted by Bloom and handed to the CLI through the shim's environment, never claimed by
-the agent. That is what lets a tool be implicitly scoped: **nothing a workspace agent calls takes a
-workspace id as a parameter**, so there is nothing for a model to forge, mistype or hold on to after
+the agent. That is what lets a tool be implicitly scoped: a workspace agent names nothing when it
+acts inside its own worktree, so there is nothing for a model to forge, mistype or hold on to after
 it has gone stale. The owner's own client is the exception and has to be, because it is sitting in
 no workspace: `reveal`, `workspace_merge` and `workspace_rename` are named a workspace out loud,
 resolved against the rows that exist, and refused when a name is shared by two of them. A workspace
-agent calling `workspace_rename` or `workspace_archive` names none to act on its own, and may name
-only a workspace it started; any other is refused rather than quietly read as its own. Which
-workspaces it started is read off `WorkspaceOrigin.parentWorkspaceID`, written once when the start
-happened, so there is still nothing for the model to forge.
+agent also names one out loud for cross-workspace reads, chat management, messages and renames.
+`workspace_archive` keeps the narrower rule: an agent names only a workspace it started, read from
+`WorkspaceOrigin.parentWorkspaceID`, because that action removes a worktree.
 
 The token is **not a secret and must not be commented as one**. Any process running as the user can
 read `ps`, the mode 0600 config file and the socket itself, and an agent has the user's whole home
@@ -144,7 +143,7 @@ uses, so Bloom and Bloom Dev can never land on one. The landmine there is `socka
 
 ## 3. The tools
 
-Forty, each a type of its own in `Sources/BloomCore/Bridge/`, each carrying its own role
+Forty-three, each a type of its own in `Sources/BloomCore/Bridge/`, each carrying its own role
 gate. A list of handlers rather than a switch, because a switch would put every tool in three
 places: the listing, the dispatch and the gate.
 
@@ -157,8 +156,8 @@ places: the listing, the dispatch and the gate.
 | `project_unhide` | Put it back, in the place it already had | | ✓ |
 | `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why, then the Bloom Cloud workspaces the signed-in person can open. Read only | ✓ | ✓ |
 | `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. A workspace agent starts it in its own project, or in another one it names With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
-| `cloud_workspace_start` | Create a Bloom Cloud workspace on runbloom.app, which is a machine and costs money. Refused unless the owner has turned on "Let agents create Bloom Cloud workspaces" under Settings, Bloom Cloud. Never answered by Bloom itself, and Bloom asks the owner in its own window first unless "Ask before an agent creates a Bloom Cloud workspace" is off. Same arguments as a machine's own copy: `prompt`, `name`, `branch`, `base_branch`, `run_setup`, `project`. A workspace agent leaving `project` out gets the project whose repository is its own. Returns `{"workspace": {id, name, state}}` as soon as it exists, without selecting it | ✓ | ✓ |
-| `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own, or one it started (by name or id), for a workspace agent; any of them, named out loud, for the owner | ✓ | ✓ |
+| `cloud_workspace_start` | Create a Bloom Cloud workspace on runbloom.app, which is a machine and costs money. Refused unless the owner has turned on "Let agents create Bloom Cloud workspaces" under Settings, Bloom Cloud. Never answered by Bloom itself, and Bloom asks the owner in its own window first unless "Ask before an agent creates a Bloom Cloud workspace" is off. Same arguments as a machine's own copy: required `name`, then optional `prompt`, `branch`, `base_branch`, `run_setup`, `project`. A workspace agent leaving `project` out gets the project whose repository is its own. Returns flat `id`, `name`, `state`, `url` and `note` fields as soon as it exists, without selecting it | ✓ | ✓ |
+| `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own by default, or any workspace named out loud by name or id; the owner must name one | ✓ | ✓ |
 | `workspace_archive` | Archive a workspace through normal safety checks, keeping its branch and history. For a workspace agent, its own once the turn asking for it has ended, or one it started, by id and at once; any of them, named out loud and at once, for the owner | ✓ | ✓ |
 | `workspace_merge` | Ask a workspace's own agent to merge its pull request | | ✓ |
 | `workspace_say` | Put a message in another workspace's chat, with the owner's authority, headed with the workspace, project and chat it came from. The owner can delete it from the receiving chat while it is queued. With `notify_when_done`, Bloom tells the calling chat once when the turn it caused finishes, fails or blocks on the owner. Refused past thirty messages to one workspace in ten minutes, or for the same words twice in that window, except from the owner's own client | ✓ | ✓ |
@@ -171,6 +170,9 @@ places: the listing, the dispatch and the gate.
 | `workspace_tabs` | The same window read as a strip: every tab in order, what it is called, which one is in front, and one true thing about what is in it | ✓ | |
 | `chat_list` | Unarchived chats in a workspace, including subagents, with IDs, titles, states and message counts. The caller's own by default; another, named out loud, for a workspace agent; always named, for the owner | ✓ | ✓ |
 | `chat_read` | Read one of those chats by ID or exact title, with bounded pages of stored transcript content, marked as quoted history | ✓ | ✓ |
+| `chat_create` | Add a top-level chat using the target project's defaults or explicit composer choices: agent, model, effort, permissions, work mode, speed, output style, context window and terminal-backed mode. The caller's own by default; another, named out loud, for a workspace agent; always named, for the owner | ✓ | ✓ |
+| `chat_close` | Close an idle top-level chat by ID or exact title, preserving it in Recently Closed. Refuses the last chat and a turn in flight. Same workspace rules as `chat_create` | ✓ | ✓ |
+| `chat_rename` | Rename a top-level chat by ID or exact title and return its previous title. Same workspace rules as `chat_create` | ✓ | ✓ |
 | `workspace_diff` | What a workspace has changed since its branch left its base, committed or not: branch, base, each file with lines added and removed, and the unified diff in bounded pages. Same defaults as `chat_list` | ✓ | ✓ |
 | `workspace_tab_select` | Make one of those tabs the one in front, by its number or by its name. It cannot make one | ✓ | |
 | `browser_read` | One browser's toolbar: address, page title, load state, whether Back and Forward would do anything | ✓ | |
@@ -319,20 +321,52 @@ One number kept its old sense deliberately: `WorkspaceStartAllowance.running`, t
 eight on the workspaces one agent has started, counts workspaces that are not archived and says so in its own
 doc comment. That is a brake on worktrees held open, not on turns in flight.
 
-### The twenty-five that need the app, and the fifteen that do not
+### The twenty-eight that need the app, and the fifteen that do not
 
 `BridgeToolbox.standard` holds the fifteen that reach nothing but the store, and it is what a
 `BridgeServer` built without the app serves, which is every test that did not ask for more.
-`AppModel.bridgeToolbox()` adds the other twenty-five to it, because starting a workspace has to reach
+`AppModel.bridgeToolbox()` adds the other twenty-eight to it, because starting a workspace has to reach
 the main-actor graph that runs one, asking for a merge has to reach the same path the Merge button
 takes, moving the selection is the window's own, and a pane is a thing the window owns. Each of
 those crosses the line as an injected closure
-(`WorkspaceStarting`, `WorkspaceMergeRequesting`, `Revealing`, `PaneOpening`, `PaneSplitting`,
+(`WorkspaceStarting`, `WorkspaceMergeRequesting`, `Revealing`, `ChatCreating`, `ChatClosing`, `ChatRenaming`, `PaneOpening`, `PaneSplitting`,
 `PaneClosing`, `PaneRenaming`, `PaneListing`, `BrowserPaneCommanding`, `TerminalStarting`,
 `TerminalPaneCommanding`, `WorkspaceTabListing`, `WorkspaceTabSelecting`, `CrewStarting`, `CrewSaying`, `CrewStopping`, `WorkspaceMessageDelivering`), so a pane an agent asks for is the pane the
 menu makes, unchanged and not copied. It adds them **to** `.standard` rather than listing its
 handlers again, because a copy of that list is a copy that drifts: a tool added to the core toolbox
 and not to the app's would pass every test in the suite and never reach the running app.
+
+### An agent on a Cloud machine, and the pane it cannot ask for
+
+The same split decides what a Cloud workspace's agent is offered, and there the consequence is
+visible rather than architectural. A machine's bridge serves eight tools: `whoami`, `chat_list`,
+`chat_read`, `workspace_diff` and the four `agent_*` ones. **Nothing that touches a window is there,
+because the window is on somebody's Mac and the machine is in a datacentre.**
+
+On 18 September 2026 an agent was asked to open a browser pane beside its chat. It ran `which
+sprite-env`, searched its tools, read `sprite-env --help`, listed `/opt/bloom/current/bin`, grepped
+the repository for a port, read `.bloom/settings.toml` and the Caddyfile, disassembled
+`/.sprite/bin/sprite-browser`, worked out that it writes an OSC escape to a controlling TTY and that
+its own Bash tool has none, checked the runner's HTTP API for a pane endpoint, and finally ran
+`strings` over Bloom Runner's binary looking for the word "browser". Thirty-five actions.
+**Every conclusion it reached was correct.** `tools/list` had told it what exists; nothing had told
+it that the absence of a pane tool was the answer rather than a gap to route around. That is what
+`BridgeBriefing` now says, as MCP `instructions` and again in `whoami`.
+
+**Whether a machine's agent should be able to *ask* for a pane is a real question and the answer is
+not yet.** It would be a message from the machine to whoever is looking, the same direction as
+`workspace_say`, carried on the event stream the clients already hold, and the machine already
+computes nothing it would need. Three things make it hard, and none of them is size:
+
+- **Nobody may be looking.** A machine runs with every window shut. So such a tool can never report
+  that a pane opened, only that it asked, and it has to say plainly when there was nobody to ask.
+  **A tool that silently evaporates is worse than no tool**, because the agent then spends its next
+  several actions wondering, which is the failure this whole section is about.
+- **Several people may be looking**, on a Mac and in the web client at once. Either they all get a
+  pane or the request names none of them; there is no "the" window.
+- **It is an escalation.** An agent on a machine in another country causing a window to open on
+  somebody's desk belongs behind the approval a local `pane_open` already goes through, not in front
+  of it. See `BridgeToolApproval`.
 
 **The two tab tools are on that side for a reason worth stating plainly, because it is not the
 same reason the browser tools are there.** A browser is a `WKWebView`, which is obviously the
@@ -447,10 +481,9 @@ no force or branch-deletion argument. Already archived workspaces are a no-op. T
 self-approved for either role: removing a worktree is a question a person answers, and `reveal` can
 show candidates before the owner chooses which to archive.
 
-**Its arms are shaped like `workspace_rename`'s, and one of them answers differently.** The
-owner's own client takes an exact workspace id from `workspace_list`, is acted on at once, and only
-answers success after completion. A workspace agent passes nothing to archive its own: the token
-says which workspace is asking, so there is nothing to name and nothing to forge.
+The owner's own client takes an exact workspace id from `workspace_list`, is acted on at once, and
+only answers success after completion. A workspace agent passes nothing to archive its own: the
+token says which workspace is asking, so there is nothing to name and nothing to forge.
 
 **A workspace agent may also name, by `id`, a workspace it started, and no other.** That is the
 case that forced the widening: one workspace hands a job to another, the other reports back, and
@@ -478,6 +511,13 @@ the worktree, the pull request and the directory keep the names they have. That 
 loud in the tool's own description as well, because a model asked to "rename this workspace" that
 believed the branch moved with it would report something to the owner that never happened.
 
+A workspace agent may name any workspace for a rename, not only one it started. Coordinators are
+ordinary workspaces, and a replacement coordinator otherwise cannot correct the labels left by its
+predecessor. Every workspace agent works for the same owner, the changed label is immediately
+visible, and the result carries the old value for a one-call undo. The parentage restriction still
+belongs on `workspace_archive`, where the operation removes a worktree, but buys no protection for
+a label-only write.
+
 Nothing merges. `workspace_merge` **does not merge**: it composes the request Bloom's own Merge
 button composes and sends it into that workspace's chat as an ordinary message, so the agent runs
 `gh pr merge` there, in front of the owner, under whatever permission mode they set. Its
@@ -501,9 +541,10 @@ the two hiding tools stay with the owner, because they change the owner's sideba
 Naming another project changes where the worktree is cut and nothing else. The new workspace is
 still `.agent` origin with the caller as its parent, and every rule that reads parentage reads the
 parent's workspace id rather than its repository: the ceiling on running children counts it, the
-parent may rename and archive it by id, `workspace_say` and `workspace_diff` reach it by id, and it
-may not start workspaces of its own. It is drawn in the sidebar under the project it was started in,
-which is where its worktree is, and not under the parent's.
+parent may archive it by id, and it may not start workspaces of its own. Cross-workspace tools such
+as `workspace_rename`, `workspace_say` and `workspace_diff` reach it by id regardless of parentage.
+It is drawn in the sidebar under the project it was started in, which is where its worktree is, and
+not under the parent's.
 
 The spawn key is scoped by the parent, as before, and by the project as well when the parent named
 one other than its own. Otherwise the same prompt sent to two projects would be answered the second
@@ -918,7 +959,7 @@ So `BridgeToolApproval` names the tools Bloom answers for itself:
 
 | Self-approved | Not |
 | --- | --- |
-| `whoami`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list`, `workspace_list` | everything else |
+| `whoami`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `chat_create`, `chat_close`, `chat_rename`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list`, `workspace_list` | everything else |
 
 It is a list rather than "anything with our prefix", so a tool added later is opted in by somebody
 thinking about it rather than by inheriting a decision made before it existed.

@@ -19,7 +19,7 @@ extension AgentKind {
 }
 
 extension MessageAuthor {
-    public var record: AuthorRecord { AuthorRecord(userID: userID, name: name) }
+    public var record: AuthorRecord { AuthorRecord(userID: userID, name: name, email: email) }
 }
 
 extension JSONValue {
@@ -35,7 +35,29 @@ extension Session {
         ChatRecord(
             id: id.rawValue, title: title, agent: agentKind.wireName, model: model, effort: effort,
             permissionMode: permissionMode.rawValue, interactionMode: interactionMode.rawValue, state: state.rawValue,
-            parentChatID: parentSessionID?.rawValue, lastSeq: lastSeq, createdAt: createdAt, updatedAt: updatedAt
+            parentChatID: parentSessionID?.rawValue, lastSeq: lastSeq, createdAt: createdAt, updatedAt: updatedAt,
+            closedAt: archivedAt
+        )
+    }
+}
+
+extension ClosedChat {
+    var record: ClosedChatRecord {
+        ClosedChatRecord(
+            id: id.rawValue,
+            title: title,
+            agent: agentKind.wireName,
+            messageCount: messageCount,
+            closedAt: closedAt
+        )
+    }
+
+    /// A client-side row from the wire. Unknown agents are omitted rather than mislabelled.
+    public init?(record: ClosedChatRecord) {
+        guard let agent = AgentKind.named(wire: record.agent) else { return nil }
+        self.init(
+            id: SessionID(record.id), title: record.title, agentKind: agent,
+            messageCount: record.messageCount, closedAt: record.closedAt
         )
     }
 }
@@ -45,7 +67,8 @@ extension Message {
         MessageRecord(
             cursor: id, chatID: sessionID.rawValue, seq: seq, kind: kind.rawValue,
             payload: WireValue.parse(payload) ?? .string(String(decoding: payload, as: UTF8.self)),
-            author: author?.record, createdAt: createdAt, durationMS: durationMS, refID: refID
+            author: author?.record, createdAt: createdAt, durationMS: durationMS, refID: refID,
+            audience: audience?.record, via: via?.record
         )
     }
 }
@@ -103,9 +126,8 @@ extension Answer {
 }
 
 extension Workspace {
-    func record(setup: SetupRecord, pullRequest: PullRequestRecord? = nil,
-                reporting: ReportingRecord? = nil) -> WorkspaceRecord {
+    func record(setup: SetupRecord, reporting: ReportingRecord? = nil, services: [ServiceRecord] = []) -> WorkspaceRecord {
         WorkspaceRecord(id: id.rawValue, name: name, branch: branch, baseBranch: baseBranch, setup: setup,
-                        pullRequest: pullRequest, reporting: reporting)
+                        reporting: reporting, services: services)
     }
 }

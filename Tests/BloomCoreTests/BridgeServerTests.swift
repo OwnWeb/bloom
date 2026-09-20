@@ -132,8 +132,10 @@ struct BridgeServerTests {
         // `project_list` is here because a workspace agent may name another project to
         // `workspace_start`, and this is how it learns the names; `workspace_list` for the same
         // reason one level down.
+        // `cloud_setup` is guidance and reaches nothing at all, so it is served wherever the
+        // bridge is: a project is made ready for a machine on a Mac, before the machine exists.
         #expect(names == [
-            "agent_list", "chat_list", "chat_read", "project_list", "quick_prompt_create",
+            "agent_list", "chat_list", "chat_read", "cloud_setup", "project_list", "quick_prompt_create",
             "quick_prompt_list", "whoami", "workspace_diff", "workspace_list", "workspace_rename",
         ])
 

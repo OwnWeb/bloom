@@ -12,6 +12,8 @@ import Hummingbird
 enum EventStreamRoute {
     static let streamIDHeader = HTTPField.Name("Bloom-Stream-ID")!
     static let lastEventIDHeader = HTTPField.Name("Last-Event-ID")!
+    /// Which kind of client is opening the stream: `mac` for Bloom on a Mac. See `RemoteEventHub`.
+    static let clientHeader = HTTPField.Name("Bloom-Client")!
     /// A comment line now and then, so a proxy that closes quiet connections does not. Measured:
     /// the machine's own URL held a stream with 100 seconds of silence, and 25 is well inside that.
     static let keepAliveInterval: Duration = .seconds(25)
@@ -22,21 +24,30 @@ enum EventStreamRoute {
             do {
                 token = try await verifier.verify(request.bearerToken ?? "", as: .session)
                 guard token.abilities.contains("view") else { throw RemoteFailure(.missingAbility, "Your access does not include viewing this workspace.") }
+                try token.refuseIfMintedForAnAgent()
             } catch {
                 return WireResponses.failure(error)
             }
             let cursor = request.headers[lastEventIDHeader].flatMap { Int64($0) }
-            let events: AsyncStream<WorkspaceEvent>
+            // Counted before the runtime subscribes, so a person over the cap costs nothing.
+            let id: String, closing: AsyncStream<WireError>
             do {
-                events = try await runtime.openEvents(for: token.caller(token: request.bearerToken ?? ""), after: cursor)
+                (id, closing) = try await streams.open(for: token)
             } catch {
                 return WireResponses.failure(error)
             }
-            let (id, closing) = await streams.open(for: token)
+            let events: AsyncStream<WorkspaceEvent>
+            do {
+                events = try await runtime.openEvents(for: token.caller(token: request.bearerToken ?? ""), after: cursor,
+                                                      client: request.headers[clientHeader])
+            } catch {
+                await streams.closed(id)
+                return WireResponses.failure(error)
+            }
             // A revoke that landed while the stream was being opened found nothing to close.
             if await verifier.revocations.isRevoked(token.subject, issuedAt: token.issuedAt) {
                 await streams.closed(id)
-                return WireResponses.failure(RemoteFailure(.unauthenticated, "Your access to this Cloud workspace was removed."))
+                return WireResponses.failure(RemoteFailure(.unauthenticated, "Your access to this Bloom Cloud workspace was removed."))
             }
             var headers = HTTPFields()
             headers[.contentType] = "text/event-stream"
@@ -61,6 +72,7 @@ enum EventStreamRoute {
                 guard token.abilities.contains("view") else {
                     throw RemoteFailure(.missingAbility, "Your access does not include viewing this workspace.")
                 }
+                try token.refuseIfMintedForAnAgent()
                 try await streams.refresh(id, with: token)
                 return Response(status: .noContent)
             } catch {
@@ -69,12 +81,31 @@ enum EventStreamRoute {
         }
     }
 
+    /// How many frames wait for a client that is not reading before its stream is ended. The
+    /// hub's own bound, so the layer above it cannot hold more than the layer it drains.
+    static let bufferLimit = RemoteEventHub.defaultBufferLimit
+
     /// The runtime's events, the stream's own reasons to close, and a keep-alive, as SSE frames.
-    static func merge(events: AsyncStream<WorkspaceEvent>, closing: AsyncStream<WireError>) -> AsyncStream<String> {
-        AsyncStream { continuation in
+    ///
+    /// **Bounded, and a reader that falls behind is let go.** This stream used to buffer without
+    /// limit, and its pump drained the bounded streams under it as fast as they filled, so their
+    /// overflow never fired and a client that stopped reading grew the machine's memory; the review
+    /// of 19 September 2026 found it as M3. Now a frame that does not fit ends the stream, and the
+    /// client reconnects with `Last-Event-ID` and is replayed what it missed.
+    static func merge(events: AsyncStream<WorkspaceEvent>, closing: AsyncStream<WireError>,
+                      bufferLimit: Int = bufferLimit, dropped: (@Sendable () -> Void)? = nil) -> AsyncStream<String> {
+        AsyncStream(bufferingPolicy: .bufferingOldest(bufferLimit)) { continuation in
+            let send: @Sendable (String) -> Bool = { text in
+                if case .dropped = continuation.yield(text) {
+                    dropped?()
+                    continuation.finish()
+                    return false
+                }
+                return true
+            }
             let pump = Task {
                 for await event in events {
-                    continuation.yield(frame(event))
+                    guard send(frame(event)) else { return }
                     if case .sleeping = event { break }
                     if case .closing = event { break }
                 }
@@ -82,7 +113,7 @@ enum EventStreamRoute {
             }
             let closer = Task {
                 for await reason in closing {
-                    continuation.yield(frame(.closing(reason)))
+                    _ = send(frame(.closing(reason)))
                     continuation.finish()
                     return
                 }
@@ -91,7 +122,7 @@ enum EventStreamRoute {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: keepAliveInterval)
                     if Task.isCancelled { return }
-                    continuation.yield(": keep-alive\n\n")
+                    guard send(": keep-alive\n\n") else { return }
                 }
             }
             continuation.onTermination = { _ in

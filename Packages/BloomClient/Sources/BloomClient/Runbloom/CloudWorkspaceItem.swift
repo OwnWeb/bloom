@@ -23,6 +23,12 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
     public var role: String?
     public var canOpen: Bool
     public var canArchive: Bool
+    /// This person's private mark for the workspace, from the shared Mac palette.
+    public var colour: String?
+    /// Whether runbloom.app will let this person change that mark.
+    public var canColour: Bool
+    /// The mutation endpoint runbloom.app supplied for that mark.
+    public var colourURL: String?
     public var unread: Bool
     public var summary: CloudWorkspaceSummary?
     public var createdAt: Date?
@@ -38,7 +44,8 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
     public init(
         id: String, teamID: String, name: String, project: ProjectReference? = nil, branch: String, baseBranch: String = "main",
         state: String, sharedWithTeam: Bool = false, owner: RunbloomPerson? = nil, role: String? = "owner", canOpen: Bool = true,
-        canArchive: Bool = true, unread: Bool = false, summary: CloudWorkspaceSummary? = nil, createdAt: Date? = nil, archivedAt: Date? = nil
+        canArchive: Bool = true, colour: String? = nil, canColour: Bool = false, colourURL: String? = nil,
+        unread: Bool = false, summary: CloudWorkspaceSummary? = nil, createdAt: Date? = nil, archivedAt: Date? = nil
     ) {
         self.id = id
         self.teamID = teamID
@@ -52,6 +59,9 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         self.role = role
         self.canOpen = canOpen
         self.canArchive = canArchive
+        self.colour = colour
+        self.canColour = canColour
+        self.colourURL = colourURL
         self.unread = unread
         self.summary = summary
         self.createdAt = createdAt
@@ -61,20 +71,30 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
     public struct ProjectReference: Codable, Sendable, Hashable {
         public var id: String
         public var repository: String
+        /// The authorised project settings endpoint runbloom.app supplied.
+        public var settingsURL: String?
 
-        public init(id: String, repository: String) {
+        public init(id: String, repository: String, settingsURL: String? = nil) {
             self.id = id
             self.repository = repository
+            self.settingsURL = settingsURL
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id, repository
+            case settingsURL = "settings_url"
         }
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, project, branch, state, owner, role, unread, summary
+        case id, name, project, branch, state, owner, role, colour, unread, summary
         case teamID = "team_id"
         case baseBranch = "base_branch"
         case sharedWithTeam = "shared_with_team"
         case canOpen = "can_open"
         case canArchive = "can_archive"
+        case canColour = "can_colour"
+        case colourURL = "colour_url"
         case createdAt = "created_at"
         case archivedAt = "archived_at"
         case runnerNotice = "runner_notice"
@@ -95,6 +115,9 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         role = try c.decodeIfPresent(String.self, forKey: .role)
         canOpen = try c.decodeIfPresent(Bool.self, forKey: .canOpen) ?? (role != nil)
         canArchive = try c.decodeIfPresent(Bool.self, forKey: .canArchive) ?? (role == "owner")
+        colour = try? c.decodeIfPresent(String.self, forKey: .colour)
+        canColour = try c.decodeIfPresent(Bool.self, forKey: .canColour) ?? false
+        colourURL = try? c.decodeIfPresent(String.self, forKey: .colourURL)
         unread = try c.decodeIfPresent(Bool.self, forKey: .unread) ?? false
         // A summary this client cannot read is shown as no summary, never as a list that failed:
         // the machine and runbloom.app release separately, and the list is the whole sidebar.
@@ -121,6 +144,9 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(role, forKey: .role)
         try c.encode(canOpen, forKey: .canOpen)
         try c.encode(canArchive, forKey: .canArchive)
+        try c.encodeIfPresent(colour, forKey: .colour)
+        try c.encode(canColour, forKey: .canColour)
+        try c.encodeIfPresent(colourURL, forKey: .colourURL)
         try c.encode(unread, forKey: .unread)
         try c.encodeIfPresent(summary, forKey: .summary)
         try c.encodeIfPresent(createdAt.map(RunbloomDate.init), forKey: .createdAt)

@@ -28,6 +28,16 @@
         },
         "name": {
           "type": "string"
+        },
+        "email": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -99,6 +109,16 @@
               "type": "null"
             }
           ]
+        },
+        "failure_code": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -122,30 +142,6 @@
       ],
       "additionalProperties": false
     },
-    "PullRequest": {
-      "type": "object",
-      "properties": {
-        "number": {
-          "type": "integer"
-        },
-        "url": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "state": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "number",
-        "state",
-        "title",
-        "url"
-      ],
-      "additionalProperties": false
-    },
     "Workspace": {
       "type": "object",
       "properties": {
@@ -163,16 +159,6 @@
         },
         "setup": {
           "$ref": "#/$defs/Setup"
-        },
-        "pull_request": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/PullRequest"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "reporting": {
           "oneOf": [
@@ -317,6 +303,17 @@
               "type": "null"
             }
           ]
+        },
+        "closed_at": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -331,6 +328,35 @@
         "state",
         "title",
         "updated_at"
+      ],
+      "additionalProperties": false
+    },
+    "ClosedChat": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "message_count": {
+          "type": "integer"
+        },
+        "closed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "agent",
+        "closed_at",
+        "id",
+        "message_count",
+        "title"
       ],
       "additionalProperties": false
     },
@@ -509,26 +535,6 @@
         "user_id",
         "via",
         "workspace"
-      ],
-      "additionalProperties": false
-    },
-    "Member": {
-      "type": "object",
-      "properties": {
-        "user_id": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "handle": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "handle",
-        "name",
-        "user_id"
       ],
       "additionalProperties": false
     },
@@ -763,6 +769,16 @@
           "type": "boolean"
         },
         "default_effort": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fast_tier": {
           "oneOf": [
             {
               "type": "string"
@@ -1214,6 +1230,88 @@
       ],
       "additionalProperties": false
     },
+    "QuickPrompt": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "new_chat": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "new_chat",
+        "prompt",
+        "source",
+        "symbol"
+      ],
+      "additionalProperties": false
+    },
+    "SettingsIssue": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "line": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "message",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "CodeMatch": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer"
+        },
+        "column": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "column",
+        "line",
+        "path",
+        "text"
+      ],
+      "additionalProperties": false
+    },
     "Terminal": {
       "type": "object",
       "properties": {
@@ -1282,19 +1380,45 @@
           "$ref": "#/$defs/ComposerControls"
         },
         "members": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Member"
-          }
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Member"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "chats",
         "composer_defaults",
         "cursor",
-        "members",
         "presence",
         "workspace"
+      ],
+      "additionalProperties": false
+    },
+    "Member": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "handle": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "handle",
+        "name",
+        "user_id"
       ],
       "additionalProperties": false
     },
@@ -1600,6 +1724,44 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "quick_prompts"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "search_code"
+            },
+            "query": {
+              "type": "string"
+            },
+            "limit": {
+              "oneOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "query"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "notes"
             }
           },
@@ -1625,6 +1787,18 @@
           "properties": {
             "kind": {
               "const": "archive_preview"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "recently_closed"
             }
           },
           "required": [
@@ -1673,6 +1847,22 @@
           "properties": {
             "kind": {
               "const": "close_chat"
+            },
+            "chat_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "chat_id",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "reopen_chat"
             },
             "chat_id": {
               "type": "string"
@@ -2434,6 +2624,55 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "quick_prompts"
+            },
+            "prompts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/QuickPrompt"
+              }
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SettingsIssue"
+              }
+            }
+          },
+          "required": [
+            "issues",
+            "kind",
+            "prompts"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "code_matches"
+            },
+            "matches": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CodeMatch"
+              }
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "matches",
+            "truncated"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "text"
             },
             "value": {
@@ -2458,6 +2697,25 @@
           },
           "required": [
             "chat",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "recently_closed"
+            },
+            "chats": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ClosedChat"
+              }
+            }
+          },
+          "required": [
+            "chats",
             "kind"
           ],
           "additionalProperties": false
@@ -2668,22 +2926,6 @@
           "required": [
             "kind",
             "text"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "kind": {
-              "const": "review"
-            },
-            "revision": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "kind",
-            "revision"
           ],
           "additionalProperties": false
         },

@@ -1,3 +1,4 @@
+import BloomCore
 import Foundation
 
 #if canImport(FoundationNetworking)
@@ -51,7 +52,25 @@ enum GitCredentialCommand {
         return parts.joined(separator: "/")
     }
 
+    /// **The socket first, the loopback route second.** On a machine with a sandbox user the socket
+    /// is the only door that works: the local secret sits in a directory that user cannot read, and
+    /// the kernel names the caller on a unix socket, which is what decides whose token this is. A
+    /// machine built before the sandbox has no socket and keeps the old route. See
+    /// `LocalCredentialSocket` and M1 in the security review of 19 September 2026.
     private static func ask(repository: String, environment: [String: String]) async -> GitCredentialRoute.Answer? {
+        let asked = GitCredentialRoute.Asked(
+            repository: repository, chatID: environment["BLOOM_CHAT_ID"], turnID: environment["BLOOM_TURN_ID"],
+            terminal: environment["BLOOM_TERMINAL"]
+        )
+        let socketPath = environment["BLOOM_CREDENTIAL_SOCKET"] ?? MachineSandbox.credentialSocketPath
+        if FileManager.default.fileExists(atPath: socketPath),
+           let answer = LocalCredentialClient.ask(asked, over: socketPath) {
+            return answer
+        }
+        return await askOverLoopback(repository: repository, environment: environment)
+    }
+
+    private static func askOverLoopback(repository: String, environment: [String: String]) async -> GitCredentialRoute.Answer? {
         let data = environment["BLOOM_DATA_DIR"] ?? (environment["HOME"] ?? NSHomeDirectory()) + "/.bloom"
         guard let secret = try? String(contentsOfFile: data + "/local-secret", encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }

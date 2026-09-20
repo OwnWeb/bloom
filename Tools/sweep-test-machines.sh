@@ -16,12 +16,13 @@
 # (`bloomdev-`) are left alone: a person made those and a person deletes them.
 #
 # Environment:
-#   BLOOM_TEST_SPRITES_ORG  the organisation to sweep (default freek-van-der-herten)
+#   BLOOM_TEST_SPRITES_ORG  the development organisation to sweep, required; its name stays out of
+#                           this public repository
 #   BLOOM_TEST_MACHINE_AGE  seconds a machine must have existed before it goes (default 86400)
 
 set -euo pipefail
 
-organisation="${BLOOM_TEST_SPRITES_ORG:-freek-van-der-herten}"
+organisation="${BLOOM_TEST_SPRITES_ORG:?Set BLOOM_TEST_SPRITES_ORG to the development Sprites organisation.}"
 minimum_age="${BLOOM_TEST_MACHINE_AGE:-86400}"
 dry_run=0
 [[ "${1:-}" == "--dry-run" ]] && dry_run=1

@@ -17,6 +17,7 @@ struct WorkspaceHTTPServerTests {
         let control: RecordingControl
         let session: Session
         let store: Store
+        let verifier: TokenVerifier
     }
 
     func fixture() async throws -> Fixture {
@@ -36,7 +37,8 @@ struct WorkspaceHTTPServerTests {
             runtime: runtime, verifier: verifier, gate: UngatedTurns(), control: control, store: store,
             allowedOrigins: ["https://runbloom.app"], version: "1.2.3"
         ))
-        return Fixture(issuer: issuer, runtime: runtime, server: server, control: control, session: session, store: store)
+        return Fixture(issuer: issuer, runtime: runtime, server: server, control: control, session: session, store: store,
+                       verifier: verifier)
     }
 
     static func bearer(_ token: String) -> HTTPFields {
@@ -159,6 +161,10 @@ struct WorkspaceHTTPServerTests {
                                      body: ByteBuffer(string: #"{"version":"1.4.0","sha256":"abc","tag":"runner-v1.4.0"}"#)) { response in
                 #expect(response.status == .accepted)
             }
+            try await client.execute(uri: "/_bloom/v1/control/update", method: .post, headers: Self.bearer(fixture.issuer.control()),
+                                     body: ByteBuffer(string: #"{"version":"1.5.0","sha256":"def","tag":"runner-v1.5.0","download_url":"https://objects.githubusercontent.com/a?sig=1"}"#)) { response in
+                #expect(response.status == .accepted)
+            }
             try await client.execute(uri: "/_bloom/v1/control/stop", method: .post, headers: Self.bearer(fixture.issuer.control()),
                                      body: ByteBuffer(string: #"{}"#)) { response in
                 #expect(response.status == .badRequest)
@@ -178,6 +184,7 @@ struct WorkspaceHTTPServerTests {
         }
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3rq"))
         #expect(fixture.control.calls.withLock { $0 }.contains("update 1.4.0 abc runner-v1.4.0"))
+        #expect(fixture.control.calls.withLock { $0 }.contains("update 1.5.0 def runner-v1.5.0 https://objects.githubusercontent.com/a?sig=1"))
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3r1"))
         #expect(fixture.control.calls.withLock { $0 }.contains("revoke 01k5a7c2b0z9y8x7w6v5t4s3r2"))
         #expect(fixture.control.calls.withLock { $0 }.contains("secret-rotated"))
@@ -195,7 +202,7 @@ struct WorkspaceHTTPServerTests {
                 let setCookie = response.headers[.setCookie] ?? ""
                 #expect(setCookie.hasPrefix("__Host-bloom-preview="))
                 #expect(setCookie.contains("HttpOnly") && setCookie.contains("Secure") && setCookie.contains("SameSite=Lax"))
-                #expect(setCookie.contains("Max-Age=28800"))
+                #expect(setCookie.contains("Max-Age=3600"), "an hour, which runbloom.app's revoke retry is sized to")
                 return String(setCookie.split(separator: ";")[0])
             }
             try await client.execute(uri: "/_bloom/preview/enter?token=\(token)", method: .get) { response in
@@ -304,6 +311,87 @@ struct WorkspaceHTTPServerTests {
         await fixture.runtime.shutdown()
     }
 
+    /// Item 8 of the review: the local route answers nobody without the secret, and says nothing
+    /// about why, so a guess learns nothing.
+    @Test("the local git credential route answers 404 without the local secret, or with a wrong one")
+    func gitCredentialsWantTheSecret() async throws {
+        let fixture = try await fixture()
+        let asked = Mutex(0)
+        let verifier = TokenVerifier(issuer: fixture.issuer.issuer, workspaceID: fixture.issuer.workspaceID, keys: fixture.issuer.keySet())
+        let server = WorkspaceHTTPServer(dependencies: .init(
+            runtime: fixture.runtime, verifier: verifier, gate: UngatedTurns(), control: fixture.control, store: fixture.store,
+            allowedOrigins: [], version: "1.2.3",
+            gitCredentials: .init(secret: "local-secret-value", repository: "spatie/bloom") { _, _, _ in
+                asked.withLock { $0 += 1 }
+                return RunbloomGitCredential(token: "t", expiresAt: Date(), username: "x-access-token")
+            }
+        ))
+        let body = ByteBuffer(string: #"{"repository":"spatie/bloom"}"#)
+        try await server.application(port: 0).test(.router) { client in
+            for headers: HTTPFields in [
+                [.contentType: "application/json"],
+                [GitCredentialRoute.secretHeader: "", .contentType: "application/json"],
+                [GitCredentialRoute.secretHeader: "local-secret-valuf", .contentType: "application/json"],
+                [GitCredentialRoute.secretHeader: "local-secret-value-and-more", .contentType: "application/json"],
+            ] {
+                try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers, body: body) { response in
+                    #expect(response.status == .notFound)
+                }
+            }
+        }
+        #expect(asked.withLock { $0 } == 0, "nothing was asked of runbloom.app")
+        await fixture.runtime.shutdown()
+    }
+
+    /// M1 in the review of 19 September 2026: every process can read the local secret, so a named
+    /// chat, terminal or turn counts only when the caller descends from it.
+    @Test("a write token goes only to a caller that descends from the chat, terminal or push it names")
+    func gitCredentialsFollowTheCaller() async throws {
+        let fixture = try await fixture()
+        let asked = Mutex<[String]>([])
+        let origin = Mutex<LocalOrigin?>(nil)
+        let verifier = TokenVerifier(issuer: fixture.issuer.issuer, workspaceID: fixture.issuer.workspaceID, keys: fixture.issuer.keySet())
+        var credentials = WorkspaceHTTPServer.GitCredentials(secret: "local", repository: "spatie/bloom") { _, operation, turn in
+            asked.withLock { $0.append("\(operation.rawValue) \(turn ?? "-")") }
+            return RunbloomGitCredential(token: "t", expiresAt: Date(), username: "x-access-token")
+        }
+        credentials.origin = { _ in origin.withLock { $0 } }
+        let server = WorkspaceHTTPServer(dependencies: .init(
+            runtime: fixture.runtime, verifier: verifier, gate: UngatedTurns(), control: fixture.control, store: fixture.store,
+            allowedOrigins: [], version: "1.2.3", gitCredentials: credentials
+        ))
+        let headers: HTTPFields = [GitCredentialRoute.secretHeader: "local", .contentType: "application/json"]
+        let chat = fixture.session.id.rawValue
+        try await server.application(port: 0).test(.router) { client in
+            // A setup script or a service: descends from nothing the Runner started for a person.
+            origin.withLock { $0 = LocalOrigin() }
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/bloom","chat_id":"\#(chat)"}"#)) { response in
+                #expect(response.status == .ok)
+            }
+            // Another chat's agent naming this one.
+            origin.withLock { $0 = LocalOrigin(chatID: SessionID("another-chat")) }
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/bloom","chat_id":"\#(chat)"}"#)) { response in
+                #expect(response.status == .ok)
+            }
+            // A shell in somebody else's terminal naming this one.
+            origin.withLock { $0 = LocalOrigin(terminal: "theirs") }
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/bloom","terminal":"mine"}"#)) { response in
+                #expect(response.status == .ok)
+            }
+            // Nobody the kernel can vouch for, naming a turn.
+            origin.withLock { $0 = nil }
+            try await client.execute(uri: "/_bloom/local/git-credentials", method: .post, headers: headers,
+                                     body: ByteBuffer(string: #"{"repository":"spatie/bloom","turn_id":"a-turn"}"#)) { response in
+                #expect(response.status == .forbidden)
+            }
+        }
+        #expect(asked.withLock { $0 } == ["read -", "read -", "read -"], "every one of them only reads")
+        await fixture.runtime.shutdown()
+    }
+
     @Test("an SSE frame keeps its JSON on one line and carries the cursor as its id")
     func frames() throws {
         let message = MessageRecord(cursor: 42, chatID: "chat", seq: 1, kind: "user", payload: .string("line one\nline two"), createdAt: Date(timeIntervalSince1970: 0))
@@ -321,8 +409,8 @@ final class RecordingControl: MachineControl {
     func stop(limit: String) async { calls.withLock { $0.append("stop \(limit)") } }
     func limitsCleared() async { calls.withLock { $0.append("limits-cleared") } }
     func revoke(userID: String) async { calls.withLock { $0.append("revoke \(userID)") } }
-    func update(version: String, sha256: String, tag: String?) async throws {
-        calls.withLock { $0.append("update \(version) \(sha256) \(tag ?? "-")") }
+    func update(version: String, sha256: String, tag: String?, downloadURL: String?) async throws {
+        calls.withLock { $0.append("update \(version) \(sha256) \(tag ?? "-")" + (downloadURL.map { " \($0)" } ?? "")) }
     }
     func environmentChanged() async { calls.withLock { $0.append("environment") } }
     func secretRotated() async { calls.withLock { $0.append("secret-rotated") } }
@@ -340,4 +428,28 @@ actor NeverRunner: SessionRunner {
     nonisolated func cancelNow() {}
     nonisolated func terminateNow() {}
     func answer(requestID: String, decision: PermissionDecision) async {}
+}
+
+/// The repository went private on 19 September 2026, so an update downloads from a signed URL
+/// runbloom.app resolves, and only from where GitHub serves release assets.
+@Suite("Where an update downloads from")
+struct MachineUpdateDownloadTests {
+    @Test("a signed asset URL is taken, and anything else is refused without repeating it")
+    func onlyAssetHosts() throws {
+        #expect(try MachineUpdate.checkedDownloadURL(nil) == nil)
+        let signed = "https://release-assets.githubusercontent.com/github-production-release-asset/1?sig=x"
+        #expect(try MachineUpdate.checkedDownloadURL(signed) == signed)
+        for refused in [
+            "http://objects.githubusercontent.com/a", "https://github.com/spatie/bloom/releases/download/x",
+            "https://evil.example/objects.githubusercontent.com", "https://user:pass@objects.githubusercontent.com/a",
+            "file:///tmp/archive.tar.gz",
+        ] {
+            do {
+                _ = try MachineUpdate.checkedDownloadURL(refused)
+                Issue.record("\(refused) was accepted")
+            } catch let failure as RemoteFailure {
+                #expect(!failure.wire.message.contains(refused), "a bearer URL is never repeated")
+            }
+        }
+    }
 }

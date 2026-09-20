@@ -1,4 +1,7 @@
 import Foundation
+#if os(Linux)
+import Glibc
+#endif
 import Synchronization
 
 /// One worker owns the pipe descriptors, from opening to closing. Nonblocking I/O lets the same
@@ -162,6 +165,22 @@ final class CapturedProcess: Sendable {
             if cancelled.withLock({ $0 }) { throw CancellationError() }
             let now = ContinuousClock.now
             if let deadline, now >= deadline { throw ShellFailure.timedOut(command: executable) }
+            #if os(Linux)
+            // **Both pipes closed and Foundation still says it is running.** That is the fault that
+            // left a `git config` child as `<defunct>` for eighteen minutes with the machine's setup
+            // waiting on it: nobody had waited on the child, so `isRunning` never became false and
+            // the loop below never reached its exit. Asking the kernel directly costs one syscall
+            // per pass and answers the only question left. A child that really is alive with its
+            // output closed answers 0 and is left alone. See `StreamingProcess.reapWhenFoundationDoesNot`.
+            if process.isRunning, !readers.contains(true) {
+                var raw: Int32 = 0
+                if waitpid(process.processIdentifier, &raw, WNOHANG) == process.processIdentifier {
+                    let signalled = (raw & 0x7F) != 0 && (raw & 0x7F) != 0x7F
+                    return ShellBytes(status: signalled ? raw & 0x7F : (raw >> 8) & 0xFF,
+                                      stdout: streams[0], stderr: streams[1])
+                }
+            }
+            #endif
             if !process.isRunning {
                 if exitedAt == nil { exitedAt = now }
                 if !readers.contains(true) {

@@ -4,8 +4,8 @@ the checked-in vectors all agree.
 
     python3 Protocol/v1/schema.py            regenerate workspace-v1.schema.json
     python3 Protocol/v1/schema.py --check    fail when the schema is stale, a kind in the Swift
-                                             source is missing from it, or a vector does not
-                                             validate
+                                             source is missing from it, a vector does not
+                                             validate, or an optional field is in no vector
 
 The vectors are written by the Swift types themselves (Packages/BloomProtocol, WireVectorTests),
 so this is the third corner of a triangle: a change to a Swift type moves the vectors, and this
@@ -93,12 +93,16 @@ OPERATIONS = {
     "review_snapshot": plain({"scope": SCOPE, "wait": B}, {"known_revision": S}),
     "review_patch": plain({"path": S, "scope": SCOPE}, {"known_revision": S}),
     "run_scripts": plain(),
+    "quick_prompts": plain(),
+    "search_code": plain({"query": S}, {"limit": I}),
     "notes": plain(),
     "pull_request": plain(),
     "archive_preview": plain(),
+    "recently_closed": plain(),
     "new_chat": plain({"controls": ref("ComposerControls")}),
     "rename_chat": plain({"chat_id": S, "title": S}),
     "close_chat": plain({"chat_id": S}),
+    "reopen_chat": plain({"chat_id": S}),
     "mark_read": plain({"chat_id": S, "seq": I}),
     "set_composer": plain({"chat_id": S, "controls": ref("ComposerControls")}),
     "send": plain({"chat_id": S, "text": S}, {"audience": ref("Audience"), "via": ref("Via")}),
@@ -146,8 +150,11 @@ RESULTS = {
     "review_snapshot": record("review_snapshot", "ReviewSnapshot"),
     "review_patch": record("review_patch", "PatchSnapshot"),
     "run_scripts": plain({"scripts": array(ref("RunScript"))}),
+    "quick_prompts": plain({"prompts": array(ref("QuickPrompt")), "issues": array(ref("SettingsIssue"))}),
+    "code_matches": plain({"matches": array(ref("CodeMatch")), "truncated": B}),
     "text": plain({"value": S}),
     "chat": record("chat", "Chat"),
+    "recently_closed": plain({"chats": array(ref("ClosedChat"))}),
     "queued": plain({"prompt_id": S}),
     "archive_preview": record("archive_preview", "ArchivePreview"),
     "terminal": record("terminal", "Terminal"),
@@ -162,7 +169,6 @@ EVENTS = {
     "composer": plain({"chat_id": S, "controls": ref("ComposerControls")}, {"changed_by": ref("Author")}),
     "setup": record("setup", "Setup"),
     "setup_output": plain({"text": S}),
-    "review": plain({"revision": I}),
     # An agent on the machine asking a client to open a browser pane. A request, not an
     # instruction: nobody may be listening, and several may be.
     # `placement` is `split` or `tab`, absent meaning `tab`, which is what every client did before
@@ -181,24 +187,39 @@ TERMINAL_FRAMES = {
     "resize": plain({"columns": I, "rows": I}),
 }
 
+# **A field added after machines shipped is optional here, whatever the machine now sends.**
+#
+# The schema is the artefact a client reads first and generates types from, so what it says becomes
+# what a client refuses. "Every current machine sends this" is a fact about deployment; a schema is
+# a promise, and the promise has to hold for the machine somebody is actually connected to. The web
+# client met this as a crash rather than a type error: a snapshot from a machine older than
+# `members` threw, and **the workspace could not be opened at all**. Marking the addition optional
+# would have made that impossible rather than merely documented.
+#
+# What a current machine sends is in `vectors.json`, which is the right place for it: a vector is an
+# example and a schema is a promise. The fields this applies to today are `members`, `services`,
+# `setup.enabled` and a service's `http`.
 RECORDS = {
     "Error": obj({"code": S, "message": S}),
-    "Author": obj({"user_id": S, "name": S}),
-    # `enabled` is optional because a machine older than the field does not send it, and a client
-    # decodes its absence as true. Taken from the machine's branch, which says so at more length.
+    # `name` may be empty, and `email` is what a client draws when it is. Not one overloaded field:
+    # mention completion matches on these, and picking the wrong person misaddresses a message.
+    "Author": obj({"user_id": S, "name": S}, {"email": S}),
+    # `enabled` is optional here for the reason at the head of RECORDS: a machine older than the
+    # field does not send it, and a client decodes its absence as true.
     "Setup": obj({"state": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]}},
-                 {"step": S, "started_at": DATE, "finished_at": DATE, "note": S, "enabled": B}),
+                 {"step": S, "started_at": DATE, "finished_at": DATE, "note": S, "enabled": B, "failure_code": S}),
     "SetupOutput": obj({"setup": ref("Setup"), "log": S}),
-    "PullRequest": obj({"number": I, "url": S, "title": S, "state": S}),
     "Workspace": obj({"id": S, "name": S, "branch": S, "base_branch": S, "setup": ref("Setup")},
-                     {"pull_request": ref("PullRequest"), "reporting": ref("Reporting"),
+                     {"reporting": ref("Reporting"),
                       "services": array(ref("Service"))}),
     # A service that never started says so here and nowhere else. Empty for a project with none.
     "Service": obj({"name": S, "state": S, "restarts": I}, {"message": S, "http": B}),
     # Present only when the machine has something wrong to say about reaching runbloom.app.
     "Reporting": obj({"shed": I}, {"unreachable_since": DATE}),
     "Chat": obj({"id": S, "title": S, "agent": S, "model": S, "effort": S, "permission_mode": S, "interaction_mode": S,
-                 "state": S, "last_seq": I, "created_at": DATE, "updated_at": DATE}, {"parent_chat_id": S}),
+                 "state": S, "last_seq": I, "created_at": DATE, "updated_at": DATE},
+                {"parent_chat_id": S, "closed_at": DATE}),
+    "ClosedChat": obj({"id": S, "title": S, "agent": S, "message_count": I, "closed_at": DATE}),
     "Message": obj({"cursor": I, "chat_id": S, "seq": I, "kind": S, "payload": ANY, "created_at": DATE},
                    {"author": ref("Author"), "duration_ms": I, "ref_id": S, "audience": ref("Audience"),
                     "via": ref("Via")}),
@@ -209,9 +230,6 @@ RECORDS = {
     "Via": obj({"kind": {"enum": ["agent"]}}, {"workspace": S, "chat": S}),
     # For a workspace on the Mac of the running turn's person, sent only down their streams.
     "MacMessage": obj({"id": S, "user_id": S, "workspace": S, "text": S, "via": ref("Via")}),
-    # Who may be addressed with `@`, which is not `presence`: that is who is here, and somebody who
-    # is away is exactly who a mention is for. No addresses; a share-link guest reads this too.
-    "Member": obj({"user_id": S, "name": S, "handle": S}),
     "Blocked": obj({"limit": S, "message": S}),
     "QueuedPrompt": obj({"id": S, "text": S, "state": {"enum": ["queued", "blocked", "uncertain"]}, "created_at": DATE},
                         {"author": ref("Author"), "blocked": ref("Blocked")}),
@@ -221,7 +239,7 @@ RECORDS = {
                        "busy": B, "streaming_text": S, "queue": ref("Queue")}),
     "ComposerControls": obj({"agent": S, "model": S, "effort": S, "permission_mode": S, "interaction_mode": S, "fast_mode": B,
                              "output_style": S, "codex_context_window": I}, {"codex_fast_mode": B}),
-    "Model": obj({"agent": S, "id": S, "label": S, "efforts": array(S), "is_default": B}, {"default_effort": S}),
+    "Model": obj({"agent": S, "id": S, "label": S, "efforts": array(S), "is_default": B}, {"default_effort": S, "fast_tier": S}),
     "SlashCommand": obj({"name": S, "description": S}),
     "Composer": obj({"controls": ref("ComposerControls"), "available_agents": array(S), "models": array(ref("Model")),
                      "commands": array(ref("SlashCommand")), "output_styles": array(S)}, {"chat_id": S}),
@@ -244,10 +262,17 @@ RECORDS = {
                            "detached_commits": I, "is_agent_running": B, "is_pull_request_merged": B,
                            "deletes_conversation": {"const": True}, "created_at": DATE}),
     "RunScript": obj({"id": S, "name": S, "command": S}),
+    "QuickPrompt": obj({"id": S, "name": S, "prompt": S, "symbol": S, "new_chat": B, "source": S}),
+    "SettingsIssue": obj({"source": S, "message": S}, {"line": I}),
+    "CodeMatch": obj({"path": S, "line": I, "column": I, "text": S}),
     "Terminal": obj({"name": S, "title": S}),
     "Presence": obj({"user_id": S, "name": S}, {"last_input_at": DATE}),
     "WorkspaceSnapshot": obj({"workspace": ref("Workspace"), "chats": array(ref("Chat")), "presence": array(ref("Presence")),
-                              "cursor": I, "composer_defaults": ref("ComposerControls"), "members": array(ref("Member"))}),
+                              "cursor": I, "composer_defaults": ref("ComposerControls")},
+                             {"members": array(ref("Member"))}),
+    # Who may be addressed with `@`, which is not `presence`: that is who is here, and somebody who
+    # is away is exactly who a mention is for. No addresses; a share-link guest reads this too.
+    "Member": obj({"user_id": S, "name": S, "handle": S}),
 }
 
 
@@ -284,13 +309,21 @@ def swift_kinds(file_name, type_name):
 
 
 # The subset of JSON Schema this file uses.
-def validate(value, schema, root, path="$"):
+def validate(value, schema, root, path="$", seen=None):
+    """The errors in `value`, and into `seen` every (object, field) it carried a non-null value
+    for, counted only along the one alternative of a oneOf that matched."""
+    seen = set() if seen is None else seen
     if "$ref" in schema:
-        return validate(value, root["$defs"][schema["$ref"].split("/")[-1]], root, path)
+        return validate(value, root["$defs"][schema["$ref"].split("/")[-1]], root, path, seen)
     if "oneOf" in schema:
-        matches = [option for option in schema["oneOf"] if not validate(value, option, root, path)]
+        matches = []
+        for option in schema["oneOf"]:
+            carried = set()
+            if not validate(value, option, root, path, carried):
+                matches.append(carried)
         if len(matches) != 1:
             return [f"{path}: matched {len(matches)} of {len(schema['oneOf'])} alternatives"]
+        seen |= matches[0]
         return []
     if "const" in schema:
         return [] if value == schema["const"] and type(value) is type(schema["const"]) else [f"{path}: expected {schema['const']!r}"]
@@ -310,7 +343,7 @@ def validate(value, schema, root, path="$"):
         errors.append(f"{path}: {value!r} is not an ISO 8601 UTC date")
     if kind == "array":
         for index, item in enumerate(value):
-            errors += validate(item, schema.get("items", {}), root, f"{path}[{index}]")
+            errors += validate(item, schema.get("items", {}), root, f"{path}[{index}]", seen)
     if kind == "object":
         properties = schema.get("properties", {})
         for key in schema.get("required", []):
@@ -318,10 +351,49 @@ def validate(value, schema, root, path="$"):
                 errors.append(f"{path}: missing {key}")
         for key, item in value.items():
             if key in properties:
-                errors += validate(item, properties[key], root, f"{path}.{key}")
+                if item is not None:
+                    seen.add((id(schema), key))
+                errors += validate(item, properties[key], root, f"{path}.{key}", seen)
             elif schema.get("additionalProperties") is False:
                 errors.append(f"{path}: unexpected field {key}")
     return errors
+
+
+# Optional fields no machine sends yet, each with the reason it is exempt from having a vector. A
+# vector for one of these would be an example of a value the machine cannot produce, which is the
+# fake this check exists to stop, so the honest thing is to name it here instead.
+NEVER_SENT = {
+}
+
+
+def optional_fields(schema):
+    """Every optional property of every object in the schema, labelled Definition.field, or
+    Definition[kind].field for one case of a tagged union, with the object it belongs to."""
+    found = []
+
+    def walk(node, label):
+        if isinstance(node, list):
+            for item in node:
+                walk(item, label)
+            return
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "object" and "properties" in node:
+            kind = node["properties"].get("kind", {}).get("const")
+            name = f"{label}[{kind}]" if kind else label
+            for key in node["properties"]:
+                if key not in node.get("required", []):
+                    found.append((f"{name}.{key}", id(node), key))
+            for key, value in node["properties"].items():
+                walk(value, f"{name}.{key}")
+            return
+        for key, value in node.items():
+            if key != "$ref":
+                walk(value, label)
+
+    for name, definition in schema["$defs"].items():
+        walk(definition, name)
+    return found
 
 
 def check(schema):
@@ -338,11 +410,22 @@ def check(schema):
             problems.append(f"{type_name}: Swift has {sorted(swift - set(cases))} the schema lacks, "
                             f"the schema has {sorted(set(cases) - swift)} Swift lacks")
     vectors = json.loads(VECTORS_PATH.read_text())
+    seen = set()
     for group, definition in [("requests", "Request"), ("replies", "Reply"), ("errors", "Reply"),
                               ("events", "Event"), ("terminal_frames", "TerminalFrame")]:
         for name, value in vectors[group].items():
-            for error in validate(value, ref(definition), schema):
+            for error in validate(value, ref(definition), schema, seen=seen):
                 problems.append(f"{group}.{name}: {error}")
+    # **Every optional field is carried by at least one vector.** A required field that drifts
+    # fails above; an optional one no vector carries could be renamed on one side and read as
+    # absent on the other for ever. The web read `name` where the wire says `label` for as long as
+    # it had a model menu, and nothing here could have said so.
+    optional = optional_fields(schema)
+    for label, node, key in optional:
+        if (node, key) not in seen and label not in NEVER_SENT:
+            problems.append(f"{label} is optional and no vector carries it. Add one with a value the machine really sends.")
+    for label in sorted(set(NEVER_SENT) - {label for label, _, _ in optional}):
+        problems.append(f"NEVER_SENT names {label}, which is not an optional field any more.")
     # And the other direction: things a server must never accept.
     malformed = [
         ("an operation from #163", {"protocol": "bloom-workspace", "version": 1, "command_id": "c", "operation": {"kind": "catalogue"}}),

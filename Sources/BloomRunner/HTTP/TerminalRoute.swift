@@ -38,7 +38,26 @@ enum TerminalRoute {
         }
     }
 
+    /// The auth frame's token, verified for this workspace and for a terminal. A function of its
+    /// own so the refusals can be tested without a socket: a token for another workspace, an
+    /// expired one, a preview token and one without `terminal` all stop here.
+    static func authorise(_ raw: String, verifier: TokenVerifier) async throws -> WorkspaceToken {
+        let token = try await verifier.verify(raw, as: .session)
+        guard token.abilities.contains("view"), token.abilities.contains("terminal") else {
+            throw RemoteFailure(.missingAbility, "Your access to this Bloom Cloud workspace does not include the terminal.")
+        }
+        try token.refuseIfMintedForAnAgent()
+        return token
+    }
+
     private static func serve(name: String, inbound: WebSocketInboundStream, outbound: WebSocketOutboundWriter, dependencies: Dependencies) async throws {
+        let connections = dependencies.connections
+        guard await connections.admitUnauthenticated() else {
+            try await outbound.close(.policyViolation, reason: "Too many terminals are connecting. Try again in a moment.")
+            return
+        }
+        var waiting = true
+        defer { if waiting { Task { await connections.authenticated() } } }
         var messages = inbound.messages(maxSize: maximumFrame).makeAsyncIterator()
         // Closing the socket is what ends a read that never gets an answer, so the deadline closes
         // it rather than trying to cancel the read.
@@ -48,6 +67,8 @@ enum TerminalRoute {
         }
         let first = try await messages.next()
         deadline.cancel()
+        waiting = false
+        await connections.authenticated()
         guard let first else {
             try await outbound.close(.policyViolation, reason: "Send an auth frame first.")
             return
@@ -64,10 +85,7 @@ enum TerminalRoute {
         let personal: Set<String>
         var registered: String?
         do {
-            token = try await dependencies.verifier.verify(raw, as: .session)
-            guard token.abilities.contains("view"), token.abilities.contains("terminal") else {
-                throw RemoteFailure(.missingAbility, "Your access to this Cloud workspace does not include the terminal.")
-            }
+            token = try await authorise(raw, verifier: dependencies.verifier)
             let caller = token.caller(token: raw)
             turnID = try await dependencies.gate.register(.terminal, chat: nil, agent: nil, caller: caller)
             registered = turnID
@@ -95,7 +113,7 @@ enum TerminalRoute {
         // A revoke that landed during the two runbloom.app calls above found no socket to close.
         if await dependencies.verifier.revocations.isRevoked(token.subject, issuedAt: token.issuedAt) {
             await attachment.close()
-            try await outbound.close(.policyViolation, reason: "Your access to this Cloud workspace was removed.")
+            try await outbound.close(.policyViolation, reason: "Your access to this Bloom Cloud workspace was removed.")
             return
         }
 
@@ -108,14 +126,9 @@ enum TerminalRoute {
             try await outbound.close(.normalClosure, reason: nil)
         }
         let tokenDeadline = Task {
-            while !Task.isCancelled {
-                let wait = await expiry.expiresAt.timeIntervalSinceNow
-                if wait <= 0 {
-                    try await outbound.close(.policyViolation, reason: "token_expired")
-                    await attachment.close()
-                    return
-                }
-                try await Task.sleep(for: .seconds(min(wait, 30)))
+            try await closeAtExpiry(expiry) {
+                try await outbound.close(.policyViolation, reason: "token_expired")
+                await attachment.close()
             }
         }
         defer {
@@ -142,7 +155,8 @@ enum TerminalRoute {
                     // shell past the moment its owner's access narrowed.
                     guard let fresh = try? await dependencies.verifier.verify(raw, as: .session),
                           fresh.author?.userID == token.author?.userID,
-                          fresh.abilities.contains("view"), fresh.abilities.contains("terminal") else { continue }
+                          fresh.abilities.contains("view"), fresh.abilities.contains("terminal"),
+                          fresh.actor == nil else { continue }
                     await expiry.extend(to: fresh.expiresAt)
                 case .auth: continue
                 }
@@ -171,6 +185,24 @@ enum TerminalRoute {
     }
 }
 
+extension TerminalRoute {
+    /// **A terminal does not outlive its token.** Waits for `expiry`, which a `reauth` with a fresh
+    /// token of the same person moves on, and closes the socket when it passes. A person removed
+    /// from the team gets no fresh token from runbloom.app, so a shell they had open closes within
+    /// five minutes even if the `revoke` call never arrives. Checked at least every thirty seconds,
+    /// so a deadline moved earlier is not overslept.
+    static func closeAtExpiry(_ expiry: TerminalExpiry, close: @Sendable () async throws -> Void) async throws {
+        while !Task.isCancelled {
+            let wait = await expiry.expiresAt.timeIntervalSinceNow
+            if wait <= 0 {
+                try await close()
+                return
+            }
+            try await Task.sleep(for: .seconds(min(wait, 30)))
+        }
+    }
+}
+
 /// A terminal token's lifetime, moved on by `reauth`.
 actor TerminalExpiry {
     private(set) var expiresAt: Date
@@ -183,6 +215,24 @@ actor TerminalExpiry {
 /// Open terminal connections by person, so revoking somebody closes their shells' connections.
 public actor TerminalConnections {
     public init() {}
+
+    /// **How many sockets may be waiting to authenticate at once.** The upgrade happens before the
+    /// token is read, so without a cap anybody could hold hundreds of sockets for their five
+    /// seconds each (L4 in the review of 19 September 2026). A socket over it is closed at once.
+    static let unauthenticatedLimit = 32
+    private var unauthenticated = 0
+
+    /// Takes a place among the sockets waiting to authenticate, or answers false when they are full.
+    func admitUnauthenticated() -> Bool {
+        guard unauthenticated < Self.unauthenticatedLimit else { return false }
+        unauthenticated += 1
+        return true
+    }
+
+    /// Gives the place back, whether the socket authenticated, was refused or went away.
+    func authenticated() {
+        unauthenticated = max(0, unauthenticated - 1)
+    }
 
     private var entries: [UUID: (userID: String?, turnID: String, terminal: String, close: @Sendable () async -> Void)] = [:]
 

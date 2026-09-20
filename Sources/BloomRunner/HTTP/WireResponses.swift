@@ -28,6 +28,7 @@ enum WireResponses {
         case .tooLarge: .contentTooLarge
         case .notFound: .notFound
         case .unavailable: .serviceUnavailable
+        case .limitReached: .tooManyRequests
         default: .internalServerError
         }
     }

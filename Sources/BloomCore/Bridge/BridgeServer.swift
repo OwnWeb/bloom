@@ -20,6 +20,26 @@ import Synchronization
 /// sequence race is what `UNIQUE(session_id, seq)` and the retry in `appendNext` exist to survive
 /// rather than to invite.
 public final class BridgeServer: Sendable {
+    public struct Access: Sendable {
+        let socketPermissions: Int
+        let configDirectoryPermissions: Int
+        let configFilePermissions: Int
+
+        public static let ownerOnly = Access(
+            socketPermissions: 0o700,
+            configDirectoryPermissions: 0o700,
+            configFilePermissions: 0o600
+        )
+        public static let sharedGroup = Access(
+            socketPermissions: 0o660,
+            // Keep setgid on the directory so atomic config writes inherit `bloom-work` rather
+            // than the Runner's primary group. A 0640 file in that other group is invisible to
+            // the sandbox user even though the directory itself is traversable.
+            configDirectoryPermissions: 0o2750,
+            configFilePermissions: 0o640
+        )
+    }
+
     private let store: Store
     private let toolbox: BridgeToolbox
     public let registry: BridgeRegistry
@@ -27,6 +47,7 @@ public final class BridgeServer: Sendable {
     /// Said out loud where the app can log it. The core has no logger of its own and should not
     /// grow one for this.
     private let note: @Sendable (String) -> Void
+    let access: Access
 
     private let listener = Mutex<UnixSocketListener?>(nil)
 
@@ -39,12 +60,14 @@ public final class BridgeServer: Sendable {
         socketPath: String,
         registry: BridgeRegistry = BridgeRegistry(),
         toolbox: BridgeToolbox = .standard,
+        access: Access = .ownerOnly,
         note: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.store = store
         self.socketPath = socketPath
         self.registry = registry
         self.toolbox = toolbox
+        self.access = access
         self.note = note
         self.ownerToken = BridgeOwnerToken.beside(databasePath: store.path)
     }
@@ -54,6 +77,7 @@ public final class BridgeServer: Sendable {
         store: Store,
         registry: BridgeRegistry = BridgeRegistry(),
         toolbox: BridgeToolbox = .standard,
+        access: Access = .ownerOnly,
         note: @escaping @Sendable (String) -> Void = { _ in }
     ) throws {
         self.init(
@@ -61,6 +85,7 @@ public final class BridgeServer: Sendable {
             socketPath: try BridgeSocketPath.derive(databasePath: store.path),
             registry: registry,
             toolbox: toolbox,
+            access: access,
             note: note
         )
     }
@@ -81,7 +106,7 @@ public final class BridgeServer: Sendable {
     public func start() throws {
         try listener.withLock { held in
             guard held == nil else { return }
-            held = try UnixSocketListener(path: socketPath) { [weak self] connection in
+            held = try UnixSocketListener(path: socketPath, permissions: access.socketPermissions) { [weak self] connection in
                 guard let self else {
                     // The server this socket belonged to is gone, so nothing will ever answer.
                     // Closing beats leaving the caller waiting on a hello that is not coming.
@@ -205,7 +230,11 @@ public final class BridgeServer: Sendable {
         }
         do {
             let path = try BridgeRegistration.writeClaudeConfig(
-                attachment, sessionID: session.id, directory: configDirectory
+                attachment,
+                sessionID: session.id,
+                directory: configDirectory,
+                directoryPermissions: access.configDirectoryPermissions,
+                filePermissions: access.configFilePermissions
             )
             sweepConfigDirectory()
             return BridgeHandle(attachment: attachment, mcpConfigPath: path)
@@ -242,7 +271,9 @@ public final class BridgeServer: Sendable {
             let path = try BridgeRegistration.writeClaudeConfig(
                 attachment,
                 sessionID: session.id,
-                directory: configDirectory
+                directory: configDirectory,
+                directoryPermissions: access.configDirectoryPermissions,
+                filePermissions: access.configFilePermissions
             )
             sweepConfigDirectory()
             return BridgeHandle(attachment: attachment, mcpConfigPath: path)
@@ -293,7 +324,7 @@ public final class BridgeServer: Sendable {
 
     /// Where the per-session Claude Code config files live: one directory per instance, named from
     /// the same fingerprint as the socket beside it, so Bloom and Bloom Dev cannot read each
-    /// other's. Mode 0700, and each file inside it 0600.
+    /// other's. Owner-only by default; a machine grants its sandbox group read access.
     public var configDirectory: String {
         (socketPath as NSString).deletingPathExtension + ".d"
     }

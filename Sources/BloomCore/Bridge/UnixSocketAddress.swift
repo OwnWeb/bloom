@@ -48,6 +48,7 @@ enum UnixSocketError: Error, CustomStringConvertible {
     case pathTooLong(path: String, limit: Int)
     case couldNotOpen(code: Int32)
     case couldNotBind(path: String, code: Int32)
+    case couldNotSetPermissions(path: String, code: Int32)
     case couldNotListen(path: String, code: Int32)
     case couldNotConnect(path: String, code: Int32)
 
@@ -59,6 +60,8 @@ enum UnixSocketError: Error, CustomStringConvertible {
             "could not open a unix socket: \(Self.reason(code))"
         case .couldNotBind(let path, let code):
             "could not bind \(path): \(Self.reason(code))"
+        case .couldNotSetPermissions(let path, let code):
+            "could not set permissions on \(path): \(Self.reason(code))"
         case .couldNotListen(let path, let code):
             "could not listen on \(path): \(Self.reason(code))"
         case .couldNotConnect(let path, let code):

@@ -31,7 +31,8 @@ its kind, so asking whether a payload key is in it fails against a machine that 
 right thing. When adding an assertion about a reply, look the reply up there first.
 
 Environment:
-  BLOOM_TEST_SPRITES_ORG  the organisation (default freek-van-der-herten)
+  BLOOM_TEST_SPRITES_ORG  the development organisation, required; its name stays out of this public
+                          repository
   OPENSSL                 an OpenSSL 3 with Ed25519 (default /opt/homebrew/bin/openssl, then openssl)
 """
 
@@ -44,6 +45,7 @@ import os
 import pathlib
 import re
 import secrets
+import shlex
 import shutil
 import socket
 import ssl
@@ -60,7 +62,7 @@ sys.path.insert(0, str(HERE))
 os.environ.setdefault("OPENSSL", "/opt/homebrew/bin/openssl" if pathlib.Path("/opt/homebrew/bin/openssl").exists() else "openssl")
 from bloom_fake_runbloom import Issuer  # noqa: E402
 
-ORGANISATION = os.environ.get("BLOOM_TEST_SPRITES_ORG", "freek-van-der-herten")
+ORGANISATION = os.environ.get("BLOOM_TEST_SPRITES_ORG") or sys.exit("Set BLOOM_TEST_SPRITES_ORG to the development Sprites organisation.")
 SPRITE = shutil.which("sprite") or str(pathlib.Path.home() / ".local/bin/sprite")
 USER = "01k5a7c2b0z9y8x7w6v5t4s3rq"
 REPOSITORY_FOR_RELEASES = "spatie/bloom"
@@ -86,9 +88,12 @@ def sprite(name, *arguments, stdin=None, check=True, timeout=300):
 def push(name, source, destination, timeout=300):
     # A machine a few seconds old has answered "directory does not exist" for its own home
     # directory, and a moment later accepted the same upload.
+    #
+    # **It called itself here rather than the CLI**, so every upload recursed until Python gave up
+    # with a recursion error that named nothing. Found by the review of 19 September 2026.
     for attempt in range(5):
         try:
-            return push(name, source, destination, timeout=timeout)
+            return sprite(name, "file", "push", source, destination, timeout=timeout)
         except RuntimeError:
             if attempt == 4:
                 raise
@@ -432,6 +437,9 @@ def main():
     parser.add_argument("--update", action="store_true",
                         help="also move the machine to another release through control/update, and back from a broken one")
     parser.add_argument("--keep", action="store_true", help="do not delete the machine, for looking at it afterwards")
+    parser.add_argument("--capture", type=pathlib.Path, metavar="DIR",
+                        help="save the raw replies a client reads, as the machine sent them, into DIR: composer for a "
+                             "chat that does not exist yet, and download of a picture where media_show copies one")
     arguments = parser.parse_args()
     if not arguments.package and not arguments.from_release:
         raise SystemExit("--package or --from-release is needed.")
@@ -567,7 +575,94 @@ def main():
 
             setup = wait_for("setup finishes", lambda: (lambda s: s if s["state"] in ("succeeded", "failed", "skipped") else None)(
                 rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]["setup"]), 600, interval=5)
-            step(f"setup {setup['state']}")
+            # The machine always writes this, so its absence is a runner that has stopped saying
+            # whether the workspace runs setup at all, and a client reading absence as "enabled"
+            # would then be right by luck. A machine created by this test always has it on.
+            assert setup.get("enabled") is True, f"setup did not say it was enabled: {setup}"
+            step(f"setup {setup['state']}, enabled")
+
+            # The services this project declares, as the machine is running them. A service that
+            # never started is invisible without this, so its absence from the record is the bug
+            # worth catching here rather than on somebody's machine.
+            drawn = rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]["services"]
+            assert isinstance(drawn, list), f"the workspace record has no services list: {drawn}"
+            for service in drawn:
+                assert service["state"] in ("waiting", "starting", "running", "not_ready", "crashed", "stopped"), service
+            listed = ", ".join(s["name"] + " " + s["state"] for s in drawn)
+            step("services: " + (listed or "(none declared)"))
+
+            # ---------------------------------------------------------------- the sandbox user
+            #
+            # **Every claim the sandbox rests on, asked of the machine itself.** A Sprite lets any
+            # local user manage it through /.sprite/api.sock, so "runs as another user" proves
+            # nothing on its own; what has to hold is that the sandbox user cannot reach that
+            # socket, cannot become root, and cannot read the Runner's secret or database. Each
+            # check runs as that user through sudo, which the Runner's user is allowed and the
+            # sandbox user is not. See MachineSandbox and H1 in the security review.
+            sandbox_user = run_on(name, "id -un bloom-agent 2>/dev/null || true").strip()
+            if not sandbox_user:
+                step("no sandbox user on this machine: skipping the isolation checks")
+            else:
+                def as_sandbox(script):
+                    return run_on(name, f"sudo -n -u bloom-agent -- bash -lc {shlex.quote(script)} 2>&1 || true")
+
+                checks = {
+                    "it has no sudo of its own": ("sudo -n true && echo yes || echo no", "no"),
+                    "it cannot read the workspace secret": (
+                        "cat /etc/bloom/workspace.json >/dev/null 2>&1 && echo yes || echo no", "no"),
+                    "it cannot read the Runner's database": (
+                        "cat /home/sprite/.bloom/bloom.sqlite >/dev/null 2>&1 && echo yes || echo no", "no"),
+                    "it cannot read the local secret": (
+                        "cat /home/sprite/.bloom/local-secret >/dev/null 2>&1 && echo yes || echo no", "no"),
+                    "it can work in the worktree": (
+                        "touch /home/sprite/workspace/.sandbox-probe && rm /home/sprite/workspace/.sandbox-probe "
+                        "&& echo yes || echo no", "yes"),
+                    "it can reach the credential socket": (
+                        "test -w /var/lib/bloom/shared/git-credentials.sock && echo yes || echo no", "yes"),
+                }
+                for description, (script, expected) in checks.items():
+                    answer = as_sandbox(script).strip().splitlines()[-1:] or [""]
+                    assert answer[0] == expected, f"{description}: expected {expected}, got {answer[0]!r}"
+                    step(f"sandbox: {description}")
+
+                # The one that matters most, and the reason the mount namespace exists: inside it the
+                # provider's own API socket is masked, so the sandbox user cannot create a service
+                # that would run as the Runner's user. Run the way the Runner runs an agent.
+                masked = run_on(name, "sudo -n unshare --mount --propagation private -- sh -c "
+                                      "'mount --bind /dev/null /.sprite/api.sock && exec setpriv --reuid=bloom-agent "
+                                      "--regid=bloom-agent --init-groups /.sprite/bin/sprite-env services list' 2>&1 || true")
+                assert "[]" not in masked and "services" not in masked.lower(), \
+                    f"the sandbox user reached the Sprite API through the mask: {masked.strip()[:300]}"
+                step("sandbox: the provider's API socket is masked inside the namespace")
+
+                # And that the agents' own binaries are where that user can run them, since the
+                # image keeps them under a home it cannot enter.
+                version = as_sandbox("claude --version").strip().splitlines()[-1:] or [""]
+                assert "Claude Code" in version[0], f"the sandbox user cannot run claude: {version[0]!r}"
+                step("sandbox: it can run " + version[0])
+
+            # Raw replies for a client to test against, byte for byte what this release sends. A
+            # client cannot reach a machine of its own, and a fake it writes itself agrees with its
+            # own mistakes. A media row needs an agent to call media_show, which is a paid turn, so
+            # the picture is put where media_show would copy it and downloaded the way a client
+            # downloads one: the reply is the same either way.
+            if arguments.capture:
+                arguments.capture.mkdir(parents=True, exist_ok=True)
+
+                def raw(operation):
+                    status, _, body = https(url, "POST", "/_bloom/v1/rpc", token=session(), body={
+                        "protocol": "bloom-workspace", "version": 1, "command_id": secrets.token_hex(8), "operation": operation,
+                    }, timeout=90)
+                    assert status == 200, (operation["kind"], status, body[:300])
+                    return body
+
+                (arguments.capture / "composer.json").write_bytes(raw({"kind": "composer"}))
+                png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+                media = f".bloom/scratch/media/{hashlib.sha256(png).hexdigest()}.png"
+                run_on(name, f"mkdir -p ~/workspace/.bloom/scratch/media && printf '*\\n' > ~/workspace/.bloom/scratch/.gitignore "
+                             f"&& base64 -d > ~/workspace/{media}", stdin=base64.b64encode(png).decode())
+                (arguments.capture / "download.json").write_bytes(raw({"kind": "download", "path": media}))
+                step(f"captured composer and download into {arguments.capture}")
 
             # Reading is not human input; a rename is, so it starts the presence lease and the hold.
             rpc(url, session(), {"kind": "rename_workspace", "name": "Machine test, renamed"})
@@ -814,7 +909,11 @@ def main():
                 # Releases are laid out under /opt/bloom beforehand, so the bootstrap takes them as
                 # already downloaded: what this measures is the restart, the new process saying it
                 # came up, and the rollback, which nothing else reaches.
-                digest = hashlib.sha256(data).hexdigest() if package else "0" * 64
+                # **The package's own bytes.** `data` here was another function's local, so
+                # `--update` raised NameError the moment it was reached with a package; found by the
+                # review of 19 September 2026. The directory is copied rather than downloaded, so the
+                # digest only has to be the one the machine will check against what it already has.
+                digest = hashlib.sha256(package.read_bytes()).hexdigest() if package else "0" * 64
                 installed = run_on(name, "readlink /opt/bloom/current").strip().rsplit("/", 1)[-1]
                 updated = f"{version}-update"
                 run_on(name, f"sudo cp -a /opt/bloom/{installed} /opt/bloom/{updated}")

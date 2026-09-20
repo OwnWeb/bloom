@@ -1,264 +1,183 @@
 import Foundation
 
-/// What an agent asked for when it asked for a Bloom Cloud workspace, once read and checked.
-///
-/// The same six arguments a machine's `cloud_workspace_start` takes, spelled the same way, so an
-/// agent that has used one has used the other. Agreed with the Runner rather than chosen here.
+/// What an agent asks for when it wants a Cloud workspace of its own made, before the machine
+/// adds the turn it is asking in.
 public struct CloudWorkspaceOrder: Sendable, Hashable {
-    /// What to call it. Nil derives it from the prompt, the way the create sheet does.
-    public let name: String?
-    /// The branch to cut. Nil derives it from the prompt, or from the name where there is none.
-    public let branch: String?
-    /// What to cut it from. Nil is the project's own default.
-    public let baseBranch: String?
-    /// The opening instruction, sent as the first message once the machine is up. Nil makes an
-    /// empty workspace, which is what a machine's own copy of this tool does in its first version.
-    public let prompt: String?
-    /// Whether the machine runs the project's setup. True when the call says nothing, which is
-    /// what every workspace made from the sheet already does.
-    public let runSetup: Bool
-    /// A runbloom.app project, by id or by its repository. Nil means "the one that is this
-    /// workspace's repository", which only a caller standing in a workspace can mean.
-    public let project: String?
-    /// The caller's own repository as GitHub names it, `owner/name`, when the caller is standing
-    /// in a workspace whose repository is on GitHub. What a nil `project` is matched against.
-    public let callerRepository: String?
-    /// The workspace whose agent asked, by name, for the question Bloom asks the owner. Nil for
-    /// the owner's own client. See `CloudWorkspaceStartQuestion`.
-    public let requestedBy: String?
+    public var name: String
+    public var branch: String?
+    public var baseBranch: String?
+    public var runSetup: Bool
+    public var project: String?
+    /// The new workspace's first message, sent as the same person once its setup has run. Nil makes
+    /// an empty workspace for them to open.
+    public var prompt: String?
 
-    public init(
-        name: String? = nil, branch: String? = nil, baseBranch: String? = nil, prompt: String? = nil,
-        runSetup: Bool = true, project: String? = nil, callerRepository: String? = nil,
-        requestedBy: String? = nil
-    ) {
+    public init(name: String, branch: String? = nil, baseBranch: String? = nil, runSetup: Bool = true, project: String? = nil,
+                prompt: String? = nil) {
         self.name = name
         self.branch = branch
         self.baseBranch = baseBranch
-        self.prompt = prompt
         self.runSetup = runSetup
         self.project = project
-        self.callerRepository = callerRepository
-        self.requestedBy = requestedBy
+        self.prompt = prompt
     }
+
+    /// runbloom.app refuses more, and the machine's own front refuses a body over 1 MiB before
+    /// runbloom.app ever sees it.
+    public static let promptLimit = 512 * 1_024
 }
 
-/// What the tool answers once the workspace exists. The same four fields a machine returns.
-///
-/// **Returned as soon as it exists, which is minutes before it is usable.** The machine is still
-/// being made; `state` says so, and nothing here invites the caller to wait for it.
-public struct StartedCloudWorkspace: Sendable, Hashable {
-    public let id: String
-    public let name: String
-    public let state: String
-    /// The web address a person opens to be in it. Nil where this client does not know the
-    /// route, which is better than an address somebody guessed.
-    public let url: String?
+/// The workspace runbloom.app made. **All the agent will ever know about it**: nothing on a
+/// machine can list or read another workspace, so the answer carries the address a person opens.
+public struct CloudWorkspaceCreated: Sendable, Hashable {
+    public var id: String
+    public var name: String
+    public var state: String
+    public var url: String
 
-    public init(id: String, name: String, state: String, url: String? = nil) {
+    public init(id: String, name: String, state: String, url: String) {
         self.id = id
         self.name = name
         self.state = state
         self.url = url
     }
-
-    var json: JSONValue {
-        var fields: [String: JSONValue] = [
-            "id": .string(id), "name": .string(name), "state": .string(state),
-        ]
-        if let url { fields["url"] = .string(url) }
-        return .object(["workspace": .object(fields)])
-    }
 }
 
-/// How the window answers a request the tool has already checked.
-public enum CloudWorkspaceStartOutcome: Sendable, Hashable {
-    case started(StartedCloudWorkspace)
-    /// Why not, in a sentence the agent can pass on: no account, no such project, a branch git
-    /// will not take, runbloom.app saying no.
+public enum CloudWorkspaceAnswer: Sendable, Hashable {
+    case created(CloudWorkspaceCreated)
+    /// A sentence for the agent to pass on, as runbloom.app or the machine wrote it.
     case refused(String)
 }
 
-public typealias CloudWorkspaceStarting = @Sendable (CloudWorkspaceOrder) async -> CloudWorkspaceStartOutcome
-/// Whether the owner has let agents do this at all. Asked on every call rather than once, so the
-/// switch takes effect on the next call rather than the next launch.
-public typealias CloudWorkspaceStartAllowed = @Sendable () async -> Bool
-
-/// `cloud_workspace_start`: an agent asking for a Bloom Cloud workspace.
+/// `cloud_workspace_start`: an agent on a Cloud machine asking runbloom.app for another Cloud
+/// workspace. The Mac has a tool of the same name taking the same arguments, so an agent sees one
+/// thing wherever it runs.
 ///
-/// **A machine, not a worktree, and it costs money.** Everything else about it follows from that.
+/// **The machine asks; it never creates.** A machine has no business making machines, and
+/// everything that decides whether one is made is runbloom.app's: the team switch, which is off by
+/// default, the limits, whether the person may create in the project at all, and the rule that a
+/// workspace an agent made cannot make another. The machine contributes one fact, the turn it is
+/// running in, which is how runbloom.app knows who is asking and who pays. It never names a person.
 ///
-/// **Behind a setting that is off by default, and refused rather than absent when it is off.** An
-/// agent that finds no such tool cannot tell the person where the switch is; one that is told
-/// "this is off, and here is the setting" can. The setting is a preference a well behaved client
-/// respects, not an authorisation: anything holding the owner's sign in can create workspaces with
-/// it on or off, exactly as the owner can. The owner chose it that way knowing so.
+/// **Always listed, even when the team has it switched off.** The machine cannot know the switch
+/// without asking, and an agent told "no such tool" cannot help anybody find the setting;
+/// runbloom.app's refusal names it, and that sentence is what the agent gets.
 ///
-/// **Not on `BridgeToolApproval`'s list, so Bloom never answers the ask itself.** That list is for
-/// tools where there is nothing for a person to weigh; a tool that spends money is one a person
-/// answers for, the same argument that keeps `workspace_archive` off it. **What that buys depends on
-/// the chat, and it is not a promise that the owner is asked.** The ask is the agent CLI's own
-/// permission check, so a chat that asks before using tools asks the owner before each one, and a
-/// chat set to bypass permissions asks nobody. So Bloom asks as well, in its own window and
-/// whatever the chat is set to, unless the owner has turned that off: see
-/// `CloudWorkspaceStartQuestion`, which the app half asks once the order is worked out.
-///
-/// **One level, like `workspace_start`.** A workspace an agent started may not start more of
-/// either kind: the lock that stops a runaway agent cutting worktrees stops it making machines.
-///
-/// **Nothing about the window moves.** The new workspace appears in the sidebar and is not
-/// selected; moving somebody's selection on an agent's word is a bigger liberty than adding a row.
+/// **`prompt` is handed over once.** Delivering one means runbloom.app holding the words until the
+/// new machine boots, which its design says it never does; Freek approved it as a written exception
+/// on 18 September 2026. The new machine fetches it with its own secret, keeps it, tells
+/// runbloom.app it has it, and runs it as the person who asked, on the creating chat's agent and
+/// model, after its setup. See `RemoteOpening`.
 public struct CloudWorkspaceStartTool: BridgeToolHandling {
-    private let start: CloudWorkspaceStarting
-    private let allowed: CloudWorkspaceStartAllowed
-    private let repositoryOf: @Sendable (String) async -> String?
+    public typealias Starting = @Sendable (
+        _ order: CloudWorkspaceOrder, _ sessionID: SessionID?, _ workspaceID: WorkspaceID
+    ) async -> CloudWorkspaceAnswer
 
-    /// - Parameter repositoryOf: `owner/name` for a checkout on this Mac. Injected so the tests
-    ///   need no git remote; the app's is `GitHub.repositorySlug(repoPath:)`.
-    public init(
-        allowed: @escaping CloudWorkspaceStartAllowed,
-        start: @escaping CloudWorkspaceStarting,
-        repositoryOf: @escaping @Sendable (String) async -> String? = { await GitHub.repositorySlug(repoPath: $0) }
-    ) {
-        self.allowed = allowed
+    private let start: Starting
+
+    public init(_ start: @escaping Starting) {
         self.start = start
-        self.repositoryOf = repositoryOf
     }
 
-    /// The label the setting is shown under, which the refusal names so a person can find it.
-    public static let settingTitle = "Let agents create Bloom Cloud workspaces"
+    public static let name = "cloud_workspace_start"
 
-    /// Where it is kept. Off when absent, which is every Mac until somebody turns it on.
-    public static let settingKey = "bridge.allowsCloudWorkspaceStart"
-
-    /// What a call is told while the setting is off. It names the tab and the switch, because an
-    /// agent told only "not allowed" cannot help the person find where to allow it.
-    public static let offSentence = """
-        Creating Bloom Cloud workspaces is off. The owner turns it on in Bloom's Settings, under \
-        Bloom Cloud: "\(settingTitle)". It is off by default because each one is a machine and \
-        costs money.
-        """
-
-    public let roles: Set<BridgeRole> = [.workspace, .owner]
+    public let roles: Set<BridgeRole> = [.workspace]
 
     public let tool = BridgeTool(
-        name: "cloud_workspace_start",
+        name: CloudWorkspaceStartTool.name,
         description: """
-            Create a Bloom Cloud workspace: its own branch, its own agent, on a machine that \
-            runbloom.app runs rather than on this Mac. It appears in Bloom's sidebar for the owner \
-            to open, and is not brought to the front.
+            Create another Bloom Cloud workspace in this project: a machine of its own, with its \
+            own branch. It is created as the person whose message you are answering, and it costs \
+            them real money for as long as it runs.
 
-            This costs real money, because every Bloom Cloud workspace is a machine. The owner has \
-            to have turned "\(settingTitle)" on in Bloom's Settings. Create one only when the owner \
-            would want to pay for it. Create one because the work belongs on a machine: it should keep going while \
-            this Mac sleeps, or somebody else on the team should be able to open it. For work that \
-            belongs on this Mac, use workspace_start. Bloom may ask the owner before creating \
-            it; if they decline, nothing is created and you should not ask again unless they say so.
+            Pass 'prompt' to give it a task: an agent starts on it once the new workspace has set \
+            itself up, which takes minutes, as the same person, on the agent and model you are \
+            running on. It cannot see this conversation, so write the prompt as if to someone who \
+            has just opened the project. Leave 'prompt' out for an empty workspace a person opens \
+            and writes the first message in themselves.
 
-            Give it a 'prompt' and it is sent as the first message once the machine is up. Leave \
-            the prompt out to make an empty workspace, and then 'name' is required. With a prompt, \
-            leave 'name' and 'branch' out and Bloom derives both from it, as its own create sheet \
-            does.
+            Only when the work genuinely needs its own branch and its own pull request. For help \
+            on this branch, use agent_start instead, which costs nothing extra.
 
-            'project' is a runbloom.app project. Inside a Bloom workspace, leave it out to use the \
-            project whose repository is this workspace's. 'run_setup' is true unless you say false; \
-            false makes it usable sooner, without the project's setup.
+            Your team has to have switched this on, and it is off by default. If it is off, the \
+            answer says which setting and where it is: tell the person that sentence rather than \
+            trying again. A workspace created this way cannot create others.
 
-            It returns as soon as the workspace exists, which is minutes before it is ready. There \
-            is no way to wait for it from here: say what you created and carry on.
+            It returns as soon as the workspace exists, which is before its setup has run; setup \
+            takes minutes. There is no way to look it up afterwards from here, so pass on what \
+            the answer says.
             """,
         inputSchema: .object([
             "type": .string("object"),
             "properties": .object([
-                "prompt": .object([
-                    "type": .string("string"),
-                    "description": .string(
-                        "The opening instruction, sent once the machine is up. Write it for someone "
-                            + "with no context beyond the project."
-                    ),
-                ]),
                 "name": .object([
                     "type": .string("string"),
-                    "description": .string("What to call it. Required without a prompt."),
+                    "description": .string("What to call it. Short, and saying what it is for."),
                 ]),
                 "branch": .object([
                     "type": .string("string"),
-                    "description": .string("The branch to cut. Leave it out to derive it."),
+                    "description": .string("The new branch's name. Leave it out and it is made from the name."),
                 ]),
                 "base_branch": .object([
                     "type": .string("string"),
-                    "description": .string("What to cut it from. Leave it out for the project's default."),
+                    "description": .string("The branch to cut it from. Leave it out for the project's default branch."),
                 ]),
                 "run_setup": .object([
                     "type": .string("boolean"),
-                    "description": .string("Whether the machine runs the project's setup. True by default."),
+                    "description": .string("Whether its setup scripts run. Defaults to true."),
+                ]),
+                "prompt": .object([
+                    "type": .string("string"),
+                    "description": .string("The new workspace's first task. Leave it out for an empty workspace."),
                 ]),
                 "project": .object([
                     "type": .string("string"),
-                    "description": .string(
-                        "A runbloom.app project, by id or by its repository as owner/name. Inside a "
-                            + "Bloom workspace, leave it out for this workspace's repository."
-                    ),
+                    "description": .string("Leave it out: from here only this project is supported."),
                 ]),
             ]),
+            "required": .array([.string("name")]),
+            "additionalProperties": .bool(false),
         ])
     )
 
     public func call(_ request: MCPRequest, as identity: BridgeIdentity, store: Store) async -> BridgeToolResult {
-        guard await allowed() else { return .failure(Self.offSentence) }
-
-        let prompt = filled(request.stringParam("prompt"))
-        let name = filled(request.stringParam("name"))
-        guard prompt != nil || name != nil else {
-            return .failure(
-                "cloud_workspace_start needs a prompt saying what the workspace should do, or a "
-                    + "name for an empty one."
-            )
+        guard let workspaceID = identity.workspaceID else {
+            return .failure("Only an agent working in a Bloom Cloud workspace can create another one from here.")
         }
-        let runSetup: Bool
-        switch request.param("run_setup") {
-        case nil, .null: runSetup = true
-        case .bool(let value)?: runSetup = value
-        default: return .failure("'run_setup' is true or false.")
+        guard let name = Self.text(request, "name") else {
+            return .failure("Give the new workspace a name.")
         }
-
-        var callerRepository: String?
-        var requestedBy: String?
-        if let workspaceID = identity.workspaceID {
-            do {
-                guard let caller = try await store.workspace(id: workspaceID) else {
-                    return .failure("This workspace is no longer in Bloom's database.")
-                }
-                // The nesting limit, in `workspace_start`'s words, because it is the same lock.
-                if caller.origin.isAgentSpawned {
-                    return .failure(
-                        "This workspace was itself started by an agent, and those cannot start more. "
-                            + "Do the work here, or report back and let the owner decide."
-                    )
-                }
-                requestedBy = "\u{201C}\(caller.name)\u{201D}"
-                if let repo = try await store.repo(id: caller.repoID) {
-                    callerRepository = await repositoryOf(repo.path)
-                }
-            } catch {
-                return .failure("Bloom could not read this workspace: \(error.readableMessage)")
-            }
+        var order = CloudWorkspaceOrder(name: name, branch: Self.text(request, "branch"),
+                                        baseBranch: Self.text(request, "base_branch"), project: Self.text(request, "project"),
+                                        prompt: Self.text(request, "prompt"))
+        if let prompt = order.prompt, prompt.utf8.count > CloudWorkspaceOrder.promptLimit {
+            return .failure("The prompt is longer than 512 KB. Write a shorter one, and put the rest in a file in the repository.")
         }
-
-        let order = CloudWorkspaceOrder(
-            name: name, branch: filled(request.stringParam("branch")),
-            baseBranch: filled(request.stringParam("base_branch")), prompt: prompt,
-            runSetup: runSetup, project: filled(request.stringParam("project")),
-            callerRepository: callerRepository, requestedBy: requestedBy
-        )
-        switch await start(order) {
-        case .started(let workspace): return .json(workspace.json)
-        case .refused(let sentence): return .failure(sentence)
+        if let stated = request.param("run_setup"), stated != .null {
+            guard let flag = stated.boolValue else { return .failure("run_setup is true or false.") }
+            order.runSetup = flag
+        }
+        switch await start(order, identity.sessionID, workspaceID) {
+        case .refused(let sentence):
+            return .failure(sentence)
+        case .created(let workspace):
+            return .json(.object([
+                "id": .string(workspace.id),
+                "name": .string(workspace.name),
+                "state": .string(workspace.state),
+                "url": .string(workspace.url),
+                "note": .string(order.prompt == nil
+                    ? "Created empty: no agent is working in it. Give the person the url to open it."
+                    : "Created. Its agent starts on the prompt once setup has run, which takes minutes. Give the person the url."),
+            ]))
         }
     }
 
-    private func filled(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
-        return trimmed
+    /// A trimmed string argument, or nil when it is absent, null or empty.
+    static func text(_ request: MCPRequest, _ key: String) -> String? {
+        guard let value = request.stringParam(key)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 }

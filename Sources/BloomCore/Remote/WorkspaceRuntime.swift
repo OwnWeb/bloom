@@ -35,6 +35,14 @@ public actor WorkspaceRuntime {
     let admissions = RemoteAdmissions()
     let reviewCache = RemoteReviewCache()
     var terminalService: RemoteTerminals?
+    var lastJournalPrune: Date?
+    /// The user a machine runs its untrusted work as, and the directory both users can read, or nil
+    /// on a Mac and on a machine with no sandbox user. See `MachineSandbox`.
+    let sandbox: MachineSandbox?
+    let sharedDirectory: String?
+    /// Disk work running off the actor, and whose searches are among it. See `blocking`.
+    var blockingInFlight = 0
+    var searchesInFlight: Set<String> = []
     /// Turns a push or pull request is running under right now, which the git credential route
     /// accepts a turn id for. See `RemotePublishing`.
     var publishingTurns: Set<String> = []
@@ -51,6 +59,9 @@ public actor WorkspaceRuntime {
     var publishedCursor: Int64 = 0
     var publishedChats: [SessionID: ChatRecord] = [:]
     var publishedQuestions: [SessionID: [QuestionRecord]] = [:]
+    /// A deterministic test seam at the suspension the close/reopen publication race used to
+    /// cross. Nil in production. See `refreshPublishedState`.
+    var beforeClosedChatPublication: (@Sendable (SessionID) async -> Void)?
     var publishedSetup: SetupRecord?
     var publishedWorkspace: WorkspaceRecord?
     var publishedSetupLogLength = 0
@@ -60,9 +71,40 @@ public actor WorkspaceRuntime {
     /// Which setup step is running, for the setup record. Set by the machine's setup runner.
     var setupStep: String?
     var setupStartedAt: Date?
+    /// What the setup runner last found under the step's child. See `RemoteSummary.Setup.Liveness`.
+    var setupLiveness: RemoteSummary.Setup.Liveness?
+    /// What an agent on this machine is told about where it is running. Nil off a machine. See
+    /// `BridgeBriefing`.
+    let briefing: String?
+    /// Whether an id somebody wants to address belongs to this team, asked of runbloom.app through
+    /// the machine. **Answers `unknown` off a machine and before the list has ever arrived**, which
+    /// is refused rather than guessed at. See `MemberLookup`.
+    let lookUpMember: @Sendable (String) async -> MemberLookup
+    /// Everybody who may be addressed, for the snapshot a client draws completion from. Empty off a
+    /// machine and until the list has arrived.
+    let listMembers: @Sendable () async -> [WorkspaceMember]
+    /// Told when somebody has been addressed, so the machine's half can tell runbloom.app. The row
+    /// is already written by then, so a machine that dies here still reports after its restart.
+    let addressed: (@Sendable (AddressedReport) async -> Void)?
+    /// Asks runbloom.app for another Cloud workspace. Nil off a machine, where there is nobody to
+    /// ask; see `startCloudWorkspace`.
+    let createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)?
+    /// The team's other Bloom Cloud workspaces. Nil off a machine. See `WorkspacePeers`.
+    let peers: WorkspacePeers?
+    /// The project's services as the machine is running them. Empty everywhere that is not a
+    /// machine, which is every Mac. See `ServiceRecord`.
+    var services: [ServiceRecord] = []
     var setupFinishedAt: Date?
     /// Whether the workspace's prompts must wait: setup has not finished yet.
     var holdsPromptsForSetup = false
+    /// Stops the machine's own setup, given who asked. Set by the machine once its setup exists;
+    /// nil elsewhere. See `stopSetup`.
+    var setupStopper: (@Sendable (String) async -> Bool)?
+    /// A setup somebody ran by hand, while it runs, so it can be stopped. See `runSetupAgain`.
+    var manualSetup: Task<Bool, Never>?
+    /// Runs the setup script again the machine's way, answering nil when a run is in progress. Set
+    /// by the machine; nil elsewhere, where `WorkspaceManager.runSetup` is right. See `runSetupAgain`.
+    var setupRerunner: (@Sendable () async -> Bool?)?
     var archivePreviews: [String: (preview: ArchivePreviewRecord, createdAt: Date)] = [:]
     var isClosed = false
     var shutdownTask: Task<Void, Never>?
@@ -75,6 +117,11 @@ public actor WorkspaceRuntime {
     let bridgeSocketPath: String?
     /// The `bloom-bridge` binary each agent's MCP configuration names. Nil also means no bridge.
     let bridgeShimPath: String?
+    /// Whether this workspace runs setup scripts at all, which a client is told so it can offer to
+    /// run setup rather than report that it failed to. Comes from the machine's configuration file,
+    /// read once at boot, so it cannot change under a running server. See
+    /// `MachineConfiguration.runSetup`; true everywhere that is not a machine.
+    let runsSetup: Bool
     var bridge: BridgeServer?
 
     public init(
@@ -87,8 +134,26 @@ public actor WorkspaceRuntime {
         publishing: RemotePublishing? = nil,
         runnerExitGrace: Duration = .seconds(6),
         bridgeSocketPath: String? = nil,
-        bridgeShimPath: String? = BridgeRegistration.shimPath()
+        bridgeShimPath: String? = BridgeRegistration.shimPath(),
+        runsSetup: Bool = true,
+        briefing: String? = nil,
+        lookUpMember: @escaping @Sendable (String) async -> MemberLookup = { _ in .unknown },
+        listMembers: @escaping @Sendable () async -> [WorkspaceMember] = { [] },
+        addressed: (@Sendable (AddressedReport) async -> Void)? = nil,
+        createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil,
+        peers: WorkspacePeers? = nil,
+        sandbox: MachineSandbox? = nil,
+        sharedDirectory: String? = nil
     ) {
+        self.sandbox = sandbox
+        self.sharedDirectory = sharedDirectory
+        self.peers = peers
+        self.createCloudWorkspace = createCloudWorkspace
+        self.lookUpMember = lookUpMember
+        self.listMembers = listMembers
+        self.addressed = addressed
+        self.briefing = briefing
+        self.runsSetup = runsSetup
         self.bridgeSocketPath = bridgeSocketPath
         self.bridgeShimPath = bridgeShimPath
         self.publishing = publishing
@@ -114,6 +179,7 @@ public actor WorkspaceRuntime {
         publishedCursor = try await store.latestMessageID(workspaceID: workspaceID)
         try await refreshPublishedState(publishing: false)
         try await queue().restore(sessions: chatIDs())
+        await pruneJournal()
         observation = Task { [weak self, store] in
             for await domains in store.changes(of: [.messages, .sessions, .permissionAsks, .workspaces]) {
                 guard !Task.isCancelled, let self else { return }
@@ -154,7 +220,7 @@ public actor WorkspaceRuntime {
     /// because the agent did nothing wrong, and it says what survived, because that is the first
     /// thing anybody wants to know.
     static let restartedSentence =
-        "This Cloud workspace's server restarted while the agent was working, so the turn ended "
+        "This Bloom Cloud workspace's server restarted while the agent was working, so the turn ended "
         + "here. Everything it had already written is above, and its changes are still in the "
         + "workspace."
 
@@ -163,13 +229,13 @@ public actor WorkspaceRuntime {
     public func respond(to request: CommandRequest, as caller: RemoteCaller) async -> CommandReply {
         guard request.protocol == WorkspaceProtocol.name, request.version == WorkspaceProtocol.version else {
             return CommandReply(commandID: request.commandID, error: WireError(.unsupportedVersion,
-                "This Cloud workspace speaks \(WorkspaceProtocol.name) version \(WorkspaceProtocol.version). Update Bloom."))
+                "This workspace speaks \(WorkspaceProtocol.name) version \(WorkspaceProtocol.version). Update Bloom."))
         }
         guard !request.commandID.isEmpty, request.commandID.utf8.count <= 128 else {
             return CommandReply(commandID: request.commandID, error: WireError(.invalidRequest, "A command needs an id of up to 128 characters."))
         }
         do {
-            try caller.requires(request.operation.ability)
+            try caller.requires(request.operation)
         } catch {
             return CommandReply(commandID: request.commandID, error: RemoteFailure.wire(error))
         }
@@ -178,7 +244,9 @@ public actor WorkspaceRuntime {
             presence.noteInput(author, at: Date())
             await report(.humanInput)
         }
-        guard request.operation.mutates else { return await execute(request, as: caller) }
+        // `mark_read` is not journalled: it needs only `view`, is harmless to repeat, and was the
+        // one way a viewer could write rows here (L2 in the review of 19 September 2026).
+        guard request.operation.mutates, request.operation.kind != "mark_read" else { return await execute(request, as: caller) }
         let key = Self.journalKey(request.commandID, caller: caller)
         if let task = commands[key] {
             _ = await task.value
@@ -195,17 +263,57 @@ public actor WorkspaceRuntime {
     /// Scoped to the person as well as the id. A command id is chosen by the client, so one keyed
     /// by id alone let anybody who learnt another person's id read that person's recorded reply.
     private static func journalKey(_ commandID: String, caller: RemoteCaller) -> String {
-        "remote.command." + (caller.author?.userID ?? "machine") + "." + commandID
+        journalPrefix + (caller.author?.userID ?? "machine") + "." + commandID
     }
 
+    static let journalPrefix = "remote.command."
+    /// How long a command's outcome is kept for a retry. A client retries within seconds or at its
+    /// next reconnect; a day covers a laptop closed overnight.
+    static let journalLifetime: TimeInterval = 24 * 60 * 60
+
+    /// **The request's hash, not the request.** An `upload_file` journalled whole left about 11 MB
+    /// of base64 in `settings` for ever, and a saved file its whole text (L2 in the review of
+    /// 19 September 2026). A retry is told apart from a reused id by the hash as well as by the
+    /// body. `request` is read from rows written before this, and never written.
     private struct JournalEntry: Codable {
-        var request: CommandRequest
+        var requestHash: String?
+        var request: CommandRequest?
         var reply: CommandReply?
         var recordedAt: Date
 
+        init(request: CommandRequest, reply: CommandReply?, recordedAt: Date) {
+            self.requestHash = Self.hash(request)
+            self.reply = reply
+            self.recordedAt = recordedAt
+        }
+
+        func matches(_ other: CommandRequest) -> Bool {
+            if let requestHash { return requestHash == Self.hash(other) }
+            return request == other
+        }
+
+        static func hash(_ request: CommandRequest) -> String {
+            RemoteFileOperations.revision((try? WireJSON.encode(request)) ?? Data())
+        }
+
         enum CodingKeys: String, CodingKey {
             case request, reply
+            case requestHash = "request_hash"
             case recordedAt = "recorded_at"
+        }
+    }
+
+    /// Forgets outcomes older than `journalLifetime`. Run at start and after every write, at most
+    /// once an hour, so the table holds a day of commands rather than every command ever sent.
+    func pruneJournal(now: Date = Date()) async {
+        guard lastJournalPrune.map({ now.timeIntervalSince($0) >= 60 * 60 }) ?? true else { return }
+        lastJournalPrune = now
+        guard let rows = try? await store.settings(prefix: Self.journalPrefix) else { return }
+        for (key, value) in rows {
+            let entry = try? WireJSON.decode(JournalEntry.self, from: Data(value.utf8))
+            if entry.map({ now.timeIntervalSince($0.recordedAt) > Self.journalLifetime }) ?? true {
+                try? await store.setSetting(key, nil)
+            }
         }
     }
 
@@ -227,7 +335,7 @@ public actor WorkspaceRuntime {
                 throw RemoteFailure(.outcomeUnknown, "The outcome of this command is unknown. Refresh before trying again.")
             }
             let entry = try WireJSON.decode(JournalEntry.self, from: Data(text.utf8))
-            guard entry.request == request else {
+            guard entry.matches(request) else {
                 throw RemoteFailure(.commandIDReused, "A command id cannot be reused for a different operation.")
             }
             return entry.reply ?? CommandReply(commandID: request.commandID, error: WireError(.outcomeUnknown,
@@ -240,6 +348,7 @@ public actor WorkspaceRuntime {
     private func journal(_ entry: JournalEntry, key: String) async throws {
         let data = try WireJSON.encode(entry)
         try await store.setSetting(key, String(decoding: data, as: UTF8.self))
+        await pruneJournal()
     }
 
     private func execute(_ request: CommandRequest, as caller: RemoteCaller) async -> CommandReply {
@@ -259,43 +368,28 @@ public actor WorkspaceRuntime {
         case .transcript(let chatID, let afterSeq, let limit): return .transcript(try await transcript(chatID, afterSeq: afterSeq, limit: limit))
         case .composer(let chatID): return .composer(try await composer(chatID))
         case .transcriptSearch(let query, let limit): return .search(try await searchTranscripts(query, limit: limit))
+        case .recentlyClosed: return .recentlyClosed(chats: try await recentlyClosed())
         case .newChat(let controls): return .chat(try await newChat(controls, as: caller))
         case .renameChat(let chatID, let title): try await renameChat(chatID, title: title); return .accepted
         case .closeChat(let chatID): try await closeChat(try chatID.sessionID, notifyingParent: true); return .accepted
+        case .reopenChat(let chatID): return .chat(try await reopenChat(chatID))
         case .markRead(let chatID, let seq):
             _ = try await storedSession(try chatID.sessionID)
             try await store.updateLastReadSeq(sessionID: try chatID.sessionID, seq: seq)
             return .accepted
         case .setComposer(let chatID, let controls): try await setComposer(chatID, controls: controls, as: caller); return .accepted
-        // `via` is a label for the window, kept and returned by the server branch's runtime, which
-        // is the one that runs on a machine. This branch's runner drops it, which is what an older
-        // machine does too: the message arrives unlabelled and nothing is refused for it.
-        case .send(let chatID, let text, let audience, _):
-            // **Refused rather than ignored, and this branch is not where it is honoured.** The
-            // machine's half of addressing a message to a person is on the server branch, which
-            // owns this runtime; what matters here is that a runner built from this one cannot
-            // quietly hand the agent a message meant for somebody else, which is the single
-            // outcome the whole feature exists to prevent. Absent, or the agent, is every message
-            // Bloom has ever sent.
-            if let audience, audience.kind != "agent" {
-                throw RemoteFailure.invalid("This Cloud workspace is running a version that cannot address a message to a person.")
-            }
-            return .queued(promptID: try await send(chatID, text: text, as: caller).rawValue)
+        case .send(let chatID, let text, let audience, let via):
+            return try await send(chatID, text: text, audience: audience, via: via, as: caller)
         case .cancelQueued(let chatID, let promptID):
             try await queue().cancel(DeliveryID(promptID), sessionID: try chatID.sessionID)
             return .accepted
         case .stop(let chatID): try await stop(try chatID.sessionID); return .accepted
         case .answer(let chatID, let requestID, let answer): try await answerQuestion(chatID, requestID: requestID, answer: answer); return .accepted
-        case .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch, .runScripts, .notes, .pullRequest,
-             .archivePreview, .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace,
-             .runSetup, .runScript, .closeTerminal, .archive, .history, .commitFiles, .commitPatch, .revertFile,
+        case .setupOutput, .files, .searchCode, .file, .download, .reviewSnapshot, .reviewPatch, .runScripts, .quickPrompts, .notes,
+             .pullRequest, .archivePreview, .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace,
+             .runSetup, .stopSetup, .continueAfterMerge, .runScript, .closeTerminal, .archive, .history, .commitFiles, .commitPatch, .revertFile,
              .discardHunk:
             return try await performOnWorktree(operation, as: caller)
-        case .continueAfterMerge, .stopSetup:
-            // The machine's half is the server branch's, which owns this runtime and is what a
-            // machine runs. This branch only speaks the operation, so a runner built from it says
-            // so rather than doing half of it.
-            throw RemoteFailure(.conflict, "This machine's runner cannot do that yet.")
         }
     }
 
@@ -331,14 +425,14 @@ public actor WorkspaceRuntime {
 
     func workspace() async throws -> Workspace {
         guard let workspace = try await store.workspace(id: workspaceID), workspace.state == .active else {
-            throw RemoteFailure(.workspaceChanging, "This Cloud workspace is no longer available.")
+            throw RemoteFailure(.workspaceChanging, "This Bloom Cloud workspace is no longer available.")
         }
         return workspace
     }
 
     func repo(for workspace: Workspace) async throws -> Repo {
         guard let repo = try await store.repo(id: workspace.repoID) else {
-            throw RemoteFailure(.internal, "This Cloud workspace's repository is missing on the machine.")
+            throw RemoteFailure(.internal, "This Bloom Cloud workspace's repository is missing on the machine.")
         }
         return repo
     }
@@ -472,10 +566,19 @@ public actor WorkspaceRuntime {
         return "no \(missing.map(\.executableName).joined(separator: ", ")) on PATH=\(path)"
     }
 
+    /// One catalogue for the life of the machine, so its fifteen-minute cache is a cache: a new one
+    /// per call started a Codex process every time anybody read the defaults.
+    static let codexCatalog = CodexModelCatalog.live()
+
     public static let liveModels: ModelDiscovery = { _ in
         var records: [ModelRecord] = []
-        if let codex = try? await CodexModelCatalog.live().pickerModels() {
-            records += codex.filter { !$0.hidden }.map { ModelRecord(agent: AgentKind.codex.wireName, model: $0.agentModel) }
+        // Claude Code's own list, so a client draws one list from one source rather than each
+        // carrying a table that drifts. See `ClaudeModelList`.
+        if let claude = try? await ClaudeModelCatalog.shared.models() {
+            records += claude.map { ModelRecord(agent: AgentKind.claudeCode.wireName, claude: $0) }
+        }
+        if let codex = try? await codexCatalog.pickerModels() {
+            records += codex.filter { !$0.hidden }.map { ModelRecord(agent: AgentKind.codex.wireName, codex: $0) }
         }
         return records
     }
@@ -491,6 +594,20 @@ extension ModelRecord {
     init(agent: String, model: AgentModel) {
         self.init(agent: agent, id: model.id, label: model.displayName, efforts: model.supportedEfforts.map(\.id),
                   defaultEffort: model.defaultEffort.isEmpty ? nil : model.defaultEffort, isDefault: model.isDefault)
+    }
+    /// A Claude Code model. `default_effort` is left out because the CLI does not say one, and
+    /// `fast_tier` because Claude Code's fast mode is a switch on the chat rather than a tier of
+    /// the model.
+    init(agent: String, claude model: ClaudeModel) {
+        self.init(agent: agent, id: model.id, label: model.label, efforts: model.efforts, defaultEffort: nil,
+                  isDefault: model.isDefault)
+    }
+
+    /// A Codex model with its fast tier, which `AgentModel` does not carry because only Codex has
+    /// one per model.
+    init(agent: String, codex: CodexModel) {
+        self.init(agent: agent, model: codex.agentModel)
+        fastTier = codex.fastServiceTier
     }
 }
 

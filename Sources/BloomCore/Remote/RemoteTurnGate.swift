@@ -99,7 +99,7 @@ public struct RemoteAgentKey: Sendable, Hashable {
 /// shared, every process and shell still holding them is stopped.
 public enum PersonalCredentials {
     public static let environmentMark = "environment"
-    public static let sharedSentence = "This Cloud workspace was shared, so the turn stopped; the next turn uses the team key."
+    public static let sharedSentence = "This Bloom Cloud workspace was shared, so the turn stopped; the next turn uses the team key."
 }
 
 /// Why runbloom.app would not start a turn.

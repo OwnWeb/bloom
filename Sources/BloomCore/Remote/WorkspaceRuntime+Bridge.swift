@@ -20,7 +20,13 @@ extension WorkspaceRuntime {
     /// the queue restores is launched with its tools.
     func startBridge() throws {
         guard bridge == nil, let bridgeSocketPath else { return }
-        let server = BridgeServer(store: store, socketPath: bridgeSocketPath, toolbox: bridgeToolbox())
+        let access: BridgeServer.Access = sandbox == nil ? .ownerOnly : .sharedGroup
+        let server = BridgeServer(
+            store: store,
+            socketPath: bridgeSocketPath,
+            toolbox: bridgeToolbox(),
+            access: access
+        )
         try server.start()
         bridge = server
     }
@@ -48,7 +54,11 @@ extension WorkspaceRuntime {
             return BridgeHandle(attachment: attachment, mcpConfigPath: nil)
         case .claudeCode, .cursor, .openCode:
             guard let path = try? BridgeRegistration.writeClaudeConfig(
-                attachment, sessionID: session.id, directory: server.configDirectory
+                attachment,
+                sessionID: session.id,
+                directory: server.configDirectory,
+                directoryPermissions: server.access.configDirectoryPermissions,
+                filePermissions: server.access.configFilePermissions
             ) else { return nil }
             server.sweepConfigDirectory()
             return BridgeHandle(attachment: attachment, mcpConfigPath: path)
@@ -63,11 +73,12 @@ extension WorkspaceRuntime {
     /// a strong capture would keep both alive for ever.
     nonisolated func bridgeToolbox() -> BridgeToolbox {
         let handlers: [any BridgeToolHandling] = [
-            WhoamiTool(),
+            WhoamiTool(environment: briefing),
             ChatListTool(),
             ChatReadTool(),
             WorkspaceDiffTool(),
             AgentListTool(),
+            CloudSetupTool(),
             AgentStartTool { [weak self] order, sessionID, workspaceID in
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.startCrewMember(order, parentID: sessionID, workspaceID: workspaceID)
@@ -76,12 +87,52 @@ extension WorkspaceRuntime {
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.sayToCrew(name, text: text, callerID: sessionID, workspaceID: workspaceID)
             },
+            // The team's other Bloom Cloud workspaces, reached through runbloom.app's tokens and
+            // talked to directly. See `WorkspacePeers`.
+            PeerWorkspaceListTool { [weak self] sessionID in
+                guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
+                return await self.listPeers(sessionID: sessionID)
+            },
+            PeerWorkspaceSayTool { [weak self] workspace, chat, text, sessionID in
+                guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
+                return await self.sayToPeer(workspace: workspace, chat: chat, text: text, sessionID: sessionID)
+            },
+            MacWorkspaceSayTool { [weak self] workspace, text, sessionID in
+                guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
+                return await self.sayToMac(workspace: workspace, text: text, sessionID: sessionID)
+            },
+            // Reaches only the store and the worktree, so no seam: see `MachineMediaShowTool`.
+            MachineMediaShowTool(),
+            CloudWorkspaceStartTool { [weak self] order, sessionID, _ in
+                guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
+                return await self.startCloudWorkspace(order, sessionID: sessionID)
+            },
+            RequestPaneTool { [weak self] url, placement, sessionID, _ in
+                guard let self else { return 0 }
+                return await self.requestPane(url: url, chatID: sessionID, placement: placement)
+            },
             AgentStopTool { [weak self] name, sessionID, workspaceID in
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.stopCrewMember(name, callerID: sessionID, workspaceID: workspaceID)
             },
         ]
-        return BridgeToolbox(handlers: handlers.map { WorkspaceScopedTool(wrapped: $0, workspaceID: workspaceID) })
+        return BridgeToolbox(
+            handlers: handlers.map { WorkspaceScopedTool(wrapped: $0, workspaceID: workspaceID) },
+            briefing: briefing
+        )
+    }
+
+    /// `request_pane`: hands an agent's request to every client that is listening, and answers how
+    /// many that was.
+    ///
+    /// **Zero is the answer that matters.** A machine runs with every window shut, and an agent
+    /// that was told it had shown somebody something would go on to say so. Counting the
+    /// subscribers rather than assuming is the whole honesty of the tool.
+    func requestPane(url: String?, chatID: SessionID?, placement: RequestPaneTool.Placement) async -> Int {
+        let listening = await events.count
+        guard listening > 0 else { return 0 }
+        await events.publish(.paneRequested(url: url, chatID: chatID?.rawValue, placement: placement.rawValue))
+        return listening
     }
 
     // MARK: - The crew
@@ -265,12 +316,15 @@ extension WorkspaceRuntime {
 /// workspace cannot exist here, since the runtime registers only its own chats, and is refused all
 /// the same so the rule does not rest on that.
 private struct WorkspaceScopedTool: BridgeToolHandling {
-    static let elsewhere = "This Cloud workspace's bridge only answers agents working in it."
+    static let elsewhere = "This Bloom Cloud workspace's bridge only answers agents working in it."
 
     let wrapped: any BridgeToolHandling
     let workspaceID: WorkspaceID
 
     var tool: BridgeTool { wrapped.tool }
+    /// Forwarded, or the wrapped tool's narrowing is lost and a machine's listing sends agents to
+    /// tools it does not have, which is what the listing test caught the first time.
+    func tool(offering offered: Set<String>) -> BridgeTool { wrapped.tool(offering: offered) }
     var roles: Set<BridgeRole> { wrapped.roles.intersection([.workspace]) }
 
     func call(_ request: MCPRequest, as identity: BridgeIdentity, store: Store) async -> BridgeToolResult {

@@ -39,6 +39,16 @@
 # the network or the disk is what went wrong. Anything added here that prunes old versions has to
 # keep at least the one `current` pointed at before the last update.
 #
+# **When BLOOM_DOWNLOAD_URL is set, the archive comes from exactly there.** The repository is private
+# since 19 September 2026, so the release URL built from the tag refuses a machine. runbloom.app
+# resolves the asset with its own credential and hands over a short-lived signed URL, which
+# `MachineUpdate` puts in this script's environment rather than its arguments. It is fetched over
+# https with no redirect followed, never printed, and the sha256 above still decides. A refusal says
+# the URL may have expired and stops: runbloom.app sends a fresh one, and this does not retry the old.
+#
+# Environment:
+#   BLOOM_DOWNLOAD_URL  a signed URL for the archive, from runbloom.app's control/update
+#
 # Environment, for development and tests only:
 #   BLOOM_RELEASE_BASE  where releases are downloaded from (default the bloom repository on GitHub)
 #   BLOOM_PREFIX        where versions are unpacked (default /opt/bloom)
@@ -81,7 +91,16 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 if [[ ! -x "$target/bin/bloom-runner" ]]; then
-  curl --fail --silent --show-error --location --retry 3 --output "$work/$asset" "$release_base/$tag/$asset"
+  if [[ -n "${BLOOM_DOWNLOAD_URL:-}" ]]; then
+    # No --location: a signed asset URL answers the file itself, and anything else is refused
+    # rather than followed. The URL is a bearer URL, so no message here repeats it.
+    status="$(curl --silent --show-error --proto =https --retry 3 --output "$work/$asset" \
+      --write-out '%{http_code}' "$BLOOM_DOWNLOAD_URL")" || fail "could not download $asset"
+    [[ "$status" == "200" ]] ||
+      fail "the download URL for $asset was refused with HTTP $status; it may have expired, so ask runbloom.app for a fresh one"
+  else
+    curl --fail --silent --show-error --location --retry 3 --output "$work/$asset" "$release_base/$tag/$asset"
+  fi
   actual="$(sha256sum "$work/$asset" | cut -d' ' -f1)"
   [[ "$actual" == "$checksum" ]] || fail "$asset has sha256 $actual, not $checksum"
   mkdir -p "$work/unpacked"
@@ -122,6 +141,16 @@ point_current_at() {
 }
 
 point_current_at "$target"
+
+# The sandbox user, made or checked at every install and update, beside the version just unpacked.
+# **A failure here is not a failure of the update**: a machine whose provider will not make a user
+# runs everything as the Runner's user, as it did before the sandbox existed, and the Runner asks
+# `MachineSandbox.available` rather than assuming. The log says what happened either way.
+provision="$target/bin/provision-sandbox.sh"
+if [[ -x "$provision" ]]; then
+  BLOOM_WORKTREE="${BLOOM_WORKTREE:-$HOME/workspace}" BLOOM_DATA_DIR="${BLOOM_DATA_DIR:-$HOME/.bloom}" \
+    bash "$provision" || echo "bootstrap-machine: the sandbox user could not be made; running as $(id -un)" >&2
+fi
 
 if [[ "$action" == "install" ]]; then
   # The whole name, so a service called bloom-something does not count as this one.

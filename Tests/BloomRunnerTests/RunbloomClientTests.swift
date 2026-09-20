@@ -46,6 +46,36 @@ struct RunbloomClientTests {
         }
     }
 
+    /// The body runbloom.app actually answers with, written out rather than re-encoded, because
+    /// what is being tested is that the two sides agree about the shape.
+    @Test func membersAreReadWithTheirHandles() async throws {
+        try await Self.withFake { fake, client in
+            fake.membersBody = """
+            {"members": [
+              {"user_id": "01k5bx7j9d3v2r8q6m4n0p1s2t", "name": "Freek Van der Herten", "handle": "freek"},
+              {"user_id": "01k5bx7j9d3v2r8q6m4n0p1s2u", "name": "Sebastian De Deyne", "handle": "sebdd"}
+            ]}
+            """
+            let members = try await client.members()
+
+            #expect(members.map(\.handle) == ["freek", "sebdd"])
+            #expect(members.first?.userID == "01k5bx7j9d3v2r8q6m4n0p1s2t")
+            #expect(members.first?.name == "Freek Van der Herten")
+            let request = try #require(fake.requests.first)
+            #expect(request.method == "GET")
+            #expect(request.path == "/members")
+        }
+    }
+
+    /// A team with nobody in it yet, and a machine that has never asked, must not look the same.
+    @Test func anEmptyMemberListIsStillAnAnswer() async throws {
+        try await Self.withFake { fake, client in
+            fake.membersBody = #"{"members": []}"#
+            let members = try await client.members()
+            #expect(members.isEmpty)
+        }
+    }
+
     @Test func aTurnIsRegisteredWithTheTokenChatAndAgent() async throws {
         try await Self.withFake { fake, client in
             let turn = try await client.registerTurn(kind: .turn, chatID: "chat-1", agent: .claudeCode, sessionToken: "jwt.for.prompter")
@@ -117,6 +147,79 @@ struct RunbloomClientTests {
             #expect(bodies.map { $0["operation"] as? String } == ["write", "read"])
             #expect(bodies.first?["turn_id"] as? String == "01jturn")
             #expect(bodies.last?["turn_id"] is NSNull)
+        }
+    }
+
+    /// runbloom.app decides; the machine passes the turn and the key, and hands the agent whatever
+    /// runbloom.app said, word for word, because that sentence is the only place the team switch
+    /// is named.
+    @Test func aCloudWorkspaceIsAskedForWithTheTurnAndTheKey() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("POST", "/cloud-workspaces", .json(201, ["workspace": [
+                "id": "01k5new", "name": "Try the retry", "state": "setting_up", "url": "https://runbloom.app/w/01k5new",
+            ]]))
+            let request = CloudWorkspaceRequest(order: CloudWorkspaceOrder(name: "Try the retry", baseBranch: "main", runSetup: false),
+                                                turnID: "01jturn", idempotencyKey: "key-1")
+            let answer = await client.createCloudWorkspace(request)
+            #expect(answer == .created(CloudWorkspaceCreated(id: "01k5new", name: "Try the retry", state: "setting_up",
+                                                             url: "https://runbloom.app/w/01k5new")))
+            let sent = try #require(fake.requests("POST", "/cloud-workspaces").first)
+            #expect(sent.idempotencyKey == "key-1")
+            #expect(sent.json?["turn_id"] as? String == "01jturn")
+            #expect(sent.json?["name"] as? String == "Try the retry")
+            #expect(sent.json?["base_branch"] as? String == "main")
+            #expect(sent.json?["run_setup"] as? Bool == false)
+            #expect(sent.json?["branch"] == nil, "absent rather than null, so runbloom.app derives it")
+            #expect(sent.json?["prompt"] == nil, "no prompt until the handoff exists")
+
+            let off = "Creating Bloom Cloud workspaces from an agent is off for this team. An admin can turn it on in Team settings."
+            fake.script("POST", "/cloud-workspaces", .refusal(code: "agent_creation_disabled", message: off))
+            #expect(await client.createCloudWorkspace(request) == .refused(off))
+
+            fake.script("POST", "/cloud-workspaces", FakeControlServer.Scripted(status: 503, body: "down"))
+            guard case .refused(let unreachable) = await client.createCloudWorkspace(request) else {
+                Issue.record("An unreachable runbloom.app made something up"); return
+            }
+            #expect(unreachable.contains("no Bloom Cloud workspace was created"))
+        }
+    }
+
+    /// With a prompt, the creating chat's agent and model travel as `controls`, which runbloom.app
+    /// requires so the opening turn is registered with the agent whose key it hands out.
+    @Test func aPromptTravelsWithTheCreatingChatsControls() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("POST", "/cloud-workspaces", .json(201, ["workspace": [
+                "id": "01k5new", "name": "Spike", "state": "setting_up", "url": "https://runbloom.app/w/01k5new",
+            ]]))
+            let request = CloudWorkspaceRequest(order: CloudWorkspaceOrder(name: "Spike", prompt: "Try the retry queue"),
+                                                turnID: "01jturn", idempotencyKey: "key-1", agent: "codex", model: "gpt-5.6-sol")
+            _ = await client.createCloudWorkspace(request)
+            let sent = try #require(fake.requests("POST", "/cloud-workspaces").first?.json)
+            #expect(sent["prompt"] as? String == "Try the retry queue")
+            let controls = try #require(sent["controls"] as? [String: Any])
+            #expect(controls["agent"] as? String == "codex")
+            #expect(controls["model"] as? String == "gpt-5.6-sol")
+        }
+    }
+
+    @Test func anOpeningIsFetchedAndNoneIsNil() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("GET", "/opening", .json(200, ["opening": [
+                "turn_id": "01jopen", "prompt": "Try the retry queue", "controls": ["agent": "codex"],
+                "prompted_by": ["user_id": "01k5freek", "name": "Freek", "handle": "freek"], "expires_at": "2026-09-19T12:00:00Z",
+            ]]))
+            let opening = try #require(try await client.opening())
+            #expect(opening.turnID == "01jopen")
+            #expect(opening.prompt == "Try the retry queue")
+            #expect(opening.controls["agent"] == .string("codex"))
+            #expect(opening.promptedBy.userID == "01k5freek")
+
+            fake.script("GET", "/opening", .refusal(status: 404, code: "not_found", message: "No opening."))
+            #expect(try await client.opening() == nil, "a workspace a person made has none")
+
+            fake.script("DELETE", "/opening", .noContent)
+            try await client.acknowledgeOpening()
+            #expect(fake.requests("DELETE", "/opening").count == 1)
         }
     }
 

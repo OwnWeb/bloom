@@ -13,9 +13,10 @@ extension WorkspaceRuntime {
         for session in try await store.sessions(workspaceID: workspaceID) where session.archivedAt == nil {
             chats.append(session.record(lastSeq: try await store.nextSeq(sessionID: session.id) - 1))
         }
-        return WorkspaceSnapshotRecord(workspace: workspace.record(setup: setupRecord(workspace), reporting: reporting), chats: chats,
-                                       presence: presence.records, cursor: cursor,
-                                       composerDefaults: try await newChatControls().record)
+        return WorkspaceSnapshotRecord(workspace: workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services), chats: chats,
+                                       presence: presence.records(knownAs: await memberLabels()), cursor: cursor,
+                                       composerDefaults: try await newChatControls().record,
+                                       members: await listMembers().map(\.record))
     }
 
     /// What a chat that does not exist yet would start with, as this machine would answer it.
@@ -37,6 +38,7 @@ extension WorkspaceRuntime {
         var repo = SettingsLoader.load(repo: workspace.path)
         repo.homeDefaultModel = nil
         repo.homeDefaultEffort = nil
+        let pinned = !(repo.defaultModel ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         var defaults = ComposerDefaults.resolve(repo: repo, app: AppDefaults())
         let installed = await installedAgents()
         // A default naming an agent this machine does not run would be a default nothing can start,
@@ -53,12 +55,43 @@ extension WorkspaceRuntime {
                 defaults.effort = chosen.defaultEffort ?? chosen.efforts.first ?? defaults.effort
             }
         }
+        // **The default is a model the list offers.** Bloom's built-in default is the CLI's alias
+        // `opus`, and Claude Code's own list offers `opus[1m]` and no `opus`, so a client's picker
+        // opened on a current model that was not in its own menu; the real machine showed it, where
+        // every fake had agreed with itself. When nothing in the repository chose a model, the one
+        // the list marks as its default is used instead. One the project pinned is kept as asked,
+        // and a client draws it as its own row.
+        if !pinned {
+            let listed = await models(workspace.path).filter { $0.agent == defaults.backend.wireName }
+            if !listed.isEmpty, !listed.contains(where: { $0.id == defaults.model }),
+               let chosen = listed.first(where: \.isDefault) ?? listed.first {
+                defaults.model = chosen.id
+                if !chosen.efforts.isEmpty, !chosen.efforts.contains(defaults.effort) {
+                    defaults.effort = chosen.defaultEffort ?? chosen.efforts.first ?? defaults.effort
+                }
+            }
+        }
         return ComposerControls(defaults: defaults, isFastMode: false, outputStyle: OutputStyle.defaultName)
+    }
+
+    /// What to draw for each person the team knows, for presence. Empty off a machine, where
+    /// there is no team to ask and every name came from the one person using it.
+    func memberLabels() async -> [String: String] {
+        Dictionary(await listMembers().map { ($0.userID, $0.label) }, uniquingKeysWith: { first, _ in first })
     }
 
     func setupRecord(_ workspace: Workspace) -> SetupRecord {
         SetupRecord(state: workspace.setupState.rawValue, step: setupStep, startedAt: setupStartedAt,
-                    finishedAt: setupFinishedAt, note: Self.failureNote(workspace))
+                    finishedAt: setupFinishedAt, note: Self.failureNote(workspace), isEnabled: runsSetup,
+                    failureCode: Self.failureCode(workspace))
+    }
+
+    /// Why a failed setup failed, when the machine said so in its log. **Read from the log rather
+    /// than kept in a column**, so it cannot disagree with what the log says and needs no migration:
+    /// the sentence and the code are written together, by `SandboxRefusal`.
+    static func failureCode(_ workspace: Workspace) -> String? {
+        guard workspace.setupState == .failed else { return nil }
+        return SetupFailureCode.allCases.first { workspace.setupLog.contains("(\($0.rawValue))") }?.rawValue
     }
 
     /// The tail of a failed run's log: enough for a client to say what went wrong in the sidebar
@@ -173,6 +206,44 @@ extension WorkspaceRuntime {
         return session.record(lastSeq: -1)
     }
 
+    /// The same bounded list the Mac calls Recently Closed, read afresh on every request so one
+    /// client sees a close made by another without reconnecting its workspace stream.
+    func recentlyClosed() async throws -> [ClosedChatRecord] {
+        _ = try await workspace()
+        let rows = try await store.closedSessions(workspaceID: workspaceID, limit: SessionReopening.limit)
+        return SessionReopening.offered(rows).map(\.record)
+    }
+
+    /// Clears only the closed stamp of one top-level chat that is still in Recently Closed.
+    /// Eligibility and the write are one Store actor call, so two clients cannot both reopen it.
+    func reopenChat(_ chatID: String) async throws -> ChatRecord {
+        _ = try await workspace()
+        let id = try chatID.sessionID
+        switch try await store.reopenOfferedSession(
+            id: id,
+            workspaceID: workspaceID,
+            limit: SessionReopening.limit
+        ) {
+        case .reopened(let session):
+            let record = session.record(lastSeq: try await store.nextSeq(sessionID: id) - 1)
+            // An ordinary chat event is the convergence mechanism. The initiator gets the same
+            // record in its reply; every other client restores it from this event. The published
+            // cache makes the explicit refresh and the Store observation idempotent together.
+            try await refreshPublishedState(publishing: true)
+            return record
+        case .missing:
+            throw RemoteFailure.notFound("This conversation no longer exists.")
+        case .alreadyOpen:
+            throw RemoteFailure(.conflict, "This conversation is already open.")
+        case .running:
+            throw RemoteFailure(.busy, "This conversation still has a turn running.")
+        case .notTopLevel:
+            throw RemoteFailure.notFound("Only top-level conversations appear in Recently Closed.")
+        case .notOffered:
+            throw RemoteFailure.notFound("This conversation is no longer in Recently Closed. Refresh the list.")
+        }
+    }
+
     func renameChat(_ chatID: String, title: String) async throws {
         let id = try chatID.sessionID
         _ = try await storedSession(id)
@@ -192,6 +263,12 @@ extension WorkspaceRuntime {
         await sessions[id]?.shutdown()
         sessions.removeValue(forKey: id)
         _ = try await store.update(sessionID: id) { $0.archivedAt = Date() }
+        // **Published here rather than left to the store's observation.** A client keeps a closed
+        // chat in its strip until it is told, and the observation coalesces commits: the state
+        // change from stopping and the archive can arrive as one batch, and then nothing says the
+        // chat has gone. On the Linux runner that lost the event outright. Publishing it once here
+        // is idempotent, because the comparison against `publishedChats` sends nothing twice.
+        try? await refreshPublishedState(publishing: true)
     }
 
     /// Last writer wins, and the event names who wrote it.
@@ -226,17 +303,93 @@ extension WorkspaceRuntime {
         await events.publish(.composer(chatID: chatID, controls: controls.record, changedBy: caller.author?.record))
     }
 
-    func send(_ chatID: String, text: String, as caller: RemoteCaller) async throws -> DeliveryID {
+    /// **Two different acts behind one call.** A message to the agent is queued and becomes a turn;
+    /// a message to a person is written into the transcript and becomes nothing, because the whole
+    /// of what `@seb` means is that this one is not for the agent. They answer differently on
+    /// purpose: `queued` with a prompt id, or `accepted` with no turn to wait for.
+    func send(_ chatID: String, text: String, audience stated: AudienceRecord?, via statedVia: ViaRecord? = nil,
+              as caller: RemoteCaller) async throws -> OperationResult {
         let id = try chatID.sessionID
+        // Read before anything is written, so a label this machine cannot draw refuses the send
+        // rather than landing as a message nobody can tell apart from a typed one.
+        let via = try statedVia.map(MessageVia.init(record:)) ?? (caller.agentOrigin == nil ? nil : MessageVia())
         guard stopping[id] == nil else { throw RemoteFailure(.busy, "This conversation is being stopped.") }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { throw RemoteFailure.invalid("Type a message before sending.") }
         guard body.utf8.count <= 1_048_576 else { throw RemoteFailure(.tooLarge, "This message is larger than 1 MB.") }
         let session = try await storedSession(id)
         guard session.archivedAt == nil else { throw RemoteFailure(.unavailable, "This conversation is closed.") }
+        var audience: MessageAudience?
+        if let stated {
+            // An audience this machine does not understand is refused rather than read as the
+            // agent: a newer client's kind quietly handed to the agent is the one outcome this
+            // whole feature exists to prevent.
+            guard let known = MessageAudience(stated) else {
+                throw RemoteFailure.invalid("This machine does not know how to address a \(stated.kind).")
+            }
+            audience = known
+        }
+        // **An exhaustive switch rather than a test for `person`.** A kind added here later and not
+        // handled would fall through a boolean into the agent's queue, which is the one outcome
+        // this feature exists to prevent, and it would do it silently a release after anybody
+        // thought about it. Written this way so the compiler refuses instead.
+        switch audience?.kind {
+        case .person:
+            return try await sendToPerson(body, audience: audience ?? MessageAudience(kind: .person), via: via,
+                                          session: session, as: caller)
+        case .agent, nil:
+            break
+        }
         try await requireInstalled(session.agentKind)
         _ = try await workspace()
-        return try await queue().enqueue(body, session: session, caller: caller)
+        let delivery = try await queue().enqueue(body, session: session, caller: caller, mention: audience?.mention, via: via)
+        return .queued(promptID: delivery.rawValue)
+    }
+
+    /// A message addressed to somebody with access to this workspace.
+    ///
+    /// **It does not interrupt the agent, become a turn, or touch the queue.** It is a row in the
+    /// transcript and nothing else: the chat's state does not change, no queue event is sent, and
+    /// whatever the agent is doing carries on. The row carries its audience so that a reader
+    /// arriving tomorrow colours it, and so that **the one place the transcript is handed to an
+    /// agent can leave it out**; see `ChatReadTool`.
+    private func sendToPerson(
+        _ body: String, audience: MessageAudience, via: MessageVia?, session: Session, as caller: RemoteCaller
+    ) async throws -> OperationResult {
+        guard let userID = audience.userID, !userID.isEmpty else {
+            throw RemoteFailure.invalid("A message to a person has to name which person.")
+        }
+        // **Refused rather than stored when this machine cannot say.** Addressing the wrong person
+        // is the failure this feature is about, and a message written to an id nobody has vouched
+        // for is exactly that, delivered convincingly.
+        switch await lookUpMember(userID) {
+        case .member:
+            break
+        case .notAMember:
+            throw RemoteFailure.invalid("That person does not have access to this workspace.")
+        case .unknown:
+            throw RemoteFailure(.unavailable, "This machine has not been told who is on this team yet, "
+                + "so it cannot address anybody. Try again in a moment.")
+        }
+        let payload = JSONValue.object([
+            "type": .string("user"),
+            "message": .object(["role": .string("user"), "content": .array([
+                .object(["type": .string("text"), "text": .string(body)]),
+            ])]),
+        ]).compactJSON
+        let message = try await store.appendNext(sessionID: session.id, kind: .user, payload: Data(payload.utf8),
+                                                 author: caller.author, audience: audience, via: via)
+        // **Whether they were here is recorded now, not when the report goes.** Presence is the one
+        // fact only this machine holds, and asked ten minutes later it would be answering a
+        // different question. runbloom.app decides what to do with it, including that a guest's
+        // message sends no mail: the machine says what happened, the server says what it means.
+        let report = AddressedReport(
+            sessionID: session.id, userID: userID, connected: presence.isConnected(userID),
+            sentAt: message.createdAt, from: .of(caller.author), text: body, senderToken: caller.sessionToken
+        )
+        try? await store.recordAddressed(report)
+        await addressed?(report)
+        return .accepted
     }
 
     /// Pauses the chat's queue and stops its turn. Anybody who can prompt can stop.

@@ -39,7 +39,24 @@ public enum ServeCommand {
             path: layout.worktree, branch: configuration.branch, baseBranch: configuration.baseBranch
         )
         let version = RunnerVersion.current
+        // The user an agent, a terminal, a script and a service run as, or nil on a machine whose
+        // provisioning has not made one, which runs them as this process's user as it always did.
+        // See `MachineSandbox` and `Tools/provision-sandbox.sh`.
+        let sandbox = MachineSandbox.available()
+        // What this Runner started, and for whom, which is how the credential door recognises a
+        // caller now that a sandboxed process's environment is not the Runner's to read.
+        let processes = SpawnedProcesses()
+        FileHandle.standardError.write(Data((sandbox.map { "bloom-runner: agents run as \($0.user)\n" }
+            ?? "bloom-runner: no sandbox user on this machine, so agents run as this process does\n").utf8))
         let binDirectory = layout.dataDirectory + "/bin"
+        let bridgeDirectory = sandbox == nil ? layout.dataDirectory : MachineSandbox.sharedDirectory
+        // Who may be addressed, pulled from runbloom.app and refetched on a miss so that somebody
+        // who joined the team this morning is addressable this afternoon. See `MachineMembers`.
+        let members = MachineMembers { try await client.members() }
+        // The word that somebody was addressed, which is what lets runbloom.app mail them. Its own
+        // sender rather than a fold into the usage queue, because it causes mail: see
+        // `AddressedReporter`.
+        let addressedReporter = AddressedReporter(store: store) { try await client.reportAddressed($0) }
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id, gate: gate,
             makeRunner: { session, path, store, environment, bridge in
@@ -51,14 +68,25 @@ public enum ServeCommand {
                 extra["BLOOM_DATA_DIR"] = layout.dataDirectory
                 extra["BLOOM_RUNNER_PORT"] = String(layout.serverPort)
                 extra["PATH"] = binDirectory + ":" + (environment["PATH"] ?? Shell.environment()["PATH"] ?? "/usr/bin:/bin")
-                return RemoteRunnerFactory.live(session, path, store, extra, bridge)
+                return RemoteRunnerFactory.make(session, path, store, extra, bridge, sandbox: sandbox,
+                                                didStart: { pid in Task { await processes.record(pid: pid, for: .chat(session.id)) } })
             },
             publishing: RemotePublishing { turnID in
                 try await client.gitCredentials(repository: configuration.repository, operation: .write, turnID: turnID).token
             },
-            // Short and under the data directory, because a Unix socket path has a length limit and
-            // only the machine's own user should reach it. The shim is bloom-bridge beside this binary.
-            bridgeSocketPath: layout.dataDirectory + "/bridge.sock"
+            // Short and group-shared when the sandboxed agent has to reach it. A machine without
+            // that second user keeps the socket beside its private data, as it did before.
+            bridgeSocketPath: bridgeDirectory + "/bridge.sock",
+            runsSetup: configuration.runsSetup,
+            briefing: BridgeBriefing.machine(
+                publicURL: configuration.publicURL, appPort: layout.appPort, reservedPorts: layout.reservedPorts
+            ),
+            lookUpMember: { await members.look(up: $0) },
+            listMembers: { await members.all() },
+            addressed: { _ in await addressedReporter.start() },
+            createCloudWorkspace: { await client.createCloudWorkspace($0) },
+            peers: RunbloomPeers.peers(client: client, http: http),
+            sandbox: sandbox, sharedDirectory: MachineSandbox.sharedDirectory
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()
         // What the machine says about its own reporting goes two ways here, because the two readers
@@ -77,7 +105,11 @@ public enum ServeCommand {
                 note("shed \(newlyShed) unsent usage report(s); \(status.queued) queued, \(status.queuedBytes) bytes")
             }
             if let since = status.unreachableSince {
-                note("runbloom.app unreachable since \(WireDate.string(from: since)); "
+                // Not "unreachable": the three things that reach here are a network that answered
+                // nothing, a server that erred, and a machine that was asleep, and only the first
+                // is what that word means. What is true of all of them is that nothing has been
+                // recorded since.
+                note("nothing reported to runbloom.app since \(WireDate.string(from: since)); "
                      + "\(status.queued) report(s) queued, \(status.queuedBytes) bytes")
             }
         })
@@ -122,6 +154,9 @@ public enum ServeCommand {
         }
 
         try await runtime.start()
+        // Whatever the last run could not deliver, including the case this exists for: a machine
+        // that stopped between writing the message and telling runbloom.app about it.
+        await addressedReporter.start()
         await reporter.postSummaryNow()
         await machineEnvironment.refresh()
 
@@ -129,22 +164,76 @@ public enum ServeCommand {
         let terminals = TerminalConnections()
         let supervisor = MachineSupervisor(
             runtime: runtime, awake: awake, reporter: reporter, streams: streams, terminals: terminals,
-            environment: machineEnvironment, secret: secret, revocations: verifier.revocations, updater: { version, sha256, tag in try MachineUpdate.start(version: version, sha256: sha256, tag: tag) }
+            environment: machineEnvironment, secret: secret, revocations: verifier.revocations, updater: { version, sha256, tag, downloadURL in
+                try MachineUpdate.start(version: version, sha256: sha256, tag: tag, downloadURL: downloadURL)
+            }
         )
-        let services = ServiceSupervisor(layout: layout)
+        // The supervisor's own states, on the workspace record, because a service that never
+        // started is otherwise a sentence held in this process's memory and reachable only through
+        // a preview page that a project's own proxy can make unreachable. See `ServiceRecord`.
+        let services = ServiceSupervisor(layout: layout, sandbox: sandbox, observer: { [weak runtime] statuses in
+            await runtime?.servicesChanged(statuses.map {
+                ServiceRecord(name: $0.name, state: $0.state.rawValue, restarts: $0.restarts,
+                              message: $0.message, isHTTP: $0.isHTTP)
+            })
+        })
         let server = WorkspaceHTTPServer(dependencies: .init(
             runtime: runtime, verifier: verifier, gate: gate, control: supervisor, store: store,
             allowedOrigins: configuration.allowedOrigins, version: version, streams: streams, terminals: terminals,
             gitCredentials: .init(secret: localSecret, repository: configuration.repository) { repository, operation, turn in
                 try await client.gitCredentials(repository: repository, operation: operation, turnID: turn)
             },
-            services: { await services.status }
+            services: { await services.status },
+            appPort: layout.appPort,
+            reservedPorts: layout.reservedPorts.map(\.port)
         ))
+
+        // The credential door for processes on this machine. **A unix socket, because the kernel
+        // names the caller on it**: with a sandbox, the Runner cannot read another user's `/proc`
+        // entry, and the loopback route's shared secret is not in the sandbox user's reach either.
+        // See `LocalCredentialSocket` and M1 in the security review of 19 September 2026.
+        let credentialSurroundings = LocalCredentialAuthority.Surroundings(
+            origin: { [weak runtime] pid in
+                if let purpose = await processes.origin(of: pid)?.purpose { return purpose }
+                guard let server = await runtime?.terminalServerProcessID(),
+                      await processes.ancestry(of: pid).contains(server) else { return nil }
+                return .terminalServer
+            },
+            ancestry: { await processes.ancestry(of: $0) },
+            panePIDs: { [weak runtime] in await runtime?.terminalPanePIDs() ?? [:] },
+            runningTurn: { [weak runtime] in await runtime?.runningTurnID(chat: $0) },
+            terminalTurn: { [terminals] in await terminals.liveTurn(terminal: $0) },
+            isPublishing: { [weak runtime] in await runtime?.isPublishingTurn($0) ?? false }
+        )
+        let credentialSocket: LocalCredentialSocket?
+        do {
+            credentialSocket = try LocalCredentialSocket(path: MachineSandbox.credentialSocketPath,
+                                                        group: sandbox == nil ? nil : MachineSandbox.sharedGroup) { asked, peer in
+                guard asked.repository.lowercased() == configuration.repository.lowercased() else { return nil }
+                let turn = await LocalCredentialAuthority.turn(for: asked, peer: peer, in: credentialSurroundings)
+                guard let credential = try? await client.gitCredentials(repository: configuration.repository,
+                                                                       operation: turn == nil ? .read : .write, turnID: turn) else {
+                    return nil
+                }
+                return GitCredentialRoute.Answer(username: credential.username, token: credential.token)
+            }
+        } catch {
+            // A machine without the shared directory keeps the loopback route, which is what
+            // everything used before the sandbox. Said out loud, because it is a difference in how
+            // a push is authorised.
+            FileHandle.standardError.write(Data("bloom-runner: the credential socket is not listening: \(error)\n".utf8))
+            credentialSocket = nil
+        }
+        defer { credentialSocket?.close() }
 
         let caddy = CaddySupervisor(layout: layout, publicURL: configuration.publicURL)
         let setup = MachineSetup(runtime: runtime, store: store, configuration: configuration, layout: layout,
-                                 environment: machineEnvironment, services: services)
+                                 environment: machineEnvironment, services: services, sandbox: sandbox)
         await machineEnvironment.observe { _ in await setup.restartServices() }
+        // `stop_setup` reaches the machine's own setup through here; one run by hand is the
+        // runtime's own to stop. See `MachineSetup.stop(by:)`.
+        await runtime.setSetupStopper { name in await setup.stop(by: name) }
+        await runtime.setSetupRerunner { await setup.rerunSetup() }
         // Caddy first, so the machine's URL answers while setup runs; a machine without it still
         // serves Bloom Runner on its own port, which is what development on a Mac does.
         do {
@@ -158,7 +247,14 @@ public enum ServeCommand {
         await awake.start()
         await measurements.start()
         // After the first summary and with the server about to listen, so setup can be watched live.
-        let setupRun = Task { await setup.run() }
+        // The opening prompt, when an agent created this workspace with one, after setup so it runs
+        // on an installed project; after a failed setup too, so the person sees why. See
+        // `OpeningHandoff`.
+        let openings = OpeningHandoff(client: client, runtime: runtime)
+        let setupRun = Task {
+            await setup.run()
+            if !Task.isCancelled { await openings.run() }
+        }
         // An update waits for this file to go: deleting it once listening is how a new release says
         // it came up, which works whether or not the script that restarted the service survived it.
         let application = server.application(port: layout.serverPort) { _ in

@@ -48,6 +48,32 @@ public struct RunbloomClient: Sendable {
         _ = try await send(.POST, "/usage", body: body, expecting: [204])
     }
 
+    /// Everybody with access to this workspace, for resolving and validating a mention.
+    ///
+    /// **A pull rather than a push, and refetching is just asking again.** A machine holding a list
+    /// from three weeks ago refuses a colleague who joined last week, which is the same failure as
+    /// refusing an id outright, only slower and harder to see. No addresses in it: see
+    /// `WorkspaceMember`.
+    public func members() async throws -> [WorkspaceMember] {
+        struct Answer: Decodable { var members: [WorkspaceMember]? }
+        let data = try await send(.GET, "/members", expecting: [200])
+        return try decode(Answer.self, data, status: 200).members ?? []
+    }
+
+    /// Tells runbloom.app that somebody was addressed, so it can mail them if they were not here.
+    ///
+    /// **Its own call rather than folded into a report, because it causes mail.** Anything
+    /// coalesced, retried for unrelated reasons or replayed would eventually send two emails or
+    /// none. runbloom.app dedupes on the message id **per addressed person**, so a retry is free
+    /// and a partial delivery cannot double-mail or lose somebody.
+    ///
+    /// **The id must never be reused for a different message**: a reused one is silently treated as
+    /// a retry and nobody is mailed, which fails without a symptom. It is a ULID minted once when
+    /// the row is written and kept on the row, so a retry after a restart sends the same one.
+    public func reportAddressed(_ body: Data) async throws {
+        _ = try await send(.POST, "/addressed", body: body, expecting: [200, 202, 204])
+    }
+
     public func environment() async throws -> [String: String] {
         struct Answer: Decodable { var environment: [String: String]? }
         let data = try await send(.GET, "/environment", expecting: [200])
@@ -102,19 +128,22 @@ public struct RunbloomClient: Sendable {
     /// because runbloom.app rotated it and the control call saying so has not arrived (or never
     /// will). Every call here is idempotent on runbloom.app or harmless to repeat, which is what
     /// makes sending it twice safe.
-    private func send(_ method: HTTPMethod, _ path: String, body: Data? = nil, expecting success: Set<Int>) async throws -> Data {
+    func send(_ method: HTTPMethod, _ path: String, body: Data? = nil, headers: [String: String] = [:],
+              expecting success: Set<Int>) async throws -> Data {
         do {
-            return try await sendOnce(method, path, body: body, expecting: success)
+            return try await sendOnce(method, path, body: body, headers: headers, expecting: success)
         } catch let error as RunbloomError where error.isTerminal && secret.reload() {
-            return try await sendOnce(method, path, body: body, expecting: success)
+            return try await sendOnce(method, path, body: body, headers: headers, expecting: success)
         }
     }
 
-    private func sendOnce(_ method: HTTPMethod, _ path: String, body: Data?, expecting success: Set<Int>) async throws -> Data {
+    private func sendOnce(_ method: HTTPMethod, _ path: String, body: Data?, headers: [String: String],
+                          expecting success: Set<Int>) async throws -> Data {
         var request = HTTPClientRequest(url: workspaceURL + path)
         request.method = method
         request.headers.add(name: "Authorization", value: "Bearer \(secret.current)")
         request.headers.add(name: "Accept", value: "application/json")
+        for (name, value) in headers { request.headers.add(name: name, value: value) }
         if let body {
             request.headers.add(name: "Content-Type", value: "application/json")
             request.body = .bytes(ByteBuffer(bytes: body))
@@ -159,7 +188,7 @@ public struct RunbloomClient: Sendable {
         return .refused(status: status, code: refusal.code, message: refusal.message, limit: refusal.limit, retryAfter: refusal.retryAfter)
     }
 
-    private func decode<T: Decodable>(_ type: T.Type, _ data: Data, status: Int) throws -> T {
+    func decode<T: Decodable>(_ type: T.Type, _ data: Data, status: Int) throws -> T {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {

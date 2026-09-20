@@ -41,8 +41,11 @@ public struct WorkspaceToken: Sendable, Hashable {
     public var use: TokenUse
     /// A user id, `share:<share id>` for a preview opened from a share, or `control`.
     public var subject: String
-    /// Session tokens only.
+    /// Session tokens only. **May be absent or empty**: not everybody has a display name, and a
+    /// machine that refused them would be a machine they could not use.
     public var name: String?
+    /// Session tokens only, and the thing a person recognises when there is no name.
+    public var email: String?
     /// Session tokens only.
     public var team: String?
     public var abilities: Set<String>
@@ -53,21 +56,28 @@ public struct WorkspaceToken: Sendable, Hashable {
     public var jti: String
     /// The `kid` of the key that signed it.
     public var signingKey: String
+    /// The workspace an agent was running in when runbloom.app minted this for its person, from the
+    /// standard `act` claim. Session tokens only; nil on a person's own. See `RemoteCaller.agentOrigin`.
+    public var actor: String?
 
     public init(
         use: TokenUse,
         subject: String,
         name: String? = nil,
+        email: String? = nil,
         team: String? = nil,
         abilities: Set<String>,
         issuedAt: Date,
         expiresAt: Date,
         jti: String,
-        signingKey: String
+        signingKey: String,
+        actor: String? = nil
     ) {
+        self.actor = actor
         self.use = use
         self.subject = subject
         self.name = name
+        self.email = email
         self.team = team
         self.abilities = abilities
         self.issuedAt = issuedAt
@@ -78,9 +88,27 @@ public struct WorkspaceToken: Sendable, Hashable {
 
     /// The person a session token names, as a queued prompt records them. Nil for a preview or a
     /// control token, which are not somebody writing in the workspace.
+    /// **An empty name is not a missing one, and both have to be handled.** This used to read
+    /// `name ?? subject`, which catches a claim that is absent and steps aside for one that is
+    /// present and empty, putting an empty string on the wire that draws a label indistinguishable
+    /// from no label at all. In a shared workspace an unlabelled message reads as the reader's own.
+    ///
+    /// The email is carried rather than folded into the name; see `AuthorRecord.label` for what a
+    /// client draws from the two.
     public var author: MessageAuthor? {
         guard use == .session else { return nil }
-        return MessageAuthor(userID: subject, name: name ?? subject)
+        let stated = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let address = email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return MessageAuthor(userID: subject, name: stated, email: address.isEmpty ? nil : address)
+    }
+
+    /// Refuses a token minted for an agent in another workspace, at a door that is not the RPC one.
+    /// Such a token may send a message and nothing else (see `RemoteCaller.agentMayRun`), so it
+    /// does not watch the event stream and does not open a terminal.
+    public func refuseIfMintedForAnAgent() throws {
+        guard actor == nil else {
+            throw RemoteFailure(.missingAbility, "A token minted for an agent in another workspace can only send a message here.")
+        }
     }
 
     /// A preview opened through a share link rather than by a member of the team.
@@ -90,6 +118,7 @@ public struct WorkspaceToken: Sendable, Hashable {
     /// because registering a turn with runbloom.app passes the prompter's own session token and
     /// nothing else would be accepted there.
     public func caller(token: String) -> RemoteCaller {
-        RemoteCaller(author: author, abilities: abilities, sessionToken: use == .session ? token : nil)
+        RemoteCaller(author: author, abilities: abilities, sessionToken: use == .session ? token : nil,
+                     agentOrigin: use == .session ? actor : nil)
     }
 }

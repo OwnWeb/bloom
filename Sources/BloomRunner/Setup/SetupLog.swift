@@ -18,6 +18,7 @@ actor SetupLog {
     private let workspaceID: WorkspaceID
     private let directory: String
     private var log = ""
+    private var notes: [String] = []
     private var began = false
     private var stepFile: CappedLogFile?
     private var dirty = false
@@ -25,6 +26,7 @@ actor SetupLog {
     /// Set once the run is filed. A flush that had already woken when `finish` ran would otherwise
     /// apply `runStarted` again and reopen a finished run.
     private var finished = false
+    private var hidden: [String] = []
 
     /// The row's own cap, `Workspace.setupLogLimit`, which is internal to the core. Held here too
     /// so the text kept in memory cannot grow without bound during a long run.
@@ -61,7 +63,7 @@ actor SetupLog {
     func startStep(_ name: String) {
         stepFile?.close()
         stepFile = CappedLogFile(path: directory + "/" + name + ".log", limit: Self.stepFileLimit)
-        add("[bloom] \(Self.title(name))")
+        add(Self.marker + Self.title(name))
     }
 
     func endStep() async {
@@ -70,15 +72,50 @@ actor SetupLog {
         await flush()
     }
 
+    /// A line a script printed.
+    ///
+    /// **A script cannot speak in Bloom's voice.** Clients style `[bloom] ` lines as Bloom's own
+    /// sentences and one of them draws the newest as the row's note, so a script printing that
+    /// prefix would put words of its choosing where a person reads Bloom's. Indented by one space
+    /// instead: the line keeps every character it had and stops being at the start of a line, which
+    /// is the whole of what the marker means.
     func append(_ line: String) {
-        stepFile?.append(line)
-        add(line)
+        let masked = Self.masking(line, hiding: hidden)
+        let safe = masked.hasPrefix(Self.marker) ? " " + masked : masked
+        stepFile?.append(safe)
+        add(safe)
     }
+
+    /// **The team's and the project's values never reach the log.** Scripts get them in their
+    /// environment, and a script that runs with `set -x` or prints its configuration writes them
+    /// out, into a log every viewer of the workspace can read and that is kept on disk (L5 in the
+    /// review of 19 September 2026). Each value is replaced wherever it appears in a line, longest
+    /// first so one value inside another is not half shown. Values under `shortestHidden`
+    /// characters are left, because masking `1` or `true` would hide every number and flag.
+    func hide(_ values: some Sequence<String>) {
+        hidden = Array(Set(values.filter { $0.count >= Self.shortestHidden })).sorted { $0.count > $1.count }
+    }
+
+    static let shortestHidden = 6
+    static let mask = "******"
+
+    static func masking(_ line: String, hiding values: [String]) -> String {
+        values.reduce(line) { $0.replacingOccurrences(of: $1, with: mask) }
+    }
+
+    /// What every line Bloom writes itself begins with. See `docs/WORKSPACE-PROTOCOL.md`.
+    static let marker = "[bloom] "
 
     /// A line for the row's log only, such as why a step was skipped.
     func note(_ line: String) {
-        add("[bloom] " + line)
+        notes.append(line)
+        add(Self.marker + line)
     }
+
+    /// The notes on their own, for a run that is filed as skipped: the note replaces the log there,
+    /// and **the whole log is the wrong thing to replace it with** now that naming the first phase
+    /// means every run has a line or two in it before anything is decided.
+    var noteText: String { notes.joined(separator: "\n") }
 
     func finish(succeeded: Bool) async {
         close()
@@ -95,7 +132,7 @@ actor SetupLog {
         let text = log
         _ = try? await store.update(workspaceID: workspaceID) { row in
             row.apply(.runProgressed(log: text))
-            row.apply(.runInterrupted)
+            row.apply(.runInterrupted(.machineStopped))
         }
     }
 
@@ -146,6 +183,9 @@ actor SetupLog {
 
     static func title(_ step: String) -> String {
         switch step {
+        case "environment": "Reading the team's environment."
+        case "git": "Configuring git."
+        case "services": "Starting the project's services."
         case "clone": "Cloning the repository."
         case "prepare": "Running the prepare script."
         case "setup": "Running the setup script."

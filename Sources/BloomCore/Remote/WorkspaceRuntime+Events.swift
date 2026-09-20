@@ -11,10 +11,10 @@ extension WorkspaceRuntime {
     /// being assembled waits in its buffer rather than being missed; the rows replayed after the
     /// client's cursor are then sent, and a live `message` at or below the last replayed cursor is
     /// skipped as the duplicate it is.
-    public func openEvents(for caller: RemoteCaller, after cursor: Int64?) async throws -> AsyncStream<WorkspaceEvent> {
+    public func openEvents(for caller: RemoteCaller, after cursor: Int64?, client: String? = nil) async throws -> AsyncStream<WorkspaceEvent> {
         guard !isClosed else { throw RemoteFailure.shuttingDown }
         if let author = caller.author { presence.noteName(author) }
-        let subscription = await events.subscribe(userID: caller.author?.userID)
+        let subscription = await events.subscribe(userID: caller.author?.userID, client: client)
         do {
             return try await openEvents(subscription, after: cursor)
         } catch {
@@ -28,7 +28,7 @@ extension WorkspaceRuntime {
     private func openEvents(_ subscription: RemoteEventHub.Subscription, after cursor: Int64?) async throws -> AsyncStream<WorkspaceEvent> {
         var opening: [WorkspaceEvent] = []
         let workspace = try await workspace()
-        opening.append(.workspace(workspace.record(setup: setupRecord(workspace), reporting: reporting)))
+        opening.append(.workspace(workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services)))
         opening.append(.setup(setupRecord(workspace)))
         for id in try await chatIDs() {
             let session = try await storedSession(id)
@@ -39,7 +39,7 @@ extension WorkspaceRuntime {
                 opening.append(.stream(chatID: id.rawValue, text: text, snapshot: true))
             }
         }
-        opening.append(.presence(presence.records))
+        opening.append(.presence(presence.records(knownAs: await memberLabels())))
         // Where the replay stops and the live stream takes over, read before either starts so a row
         // written in between is sent once by the live stream rather than twice or not at all.
         let highWater = try await store.latestMessageID(workspaceID: workspaceID)
@@ -95,7 +95,7 @@ extension WorkspaceRuntime {
 
     func connectionsChanged() async {
         if presence.setConnected(await events.connectedUserIDs) {
-            await events.publish(.presence(presence.records))
+            await events.publish(.presence(presence.records(knownAs: await memberLabels())))
         }
         await report(.connectionsChanged(open: await events.count))
     }
@@ -150,14 +150,26 @@ extension WorkspaceRuntime {
             }
         }
         for id in publishedChats.keys where !seen.contains(id) {
-            if publishing, let session = try await store.session(id: id) {
-                await events.publish(.chat(session.record(lastSeq: try await store.nextSeq(sessionID: id) - 1)))
-            }
+            // Claim the removal before the first suspension. Two refreshes can overlap while one
+            // waits on the Store actor; leaving the cache entry until afterwards let both publish
+            // the same closing chat event.
             publishedChats.removeValue(forKey: id)
             publishedQuestions.removeValue(forKey: id)
+            guard publishing,
+                  let captured = try await store.session(id: id),
+                  captured.archivedAt != nil else { continue }
+            await beforeClosedChatPublication?(id)
+            let lastSeq = try await store.nextSeq(sessionID: id) - 1
+            // `captured` may be stale after either suspension above. Reopening clears the stamp
+            // and publishes the open record while this refresh is away; publishing `captured`
+            // afterwards would put every client back into the closed state while Store is open.
+            // This final read and the call to EventHub have no WorkspaceRuntime suspension between
+            // them: the event is enqueued before another runtime command can change the row again.
+            guard let current = try await store.session(id: id), current.archivedAt != nil else { continue }
+            await events.publish(.chat(current.record(lastSeq: lastSeq)))
         }
         guard let workspace = try await store.workspace(id: workspaceID) else { return }
-        let record = workspace.record(setup: setupRecord(workspace), reporting: reporting)
+        let record = workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services)
         if publishedWorkspace != record {
             let first = publishedWorkspace == nil
             publishedWorkspace = record
@@ -182,6 +194,11 @@ extension WorkspaceRuntime {
                 await events.publish(.setupOutput(text: String(decoding: bytes[start...], as: UTF8.self)))
             }
         }
+    }
+
+    /// Installs the deterministic pause used by the close/reopen overlap regression.
+    func setBeforeClosedChatPublication(_ pause: (@Sendable (SessionID) async -> Void)?) {
+        beforeClosedChatPublication = pause
     }
 
     // MARK: - Calls from runbloom.app
@@ -217,7 +234,7 @@ extension WorkspaceRuntime {
     /// their queued prompts go, a turn of theirs that is running stops, and the shells they opened
     /// end, since each of those carries their key.
     public func revoke(userID: String) async {
-        await events.close(with: .closing(WireError(.unauthenticated, "Your access to this Cloud workspace was removed.")),
+        await events.close(with: .closing(WireError(.unauthenticated, "Your access to this Bloom Cloud workspace was removed.")),
                            where: { $0 == userID })
         guard !isClosed else { return }
         let chats = (try? await chatIDs()) ?? []
@@ -256,10 +273,36 @@ extension WorkspaceRuntime {
         try? await refreshPublishedState(publishing: true)
     }
 
+    /// What the setup runner found under the step it is running, from the machine's own watchdog.
+    ///
+    /// **Published when the verdict changes rather than on every look**, because the looks are
+    /// every thirty seconds for the length of a setup and the verdict changes a handful of times.
+    /// A machine whose step has just stopped having anything alive in it is the one case anybody is
+    /// waiting for, and that is a change.
+    public func setupLivenessChanged(_ liveness: RemoteSummary.Setup.Liveness?) async {
+        guard liveness?.verdict != setupLiveness?.verdict else {
+            setupLiveness = liveness
+            return
+        }
+        setupLiveness = liveness
+        try? await refreshPublishedState(publishing: true)
+    }
+
+    /// The machine's service supervisor, saying what it is running. Published so a client can draw
+    /// a service that never started, which is otherwise a sentence nobody can reach.
+    public func servicesChanged(_ services: [ServiceRecord]) async {
+        guard services != self.services else { return }
+        self.services = services
+        try? await refreshPublishedState(publishing: true)
+    }
+
     /// Setup finished, however it ended, and the prompts that waited for it may go: a failed setup
     /// is something the agent can read the log of and fix, which is what the Mac does too.
     public func setupFinished(succeeded: Bool = true) async {
         setupStep = nil
+        // No step, no child, nothing to be alive: a stale verdict outliving its step would be read
+        // as a fact about whatever ran next.
+        setupLiveness = nil
         setupFinishedAt = Date()
         holdsPromptsForSetup = false
         lastSetupSucceeded = succeeded

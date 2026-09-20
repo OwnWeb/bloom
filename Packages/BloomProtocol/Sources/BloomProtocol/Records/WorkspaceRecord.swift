@@ -1,13 +1,17 @@
 import Foundation
 
 /// The one workspace this server holds, as a client draws its header.
+///
+/// **No pull request.** It had a `pull_request` field that nothing on the machine ever filled, and
+/// a Mac fallback reading it that therefore never had a value. A pull request is runbloom.app's
+/// knowledge, read through its GitHub App, and a client asks there; a second, possibly stale copy
+/// from the machine's own `gh` is what was decided against on 18 September 2026.
 public struct WorkspaceRecord: Codable, Sendable, Hashable {
     public var id: String
     public var name: String
     public var branch: String
     public var baseBranch: String
     public var setup: SetupRecord
-    public var pullRequest: PullRequestRecord?
     /// Present only when there is something wrong to say about the machine's own reporting. See
     /// `ReportingRecord`.
     public var reporting: ReportingRecord?
@@ -16,14 +20,12 @@ public struct WorkspaceRecord: Codable, Sendable, Hashable {
     public var services: [ServiceRecord]
 
     public init(id: String, name: String, branch: String, baseBranch: String, setup: SetupRecord,
-                pullRequest: PullRequestRecord? = nil, reporting: ReportingRecord? = nil,
-                services: [ServiceRecord] = []) {
+                reporting: ReportingRecord? = nil, services: [ServiceRecord] = []) {
         self.id = id
         self.name = name
         self.branch = branch
         self.baseBranch = baseBranch
         self.setup = setup
-        self.pullRequest = pullRequest
         self.reporting = reporting
         self.services = services
     }
@@ -31,7 +33,6 @@ public struct WorkspaceRecord: Codable, Sendable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, name, branch, setup, reporting, services
         case baseBranch = "base_branch"
-        case pullRequest = "pull_request"
     }
 
     /// `services` was added on 18 September 2026 and every machine in the field predates it, so it
@@ -45,7 +46,6 @@ public struct WorkspaceRecord: Codable, Sendable, Hashable {
         branch = try container.decode(String.self, forKey: .branch)
         baseBranch = try container.decode(String.self, forKey: .baseBranch)
         setup = try container.decode(SetupRecord.self, forKey: .setup)
-        pullRequest = try container.decodeIfPresent(PullRequestRecord.self, forKey: .pullRequest)
         reporting = try container.decodeIfPresent(ReportingRecord.self, forKey: .reporting)
         services = try container.decodeIfPresent([ServiceRecord].self, forKey: .services) ?? []
     }
@@ -81,20 +81,6 @@ public struct ReportingRecord: Codable, Sendable, Hashable {
     }
 }
 
-public struct PullRequestRecord: Codable, Sendable, Hashable {
-    public var number: Int
-    public var url: String
-    public var title: String
-    public var state: String
-
-    public init(number: Int, url: String, title: String, state: String) {
-        self.number = number
-        self.url = url
-        self.title = title
-        self.state = state
-    }
-}
-
 /// Setup as a whole: which step is running, and how the last run ended.
 ///
 /// `state` is `pending`, `running`, `succeeded`, `failed` or `skipped`. `step` names the script
@@ -120,9 +106,18 @@ public struct SetupRecord: Codable, Sendable, Hashable {
     /// other end. **Two audiences, two words, on purpose**, and both ends say so, because an
     /// inconsistency with no defence beside it is one somebody helpfully removes later.
     public var isEnabled: Bool
+    /// Why a failed setup failed, when the machine can name it, so a client can offer the right
+    /// action without reading the log. `setup_needs_fresh_machine` is the one code today: setup
+    /// asked for root, and only the first setup of a brand new machine has it. Nil on a failure
+    /// that is the project's own, and nil on every machine older than the code.
+    ///
+    /// **A code rather than a sentence**, because the sentence is in `note` and in the log and will
+    /// be reworded; the web keys a primary button off this.
+    public var failureCode: String?
 
     public init(state: String, step: String? = nil, startedAt: Date? = nil, finishedAt: Date? = nil,
-                note: String? = nil, isEnabled: Bool = true) {
+                note: String? = nil, isEnabled: Bool = true, failureCode: String? = nil) {
+        self.failureCode = failureCode
         self.state = state
         self.step = step
         self.startedAt = startedAt
@@ -136,6 +131,7 @@ public struct SetupRecord: Codable, Sendable, Hashable {
         case startedAt = "started_at"
         case finishedAt = "finished_at"
         case isEnabled = "enabled"
+        case failureCode = "failure_code"
     }
 
     /// Absent means yes, for the reason `MachineConfiguration.runSetup` gives: a client reading an
@@ -148,6 +144,7 @@ public struct SetupRecord: Codable, Sendable, Hashable {
         finishedAt = try container.decodeIfPresent(Date.self, forKey: .finishedAt)
         note = try container.decodeIfPresent(String.self, forKey: .note)
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        failureCode = try container.decodeIfPresent(String.self, forKey: .failureCode)
     }
 }
 

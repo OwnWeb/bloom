@@ -46,6 +46,7 @@ struct CloudWorkspaceRow: View {
                 WorkspaceNameText(name: item.displayName, isUnread: item.unread)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                WorkspaceColourDot(hex: item.colour, accessibilityName: colourName)
                 sharingMark
                 Spacer(minLength: Metrics.spacingSmall)
                 if let diff = item.summary?.diff, diff.files > 0 {
@@ -95,6 +96,11 @@ struct CloudWorkspaceRow: View {
 
     private var isArchiveActive: Bool {
         app.cloud.isAskingToArchive(CloudWorkspaceID(item.id), at: .row)
+    }
+
+    private var colourName: String? {
+        guard let colour = item.colour, HexColor(hex: colour) != nil else { return nil }
+        return WorkspaceColour.named(colour)?.name ?? "#\(colour)"
     }
 
     private var archiveBinding: Binding<Bool> {

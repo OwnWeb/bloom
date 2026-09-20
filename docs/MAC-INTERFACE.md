@@ -245,10 +245,9 @@ both clients.
 - **Panes and splits.** Already sent to the web separately and built there.
 - **The inspector's tabs**: Changes, History, and the pull request. `WorkspaceSurface` lists them
   per workspace (`availableInspectorTabs`). **[checked]**
-- **Recently closed chats**, offered back from the `+` menu. **Local only today**: the three verbs
-  are on `WorkspaceSurface` with defaults that answer an empty list, so a Cloud workspace gets no
-  section at all rather than a greyed one. **[checked]** A machine learning to reopen a chat is one
-  implementation rather than a second menu.
+- **Recently closed chats**, offered back from the `+` menu. Local workspaces read their store and
+  Cloud workspaces use the machine's bounded `recently_closed` and `reopen_chat` operations. Both
+  feed the same menu and the same `SessionReopening` wording. **[checked]**
 
 ## The transcript: groups, the opening line, the working line, the footer
 
@@ -558,7 +557,8 @@ for a Cloud one, which is built from the same pieces. Left to right: **[checked]
 1. **The mark**, in the icon column, by the rules above.
 2. **The name**, one line, truncated at the tail. **Medium weight when a turn finished and nobody
    has read it.**
-3. **A colour dot**, if the owner gave the workspace a colour. Local only.
+3. **A colour dot**, if this person gave the workspace a colour. For Cloud workspaces the mark is
+   personal on runbloom.app and uses the same ten-colour palette. **[checked]**
 4. *(space)*
 5. **A pin**, if pinned. Local only.
 6. **A red `× 2`**: how many of this turn's subagents failed. Only when there are failures.
@@ -575,9 +575,10 @@ for a Cloud one, which is built from the same pieces. Left to right: **[checked]
    mixed.
 10. **Under the pointer**, items 6 to 9 fade out and an **archive button** takes their place.
 
-A Cloud row has **no colour dot, pin or subagent chip**. It adds **a lock** when the reader can see
-the workspace but not open it, or **a two-person mark** when it is shared with the team or with
-the reader. Its diff is `summary.diff`, shown when `files > 0`.
+A Cloud row has **no pin or subagent chip**. It adds **a two-person mark** when it is shared with
+the team or with the reader. Its right-click menu offers the personal colour mark and, when the
+workspace record carries an authorised project settings endpoint, a Project Settings link on
+runbloom.app. Its diff is `summary.diff`, shown when `files > 0`.
 
 **Hovering a row opens a card** (`WorkspaceHoverCardView`, decisions in `WorkspaceHoverCard`) with
 the branch, the diff in full colour, the pull request, its checks and the age. The row has no

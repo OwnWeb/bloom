@@ -25,19 +25,24 @@ struct MachineSetupTests {
         let gitConfig: String
 
         func setup(timeouts: MachineSetup.Timeouts = .standard, origin: String? = nil,
-                   stallAfter: TimeInterval = MachineSetup.stallAfter) throws -> MachineSetup {
+                   stallAfter: TimeInterval = MachineSetup.stallAfter, runSetup: Bool? = nil,
+                   sandbox: MachineSandbox? = nil) throws -> MachineSetup {
+            // Written only when the test is about it, because the key being absent is the state
+            // every machine bootstrapped before it existed is in, and that has to keep working.
+            let runSetupKey = runSetup.map { ", \"run_setup\": \($0)" } ?? ""
             let configuration = try JSONDecoder().decode(MachineConfiguration.self, from: Data("""
             {"workspace_id": "01k5bx7j9d3v2r8q6m4n0p1s2w", "issuer": "https://runbloom.test", "jwks_url": "https://runbloom.test/jwks",
              "base_url": "https://runbloom.test", "workspace_secret": "secret", "allowed_origins": [],
              "public_url": "https://bloom-test.sprites.app", "repository": "spatie/example", "branch": "feature/queue",
-             "base_branch": "main", "name": "Queue"}
+             "base_branch": "main", "name": "Queue"\(runSetupKey)}
             """.utf8))
             let origin = origin ?? self.origin
             return MachineSetup(
                 runtime: runtime, store: store, configuration: configuration, layout: layout,
                 environment: MachineEnvironment { ["ORDER_FILE": orderFile, "TEAM_VALUE": "from the team"] },
                 services: services, serverExecutable: root + "/fake-bloom-runner",
-                cloneURL: { _ in origin }, gitGlobalConfig: gitConfig, timeouts: timeouts, stallAfter: stallAfter
+                cloneURL: { _ in origin }, gitGlobalConfig: gitConfig, timeouts: timeouts, stallAfter: stallAfter,
+                sandbox: sandbox
             )
         }
 
@@ -117,7 +122,7 @@ struct MachineSetupTests {
         await setup.run()
 
         #expect(fixture.order == ["prepare", "setup", "resume"])
-        #expect(fixture.steps.all == ["clone", "prepare", "setup", "resume", "finished"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "prepare", "setup", "resume", "finished"])
         let branch = try SetupTestSupport.bash("git rev-parse --abbrev-ref HEAD", in: fixture.worktree)
         #expect(branch.trimmingCharacters(in: .whitespacesAndNewlines) == "feature/queue")
         let base = try SetupTestSupport.bash("git rev-parse HEAD origin/main", in: fixture.worktree).split(separator: "\n")
@@ -145,6 +150,104 @@ struct MachineSetupTests {
         await fixture.runtime.shutdown()
     }
 
+    /// **Root for the first setup of untouched code, and for nothing else**, agreed with Freek on
+    /// 19 September 2026. The code a script runs is the worktree's, not the script's own text: an
+    /// agent that edits `package.json` would otherwise get root out of the next `npm install`.
+    @Test("a fresh clone of the base branch is pristine, and one commit is enough to end that")
+    func pristineIsTheBaseBranchAsItStands() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings, ".bloom/setup.sh": Self.setupScript],
+                                        executables: [".bloom/setup.sh"])
+        let setup = try fixture.setup()
+        await setup.run()
+        #expect(await setup.isPristineBaseCheckout(), "a workspace cut from main sits on main's own commit")
+
+        try SetupTestSupport.write("touched by the agent\n", to: fixture.worktree + "/note.txt")
+        _ = try SetupTestSupport.bash("git -c user.name=T -c user.email=t@b.local -c commit.gpgsign=false "
+            + "add -A && git -c user.name=T -c user.email=t@b.local -c commit.gpgsign=false commit -q -m touched", in: fixture.worktree)
+        #expect(await setup.isPristineBaseCheckout() == false, "code somebody has committed to is not the base branch as it stands")
+    }
+
+    /// The rerun is the case that matters: whatever the first setup was allowed to do, a rerun after
+    /// an agent has been at the worktree runs as the sandbox user.
+    @Test("a rerun goes through the sandbox, with the script inside it and the keys out of the arguments")
+    func rerunIsSandboxed() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings, ".bloom/setup.sh": Self.setupScript],
+                                        executables: [".bloom/setup.sh"])
+        let recorder = fixture.root + "/fake-sudo"
+        let script = """
+        #!/bin/bash
+        printf '%s\\n' "$*" >> "\(fixture.root)/sudo.log"
+        """
+        try SetupTestSupport.write(script + "\n", to: recorder, executable: true)
+        let sandbox = MachineSandbox(user: "bloom-agent", sudo: recorder)
+        let setup = try fixture.setup(sandbox: sandbox)
+        await setup.run()
+        #expect(fixture.order == ["prepare", "setup", "resume"], "the first setup of a pristine checkout is not sandboxed")
+        #expect(SetupTestSupport.read(fixture.root + "/sudo.log").isEmpty)
+
+        _ = await setup.rerunSetup()
+        let recorded = SetupTestSupport.read(fixture.root + "/sudo.log")
+        #expect(recorded.contains("--reuid=bloom-agent"))
+        #expect(recorded.contains("mount --bind /dev/null '/.sprite/api.sock'"))
+        #expect(recorded.contains(".bloom/setup.sh") || recorded.contains("setup.sh"))
+        #expect(!recorded.contains("from the team"), "the team's values stay in the environment, never in arguments")
+    }
+
+    /// The whole path: a sandboxed rerun whose script asks for root fails, and the log says which
+    /// command was refused and what to do about it, rather than leaving a bare exit status.
+    ///
+    /// The sandbox's three tools are stood in for by pass-through stubs, because a Mac has no
+    /// `unshare` and cannot drop privileges in a test; what is real here is the wrapping, the
+    /// script, and a `sudo` on the script's PATH that refuses exactly as the machine's does for a
+    /// user with no rights.
+    @Test("a sandboxed script that asks for root is told why, and pointed at a fresh machine")
+    func refusedRootIsExplained() async throws {
+        let asksForRoot = """
+        #!/bin/bash
+        set -x
+        sudo apt-get install -y libpq-dev
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings, ".bloom/setup.sh": asksForRoot],
+                                        executables: [".bloom/setup.sh"])
+        // sudo and unshare: run whatever follows the `--` separator. setpriv: drop its own flags.
+        let afterSeparator = """
+        #!/bin/bash
+        while [[ $# -gt 0 && "$1" != "--" ]]; do shift; done
+        shift
+        exec "$@"
+        """
+        let withoutFlags = """
+        #!/bin/bash
+        while [[ "$1" == --* ]]; do shift; done
+        exec "$@"
+        """
+        try SetupTestSupport.write(afterSeparator + "\n", to: fixture.root + "/fake-sudo", executable: true)
+        try SetupTestSupport.write(withoutFlags + "\n", to: fixture.root + "/fake-setpriv", executable: true)
+        // What the script itself calls, which is the thing that refuses.
+        let refusing = """
+        #!/bin/bash
+        echo "sudo: a password is required" >&2
+        exit 1
+        """
+        try FileManager.default.createDirectory(atPath: fixture.layout.dataDirectory + "/bin", withIntermediateDirectories: true)
+        try SetupTestSupport.write(refusing + "\n", to: fixture.layout.dataDirectory + "/bin/sudo", executable: true)
+        let sandbox = MachineSandbox(user: "bloom-agent", maskedPaths: [], sudo: fixture.root + "/fake-sudo",
+                                    unshare: fixture.root + "/fake-sudo", setpriv: fixture.root + "/fake-setpriv",
+                                    shell: "/bin/bash")
+        let setup = try fixture.setup(sandbox: sandbox)
+        await setup.run()
+        _ = await setup.rerunSetup()
+
+        let log = try await fixture.workspace().setupLog
+        #expect(log.contains("`sudo apt-get install -y libpq-dev` was refused"))
+        #expect(log.contains("Replace the machine"))
+        #expect(log.contains(SandboxRefusal.code))
+        // And as a field, so the web keys its "Replace the machine" button off a code rather than
+        // off words that will be reworded.
+        let record = WorkspaceRuntime.failureCode(try await fixture.workspace())
+        #expect(record == SetupFailureCode.needsFreshMachine.rawValue)
+    }
+
     @Test("a branch that exists on the remote is checked out as it is there")
     func existingBranch() async throws {
         let fixture = try await fixture(
@@ -156,7 +259,134 @@ struct MachineSetupTests {
         let upstream = try SetupTestSupport.bash("git rev-parse --abbrev-ref @{upstream}", in: fixture.worktree)
         #expect(upstream.trimmingCharacters(in: .whitespacesAndNewlines) == "origin/feature/queue")
         // No scripts, and a clone is still a step.
-        #expect(fixture.steps.all == ["clone", "finished"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "finished"])
+        #expect(try await fixture.workspace().setupState == .succeeded)
+        await fixture.runtime.shutdown()
+    }
+
+    /// **The phase before any work used to be invisible**, so a brand new workspace said pending
+    /// with no step through a call to runbloom.app and the whole git configuration, which is where
+    /// the one measured hang sat. It is two steps now, and they are the first thing anybody sees.
+    @Test("the first thing a new workspace shows is the phase before the clone")
+    func theFirstPhaseIsNamed() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        try await fixture.setup().run()
+
+        #expect(fixture.steps.all.prefix(3) == ["environment", "git", "clone"])
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupLog.hasPrefix("[bloom] Reading the team's environment."))
+        #expect(workspace.setupLog.contains("[bloom] Configuring git."))
+        await fixture.runtime.shutdown()
+    }
+
+    /// Seeing the same steps twice reads as a fault unless something says otherwise.
+    @Test("a machine that stopped mid setup says so when it starts again")
+    func sayingItIsStartingAgain() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        // A row left `running` is what an interrupted machine leaves behind.
+        _ = try await fixture.store.update(workspaceID: fixture.runtime.workspaceID) { $0.apply(.runStarted) }
+
+        try await fixture.setup().run()
+
+        #expect(try await fixture.workspace().setupLog.contains("Starting again: this machine stopped"))
+        await fixture.runtime.shutdown()
+    }
+
+    /// **Clients style `[bloom] ` lines as Bloom's own and one draws the newest as the row's note**,
+    /// so a script printing that prefix would put words of its choosing where a person reads
+    /// Bloom's.
+    @Test("a script cannot print a line that reads as Bloom's own")
+    func aScriptCannotForgeBloomsVoice() async throws {
+        let settings = """
+        [scripts]
+        setup = "echo '[bloom] Setup finished, everything is fine.'"
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        try await fixture.setup().run()
+
+        let log = try await fixture.workspace().setupLog
+        #expect(log.contains(" [bloom] Setup finished, everything is fine."), "kept, and indented out of Bloom's voice")
+        #expect(!log.contains("\n[bloom] Setup finished"), "never at the start of a line")
+        await fixture.runtime.shutdown()
+    }
+
+    /// The key runbloom.app writes for a workspace somebody created with setup turned off.
+    @Test("a workspace that asked for no setup is cloned, and nothing else is run")
+    func setupTurnedOff() async throws {
+        let settings = Self.settings + """
+
+
+        [[services]]
+        name = "web"
+        command = 'echo started > "$ORDER_FILE.service"; sleep 30'
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings, ".bloom/setup.sh": Self.setupScript],
+                                        executables: [".bloom/setup.sh"])
+        try await fixture.setup(runSetup: false).run()
+
+        // The repository is there, which is the half that is not optional: a workspace without its
+        // own clone is not a workspace.
+        #expect(FileManager.default.fileExists(atPath: fixture.worktree + "/.bloom/settings.toml"))
+        #expect(fixture.steps.all == ["environment", "git", "clone", "finished"])
+        #expect(fixture.order.isEmpty)
+        // A service is declared in the same file the scripts are, so starting one would run half
+        // of what was refused, against dependencies nothing installed.
+        #expect(await fixture.services.status.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fixture.orderFile + ".service"))
+
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupLog.contains("created with setup turned off"))
+        #expect(workspace.setupLog.contains("services this project declares were not started"))
+        #expect(try await fixture.store.setting(MachineSetup.completedSetting) == "1")
+        await fixture.runtime.shutdown()
+    }
+
+    /// The second start, and every one after it: `resume` is one of the three scripts, so a machine
+    /// that was told not to set up does not quietly start doing it at the next restart.
+    @Test("a workspace that asked for no setup runs nothing at the next start either, and says so")
+    func setupTurnedOffAtTheNextStart() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        try await fixture.setup(runSetup: false).run()
+        try await fixture.setup(runSetup: false).run()
+
+        #expect(fixture.order.isEmpty)
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupState == .skipped)
+        #expect(workspace.setupLog.contains("created with setup turned off"))
+        await fixture.runtime.shutdown()
+    }
+
+    /// The one machine in the middle: created with setup turned off, set up anyway by a runner
+    /// older than the key, and then updated to one that reads it. Its services are somebody's
+    /// working preview and its log is the account of a setup that really happened.
+    @Test("a machine that already set up is left alone when its server learns setup was off")
+    func setupRanBeforeTheKeyWasUnderstood() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        // The old runner: the key is not in its configuration at all, so it sets up.
+        try await fixture.setup().run()
+        #expect(fixture.order == ["prepare", "resume"])
+        // Every trace an older runner leaves behind, which is a completed sequence and no record
+        // of having skipped anything.
+        try await fixture.store.setSetting(MachineSetup.skippedSetting, nil)
+
+        try await fixture.setup(runSetup: false).run()
+
+        #expect(fixture.order == ["prepare", "resume", "resume"])
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupState == .succeeded)
+        #expect(workspace.setupLog.contains("set up anyway before this machine's server understood"))
+        #expect(!workspace.setupLog.contains("nothing else was run"))
+        await fixture.runtime.shutdown()
+    }
+
+    /// The reader never assumes the writer wrote it. Every machine bootstrapped before the key
+    /// existed has a `workspace.json` without it, and setting up is what those machines do.
+    @Test("a configuration written before the key existed still sets up")
+    func setupWhenTheKeyIsAbsent() async throws {
+        let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
+        try await fixture.setup().run()
+
+        #expect(fixture.order == ["prepare", "resume"])
         #expect(try await fixture.workspace().setupState == .succeeded)
         await fixture.runtime.shutdown()
     }
@@ -175,7 +405,7 @@ struct MachineSetupTests {
         let fixture = try await fixture(files: [".bloom/settings.toml": settings])
         try await fixture.setup().run()
 
-        #expect(fixture.steps.all == ["clone", "setup", "failed"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "setup", "failed"])
         #expect(fixture.order.isEmpty)
         let workspace = try await fixture.workspace()
         #expect(workspace.setupState == .failed)
@@ -234,7 +464,7 @@ struct MachineSetupTests {
         try await fixture.setup().run()
 
         let workspace = try await fixture.workspace()
-        #expect(workspace.setupLog.contains("This project has no Cloud workspace setup yet"))
+        #expect(workspace.setupLog.contains("This project has no Bloom Cloud workspace setup yet"))
         #expect(workspace.setupLog.contains(".bloom/settings.toml"))
         #expect(workspace.setupLog.contains("may not work on a machine"))
         // The variables a Mac script reads are set, so `set -u` does not end it on the first line.
@@ -248,7 +478,7 @@ struct MachineSetupTests {
     func cloudSetupIsNotExplained() async throws {
         let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings])
         try await fixture.setup().run()
-        #expect(try await !fixture.workspace().setupLog.contains("no Cloud workspace setup"))
+        #expect(try await !fixture.workspace().setupLog.contains("no Bloom Cloud workspace setup"))
         await fixture.runtime.shutdown()
     }
 
@@ -266,9 +496,66 @@ struct MachineSetupTests {
 
         let workspace = try await fixture.workspace()
         #expect(workspace.setupLog.contains("Setup has been in prepare for"), "\(workspace.setupLog.suffix(400))")
-        #expect(workspace.setupLog.contains("restarting this machine's server clears it"))
+        // **What it says next is the verdict's, and the verdict is only readable where `/proc` is.**
+        // On a machine, `sleep 4` is alive and the sentence says so and advises nothing; on a Mac
+        // there is nothing to read, and the advice is given because not knowing and knowing nothing
+        // is alive are answered the same way. Asserting one wording here would have been asserting
+        // which platform the suite runs on, and the Linux job said so within the hour.
+        let sentence = workspace.setupLog
+        #if os(Linux)
+        #expect(sentence.contains("still working") || sentence.contains("waiting on something"))
+        #expect(!sentence.contains("restarting this machine's server"), "nothing needs restarting while it runs")
+        #else
+        #expect(sentence.contains("restarting this machine's server clears it"))
+        #endif
         // The step finished on its own, so the sentence is a warning rather than a verdict.
         #expect(workspace.setupState == .succeeded)
+    }
+
+    /// `run_setup` by hand on a machine runs the setup script through bash, as the whole sequence
+    /// does. It went through the Mac's zsh before, which a machine does not have, so it failed there
+    /// before running a line.
+    @Test("setup run again by hand runs the script through the machine's own shell")
+    func rerunningSetup() async throws {
+        let settings = """
+        [scripts]
+        setup = 'echo reran >> "$ORDER_FILE"'
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        let setup = try fixture.setup()
+        await setup.run()
+        #expect(fixture.order.filter { $0 == "reran" }.count == 1)
+
+        #expect(await setup.rerunSetup() == true)
+        #expect(fixture.order.filter { $0 == "reran" }.count == 2, "the script ran again")
+        #expect(try await fixture.workspace().setupState == .succeeded)
+    }
+
+    /// Somebody stops a setup that is taking too long: the step running is ended, nothing after it
+    /// starts, and the run says who stopped it rather than looking broken.
+    @Test("a stopped setup ends its step, runs nothing after it, and says who stopped it")
+    func stoppingSetup() async throws {
+        let settings = """
+        [scripts]
+        prepare = "sleep 60"
+        setup = 'echo setup-ran >> "$ORDER_FILE"'
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        let setup = try fixture.setup()
+        #expect(await setup.stop(by: "Freek") == false, "nothing to stop before it runs")
+
+        let run = Task { await setup.run() }
+        // A cap on "never", not a measurement: the prepare step starts within a second or two.
+        #expect(await SetupTestSupport.eventually(timeout: .seconds(30)) {
+            ((try? await fixture.workspace())?.setupLog ?? "").contains("prepare")
+        })
+        #expect(await setup.stop(by: "Freek"))
+        await run.value
+
+        let workspace = try await fixture.workspace()
+        #expect(workspace.setupState == .failed)
+        #expect(workspace.setupLog.contains("Freek stopped setup"), "\(workspace.setupLog.suffix(400))")
+        #expect(!fixture.order.contains("setup-ran"), "nothing after the stopped step runs")
     }
 
     @Test("a step that is printing is working, whatever its own clock says")
@@ -284,7 +571,10 @@ struct MachineSetupTests {
 
         let workspace = try await fixture.workspace()
         #expect(workspace.setupLog.contains("working 8"))
-        #expect(!workspace.setupLog.contains("with nothing new"), "a printing script is not a stall")
+        // The script's own step, not the whole run: with the watchdog at two seconds, a `git config`
+        // on a loaded runner can sit that long before the script starts, and that says nothing about
+        // whether printing counts as progress. It failed #298's Linux run exactly that way.
+        #expect(!workspace.setupLog.contains("Setup has been in prepare"), "a printing script is not a stall")
     }
 
     @Test("a failed step says which script it was")
@@ -320,12 +610,14 @@ struct MachineSetupTests {
         try await fixture.setup().run()
 
         #expect(fixture.order == ["prepare", "setup", "resume", "resume"])
-        #expect(fixture.steps.all == ["clone", "prepare", "setup", "resume", "finished", "resume", "finished"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "prepare", "setup", "resume", "services", "finished", "resume", "services", "finished"])
         let workspace = try await fixture.workspace()
         #expect(workspace.setupState == .succeeded)
-        // The first setup's account stays, with the resume after it.
+        // The first setup's account stays, with the resume after it, and the services it started
+        // last: the log ends where the machine's work does rather than where its scripts do.
         #expect(workspace.setupLog.contains("setup says hello"))
-        #expect(workspace.setupLog.hasSuffix("[bloom] Running the resume script.\n"))
+        #expect(workspace.setupLog.contains("[bloom] Running the resume script."))
+        #expect(workspace.setupLog.hasSuffix("[bloom] Started 1 service. Whether each is ready is on the workspace itself.\n"))
         #expect(await SetupTestSupport.eventually { await fixture.services.status.first?.state == .running })
         await fixture.services.stopAll()
         await fixture.runtime.shutdown()
@@ -361,7 +653,7 @@ struct MachineSetupTests {
         try await fixture.setup().run()
 
         #expect(fixture.order == ["resume"])
-        #expect(fixture.steps.all == ["clone", "resume", "finished"])
+        #expect(fixture.steps.all == ["environment", "git", "clone", "resume", "finished"])
         let workspace = try await fixture.workspace()
         #expect(workspace.setupState == .succeeded)
         #expect(workspace.setupLog.contains("names .bloom/not-committed.sh as the prepare script"))

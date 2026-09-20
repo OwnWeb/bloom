@@ -26,16 +26,27 @@ public actor RemoteTerminals {
 
     public static let attachmentLimit = 32
 
-    public init(workspaceID: WorkspaceID, worktree: String, databasePath: String) {
-        self.init(workspaceID: workspaceID, worktree: worktree, databasePath: databasePath, daemon: RemoteTerminalDaemon())
+    /// **`sandbox` and `sharedDirectory` go together.** With a sandbox, tmux runs as a user that
+    /// cannot read the Runner's data directory, so the configuration it is started with has to live
+    /// somewhere both users reach; `Tools/provision-sandbox.sh` makes that directory.
+    private let sandbox: MachineSandbox?
+    private let sharedDirectory: String?
+
+    public init(workspaceID: WorkspaceID, worktree: String, databasePath: String,
+                sandbox: MachineSandbox? = nil, sharedDirectory: String? = nil) {
+        self.init(workspaceID: workspaceID, worktree: worktree, databasePath: databasePath, daemon: RemoteTerminalDaemon(),
+                  sandbox: sandbox, sharedDirectory: sharedDirectory)
     }
 
     init(workspaceID: WorkspaceID, worktree: String, databasePath: String, daemon: RemoteTerminalDaemon,
-         makeAttachProcess: (@Sendable (TmuxCommand, String, String) -> StreamingProcess)? = nil) {
+         makeAttachProcess: (@Sendable (TmuxCommand, String, String) -> StreamingProcess)? = nil,
+         sandbox: MachineSandbox? = nil, sharedDirectory: String? = nil) {
         self.workspaceID = workspaceID
         self.worktree = worktree
         self.databasePath = databasePath
         self.daemon = daemon
+        self.sandbox = sandbox
+        self.sharedDirectory = sharedDirectory
         self.makeAttachProcess = makeAttachProcess ?? { command, session, cwd in
             StreamingProcess(executable: command.executable,
                              arguments: command.arguments(["-C", "attach-session", "-t", "=" + session]),
@@ -103,11 +114,22 @@ public actor RemoteTerminals {
     ) async throws {
         let names = environment.keys.sorted().joined(separator: " ")
         _ = try await Shell.run(command.executable, command.arguments(["set-option", "-g", "update-environment", names]), cwd: worktree)
+        // **The shell this machine's user actually has, not the one the service was started with.**
+        // tmux takes `default-shell` from the environment of whoever started the server, which here
+        // is Bloom Runner under a service manager, so a pane ran `/bin/sh`: a bare `$`, no profile,
+        // and a different shell from the one a run script's pane ended in. With `default-command`
+        // left empty, tmux starts `default-shell` as a login shell itself. See `LoginShell`.
+        let shell = LoginShell.machinePath()
+        _ = try await Shell.run(command.executable, command.arguments(["set-option", "-g", "default-shell", shell]), cwd: worktree)
         // One tmux invocation, so the owner is on the session before anybody can attach to it.
         var arguments = ["new-session", "-d", "-s", session, "-c", worktree]
         // The shell stays after it, so a person can read what happened and carry on in the same
-        // terminal, which is what typing the command used to leave them with.
-        if let runScript { arguments.append(runScript + "\nexec \"$SHELL\" -l\n") }
+        // terminal, which is what typing the command used to leave them with. Named rather than
+        // `$SHELL`, which is the service's, and with the login flag only where it is understood.
+        if let runScript {
+            let login = ([shell] + LoginShell.loginArguments(for: shell)).map { "'\($0)'" }.joined(separator: " ")
+            arguments.append(runScript + "\nexec \(login)\n")
+        }
         // `=name:` because an option's target is a pane, and `=name` alone matches no pane.
         if let owner { arguments += [";", "set-option", "-t", "=" + session + ":", ownerOption, owner] }
         if !personal.isEmpty { arguments += [";", "set-option", "-t", "=" + session + ":", personalOption, personal.sorted().joined(separator: " ")] }
@@ -172,7 +194,7 @@ public actor RemoteTerminals {
     public func close(name: String, requester: String? = nil) async throws {
         try Self.validate(name: name)
         guard let executable = Shell.which("tmux") else { return }
-        let command = TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath)
+        let command = TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath, sandbox: sandbox)
         let session = TmuxSessions.sessionName(workspaceID: workspaceID, paneID: name)
         if let requester { try await requireOwner(requester, of: session, command: command) }
         _ = try await Shell.run(executable, command.arguments(["kill-session", "-t", "=" + session]), cwd: stateDirectory)
@@ -192,7 +214,7 @@ public actor RemoteTerminals {
 
     private func closeSessions(matching: (_ fields: (owner: String, personal: Set<String>)) -> Bool) async throws {
         guard let executable = Shell.which("tmux") else { return }
-        let command = TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath)
+        let command = TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath, sandbox: sandbox)
         // Tab separated in tmux's own terms would print as `_`, so a `|`, which neither a session
         // name nor a user id nor an agent's name holds.
         let format = "#{session_name}|#{\(Self.ownerOption)}|#{\(Self.personalOption)}"
@@ -210,7 +232,7 @@ public actor RemoteTerminals {
     /// Ends every shell this workspace has, which is what archiving it means for its terminals.
     public func closeAll() async throws {
         guard let executable = Shell.which("tmux") else { return }
-        let command = TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath)
+        let command = TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath, sandbox: sandbox)
         let listed = try await Shell.run(executable, command.arguments(["list-sessions", "-F", "#{session_name}"]), cwd: stateDirectory)
         guard listed.ok else { return }
         let names = TmuxSessions.sessions(ofWorkspace: workspaceID, in: TmuxSessions.parseSessionList(listed.stdout))
@@ -223,6 +245,26 @@ public actor RemoteTerminals {
     public func hasActiveWork() async -> Bool {
         if !attachments.isEmpty { return true }
         return await daemon.hasActiveWork()
+    }
+
+    /// Each terminal's shell, by the terminal's own name. **Asked of tmux rather than remembered**,
+    /// because a pane outlives the process that made it and a restarted Runner has to be able to
+    /// tell whose shell is asking for a git token. Empty when tmux is not running.
+    public func panePIDs() async -> [String: Int32] {
+        guard let command = try? tmuxCommand(),
+              let listed = try? await Shell.run(command.executable, command.listPanes, cwd: worktree, timeout: .seconds(5)),
+              listed.ok else { return [:] }
+        var byTerminal: [String: Int32] = [:]
+        for (session, pid) in TmuxSessions.parsePanePIDs(listed.stdout) {
+            guard let name = TmuxSessions.paneID(ofSessionName: session) else { continue }
+            byTerminal[name] = pid
+        }
+        return byTerminal
+    }
+
+    /// The tmux server this started and is still running. See `WorkspaceRuntime.terminalServerProcessID`.
+    public func serverProcessID() async -> Int32? {
+        await daemon.serverProcessID
     }
 
     public func shutdown() async {
@@ -244,7 +286,13 @@ public actor RemoteTerminals {
     }
 
     private var stateDirectory: String { URL(fileURLWithPath: databasePath).deletingLastPathComponent().path }
-    private var configurationPath: String { URL(fileURLWithPath: stateDirectory).appendingPathComponent("tmux.conf").path }
+    /// The shared directory when a machine has one, and the state directory otherwise. **Checked
+    /// rather than assumed**: a machine whose provisioning failed has a sandbox of nil and no shared
+    /// directory, and one that half-worked would otherwise leave terminals unable to start at all.
+    private var configurationPath: String {
+        let directory = sharedDirectory.flatMap { FileManager.default.isWritableFile(atPath: $0) ? $0 : nil } ?? stateDirectory
+        return URL(fileURLWithPath: directory).appendingPathComponent("tmux.conf").path
+    }
     private var socketName: String { TmuxSessions.socketName(databasePath: databasePath) }
 
     private func tmuxCommand() throws -> TmuxCommand {
@@ -254,6 +302,6 @@ public actor RemoteTerminals {
         if !FileManager.default.fileExists(atPath: configurationPath) {
             try TmuxSessions.configuration(defaultShell: LoginShell.path()).write(toFile: configurationPath, atomically: true, encoding: .utf8)
         }
-        return TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath)
+        return TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath, sandbox: sandbox)
     }
 }

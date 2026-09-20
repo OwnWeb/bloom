@@ -80,6 +80,24 @@ public enum Shell {
         abandoned.load(ordering: .relaxed)
     }
 
+    /// Children this process had to wait on itself because Foundation never reported them. See
+    /// `StreamingProcess.reapWhenFoundationDoesNot`.
+    ///
+    /// **A cure that says nothing teaches nothing.** The reaper turns a machine that hangs for ever
+    /// into one that carries on, and if it stayed silent nobody would ever learn whether the fault
+    /// is still there, how often it happens, or which calls it happens to. It cost two days to find
+    /// the first time precisely because the machine said nothing; the second time should be a
+    /// number somebody can read.
+    private static let reaped = Atomic<Int>(0)
+
+    static func countSelfReaped() {
+        reaped.add(1, ordering: .relaxed)
+    }
+
+    public static var selfReapedCount: Int {
+        reaped.load(ordering: .relaxed)
+    }
+
     /// This process's environment with the PATH above merged in, worked out once.
     ///
     /// It used to be rebuilt per spawn: the whole process environment copied, PATH split, about 45

@@ -25,7 +25,16 @@ public actor EventStreams {
     }
 
     /// Registers a stream, and hands back its id and a stream that yields once when it has to close.
-    func open(for token: WorkspaceToken) -> (id: String, closing: AsyncStream<WireError>) {
+    /// **At most this many streams per person.** Several windows and devices, and a reconnect
+    /// overlapping the stream it replaces, fit well inside it; a viewer opening streams in a loop
+    /// and never reading does not (M3 in the review of 19 September 2026).
+    static let perPersonLimit = 16
+
+    func open(for token: WorkspaceToken) throws -> (id: String, closing: AsyncStream<WireError>) {
+        let person = token.author?.userID
+        guard entries.values.count(where: { $0.userID == person }) < Self.perPersonLimit else {
+            throw RemoteFailure(.limitReached, "Too many event streams are open for you on this workspace. Close one and try again.")
+        }
         let id = UUID().uuidString.lowercased()
         let (closing, continuation) = AsyncStream.makeStream(of: WireError.self, bufferingPolicy: .bufferingNewest(1))
         entries[id] = Entry(userID: token.author?.userID, expiresAt: token.expiresAt, close: continuation)
@@ -53,7 +62,7 @@ public actor EventStreams {
     /// Closes every stream a person holds, which is what revoking their access does.
     func revoke(userID: String) {
         for (id, entry) in entries where entry.userID == userID {
-            entry.close.yield(WireError(.unauthenticated, "Your access to this Cloud workspace was removed."))
+            entry.close.yield(WireError(.unauthenticated, "Your access to this Bloom Cloud workspace was removed."))
             entry.close.finish()
             entries.removeValue(forKey: id)
         }

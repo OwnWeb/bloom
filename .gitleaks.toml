@@ -1,0 +1,32 @@
+# gitleaks, run over the whole history by the `secrets` job in .github/workflows/test.yml.
+#
+# The default rules, and one allowlist: each value below is a fake a test needs to look like a
+# secret, or a public key, found by the audit of 19 September 2026. Each is matched whole, so a
+# real key that happens to sit beside one is still found. Add to it only a value you can show is
+# not a credential, and say which file wants it.
+title = "Bloom"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fixtures that are fakes on purpose, and Sparkle's public key"
+regexes = [
+  # Bridge registration tests: a made-up bridge token.
+  '''^0123456789abcdef$''',
+  '''^fedcba9876543210$''',
+  # FeedbackTests and InstallPingTests: the example UUID from RFC 4122.
+  '''^3F2504E0-4F89-11D3-9A0C-0305E82C3301$''',
+  # SoftwareUpdateTests: SUPublicEDKey, which ships inside every copy of the app.
+  '''^s0kHQ4zCV5GHtI4fZGL6wsWO4Ch224tI6RcgvvfEC2o=$''',
+  # AppLogExcerptTests: a truncated jwt.io sample the redactor has to catch.
+  '''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dQw4w9WgXcQabcdef$''',
+  # TestTokenIssuer: a type annotation, `privateKey: Curve25519.Signing.PrivateKey`.
+  '''^Curve25519\.Signing\.PrivateKey$''',
+  # Tools/icon: `BLEEDKEYS = gen10.BLEEDKEYS`, a list of layer names.
+  '''^gen10\.[A-Z]+KEYS$''',
+  # SetupLogMaskingTests: a made-up key the setup log has to mask.
+  '''^sk-live-abcdef123456$''',
+  # Redaction tests: the header of a private key and no key after it.
+  '''^-----BEGIN OPENSSH PRIVATE KEY-----["']\)''',
+]

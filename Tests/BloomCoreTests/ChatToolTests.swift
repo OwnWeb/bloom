@@ -33,6 +33,21 @@ struct ChatToolTests {
         }
     }
 
+    @Test("chat mutations are app-bound, available to both callers and self-approved")
+    func mutationGates() {
+        let create = ChatCreateTool { _, _ in .refused("unused") }
+        let close = ChatCloseTool { _, _ in .refused("unused") }
+        let rename = ChatRenameTool { _, _, _ in .refused("unused") }
+        let toolbox = BridgeToolbox(handlers: [create, close, rename])
+
+        for name in ["chat_create", "chat_close", "chat_rename"] {
+            #expect(BridgeToolbox.standard.handler(named: name, for: .workspace) == nil)
+            #expect(toolbox.handler(named: name, for: .workspace) != nil)
+            #expect(toolbox.handler(named: name, for: .owner) != nil)
+            #expect(BridgeToolApproval.isSelfApproved(toolName: BridgeToolApproval.toolPrefix + name))
+        }
+    }
+
     // MARK: - Another workspace
 
     /// A second workspace in the same project, with one chat holding one user message.
@@ -48,6 +63,211 @@ struct ChatToolTests {
             #"{"type":"user","message":{"content":[{"type":"text","text":"Tag the release."}]}}"#.utf8
         )))
         return (workspace, session)
+    }
+
+    @Test("create targets another workspace and carries an optional title to the app")
+    func createInAnotherWorkspace() async throws {
+        let store = try makeTestStore("chat-create-other")
+        let (_, _, identity) = try await seed(store)
+        let (release, _) = try await other(store)
+        let recorder = ChatMutationRecorder(workspace: release)
+        let tool = ChatCreateTool { workspaceID, order in
+            await recorder.create(workspaceID: workspaceID, order: order)
+        }
+
+        let result = await tool.call(
+            request(["workspace": .string("Release"), "title": .string("Codex handover")]),
+            as: identity,
+            store: store
+        )
+
+        #expect(!result.isError, "\(result.text)")
+        #expect(await recorder.created == [
+            .init(workspaceID: release.id, order: ChatCreateOrder(title: "Codex handover")),
+        ])
+        let answer = try #require(JSONValue.parse(result.text))
+        #expect(answer["workspace_id"] == .string(release.id.rawValue))
+        #expect(answer["title"] == .string("Codex handover"))
+        #expect(answer["agent"] == .string(AgentKind.codex.rawValue))
+    }
+
+    @Test("create uses the caller's workspace by default and the owner must name one")
+    func createDefaultsAndRefusals() async throws {
+        let store = try makeTestStore("chat-create-own")
+        let (workspace, _, identity) = try await seed(store)
+        let recorder = ChatMutationRecorder(workspace: workspace)
+        let tool = ChatCreateTool { workspaceID, order in
+            await recorder.create(workspaceID: workspaceID, order: order)
+        }
+
+        let own = await tool.call(request(), as: identity, store: store)
+        #expect(!own.isError, "\(own.text)")
+        #expect(await recorder.created == [
+            .init(workspaceID: workspace.id, order: ChatCreateOrder()),
+        ])
+
+        let owner = await tool.call(request(), as: .owner, store: store)
+        #expect(owner.isError)
+        #expect(owner.text.contains("which workspace to add a chat to"))
+
+        let blank = await tool.call(request(["title": .string("  ")]), as: identity, store: store)
+        #expect(blank.isError)
+    }
+
+    @Test("create carries every applicable composer choice to the app")
+    func createOptions() async throws {
+        let store = try makeTestStore("chat-create-options")
+        let (workspace, _, identity) = try await seed(store)
+        let recorder = ChatMutationRecorder(workspace: workspace)
+        let tool = ChatCreateTool { workspaceID, order in
+            await recorder.create(workspaceID: workspaceID, order: order)
+        }
+        let codex = await tool.call(request([
+            "agent": .string("codex"),
+            "model": .string("gpt-5.6-sol"),
+            "effort": .string("high"),
+            "permission_mode": .string("autoReview"),
+            "interaction_mode": .string("plan"),
+            "fast_mode": .bool(true),
+            "context_window": .integer(1_000_000),
+            "terminal_chat": .bool(false),
+        ]), as: identity, store: store)
+        let claude = await tool.call(request([
+            "agent": .string("claudeCode"),
+            "model": .string("opus"),
+            "effort": .string("max"),
+            "output_style": .string("Explanatory"),
+            "fast_mode": .bool(true),
+        ]), as: identity, store: store)
+
+        #expect(!codex.isError, "\(codex.text)")
+        #expect(!claude.isError, "\(claude.text)")
+        let expectedCodex = ChatCreateOrder(
+            agent: .codex,
+            model: "gpt-5.6-sol",
+            effort: "high",
+            permissionMode: .autoReview,
+            interactionMode: .plan,
+            fastMode: true,
+            contextWindow: 1_000_000,
+            terminalChat: false
+        )
+        let expectedClaude = ChatCreateOrder(
+            agent: .claudeCode,
+            model: "opus",
+            effort: "max",
+            fastMode: true,
+            outputStyle: "Explanatory"
+        )
+        #expect(await recorder.created == [
+            .init(workspaceID: workspace.id, order: expectedCodex),
+            .init(workspaceID: workspace.id, order: expectedClaude),
+        ])
+    }
+
+    @Test("create rejects malformed composer choices before asking the app")
+    func createOptionRefusals() async throws {
+        let store = try makeTestStore("chat-create-option-refusals")
+        let (_, _, identity) = try await seed(store)
+        let tool = ChatCreateTool { _, _ in .refused("should not reach the app") }
+        let invalid: [[String: JSONValue]] = [
+            ["agent": .string("unknown")],
+            ["fast_mode": .string("yes")],
+            ["permission_mode": .string("root")],
+            ["interaction_mode": .string("chat")],
+            ["context_window": .integer(12)],
+            ["terminal_chat": .integer(1)],
+        ]
+        for arguments in invalid {
+            let result = await tool.call(request(arguments), as: identity, store: store)
+            #expect(result.isError)
+        }
+    }
+
+    @Test("close resolves only top-level chats by id or exact unambiguous title")
+    func closeSelection() async throws {
+        let store = try makeTestStore("chat-close-selection")
+        let (workspace, current, identity) = try await seed(store)
+        let other = try await store.upsert(Session(workspaceID: workspace.id, title: "Old chat"))
+        var crew = Session(workspaceID: workspace.id, title: "Reviewer")
+        crew.parentSessionID = current.id
+        let member = try await store.upsert(crew)
+        let recorder = ChatMutationRecorder(workspace: workspace)
+        let tool = ChatCloseTool { workspaceID, sessionID in
+            await recorder.close(workspaceID: workspaceID, sessionID: sessionID)
+        }
+
+        let closed = await tool.call(request(["chat": .string("Old chat")]), as: identity, store: store)
+        #expect(!closed.isError, "\(closed.text)")
+        #expect(await recorder.closed == [.init(workspaceID: workspace.id, sessionID: other.id)])
+
+        let crewResult = await tool.call(
+            request(["chat": .string(member.id.rawValue)]), as: identity, store: store
+        )
+        #expect(crewResult.isError)
+        #expect(crewResult.text.contains("top-level chat"))
+
+        _ = try await store.upsert(Session(workspaceID: workspace.id, title: "Twin"))
+        _ = try await store.upsert(Session(workspaceID: workspace.id, title: "Twin"))
+        let ambiguous = await tool.call(request(["chat": .string("Twin")]), as: identity, store: store)
+        #expect(ambiguous.isError)
+        #expect(ambiguous.text.contains("More than one chat"))
+    }
+
+    @Test("the app's refusal to close is returned without claiming success")
+    func closeRefusal() async throws {
+        let store = try makeTestStore("chat-close-refusal")
+        let (_, current, identity) = try await seed(store)
+        let tool = ChatCloseTool { _, _ in .refused("That chat is still working.") }
+
+        let result = await tool.call(
+            request(["chat": .string(current.id.rawValue)]), as: identity, store: store
+        )
+        #expect(result.isError)
+        #expect(result.text == "That chat is still working.")
+    }
+
+    @Test("bridge close refuses work in flight and the last chat, but permits an idle neighbour")
+    func closePolicy() {
+        let running = BridgeChatClosure.refusal(
+            title: "Claude", isRunning: true, otherTopLevelChats: 1
+        )
+        #expect(running?.contains("Claude") == true)
+        #expect(running?.contains("still working") == true)
+
+        let last = BridgeChatClosure.refusal(
+            title: "Claude", isRunning: false, otherTopLevelChats: 0
+        )
+        #expect(last?.contains("chat_create first") == true)
+
+        #expect(BridgeChatClosure.refusal(
+            title: "Claude", isRunning: false, otherTopLevelChats: 1
+        ) == nil)
+    }
+
+    @Test("rename resolves another workspace's chat and returns the previous title")
+    func renameChat() async throws {
+        let store = try makeTestStore("chat-rename")
+        let (_, _, identity) = try await seed(store)
+        let (release, old) = try await other(store)
+        let recorder = ChatMutationRecorder(workspace: release)
+        let tool = ChatRenameTool { workspaceID, sessionID, title in
+            await recorder.rename(workspaceID: workspaceID, sessionID: sessionID, title: title)
+        }
+
+        let result = await tool.call(request([
+            "workspace": .string(release.id.rawValue),
+            "chat": .string(old.id.rawValue),
+            "title": .string("Codex handover"),
+        ]), as: identity, store: store)
+
+        #expect(!result.isError, "\(result.text)")
+        #expect(await recorder.renamed == [
+            .init(workspaceID: release.id, sessionID: old.id, title: "Codex handover"),
+        ])
+        let answer = try #require(JSONValue.parse(result.text))
+        #expect(answer["title"] == .string("Codex handover"))
+        #expect(answer["previous_title"] == .string("Elsewhere"))
     }
 
     @Test("a workspace agent reads another workspace's chat by its id and by its name, and is told it is data")
@@ -348,5 +568,80 @@ struct ChatToolTests {
         #expect(missing.isError)
         let owner = await ChatReadTool().call(request(["chat": .string("Current")]), as: .owner, store: store)
         #expect(owner.isError)
+    }
+}
+
+private actor ChatMutationRecorder {
+    struct CreateCall: Sendable, Equatable {
+        var workspaceID: WorkspaceID
+        var order: ChatCreateOrder
+    }
+
+    struct CloseCall: Sendable, Equatable {
+        var workspaceID: WorkspaceID
+        var sessionID: SessionID
+    }
+
+    struct RenameCall: Sendable, Equatable {
+        var workspaceID: WorkspaceID
+        var sessionID: SessionID
+        var title: String
+    }
+
+    private let workspace: Workspace
+    private(set) var created: [CreateCall] = []
+    private(set) var closed: [CloseCall] = []
+    private(set) var renamed: [RenameCall] = []
+
+    init(workspace: Workspace) {
+        self.workspace = workspace
+    }
+
+    func create(workspaceID: WorkspaceID, order: ChatCreateOrder) -> ChatCreateOutcome {
+        created.append(.init(workspaceID: workspaceID, order: order))
+        return .created(BridgeChatSummary(
+            chatID: SessionID("created"),
+            title: order.title ?? PaneNaming.chat,
+            agent: .codex,
+            model: order.model ?? "gpt-5.6-sol",
+            effort: order.effort ?? "high",
+            permissionMode: order.permissionMode ?? .auto,
+            interactionMode: order.interactionMode ?? .build,
+            workspaceID: workspace.id,
+            workspace: workspace.name
+        ))
+    }
+
+    func close(workspaceID: WorkspaceID, sessionID: SessionID) -> ChatCloseOutcome {
+        closed.append(.init(workspaceID: workspaceID, sessionID: sessionID))
+        return .closed(BridgeChatSummary(
+            chatID: sessionID,
+            title: "Closed",
+            agent: .claudeCode,
+            model: "sonnet",
+            effort: "high",
+            permissionMode: .auto,
+            interactionMode: .build,
+            workspaceID: workspace.id,
+            workspace: workspace.name
+        ))
+    }
+
+    func rename(workspaceID: WorkspaceID, sessionID: SessionID, title: String) -> ChatRenameOutcome {
+        renamed.append(.init(workspaceID: workspaceID, sessionID: sessionID, title: title))
+        return .renamed(
+            chat: BridgeChatSummary(
+                chatID: sessionID,
+                title: title,
+                agent: .claudeCode,
+                model: "sonnet",
+                effort: "high",
+                permissionMode: .auto,
+                interactionMode: .build,
+                workspaceID: workspace.id,
+                workspace: workspace.name
+            ),
+            previousTitle: "Elsewhere"
+        )
     }
 }

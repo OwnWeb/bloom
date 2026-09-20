@@ -121,3 +121,57 @@ struct CapturedProcessWatchdogTests {
         #expect(String(decoding: result.stdout, as: UTF8.self) == "fine")
     }
 }
+
+/// A number alone cannot say how a process ended, and reading one as the other cost a morning.
+@Suite("How a process ended")
+struct ProcessEndingTests {
+    @Test("a signal is named rather than reported as an exit code")
+    func signalsAreNamed() {
+        // The one that started this: a setup script killed by SIGPIPE, reported as "status 13".
+        #expect(ProcessEnding.signalled(SIGPIPE).sentence.contains("SIGPIPE"))
+        #expect(ProcessEnding.signalled(SIGPIPE).sentence.contains("stopped reading"),
+                "and why, because SIGPIPE on its own says nothing about whose fault it is")
+        #expect(ProcessEnding.signalled(SIGTERM).sentence.contains("Bloom"), "a stop Bloom asked for says so")
+        #expect(ProcessEnding.signalled(SIGSEGV).sentence.contains("SIGSEGV"))
+        #expect(ProcessEnding.signalled(64).sentence.contains("64"), "an unnamed signal keeps its number")
+
+        // An exit code still reads as one, because most of them are.
+        #expect(ProcessEnding.exited(13).sentence == "exited with status 13")
+        #expect(ProcessEnding.exited(13).sentence != ProcessEnding.signalled(13).sentence,
+                "the two thirteens are different events and must not read alike")
+    }
+
+    @Test("only a clean exit is a success")
+    func successIsExitZeroAlone() {
+        #expect(ProcessEnding.exited(0).isSuccess)
+        #expect(!ProcessEnding.exited(1).isSuccess)
+        // A process killed by a signal has not succeeded, whatever the number happens to be.
+        #expect(!ProcessEnding.signalled(0).isSuccess)
+        #expect(!ProcessEnding.signalled(SIGPIPE).isSuccess)
+    }
+}
+
+#if os(Linux)
+/// The arithmetic behind `WIFSIGNALED` and its siblings, which Swift cannot import because they are
+/// C macros, written out and checked against the values the kernel actually produces.
+@Suite("Reading a wait status")
+struct WaitStatusTests {
+    @Test("an ordinary exit carries its code in the second byte")
+    func exitCodes() {
+        #expect(!StreamingProcess.wasSignalled(0))
+        #expect(StreamingProcess.exitCode(0) == 0)
+        // 13 << 8: the shape a script exiting 13 leaves, which is not the same 13 as SIGPIPE.
+        #expect(StreamingProcess.exitCode(13 << 8) == 13)
+        #expect(!StreamingProcess.wasSignalled(13 << 8))
+    }
+
+    @Test("a signalled child carries the signal in the low seven bits")
+    func signals() {
+        #expect(StreamingProcess.wasSignalled(13), "SIGPIPE, the one that started all this")
+        #expect(StreamingProcess.terminatingSignal(13) == 13)
+        #expect(StreamingProcess.wasSignalled(15) && StreamingProcess.terminatingSignal(15) == 15)
+        // 0x7f is stopped rather than terminated, and must not read as a signal death.
+        #expect(!StreamingProcess.wasSignalled(0x7F))
+    }
+}
+#endif

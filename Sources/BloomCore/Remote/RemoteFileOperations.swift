@@ -21,7 +21,18 @@ public enum RemoteFileOperations {
             throw RemoteFailure(.tooLarge, "Text files larger than 2 MB cannot be edited here.")
         }
         let data = Data(text.utf8)
-        try WorkspaceFileAccess(workspace: workspace, path: path).replace(data, expectedRevision: expected, limit: RemoteReview.fileLimit)
+        // **An empty revision means "only if there is no file yet"**: no file has one, so it cannot
+        // be mistaken for a stale read. It is how a client adds a settings file a project does not
+        // have, and it refuses to overwrite one that appeared meanwhile, as a stale revision does.
+        guard !expected.isEmpty else {
+            do {
+                _ = try WorkspaceFileAccess(workspace: workspace, path: path, creatingParents: true, writing: true).create(data, mode: 0o644)
+            } catch let failure as RemoteFailure where failure.code == .conflict {
+                throw RemoteFailure(.conflict, "This file exists already. Reload it and save your change into it.")
+            }
+            return TextFileRecord(path: path, text: text, revision: revision(data))
+        }
+        try WorkspaceFileAccess(workspace: workspace, path: path, writing: true).replace(data, expectedRevision: expected, limit: RemoteReview.fileLimit)
         return TextFileRecord(path: path, text: text, revision: revision(data))
     }
 

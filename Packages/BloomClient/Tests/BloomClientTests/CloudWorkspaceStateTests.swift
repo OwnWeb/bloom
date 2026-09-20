@@ -5,22 +5,14 @@ import Testing
 
 /// The merging rules of the client chapter in docs/WORKSPACE-PROTOCOL.md.
 @Suite struct CloudWorkspaceStateTests {
-    /// **A machine that predates `composer_defaults` is still openable.** The field is required of
-    /// a server, and a client that threw on a snapshot without it would not be missing a default,
-    /// it would be refusing to open a workspace whose machine is merely older than the field. What
-    /// is absent is absent, and the client falls back to its own choice.
-    @Test func aSnapshotFromAMachineWithoutComposerDefaultsStillReads() throws {
+    /// The current protocol requires the machine to settle the defaults used by `new_chat`.
+    @Test func aSnapshotWithoutComposerDefaultsIsNotTheCurrentProtocol() throws {
         let json = """
         {"workspace": {"id": "01k5ws", "name": "Queue retries", "branch": "freek/queue-retries", "base_branch": "main", "setup": {"state": "succeeded"}}, "chats": [], "presence": [], "cursor": 77}
         """
-        let snapshot = try WireJSON.decode(WorkspaceSnapshotRecord.self, from: Data(json.utf8))
-        #expect(snapshot.composerDefaults == nil)
-        #expect(snapshot.cursor == 77)
-
-        var state = CloudWorkspaceState()
-        state.absorb(snapshot)
-        #expect(state.workspace?.name == "Queue retries")
-        #expect(state.composerDefaults == nil, "nothing to fall back from is not something to invent")
+        #expect(throws: DecodingError.self) {
+            try WireJSON.decode(WorkspaceSnapshotRecord.self, from: Data(json.utf8))
+        }
     }
 
     /// And a snapshot that carries them puts them on the workspace, which is where a value with no
@@ -97,6 +89,17 @@ import Testing
         #expect(state.chats["c1"]?.busy == true)
         state.apply(.chat(Records.chat(state: "idle")))
         #expect(state.chats["c1"]?.busy == false)
+    }
+
+    @Test func aClosedChatEventRemovesTheOpenChatAndReportsIt() {
+        var state = CloudWorkspaceState()
+        state.absorb(Records.workspace())
+        var closed = Records.chat()
+        closed.closedAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        #expect(state.apply(.chat(closed)) == .chatClosed("c1"))
+        #expect(state.chats["c1"] == nil)
+        #expect(state.chatOrder == [])
     }
 
     @Test func aPageReadBeforeTheTurnEndedPutsNothingStaleBack() {

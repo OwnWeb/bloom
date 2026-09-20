@@ -15,21 +15,115 @@ import Hummingbird
 enum PreviewRoutes {
     static let cookieName = "__Host-bloom-preview"
 
+    /// Where entering the preview lands: `path` when it is a path on this origin, `/` otherwise.
+    ///
+    /// **A redirect target is the classic open redirect**, and this one sits behind a token, which
+    /// makes a link through it look trustworthy. So only a path is taken, never a place: it has to
+    /// begin with one `/` (`//host` is another origin to a browser), carry no backslash (which some
+    /// browsers read as a slash) and no control character (which would split the header), and
+    /// stay out of `/_bloom`, which is this machine's own and never the app's. Anything else lands
+    /// on the root, as every preview did before this existed.
+    ///
+    /// **Checked as the browser and Caddy will read it, not as it arrived.** `/%5Fbloom/…` and
+    /// `/./_bloom/…` are `/_bloom/…` once decoded and normalised, and an encoded `//host` is a host;
+    /// runbloom.app's own check on the way in compares literally, so this one decodes, repeatedly
+    /// until nothing changes, and removes dot segments, and judges that. What is sent on is the
+    /// path as given, since it passed as the thing it turns into.
+    static func landing(_ path: String?) -> String {
+        guard let path, path.utf8.count <= 2_048, isSafe(path), isSafe(normalised(path)) else { return "/" }
+        return path
+    }
+
+    private static func isSafe(_ path: String) -> Bool {
+        let route = String(path.prefix { $0 != "?" && $0 != "#" })
+        return path.hasPrefix("/") && !path.hasPrefix("//") && !path.contains("\\")
+            && path.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
+            && route.lowercased() != "/_bloom" && !route.lowercased().hasPrefix("/_bloom/")
+    }
+
+    /// Percent-decoded until it stops changing (a few rounds at most, which is every layer anybody
+    /// nests), with `.` and `..` segments removed as RFC 3986 section 5.2.4 does.
+    static func normalised(_ path: String) -> String {
+        var decoded = path
+        for _ in 0..<4 {
+            guard let next = decoded.removingPercentEncoding, next != decoded else { break }
+            decoded = next
+        }
+        let route = String(decoded.prefix { $0 != "?" && $0 != "#" })
+        let rest = String(decoded.dropFirst(route.count))
+        var output: [Substring] = []
+        let segments = route.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
+        for segment in segments {
+            switch segment {
+            case ".": continue
+            case "..": if !output.isEmpty { output.removeLast() }
+            default: output.append(segment)
+            }
+        }
+        // A trailing `.` or `..` still names a directory.
+        if let last = segments.last, last == "." || last == ".." { output.append("") }
+        return "/" + output.joined(separator: "/") + rest
+    }
+
+    /// **One hour, for a person and a share link alike**, and it is the longest-lived credential a
+    /// machine honours. It used to be eight hours for a person, which made it the one thing a lost
+    /// `revoke` left open for a working day: a removed person kept the running app, admin screens
+    /// and all, though never the agent. **runbloom.app retries `revoke` for at least this long**, so
+    /// the two numbers move together: lengthen this and tell the control server, as for the wire.
+    /// Somebody who still has access loses nothing but a click, because the page an expired cookie
+    /// gets says to open the preview again from Bloom.
+    static let cookieLifetime: TimeInterval = 3_600
+
+    /// What to say about ports on the page somebody sees when the preview is empty.
+    ///
+    /// Nothing when the app's port is listening, because then the port is not the problem and a
+    /// paragraph about it is noise over whatever is. The variable is named rather than the number
+    /// alone: every script this machine runs is handed `BLOOM_APP_PORT`, so a project that reads it
+    /// cannot be on the wrong port, and a project that hard-codes one can be told which to change.
+    static func portAdvice(appPort: Int, listening: [Int], reserved: [Int]) -> [String] {
+        guard !listening.contains(appPort) else { return [] }
+        var lines = ["", "The preview reads port \(appPort), and nothing is listening there."]
+        // Bloom's own ports are not an answer to "where is your app", and offering them as one
+        // would send somebody to proxy the preview at itself.
+        let others = listening.filter { $0 != appPort && !reserved.contains($0) }
+        if others.isEmpty {
+            lines.append("Nothing else is listening either, so the app has not started yet.")
+        } else {
+            lines.append("Something is listening on \(others.map(String.init).joined(separator: ", ")).")
+            lines.append("Serve the app on \(appPort), which every script is handed as BLOOM_APP_PORT.")
+        }
+        return lines
+    }
+
+    // The ports Bloom holds are `MachineLayout.reservedPorts` and are passed in. They used to be a
+    // second copy of the list here, which was the same fact written twice: both of Bloom's ports
+    // can be moved by the environment, so a machine with either overridden would have had this page
+    // offering Bloom's own port as somewhere the project's app might be listening.
+
     static func register(on router: Router<WorkspaceRequestContext>, verifier: TokenVerifier, sessions: PreviewSessions,
-                         runtime: WorkspaceRuntime, services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] }) {
+                         runtime: WorkspaceRuntime, services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] },
+                         appPort: Int = 3000,
+                         reservedPorts: [Int] = [],
+                         listening: @escaping @Sendable () -> [Int] = { ListeningPorts.current() }) {
         // What Caddy shows instead of its own 502 when the project's app is not listening. A person
         // who opens the preview and sees a bare gateway error has no way to find out that the app
         // crashed at boot; the supervisor knows, so it says so. Only somebody who got past the
         // preview check reaches it, and it names nothing but the services from the project's own
         // settings file and how they ended.
         router.get("/_bloom/preview/unavailable") { request, _ -> Response in
-            var lines = ["The app in this Cloud workspace is not answering yet."]
+            var lines = ["The app in this Bloom Cloud workspace is not answering yet."]
             // The services are named only to somebody the preview let in. Caddy reaches this with
             // the original request, but a request straight to this path has no cookie and is told
             // nothing about the project.
             guard let cookie = Self.cookie(in: request), await sessions.subject(for: cookie) != nil else {
                 return Self.plain(lines.joined(separator: "\n") + "\n")
             }
+            // The port contract, said out loud, because it is the likeliest reason to be here and
+            // the one nothing else states. A project that serves on its own port gets a preview
+            // that says the app is not answering, which is true and leaves somebody to deduce that
+            // there is an agreed port at all: one workspace served on 8091 while the preview read
+            // 3000, and an agent built a second proxy to bridge them.
+            lines.append(contentsOf: portAdvice(appPort: appPort, listening: listening(), reserved: reservedPorts))
             let statuses = await services()
             if statuses.isEmpty {
                 lines.append("No services are configured in .bloom/settings.toml, so nothing was started for it.")
@@ -54,13 +148,11 @@ enum PreviewRoutes {
             // The verifier grants a preview token nothing but `preview`, and this says so here too,
             // so the route does not rest on that alone.
             guard token.abilities.contains("preview") else { return notAllowed() }
-            // Eight hours for a person, one for a share link, which is somebody runbloom.app let in
-            // without an account.
-            let lifetime: TimeInterval = token.isShare ? 3_600 : 8 * 3_600
+            let lifetime = Self.cookieLifetime
             let cookie = await sessions.create(subject: token.subject, lifetime: lifetime)
             var headers = HTTPFields()
             headers[.setCookie] = "\(cookieName)=\(cookie); Path=/; Max-Age=\(Int(lifetime)); HttpOnly; Secure; SameSite=Lax"
-            headers[.location] = "/"
+            headers[.location] = Self.landing(request.uri.queryParameters.get("path"))
             headers[.cacheControl] = "no-store"
             return Response(status: .seeOther, headers: headers)
         }
@@ -92,7 +184,7 @@ enum PreviewRoutes {
         var headers = HTTPFields()
         headers[.contentType] = "text/plain; charset=utf-8"
         headers[.cacheControl] = "no-store"
-        let text = "This preview has to be opened from Bloom.\n"
+        let text = "This preview has to be opened from Bloom. If you had it open, it has expired: open it again from Bloom.\n"
         return Response(status: .unauthorized, headers: headers, body: .init(byteBuffer: ByteBuffer(string: text)))
     }
 

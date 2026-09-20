@@ -19,7 +19,7 @@ import SwiftUI
 /// so the few controls here go through one switch the gallery flips to drawn stand-ins.
 struct CloudSettingsView: View {
     @Environment(AppModel.self) private var app
-    @AppStorage(CloudWorkspaceStartTool.settingKey) private var agentsCreateCloudWorkspaces = false
+    @AppStorage(MacCloudWorkspaceStartTool.settingKey) private var agentsCreateCloudWorkspaces = false
     // On when absent, as `CloudWorkspaceStartQuestion.asks` reads it: each one costs money.
     @AppStorage(CloudWorkspaceStartQuestion.settingKey) private var asksBeforeCloudWorkspaceStart = true
     @AppStorage(CloudSidebarPresence.settingKey) private var showsInSidebar = true
@@ -244,7 +244,7 @@ struct CloudSettingsPane: View {
         card {
             HStack(alignment: .top, spacing: Metrics.gutter) {
                 VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
-                    Text(CloudWorkspaceStartTool.settingTitle).font(Typo.title)
+                    Text(MacCloudWorkspaceStartTool.settingTitle).font(Typo.title)
                     // Plain words, which is what a settings pane owes somebody. That this is a
                     // preference Bloom keeps rather than a gate runbloom.app enforces is said in
                     // docs/BRIDGE.md, where it belongs. No promise that you are asked first: a chat
@@ -255,7 +255,7 @@ struct CloudSettingsPane: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
-                toggle($agentsCreateCloudWorkspaces, label: CloudWorkspaceStartTool.settingTitle)
+                toggle($agentsCreateCloudWorkspaces, label: MacCloudWorkspaceStartTool.settingTitle)
             }
             Divider().padding(.vertical, Metrics.gutter)
             HStack(alignment: .top, spacing: Metrics.gutter) {

@@ -2,6 +2,17 @@ import Foundation
 
 /// The Caddyfile in front of the machine's one URL port.
 ///
+/// **Why a proxy at all, since it is asked every time somebody meets this.** A Sprite has one URL
+/// and it routes HTTPS to one HTTP port: no second hostname, no per-port subdomain, no custom
+/// domain, and its authentication is all or nothing, private to the organisation or public to
+/// anyone with the link. Checked in the provider's own documentation and its CLI on 18 September
+/// 2026, and the answer decided this: **control and the preview cannot have separate origins, so
+/// something must split the one port**. Without a proxy the URL serves either Bloom Runner, and
+/// there is no preview, or the project's app, and no client can reach the workspace at all.
+/// The costs are real and were accepted with it: a second supervised process, a binary in the
+/// release, and the four rules below, every one of which exists only because the origins are
+/// shared. If a future provider offers a second port, this whole file and those four rules can go.
+///
 /// The machine's URL routes to a single port, so control and the preview cannot have separate
 /// origins. Caddy sits on that port and splits it: `/_bloom/*` to Bloom Runner, everything else to
 /// the project's app behind the preview cookie. Caddy rather than a proxy in Swift, because
@@ -26,6 +37,11 @@ import Foundation
 ///
 /// Automatic HTTPS and the admin endpoint are off: the Sprite's proxy terminates TLS, and an admin
 /// API on a machine that runs other people's code is a way to rewrite these rules from inside.
+///
+/// **Headers within ten seconds, and an idle connection closed after two minutes** (L4 in the
+/// review of 19 September 2026), so a client that opens connections and never finishes a request
+/// cannot hold them. No read or write timeout: an upload takes as long as it takes, and an event
+/// stream or a terminal is minutes of a response still being written.
 public struct CaddyConfiguration: Sendable, Hashable {
     public var publicPort: Int
     public var serverPort: Int
@@ -75,6 +91,12 @@ public struct CaddyConfiguration: Sendable, Hashable {
         \tadmin off
         \tauto_https off
         \tpersist_config off
+        \tservers {
+        \t\ttimeouts {
+        \t\t\tread_header 10s
+        \t\t\tidle 2m
+        \t\t}
+        \t}
         }
 
         :\(publicPort) {

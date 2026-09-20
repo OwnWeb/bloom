@@ -2,6 +2,14 @@ import AppKit
 import SwiftUI
 import BloomCore
 
+extension NSAttributedString.Key {
+    /// A rounded ground behind inline code. AppKit's built-in `.backgroundColor` paints a square
+    /// per-glyph rectangle, which leaves a source link looking like selected text rather than a
+    /// compact path pill. `TranscriptLayoutManager` draws this attribute without changing the
+    /// string's metrics, selection or copy behaviour.
+    static let bloomInlineCodeBackground = NSAttributedString.Key("BloomInlineCodeBackground")
+}
+
 /// What the transcript can do with an address, handed in rather than decided here.
 ///
 /// **`Equatable` on `identity` and on nothing else, and that is the point of the type.** These go
@@ -125,7 +133,7 @@ struct TranscriptTextView: NSViewRepresentable {
         // `NSLayoutManager`, which a text view created the ordinary way on this macOS does not
         // have: it comes up on TextKit 2 and answers nil.
         let storage = NSTextStorage()
-        let layout = NSLayoutManager()
+        let layout = TranscriptLayoutManager()
         let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
         container.lineFragmentPadding = 0
@@ -328,6 +336,49 @@ struct TranscriptTextView: NSViewRepresentable {
             if let url = link as? URL { return url }
             if let text = link as? String { return URL(string: text) }
             return nil
+        }
+    }
+}
+
+/// Draws the quiet rounded plate behind inline code while leaving AppKit's own selection and
+/// temporary link decorations to `NSLayoutManager`.
+private final class TranscriptLayoutManager: NSLayoutManager {
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        drawInlineCodeBackgrounds(forGlyphRange: glyphsToShow, at: origin)
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+    }
+
+    private func drawInlineCodeBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let textStorage else { return }
+        let characters = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+
+        textStorage.enumerateAttribute(
+            .bloomInlineCodeBackground,
+            in: characters,
+            options: [.longestEffectiveRangeNotRequired]
+        ) { value, characterRange, _ in
+            guard let color = value as? NSColor else { return }
+            let glyphRange = NSIntersectionRange(
+                glyphRange(forCharacterRange: characterRange, actualCharacterRange: nil),
+                glyphsToShow
+            )
+            guard glyphRange.length > 0 else { return }
+
+            enumerateLineFragments(forGlyphRange: glyphRange) { _, _, container, lineRange, _ in
+                let run = NSIntersectionRange(glyphRange, lineRange)
+                guard run.length > 0 else { return }
+                var rect = self.boundingRect(forGlyphRange: run, in: container)
+                    .offsetBy(dx: origin.x, dy: origin.y)
+                // Two points at the sides make the plate read as a pill around the contents.
+                // Half a point off the top and bottom keeps it within the surrounding line box.
+                rect = rect.insetBy(dx: -Metrics.spacingTight, dy: Metrics.outline)
+                color.setFill()
+                NSBezierPath(
+                    roundedRect: rect,
+                    xRadius: Metrics.cornerSmall,
+                    yRadius: Metrics.cornerSmall
+                ).fill()
+            }
         }
     }
 }
