@@ -46,9 +46,7 @@ struct CloudWorkspaceItemURLTests {
          "browser_settings_url":"https://runbloom.app/app/spatie/projects/p1/settings"}}
         """)
         let action = try #require(CloudProjectSettingsAction(project: allowed.project))
-        var opened: URL?
-        action.open { opened = $0 }
-        #expect(opened?.absoluteString == "https://runbloom.app/app/spatie/projects/p1/settings")
+        #expect(action.url.absoluteString == "https://runbloom.app/app/spatie/projects/p1/settings")
         #expect(allowed.project?.settingsURL == "https://runbloom.app/api/v1/teams/t1/projects/p1/settings")
 
         let withheld = try item("""

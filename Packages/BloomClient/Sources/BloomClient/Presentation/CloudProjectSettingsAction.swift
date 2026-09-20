@@ -19,9 +19,4 @@ public struct CloudProjectSettingsAction: Sendable, Hashable {
         self.url = url
     }
 
-    /// Opens through the app layer's default-browser action. Injected so the exact address can be
-    /// verified without launching a browser in a test.
-    public func open(using open: (URL) -> Void) {
-        open(url)
-    }
 }

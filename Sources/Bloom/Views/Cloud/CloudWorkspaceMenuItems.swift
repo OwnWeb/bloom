@@ -23,7 +23,7 @@ struct CloudWorkspaceMenuItems: View {
             // The default browser owns its own runbloom.app sign in. This stays outside the Cloud
             // preview pane, so opening settings cannot move or persist any tab or split.
             Button(MenuBarCatalogue[.projectSettings].title) {
-                settings.open { NSWorkspace.shared.open($0) }
+                NSWorkspace.shared.open(settings.url)
             }
         }
         if item.canColour, item.colourURL != nil {
