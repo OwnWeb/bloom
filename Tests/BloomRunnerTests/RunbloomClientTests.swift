@@ -150,6 +150,37 @@ struct RunbloomClientTests {
         }
     }
 
+    @Test func aProjectIconAndAnExplicitMissUseTheAuthenticatedMachineEndpoint() async throws {
+        try await Self.withFake { fake, client in
+            let icon = Data("canonical-png".utf8)
+            try await client.reportProjectIcon(ProjectIconReport(
+                requestedRevision: 4,
+                detectorVersion: 2,
+                sourceCommit: String(repeating: "a", count: 40),
+                icon: icon
+            ))
+            try await client.reportProjectIcon(ProjectIconReport(
+                requestedRevision: 5,
+                detectorVersion: 2,
+                sourceCommit: String(repeating: "b", count: 40),
+                icon: nil
+            ))
+
+            let requests = fake.requests("PUT", "/project-icon")
+            #expect(requests.count == 2)
+            #expect(requests.allSatisfy { $0.authorization == "Bearer secret-for-tests" })
+            #expect(requests.allSatisfy { $0.contentType == "application/json" })
+            let first = try #require(requests.first?.json)
+            #expect(first["requested_revision"] as? Int == 4)
+            #expect(first["detector_version"] as? Int == 2)
+            #expect(first["source_commit"] as? String == String(repeating: "a", count: 40))
+            let sentIcon = try #require(first["icon"] as? [String: Any])
+            #expect(sentIcon["data"] as? String == icon.base64EncodedString())
+            #expect(sentIcon["sha256"] as? String == "d33a5e3a7ed7cc0d9db661342609a33db44f10cdab3cc1cd5c3ed833b52c3d22")
+            #expect(requests.last?.json?["icon"] is NSNull)
+        }
+    }
+
     /// runbloom.app decides; the machine passes the turn and the key, and hands the agent whatever
     /// runbloom.app said, word for word, because that sentence is the only place the team switch
     /// is named.

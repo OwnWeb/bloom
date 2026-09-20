@@ -246,6 +246,8 @@ final class FakeControlServer: Sendable {
             return .noContent
         case ("POST", ["git-credentials"]):
             return .json(200, ["token": "ghs_faketoken", "expires_at": "2026-09-17T10:00:00.250000Z", "username": "x-access-token"])
+        case ("PUT", ["project-icon"]):
+            return .noContent
         default:
             return .refusal(status: 404, code: "not_found", message: "No such endpoint.")
         }

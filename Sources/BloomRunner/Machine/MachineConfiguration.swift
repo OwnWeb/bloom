@@ -9,6 +9,20 @@ import Foundation
 /// server at another runbloom.app. The file is `/etc/bloom/workspace.json`, mode 600, because it
 /// holds the workspace secret; `BLOOM_WORKSPACE_CONFIG` names another for development and tests.
 public struct MachineConfiguration: Codable, Sendable, Hashable {
+    public struct ProjectIcon: Codable, Sendable, Hashable {
+        public var requestedRevision: Int?
+        public var detectorVersion: Int?
+        public var repositoryDefaultBranch: String?
+        public var shouldDiscover: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case requestedRevision = "requested_revision"
+            case detectorVersion = "detector_version"
+            case repositoryDefaultBranch = "repository_default_branch"
+            case shouldDiscover = "should_discover"
+        }
+    }
+
     public var workspaceID: String
     public var issuer: String
     public var jwksURL: String
@@ -42,6 +56,9 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
     /// worse meaning on one side. See `SetupRecord.isEnabled`, which says this from the other end
     /// so that whoever finds the inconsistency finds its reason with it.
     public var runSetup: Bool?
+    /// A revisioned request from the project authority. Optional at every level so a Runner can
+    /// still boot from configuration written before project icons existed.
+    public var projectIcon: ProjectIcon?
 
     enum CodingKeys: String, CodingKey {
         case workspaceID = "workspace_id"
@@ -55,6 +72,7 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
         case baseBranch = "base_branch"
         case teamID = "team_id"
         case runSetup = "run_setup"
+        case projectIcon = "project_icon"
     }
 
     public static let defaultPath = "/etc/bloom/workspace.json"
@@ -89,13 +107,44 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
         guard Git.isValidBranchName(branch), Git.isValidBranchName(baseBranch) else {
             throw MachineConfigurationError("The workspace configuration names a branch git would refuse.")
         }
+        if projectIcon?.shouldDiscover == true, projectIconRequest == nil {
+            throw MachineConfigurationError("The workspace configuration has an invalid project_icon discovery request.")
+        }
     }
 
     /// Absent means yes. See `runSetup`.
     public var runsSetup: Bool { runSetup ?? true }
 
+    /// Nil is an instruction to make no request, not a request to report that no icon exists.
+    /// In particular, an older configuration with no `should_discover` key stays silent.
+    public var projectIconRequest: ProjectIconDiscoveryRequest? {
+        guard let projectIcon, projectIcon.shouldDiscover == true,
+              let requestedRevision = projectIcon.requestedRevision, (1...Int(UInt32.max)).contains(requestedRevision),
+              let detectorVersion = projectIcon.detectorVersion, (1...Int(UInt16.max)).contains(detectorVersion),
+              let defaultBranch = projectIcon.repositoryDefaultBranch,
+              Git.isValidBranchName(defaultBranch)
+        else { return nil }
+        return ProjectIconDiscoveryRequest(
+            requestedRevision: requestedRevision,
+            detectorVersion: detectorVersion,
+            repositoryDefaultBranch: defaultBranch
+        )
+    }
+
     /// The host part of the public URL, which Vite and friends want on an allow list.
     public var publicHost: String { URL(string: publicURL)?.host ?? "" }
+}
+
+public struct ProjectIconDiscoveryRequest: Sendable, Hashable {
+    public var requestedRevision: Int
+    public var detectorVersion: Int
+    public var repositoryDefaultBranch: String
+
+    public init(requestedRevision: Int, detectorVersion: Int, repositoryDefaultBranch: String) {
+        self.requestedRevision = requestedRevision
+        self.detectorVersion = detectorVersion
+        self.repositoryDefaultBranch = repositoryDefaultBranch
+    }
 }
 
 public struct MachineConfigurationError: Error, CustomStringConvertible {
