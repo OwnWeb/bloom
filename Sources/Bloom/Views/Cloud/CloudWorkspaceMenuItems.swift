@@ -19,6 +19,13 @@ struct CloudWorkspaceMenuItems: View {
         if let repository = item.project?.repository, let url = URL(string: "https://github.com/\(repository)/tree/\(item.displayBranch)") {
             Button("Open Branch on GitHub") { NSWorkspace.shared.open(url) }
         }
+        if let settings = CloudProjectSettingsAction(project: item.project) {
+            // The default browser owns its own runbloom.app sign in. This stays outside the Cloud
+            // preview pane, so opening settings cannot move or persist any tab or split.
+            Button(MenuBarCatalogue[.projectSettings].title) {
+                settings.open { NSWorkspace.shared.open($0) }
+            }
+        }
         if item.canColour, item.colourURL != nil {
             CloudWorkspaceColourItem(item: item, cloud: app.cloud)
         }

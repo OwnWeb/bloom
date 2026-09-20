@@ -131,6 +131,7 @@ struct MenuBarCatalogueTests {
         #expect(MenuBarCatalogue[.copyBranchName].title == "Copy Branch Name")
         #expect(MenuBarCatalogue[.copyName].title == "Copy Name")
         #expect(MenuBarCatalogue[.renameWorkspace].title == "Rename")
+        #expect(MenuBarCatalogue[.projectSettings].title == "Project Settings…")
         #expect(MenuBarCatalogue[.colour].title == "Colour")
         #expect(MenuBarCatalogue[.pin].title == "Pin")
         #expect(MenuBarCatalogue[.pin].alternateTitle == "Unpin")

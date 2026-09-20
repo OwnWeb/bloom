@@ -15,24 +15,72 @@ struct CloudWorkspaceItemURLTests {
         #expect(try item(#"{"id":"01k5","state":"setting_up"}"#).url == nil)
     }
 
-    @Test("personal colour and project API details are taken as given")
+    @Test("personal colour and distinct project settings addresses are taken as given")
     func workspaceActions() throws {
         let given = try item("""
         {"id":"01k5","state":"idle","colour":"4C8DF6","can_colour":true,
          "colour_url":"https://runbloom.app/api/v1/cloud-workspaces/01k5/mark",
          "project":{"id":"p1","repository":"spatie/bloom",
-                    "settings_url":"https://runbloom.app/api/v1/teams/t1/projects/p1/settings"}}
+                    "settings_url":"https://runbloom.app/api/v1/teams/t1/projects/p1/settings",
+                    "browser_settings_url":"https://runbloom.app/app/spatie/projects/p1/settings"}}
         """)
         #expect(given.colour == "4C8DF6")
         #expect(given.canColour)
         #expect(given.colourURL == "https://runbloom.app/api/v1/cloud-workspaces/01k5/mark")
         #expect(given.project?.settingsURL == "https://runbloom.app/api/v1/teams/t1/projects/p1/settings")
+        #expect(given.project?.browserSettingsURL == "https://runbloom.app/app/spatie/projects/p1/settings")
 
         let old = try item(#"{"id":"01k5","state":"idle","project":{"id":"p1","repository":"spatie/bloom"}}"#)
         #expect(old.colour == nil)
         #expect(!old.canColour)
         #expect(old.colourURL == nil)
         #expect(old.project?.settingsURL == nil)
+        #expect(old.project?.browserSettingsURL == nil)
+    }
+
+    @Test("only an exact absolute browser settings address becomes an action")
+    func projectSettingsAction() throws {
+        let allowed = try item("""
+        {"id":"01k5","state":"idle","project":{"id":"p1","repository":"spatie/bloom",
+         "settings_url":"https://runbloom.app/api/v1/teams/t1/projects/p1/settings",
+         "browser_settings_url":"https://runbloom.app/app/spatie/projects/p1/settings"}}
+        """)
+        let action = try #require(CloudProjectSettingsAction(project: allowed.project))
+        var opened: URL?
+        action.open { opened = $0 }
+        #expect(opened?.absoluteString == "https://runbloom.app/app/spatie/projects/p1/settings")
+        #expect(allowed.project?.settingsURL == "https://runbloom.app/api/v1/teams/t1/projects/p1/settings")
+
+        let withheld = try item("""
+        {"id":"01k5","state":"idle","project":{"id":"p1","repository":"spatie/bloom",
+         "settings_url":null,"browser_settings_url":null}}
+        """)
+        #expect(CloudProjectSettingsAction(project: withheld.project) == nil)
+
+        let apiOnly = CloudWorkspaceItem.ProjectReference(
+            id: "p1", repository: "spatie/bloom",
+            settingsURL: "https://runbloom.app/api/v1/teams/t1/projects/p1/settings"
+        )
+        #expect(CloudProjectSettingsAction(project: apiOnly) == nil)
+
+        for malformed in ["settings", "file:///tmp/settings", "https://user:secret@runbloom.app/settings", "https://runbloom.app/a path"] {
+            let project = CloudWorkspaceItem.ProjectReference(
+                id: "p1", repository: "spatie/bloom", browserSettingsURL: malformed
+            )
+            #expect(CloudProjectSettingsAction(project: project) == nil, "\(malformed)")
+        }
+    }
+
+    @Test("a malformed optional browser address does not lose the workspace")
+    func malformedBrowserSettingsAddress() throws {
+        let malformed = try item("""
+        {"id":"01k5","state":"idle","project":{"id":"p1","repository":"spatie/bloom",
+         "settings_url":"https://runbloom.app/api/v1/teams/t1/projects/p1/settings",
+         "browser_settings_url":{"unexpected":true}}}
+        """)
+        #expect(malformed.project?.settingsURL == "https://runbloom.app/api/v1/teams/t1/projects/p1/settings")
+        #expect(malformed.project?.browserSettingsURL == nil)
+        #expect(CloudProjectSettingsAction(project: malformed.project) == nil)
     }
 
     @Test("the current workspace notice wins, with the old runner key as a fallback")

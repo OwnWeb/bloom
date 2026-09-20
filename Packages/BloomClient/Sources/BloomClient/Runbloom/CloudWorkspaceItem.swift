@@ -73,16 +73,40 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         public var repository: String
         /// The authorised project settings endpoint runbloom.app supplied.
         public var settingsURL: String?
+        /// The authorised browser page runbloom.app supplied. Kept apart from the API endpoint so
+        /// a client can never put bearer credentials on a browser navigation by confusing them.
+        public var browserSettingsURL: String?
 
-        public init(id: String, repository: String, settingsURL: String? = nil) {
+        public init(
+            id: String, repository: String, settingsURL: String? = nil, browserSettingsURL: String? = nil
+        ) {
             self.id = id
             self.repository = repository
             self.settingsURL = settingsURL
+            self.browserSettingsURL = browserSettingsURL
         }
 
         enum CodingKeys: String, CodingKey {
             case id, repository
             case settingsURL = "settings_url"
+            case browserSettingsURL = "browser_settings_url"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            repository = try c.decode(String.self, forKey: .repository)
+            settingsURL = try c.decodeIfPresent(String.self, forKey: .settingsURL)
+            // A bad optional browser link hides one menu action rather than losing the workspace.
+            browserSettingsURL = try? c.decodeIfPresent(String.self, forKey: .browserSettingsURL)
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(id, forKey: .id)
+            try c.encode(repository, forKey: .repository)
+            try c.encodeIfPresent(settingsURL, forKey: .settingsURL)
+            try c.encodeIfPresent(browserSettingsURL, forKey: .browserSettingsURL)
         }
     }
 
