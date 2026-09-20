@@ -576,7 +576,13 @@ for a Cloud one, which is built from the same pieces. Left to right: **[checked]
 10. **Under the pointer**, items 6 to 9 fade out and an **archive button** takes their place.
 
 A Cloud row has **no pin or subagent chip**. It adds **a two-person mark** when it is shared with
-the team or with the reader. Its right-click menu offers the personal colour mark. The current
+the team or with the reader. Because the Cloud section mixes projects, its trailing project tile
+uses the same `RepoIcon` renderer as a local status row. Initials occupy the tile immediately and
+authorised `project.icon_url` artwork replaces them in place after an authenticated API read. A
+missing, malformed, broken or superseded URL leaves the initials in place. The personal workspace
+colour remains a separate dot beside the workspace name. Its right-click menu offers that colour,
+the stored project icon status, and the exact authorised refresh action when runbloom.app supplies
+one. Reading or refreshing project icon state never wakes a workspace machine. The current
 `project.settings_url` remains a bearer-authenticated API endpoint. When runbloom.app separately
 supplies `project.browser_settings_url`, the menu offers Project Settings and opens that exact URL
 in the default browser, where normal browser sign in applies. The Mac neither invents the page nor

@@ -172,18 +172,25 @@ public struct RunbloomProject: Codable, Sendable, Hashable, Identifiable {
     public var repository: String
     public var defaultBranch: String
     public var machineSize: String?
+    /// The authorised, revisioned API address for the project's current artwork.
+    public var iconURL: String?
 
-    public init(id: String, repository: String, defaultBranch: String = "main", machineSize: String? = nil) {
+    public init(
+        id: String, repository: String, defaultBranch: String = "main", machineSize: String? = nil,
+        iconURL: String? = nil
+    ) {
         self.id = id
         self.repository = repository
         self.defaultBranch = defaultBranch
         self.machineSize = machineSize
+        self.iconURL = iconURL
     }
 
     enum CodingKeys: String, CodingKey {
         case id, repository
         case defaultBranch = "default_branch"
         case machineSize = "machine_size"
+        case iconURL = "icon_url"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -192,6 +199,7 @@ public struct RunbloomProject: Codable, Sendable, Hashable, Identifiable {
         repository = try c.decode(String.self, forKey: .repository)
         defaultBranch = try c.decodeIfPresent(String.self, forKey: .defaultBranch) ?? "main"
         machineSize = try c.decodeIfPresent(String.self, forKey: .machineSize)
+        iconURL = try? c.decodeIfPresent(String.self, forKey: .iconURL)
     }
 }
 

@@ -15,20 +15,22 @@ struct CloudWorkspaceItemURLTests {
         #expect(try item(#"{"id":"01k5","state":"setting_up"}"#).url == nil)
     }
 
-    @Test("personal colour and distinct project settings addresses are taken as given")
+    @Test("personal colour and distinct project addresses are taken as given")
     func workspaceActions() throws {
         let given = try item("""
         {"id":"01k5","state":"idle","colour":"4C8DF6","can_colour":true,
          "colour_url":"https://runbloom.app/api/v1/cloud-workspaces/01k5/mark",
          "project":{"id":"p1","repository":"spatie/bloom",
                     "settings_url":"https://runbloom.app/api/v1/teams/t1/projects/p1/settings",
-                    "browser_settings_url":"https://runbloom.app/app/spatie/projects/p1/settings"}}
+                    "browser_settings_url":"https://runbloom.app/app/spatie/projects/p1/settings",
+                    "icon_url":"https://runbloom.app/api/v1/teams/t1/projects/p1/icon/7"}}
         """)
         #expect(given.colour == "4C8DF6")
         #expect(given.canColour)
         #expect(given.colourURL == "https://runbloom.app/api/v1/cloud-workspaces/01k5/mark")
         #expect(given.project?.settingsURL == "https://runbloom.app/api/v1/teams/t1/projects/p1/settings")
         #expect(given.project?.browserSettingsURL == "https://runbloom.app/app/spatie/projects/p1/settings")
+        #expect(given.project?.iconURL == "https://runbloom.app/api/v1/teams/t1/projects/p1/icon/7")
 
         let old = try item(#"{"id":"01k5","state":"idle","project":{"id":"p1","repository":"spatie/bloom"}}"#)
         #expect(old.colour == nil)
@@ -36,6 +38,7 @@ struct CloudWorkspaceItemURLTests {
         #expect(old.colourURL == nil)
         #expect(old.project?.settingsURL == nil)
         #expect(old.project?.browserSettingsURL == nil)
+        #expect(old.project?.iconURL == nil)
     }
 
     @Test("only an exact absolute browser settings address becomes an action")
@@ -79,6 +82,16 @@ struct CloudWorkspaceItemURLTests {
         #expect(malformed.project?.settingsURL == "https://runbloom.app/api/v1/teams/t1/projects/p1/settings")
         #expect(malformed.project?.browserSettingsURL == nil)
         #expect(CloudProjectSettingsAction(project: malformed.project) == nil)
+    }
+
+    @Test("a malformed optional icon address leaves the initials fallback available")
+    func malformedIconAddress() throws {
+        let malformed = try item("""
+        {"id":"01k5","state":"idle","project":{"id":"p1","repository":"spatie/bloom",
+         "icon_url":{"unexpected":true}}}
+        """)
+        #expect(malformed.project?.repository == "spatie/bloom")
+        #expect(malformed.project?.iconURL == nil)
     }
 
     @Test("the current workspace notice wins, with the old runner key as a fallback")

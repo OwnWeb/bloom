@@ -70,6 +70,19 @@ public struct CloudUserID: Identifier {
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }
 
+/// A team on runbloom.app. Kept distinct from its projects because both ULIDs travel together in
+/// every authorised project artwork request and form its cache boundary.
+public struct CloudTeamID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
+/// A project on runbloom.app, not a local `RepoID`. Two teams may carry the same repository name.
+public struct CloudProjectID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
 /// A worktree on disk. The id outlives the worktree: an archived workspace keeps its row, and the
 /// row is what a restore reads.
 public struct WorkspaceID: Identifier {

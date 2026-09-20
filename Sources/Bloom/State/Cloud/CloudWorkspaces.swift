@@ -32,6 +32,7 @@ final class CloudWorkspaces {
 
     let environment: RunbloomEnvironment
     @ObservationIgnored let signIn: BloomAccountSignIn
+    let projectIcons = CloudProjectIcons()
     @ObservationIgnored private weak var app: AppModel?
 
     private(set) var accountState: AccountState = .signedOut
@@ -69,6 +70,7 @@ final class CloudWorkspaces {
     /// is the state inside each session.
     @ObservationIgnored private var sessions: [CloudWorkspaceID: CloudWorkspaceSession] = [:]
     @ObservationIgnored private var pollTask: Task<Void, Never>?
+    @ObservationIgnored private var projectSettingsTask: Task<Void, Never>?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     @ObservationIgnored private var lastReading: [CloudWorkspaceItem]?
     /// Created here and not read back yet, so their first reading can still notify. See
@@ -145,6 +147,8 @@ final class CloudWorkspaces {
     func shutdown() {
         pollTask?.cancel()
         pollTask = nil
+        projectSettingsTask?.cancel()
+        projectSettingsTask = nil
         if let activation { NotificationCenter.default.removeObserver(activation) }
         activation = nil
         for session in sessions.values { session.close() }
@@ -179,12 +183,15 @@ final class CloudWorkspaces {
         generation += 1
         pollTask?.cancel()
         pollTask = nil
+        projectSettingsTask?.cancel()
+        projectSettingsTask = nil
         if let activation { NotificationCenter.default.removeObserver(activation) }
         activation = nil
         for session in sessions.values { session.close() }
         sessions.removeAll()
         account = nil
         items = []
+        projectIcons.reset()
         lastReading = nil
         listProblem = nil
         watching = []
@@ -216,6 +223,7 @@ final class CloudWorkspaces {
             guard began == generation else { return }
             gathered.sort { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
             absorb(gathered)
+            updateProjectIconState(from: gathered, api: api)
             listProblem = nil
             // Every refresh, and not only signing in and reconnecting: Bloom is often open with no
             // stream to the workspace that wrote, and a message would otherwise wait for hours.
@@ -234,6 +242,38 @@ final class CloudWorkspaces {
             let sentence = "runbloom.app could not be reached. \(error.localizedDescription)"
             if account == nil { accountState = .failed(sentence) }
             listProblem = sentence
+        }
+    }
+
+    /// Advances transient artwork failures on the list's existing poll clock, then refreshes the
+    /// policy-sensitive status and refresh capability for every distinct project. The list has
+    /// already been published, so a slow settings endpoint cannot hold up workspace state,
+    /// notifications or messages. These are runbloom.app reads and never contact a machine.
+    private func updateProjectIconState(from items: [CloudWorkspaceItem], api: RunbloomAPI) {
+        var requests: [(key: CloudProjectIcons.Key, endpoint: String?)] = []
+        var seen: Set<CloudProjectIcons.Key> = []
+        for item in items {
+            guard let project = item.project else { continue }
+            let key = CloudProjectIcons.Key(
+                teamID: CloudTeamID(item.teamID), projectID: CloudProjectID(project.id)
+            )
+            projectIcons.reconcileArtwork(for: key, listedURL: project.iconURL)
+            guard seen.insert(key).inserted else { continue }
+            requests.append((key, project.settingsURL))
+        }
+
+        projectSettingsTask?.cancel()
+        projectSettingsTask = Task { [projectIcons] in
+            await withTaskGroup(of: Void.self) { group in
+                for request in requests {
+                    group.addTask {
+                        guard !Task.isCancelled else { return }
+                        await projectIcons.loadSettings(
+                            for: request.key, endpoint: request.endpoint, api: api, force: true
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -287,6 +327,30 @@ final class CloudWorkspaces {
             app?.notice = BloomNotice(message: refusal.message)
         } catch {
             app?.notice = BloomNotice(message: "The workspace colour could not be changed. \(error.localizedDescription)")
+        }
+    }
+
+    /// Reads icon discovery state from runbloom.app only. This API endpoint is backed by stored
+    /// project state and does not contact or wake a workspace machine.
+    func loadProjectIconSettings(for item: CloudWorkspaceItem) async {
+        guard let project = item.project else { return }
+        await projectIcons.loadSettings(
+            for: .init(teamID: CloudTeamID(item.teamID), projectID: CloudProjectID(project.id)),
+            endpoint: project.settingsURL,
+            api: api
+        )
+    }
+
+    func refreshProjectIcon(for item: CloudWorkspaceItem) async {
+        guard let project = item.project else { return }
+        do {
+            try await projectIcons.refresh(
+                for: .init(teamID: CloudTeamID(item.teamID), projectID: CloudProjectID(project.id)), api: api
+            )
+        } catch let refusal as RunbloomRefusal {
+            app?.notice = BloomNotice(message: refusal.message)
+        } catch {
+            app?.notice = BloomNotice(message: "The project icon check could not be requested. \(error.localizedDescription)")
         }
     }
 
@@ -439,7 +503,14 @@ final class CloudWorkspaces {
     }
 
     func projects(team: String) async throws -> [RunbloomProject] {
-        try await api.projects(team: team)
+        let projects = try await api.projects(team: team)
+        for project in projects {
+            projectIcons.reconcileArtwork(
+                for: .init(teamID: CloudTeamID(team), projectID: CloudProjectID(project.id)),
+                listedURL: project.iconURL
+            )
+        }
+        return projects
     }
 
     /// What a new chat on a machine starts with: this Mac's own defaults for a new chat, when they
