@@ -287,6 +287,7 @@ public enum TranscriptSearch {
         // One word for all four crew events, because a search result cannot say which of them a
         // row is without decoding it, and every one of them is a message the owner did not type.
         case .crew: "Message"
+        case .media: "Image"
         case .result, .system, .notice, .permissionAsk: "Transcript"
         }
     }

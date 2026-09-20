@@ -351,6 +351,26 @@ public struct AgentStartTool: BridgeToolHandling {
         ])
     )
 
+    /// The one sentence that names another tool, pointed at whichever of the two a separate
+    /// branch can come from here, or at the person when neither is offered, which is a Cloud
+    /// machine before `cloud_workspace_start` or a caller it is refused to.
+    public func tool(offering offered: Set<String>) -> BridgeTool {
+        let instead = if offered.contains("workspace_start") {
+            "Use workspace_start, which cuts a worktree of its own for it."
+        } else if offered.contains(CloudWorkspaceStartTool.name) {
+            "Use \(CloudWorkspaceStartTool.name), which creates a separate Bloom Cloud workspace for a person to open."
+        } else {
+            "Ask the person you are working for to start a separate workspace for it."
+        }
+        return BridgeTool(
+            name: tool.name,
+            description: tool.description.replacingOccurrences(of: Self.separateBranchAdvice, with: instead),
+            inputSchema: tool.inputSchema
+        )
+    }
+
+    static let separateBranchAdvice = "Use workspace_start, which cuts a worktree of its own for it."
+
     public func call(
         _ request: MCPRequest,
         as identity: BridgeIdentity,

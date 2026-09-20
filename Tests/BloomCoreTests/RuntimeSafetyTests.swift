@@ -657,8 +657,14 @@ struct AgentRunnerCancellationRaceTests {
         let session = try await makeSession(store)
         let recorder = ProcessRecorder(shutdown: nil)
         let runner = AgentRunner(
-            workspacePath: "/tmp/w", session: session, store: store,
-            shutdownBudget: .seconds(20), makeProcess: recorder.factory
+            // Twenty seconds, and the ceiling above it is what picks the number rather than the
+            // delays below it. Six times the worst turn instrumented above, with room for the tail
+            // past five seconds; and **below the suite's own one minute time limit**, because a
+            // budget at or above that limit can never report its own failure: the harness's
+            // stopwatch fires first and the test dies of the time limit instead of throwing
+            // `previousRunStillExiting`, which is the sentence this pair of tests exists to prove.
+            workspacePath: "/tmp/w", session: session, store: store, shutdownBudget: .seconds(20),
+            makeProcess: recorder.factory
         )
 
         try await runner.send("one")

@@ -444,11 +444,7 @@ public struct WorkspaceManager: Sendable {
         // cleans down to a bare underscore, so the display name is the fallback for both that and
         // an empty path.
         let folder = URL(fileURLWithPath: repo.path).lastPathComponent
-        let source = (folder.isEmpty || folder == "/") ? repo.name : folder
-        let cleaned = String(source.map { character in
-            character.isASCII && (character.isLetter || character.isNumber) ? character : "_"
-        })
-        return cleaned.isEmpty ? "project" : cleaned
+        return WorkspaceScriptVariables.identifier((folder.isEmpty || folder == "/") ? repo.name : folder)
     }
 
     /// What a setup, archive or run script is launched with, on top of the user's own shell
@@ -469,25 +465,12 @@ public struct WorkspaceManager: Sendable {
         // pane also goes through. See `WorktreeScratch.shield`.
         WorktreeScratch.shield(WorktreeScratch.generated, in: workspace.path)
 
-        let pairs: [(String, String)] = [
-            ("IS_LOCAL", "1"),
-            ("WORKSPACE_NAME", workspace.branch.replacingOccurrences(of: "/", with: "-")),
-            ("WORKSPACE_ID", workspace.id.rawValue),
-            ("WORKSPACE_PATH", workspace.path),
-            ("PROJECT_NAME", Self.projectName(for: repo)),
-            ("ROOT_PATH", repo.path),
-            ("DEFAULT_BRANCH", repo.defaultBranch),
-            ("PORT", String(port)),
-            ("URL_FILE", WorkspaceBrowserURL.path(inWorktree: workspace.path)),
-        ]
-
-        var env: [String: String] = [:]
-        for (key, value) in pairs {
-            for prefix in Self.environmentPrefixes {
-                env["\(prefix)_\(key)"] = value
-            }
-        }
-        return env
+        return WorkspaceScriptVariables(
+            isLocal: true, workspaceName: WorkspaceScriptVariables.workspaceName(branch: workspace.branch),
+            workspaceID: workspace.id.rawValue, workspacePath: workspace.path, projectName: Self.projectName(for: repo),
+            rootPath: repo.path, defaultBranch: repo.defaultBranch, port: port,
+            urlFile: WorkspaceBrowserURL.path(inWorktree: workspace.path)
+        ).environment
     }
 
     /// What the setup log says when a run was stopped before the script exited.
@@ -964,7 +947,7 @@ public enum PortAllocator {
     }
 
     static func isFree(_ port: Int) -> Bool {
-        let handle = socket(AF_INET, SOCK_STREAM, 0)
+        let handle = socket(AF_INET, SystemCalls.streamSocketType, 0)
         guard handle >= 0 else { return true }
         defer { close(handle) }
 

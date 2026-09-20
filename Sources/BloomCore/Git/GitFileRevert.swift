@@ -26,4 +26,29 @@ extension Git {
             try await check(literalPaths(["rm", "-f", "--", file.path]), in: worktree)
         }
     }
+
+    /// Takes `file` out of the index and leaves the worktree alone: `git restore --staged`.
+    ///
+    /// This is what Discard means to somebody reading the staged side on its own, and it is the
+    /// ordinary git meaning, so a person who knows git is not surprised and a person who does not
+    /// is not robbed: nothing anybody wrote is destroyed, the change is simply no longer part of
+    /// the next commit. A staged rename names both paths, or the old one would stay staged as a
+    /// deletion.
+    public static func unstageFile(_ file: ChangedFile, worktree: String) async throws {
+        try await check(literalPaths(["restore", "--staged", "--"] + paths(of: file)), in: worktree)
+    }
+
+    /// Puts the worktree's copy of `file` back to the index's: `git restore`.
+    ///
+    /// This is what Discard means on the unstaged side, and there it really is a discard: the
+    /// index to the worktree is the only comparison where the change exists nowhere else, so
+    /// throwing the worktree's copy away is the only thing the word can mean.
+    public static func restoreWorktreeFile(_ file: ChangedFile, worktree: String) async throws {
+        try await check(literalPaths(["restore", "--worktree", "--"] + paths(of: file)), in: worktree)
+    }
+
+    /// Both ends of a rename, or the one path there is.
+    private static func paths(of file: ChangedFile) -> [String] {
+        file.oldPath.map { [$0, file.path] } ?? [file.path]
+    }
 }

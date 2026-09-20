@@ -52,6 +52,11 @@
 included:
   - Sources
   - Tests
+  - Packages
+
+# A package built on its own keeps its build products beside it, generated sources included.
+excluded:
+  - Packages/*/.build
 
 disabled_rules:
   # Every length and complexity threshold, off for the reason CLAUDE.md gives for having no house

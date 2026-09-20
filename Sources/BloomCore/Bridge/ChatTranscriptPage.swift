@@ -70,7 +70,7 @@ enum ChatTranscriptPage {
         return Page(messages: rows, nextCursor: nil)
     }
 
-    private static func content(of message: Message) -> String {
+    static func content(of message: Message) -> String {
         if message.kind == .user {
             let text = UserTurnPrompt.text(in: message.payload)
             if !text.isEmpty { return text }

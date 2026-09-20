@@ -62,7 +62,7 @@ struct FeedbackStatus: View {
 /// address differs.
 ///
 /// The field does not decide whether its sentence shows. It used to, by checking the address on
-/// every keystroke, which meant `freek@spatie.` was marked wrong by someone who had typed exactly
+/// every keystroke, which meant `freek@example.` was marked wrong by someone who had typed exactly
 /// half of it. Whether to say anything is `Feedback.sheetProblems`' call, made by the sheet that
 /// owns the send; this view only draws the answer.
 struct FeedbackEmailField: View {

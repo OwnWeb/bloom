@@ -8,9 +8,14 @@ import Foundation
 /// it.
 public struct BridgeToolbox: Sendable {
     public let handlers: [any BridgeToolHandling]
+    /// What an agent reaching this toolbox is told about where it is running, before it asks. Nil
+    /// on the owner's own Mac, where the agent is already in the place it can see. See
+    /// `BridgeBriefing`.
+    public let briefing: String?
 
-    public init(handlers: [any BridgeToolHandling]) {
+    public init(handlers: [any BridgeToolHandling], briefing: String? = nil) {
         self.handlers = handlers
+        self.briefing = briefing
     }
 
     /// What a `BridgeServer` built without the app serves: everything that needs no seam back
@@ -71,12 +76,17 @@ public struct BridgeToolbox: Sendable {
         // and stopping one all happen in the main-actor graph that owns the runners: see
         // `CrewStarting`, `CrewSaying` and `CrewStopping` in `CrewSeam`.
         AgentListTool(),
+        // Guidance rather than an action, and it needs nothing but itself, which is why it is here
+        // rather than in the app's half. See `CloudSetupTool`.
+        CloudSetupTool(),
     ])
 
     /// The tools a caller may see. Sorted by name so `tools/list` is stable between calls, which
     /// is one fewer thing to wonder about when a transcript is read back.
     public func tools(for role: BridgeRole) -> [BridgeTool] {
-        handlers.filter { $0.roles.contains(role) }.map(\.tool).sorted { $0.name < $1.name }
+        let reachable = handlers.filter { $0.roles.contains(role) }
+        let offered = Set(reachable.map(\.tool.name))
+        return reachable.map { $0.tool(offering: offered) }.sorted { $0.name < $1.name }
     }
 
     /// The handler for a call, or nil when there is none this caller may reach. A tool that exists

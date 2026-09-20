@@ -26,6 +26,12 @@ on:
         required: true
         type: string
 
+# **Nothing here is fetched by a name somebody else can move.** Actions are pinned to a commit and
+# the Swift image to a digest, because this job holds a token that can write release assets, and
+# a moved tag or a republished image would run under it with nothing downstream noticing. The
+# checkout keeps no credentials in .git/config, so apt, SwiftPM and the build never have the token
+# in reach, and SwiftPM builds exactly Package.resolved. Both jobs upload, so both keep write. M5 in
+# the review of 19 September 2026. To move a pin, resolve the new tag or digest and replace it.
 permissions:
   # Only to attach the zip to the release that triggered this.
   contents: write
@@ -38,6 +44,75 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # bloom-runner for Cloud workspaces, published beside the app on the same release. runbloom.app
+  # installs a machine from exactly these two names, so a release without them is a release no new
+  # Cloud workspace can be created from. Separate from the Mac job because it needs nothing of it:
+  # a Linux runner, the Swift image the server is tested on, and its own packaging.
+  runner:
+    runs-on: ubuntu-latest
+    container: swift:6.3.3-noble@sha256:8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Work out what is being released
+        id: release
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "release" ]; then tag="$RELEASE_TAG"; else tag="$INPUT_TAG"; fi
+          [ -n "$tag" ] || { echo "No tag to build."; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # `runner-v1.2.3` is a runner-only release for testing; `v1.2.3` is Bloom's own.
+          version="${tag#runner-}"
+          echo "version=${version#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends libsqlite3-dev pkg-config git patchelf python3 curl
+          # gh, for the upload. The Swift image does not carry it.
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+          apt-get update -qq
+          apt-get install -y -qq gh
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build bloom-runner in release configuration
+        run: |
+          set -euo pipefail
+          swift build -c release --force-resolved-versions --product bloom-runner -j 4 -Xswiftc -warnings-as-errors
+          swift build -c release --force-resolved-versions --product bloom-bridge -j 4 -Xswiftc -warnings-as-errors
+
+      - name: Package it
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 Tools/package-linux-runner.py "$(swift build -c release --show-bin-path)" .build/runner-release --version "$VERSION"
+          (cd .build/runner-release && sha256sum -c "bloom-runner-linux-x86_64-$VERSION.tar.gz.sha256")
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            ".build/runner-release/bloom-runner-linux-x86_64-$VERSION.tar.gz" \
+            ".build/runner-release/bloom-runner-linux-x86_64-$VERSION.tar.gz.sha256"
+
   release:
     # A `runner-v` tag publishes only Bloom Runner, the Cloud workspace server, for runbloom.app to
     # install machines from while it is tested. It must never build the app, touch the bucket or
@@ -72,11 +147,12 @@ jobs:
           echo "flagged_prerelease=$flagged" >> "$GITHUB_OUTPUT"
           echo "Releasing $tag (marked prerelease: $flagged)"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.release.outputs.tag }}
           # The build number is a commit count, and a shallow clone counts wrong.
           fetch-depth: 0
+          persist-credentials: false
 
       # Names only. None of these are ever printed, and the point is to stop
       # before the build rather than to show what is set.

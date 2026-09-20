@@ -1168,6 +1168,107 @@ public actor Store {
                     ON workspace_done_watches(target_workspace_id, notified_at);
                 """)
             },
+
+            // Who asked, for a Cloud workspace, where several people prompt in one chat. On the
+            // delivery, because that is what the queue shows, and on the message, because that is
+            // what the transcript shows and a claimed delivery is not read again to draw it. The
+            // turn id and the refusal are the queue's side of runbloom.app's turns: see
+            // `DeliveryBlock`. All nullable, and nil on everything a Mac writes for its own owner.
+            //
+            // Added only when missing, for the reason the step above gives.
+            { db in
+                let deliveries = Set(try db.query("PRAGMA table_info(deliveries);").compactMap { $0.string("name") })
+                for (column, type) in [
+                    ("author_user_id", "TEXT"), ("author_name", "TEXT"), ("remote_turn_id", "TEXT"),
+                    ("blocked_limit", "TEXT"), ("blocked_message", "TEXT"),
+                ] where !deliveries.contains(column) {
+                    try db.execute("ALTER TABLE deliveries ADD COLUMN \(column) \(type);")
+                }
+                let messages = Set(try db.query("PRAGMA table_info(messages);").compactMap { $0.string("name") })
+                for column in ["author_user_id", "author_name"] where !messages.contains(column) {
+                    try db.execute("ALTER TABLE messages ADD COLUMN \(column) TEXT;")
+                }
+            },
+            // An author's address, which a client draws when it has no name to draw. Kept next to
+            // the name rather than derived, because a message read back a week later has to carry
+            // the same label it was written with: the alternative was putting an email in `name`,
+            // and a field meaning "a name, or an address" breaks the moment mention completion
+            // matches on it. See `AuthorRecord`.
+            { db in
+                let deliveries = Set(try db.query("PRAGMA table_info(deliveries);").compactMap { $0.string("name") })
+                if !deliveries.contains("author_email") {
+                    try db.execute("ALTER TABLE deliveries ADD COLUMN author_email TEXT;")
+                }
+                let messages = Set(try db.query("PRAGMA table_info(messages);").compactMap { $0.string("name") })
+                if !messages.contains("author_email") {
+                    try db.execute("ALTER TABLE messages ADD COLUMN author_email TEXT;")
+                }
+            },
+            // Who a message was addressed to. Nullable, and nil means the agent, which is every row
+            // written before mentions existed and every row a Mac writes. **The kind is what the
+            // transcript is filtered by**, so it is a column rather than something derived from the
+            // mention text: a row whose audience has to be parsed out of its own body is a row that
+            // will one day be parsed wrong and handed to an agent.
+            { db in
+                let messages = Set(try db.query("PRAGMA table_info(messages);").compactMap { $0.string("name") })
+                for column in ["audience_kind", "audience_user_id", "audience_mention"] where !messages.contains(column) {
+                    try db.execute("ALTER TABLE messages ADD COLUMN \(column) TEXT;")
+                }
+                // A queued prompt keeps the mention that addressed it, so the row it becomes can
+                // draw it and the agent can be handed the text without it.
+                let deliveries = Set(try db.query("PRAGMA table_info(deliveries);").compactMap { $0.string("name") })
+                if !deliveries.contains("audience_mention") {
+                    try db.execute("ALTER TABLE deliveries ADD COLUMN audience_mention TEXT;")
+                }
+            },
+            // Somebody addressed, and whether runbloom.app has been told so it can mail them.
+            //
+            // **A table rather than a flag in memory, because a machine that restarts between
+            // writing the message and sending the report would otherwise never send it** and
+            // nobody would be mailed. One row per message and addressed person, which is the unit
+            // the mail is deduped on at the other end. `id` is minted once and never reused: a
+            // repeat is treated there as a retry and mails nobody, so reuse fails silently.
+            sql("""
+            CREATE TABLE IF NOT EXISTS addressed_reports (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                connected INTEGER NOT NULL,
+                sent_at REAL NOT NULL,
+                from_kind TEXT NOT NULL,
+                from_user_id TEXT,
+                reported_at REAL
+            );
+            CREATE INDEX IF NOT EXISTS addressed_reports_unsent
+                ON addressed_reports (reported_at) WHERE reported_at IS NULL;
+            """),
+            // The words of the message, so the mail can say what was asked. Null on rows written
+            // before this, which are sent without them. See `AddressedReport.text`. Added only
+            // when missing, because `ADD COLUMN` has no `IF NOT EXISTS` and migrations replay.
+            { db in
+                let reports = Set(try db.query("PRAGMA table_info(addressed_reports);").compactMap { $0.string("name") })
+                if !reports.contains("text") {
+                    try db.execute("ALTER TABLE addressed_reports ADD COLUMN text TEXT;")
+                }
+            },
+            // That an agent sent a message on its author's behalf, on the row and on the queued
+            // prompt it becomes. One JSON column, read whole and never queried. See `MessageVia`.
+            { db in
+                for table in ["messages", "deliveries"] {
+                    let columns = Set(try db.query("PRAGMA table_info(\(table));").compactMap { $0.string("name") })
+                    if !columns.contains("via") {
+                        try db.execute("ALTER TABLE \(table) ADD COLUMN via TEXT;")
+                    }
+                }
+            },
+            // The sender's own session token, kept until the report is sent so a retry after a
+            // restart can prove who wrote the message. See `AddressedReport.senderToken`.
+            { db in
+                let reports = Set(try db.query("PRAGMA table_info(addressed_reports);").compactMap { $0.string("name") })
+                if !reports.contains("sender_token") {
+                    try db.execute("ALTER TABLE addressed_reports ADD COLUMN sender_token TEXT;")
+                }
+            },
         ]
 
         let current = Int(try db.readUserVersion())
@@ -1749,7 +1850,7 @@ public actor Store {
     /// here, and the line it appends is `SetupEvent.runInterrupted.note`. Add a state to
     /// `SetupState` and this picks it up; change the table and this follows.
     public func recoverInterruptedSetups() throws {
-        let event = SetupEvent.runInterrupted
+        let event = SetupEvent.runInterrupted(.appStopped)
         var sources: [SetupState] = []
         var destination: SetupState?
         for state in SetupState.allCases {
@@ -1941,6 +2042,10 @@ public actor Store {
     /// whichever agent is mid turn. `messages_session` is the index the subquery rides, and the
     /// chat that forced this feature holds 13,872 rows behind it.
     ///
+    /// Empty chats are excluded before `LIMIT`, not discarded afterwards. Otherwise ten empty
+    /// recent tabs could hide an older conversation that has work in it and should occupy one of
+    /// the ten usable slots.
+    ///
     /// **The predicate is `TabSet.tabbable`'s, turned onto archived rows, and that is the decision
     /// rather than the tidiness.** A crew member is a sidebar row and a side conversation is a
     /// pane of the chat that started it, so clearing `archived_at` on either would hand back a
@@ -1959,7 +2064,8 @@ public actor Store {
             FROM sessions s
             WHERE s.workspace_id = ? AND s.archived_at IS NOT NULL
               AND s.parent_session_id IS NULL AND s.side_conversation_parent_id IS NULL
-            ORDER BY s.archived_at DESC
+              AND EXISTS (SELECT 1 FROM messages used WHERE used.session_id = s.id)
+            ORDER BY s.archived_at DESC, s.id ASC
             LIMIT ?
             """,
             [.text(workspaceID), .int(Int64(max(0, limit)))]
@@ -2000,6 +2106,27 @@ public actor Store {
     @discardableResult
     public func reopenSession(id: SessionID) throws -> Session? {
         try update(sessionID: id) { $0.archivedAt = nil }
+    }
+
+    /// Reopens one row only while it is still in the bounded list the caller could have read.
+    ///
+    /// One actor-isolated method for the eligibility read and the write is the concurrency rule.
+    /// Two clients may ask together, but only the first can see an archived row and clear it; the
+    /// second sees `alreadyOpen`. Likewise, ten newer closes cannot land between checking the list
+    /// and reopening a row that has just fallen out of it.
+    func reopenOfferedSession(
+        id: SessionID,
+        workspaceID: WorkspaceID,
+        limit: Int
+    ) throws -> OfferedSessionReopening {
+        guard let session = try session(id: id), session.workspaceID == workspaceID else { return .missing }
+        guard session.parentSessionID == nil, session.sideConversationParentID == nil else { return .notTopLevel }
+        guard session.archivedAt != nil else { return .alreadyOpen }
+        guard !session.state.isMidTurn else { return .running }
+        let offered = SessionReopening.offered(try closedSessions(workspaceID: workspaceID, limit: limit))
+        guard offered.contains(where: { $0.id == id }) else { return .notOffered }
+        guard let reopened = try update(sessionID: id, { $0.archivedAt = nil }) else { return .missing }
+        return .reopened(reopened)
     }
 
     /// The chats one chat started, oldest first. A crew, in `Crew`'s words.
@@ -2367,18 +2494,38 @@ public actor Store {
 
     // MARK: - Messages
 
-    public func messages(sessionID: SessionID, afterSeq: Int = -1, limit: Int = 100_000) throws -> [Message] {
-        try db.query(
-            "SELECT * FROM messages WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?",
+    /// A chat's rows.
+    ///
+    /// **`forAgent` is the choke point for the one rule mentions rest on**: a message somebody
+    /// addressed to a person is never given to an agent, now or on any later replay. It is a
+    /// parameter here rather than a filter at each caller because **there are two callers today and
+    /// the third is the dangerous one**: a summariser, a compaction, anything that reads a chat to
+    /// hand a model its history. Whoever writes that meets this parameter and has to answer it.
+    ///
+    /// Filtered in SQL rather than after the fact, so a page of fifty is fifty rows the caller may
+    /// have rather than fifty minus however many were private.
+    public func messages(
+        sessionID: SessionID, afterSeq: Int = -1, limit: Int = 100_000, forAgent: Bool = false
+    ) throws -> [Message] {
+        let privacy = forAgent ? "AND (audience_kind IS NULL OR audience_kind <> 'person') " : ""
+        return try db.query(
+            "SELECT * FROM messages WHERE session_id = ? AND seq > ? \(privacy)ORDER BY seq LIMIT ?",
             [.text(sessionID), .int(Int64(afterSeq)), .int(Int64(limit))]
         ).map(Self.message(from:))
     }
 
-    public func messageCount(sessionID: SessionID) throws -> Int {
-        Int(try db.query(
-            "SELECT COUNT(*) AS c FROM messages WHERE session_id = ?",
-            [.text(sessionID)]
-        ).first?.int("c") ?? 0)
+    /// How many rows a chat has.
+    ///
+    /// **`forAgent` leaves out what an agent must never be given**, which is a message somebody
+    /// addressed to a person. A count is a small thing to get wrong and a real leak: an agent whose
+    /// `chat_read` returns four rows while the count says five has been told that a message it
+    /// cannot see exists, which is the fact the feature is hiding, and it is exactly the shape that
+    /// invites it to ask what it missed. See `MessageAudience`.
+    public func messageCount(sessionID: SessionID, forAgent: Bool = false) throws -> Int {
+        let sql = forAgent
+            ? "SELECT COUNT(*) AS c FROM messages WHERE session_id = ? AND (audience_kind IS NULL OR audience_kind <> 'person')"
+            : "SELECT COUNT(*) AS c FROM messages WHERE session_id = ?"
+        return Int(try db.query(sql, [.text(sessionID)]).first?.int("c") ?? 0)
     }
 
     public func nextSeq(sessionID: SessionID) throws -> Int {
@@ -2412,7 +2559,10 @@ public actor Store {
         payload: Data,
         durationMS: Int? = nil,
         refID: String? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        author: MessageAuthor? = nil,
+        audience: MessageAudience? = nil,
+        via: MessageVia? = nil
     ) throws -> Message {
         var lastError: Error?
         for _ in 0..<Self.seqAllocationAttempts {
@@ -2426,7 +2576,10 @@ public actor Store {
                         payload: payload,
                         createdAt: createdAt,
                         durationMS: durationMS,
-                        refID: refID
+                        refID: refID,
+                        author: author,
+                        audience: audience,
+                        via: via
                     )
                     message.id = try insert(message)
                     return message
@@ -2457,14 +2610,23 @@ public actor Store {
     private func insert(_ message: Message) throws -> Int64 {
         let id = try db.run(
             """
-            INSERT INTO messages (session_id, seq, kind, payload, created_at, duration_ms, ref_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (session_id, seq, kind, payload, created_at, duration_ms, ref_id,
+                                  author_user_id, author_name, author_email,
+                                  audience_kind, audience_user_id, audience_mention, via)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(message.sessionID), .int(Int64(message.seq)), .text(message.kind.rawValue),
                 .blob(message.payload), .double(message.createdAt.timeIntervalSince1970),
                 message.durationMS.map { .int(Int64($0)) } ?? .null,
                 message.refID.map { .text($0) } ?? .null,
+                message.author.map { .text($0.userID) } ?? .null,
+                message.author.map { .text($0.name) } ?? .null,
+                message.author?.email.map { .text($0) } ?? .null,
+                message.audience.map { .text($0.kind.rawValue) } ?? .null,
+                message.audience?.userID.map { .text($0) } ?? .null,
+                message.audience?.mention.map { .text($0) } ?? .null,
+                message.via?.column.map { .text($0) } ?? .null,
             ]
         )
         // Here rather than in a trigger, and here rather than in a task afterwards: this is the
@@ -2885,8 +3047,9 @@ public actor Store {
             """
             INSERT INTO deliveries
                 (id, target_session_id, source_workspace_id, kind, verdict, body, crew_payload,
-                 created_at, delivered_at, delivered_seq, delivery_state, interaction_mode, provider_turn_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 created_at, delivered_at, delivered_seq, delivery_state, interaction_mode, provider_turn_id,
+                 author_user_id, author_name, author_email, audience_mention, remote_turn_id, via)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(delivery.id),
@@ -2902,6 +3065,12 @@ public actor Store {
                 .text(delivery.state.rawValue),
                 delivery.interactionMode.map { .text($0.rawValue) } ?? .null,
                 delivery.providerTurnID.map { .text($0) } ?? .null,
+                delivery.author.map { .text($0.userID) } ?? .null,
+                delivery.author.map { .text($0.name) } ?? .null,
+                delivery.author?.email.map { .text($0) } ?? .null,
+                delivery.audienceMention.map { .text($0) } ?? .null,
+                delivery.remoteTurnID.map { .text($0) } ?? .null,
+                delivery.via?.column.map { .text($0) } ?? .null,
             ]
         )
         return delivery
@@ -2925,7 +3094,9 @@ public actor Store {
                 let next = try nextSeqLocked(sessionID: delivery.targetSessionID)
                 _ = try insert(Message(sessionID: delivery.targetSessionID, seq: next,
                     kind: delivery.crewPayload == nil ? .user : .crew, payload: payload,
-                    createdAt: delivery.createdAt))
+                    createdAt: delivery.createdAt, author: delivery.author,
+                    audience: delivery.audienceMention.map { MessageAudience(kind: .agent, mention: $0) },
+                    via: delivery.via))
                 seq = next
             }
             try db.run("UPDATE deliveries SET delivery_state = 'claimed', delivered_seq = ? WHERE id = ?", [
@@ -3043,6 +3214,63 @@ public actor Store {
             "UPDATE workspace_messages SET state = 'queued', delivered_at = NULL WHERE delivery_id = ? AND state = 'delivered'",
             [.text(id)]
         )
+    }
+
+    /// Records the turn runbloom.app registered for a Cloud workspace prompt. Named columns, like
+    /// every other delivery write here, because the drain and the queue's readers are not ordered.
+    public func recordRemoteTurn(deliveryID: DeliveryID, turnID: String) throws {
+        try db.run("UPDATE deliveries SET remote_turn_id = ? WHERE id = ?", [.text(turnID), .text(deliveryID)])
+    }
+
+    /// Marks a waiting prompt as refused by a limit, or clears the mark with nil.
+    public func setDeliveryBlock(id: DeliveryID, _ block: DeliveryBlock?) throws {
+        try db.run(
+            "UPDATE deliveries SET blocked_limit = ?, blocked_message = ? WHERE id = ?",
+            [block.map { .text($0.limit) } ?? .null, block.map { .text($0.message) } ?? .null, .text(id)]
+        )
+    }
+
+    /// Transcript rows across every chat in a workspace, after a row id, oldest first.
+    ///
+    /// The row id rather than `seq`, because `seq` counts within one chat and a Cloud workspace's
+    /// event stream resumes all of them from one number. The table's id is `AUTOINCREMENT`, so
+    /// SQLite hands ids out in increasing order and never reuses one, even after a delete, which
+    /// is what makes the id a cursor. See `MessageRecord.cursor`.
+    public func messages(workspaceID: WorkspaceID, afterID: Int64, limit: Int = 500) throws -> [Message] {
+        try db.query(
+            """
+            SELECT messages.* FROM messages JOIN sessions ON sessions.id = messages.session_id
+            WHERE sessions.workspace_id = ? AND messages.id > ?
+            ORDER BY messages.id LIMIT ?
+            """,
+            [.text(workspaceID), .int(afterID), .int(Int64(limit))]
+        ).map(Self.message(from:))
+    }
+
+    /// The newest row of these kinds in a workspace, which is what a Cloud workspace's summary
+    /// quotes as its last message.
+    public func lastMessage(workspaceID: WorkspaceID, kinds: [MessageKind]) throws -> Message? {
+        guard !kinds.isEmpty else { return nil }
+        let marks = Array(repeating: "?", count: kinds.count).joined(separator: ", ")
+        return try db.query(
+            """
+            SELECT messages.* FROM messages JOIN sessions ON sessions.id = messages.session_id
+            WHERE sessions.workspace_id = ? AND sessions.archived_at IS NULL AND messages.kind IN (\(marks))
+            ORDER BY messages.id DESC LIMIT 1
+            """,
+            [.text(workspaceID)] + kinds.map { .text($0.rawValue) }
+        ).first.map(Self.message(from:))
+    }
+
+    /// The newest transcript row id in a workspace, or 0 when it has none.
+    public func latestMessageID(workspaceID: WorkspaceID) throws -> Int64 {
+        try db.query(
+            """
+            SELECT COALESCE(MAX(messages.id), 0) AS m FROM messages JOIN sessions ON sessions.id = messages.session_id
+            WHERE sessions.workspace_id = ?
+            """,
+            [.text(workspaceID)]
+        ).first?.int("m") ?? 0
     }
 
     // MARK: - Workspace messages
@@ -3808,6 +4036,16 @@ public actor Store {
         }
     }
 
+    /// Every setting whose key starts with `prefix`, for a caller that keeps a family of them.
+    public func settings(prefix: String) throws -> [(key: String, value: String)] {
+        let pattern = prefix.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_") + "%"
+        return try db.query("SELECT key, value FROM settings WHERE key LIKE ? ESCAPE '\\'", [.text(pattern)]).compactMap { row in
+            guard let key = row.string("key"), let value = row.string("value") else { return nil }
+            return (key, value)
+        }
+    }
+
     public func setSetting(_ key: String, _ value: String?) throws {
         if let value {
             try db.run(
@@ -3963,7 +4201,12 @@ public actor Store {
             deliveredSeq: row.int("delivered_seq").map(Int.init),
             state: Delivery.State(rawValue: row.string("delivery_state") ?? ""),
             interactionMode: row.string("interaction_mode").flatMap(InteractionMode.init(rawValue:)),
-            providerTurnID: row.string("provider_turn_id")
+            providerTurnID: row.string("provider_turn_id"),
+            author: author(from: row),
+            audienceMention: row.string("audience_mention"),
+            remoteTurnID: row.string("remote_turn_id"),
+            block: row.string("blocked_limit").map { DeliveryBlock(limit: $0, message: row.string("blocked_message") ?? "") },
+            via: MessageVia.from(column: row.string("via"))
         )
     }
 
@@ -4155,8 +4398,64 @@ public actor Store {
             payload: row.data("payload") ?? Data(),
             createdAt: row.date("created_at") ?? Date(),
             durationMS: row.int("duration_ms").map(Int.init),
-            refID: row.string("ref_id")
+            refID: row.string("ref_id"),
+            author: Self.author(from: row),
+            audience: Self.audience(from: row),
+            via: MessageVia.from(column: row.string("via"))
         )
+    }
+
+    // MARK: - Addressed reports
+
+    public func recordAddressed(_ report: AddressedReport) throws {
+        try db.run(
+            """
+            INSERT OR IGNORE INTO addressed_reports
+                (id, session_id, user_id, connected, sent_at, from_kind, from_user_id, reported_at, text, sender_token)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+            """,
+            [
+                .text(report.id), .text(report.sessionID), .text(report.userID),
+                .int(report.connected ? 1 : 0), .double(report.sentAt.timeIntervalSince1970),
+                .text(report.from.kind),
+                { if case .member(let id) = report.from { return .text(id) } else { return .null } }(),
+                report.text.map { .text($0) } ?? .null,
+                report.senderToken.map { .text($0) } ?? .null,
+            ]
+        )
+    }
+
+    /// The reports nobody has been told about yet, oldest first, so a restart finishes what the
+    /// last run started.
+    public func unsentAddressedReports(limit: Int = 50) throws -> [AddressedReport] {
+        try db.query("SELECT * FROM addressed_reports WHERE reported_at IS NULL ORDER BY sent_at LIMIT ?", [.int(Int64(limit))])
+            .compactMap { row in
+                guard let id = row.string("id"), let session = row.string("session_id"),
+                      let user = row.string("user_id"), let sentAt = row.double("sent_at") else { return nil }
+                let from: AddressedReport.Sender = row.string("from_kind") == "guest"
+                    ? .guest
+                    : row.string("from_user_id").map { .member($0) } ?? .guest
+                return AddressedReport(id: id, sessionID: SessionID(session), userID: user,
+                                       connected: (row.int("connected") ?? 0) == 1,
+                                       sentAt: Date(timeIntervalSince1970: sentAt), from: from, text: row.string("text"),
+                                       senderToken: row.string("sender_token"))
+            }
+    }
+
+    public func markAddressedReported(id: String, at date: Date = Date()) throws {
+        // The token goes with it: it was kept only so this report could be sent.
+        try db.run("UPDATE addressed_reports SET reported_at = ?, sender_token = NULL WHERE id = ?",
+                   [.double(date.timeIntervalSince1970), .text(id)])
+    }
+
+    private static func audience(from row: Row) -> MessageAudience? {
+        guard let kind = row.string("audience_kind").flatMap(MessageAudience.Kind.init(rawValue:)) else { return nil }
+        return MessageAudience(kind: kind, userID: row.string("audience_user_id"), mention: row.string("audience_mention"))
+    }
+
+    private static func author(from row: Row) -> MessageAuthor? {
+        guard let id = row.string("author_user_id") else { return nil }
+        return MessageAuthor(userID: id, name: row.string("author_name") ?? "", email: row.string("author_email"))
     }
 
     private static func ocean(from row: Row) -> Ocean {

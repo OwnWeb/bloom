@@ -1,3 +1,6 @@
+// The file system watcher behind this is FSEvents, so the code panes' language servers are a Mac
+// feature; a Cloud workspace has no code pane of its own to serve.
+#if canImport(CoreServices)
 import Foundation
 
 /// At most four recent workspace/language pairs, each with its own short idle timeout.
@@ -87,3 +90,4 @@ public actor SourceLanguageServers {
     }
 
 }
+#endif

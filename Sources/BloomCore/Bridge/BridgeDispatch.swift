@@ -74,14 +74,23 @@ public struct BridgeDispatch: Sendable {
     /// a case that exists.
     private func initialize(_ request: MCPRequest) -> JSONValue {
         let requested = request.param("protocolVersion")
-        return .object([
+        var reply: [String: JSONValue] = [
             "protocolVersion": requested ?? .string("2025-06-18"),
             "capabilities": .object(["tools": .object([:])]),
             "serverInfo": .object([
                 "name": .string(BridgeRegistration.serverName),
                 "version": .string(Self.serverVersion),
             ]),
-        ])
+        ]
+        // `instructions` is the one place in this protocol where a server can say something to the
+        // model without being asked, which is exactly what was missing: an agent cannot search for
+        // a fact it does not know it is short of. The tool names are appended from the toolbox
+        // rather than written by hand, so the list cannot go stale.
+        if let briefing = toolbox.briefing {
+            let names = toolbox.handlers.filter { $0.roles.contains(identity.role) }.map(\.tool.name)
+            reply["instructions"] = .string(briefing + BridgeBriefing.tools(names))
+        }
+        return .object(reply)
     }
 
     private func callTool(_ request: MCPRequest, id: JSONValue) async -> MCPResponse {

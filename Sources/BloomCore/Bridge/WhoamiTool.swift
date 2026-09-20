@@ -12,7 +12,14 @@ import Foundation
 /// worktree it is in stops guessing at both from `git` output and a `pwd`, and an agent in a
 /// workspace another agent started has somewhere to check which one that was.
 public struct WhoamiTool: BridgeToolHandling {
-    public init() {}
+    /// Said again here, on top of the MCP `instructions` the initialize reply carries, because not
+    /// every agent CLI puts those in front of its model and **this is the tool the agent in the
+    /// incident actually called first**. One string, two channels; see `BridgeBriefing`.
+    private let environment: String?
+
+    public init(environment: String? = nil) {
+        self.environment = environment
+    }
 
     public let roles: Set<BridgeRole> = [.workspace, .owner]
 
@@ -51,6 +58,7 @@ public struct WhoamiTool: BridgeToolHandling {
 
             var answer: [String: JSONValue] = [
                 "role": .string(identity.role.rawValue),
+                "environment": environment.map(JSONValue.string) ?? .null,
                 "workspace": .object([
                     "id": .string(workspace.id.rawValue),
                     "name": .string(workspace.name),

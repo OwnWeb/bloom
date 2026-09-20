@@ -1,4 +1,7 @@
 import Foundation
+#if os(Linux)
+import Glibc
+#endif
 import Synchronization
 
 /// A long-lived subprocess whose output is consumed line by line while it runs, and whose stdin
@@ -21,6 +24,11 @@ public final class StreamingProcess: Sendable {
         var stderrBuffer = Data()
         var exitWaiters: [CheckedContinuation<Int32, Never>] = []
         var status: Int32?
+        /// Whether `status` is a signal number rather than an exit code. Foundation puts the
+        /// signal in `terminationStatus` on Linux rather than 128 plus it, so the number alone
+        /// cannot be read: 13 is a script saying 13 or a script killed by SIGPIPE, and those are
+        /// different events with different owners. See `ProcessEnding`.
+        var wasSignalled = false
         /// Whether stdin may still be written to. A decision, and not the same thing as the
         /// descriptor being gone: a write that met a dead child sets this without closing a
         /// handle another writer may be holding.
@@ -56,6 +64,10 @@ public final class StreamingProcess: Sendable {
     /// assistant events it closes. Serialising the yields is what makes the stream ordered, and
     /// putting `finish` on the same queue is what stops the stream ending before the lines it owes.
     private let drainQueue = DispatchQueue(label: "be.spatie.bloom.StreamingProcess.drain")
+    #if os(Linux)
+    /// The reader threads' descriptors, which is where pending output is looked for on Linux.
+    private let pipeReaders = Mutex<(stdout: ProcessPipeReader?, stderr: ProcessPipeReader?)>((nil, nil))
+    #endif
 
     /// Both streams are built here rather than in a `lazy var`.
     ///
@@ -89,8 +101,10 @@ public final class StreamingProcess: Sendable {
         arguments: [String],
         cwd: String? = nil,
         environment: [String: String] = Shell.environment(),
-        mergeStderr: Bool = true
+        mergeStderr: Bool = true,
+        didStart: (@Sendable (Int32) -> Void)? = nil
     ) {
+        self.didStart = didStart
         self.executable = executable
         self.arguments = arguments
         self.cwd = cwd
@@ -126,9 +140,13 @@ public final class StreamingProcess: Sendable {
         // Per descriptor rather than a process wide `signal()` call, for the reason the socket
         // took the same route: the policy belongs to the pipe this type owns, and a library that
         // changes a signal disposition changes it for whoever linked it, including the test
-        // binary and the bridge shim.
-        _ = fcntl(stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        // binary and the bridge shim. Linux has no per descriptor switch for a pipe, so there,
+        // and only there, `SystemCalls` ignores the signal for the process.
+        SystemCalls.configurePipeWrites(stdinPipe.fileHandleForWriting.fileDescriptor)
     }
+
+    /// Told the pid once the process is running. See `start()`.
+    private let didStart: (@Sendable (Int32) -> Void)?
 
     public var isRunning: Bool {
         state.withLock { $0.started && $0.status == nil }
@@ -177,6 +195,7 @@ public final class StreamingProcess: Sendable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        #if !os(Linux)
         stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             guard let self else { return }
             let data = handle.availableData
@@ -208,18 +227,72 @@ public final class StreamingProcess: Sendable {
                 self.drainStderr(final: false)
             }
         }
+        #endif
 
         process.terminationHandler = { [weak self] process in
+            self?.state.withLock { $0.wasSignalled = process.terminationReason == .uncaughtSignal }
             self?.settle(status: process.terminationStatus, deadline: nil)
         }
 
         do {
-            try process.run()
+            try ProcessLaunch.run(process)
+            // **The pid, at the one moment it is knowable and before anything can use it.** A
+            // machine's git credential door recognises a caller by which of the Runner's own
+            // children it descends from, so it has to be told each one. See `SpawnedProcesses`.
+            if process.processIdentifier > 0 { didStart?(process.processIdentifier) }
+            #if os(Linux)
+            try startPipeReader(stdoutPipe.fileHandleForReading, stdout: true)
+            try startPipeReader(stderrPipe.fileHandleForReading, stdout: false)
+            #endif
         } catch {
+            if process.isRunning { process.terminate() }
             finish(status: -1, error: error)
             throw error
         }
     }
+
+    #if os(Linux)
+    /// Foundation's readability handler teardown can race descriptor reuse in libdispatch on
+    /// Linux. Dedicated blocking readers keep each descriptor alive through EOF and never create
+    /// those sources. The thread does not retain this process while it waits for another byte.
+    private func startPipeReader(_ handle: FileHandle, stdout: Bool) throws {
+        let pipe = try ProcessPipeReader(handle)
+        pipeReaders.withLock { readers in
+            if stdout { readers.stdout = pipe } else { readers.stderr = pipe }
+        }
+        let reader = Thread { [weak self] in
+            defer { pipe.close() }
+            do {
+                while self?.isRunning == true {
+                    guard let data = try pipe.next(timeoutMilliseconds: 200) else { continue }
+                    if data.isEmpty {
+                        self?.finishPipe(stdout: stdout)
+                        return
+                    }
+                    self?.receivePipe(data, stdout: stdout)
+                }
+            } catch {
+                self?.terminate()
+                self?.finish(status: -1, error: error)
+            }
+        }
+        reader.stackSize = 512 * 1_024
+        reader.start()
+    }
+
+    private func receivePipe(_ data: Data, stdout: Bool) {
+        state.withLock { state in
+            if stdout { state.stdoutBuffer.append(data) } else { state.stderrBuffer.append(data) }
+            state.lastOutputAt = DispatchTime.now()
+        }
+        if stdout { drainStdout(final: false) } else { drainStderr(final: false) }
+    }
+
+    private func finishPipe(stdout: Bool) {
+        if stdout { drainStdout(final: true) } else { drainStderr(final: true) }
+        markEOF(stdout: stdout)
+    }
+    #endif
 
     /// Writes to the child's stdin, and does nothing at all when there is no child to write to.
     ///
@@ -317,7 +390,7 @@ public final class StreamingProcess: Sendable {
         let group = getpgid(pid)
         if group > 0, group != getpgrp(), killpg(group, signal) == 0 { return }
 
-        Foundation.kill(pid, signal)
+        SystemCalls.kill(pid, signal)
     }
 
     public var exitStatus: Int32 {
@@ -325,6 +398,20 @@ public final class StreamingProcess: Sendable {
             await withCheckedContinuation { continuation in
                 register(continuation)
             }
+        }
+    }
+
+    /// How it ended, which a status on its own cannot say.
+    ///
+    /// **A setup script reported as "exited with status 13" had been killed by SIGPIPE**, and that
+    /// sentence reads as the script's own verdict on itself. It sent somebody off to rebuild by
+    /// hand what setup should have done, because a number that looks like an exit code is acted on
+    /// as one. Foundation on Linux puts the signal number in `terminationStatus`, so the caller
+    /// cannot tell without `terminationReason`, which is what this carries.
+    public var ending: ProcessEnding {
+        get async {
+            let status = await exitStatus
+            return state.withLock { $0.wasSignalled } ? .signalled(status) : .exited(status)
         }
     }
 
@@ -345,10 +432,91 @@ public final class StreamingProcess: Sendable {
     // MARK: - Settling
 
     private func markEOF(stdout: Bool) {
-        state.withLock { state in
+        let bothClosed = state.withLock { state -> Bool in
             if stdout { state.stdoutAtEOF = true } else { state.stderrAtEOF = true }
+            return state.stdoutAtEOF && state.stderrAtEOF && state.status == nil
+        }
+        #if os(Linux)
+        if bothClosed { reapWhenFoundationDoesNot() }
+        #endif
+    }
+
+    #if os(Linux)
+    /// **Wait for the child ourselves, because Foundation sometimes never does.**
+    ///
+    /// Everything here hangs off `process.terminationHandler`: it calls `settle`, which calls
+    /// `finish`, which resumes whoever is awaiting `exitStatus`. Twice on one morning, on Cloud
+    /// workspace machines, that handler never fired. The child had exited, both pipes were at EOF,
+    /// and the process sat in the table as `<defunct>`: a zombie is a child nobody has waited on,
+    /// so Foundation's own reaping had not run. A setup script that finished in 26 seconds left
+    /// the runner waiting for ever, the workspace never became usable, and the control server kept
+    /// restarting a machine whose setup had in fact completed.
+    ///
+    /// So once both pipes are closed, which is the moment the child has almost certainly gone, this
+    /// polls `waitpid` with `WNOHANG` once a second. A child that is genuinely still running, and
+    /// has merely closed its own output, answers 0 and is left alone for as long as it likes: the
+    /// poll costs one syscall a second and ends when the child does. A child that has exited gives
+    /// its status here rather than through a handler that is not coming, and `ECHILD` means
+    /// somebody else reaped it, which is settled as an exit nobody saw rather than as a hang.
+    ///
+    /// Linux only, and deliberately: this is where the fault is, and on Darwin reaping a child
+    /// Foundation is managing would take its `terminationStatus` away from it.
+    private func reapWhenFoundationDoesNot(waited: Int = 0) {
+        let pid = process.processIdentifier
+        guard pid > 0 else { return }
+        DispatchQueue.global().asyncAfter(deadline: .now() + Self.reapPollInterval) { [weak self] in
+            let waited = waited + 1
+            guard let self, self.state.withLock({ $0.status == nil }) else { return }
+            var raw: Int32 = 0
+            let answer = waitpid(pid, &raw, WNOHANG)
+            if answer == pid {
+                let signalled = Self.wasSignalled(raw)
+                self.state.withLock { $0.wasSignalled = signalled }
+                self.note(reapedAfter: waited)
+                self.settle(status: signalled ? Self.terminatingSignal(raw) : Self.exitCode(raw), deadline: nil)
+                return
+            }
+            if answer < 0, errno == ECHILD {
+                self.note(reapedAfter: waited)
+                // Reaped by somebody else and the handler never came. There is no status left to
+                // read, and 0 would read as success, so this is reported as a signal of 0: not a
+                // clean exit, which is the only thing that can honestly be said about it.
+                self.state.withLock { $0.wasSignalled = true }
+                self.settle(status: 0, deadline: nil)
+                return
+            }
+            self.reapWhenFoundationDoesNot(waited: waited)
         }
     }
+
+    /// Said once per child this happens to, in the register of the abandoned launch in
+    /// `CapturedProcess`, and for the same reason: **a workaround nobody can count is a workaround
+    /// nobody can tell has stopped working.** Without this the cure is silent, and the next person
+    /// asking whether Foundation still does this, how often, and to which calls has nothing to read.
+    /// It took two days to find the first time precisely because the machine said nothing.
+    ///
+    /// One poll is one second, from `reapPollInterval`, so the count is how long after the child's
+    /// output ended that its exit had still not been reported.
+    private func note(reapedAfter polls: Int) {
+        Shell.countSelfReaped()
+        let line = "bloom: \(executable) closed its output \(polls)s ago and Foundation never "
+            + "reported it ending; waited on it here. \(Shell.selfReapedCount) so far this run\n"
+        FileHandle.standardError.write(Data(line.utf8))
+    }
+
+    /// A second between asks. The child is already gone in the case this exists for, so the first
+    /// poll almost always answers; anything faster is a busy loop against a legitimately live
+    /// child that has closed its output.
+    private static let reapPollInterval = DispatchTimeInterval.seconds(1)
+
+    // `WIFSIGNALED` and its siblings are C macros, and Swift does not import macros, so the three
+    // bits of arithmetic behind them are written out here. Straight from `<bits/waitstatus.h>`:
+    // the low seven bits are the terminating signal, 0x7f means stopped rather than exited, and an
+    // ordinary exit puts its code in the second byte.
+    static func wasSignalled(_ raw: Int32) -> Bool { (raw & 0x7F) != 0 && (raw & 0x7F) != 0x7F }
+    static func terminatingSignal(_ raw: Int32) -> Int32 { raw & 0x7F }
+    static func exitCode(_ raw: Int32) -> Int32 { (raw >> 8) & 0xFF }
+    #endif
 
     /// Close the streams once the child's output is genuinely complete.
     ///
@@ -379,8 +547,14 @@ public final class StreamingProcess: Sendable {
             )
         }
 
+        #if os(Linux)
+        let readers = pipeReaders.withLock { $0 }
+        let pending = (stdoutLive && readers.stdout?.hasPendingBytes == true)
+            || (stderrLive && readers.stderr?.hasPendingBytes == true)
+        #else
         let pending = (stdoutLive && Self.hasPendingBytes(stdoutPipe.fileHandleForReading))
             || (stderrLive && Self.hasPendingBytes(stderrPipe.fileHandleForReading))
+        #endif
         let quiet = now > since + Self.eofQuietPeriod && !pending
         guard sawEOF || quiet || now > limit else {
             DispatchQueue.global().asyncAfter(deadline: now + Self.eofPollInterval) { [weak self] in
@@ -480,6 +654,10 @@ public final class StreamingProcess: Sendable {
         // drains is a slow leak for the rest of the launch.
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
+        #if os(Linux)
+        try? stdoutPipe.fileHandleForReading.close()
+        try? stderrPipe.fileHandleForReading.close()
+        #endif
 
         linesContinuation.finish(throwing: error)
         errorContinuation.finish()

@@ -475,6 +475,38 @@ extension AgentError {
             ?? Data(#"{"type":"error","subtype":"notStarted"}"#.utf8)
         return AgentError(message: message, raw: payload)
     }
+
+    /// A Cloud workspace's machine restarted while this turn was running, which is what an update
+    /// to Bloom Runner does and what the provider does when it moves a machine.
+    ///
+    /// Without this the transcript simply stops in the middle of a sentence. The turn was handled
+    /// correctly (runbloom.app is told it ended, the queue keeps what had not gone yet, the chat
+    /// stops claiming to be running), and none of that is visible: what a person sees is an agent
+    /// that was working a moment ago and is now not, with no row saying why. One sentence is the
+    /// difference between a mystery and an explanation, and it costs a row.
+    public static func serverRestarted(message: String) -> AgentError {
+        struct Restarted: Encodable {
+            let type = "error"
+            let subtype = "serverRestarted"
+            let message: String
+        }
+        let payload = (try? JSONEncoder().encode(Restarted(message: message)))
+            ?? Data(#"{"type":"error","subtype":"serverRestarted"}"#.utf8)
+        return AgentError(message: message, raw: payload)
+    }
+
+    /// A Cloud workspace's turn stopped because the workspace was shared while it ran on somebody's
+    /// personal key. Not the agent's failure, and the queue carries on, so its own subtype.
+    public static func stoppedForSharing(message: String) -> AgentError {
+        struct Stopped: Encodable {
+            let type = "error"
+            let subtype = "stoppedForSharing"
+            let message: String
+        }
+        let payload = (try? JSONEncoder().encode(Stopped(message: message)))
+            ?? Data(#"{"type":"error","subtype":"stoppedForSharing"}"#.utf8)
+        return AgentError(message: message, raw: payload)
+    }
 }
 
 /// Token accounting, filled from either the thin `assistant` usage object or the richer one on

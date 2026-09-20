@@ -294,7 +294,8 @@ public enum TranscriptFold {
             case .toolUse, .thinking, .permissionAsk, .notice, .system, .error: !drawsNothing
             // A crew row is somebody talking, so it is a boundary like the other two are. Folding
             // it into a group of grey working rows would hide the message that started the work.
-            case .assistantText, .user, .toolResult, .result, .crew: false
+            // A shown image is the thing somebody asked to see, never working to fold away.
+            case .assistantText, .user, .toolResult, .result, .crew, .media: false
             }
         }
 

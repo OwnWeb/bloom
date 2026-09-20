@@ -33,13 +33,30 @@ public enum SetupEvent: Sendable, Hashable {
     /// reports an outcome without one, which is the half-written failure this design exists to
     /// stop: `.failed` with nothing to read is a state the next reader treats as whole.
     case runFinished(succeeded: Bool, log: String)
+    /// More output from the run in progress. Only a Cloud workspace's machine sends this: its
+    /// clients watch setup through an event stream fed by the row's log growing, where the Mac
+    /// holds a running setup's output in its window and writes the row once, at the end.
+    case runProgressed(log: String)
     /// There was nothing to run: no setup script in the settings file, or a settings file naming a
     /// script that is not there. The note is that second case, and it is what the workspace's setup
     /// log says instead of the output it never got.
     case runSkipped(note: String?)
-    /// The app died while the run was going. Sent only by the launch pass, which finds the rows by
-    /// their state. See `Store.recoverInterruptedSetups`.
-    case runInterrupted
+    /// The run was cut off part way. **Who cut it off decides what the sentence says**, and until
+    /// 18 September 2026 there was one sentence, written when there was one place this could
+    /// happen: "the app stopped, run setup again". On a Cloud machine both halves are wrong. The
+    /// app did not stop, the machine restarted, and **telling somebody to run setup again is worse
+    /// than saying nothing there**, because the next start does it by itself and they will go
+    /// looking for a button that is doing nothing. See `Store.recoverInterruptedSetups` for the
+    /// Mac's case and `SetupLog.interrupt` for the machine's.
+    case runInterrupted(Interruption)
+
+    public enum Interruption: Sendable, Hashable {
+        /// The Mac quit while a setup script was running. Somebody has to ask for it again.
+        case appStopped
+        /// The machine stopped, which on a Cloud workspace means it is coming back: setup runs
+        /// again at the next start without anybody asking.
+        case machineStopped
+    }
     /// The worktree was cut again from the branch, so anything the setup script installed is gone.
     /// Sent by restore. See `WorkspaceManager.restore`.
     case worktreeRebuilt(hasSetupScript: Bool)
@@ -55,13 +72,17 @@ public enum SetupEvent: Sendable, Hashable {
         switch self {
         case .runStarted:
             nil
-        case .runFinished:
+        case .runFinished, .runProgressed:
             nil
         case .runSkipped(let note):
             note
-        case .runInterrupted:
+        case .runInterrupted(.appStopped):
             "[bloom] The app stopped while the setup script was running, so this run was "
                 + "interrupted before it could report a result. Run setup again to finish it."
+        case .runInterrupted(.machineStopped):
+            "[bloom] This machine stopped while the setup script was running, so this run was "
+                + "interrupted before it could report a result. It runs again by itself when the "
+                + "machine starts."
         case .failureIgnored:
             nil
         case .worktreeRebuilt:
@@ -116,6 +137,11 @@ public extension SetupState {
             guard self == .running else { return .refused }
             return .moves(to: succeeded ? .succeeded : .failed)
 
+        // Output belongs to a run that is going. Anything else is a late batch from a run that has
+        // already been filed, and writing it would put one run's output under another's outcome.
+        case .runProgressed:
+            return self == .running ? .unchanged : .refused
+
         case .runSkipped:
             if self == .running { return .refused }
             return self == .skipped ? .unchanged : .moves(to: .skipped)
@@ -168,6 +194,7 @@ public extension Workspace {
             return outcome
 
         case .unchanged:
+            if case .runProgressed(let log) = event { setupLog = Self.capped(log) }
             return outcome
 
         case .moves(let next):
@@ -210,6 +237,7 @@ extension SetupEvent {
         switch self {
         case .runStarted: "runStarted"
         case .runFinished(let succeeded, _): succeeded ? "runFinished(succeeded)" : "runFinished(failed)"
+        case .runProgressed: "runProgressed"
         case .runSkipped: "runSkipped"
         case .runInterrupted: "runInterrupted"
         case .worktreeRebuilt(let hasSetupScript): "worktreeRebuilt(hasSetupScript: \(hasSetupScript))"

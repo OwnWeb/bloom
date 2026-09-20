@@ -1,4 +1,7 @@
 import Foundation
+#if os(Linux)
+import Glibc
+#endif
 import Synchronization
 
 /// One worker owns the pipe descriptors, from opening to closing. Nonblocking I/O lets the same
@@ -13,10 +16,18 @@ final class CapturedProcess: Sendable {
     private let input: Data?
     private let timeout: Duration?
     private let outputLimit: Int
+    /// Stands in for the launch and the read loop, so a test can prove the watchdog answers when
+    /// the work never does. Nil everywhere but in `CapturedProcessTests`: there is no way to make
+    /// a real `Process.run()` hang on demand, and a watchdog nothing exercises is a watchdog that
+    /// stops working without anybody noticing.
+    private let work: (@Sendable () throws -> ShellBytes)?
+    /// The grace, as a value so a test does not have to wait the real fifteen seconds to prove it.
+    private let grace: Duration
 
     init(
         executable: String, arguments: [String], cwd: String?, environment: [String: String],
-        input: Data?, timeout: Duration?, outputLimit: Int
+        input: Data?, timeout: Duration?, outputLimit: Int,
+        work: (@Sendable () throws -> ShellBytes)? = nil, grace: Duration = CapturedProcess.launchGrace
     ) {
         self.executable = executable
         self.arguments = arguments
@@ -25,17 +36,62 @@ final class CapturedProcess: Sendable {
         self.input = input
         self.timeout = timeout
         self.outputLimit = max(1, outputLimit)
+        self.work = work
+        self.grace = grace
     }
+
+    /// How long after the caller's own deadline this gives up on the worker thread entirely.
+    ///
+    /// **A launch that never returns must not stop the machine.** `collect` honours the deadline
+    /// itself: it polls with a twenty millisecond timeout and checks the clock on every pass, so
+    /// nothing inside it can outlast the timeout by more than that. The launch before it is
+    /// Foundation's, and it has no deadline of ours. On a Cloud workspace's first start, one
+    /// `git config` child exited within a second, was never reaped, and `Process.run()` never
+    /// returned: the machine answered health, RPC and its own shutdown for eighteen minutes while
+    /// setup sat in that one call and the workspace was never cloned. No debugger can attach to a
+    /// Sprite to say why, so the fix is to stop waiting rather than to wait better.
+    ///
+    /// The grace is what keeps this a backstop rather than a second timeout: `collect` gets its
+    /// full deadline and the chance to kill the child and report properly, and only a call that is
+    /// past even that is abandoned. The worker thread is left where it is, because there is nothing
+    /// safe to do with a thread parked inside Foundation, and one leaked thread costs a stack where
+    /// a machine that never boots costs the whole workspace.
+    static let launchGrace: Duration = .seconds(15)
 
     func run() async throws -> ShellBytes {
         try Task.checkCancellation()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+                let answered = Mutex(false)
+                // Whoever gets there first answers; a continuation resumed twice is a crash.
+                let finish = { @Sendable (result: Result<ShellBytes, any Error>) in
+                    let first = answered.withLock { done -> Bool in
+                        defer { done = true }
+                        return !done
+                    }
+                    guard first else { return }
+                    continuation.resume(with: result)
+                }
                 let worker = Thread { [self] in
-                    do { continuation.resume(returning: try capture()) } catch { continuation.resume(throwing: error) }
+                    finish(Result { try work?() ?? capture() })
                 }
                 worker.stackSize = 512 * 1_024
                 worker.start()
+                // Only when the caller asked for a deadline. A call with no timeout is one whose
+                // length nobody here knows, and cutting it off at an invented number would end a
+                // long clone or a slow test run for no reason.
+                if let timeout {
+                    Task { [executable, grace] in
+                        try? await Task.sleep(for: timeout + grace)
+                        let abandoning = answered.withLock { !$0 }
+                        guard abandoning else { return }
+                        Shell.countAbandonedLaunch()
+                        let line = "bloom: abandoning a launch of \(executable) that never returned; "
+                            + "\(Shell.abandonedLaunchCount) so far this run\n"
+                        FileHandle.standardError.write(Data(line.utf8))
+                        finish(.failure(ShellFailure.timedOut(command: executable)))
+                    }
+                }
             }
         } onCancel: {
             self.cancelled.withLock { $0 = true }
@@ -72,11 +128,11 @@ final class CapturedProcess: Sendable {
                 throw pipeFailure("configure pipes", errno)
             }
         }
-        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        SystemCalls.configurePipeWrites(stdin.fileHandleForWriting.fileDescriptor)
 
         let started = ContinuousClock.now
         let deadline = timeout.map { started.advanced(by: $0) }
-        try process.run()
+        try ProcessLaunch.run(process)
         Shell.countSpawn()
         let pid = process.processIdentifier
         let ownsGroup = getpgid(pid) == pid && pid != getpgrp()
@@ -109,6 +165,22 @@ final class CapturedProcess: Sendable {
             if cancelled.withLock({ $0 }) { throw CancellationError() }
             let now = ContinuousClock.now
             if let deadline, now >= deadline { throw ShellFailure.timedOut(command: executable) }
+            #if os(Linux)
+            // **Both pipes closed and Foundation still says it is running.** That is the fault that
+            // left a `git config` child as `<defunct>` for eighteen minutes with the machine's setup
+            // waiting on it: nobody had waited on the child, so `isRunning` never became false and
+            // the loop below never reached its exit. Asking the kernel directly costs one syscall
+            // per pass and answers the only question left. A child that really is alive with its
+            // output closed answers 0 and is left alone. See `StreamingProcess.reapWhenFoundationDoesNot`.
+            if process.isRunning, !readers.contains(true) {
+                var raw: Int32 = 0
+                if waitpid(process.processIdentifier, &raw, WNOHANG) == process.processIdentifier {
+                    let signalled = (raw & 0x7F) != 0 && (raw & 0x7F) != 0x7F
+                    return ShellBytes(status: signalled ? raw & 0x7F : (raw >> 8) & 0xFF,
+                                      stdout: streams[0], stderr: streams[1])
+                }
+            }
+            #endif
             if !process.isRunning {
                 if exitedAt == nil { exitedAt = now }
                 if !readers.contains(true) {

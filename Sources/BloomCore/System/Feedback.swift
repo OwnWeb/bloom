@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The two things somebody can deliberately send from Bloom: a feedback submission, and a prompt
 /// for the agent that builds Bloom.
@@ -554,7 +557,7 @@ public enum Feedback {
     /// The problems a sheet may show, given what has been typed and whether a send has been
     /// attempted yet.
     ///
-    /// Nothing before the first attempt, because a half-typed `freek@spatie.` is not wrong, it is
+    /// Nothing before the first attempt, because a half-typed `freek@example.` is not wrong, it is
     /// unfinished, and a sheet that says otherwise is marking somebody's homework while they are
     /// still writing it. Live from the first attempt on, because by then the person has been told
     /// what is being asked of them, and a stale warning sitting beside an address that has since

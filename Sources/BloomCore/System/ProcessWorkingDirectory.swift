@@ -1,4 +1,7 @@
+#if canImport(Darwin)
 import Darwin
+#endif
+import Foundation
 
 /// The current directory of another process on this Mac, read from the kernel.
 ///
@@ -10,6 +13,10 @@ import Darwin
 public enum ProcessWorkingDirectory {
     public static func of(_ pid: pid_t) -> String? {
         guard pid > 0 else { return nil }
+        #if os(Linux)
+        // Linux publishes the same answer as a symlink, with the same same-user permission.
+        return try? FileManager.default.destinationOfSymbolicLink(atPath: "/proc/\(pid)/cwd")
+        #else
         var info = proc_vnodepathinfo()
         let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size else { return nil }
@@ -17,5 +24,6 @@ public enum ProcessWorkingDirectory {
             String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
         }
         return path.isEmpty ? nil : path
+        #endif
     }
 }

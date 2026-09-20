@@ -58,6 +58,16 @@ public struct ChatReadTool: BridgeToolHandling {
         ])
     )
 
+    public func tool(offering offered: Set<String>) -> BridgeTool {
+        let narrowed = BridgeReadTarget.narrowed(tool, offering: offered)
+        guard !offered.contains("workspace_tabs") else { return narrowed }
+        return BridgeTool(
+            name: narrowed.name,
+            description: narrowed.description.replacingOccurrences(of: "chat_list or workspace_tabs", with: "chat_list"),
+            inputSchema: narrowed.inputSchema
+        )
+    }
+
     public func call(_ request: MCPRequest, as identity: BridgeIdentity, store: Store) async -> BridgeToolResult {
         guard let chat = request.stringParam("chat"), !chat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failure("Pass a chat ID or exact title from chat_list as 'chat'.")
@@ -98,7 +108,14 @@ public struct ChatReadTool: BridgeToolHandling {
             } else {
                 cursor = .init(sessionID: session.id)
             }
-            let messages = try await store.messages(sessionID: session.id, afterSeq: cursor.seq - 1, limit: limit + 1)
+            // **The rule about messages addressed to people, asked for by name.** `@seb …` means
+            // this is not for the agent, and a message it can read is a message the feature did not
+            // deliver. Asked of the store rather than filtered here, so that the next thing to read
+            // a chat for a model meets the same parameter: see `Store.messages`. The agent is told
+            // nothing about the gap, because a "messages not shown" marker invites it to ask what
+            // it missed.
+            let messages = try await store.messages(sessionID: session.id, afterSeq: cursor.seq - 1,
+                                                    limit: limit + 1, forAgent: true)
             let page = try ChatTranscriptPage.make(messages: messages, cursor: cursor, limit: limit)
             var answer: [String: JSONValue] = [
                 "chat_id": .string(session.id.rawValue),

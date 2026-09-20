@@ -1,3 +1,4 @@
+#if canImport(IOKit)
 import Foundation
 import IOKit
 import IOKit.ps
@@ -64,3 +65,4 @@ public enum Machine {
         return String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
     }
 }
+#endif

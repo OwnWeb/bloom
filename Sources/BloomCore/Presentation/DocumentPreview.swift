@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 /// A file drawn as the document it describes rather than as its source: Markdown rendered, and an
 /// HTML report run with its styles, its SVG and its scripts.
@@ -89,10 +91,14 @@ public enum DocumentPreview {
         case "wasm": return "application/wasm"
         default: break
         }
+        #if canImport(UniformTypeIdentifiers)
         guard let type = UTType(filenameExtension: fileExtension), let mime = type.preferredMIMEType else {
             return "application/octet-stream"
         }
         return type.conforms(to: .text) ? "\(mime); charset=utf-8" : mime
+        #else
+        return "application/octet-stream"
+        #endif
     }
 
     /// What has to differ for a preview to reload: the unsaved text when there is some, otherwise

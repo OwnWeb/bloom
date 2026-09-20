@@ -18,6 +18,9 @@ name: Test
 #            build. This job is what catches it.
 #   test     ./Tools/test-core.sh, the BloomCore suite, over three thousand
 #            tests in about half a minute.
+#   linux    the server half on Linux x86_64, which is what a Cloud workspace
+#            runs on: BloomCore and bloom-bridge built, and the tests Package.swift
+#            names for Linux run. See docs/REMOTE-WORKSPACES.md.
 #
 # build and test were one job with one after the other in it, and were 187 and
 # 204 seconds of a 404 second run. They share no output, so they now share no
@@ -68,7 +71,9 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Workflow files are only ever executed by GitHub, so a mistake in one is
       # found by pushing it and waiting. actionlint reads them here instead: it
@@ -118,6 +123,18 @@ jobs:
       - name: Check the house rules
         run: ./Tools/house-rules.sh
 
+      # The Cloud workspace protocol: the JSON Schema a client in another language reads has to
+      # list every kind the Swift types decode and accept every vector they encode. Python and
+      # nothing installed, so it belongs here rather than on a Swift runner.
+      - name: Check the workspace protocol schema
+        run: python3 Protocol/v1/schema.py --check
+
+      # What a Cloud workspace's machine runs before bloom-runner does: the release a machine falls
+      # back to when a new one will not start. A shell script, tested by a shell script, because the
+      # case it exists for is a binary that cannot start at all.
+      - name: Check what the runner's start wrapper decides
+        run: zsh Tools/runner-start-probe.sh
+
       # And the rules that are the language's rather than ours, which is the other half.
       # `.swiftlint.yml` is tuned rather than default: the head of that file has the counts every
       # disabled rule produced and why each one is off.
@@ -146,6 +163,36 @@ jobs:
           chmod +x swiftlint-bin/swiftlint
           PATH="$PWD/swiftlint-bin:$PATH" ./Tools/swiftlint.sh
 
+  # A credential committed to this repository is published: it is public, and
+  # every clone and fork keeps it whatever is rewritten afterwards. gitleaks
+  # reads the whole history of what is being merged, every run, which takes
+  # about a second here, so a secret added and then deleted inside one pull
+  # request is still found. Its default rules, plus the fakes the tests need,
+  # which .gitleaks.toml lists one by one. Pinned by version and checksum,
+  # because this is a binary from the internet, and --redact, so a finding is
+  # not printed into a public log.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan the history for secrets
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" "$url/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git . --config .gitleaks.toml --log-opts=HEAD --redact --no-banner --exit-code 1
+
   # Compiling Sources/Bloom, which is the question "does the app still build".
   #
   # This was one macOS job with the tests after it, and the two steps were 187
@@ -164,7 +211,9 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Verbatim from release.yml. Swift 6 language mode, actool for the
       # layered icon and the App Intents metadata processor all come from Xcode,
@@ -269,7 +318,7 @@ jobs:
 
       - name: Preserve failed review probe evidence
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: review-probe-evidence
           path: ${{ runner.temp }}/bloom-review-probe
@@ -310,7 +359,7 @@ jobs:
       # is the bundle ditto made.
       - name: Upload the app
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Bloom-${{ steps.zip.outputs.sha }}
           path: dist/Bloom.zip
@@ -350,7 +399,9 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Around thirty tests make a real commit with this machine's git, and
       # RepositoryStarter refuses to commit without a name and an address. A
@@ -392,3 +443,101 @@ jobs:
 
       - name: Run the core tests
         run: ./Tools/test-core.sh
+
+  # The server half, on the platform it ships to. A Cloud workspace runs on
+  # Ubuntu x86_64 and nothing on a Mac compiles for it, so a Darwin-only call
+  # added to BloomCore is found here or on a machine. The image pins the Swift
+  # the release is built with.
+  #
+  # As an unprivileged user rather than the container's root, because that is
+  # how the server runs on a machine (uid 1001 with sudo) and because some of
+  # what it runs refuses root outright.
+  linux:
+    runs-on: ubuntu-latest
+    container: swift:6.3.3-noble@sha256:8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5
+    timeout-minutes: 30
+    # A container step runs under dash by default, which has no pipefail.
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends libsqlite3-dev pkg-config git tmux patchelf python3 openssl
+          useradd --create-home --shell /bin/bash bloom-ci
+          chown -R bloom-ci:bloom-ci "$GITHUB_WORKSPACE"
+          runuser -u bloom-ci -- git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          runuser -u bloom-ci -- git config --global user.name "Bloom CI"
+          runuser -u bloom-ci -- git config --global user.email "ci@bloom.local"
+
+      - name: Build for Linux
+        run: runuser -u bloom-ci -- swift build --build-tests -j 4 -Xswiftc -warnings-as-errors
+
+      - name: Run the Linux tests
+        run: runuser -u bloom-ci -- swift test --skip-build
+
+      # The wire shapes are their own package, so their vectors are checked on their own. On
+      # Linux, because a client in another language is most likely to be reading them there.
+      - name: Boot bloom-runner against a fake runbloom.app
+        run: runuser -u bloom-ci -- python3 Tools/runner-smoke.py "$(swift build --show-bin-path)/bloom-runner"
+
+      # The package a release would publish, from this debug build, and the packaged server booted
+      # against a fake runbloom.app on a machine with no Swift. The artefact is what a bloomdev
+      # machine is tried with before a release.
+      - name: Package bloom-runner as a release would
+        env:
+          RUN: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          # As the user that built it, because SwiftPM's lock on the build directory is that user's.
+          runuser -u bloom-ci -- python3 Tools/package-linux-runner.py "$(runuser -u bloom-ci -- swift build --show-bin-path)" \
+            .build/runner-package --version "0.0.0-ci.$RUN"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bloom-runner-linux-x86_64
+          path: .build/runner-package/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Check the protocol vectors
+        run: runuser -u bloom-ci -- swift test --package-path Packages/BloomProtocol -Xswiftc -warnings-as-errors
+
+  # The package on the Ubuntu a Cloud workspace's machine runs, with no Swift installed: what
+  # proves the bundled runtime libraries are complete, rather than borrowed from the build image.
+  packaged-runner:
+    needs: linux
+    runs-on: ubuntu-latest
+    container: ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bloom-runner-linux-x86_64
+          path: package
+      - name: Run the package on a machine with no Swift
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends python3 openssl git ca-certificates
+          if command -v swift >/dev/null; then echo "This job must not have Swift."; exit 1; fi
+          cd package && sha256sum -c ./*.sha256 && cd ..
+          mkdir unpacked && tar -xzf package/*.tar.gz -C unpacked
+          unpacked/bin/bloom-runner version
+          unpacked/bin/caddy version
+          useradd --create-home smoke
+          chown -R smoke unpacked
+          runuser -u smoke -- python3 Tools/runner-smoke.py unpacked/bin/bloom-runner

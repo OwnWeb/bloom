@@ -76,7 +76,9 @@ public enum TranscriptRowShape: Sendable, Hashable, CaseIterable {
         switch kind {
         case .user, .crew: .message
         case .assistantText, .thinking: .answer
-        case .toolUse, .toolResult, .permissionAsk: .tool
+        // `.media` is what a Mac draws from a `media_show` call when the file is on its own disk,
+        // so it takes the shape that call has.
+        case .toolUse, .toolResult, .permissionAsk, .media: .tool
         case .result: .footer
         case .error, .notice, .system: .notice
         }

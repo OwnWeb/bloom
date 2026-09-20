@@ -27,6 +27,11 @@ public enum AgentExitCause: Sendable, Hashable {
     /// The turn never reached a process. Nothing was launched and nothing was said to the agent,
     /// so there is no exit status and no output: the string is Bloom's own account of why.
     case notStarted(String)
+    /// Bloom ended a turn that was running, for a reason of its own: the machine restarted under
+    /// it, or the workspace was shared while it ran on somebody's personal key. The agent did not
+    /// fail and did not print anything, so every other case here would draw "It stopped without
+    /// printing anything" over a payload that says exactly what happened.
+    case stoppedByBloom(String)
 }
 
 /// What an `.error` row says, in words a person can act on.
@@ -69,6 +74,7 @@ public struct AgentExit: Sendable, Hashable {
         // Deliberately not "Agent exited (0)". The status is true and it is also the least useful
         // thing that could be said about a turn nothing will ever close.
         if case .endedMidTurn = cause { return "Turn never finished" }
+        if case .stoppedByBloom = cause { return "Turn stopped" }
         return status.map { "Agent exited (\($0))" } ?? "Agent error"
     }
 
@@ -89,6 +95,8 @@ public struct AgentExit: Sendable, Hashable {
         case .storage(let message):
             Self.oneLine(message)
         case .notStarted(let message):
+            Self.oneLine(message)
+        case .stoppedByBloom(let message):
             Self.oneLine(message)
         }
     }
@@ -139,6 +147,12 @@ public struct AgentExit: Sendable, Hashable {
             queue above the composer. Choose Try Again there when the agent is available, or edit \
             or delete the message. If trying again fails, quit and reopen Bloom to restart the \
             agent connection.
+            """
+        case .stoppedByBloom:
+            """
+            Everything the agent had already written is in the conversation above, and everything \
+            it had already changed is still in the worktree. What it had not finished is not \
+            there. Send the turn again to carry on.
             """
         }
     }
@@ -195,6 +209,15 @@ public struct AgentExit: Sendable, Hashable {
         // it by its output would land on `.silent` and draw "Agent exited (0)".
         if json?["subtype"]?.stringValue == UnfinishedRun.abandonedSubtype {
             return AgentExit(status: status, cause: .endedMidTurn, detail: stderr, command: command)
+        }
+
+        // Anything else Bloom wrote about a turn it stopped itself: a sentence of ours, no stderr
+        // and no status. Falling through to the process reading would draw "It stopped without
+        // printing anything" over a payload that says exactly what happened, which is what
+        // `stoppedForSharing` did before this clause existed. One rule rather than a branch per
+        // subtype, so the next one Bloom writes reads correctly without being added here.
+        if let message = json?["message"]?.stringValue, !message.isEmpty, stderr.isEmpty, status == nil {
+            return AgentExit(status: nil, cause: .stoppedByBloom(message), detail: message)
         }
 
         return AgentExit(

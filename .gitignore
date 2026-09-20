@@ -12,7 +12,6 @@ dist/
 
 # Scratch. Reports and captures an agent made, which belong to a run rather than to the repository.
 output/
-
 # Python bytecode. CPython writes it beside any script it imports, named for the interpreter that
 # wrote it, so one source compiled by two versions is two files that churn depending on which
 # machine ran it: `bloom_fake_runbloom` was tracked as both cpython-312 and cpython-314. All three

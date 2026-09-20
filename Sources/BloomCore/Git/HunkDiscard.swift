@@ -63,6 +63,21 @@ public enum HunkDiscard {
         return .enabled
     }
 
+    /// What pressing the control is meant to do, which is not the same thing in every scope.
+    ///
+    /// A reader looking at the whole comparison, or at the unstaged side, is looking at the
+    /// worktree, and taking a hunk out of it is a discard: something somebody wrote is gone.
+    /// A reader looking at the staged side is looking at the index, and there the ordinary git
+    /// meaning of taking a hunk out is `restore --staged`, which unstages it and leaves the
+    /// worktree's copy alone, so nothing is lost. Both are offered, and the word on the button has
+    /// to be the one that matches, which is why this is a value rather than a comment.
+    public enum Intent: Sendable, Hashable {
+        /// The change leaves the file. Destructive, and the confirmation says so.
+        case discard
+        /// The change leaves the index only, and the worktree keeps it. `git restore --staged`.
+        case unstage
+    }
+
     /// Where a hunk from a diff of this layer lives, and so where reversing it has to happen.
     ///
     /// - No layer is the branch comparison, baseline to worktree. The hunk is in the worktree by
@@ -70,16 +85,20 @@ public enum HunkDiscard {
     ///   reversed as well, the way the file's own Discard checks the baseline out into both. A
     ///   hunk staged only in part fails to apply there and the index is left as it was.
     /// - Unstaged is index to worktree, so only the worktree holds it.
-    /// - Staged is HEAD to index. Reversing only the index would unstage it and leave the change
-    ///   sitting in the worktree, which is not a discard, so both are required, and a worktree
-    ///   copy edited again since staging is a refusal rather than half a discard.
+    /// - Staged is HEAD to index, and the intent decides. Discarding reverses both, because
+    ///   reversing the index alone would leave the change sitting in the worktree, which is not a
+    ///   discard, and a worktree copy edited again since staging is a refusal rather than half a
+    ///   discard. Unstaging reverses the index and nothing else, which is the whole of what it is.
     /// - Conflicts and untracked files have no hunk to reverse on its own. Nil.
-    public static func targets(for layer: ChangeLayer?) -> Targets? {
-        switch layer {
-        case nil: Targets(worktree: .required, index: .whenPresent)
-        case .unstaged: Targets(worktree: .required, index: .untouched)
-        case .staged: Targets(worktree: .required, index: .required)
-        case .conflicted, .untracked: nil
+    /// - Unstaging anything but the staged side is nil: there is no index copy to take it out of,
+    ///   and an unstage that quietly did a discard instead is the one mistake this must not make.
+    public static func targets(for layer: ChangeLayer?, intent: Intent = .discard) -> Targets? {
+        switch (layer, intent) {
+        case (nil, .discard): Targets(worktree: .required, index: .whenPresent)
+        case (.unstaged, .discard): Targets(worktree: .required, index: .untouched)
+        case (.staged, .discard): Targets(worktree: .required, index: .required)
+        case (.staged, .unstage): Targets(worktree: .untouched, index: .required)
+        case (.conflicted, _), (.untracked, _), (nil, .unstage), (.unstaged, .unstage): nil
         }
     }
 

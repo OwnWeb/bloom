@@ -296,6 +296,9 @@ id_type_allowed_files=(
   'Sources/BloomCore/Agent/Grok/GrokClient.swift'    # the same protocol's request envelopes
   'Sources/BloomCore/Agent/Grok/GrokRunner.swift'    # Grok session ids assigned by that server
   'Sources/BloomCore/Agent/AgentRetry.swift'   # the same stream-json, one line of it
+  'Sources/BloomCore/Remote/RemoteSummary.swift'      # runbloom.app's summary body, ids as JSON strings
+  'Sources/BloomCore/Remote/RemoteUsageMeter.swift'   # runbloom.app's usage body and the kernel's boot id
+  'Sources/BloomRunner/Machine/MachineConfiguration.swift' # runbloom.app's workspace.json
   'Sources/BloomCore/Transcript/ContextCompaction.swift' # the same stream-json, one line of it
 )
 # Names that are never a Bloom row, wherever they appear. This list should only
@@ -328,6 +331,7 @@ id_type_allowed_lines=(
   'Sources/BloomCore/Persistence/Settings.swift'                  # a run script named in settings
   'Sources/BloomCore/Agent/Codex/CodexModelCatalog.swift'         # a model name the CLI offers
   'Sources/BloomCore/Agent/Grok/GrokModelCatalog.swift'           # a model name the CLI offers
+  'Sources/BloomCore/Agent/ClaudeModelCatalog.swift'               # a model name the CLI offers
   'Sources/BloomCore/Agent/AgentModel.swift'                      # model and effort names the CLIs offer
   'Sources/BloomCore/System/EditorCatalog.swift'             # an application, by bundle id
   'Sources/Bloom/Views/Center/Composer/ComposerOption.swift'   # a picker entry, "opus" and friends
@@ -343,6 +347,22 @@ id_type_allowed_lines=(
 id_type_allowed_properties=(
   'Sources/BloomCore/Agent/Delivery.swift:providerTurnID'             # the provider's accepted turn, used for recovery
   'Sources/BloomCore/Agent/PlanArtefact.swift:sourceID'               # the provider's plan item or tool-use token
+  'Sources/BloomCore/Agent/Delivery.swift:remoteTurnID'               # runbloom.app's turn, a ULID it assigns
+  'Sources/BloomCore/Model/MessageAuthor.swift:userID'                # runbloom.app's user, the token's sub
+  'Sources/BloomCore/Model/MessageAudience.swift:userID'              # the same, as who a message was addressed to
+  'Sources/BloomCore/Remote/WorkspaceMembers.swift:userID'            # the same, as runbloom.app lists a team
+  'Sources/BloomCore/Remote/AddressedReport.swift:userID'             # the same, as who a message was addressed to
+  'Sources/BloomCore/Remote/AddressedReport.swift:id'                 # runbloom.app's dedupe key for one mail
+  'Sources/BloomCore/Remote/RemoteOpening.swift:userID'              # runbloom.app's user who prompted the opening
+  'Sources/BloomCore/Bridge/CloudWorkspaceStartTool.swift:id'         # runbloom.app's id for a workspace another machine holds
+  'Sources/BloomRunner/Runbloom/RunbloomCloudWorkspaces.swift:id'     # the same id, as runbloom.app answers it
+  'Sources/BloomCore/Remote/WorkspacePeers.swift:id'                  # runbloom.app's id for another team workspace
+  'Sources/BloomRunner/Runbloom/RunbloomPeers.swift:id'               # the same id, as runbloom.app lists it
+  'Sources/BloomCore/Workspace/WorkspaceScriptVariables.swift:workspaceID' # a value handed to a script, a Mac's or runbloom.app's
+  'Sources/BloomCore/Remote/RemoteEventHub.swift:userID'              # the same user, holding an event stream open
+  'Sources/BloomRunner/HTTP/EventStreams.swift:userID'                # the same user, on the server's side of the stream
+  'Sources/BloomRunner/HTTP/ControlRoutes.swift:userID'               # runbloom.app's user, named in a revoke
+  'Sources/BloomRunner/Git/GitCredentialRoute.swift:chatID'           # a chat id off the loopback wire, typed on use
 )
 # A stored property whose name ends in ID or Ids and whose type is a bare
 # String. Trailing `{` is excluded by the `$` anchor, which is what leaves
