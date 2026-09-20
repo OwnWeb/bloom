@@ -1023,6 +1023,8 @@ and its builder confirmed them.
   bounded interval while awake. The reload has no body or query authority. Stale, duplicate and
   unsupported detector revisions never run. The highest authority, completion and exact prepared
   report bytes share one durable Store record, so a restart cannot regress or re-render a retry.
+  A durable PUT retry is followed by the promised authenticated reload; a 403 or 404 gates every
+  overlapping trigger until the five-minute awake cadence rather than retrying the PUT in a loop.
   Ids on every wire to runbloom.app are lowercase ULIDs.
 - **The release margin is runbloom.app's configuration** (five seconds there), not a number this
   document fixes.

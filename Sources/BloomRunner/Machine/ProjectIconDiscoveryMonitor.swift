@@ -52,7 +52,7 @@ public actor ProjectIconDiscoveryMonitor {
             if text.first == "{" {
                 let decoded = try JSONDecoder().decode(PersistentState.self, from: Data(text.utf8))
                 guard decoded.version == 1,
-                      decoded.highestRevision >= 0,
+                      (0...Int(UInt32.max)).contains(decoded.highestRevision),
                       decoded.latestRequest.map({ valid($0, noLaterThan: decoded.highestRevision) }) ?? true,
                       decoded.completed.map({ valid($0, noLaterThan: decoded.highestRevision) }) ?? true,
                       decoded.prepared.map({ prepared in
@@ -63,7 +63,8 @@ public actor ProjectIconDiscoveryMonitor {
                                   of: "^[0-9a-f]{40}([0-9a-f]{24})?$", options: .regularExpression
                               ) != nil
                               && (prepared.report.icon?.count ?? 0) <= ProjectIconPNGNormalizer.maximumBytes
-                      }) ?? true
+                      }) ?? true,
+                      validRelationships(decoded)
                 else { throw ProjectIconMonitorError.invalidStoredState }
                 return decoded
             }
@@ -74,8 +75,8 @@ public actor ProjectIconDiscoveryMonitor {
             guard parts.count == 3,
                   let detectorVersion = Int(parts[0]),
                   let requestedRevision = Int(parts[1]),
-                  requestedRevision > 0,
-                  detectorVersion > 0,
+                  (1...Int(UInt32.max)).contains(requestedRevision),
+                  (1...Int(UInt16.max)).contains(detectorVersion),
                   Git.isValidBranchName(parts[2])
             else { throw ProjectIconMonitorError.invalidStoredState }
             let completed = ProjectIconDiscoveryRequest(
@@ -107,6 +108,33 @@ public actor ProjectIconDiscoveryMonitor {
                 && (1...Int(UInt16.max)).contains(request.detectorVersion)
                 && Git.isValidBranchName(request.repositoryDefaultBranch)
         }
+
+        private static func validRelationships(_ state: PersistentState) -> Bool {
+            if state.highestRevision == 0 {
+                guard state.latestRequest == nil, state.completed == nil, state.prepared == nil else { return false }
+                return state.noProjectAtHighestRevision
+                    ? state.latestShouldDiscover == false
+                    : state.latestShouldDiscover == nil
+            }
+            if let latest = state.latestRequest, latest.requestedRevision != state.highestRevision { return false }
+            if state.noProjectAtHighestRevision {
+                guard state.latestRequest == nil, state.latestShouldDiscover == false, state.prepared == nil else { return false }
+            } else if state.latestRequest == nil || state.latestShouldDiscover == nil {
+                return false
+            }
+            if state.latestShouldDiscover != true, state.prepared != nil { return false }
+            if let prepared = state.prepared, prepared.request != state.latestRequest { return false }
+            if let completed = state.completed, let latest = state.latestRequest,
+               completed.requestedRevision == latest.requestedRevision, completed != latest {
+                return false
+            }
+            if let completed = state.completed, let prepared = state.prepared,
+               completed.requestedRevision == prepared.request.requestedRevision,
+               completed != prepared.request {
+                return false
+            }
+            return true
+        }
     }
 
     private struct Active: Sendable {
@@ -114,9 +142,14 @@ public actor ProjectIconDiscoveryMonitor {
         var task: Task<Outcome, Never>
     }
 
-    private enum Trigger: Sendable {
+    private enum Trigger: Sendable, Equatable {
         case initial(ProjectIconDiscoveryRequest)
         case reload
+        case scheduledReload
+
+        var isReload: Bool {
+            self == .reload || self == .scheduledReload
+        }
     }
 
     private let repositoryPath: String
@@ -141,6 +174,7 @@ public actor ProjectIconDiscoveryMonitor {
     private var nextPollAfter: Duration
     private var isStopped = false
     private var isTerminal = false
+    private var refusalBackoff = false
 
     public init(
         repositoryPath: String,
@@ -182,7 +216,7 @@ public actor ProjectIconDiscoveryMonitor {
             while !Task.isCancelled {
                 guard await !self.hasTerminated else { break }
                 guard await self.waitForNextPoll() else { continue }
-                if await self.machineIsAwake() { _ = await self.refresh() }
+                if await self.machineIsAwake() { _ = await self.perform(.scheduledReload) }
             }
         }
     }
@@ -193,7 +227,7 @@ public actor ProjectIconDiscoveryMonitor {
         _ = await refresh()
         // Cancel after the refresh has installed its interval. If the old timer expires while the
         // request is in flight, its refresh coalesces with this one and cannot issue a second GET.
-        pollingPause?.cancel()
+        if !refusalBackoff { pollingPause?.cancel() }
     }
 
     /// Reloads the request without accepting any authority from the trigger itself.
@@ -224,7 +258,7 @@ public actor ProjectIconDiscoveryMonitor {
     private func perform(_ trigger: Trigger) async -> Outcome {
         guard !isStopped, !isTerminal else { return .stopped }
         if let active {
-            if case .reload = trigger, activeHasLoadedAuthority { reloadOwed = true }
+            if trigger.isReload, activeHasLoadedAuthority { reloadOwed = true }
             await observeCoalesced()
             return await active.task.value
         }
@@ -242,7 +276,7 @@ public actor ProjectIconDiscoveryMonitor {
             activeHasLoadedAuthority = false
             if reloadOwed, !hasTerminated {
                 reloadOwed = false
-                return await perform(.reload)
+                if !refusalBackoff { return await perform(.reload) }
             }
         }
         return outcome
@@ -256,12 +290,17 @@ public actor ProjectIconDiscoveryMonitor {
             return failure(error)
         }
 
-        // This was written before the PUT. It is the one operation which intentionally precedes
-        // a fresh GET: a lost PUT acknowledgement must retry byte for byte after a restart.
+        if refusalBackoff {
+            guard trigger == .scheduledReload else { return .refused }
+            refusalBackoff = false
+        }
+
+        // This was written before the PUT. It intentionally precedes a fresh GET: a lost PUT
+        // acknowledgement must retry byte for byte after a restart. A successful reload still
+        // performs the GET it promised, because 204 can mean the server ignored a stale report.
         if state.prepared != nil {
-            // A reload that arrives during this retry still owes one authenticated GET afterwards.
-            activeHasLoadedAuthority = true
-            return await deliverPrepared()
+            let delivered = await deliverPrepared()
+            guard delivered == .reported, trigger.isReload else { return delivered }
         }
 
         let projectIcon: MachineConfiguration.ProjectIcon?
@@ -275,7 +314,7 @@ public actor ProjectIconDiscoveryMonitor {
                     repositoryDefaultBranch: initial.repositoryDefaultBranch,
                     shouldDiscover: true
                 )
-            case .reload:
+            case .reload, .scheduledReload:
                 let response = try await loadRequest()
                 activeHasLoadedAuthority = true
                 nextPollAfter = response.pollAfter
@@ -423,6 +462,8 @@ public actor ProjectIconDiscoveryMonitor {
         if error.isTerminal { isTerminal = true }
         if case .refused(let status, _, _, _, _) = error, status == 403 || status == 404 {
             nextPollAfter = .seconds(300)
+            refusalBackoff = true
+            reloadOwed = false
         }
         return error.isWorthRetrying ? .retryPending : .refused
     }

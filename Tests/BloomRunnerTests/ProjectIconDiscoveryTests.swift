@@ -459,7 +459,7 @@ struct ProjectIconDiscoveryMonitorTests {
         #expect(await monitor.refresh() == .retryPending)
         #expect(writes.withLock { $0 }.count == 2, "authority and exact prepared report persist before PUT")
         #expect(writes.withLock { $0 }.last?.contains(#""prepared""#) == true)
-        #expect(await monitor.refresh() == .reported)
+        #expect(await monitor.refresh() == .alreadyReported, "the retry is followed by an authenticated reload")
         #expect(inspections.withLock { $0 } == 1)
         let sent = attempts.withLock { $0 }
         #expect(sent.count == 2)
@@ -528,6 +528,41 @@ struct ProjectIconDiscoveryMonitorTests {
         #expect(reports.withLock { $0 } == 0)
     }
 
+    @Test("out-of-range and cross-field-corrupt durable state fails closed")
+    func corruptStateFailsClosed() async {
+        let commit = String(repeating: "a", count: 40)
+        let corrupt = [
+            "65536:1:main",
+            "1:4294967296:main",
+            #"{"version":1,"highestRevision":4294967296,"latestShouldDiscover":false,"noProjectAtHighestRevision":true}"#,
+            #"{"version":1,"highestRevision":2,"latestRequest":{"requestedRevision":1,"detectorVersion":1,"repositoryDefaultBranch":"main"},"latestShouldDiscover":true,"noProjectAtHighestRevision":false}"#,
+            #"{"version":1,"highestRevision":2,"latestRequest":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"latestShouldDiscover":true,"noProjectAtHighestRevision":false,"prepared":{"request":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"develop"},"report":{"requestedRevision":2,"detectorVersion":1,"sourceCommit":"\#(commit)","icon":null}}}"#,
+            #"{"version":1,"highestRevision":2,"latestRequest":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"develop"},"latestShouldDiscover":true,"noProjectAtHighestRevision":false,"completed":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"prepared":{"request":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"develop"},"report":{"requestedRevision":2,"detectorVersion":1,"sourceCommit":"\#(commit)","icon":null}}}"#,
+        ]
+
+        for stored in corrupt {
+            let loads = Mutex(0)
+            let reports = Mutex(0)
+            let writes = Mutex(0)
+            let monitor = ProjectIconDiscoveryMonitor(
+                repositoryPath: "/repo",
+                loadRequest: {
+                    loads.withLock { $0 += 1 }
+                    return Self.poll(revision: 3)
+                },
+                inspect: { request, _ in Self.inspection(request.requestedRevision) },
+                report: { _ in reports.withLock { $0 += 1 } },
+                loadState: { stored },
+                saveState: { _ in writes.withLock { $0 += 1 } }
+            )
+
+            #expect(await monitor.refresh() == .retryPending)
+            #expect(loads.withLock { $0 } == 0)
+            #expect(reports.withLock { $0 } == 0)
+            #expect(writes.withLock { $0 } == 0)
+        }
+    }
+
     @Test("a restart after PUT but before completion retries the durable report byte for byte")
     func durablePreparedReportRetry() async {
         let stored = Mutex<String?>(nil)
@@ -575,10 +610,11 @@ struct ProjectIconDiscoveryMonitorTests {
         #expect(await restarted.refresh() == .reported)
 
         let sent = reports.withLock { $0 }
-        #expect(sent.count == 2)
-        #expect(sent.first == sent.last)
-        #expect(inspections.withLock { $0 } == [8])
-        #expect(loadsAfterRestart.withLock { $0 } == 0)
+        #expect(sent.count == 3)
+        #expect(sent[0] == sent[1], "the durable retry is byte-identical")
+        #expect(sent[2].requestedRevision == 9, "the promised GET discovers newer authority after stale 204")
+        #expect(inspections.withLock { $0 } == [8, 9])
+        #expect(loadsAfterRestart.withLock { $0 } == 1)
         #expect(stored.withLock { $0 }?.contains(#""prepared""#) != true)
     }
 
@@ -602,6 +638,79 @@ struct ProjectIconDiscoveryMonitorTests {
             await monitor.start(initialRequest: nil)
             await pauses.waitForCount(1)
             #expect(await pauses.recorded == [.seconds(300)])
+            await monitor.stop()
+        }
+    }
+
+    @Test("prepared report refusal gates bootstrap and overlapping retries until cadence")
+    func preparedReportRefusalBackoff() async {
+        for status in [403, 404] {
+            let stored = Mutex<String?>(nil)
+            let seed = ProjectIconDiscoveryMonitor(
+                repositoryPath: "/repo",
+                loadRequest: { Self.poll(revision: status) },
+                inspect: { request, _ in Self.inspection(request.requestedRevision) },
+                report: { _ in throw RunbloomError.unreachable("response lost") },
+                loadState: { stored.withLock { $0 } },
+                saveState: { value in stored.withLock { $0 = value } }
+            )
+            #expect(await seed.refresh() == .retryPending)
+
+            let firstReport = ProjectIconDiscoveryGate()
+            let cadenceReport = ProjectIconDiscoveryGate()
+            let coalesced = ProjectIconCoalescingGate(target: 1)
+            let pauses = ProjectIconPollGate()
+            let reports = Mutex(0)
+            let loads = Mutex(0)
+            let monitor = ProjectIconDiscoveryMonitor(
+                repositoryPath: "/repo",
+                loadRequest: {
+                    loads.withLock { $0 += 1 }
+                    return Self.poll(revision: status, shouldDiscover: false)
+                },
+                inspect: { request, _ in Self.inspection(request.requestedRevision) },
+                report: { _ in
+                    let attempt = reports.withLock { value -> Int in
+                        value += 1
+                        return value
+                    }
+                    if attempt == 1 {
+                        await firstReport.hold()
+                        throw RunbloomError.refused(
+                            status: status, code: "feature_off", message: "Unavailable.",
+                            limit: nil, retryAfter: nil
+                        )
+                    }
+                    await cadenceReport.hold()
+                },
+                loadState: { stored.withLock { $0 } },
+                saveState: { value in stored.withLock { $0 = value } },
+                pause: { try await pauses.pause($0) },
+                observeCoalesced: { await coalesced.hold() }
+            )
+
+            await monitor.start(initialRequest: ProjectIconDiscoveryRequest(
+                requestedRevision: 1,
+                detectorVersion: 1,
+                repositoryDefaultBranch: "main"
+            ))
+            await firstReport.waitUntilHeld()
+            let overlapping = Task { await monitor.refresh() }
+            await coalesced.waitUntilAllHeld()
+            await coalesced.releaseAll()
+            await firstReport.release()
+            #expect(await overlapping.value == .refused)
+            await pauses.waitForCount(1)
+            #expect(reports.withLock { $0 } == 1, "bootstrap and overlap did not bypass refusal backoff")
+            #expect(loads.withLock { $0 } == 0)
+            #expect(await pauses.recorded == [.seconds(300)])
+
+            await pauses.releaseFirst()
+            await cadenceReport.waitUntilHeld()
+            #expect(reports.withLock { $0 } == 2)
+            await cadenceReport.release()
+            await pauses.waitForCount(2)
+            #expect(loads.withLock { $0 } == 1, "successful cadence retry performed its authenticated GET")
             await monitor.stop()
         }
     }
@@ -647,7 +756,7 @@ struct ProjectIconDiscoveryMonitorTests {
         #expect(try await store.setting(ProjectIconDiscoveryMonitor.stateSetting)?.contains(#""completed""#) == true)
     }
 
-    @Test("offline and server refusals confer no authority, and replacement is terminal")
+    @Test("offline and feature refusals confer no authority or immediate retry")
     func refusalAndReplacement() async {
         let loads = Mutex(0)
         let inspections = Mutex(0)
@@ -664,10 +773,7 @@ struct ProjectIconDiscoveryMonitorTests {
                     status: 403, code: "github_disabled", message: "GitHub access is disabled.",
                     limit: nil, retryAfter: nil
                 )
-                default: throw RunbloomError.refused(
-                    status: 401, code: "invalid_workspace_secret", message: "This machine was replaced.",
-                    limit: nil, retryAfter: nil
-                )
+                default: return Self.poll(revision: 3)
                 }
             },
             inspect: { request, _ in
@@ -680,8 +786,7 @@ struct ProjectIconDiscoveryMonitorTests {
         #expect(await monitor.refresh() == .retryPending)
         #expect(await monitor.refresh() == .refused)
         #expect(await monitor.refresh() == .refused)
-        #expect(await monitor.refresh() == .stopped)
-        #expect(loads.withLock { $0 } == 3)
+        #expect(loads.withLock { $0 } == 2)
         #expect(inspections.withLock { $0 } == 0)
     }
 
