@@ -1,6 +1,6 @@
 import BloomCore
+import CZlib
 import Foundation
-import zlib
 #if os(Linux)
 import Glibc
 #else

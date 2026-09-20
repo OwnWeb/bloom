@@ -491,7 +491,7 @@ jobs:
         run: |
           set -euo pipefail
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends libsqlite3-dev pkg-config git tmux patchelf python3 openssl
+          apt-get install -y -qq --no-install-recommends libsqlite3-dev zlib1g-dev pkg-config git tmux patchelf python3 openssl
           useradd --create-home --shell /bin/bash bloom-ci
           chown -R bloom-ci:bloom-ci "$GITHUB_WORKSPACE"
           runuser -u bloom-ci -- git config --global --add safe.directory "$GITHUB_WORKSPACE"

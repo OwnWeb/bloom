@@ -374,6 +374,19 @@ private actor ProjectIconDiscoveryGate {
 
 @Suite("Running project icon refresh")
 struct ProjectIconDiscoveryMonitorTests {
+    @Test("persisted PNG validation checks canonical structure and compressed pixels")
+    func persistedPNGValidation() {
+        #expect(ProjectIconPNGNormalizer.isCanonical(Self.canonicalPNG))
+
+        var invalidDeflate = Self.canonicalPNG
+        let idatLength = Int(Self.readBigEndianUInt32(invalidDeflate, at: 33))
+        invalidDeflate[43] ^= 0xff
+        var checked = Data("IDAT".utf8)
+        checked.append(invalidDeflate[41..<(41 + idatLength)])
+        Self.writeBigEndianUInt32(Self.crc32(checked), to: &invalidDeflate, at: 41 + idatLength)
+        #expect(!ProjectIconPNGNormalizer.isCanonical(invalidDeflate))
+    }
+
     @Test("a running machine discovers a newly requested revision and stops when it resolves")
     func refreshWhileRunning() async {
         let revision = Mutex(1)
@@ -1043,6 +1056,26 @@ struct ProjectIconDiscoveryMonitorTests {
             + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
             + "AAAAAAAAAAAAAAAAeAMBPAAB2ClDBAAAAABJRU5ErkJggg=="
     )!
+
+    private static func readBigEndianUInt32(_ data: Data, at offset: Int) -> UInt32 {
+        data[offset..<(offset + 4)].reduce(0) { $0 << 8 | UInt32($1) }
+    }
+
+    private static func writeBigEndianUInt32(_ value: UInt32, to data: inout Data, at offset: Int) {
+        data.replaceSubrange(offset..<(offset + 4), with: [
+            UInt8(value >> 24 & 0xff), UInt8(value >> 16 & 0xff),
+            UInt8(value >> 8 & 0xff), UInt8(value & 0xff),
+        ])
+    }
+
+    private static func crc32(_ data: Data) -> UInt32 {
+        var value: UInt32 = 0xffff_ffff
+        for byte in data {
+            value ^= UInt32(byte)
+            for _ in 0..<8 { value = (value & 1) == 1 ? (value >> 1) ^ 0xedb8_8320 : value >> 1 }
+        }
+        return value ^ 0xffff_ffff
+    }
 }
 
 private actor ProjectIconPollGate {
