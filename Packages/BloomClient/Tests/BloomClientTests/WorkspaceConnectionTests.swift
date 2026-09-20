@@ -153,19 +153,34 @@ import Testing
             }
         }
         await connection.open()
-        // A ceiling on infinity rather than a measurement: the loop retries as fast as the injected
-        // sleep allows, and what is being waited for is three attempts rather than an interval. A
-        // machine that never retried would sit here for two seconds and then fail on the count.
-        for _ in 0..<2_000 {
-            if transport.requests(to: "/session-token").count >= 3 { break }
-            try? await Task.sleep(for: .milliseconds(1))
-        }
+        await transport.waitForRequests(to: "/session-token", count: 3)
         await connection.close()
         watcher.cancel()
 
         let starting = log.phases.filter { if case .notReady = $0 { true } else { false } }
         #expect(transport.requests(to: "/session-token").count >= 3, "the loop did not try again")
         #expect(starting.count == 1, "the banner came and went: \(log.phases)")
+    }
+
+    @Test func cancellingACommandStopsItsRetryWait() async throws {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on("POST", "/_bloom/v1/rpc", .dropped())
+        let connection = WorkspaceConnection(
+            workspaceID: "01k5ws", api: Fixtures.api(transport), machine: MachineClient(transport: transport)
+        )
+        let command = Task {
+            try await connection.perform(.markRead(chatID: "c1", seq: 1), commandID: "cancelled")
+        }
+        await transport.waitForRequests(to: "/_bloom/v1/rpc", count: 1)
+        command.cancel()
+        do {
+            _ = try await command.value
+            Issue.record("Expected cancellation")
+        } catch let failure as WorkspaceConnection.CommandFailure {
+            #expect(failure == .cancelled)
+        }
+        #expect(transport.requests(to: "/_bloom/v1/rpc").count == 1)
     }
 
     @Test func anArchivedWorkspaceStops() async throws {

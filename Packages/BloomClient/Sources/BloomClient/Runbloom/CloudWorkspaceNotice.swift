@@ -1,24 +1,20 @@
 import Foundation
 
-/// What happened the last time a Cloud workspace's machine tried to update itself.
+/// What runbloom.app currently needs to say about a Cloud workspace.
 ///
-/// The machine updates on its own, and when a new version will not start it puts the previous one
-/// back. That happened to somebody's workspace while they were not looking, and it should not be
-/// silent: a workspace quietly running an older version than anybody thinks is exactly what
-/// produces a bug report nobody can reproduce.
+/// A notice can describe a Bloom Runner update or the workspace's own setup. Only one sits on a
+/// workspace at a time. Provisional notices end by themselves and are replaced or removed, while
+/// settled notices remain until somebody has seen them.
 ///
 /// **The message is runbloom.app's, written as a finished sentence for a person, and is shown as it
 /// stands.** `kind` decides how loudly and whether it can be put away, never what it says.
-public struct CloudRunnerNotice: Codable, Sendable, Hashable {
-    /// Being put back right now, which ends by itself and is replaced by one of the two below.
+public struct CloudWorkspaceNotice: Codable, Sendable, Hashable {
     public static let beingRolledBack = "update_being_rolled_back"
-    /// It healed itself, on an older version than was intended.
     public static let rolledBack = "update_rolled_back"
-    /// It did not heal, and somebody should look.
-    public static let failed = "update_failed"
-    /// Abandoned partway because the machine had to be stopped, by the kill switch or a team's cost
-    /// limit, so it may be on either version until it is next updated. A resting state.
-    public static let interrupted = "update_interrupted"
+    public static let updateFailed = "update_failed"
+    public static let updateInterrupted = "update_interrupted"
+    public static let setupRestarted = "setup_restarted"
+    public static let setupNeverStarted = "setup_never_started"
 
     public var kind: String
     public var message: String
@@ -46,7 +42,8 @@ public struct CloudRunnerNotice: Codable, Sendable, Hashable {
         try c.encodeIfPresent(at.map(RunbloomDate.init), forKey: .at)
     }
 
-    /// Whether this is something happening rather than something that has settled. A rollback in
-    /// progress ends by itself and is replaced by its outcome, so nothing offers to hide it.
-    public var isUnderway: Bool { kind == Self.beingRolledBack }
+    /// Whether this is something happening rather than something that has settled.
+    public var isUnderway: Bool {
+        kind == Self.beingRolledBack || kind == Self.setupRestarted
+    }
 }

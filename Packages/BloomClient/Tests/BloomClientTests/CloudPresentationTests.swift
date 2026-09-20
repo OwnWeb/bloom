@@ -629,12 +629,12 @@ import Testing
     }
 }
 
-@Suite struct CloudRunnerNoticeTests {
+@Suite struct CloudWorkspaceNoticeTests {
     private let at = Date(timeIntervalSince1970: 1_700_000_000)
 
     @Test func aRollbackUnderwayCannotBePutAway() {
-        let banner = CloudConnectionBanner.ofRunner(CloudRunnerNotice(
-            kind: CloudRunnerNotice.beingRolledBack,
+        let banner = CloudConnectionBanner.ofWorkspaceNotice(CloudWorkspaceNotice(
+            kind: CloudWorkspaceNotice.beingRolledBack,
             message: "Version 0.2.0 did not start, so Bloom is putting this Cloud workspace back on 0.1.9.", at: at
         ))
         #expect(banner?.tone == .progress)
@@ -643,14 +643,14 @@ import Testing
     }
 
     @Test func anOutcomeRestsAndCanBePutAway() {
-        let back = CloudConnectionBanner.ofRunner(CloudRunnerNotice(
-            kind: CloudRunnerNotice.rolledBack, message: "This Cloud workspace is running 0.1.9 again.", at: at
+        let back = CloudConnectionBanner.ofWorkspaceNotice(CloudWorkspaceNotice(
+            kind: CloudWorkspaceNotice.rolledBack, message: "This Cloud workspace is running 0.1.9 again.", at: at
         ))
         #expect(back?.tone == .caution)
         #expect(back?.dismissalKey != nil)
 
-        let failed = CloudConnectionBanner.ofRunner(CloudRunnerNotice(
-            kind: CloudRunnerNotice.failed, message: "The update failed and could not be undone.", at: at
+        let failed = CloudConnectionBanner.ofWorkspaceNotice(CloudWorkspaceNotice(
+            kind: CloudWorkspaceNotice.updateFailed, message: "The update failed and could not be undone.", at: at
         ))
         #expect(failed?.tone == .failure)
         #expect(failed?.dismissalKey != nil)
@@ -660,17 +660,17 @@ import Testing
     /// The sentence is runbloom.app's, so nothing here writes one of its own, and a notice with
     /// nothing in it is no banner rather than an empty one.
     @Test func theSentenceIsShownAsItStands() {
-        let notice = CloudRunnerNotice(kind: CloudRunnerNotice.failed, message: "Anything at all.", at: at)
-        #expect(CloudConnectionBanner.ofRunner(notice)?.message == "Anything at all.")
-        #expect(CloudConnectionBanner.ofRunner(CloudRunnerNotice(kind: CloudRunnerNotice.failed, message: "")) == nil)
-        #expect(CloudConnectionBanner.ofRunner(nil) == nil)
+        let notice = CloudWorkspaceNotice(kind: CloudWorkspaceNotice.updateFailed, message: "Anything at all.", at: at)
+        #expect(CloudConnectionBanner.ofWorkspaceNotice(notice)?.message == "Anything at all.")
+        #expect(CloudConnectionBanner.ofWorkspaceNotice(CloudWorkspaceNotice(kind: CloudWorkspaceNotice.updateFailed, message: "")) == nil)
+        #expect(CloudConnectionBanner.ofWorkspaceNotice(nil) == nil)
     }
 
     /// Interrupted is a resting state like the two outcomes: a machine switched off halfway through
     /// an update may be on either version until it is next updated, and that does not end by itself.
     @Test func anInterruptedUpdateRestsAndCanBePutAway() {
-        let banner = CloudConnectionBanner.ofRunner(CloudRunnerNotice(
-            kind: CloudRunnerNotice.interrupted,
+        let banner = CloudConnectionBanner.ofWorkspaceNotice(CloudWorkspaceNotice(
+            kind: CloudWorkspaceNotice.updateInterrupted,
             message: "An update was interrupted, so this Cloud workspace may be on either version.", at: at
         ))
         #expect(banner?.tone == .caution)
@@ -679,9 +679,26 @@ import Testing
     }
 
     @Test func aKindThisVersionDoesNotKnowIsStillSaid() {
-        let banner = CloudConnectionBanner.ofRunner(CloudRunnerNotice(kind: "update_paused", message: "Something new.", at: at))
+        let banner = CloudConnectionBanner.ofWorkspaceNotice(CloudWorkspaceNotice(kind: "something_new", message: "Something new.", at: at))
         #expect(banner?.message == "Something new.")
+        #expect(banner?.title == "Something happened in this Bloom Cloud workspace")
         #expect(banner?.dismissalKey != nil)
+    }
+
+    @Test func setupNoticesAreNotDescribedAsUpdates() {
+        let retrying = CloudConnectionBanner.ofWorkspaceNotice(CloudWorkspaceNotice(
+            kind: CloudWorkspaceNotice.setupRestarted, message: "Bloom is trying setup again.", at: at
+        ))
+        #expect(retrying?.tone == .progress)
+        #expect(retrying?.title == "Trying this Bloom Cloud workspace's setup again…")
+        #expect(retrying?.dismissalKey == nil)
+
+        let failed = CloudConnectionBanner.ofWorkspaceNotice(CloudWorkspaceNotice(
+            kind: CloudWorkspaceNotice.setupNeverStarted, message: "Setup did not begin.", at: at
+        ))
+        #expect(failed?.tone == .failure)
+        #expect(failed?.title == "This Bloom Cloud workspace's setup did not start")
+        #expect(failed?.dismissalKey != nil)
     }
 }
 

@@ -83,12 +83,15 @@ public actor WorkspaceConnection {
         /// No answer, even after retrying under the same command id. Whether it ran is unknown.
         case noAnswer(String)
         case unreadable(String)
+        /// The caller no longer wants the command. Nothing should retry or be shown for it.
+        case cancelled
 
         public var message: String {
             switch self {
             case .refused(let error): error.message
             case .runbloom(let refusal): refusal.message
             case .noAnswer(let detail), .unreadable(let detail): detail
+            case .cancelled: "The command was cancelled."
             }
         }
 
@@ -267,6 +270,7 @@ public actor WorkspaceConnection {
         var attempt = 0
         let deadline = now().addingTimeInterval(Self.commandBudgetSeconds)
         while attempt < Self.commandAttempts || now() < deadline {
+            guard !Task.isCancelled else { throw .cancelled }
             attempt += 1
             let session: SessionToken
             do {
@@ -274,6 +278,7 @@ public actor WorkspaceConnection {
             } catch let refusal as RunbloomRefusal {
                 throw .runbloom(refusal)
             } catch {
+                guard !Task.isCancelled else { throw .cancelled }
                 throw .noAnswer(MachineClient.describe(error))
             }
             let timeout = hasBeenAnswered ? Self.awakeTimeout : Self.wakingTimeout
@@ -281,6 +286,7 @@ public actor WorkspaceConnection {
             do {
                 answer = .success(try await machine.send(command, to: session.machineURL, token: session.token, timeout: timeout + extraWait(for: operation)))
             } catch {
+                guard !Task.isCancelled else { throw .cancelled }
                 answer = .failure(error)
             }
             switch answer {
@@ -305,7 +311,12 @@ public actor WorkspaceConnection {
                 guard now().addingTimeInterval(wait) < deadline else {
                     throw .noAnswer("The Bloom Cloud workspace did not answer. \(lastProblem)")
                 }
-                try? await sleep(.seconds(wait))
+                do {
+                    try await sleep(.seconds(wait))
+                } catch {
+                    guard !Task.isCancelled else { throw .cancelled }
+                    throw .noAnswer("The Bloom Cloud workspace did not answer. \(lastProblem)")
+                }
             case .failure(.refused(_, let error)):
                 throw .refused(error)
             case .failure(.unreadable(let detail)):
@@ -563,6 +574,8 @@ public actor WorkspaceConnection {
             case .noAnswer(let detail), .unreadable(let detail):
                 noticeRetrying(detail)
                 return .retry(after: nil)
+            case .cancelled:
+                return .stop
             }
         }
         set(.retrying(error.localizedDescription))

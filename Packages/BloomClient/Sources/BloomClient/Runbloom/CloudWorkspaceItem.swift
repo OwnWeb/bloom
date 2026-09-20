@@ -33,9 +33,9 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
     public var summary: CloudWorkspaceSummary?
     public var createdAt: Date?
     public var archivedAt: Date?
-    /// What happened when the machine last tried to update itself, when that is worth saying. Nil
-    /// almost always. See `CloudRunnerNotice`.
-    public var runnerNotice: CloudRunnerNotice?
+    /// What runbloom.app currently needs to say about this workspace, when that is worth saying.
+    /// Nil almost always. See `CloudWorkspaceNotice`.
+    public var workspaceNotice: CloudWorkspaceNotice?
     /// The web address a person opens to be in this workspace, when runbloom.app said. It is
     /// runbloom.app's route to state, never built here from a team slug and an id. Nil from a
     /// server older than the field. `cloud_workspace_start` hands it to the agent that asked.
@@ -97,7 +97,8 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         case colourURL = "colour_url"
         case createdAt = "created_at"
         case archivedAt = "archived_at"
-        case runnerNotice = "runner_notice"
+        case workspaceNotice = "workspace_notice"
+        case legacyRunnerNotice = "runner_notice"
         case url
     }
 
@@ -126,7 +127,8 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         archivedAt = try c.decodeIfPresent(RunbloomDate.self, forKey: .archivedAt)?.date
         // Read tolerantly, for the reason the summary is: a notice this version cannot read must
         // not cost the whole list.
-        runnerNotice = try? c.decodeIfPresent(CloudRunnerNotice.self, forKey: .runnerNotice)
+        workspaceNotice = (try? c.decodeIfPresent(CloudWorkspaceNotice.self, forKey: .workspaceNotice))
+            ?? (try? c.decodeIfPresent(CloudWorkspaceNotice.self, forKey: .legacyRunnerNotice))
         url = try? c.decodeIfPresent(String.self, forKey: .url)
     }
 
@@ -151,7 +153,7 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(summary, forKey: .summary)
         try c.encodeIfPresent(createdAt.map(RunbloomDate.init), forKey: .createdAt)
         try c.encodeIfPresent(archivedAt.map(RunbloomDate.init), forKey: .archivedAt)
-        try c.encodeIfPresent(runnerNotice, forKey: .runnerNotice)
+        try c.encodeIfPresent(workspaceNotice, forKey: .workspaceNotice)
         try c.encodeIfPresent(url, forKey: .url)
     }
 

@@ -40,10 +40,9 @@ struct CloudWorkspaceColumn: View {
                     take($0, on: session)
                 }
             }
-            // What the machine's last update attempt did, when that is worth saying. Above setup
-            // because a workspace put back on an older version explains a setup that then behaved
-            // oddly, and below the connection because nothing can be read at all until that is up.
-            if let banner = shown(CloudConnectionBanner.ofRunner(item?.runnerNotice), on: session) {
+            // What runbloom.app currently needs to say about the workspace. Below the connection
+            // because nothing can be read at all until that is up.
+            if let banner = shown(CloudConnectionBanner.ofWorkspaceNotice(item?.workspaceNotice), on: session) {
                 CloudBannerView(banner: banner, onDismiss: { app.cloud.dismiss(banner, for: session.id) }) {
                     take($0, on: session)
                 }

@@ -263,16 +263,6 @@ import Testing
         #expect(cloud.origin == RunbloomEnvironment.productionOrigin)
     }
 
-    @Test func aProjectSettingsPageStaysInsideTheSelectedEnvironment() {
-        let environment = RunbloomEnvironment(
-            origin: URL(string: "https://runbloom.test")!, urlScheme: "bloomcloud"
-        )
-        #expect(
-            environment.projectSettingsPage(teamSlug: "spatie", projectID: "01k5project").absoluteString
-                == "https://runbloom.test/app/spatie/projects/01k5project/settings"
-        )
-    }
-
     @Test func aDevelopmentServerIsTakenOnlyAsAnOrigin() {
         let tunnel = RunbloomEnvironment.resolve(environment: ["BLOOM_RUNBLOOM_URL": "https://freek.tunnel.test/some/path?x=1"], setting: nil, urlSchemes: [])
         #expect(tunnel.origin.absoluteString == "https://freek.tunnel.test")

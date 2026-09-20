@@ -35,16 +35,21 @@ struct TerminalOutputBatchTests {
         var batch = TerminalOutputBatch()
         _ = batch.append(Data("a".utf8))
         _ = batch.take()
-        #expect(batch.append(Data("b".utf8)) == .schedule)
-        #expect(batch.append(Data()) == .wait)
-        #expect(batch.take().frames == 1)
+        let next = batch.append(Data("b".utf8))
+        let empty = batch.append(Data())
+        let taken = batch.take()
+        #expect(next == .schedule)
+        #expect(empty == .wait)
+        #expect(taken.frames == 1)
     }
 
     /// A hidden window gets no refresh, so a flood must not wait for one.
     @Test("past the limit it feeds at once")
     func bounded() {
         var batch = TerminalOutputBatch()
-        #expect(batch.append(Data(count: TerminalOutputBatch.limit - 1)) == .schedule)
-        #expect(batch.append(Data(count: 1)) == .feedNow)
+        let first = batch.append(Data(count: TerminalOutputBatch.limit - 1))
+        let full = batch.append(Data(count: 1))
+        #expect(first == .schedule)
+        #expect(full == .feedNow)
     }
 }

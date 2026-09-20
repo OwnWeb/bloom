@@ -19,9 +19,6 @@ struct CloudWorkspaceMenuItems: View {
         if let repository = item.project?.repository, let url = URL(string: "https://github.com/\(repository)/tree/\(item.displayBranch)") {
             Button("Open Branch on GitHub") { NSWorkspace.shared.open(url) }
         }
-        if let url = app.cloud.projectSettingsPage(for: item) {
-            Button("Project Settings…") { NSWorkspace.shared.open(url) }
-        }
         if item.canColour, item.colourURL != nil {
             CloudWorkspaceColourItem(item: item, cloud: app.cloud)
         }

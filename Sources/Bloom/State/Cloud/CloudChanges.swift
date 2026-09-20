@@ -88,6 +88,9 @@ final class CloudChanges {
     /// goes stale; it is thrown away with the workspace.
     @ObservationIgnored private var commitPatches: [CommitFile: String] = [:]
     @ObservationIgnored private var contentsBeingRead: Set<String> = []
+    /// Owns the state written by an explicit refresh across its suspension. A newer refresh makes
+    /// every result, failure and loading cleanup from the older one stale.
+    @ObservationIgnored private var refreshGeneration = 0
     /// Which files this reader has ticked, and what the file's diff looked like when they did.
     /// Kept on this Mac under the workspace's own key, because a read mark is one person's note to
     /// themselves; the local ones live in this Mac's database for the same reason.
@@ -199,17 +202,24 @@ final class CloudChanges {
         // So the state of setup is the gate. `hasRead` deliberately stays false, which is what the
         // inspector draws its own sentence from: see `isSettingUp`.
         guard !session.isRunningSetup else { return }
-        if let commit { await refreshCommit(commit, quietly: quietly); return }
+        refreshGeneration += 1
+        let requestGeneration = refreshGeneration
+        if let commit {
+            await refreshCommit(commit, quietly: quietly, requestGeneration: requestGeneration)
+            return
+        }
         let scope = wireScope
         var cache = caches[scope] ?? CloudReviewCache()
-        if !quietly { isLoading = true }
-        defer { isLoading = false }
+        isLoading = !quietly
+        defer {
+            if requestGeneration == refreshGeneration { isLoading = false }
+        }
         do {
             let result = try await session.perform(.reviewSnapshot(scope: scope, knownRevision: cache.revision, wait: false))
             guard case .reviewSnapshot(let snapshot) = result else { return }
+            guard requestGeneration == refreshGeneration, scope == wireScope else { return }
             cache.absorb(snapshot)
             caches[scope] = cache
-            guard scope == wireScope else { return }
             if files != cache.files {
                 files = cache.files
                 generation += 1
@@ -220,6 +230,7 @@ final class CloudChanges {
                 selectedPath = files.first?.path
             }
         } catch {
+            guard requestGeneration == refreshGeneration, scope == wireScope else { return }
             problem = error.message
             hasRead = true
         }
@@ -297,14 +308,16 @@ final class CloudChanges {
     /// One commit's files, which the machine reads from that commit's own two trees. Held in no
     /// cache: a commit is immutable, so a reader who opens the same row twice is one request, and
     /// holding every commit's file list would be a page of them for a branch nobody is reviewing.
-    private func refreshCommit(_ commit: BranchCommit, quietly: Bool) async {
+    private func refreshCommit(_ commit: BranchCommit, quietly: Bool, requestGeneration: Int) async {
         guard let session else { return }
-        if !quietly { isLoading = true }
-        defer { isLoading = false }
+        isLoading = !quietly
+        defer {
+            if requestGeneration == refreshGeneration { isLoading = false }
+        }
         do {
             let result = try await session.perform(.commitFiles(sha: commit.sha))
             guard case .commitFiles(let records) = result else { return }
-            guard self.commit == commit else { return }
+            guard requestGeneration == refreshGeneration, self.commit == commit else { return }
             if files != records {
                 files = records
                 generation += 1
@@ -315,6 +328,7 @@ final class CloudChanges {
                 selectedPath = files.first?.path
             }
         } catch {
+            guard requestGeneration == refreshGeneration, self.commit == commit else { return }
             problem = error.message
             hasRead = true
         }

@@ -455,7 +455,7 @@ final class CloudWorkspaceSession {
             _ = try await perform(operation)
             return nil
         } catch {
-            if reporting { report(error) }
+            if reporting, error != .cancelled { report(error) }
             return error
         }
     }
@@ -474,7 +474,7 @@ final class CloudWorkspaceSession {
         do {
             return try await perform(operation)
         } catch {
-            report(error)
+            if error != .cancelled { report(error) }
             return nil
         }
     }
@@ -738,27 +738,11 @@ final class CloudWorkspaceSession {
     }
 
     func openPreview() async {
-        do {
-            let preview = try await cloud.api.previewToken(for: id.rawValue)
-            guard preview.isSafe(forMachine: await connection?.machineURL) else {
-                notice = CloudRefusalNotice(
-                    message: "runbloom.app gave a preview address that is not this workspace's, so Bloom did not open it.", code: nil
-                )
-                return
-            }
-            NSWorkspace.shared.open(preview.enterURL)
-        } catch let refusal as RunbloomRefusal {
-            if refusal.isSharingInProgress || refusal.isMachineNotReady {
-                notice = CloudRefusalNotice(message: "\(refusal.message) Try the preview again in a few seconds.", code: nil)
-                return
-            }
-            if let limit = LimitNotice(refusal: refusal) {
-                notice = CloudRefusalNotice(message: "\(limit.message) \(limit.detail)", code: refusal.code)
-                return
-            }
-            notice = CloudRefusalNotice(refusal: refusal)
-        } catch {
-            notice = CloudRefusalNotice(message: "The preview could not be opened. \(error.localizedDescription)", code: nil)
+        switch await previewEntry() {
+        case .address(let url):
+            NSWorkspace.shared.open(url)
+        case .refused(let message):
+            notice = CloudRefusalNotice(message: message, code: nil)
         }
     }
 }

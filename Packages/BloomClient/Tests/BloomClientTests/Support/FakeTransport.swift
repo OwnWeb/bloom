@@ -22,6 +22,16 @@ final class FakeTransport: HTTPTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var routes: [Route] = []
     private var recorded: [URLRequest] = []
+    private let requestEvents: AsyncStream<URLRequest>
+    private let requestContinuation: AsyncStream<URLRequest>.Continuation
+
+    init() {
+        (requestEvents, requestContinuation) = AsyncStream.makeStream(
+            of: URLRequest.self, bufferingPolicy: .unbounded
+        )
+    }
+
+    deinit { requestContinuation.finish() }
 
     func on(_ method: String, _ suffix: String, _ answers: Answer...) {
         on(method, suffix, answers: answers)
@@ -38,8 +48,17 @@ final class FakeTransport: HTTPTransport, @unchecked Sendable {
         requests.filter { $0.url?.path().hasSuffix(suffix) == true }
     }
 
+    /// Waits on the fake's own observable boundary, never on elapsed time or polling.
+    func waitForRequests(to suffix: String, count: Int) async {
+        if requests(to: suffix).count >= count { return }
+        for await request in requestEvents {
+            guard request.url?.path().hasSuffix(suffix) == true else { continue }
+            if requests(to: suffix).count >= count { return }
+        }
+    }
+
     private func next(for request: URLRequest) -> Answer {
-        lock.withLock {
+        let answer = lock.withLock {
             recorded.append(request)
             let path = request.url?.path() ?? ""
             guard let index = routes.firstIndex(where: { $0.method == (request.httpMethod ?? "GET") && path.hasSuffix($0.suffix) }) else {
@@ -49,6 +68,8 @@ final class FakeTransport: HTTPTransport, @unchecked Sendable {
             if routes[index].answers.count > 1 { return routes[index].answers.removeFirst() }
             return routes[index].answers[0]
         }
+        requestContinuation.yield(request)
+        return answer
     }
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {

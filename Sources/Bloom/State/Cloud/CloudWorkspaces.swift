@@ -325,14 +325,6 @@ final class CloudWorkspaces {
         return environment.teamPage
     }
 
-    /// The web page matching the authorised settings endpoint on the API record. No endpoint
-    /// means no action, and no team slug means this client cannot spell the browser route safely.
-    func projectSettingsPage(for item: CloudWorkspaceItem) -> URL? {
-        guard let project = item.project, project.settingsURL != nil,
-              let team = team(item.teamID), !team.slug.isEmpty else { return nil }
-        return environment.projectSettingsPage(teamSlug: team.slug, projectID: project.id)
-    }
-
     func team(_ id: String) -> RunbloomTeam? {
         account?.teams.first { $0.id == id }
     }

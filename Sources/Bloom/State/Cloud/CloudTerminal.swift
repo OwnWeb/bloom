@@ -37,6 +37,8 @@ final class CloudTerminal {
     private(set) var state: State = .idle
     @ObservationIgnored private weak var session: CloudWorkspaceSession?
     @ObservationIgnored private var socket: TerminalSocket?
+    @ObservationIgnored private var connector: Task<Void, Never>?
+    @ObservationIgnored private var connectionGeneration = 0
     @ObservationIgnored private var reader: Task<Void, Never>?
     @ObservationIgnored private var refresher: Task<Void, Never>?
     @ObservationIgnored private var size: (columns: Int, rows: Int) = (80, 24)
@@ -63,12 +65,17 @@ final class CloudTerminal {
         }
         guard let session else { return }
         state = .connecting
-        Task { [weak self] in
+        connectionGeneration += 1
+        let generation = connectionGeneration
+        connector = Task { [weak self, weak session] in
             guard let self else { return }
+            guard let session else { return }
             guard let token = await session.sessionToken() else {
+                guard !Task.isCancelled, generation == connectionGeneration else { return }
                 state = .dropped("This Bloom Cloud workspace is not ready for a terminal yet.")
                 return
             }
+            guard !Task.isCancelled, generation == connectionGeneration else { return }
             guard token.allows("terminal") else {
                 state = .refused("Your access to this Bloom Cloud workspace does not include the terminal.")
                 return
@@ -77,7 +84,13 @@ final class CloudTerminal {
             self.socket = socket
             state = .connected
             await socket.resize(columns: size.columns, rows: size.rows)
+            guard !Task.isCancelled, generation == connectionGeneration else {
+                if self.socket === socket { self.socket = nil }
+                await socket.close()
+                return
+            }
             listen(to: socket)
+            connector = nil
         }
     }
 
@@ -146,6 +159,9 @@ final class CloudTerminal {
     }
 
     func close() {
+        connectionGeneration += 1
+        connector?.cancel()
+        connector = nil
         feedBatch()
         reader?.cancel()
         refresher?.cancel()

@@ -576,9 +576,10 @@ for a Cloud one, which is built from the same pieces. Left to right: **[checked]
 10. **Under the pointer**, items 6 to 9 fade out and an **archive button** takes their place.
 
 A Cloud row has **no pin or subagent chip**. It adds **a two-person mark** when it is shared with
-the team or with the reader. Its right-click menu offers the personal colour mark and, when the
-workspace record carries an authorised project settings endpoint, a Project Settings link on
-runbloom.app. Its diff is `summary.diff`, shown when `files > 0`.
+the team or with the reader. Its right-click menu offers the personal colour mark. The current
+`project.settings_url` is a bearer-authenticated API endpoint, not a browser address, so the Mac
+does not invent a Project Settings page from it. The action stays absent until runbloom.app supplies
+the browser URL. Its diff is `summary.diff`, shown when `files > 0`.
 
 **Hovering a row opens a card** (`WorkspaceHoverCardView`, decisions in `WorkspaceHoverCard`) with
 the branch, the diff in full colour, the pull request, its checks and the age. The row has no

@@ -156,35 +156,39 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         }
     }
 
-    /// What the machine's last update attempt is worth saying, or nil when there is nothing to
-    /// say. The sentence is runbloom.app's own; what is decided here is how loudly it is drawn and
-    /// whether it can be put away.
+    /// What runbloom.app currently needs to say about this workspace, or nil when there is nothing
+    /// to say. Its sentence is kept; this decides only how loudly it is drawn and whether it can
+    /// be put away.
     ///
     /// A rollback in progress cannot be dismissed, because it ends by itself and is replaced by its
     /// outcome. The two outcomes can, on the same rule as a failed setup: they do not end by
     /// themselves and they do not stop the workspace working.
-    public static func ofRunner(_ notice: CloudRunnerNotice?) -> CloudConnectionBanner? {
+    public static func ofWorkspaceNotice(_ notice: CloudWorkspaceNotice?) -> CloudConnectionBanner? {
         guard let notice, !notice.message.isEmpty else { return nil }
         if notice.isUnderway {
-            return CloudConnectionBanner(tone: .progress, title: "Putting this Bloom Cloud workspace back…", message: notice.message)
+            let title = notice.kind == CloudWorkspaceNotice.setupRestarted
+                ? "Trying this Bloom Cloud workspace's setup again…"
+                : "Putting this Bloom Cloud workspace back…"
+            return CloudConnectionBanner(tone: .progress, title: title, message: notice.message)
         }
-        let isFailure = notice.kind == CloudRunnerNotice.failed
+        let isFailure = notice.kind == CloudWorkspaceNotice.updateFailed || notice.kind == CloudWorkspaceNotice.setupNeverStarted
         return CloudConnectionBanner(
             tone: isFailure ? .failure : .caution,
-            title: Self.runnerTitle(for: notice.kind),
+            title: Self.workspaceNoticeTitle(for: notice.kind),
             message: notice.message,
-            dismissalKey: "runner:\(notice.kind):\(notice.at?.timeIntervalSince1970.rounded() ?? 0)"
+            dismissalKey: "workspace:\(notice.kind):\(notice.at?.timeIntervalSince1970.rounded() ?? 0)"
         )
     }
 
     /// The heading over runbloom.app's own sentence. A kind this version does not know gets the
     /// plainest heading there is, because its sentence says the rest.
-    private static func runnerTitle(for kind: String) -> String {
+    private static func workspaceNoticeTitle(for kind: String) -> String {
         switch kind {
-        case CloudRunnerNotice.failed: "This Bloom Cloud workspace could not be updated"
-        case CloudRunnerNotice.rolledBack: "This Bloom Cloud workspace was put back on an older version"
-        case CloudRunnerNotice.interrupted: "This Bloom Cloud workspace's update was interrupted"
-        default: "Something happened while this Bloom Cloud workspace was being updated"
+        case CloudWorkspaceNotice.updateFailed: "This Bloom Cloud workspace could not be updated"
+        case CloudWorkspaceNotice.rolledBack: "This Bloom Cloud workspace was put back on an older version"
+        case CloudWorkspaceNotice.updateInterrupted: "This Bloom Cloud workspace's update was interrupted"
+        case CloudWorkspaceNotice.setupNeverStarted: "This Bloom Cloud workspace's setup did not start"
+        default: "Something happened in this Bloom Cloud workspace"
         }
     }
 
