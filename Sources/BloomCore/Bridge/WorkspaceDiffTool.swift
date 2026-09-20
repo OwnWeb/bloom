@@ -31,7 +31,12 @@ public struct WorkspaceDiffTool: BridgeToolHandling {
     /// and points at `path` rather than spending a page on names.
     static let fileListLimit = 500
 
-    public init() {}
+    /// The way into Bloom Cloud workspaces, when there is one. See `CloudWorkspaceReach`.
+    private let cloud: CloudWorkspaceReach?
+
+    public init(cloud: CloudWorkspaceReach? = nil) {
+        self.cloud = cloud
+    }
 
     public let roles: Set<BridgeRole> = [.workspace, .owner]
 
@@ -90,8 +95,12 @@ public struct WorkspaceDiffTool: BridgeToolHandling {
         }
 
         do {
+            let resolved = try await BridgeReadTarget.resolve(request, as: identity, store: store, cloud: cloud)
+            if case .success(.cloud(let target)) = resolved, let cloud {
+                return await Self.cloudDiff(target, path: path, cursor: rawCursor, reach: cloud)
+            }
             let workspace: Workspace
-            switch try await Self.workspace(request, as: identity, store: store) {
+            switch try await Self.workspace(resolved, store: store) {
             case .failure(let trouble): return .failure(trouble.sentence)
             case .success(let found): workspace = found
             }
@@ -146,11 +155,14 @@ public struct WorkspaceDiffTool: BridgeToolHandling {
     /// row for its path and base, so the caller's own is read here and a row that has gone, or an
     /// own workspace that has been archived under a running turn, is refused as such.
     static func workspace(
-        _ request: MCPRequest, as identity: BridgeIdentity, store: Store
+        _ resolved: Result<BridgeReadTarget, BridgeReadTrouble>, store: Store
     ) async throws -> Result<Workspace, WorkspaceDiffTrouble> {
-        switch try await BridgeReadTarget.resolve(request, as: identity, store: store) {
+        switch resolved {
         case .failure(let trouble):
             return .failure(.target(trouble))
+        case .success(.cloud):
+            // Answered before this is asked; reached only without a way into Bloom Cloud at all.
+            return .failure(.unexplained("That is a Bloom Cloud workspace, and this client cannot reach one."))
         case .success(.named(let workspace)):
             return .success(workspace)
         case .success(.own(let id)):
@@ -158,6 +170,65 @@ public struct WorkspaceDiffTool: BridgeToolHandling {
             guard workspace.state != .archived else { return .failure(.target(.archived(name: workspace.name))) }
             return .success(workspace)
         }
+    }
+
+    /// A Bloom Cloud workspace's changes, measured by its machine and paged exactly as a local
+    /// workspace's are.
+    ///
+    /// The machine's `review_snapshot` at branch scope is the same measure `Git.changedFiles` is
+    /// here: everything since the branch left its base, committed or not. The whole diff is its
+    /// `review_patch` for each file in the list's order, which is one ask per file, so a call for
+    /// every file of a large branch costs a call per file; `path` asks for one.
+    static func cloudDiff(
+        _ target: CloudWorkspaceTarget, path: String?, cursor rawCursor: String?, reach: CloudWorkspaceReach
+    ) async -> BridgeToolResult {
+        let key = WorkspaceID(target.id)
+        var cursor: WorkspaceDiffPage.Cursor?
+        if let rawCursor {
+            guard let parsed = WorkspaceDiffPage.Cursor(rawCursor, workspaceID: key) else {
+                return .failure(WorkspaceDiffTrouble.badCursor.sentence)
+            }
+            cursor = parsed
+        }
+        let changes: CloudWorkspaceChanges
+        switch await reach.changes(target.id) {
+        case .failure(let trouble):
+            return .failure("Bloom could not read what the Bloom Cloud workspace '\(target.name)' changed: \(trouble.sentence)")
+        case .success(let read): changes = read
+        }
+        var files = changes.files
+        if let path {
+            guard let file = files.first(where: { $0.path == path || $0.oldPath == path }) else {
+                return .failure(WorkspaceDiffTrouble.noSuchPath(path, workspace: target.name).sentence)
+            }
+            files = [file]
+        }
+        var diff = ""
+        for file in files where !file.isBinary {
+            switch await reach.patch(target.id, file.path) {
+            case .failure(let trouble):
+                return .failure("Bloom could not read the diff of \(file.path) in '\(target.name)': \(trouble.sentence)")
+            case .success(let patch):
+                diff += patch.hasSuffix("\n") || patch.isEmpty ? patch : patch + "\n"
+            }
+        }
+        let page: WorkspaceDiffPage.Page
+        do {
+            page = try WorkspaceDiffPage.make(diff: diff, path: path, workspaceID: key, cursor: cursor)
+        } catch {
+            return .failure(WorkspaceDiffTrouble.staleCursor.sentence)
+        }
+        // The local answer's own shape, from a stand-in row: the fields it reads are the name, the
+        // id, the branch and the base, and every one of them is the machine's.
+        let stand = Workspace(
+            id: key, repoID: RepoID("cloud"), name: target.name, branch: changes.branch,
+            path: "", baseBranch: changes.baseBranch
+        )
+        guard case .object(var answer) = Self.answer(
+            workspace: stand, project: target.repository, files: files, path: path, page: page
+        ) else { return .failure(WorkspaceDiffTrouble.unexplained("").sentence) }
+        answer["cloud"] = .bool(true)
+        return .json(.object(answer))
     }
 
     // MARK: - What the caller is told

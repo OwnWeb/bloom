@@ -10,8 +10,8 @@ import BloomCore
 /// A path rather than a `ChangedFile`, because the two ways into a file are the diff of one the
 /// agent touched and the worktree tree, and the tree opens files git has never heard of. Editing
 /// is a question about bytes on disk either way, so the pane only ever needed the path.
-struct FileEditPane: View {
-    let model: WorkspaceModel
+struct FileEditPane<Model: WorkspaceSurface>: View {
+    let model: Model
     /// Relative to the workspace's worktree, the way every path in the inspector is.
     let path: String
     let session: FileEditSession
@@ -32,7 +32,7 @@ struct FileEditPane: View {
     @State private var wantsDiskVersion = false
 
     private var absolutePath: String {
-        absolutePathOverride ?? (model.workspace.path as NSString).appendingPathComponent(path)
+        absolutePathOverride ?? model.editorKey(for: path)
     }
 
     private var state: SourceEditorState { SourceEditorState.file(absolutePath) }
@@ -63,10 +63,10 @@ struct FileEditPane: View {
         .focusedValue(\.isTypingProse, isEditable)
         .onDisappear { state.navigationTask?.cancel() }
         .task(id: absolutePath) {
-            await session.load(path: absolutePath)
+            await session.load(path: absolutePath, from: model.editableFiles)
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(3)) } catch { return }
-                await session.refresh(path: absolutePath)
+                await session.refresh(path: absolutePath, from: model.editableFiles)
             }
         }
         .sheet(isPresented: $comparing, onDismiss: {
@@ -76,23 +76,50 @@ struct FileEditPane: View {
         }, content: { comparison })
     }
 
+    /// The worktree behind this file, or nil for a file on a machine.
+    ///
+    /// **What the two kinds of workspace genuinely differ on inside this pane, and it is not the
+    /// editing.** The tools bar and every lookup under it need a language server rooted in a
+    /// worktree on this Mac and a chat to ask about a symbol in, which a Cloud workspace has
+    /// neither of. `offersSourceLookup` already says so for the diff; this is the same answer for
+    /// the editor, and what is left is a text view that reads and writes a file, which is the
+    /// whole of Edit mode.
+    private var worktree: WorkspaceModel? { model.composerWorkspace }
+
     @ViewBuilder
     private var editor: some View {
         if session.draft(for: absolutePath) != nil {
             VStack(spacing: 0) {
-                SourceTools(model: model, path: path, state: state)
-                Hairline()
+                if let worktree {
+                    SourceTools(model: worktree, path: path, state: state)
+                    Hairline()
+                }
                 SourceEditor(
                     text: session.binding(for: absolutePath),
                     language: state.languageOverride ?? Language.detect(path: path),
                     colorScheme: colorScheme,
                     isEditable: isEditable,
                     editorState: state,
-                    onOpenReference: { SourceActions.open($0, at: $1, path: path, model: model, state: state, newTab: $2) },
-                    onDefinition: { SourceActions.definition(at: $0, path: path, model: model, state: state) },
-                    onReferences: { SourceActions.references(at: $0, path: path, model: model, state: state) },
-                    onNavigateSymbol: { SourceActions.navigate(at: $0, path: path, model: model, state: state, newTab: $1) },
-                    onAsk: { SourceActions.ask(path: path, model: model, state: state) }
+                    onOpenReference: { reference, offset, newTab in
+                        guard let worktree else { return }
+                        SourceActions.open(reference, at: offset, path: path, model: worktree, state: state, newTab: newTab)
+                    },
+                    onDefinition: { offset in
+                        guard let worktree else { return }
+                        SourceActions.definition(at: offset, path: path, model: worktree, state: state)
+                    },
+                    onReferences: { offset in
+                        guard let worktree else { return }
+                        SourceActions.references(at: offset, path: path, model: worktree, state: state)
+                    },
+                    onNavigateSymbol: { offset, newTab in
+                        guard let worktree else { return }
+                        SourceActions.navigate(at: offset, path: path, model: worktree, state: state, newTab: newTab)
+                    },
+                    onAsk: {
+                        guard let worktree else { return }
+                        SourceActions.ask(path: path, model: worktree, state: state)
+                    }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -173,7 +200,7 @@ struct FileEditPane: View {
                 }
                 Button("Save my version over disk") {
                     Task {
-                        await session.keepDraftOverDisk(path: absolutePath)
+                        await session.keepDraftOverDisk(path: absolutePath, to: model.editableFiles)
                         if case .saved = session.status(for: absolutePath) {
                             comparing = false
                             model.forgetHeldDiff(for: path)
@@ -202,7 +229,7 @@ struct FileEditPane: View {
             isPresented: isPresented,
             title: "Discard your edits to \(filename)?",
             message: { "The file on disk replaces what you typed. There is no undo for this." },
-            onConfirm: { Task { await session.reload(path: path) } }
+            onConfirm: { Task { await session.reload(path: path, from: model.editableFiles) } }
         )
     }
 
@@ -210,7 +237,7 @@ struct FileEditPane: View {
     /// both stale the moment it lands.
     private func save() {
         Task {
-            await session.save(path: absolutePath)
+            await session.save(path: absolutePath, to: model.editableFiles)
             guard case .saved = session.status(for: absolutePath) else { return }
             // Including whatever the review pane is holding for this file, which is a picture of
             // the bytes that have just been replaced. See `WorkspaceModel.forgetHeldDiff`.
@@ -238,5 +265,18 @@ struct FileEditPane: View {
                 .font(Typo.caption)
                 .foregroundStyle(Palette.textTertiary)
         }
+    }
+}
+
+extension WorkspaceModel {
+    /// The file itself, editable, which is what Edit mode in a diff shows.
+    ///
+    /// A view built by the workspace rather than by `DiffView`, because the workspace is what
+    /// knows where the bytes are: this Mac's disk here, the machine's connection for a Cloud
+    /// workspace. It is the same pane over both, which it was not: it took a `WorkspaceModel` and
+    /// read the file itself, and the sentence saying a Cloud workspace could not be edited was
+    /// true only because of that. See `EditableFiles`.
+    func editorPane(path: String, session: FileEditSession) -> FileEditPane<WorkspaceModel> {
+        FileEditPane(model: self, path: path, session: session)
     }
 }

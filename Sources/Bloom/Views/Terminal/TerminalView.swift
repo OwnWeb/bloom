@@ -136,7 +136,12 @@ final class BloomTerminalView: LocalProcessTerminalView {
         configure()
     }
 
+    /// The system's overlay scroller, faded the way a scroll view fades it. See
+    /// `TerminalScrollerPresenter`.
+    private(set) var scrollerPresenter: TerminalScrollerPresenter?
+
     private func configure() {
+        scrollerPresenter = TerminalScrollerPresenter(terminal: self)
         processObserver.owner = self
         processDelegate = processObserver
         updateTheme()
@@ -145,16 +150,11 @@ final class BloomTerminalView: LocalProcessTerminalView {
     }
 
     private func applyFont() {
-        let desired = terminalFont(size: fontSize)
-        if font != desired { font = desired }
-        let spacing = CGFloat(typography.lineHeight ?? 1)
-        if lineSpacing != spacing { lineSpacing = spacing }
-    }
-
-    /// Ghostty's `font-family` when there is one and it is installed, the monospaced system font
-    /// otherwise.
-    private func terminalFont(size: CGFloat) -> NSFont {
-        TerminalGhostty.font(family: typography.fontFamily ?? ghostty?.fontFamily, size: size)
+        applyBloomFont(
+            family: typography.fontFamily ?? ghostty?.fontFamily,
+            size: fontSize,
+            lineHeight: typography.lineHeight
+        )
     }
 
     private(set) var hasStarted = false
@@ -293,23 +293,11 @@ final class BloomTerminalView: LocalProcessTerminalView {
     }
 
     /// SwiftTerm ships a palette that looks nothing like the rest of Bloom, so both the sixteen
-    /// ANSI slots and the default foreground and background are replaced here.
+    /// ANSI slots and the default foreground and background are replaced. The work is
+    /// `applyBloomColours`, shared with the Cloud workspace's terminal: one source of settings,
+    /// both panes. See `TerminalAppearance`.
     func applyAppearanceColors() {
-        let theme = TerminalGhostty.colours(for: effectiveAppearance)
-        installColors(theme.ansiColors().map(SwiftTerm.Color.init))
-        nativeForegroundColor = theme.foreground.map(NSColor.init) ?? .labelColor
-        nativeBackgroundColor = theme.background.map(NSColor.init) ?? .textBackgroundColor
-        let background = nativeBackgroundColor.usingColorSpace(.deviceRGB)
-        for scroller in subviews.compactMap({ $0 as? NSScroller }) {
-            scroller.knobStyle = (background?.brightnessComponent ?? 1) < 0.5 ? .light : .dark
-        }
-        // Ghostty falls back to the foreground for the cursor, and to the system for a selection it
-        // was never told about.
-        caretColor = theme.cursorColor.map(NSColor.init) ?? nativeForegroundColor
-        caretTextColor = theme.cursorTextColor.map(NSColor.init)
-        selectedTextBackgroundColor = theme.selectionBackground.map(NSColor.init) ?? .selectedTextBackgroundColor
-        selectedTextForegroundColor = theme.selectionForeground.map(NSColor.init) ?? nativeForegroundColor
-        needsDisplay = true
+        applyBloomColours()
     }
 
     // MARK: - Keyboard

@@ -37,7 +37,7 @@ enum NewPane {
     /// `FolderTerminal`.
     static func open(
         _ kind: PaneKind,
-        in model: WorkspaceModel,
+        in model: some WorkspaceSurface,
         url: String = "",
         title: String? = nil,
         directory: String = "",
@@ -54,14 +54,14 @@ enum NewPane {
         // port first, because both are baked into the process the moment it is forked.
         case .terminal:
             let tab = CenterTabStore.shared.add(
-                kind: .terminal, workspaceID: model.workspace.id, title: title,
+                kind: .terminal, workspaceID: model.surfaceID, title: title,
                 directory: directory
             )
             place(.tool(tab.id))
 
         case .browser:
             let tab = CenterTabStore.shared.add(
-                kind: .browser, workspaceID: model.workspace.id, url: url, title: title
+                kind: .browser, workspaceID: model.surfaceID, url: url, title: title
             )
             place(.tool(tab.id))
         }

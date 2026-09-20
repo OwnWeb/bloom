@@ -25,7 +25,10 @@ struct TranscriptPlaceholderView: View {
             EmptyStateView(
                 glyph: "gearshape.2",
                 title: "Setting up the workspace",
-                message: "The setup script is still running. Ask for something now and it goes as soon as that finishes."
+                // "Setup" rather than "the setup script", because this view is over both kinds of
+                // workspace: a local one is running the project's setup script, and a Cloud one is
+                // cloning the repository before it gets to that. Both queue what is typed now.
+                message: "Setup is running. Ask for something now and it goes as soon as that finishes."
             )
         } else if let emptyState, !emptyState.suggestions.isEmpty {
             suggesting(emptyState)

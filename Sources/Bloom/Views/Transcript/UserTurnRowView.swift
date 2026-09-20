@@ -39,6 +39,30 @@ struct UserTurnRowView: View {
     var reviewChips: [ReviewTurnRecord.Chip] = []
     /// Which worktree those paths are relative to, and which review the chips open into.
     var home: TranscriptHome
+    /// Who sent it and who it was for, in a Cloud workspace, on the first of a run. Drawn over the
+    /// bubble in the caption's ink, the way Messages does it, and nil everywhere a Mac has one
+    /// person at it. See `MessageAuthorship.caption`.
+    var caption: String?
+    /// Which of the three fills this bubble carries, and with it which side it sits on.
+    ///
+    /// **Separate from the caption, because a teammate runbloom.app has no name for is still not
+    /// you.** The owner read a nameless "hey" from somebody else as his own message: both bubbles
+    /// were the accent fill, and the label that would have told him otherwise was an empty string.
+    /// Neither the colour nor the side depends on knowing what to call anybody.
+    ///
+    /// The rule and the reason the fill means different things on the two sides are
+    /// `MessageAuthorship.BubbleFill`.
+    var fill: MessageAuthorship.BubbleFill = .own
+
+    private var isFromSomebodyElse: Bool { fill == .somebodyElse }
+
+    private var background: Color {
+        switch fill {
+        case .own: Palette.accentFill
+        case .ownToPerson: Palette.directFill
+        case .somebodyElse: Palette.teammateFill
+        }
+    }
 
     @Environment(AppModel.self) private var app
     /// The list's one value, set in `TranscriptListView`, rather than actions built per bubble:
@@ -108,37 +132,72 @@ struct UserTurnRowView: View {
     /// in it rather than pressed against the side of it.
     static let padding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
 
+    /// Which side of the transcript this message sits on.
+    ///
+    /// **A bubble is a person's message and its side says whose: yours on the right, anybody
+    /// else's on the left.** The owner found this the way everybody would: a green bubble captioned
+    /// "Spatie Technical to you", hard against the right hand edge, which is where his own messages
+    /// go. Two signals disagreeing, and **position is the stronger one**: people read the side of
+    /// a transcript before they read a colour, which is why every messaging application there is
+    /// puts the other person on the left.
+    ///
+    /// **The agent is not a bubble at all**, so this is not three senders across two sides. It is
+    /// bubble against prose first, and then left against right inside the bubbles: an agent's reply
+    /// is unbubbled prose at the full measure, and a message relayed from another workspace is a
+    /// rule down the left in the colour of whoever spoke. See `CrewMessageRowView`, whose own note
+    /// states the half that makes all of this one rule: **the right hand side of this transcript
+    /// means the person reading it wrote the message**, and nothing else may borrow it.
+    private var side: HorizontalEdge { isFromSomebodyElse ? .leading : .trailing }
+
     var body: some View {
         HStack(spacing: 0) {
-            Spacer(minLength: Self.inset)
+            if side == .trailing { Spacer(minLength: Self.inset) }
 
-            CappedWidth(width: maxWidth) {
-                bubble.padding(Self.padding)
+            VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
+                if let caption {
+                    Text(caption)
+                        .font(Typo.caption)
+                        .foregroundStyle(Palette.textTertiary)
+                        // Two names and a preposition is longer than one name, and a caption that
+                        // ran off the side of the pane would take the bubble's own measure with
+                        // it. Capped at the bubble's width and wrapped rather than truncated: who
+                        // a message was for is not a detail worth losing the end of.
+                        .frame(maxWidth: maxWidth, alignment: side == .leading ? .leading : .trailing)
+                        .multilineTextAlignment(side == .leading ? .leading : .trailing)
+                }
+                CappedWidth(width: maxWidth) {
+                    bubble.padding(Self.padding)
+                }
+                .padding(.bottom, OutgoingBubbleShape.tailDrop)
+                .background(
+                    background,
+                    in: OutgoingBubbleShape(cornerRadius: Self.corner, tail: side)
+                )
+                // No stroke around the fill. A border on a filled shape is a control's outline,
+                // and the fill already separates the turn from the ground in both appearances.
+                //
+                // Everything inside is told it is sitting on the accent fill, which is the same
+                // signal a selected sidebar row sends. `Chip`, `DiffStatLabel`, `RepoIcon` and
+                // `AttachmentChip` all read it and swap to the variant that survives the inversion,
+                // so a chip inside a user turn needs no knowledge of this view.
+                .environment(\.isOnEmphasizedSelection, true)
+                // And that the ground under them is dark, which on a light page it now is.
+                //
+                // This is not a stylistic flourish, it is what makes the text selectable in any
+                // useful sense. Selecting text paints `selectedTextBackgroundColor` BEHIND the glyphs
+                // and leaves the foreground exactly as it was: on the light ramp that colour is a pale
+                // blue, so dragging over a white sentence on this fill wrote it in white on near white
+                // and the selection was unreadable while it was being made. Measured off a probe of
+                // this exact bubble: the highlight comes out #BAD6FB and white on it is 1.5 to 1.
+                //
+                // Naming the scheme resolves every appearance-dependent colour inside the bubble on
+                // the dark ramp. The claim is honest rather than a trick: this bubble IS a dark
+                // surface whatever the page around it is doing. AppKit cannot read it, which is why
+                // the text view below is handed `Palette.bubbleTextSelection` as well.
+                .environment(\.colorScheme, .dark)
             }
-            .padding(.bottom, OutgoingBubbleShape.tailDrop)
-            .background(Palette.accentFill, in: OutgoingBubbleShape(cornerRadius: Self.corner))
-            // No stroke around the fill. A border on a filled shape is a control's outline,
-            // and the fill already separates the turn from the ground in both appearances.
-            //
-            // Everything inside is told it is sitting on the accent fill, which is the same
-            // signal a selected sidebar row sends. `Chip`, `DiffStatLabel`, `RepoIcon` and
-            // `AttachmentChip` all read it and swap to the variant that survives the inversion,
-            // so a chip inside a user turn needs no knowledge of this view.
-            .environment(\.isOnEmphasizedSelection, true)
-            // And that the ground under them is dark, which on a light page it now is.
-            //
-            // This is not a stylistic flourish, it is what makes the text selectable in any
-            // useful sense. Selecting text paints `selectedTextBackgroundColor` BEHIND the glyphs
-            // and leaves the foreground exactly as it was: on the light ramp that colour is a pale
-            // blue, so dragging over a white sentence on this fill wrote it in white on near white
-            // and the selection was unreadable while it was being made. Measured off a probe of
-            // this exact bubble: the highlight comes out #BAD6FB and white on it is 1.5 to 1.
-            //
-            // Naming the scheme resolves every appearance-dependent colour inside the bubble on
-            // the dark ramp. The claim is honest rather than a trick: this bubble IS a dark
-            // surface whatever the page around it is doing. AppKit cannot read it, which is why
-            // the text view below is handed `Palette.bubbleTextSelection` as well.
-            .environment(\.colorScheme, .dark)
+
+            if side == .leading { Spacer(minLength: Self.inset) }
         }
         .padding(.horizontal, TranscriptLayout.inset)
         .padding(.vertical, TranscriptLayout.inset)

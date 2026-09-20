@@ -10,7 +10,10 @@ struct SessionStartRowView: View {
     var info: AgentInit
 
     private var modelLabel: String {
-        ComposerOption.label(for: info.model, in: ComposerOption.models)
+        ComposerOption.label(
+            for: info.model,
+            in: ComposerModelCatalog.shared.options(for: .claudeCode) + ComposerOption.models
+        )
     }
 
     /// In the backend's own words, because that is what the composer's menu says and a chip

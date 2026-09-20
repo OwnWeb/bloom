@@ -28,6 +28,25 @@ struct ComposerPrompt<Footer: View>: View {
 
     /// The checkout `@mentions` and `/commands` are resolved against.
     var mentionRoot: String
+    /// Everybody a message in this conversation may be addressed to, other than the reader.
+    ///
+    /// Empty everywhere but a shared Cloud workspace, which is what keeps `@` meaning a file in
+    /// every worktree on this Mac: see `MentionAddress.offersPeople`, which is the rule, and
+    /// `PersonMentionMenu`, which is what opens when it says yes.
+    var people: [ComposerAudience.Person] = []
+    /// Whether the next message goes to a person rather than to Bloom, which tints the box to the
+    /// colour that message will be. See `ComposerBox.addressedTint`.
+    var isAddressingAPerson = false
+    /// Who the next message is for, when it is a person: the name on the "To" chip where the words
+    /// start. Nil whenever the message goes to Bloom.
+    var addressedName: String?
+    /// Sends the composer back to Bloom, for the button on the line across the top of the box.
+    /// Nil where there is nobody else to write to, which is everywhere but a shared Cloud chat.
+    var onWriteToBloom: (() -> Void)?
+    /// What is answering in this conversation, so the mention menu can label the agent's own row
+    /// with it and find that row from `@claude` as well as from `@bloom`. Nil in the create
+    /// window, which has no chat yet, and everywhere the menu lists files.
+    var runningAgent: AgentKind?
     /// Where an attached file is copied to, and what its stored path is relative to.
     var attachmentRoot: String
     /// Which bucket of `PromptAttachmentStore` this prompt is filling: a session id in a
@@ -127,6 +146,10 @@ struct ComposerPrompt<Footer: View>: View {
         let guide = floatingGuide(isBelow: placement.isBelow, typedLineBottom: typedLineBottom)
 
         return VStack(alignment: .leading, spacing: Metrics.spacingWide) {
+            if isAddressingAPerson, let onWriteToBloom {
+                ComposerAddressLine(onWriteToBloom: onWriteToBloom)
+            }
+
             if !reviewComments.isEmpty {
                 ChipFlow(spacing: Metrics.spacingSmall, lineSpacing: Metrics.spacingSmall) {
                     ForEach(reviewComments) { comment in
@@ -139,8 +162,14 @@ struct ComposerPrompt<Footer: View>: View {
                 }
             }
 
-            if let name = draft.name {
-                HStack(alignment: .top, spacing: Metrics.spacingSmall) {
+            // One branch whether or not a chip leads, so the editor is the same view before and
+            // after `@seb ` or `/command ` is typed: two branches swapped as a chip appeared
+            // would rebuild the text view under the caret.
+            HStack(alignment: .top, spacing: Metrics.spacingSmall) {
+                if let addressedName {
+                    ComposerAddressChip(name: addressedName)
+                }
+                if let name = draft.name {
                     SlashCommandChip(
                         name: name,
                         command: named,
@@ -154,10 +183,8 @@ struct ComposerPrompt<Footer: View>: View {
                         },
                         onHover: { isCommandPreviewed = $0 }
                     )
-
-                    promptEditor(attachments: attachments)
                 }
-            } else {
+
                 promptEditor(attachments: attachments)
             }
 
@@ -166,7 +193,8 @@ struct ComposerPrompt<Footer: View>: View {
         .composerBox(
             isFocused: $isFocused,
             isDropTarget: isDropTarget,
-            isFloating: isFloating
+            isFloating: isFloating,
+            addressedTint: isAddressingAPerson ? Palette.directFill : nil
         )
         // The editor takes the drops that land on the text itself; this takes the ones that land
         // on the chips, the footer and the padding, which is most of the box.
@@ -222,11 +250,14 @@ struct ComposerPrompt<Footer: View>: View {
                 commands: slashResults(in: openMenu),
                 commandsAreLoaded: slashCatalog.isLoaded,
                 files: fileMatches,
+                candidates: mentionCandidates(in: openMenu),
+                offersPeople: offersPeople(in: openMenu),
                 selectedIndex: menuIndex,
                 maxHeight: placement.menuHeight,
                 availableWidth: boxWidth,
                 onPickCommand: pick(command:),
                 onPickFile: pick(file:),
+                onPickCandidate: pick(candidate:),
                 onHighlight: { menuIndex = $0 }
             )
             .alignmentGuide(.top, computeValue: guide)
@@ -235,7 +266,7 @@ struct ComposerPrompt<Footer: View>: View {
         // again for each one. An unsplit centre column is now the same pane in every workspace, so
         // a composer that read its staged attachments in `onAppear` would read the first session's
         // and then draw them under every session the window visited afterwards. See
-        // `CenterPanesView.soloPane`.
+        // `CentrePaneMeasure.soloPane`.
         .task(id: attachmentKey) {
             PromptAttachmentStore.shared.load(sessionID: attachmentKey)
             adoptAttachmentsKeptBesideTheDraft()
@@ -442,10 +473,34 @@ struct ComposerPrompt<Footer: View>: View {
     private var menuCount: Int {
         switch activeMenu {
         case .slash: slashResults(in: activeMenu).count
-        case .mention: fileMatches.count
+        case .mention: offersPeople(in: activeMenu) ? mentionCandidates(in: activeMenu).count : fileMatches.count
         case .none: 0
         }
     }
+
+    /// Whether the `@` being typed names a person rather than a file. The rule is
+    /// `MentionAddress.offersPeople`, in the core, because the web client asks it too.
+    private func offersPeople(in menu: ComposerMenu) -> Bool {
+        guard let token = menu.mention else { return false }
+        return MentionAddress.offersPeople(token: token, draft: command.body, hasPeople: !people.isEmpty)
+    }
+
+    /// What the query matches: the agent, then whoever is named or handled like it. The ranking
+    /// and the matching are `MentionAddress.candidates`, in the core, because the web client's
+    /// menu shows the same rows in the same order.
+    private func mentionCandidates(in menu: ComposerMenu) -> [MentionCandidate] {
+        guard offersPeople(in: menu), let query = menu.query else { return [] }
+        return MentionAddress.candidates(
+            matching: query, people: people, runningAgent: runningAgent, agentName: agentName
+        )
+    }
+
+    /// What the agent's row is called. Its own name where a chat is running one, and the plain
+    /// word where nothing has started yet, which is honest rather than a guess at which of the
+    /// three it will turn out to be.
+    /// "Bloom" whatever is answering: the owner addresses the agent as Bloom, and `@claude` still
+    /// finds this row through the running agent's alias. It used to be the agent picker's label.
+    private var agentName: String { "Bloom" }
 
     /// Which side of the box the floating panels open on, and how much room that side has.
     ///
@@ -553,7 +608,10 @@ struct ComposerPrompt<Footer: View>: View {
 
     private func pick(file: FileMatch) {
         guard let token = activeMenu.mention else { return }
-        let replacement = "@\(file.path) "
+        replace(token: token, with: "@\(file.path) ")
+    }
+
+    private func replace(token: ComposerMenu.Token, with replacement: String) {
         var draft = command
         // Measured against the body, which is what the token was found in and what the editor's
         // caret counts from. Writing it back through the split is what keeps the command intact.
@@ -568,12 +626,28 @@ struct ComposerPrompt<Footer: View>: View {
         isFocused = true
     }
 
+    /// Writes the mention in, in place of what was typed. The same replacement a file picks, over
+    /// the same token, because the two menus differ in what they list and in nothing else.
+    ///
+    /// **The agent's row writes `@bloom` whichever name found it.** `@claude` reaches it too and is
+    /// correct to type, but several spellings of one destination in the transcripts a team reads
+    /// back is the cost of letting the completion keep what was typed.
+    /// See `MentionCandidate.insertion`.
+    private func pick(candidate: MentionCandidate) {
+        guard let token = activeMenu.mention else { return }
+        replace(token: token, with: candidate.insertion)
+    }
+
     private func pickHighlighted() {
         switch activeMenu {
         case .slash:
             let results = slashResults(in: activeMenu)
             guard results.indices.contains(menuIndex) else { return }
             pick(command: results[menuIndex].command)
+        case .mention where offersPeople(in: activeMenu):
+            let matches = mentionCandidates(in: activeMenu)
+            guard matches.indices.contains(menuIndex) else { return }
+            pick(candidate: matches[menuIndex])
         case .mention:
             guard fileMatches.indices.contains(menuIndex) else { return }
             pick(file: fileMatches[menuIndex])

@@ -502,12 +502,12 @@ struct TranscriptListView: View {
         // A workspace's setup script, its worktree events and its opening prompt. All three are
         // things a worktree has. Ask Bloom uses this opening entry only for the space below the
         // title bar, since it has no setup information: see `TranscriptHome`.
-        if let workspaceID = home.workspaceID {
+        if let surfaceID = home.surfaceID {
             out.append(TranscriptTableEntry(
                 id: .setup,
                 contentKey: TranscriptContentKey {
                     $0.combine("setup")
-                    $0.combine(workspaceID)
+                    $0.combine(surfaceID.storageKey)
                     $0.combine(isRunningSetup)
                     $0.combine(transcript.hasNothingToShow)
                     $0.combine(Int(paneHeight))
@@ -527,7 +527,7 @@ struct TranscriptListView: View {
                                 .frame(height: TranscriptLayout.topSpace)
                                 .accessibilityHidden(true)
                             WorkspaceEventsView(
-                                workspaceID: workspaceID,
+                                surfaceID: surfaceID,
                                 isRunning: isRunningSetup,
                                 // Nothing said yet AND nothing waiting to be said. Once there is a
                                 // bubble on screen, "You can ask for something now" is answered by
@@ -553,6 +553,18 @@ struct TranscriptListView: View {
                 }
             ))
         }
+
+        // Who spoke last and who they were speaking to, so a run of messages from one person to
+        // one reader is captioned once. Nil is the reader's own and the agent respectively, which
+        // is every message in a workspace nobody shares.
+        var previousAuthorID: String?
+        var previousAddressee: String?
+        // What this workspace calls everybody, read once for the whole list rather than per row:
+        // it walks the member list, and a transcript is hundreds of rows long.
+        let addresseeNames = transcript.addresseeNames
+        // Who is reading, so a message of the reader's own that came back from the machine with
+        // their account still on it is drawn as theirs. See `MessageAuthorship.isFromSomebodyElse`.
+        let readerID = transcript.cloud?.readerID
 
         for index in drawnRows.indices {
             let row = drawnRows[index]
@@ -598,6 +610,32 @@ struct TranscriptListView: View {
                 index: index, seq: row.seq, parent: row.parentToolUseID, revealed: revealed
             ) { continue }
             guard !TranscriptNoise.isHidden(row) else { continue }
+            // Who spoke before this one, for the label above a teammate's bubble. Tracked as the
+            // list is walked, because it is the one thing a row cannot answer about itself, and
+            // measured against the previous MESSAGE rather than the previous row: an agent
+            // answering in between does not make the same person a new speaker. See
+            // `MessageAuthorship`.
+            let addressee = MessageAuthorship.addressee(row.audience, names: addresseeNames)
+            let caption = row.kind == .user
+                ? MessageAuthorship.caption(
+                    MessageAuthorship.caption(
+                        author: row.authorID,
+                        name: row.authorName,
+                        addressee: addressee,
+                        previousAuthor: previousAuthorID,
+                        previousAddressee: previousAddressee,
+                        reader: readerID
+                    ),
+                    via: row.via
+                )
+                : nil
+            let fill = MessageAuthorship.fill(
+                author: row.authorID, reader: readerID, audience: row.audience
+            )
+            if row.kind == .user {
+                previousAuthorID = row.authorID
+                previousAddressee = addressee
+            }
             // How much work the subagent this call started has done. In the key below, so a child
             // landing redraws this row where it stands instead of putting a row in the list.
             let subagentActions = row.kind == .toolUse ? folds.actions(underCall: row.refID) : nil
@@ -635,6 +673,10 @@ struct TranscriptListView: View {
                 $0.combine(recovered != nil)
                 $0.combine(closesTranscript)
                 $0.combine(stillRunning)
+                // A row whose label appears or disappears because the message above it changed is
+                // a row that has to be drawn again.
+                $0.combine(caption)
+                $0.combine(fill)
             }
             // Free, and no for the two kinds that make up most of a long session, so it is asked
             // here rather than inside the closure that runs per cell.
@@ -685,12 +727,15 @@ struct TranscriptListView: View {
                         AnyView(
                             TranscriptRowView(
                                 row: row,
+                                caption: caption,
+                                fill: fill,
                                 home: home,
                                 isExpanded: isExpanded,
                                 isNested: row.parentToolUseID != nil,
                                 subagentActions: subagentActions,
                                 subagentHasRun: subagentHasRun,
                                 runActions: runActions,
+                                cloudLink: transcript.cloud,
                                 projectName: projectName,
                                 onToggle: { toggle(row.seq) },
                                 onAnswer: { requestID, decision in
@@ -746,19 +791,31 @@ struct TranscriptListView: View {
                 }
                 let review = ReviewTurn.split(sending.body)
                 let turn = AttachmentTrailer.split(sending.body)
+                // **The echo is the same message as the bubble it becomes, so it is the same
+                // colour.** It defaulted to the accent, so a message addressed to a person went
+                // terracotta composer, teal echo, terracotta bubble: the colour disappeared for
+                // the second somebody was watching hardest. Read from the audience it was sent
+                // with, which is already settled by the time this is drawn, and through the one
+                // rule rather than by asking the same question a second way.
+                let sentTo = MessageAuthorship.fill(
+                    author: nil,
+                    audience: MessageAudience(kind: transcript.audience.isAgent ? .agent : .person)
+                )
                 return AnyView(
                     Group {
                         if let review {
                             UserTurnRowView(
                                 text: review.message,
                                 reviewChips: review.chips,
-                                home: transcript.home
+                                home: transcript.home,
+                                fill: sentTo
                             )
                         } else {
                             UserTurnRowView(
                                 text: turn.body,
                                 attachments: turn.paths,
-                                home: transcript.home
+                                home: transcript.home,
+                                fill: sentTo
                             )
                         }
                     }
@@ -858,6 +915,7 @@ struct TranscriptListView: View {
                     return AnyView(
                         PendingTurnRowView(
                             delivery: delivery,
+                            reader: transcript.cloud?.readerID,
                             home: transcript.home,
                             holdSentence: holdSentence,
                             canRetry: transcript.canRetry(delivery),

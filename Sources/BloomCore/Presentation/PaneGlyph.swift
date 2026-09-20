@@ -29,6 +29,8 @@ public enum PaneGlyph {
     public static let browser = "globe"
     public static let review = "doc.text"
     public static let notes = "note.text"
+    /// What a machine did while it was starting, which is a tab only a Cloud workspace has.
+    public static let setup = "hammer"
 
     /// What one chat tab wears.
     ///

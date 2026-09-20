@@ -38,15 +38,15 @@ public enum PendingMessageReturn {
     /// attached files cannot round trip through a text box, so it stays where it is rather than
     /// coming back as the machine's rendering of itself. It keeps its place and its order, and the
     /// owner still has Delete on it.
-    public static func canReturn(_ delivery: Delivery) -> Bool {
+    public static func canReturn(_ delivery: Delivery, reader: String? = nil) -> Bool {
         delivery.state == .pending && delivery.kind == .owner
             && delivery.crewPayload == nil
-            && PendingMessageEdit.canEdit(delivery)
+            && PendingMessageEdit.canEdit(delivery, reader: reader)
     }
 
     /// Everything in the queue that is going back to the composer, in the order it was asked for.
-    public static func returning(from pending: [Delivery]) -> [Delivery] {
-        pending.filter(canReturn)
+    public static func returning(from pending: [Delivery], reader: String? = nil) -> [Delivery] {
+        pending.filter { canReturn($0, reader: reader) }
     }
 
     /// Everything that stays queued, in the order it was asked for.
@@ -54,8 +54,8 @@ public enum PendingMessageReturn {
     /// The complement of `returning`, named rather than left for each caller to work out, because
     /// "what is still waiting after a Stop" is the half a reader doubts and the half a test has to
     /// be able to state.
-    public static func keeping(from pending: [Delivery]) -> [Delivery] {
-        pending.filter { !canReturn($0) }
+    public static func keeping(from pending: [Delivery], reader: String? = nil) -> [Delivery] {
+        pending.filter { !canReturn($0, reader: reader) }
     }
 
     /// What the composer is left holding once these have left the queue.

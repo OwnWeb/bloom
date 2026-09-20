@@ -52,7 +52,9 @@ struct BrowserToolbarView: View {
     var toolbar: BrowserToolbar
     /// What the field shows, which is not where the page is. See `BrowserTabView.address`.
     @Binding var address: String
-    var addressFocus: FocusState<Bool>.Binding
+    /// Nil where there is no field to focus, which is a machine's pane: the capsule is there and
+    /// holds the host, and nothing in it takes the keyboard. See `BrowserToolbar.Surface`.
+    var addressFocus: FocusState<Bool>.Binding?
     /// Whether the ring should be drawn at all: focused, and in the window the keys are going to.
     var isRingVisible: Bool
     /// The pages behind and ahead of this one, nearest first, named by `BrowserToolbar`.
@@ -64,6 +66,13 @@ struct BrowserToolbarView: View {
     /// Somewhere further back or further forward than one step, by the distance on the entry.
     var goToHistory: @MainActor (Int) -> Void = { _ in }
     var reloadOrStop: @MainActor () -> Void = {}
+    /// What Open in Default Browser does, where handing over the address on screen is not it.
+    ///
+    /// Nil in a tab, which means the address: that is what the control says and what every browser
+    /// does with it. A machine's pane sets this, because the address on screen was reached through
+    /// a token that has been spent, so opening it again in another application would land on a
+    /// refusal. It asks runbloom.app for a fresh one. See `CloudPreviewPane`.
+    var openInBrowser: (@MainActor () -> Void)?
     var capture: @MainActor () -> Void = {}
     var captureRegion: @MainActor () -> Void = {}
     var isReviewing = false
@@ -76,7 +85,7 @@ struct BrowserToolbarView: View {
     private static let focusRingWidth: CGFloat = 2
 
     /// Somebody has the field, so it shows the string they are editing rather than a split of it.
-    private var isEditing: Bool { addressFocus.wrappedValue }
+    private var isEditing: Bool { addressFocus?.wrappedValue == true }
 
     /// How the address is drawn when nobody is typing into it. The rule is in the core, because
     /// which run of the string is the host is the one thing here that can be got dangerously
@@ -164,8 +173,34 @@ struct BrowserToolbarView: View {
                 }
             }
             .disabled(isReviewing)
+            if toolbar.surface.hasPageCapture { captureGroup }
+            // The pair that hands this page to something outside Bloom. The address is the one on
+            // screen, so a page navigated away from its starting URL opens where it now is. On a
+            // machine there is one of the two: see `BrowserToolbar.Surface.hasSystemSharing`.
             actionGroup {
-                pageAction(toolbar.screenshot, action: capture)
+                pageAction(toolbar.openInDefaultBrowser) {
+                    openExternally()
+                }
+                if toolbar.surface.hasSystemSharing {
+                    Hairline(axis: .vertical)
+                    BrowserShareButton(
+                        control: toolbar.share,
+                        shareable: toolbar.shareable,
+                        opticalOffsetY: -0.5
+                    )
+                    .frame(width: pageActionWidth, height: Metrics.controlHeight)
+                }
+            }
+        }
+    }
+
+    /// The camera and the area comment, which are the two controls that end in an attachment on
+    /// the composer's draft. A machine's pane has the first and not yet the second: see
+    /// `BrowserToolbar.Surface`.
+    private var captureGroup: some View {
+        actionGroup {
+            pageAction(toolbar.screenshot, action: capture)
+            if toolbar.surface.hasRegionComment {
                 Hairline(axis: .vertical)
                 // The style goes on the label, as in `BrowserToolbarButton`. Set on the button,
                 // `.accessoryBar` read it as the primary level and drew the glyph a level below,
@@ -180,21 +215,15 @@ struct BrowserToolbarView: View {
                 .disabled(!isCommentEnabled)
                 .help(isReviewing ? "Finish reviewing this page" : "Drag over part of this page to leave a comment")
             }
-            // The pair that hands this page to something outside Bloom. The address is the one on
-            // screen, so a page navigated away from its starting URL opens where it now is.
-            actionGroup {
-                pageAction(toolbar.openInDefaultBrowser) {
-                    if let url = toolbar.externalURL { NSWorkspace.shared.open(url) }
-                }
-                Hairline(axis: .vertical)
-                BrowserShareButton(
-                    control: toolbar.share,
-                    shareable: toolbar.shareable,
-                    opticalOffsetY: -0.5
-                )
-                .frame(width: pageActionWidth, height: Metrics.controlHeight)
-            }
         }
+    }
+
+    private func openExternally() {
+        if let openInBrowser {
+            openInBrowser()
+            return
+        }
+        if let url = toolbar.externalURL { NSWorkspace.shared.open(url) }
     }
 
     private var isCommentEnabled: Bool {
@@ -248,20 +277,27 @@ struct BrowserToolbarView: View {
     /// everything AppKit does for it: a click lands on the label, so focus has to be set by hand,
     /// and with it go caret placement, drag selection and select-all on focus. Hidden text with a
     /// label over it keeps all of that, because what is clicked is still the field.
+    @ViewBuilder
     private var field: some View {
-        ZStack(alignment: .leading) {
-            TextField("Address", text: $address)
-                .textFieldStyle(.plain)
-                .font(Typo.label)
-                .focused(addressFocus)
-                .autocorrectionDisabled()
-                .foregroundStyle(isEditing ? Palette.textPrimary : .clear)
-                .onSubmit(submit)
+        if let addressFocus {
+            ZStack(alignment: .leading) {
+                TextField("Address", text: $address)
+                    .textFieldStyle(.plain)
+                    .font(Typo.label)
+                    .focused(addressFocus)
+                    .autocorrectionDisabled()
+                    .foregroundStyle(isEditing ? Palette.textPrimary : .clear)
+                    .onSubmit(submit)
 
-            // Nothing over an empty field, so the placeholder is the one AppKit draws.
-            if !isEditing, !display.isEmpty {
-                addressLabel.allowsHitTesting(false)
+                // Nothing over an empty field, so the placeholder is the one AppKit draws.
+                if !isEditing, !display.isEmpty {
+                    addressLabel.allowsHitTesting(false)
+                }
             }
+        } else {
+            // The label on its own, in the same capsule, at the same size. Nothing of AppKit's
+            // field is wanted here, because there is nothing to place a caret in.
+            addressLabel.allowsHitTesting(false)
         }
     }
 

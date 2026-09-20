@@ -23,6 +23,9 @@ import BloomCore
 /// nobody has sent it. See `Delivery`.
 struct PendingTurnRowView: View {
     var delivery: Delivery
+    /// The account doing the reading, so a queued message of the reader's own is known to be
+    /// theirs. Nil for every local queue, which has one person at it. See `MessageAuthorship`.
+    var reader: String?
     /// Where attachment paths resolve and which workspace opens when a pill is clicked.
     var home: TranscriptHome = .init()
     /// The sentence saying why the queue is waiting, under the last bubble in it and nowhere else.
@@ -86,14 +89,24 @@ struct PendingTurnRowView: View {
     /// the border is a border rather than a piece of text.
     private static let dots = StrokeStyle(lineWidth: Metrics.outline, dash: [2, 3])
 
+    /// Which side this one waits on, by the same rule the sent bubble follows: yours on the right,
+    /// anybody else's on the left. A queued message is the same message a moment earlier, so it
+    /// cannot be on the other side of the transcript from the one it becomes.
+    private var side: HorizontalEdge {
+        MessageAuthorship.isFromSomebodyElse(author: delivery.author?.userID, reader: reader)
+            ? .leading : .trailing
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            Spacer(minLength: Self.inset)
+            if side == .trailing { Spacer(minLength: Self.inset) }
 
-            VStack(alignment: .trailing, spacing: TranscriptLayout.tight) {
+            VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
                 if delivery.deliveredSeq == nil { bubble }
                 caption
             }
+
+            if side == .leading { Spacer(minLength: Self.inset) }
         }
         .padding(.horizontal, TranscriptLayout.inset)
         .padding(.vertical, TranscriptLayout.inset)
@@ -176,9 +189,9 @@ struct PendingTurnRowView: View {
             .padding(Self.padding)
         }
         .padding(.bottom, OutgoingBubbleShape.tailDrop)
-        .background(Palette.surfaceRaised, in: OutgoingBubbleShape(cornerRadius: Self.corner))
+        .background(Palette.surfaceRaised, in: OutgoingBubbleShape(cornerRadius: Self.corner, tail: side))
         .overlay {
-            OutgoingBubbleShape(cornerRadius: Self.corner)
+            OutgoingBubbleShape(cornerRadius: Self.corner, tail: side)
                 .strokeBorder(Palette.textTertiary, style: Self.dots)
         }
     }
@@ -270,6 +283,17 @@ struct PendingTurnRowView: View {
     @ViewBuilder
     private var caption: some View {
         HStack(spacing: Metrics.gutter) {
+            // Somebody else's message waiting in a shared Cloud workspace's queue.
+            //
+            // **Asked of the account, not of the presence of an author.** A queued prompt comes
+            // back from the machine carrying whoever wrote it, the reader included, so "it has an
+            // author, so it is somebody else's" put the reader's own name over the reader's own
+            // waiting message. See `MessageAuthorship`, which is the one place this is decided.
+            if MessageAuthorship.isFromSomebodyElse(author: delivery.author?.userID, reader: reader),
+               let name = delivery.author?.name, !name.isEmpty {
+                Text(name)
+                    .foregroundStyle(Palette.textSecondary)
+            }
             if let sentence = holdSentence {
                 Text(sentence)
                     .foregroundStyle(Palette.textTertiary)
@@ -324,7 +348,7 @@ struct PendingTurnRowView: View {
             // Offered only for a message the composer could be handed back as text, which is
             // `PendingMessageEdit.canEdit`: a disabled item with no explanation says less than no
             // item at all.
-            if PendingMessageEdit.canEdit(delivery) {
+            if PendingMessageEdit.canEdit(delivery, reader: reader) {
                 Button("Edit", systemImage: "pencil", action: onEdit)
                     .help("Takes this message back into the composer to change it.")
             }

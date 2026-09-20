@@ -92,6 +92,12 @@ core suite has stayed green while `Sources/Bloom` was broken, four times, every 
 widened enum leaving a switch in a view non-exhaustive. Run `make build` before committing
 anything that adds a case to an enum.
 
+**And a green `swift build` here is not the build that gates the merge.** `.github/workflows/test.yml`
+compiles the app target with `-warnings-as-errors`, which `Package.swift` deliberately does not
+carry, so a warning that is a line of yellow on this Mac is a failed job there and a round trip you
+have already paid for. Run `swift build -Xswiftc -warnings-as-errors` before pushing; the last one
+to catch somebody was a `var` that is never mutated, which the local build says nothing about.
+
 Zero warnings, and `make lint` green, before anything is committed.
 
 **`make lint` and `make swiftlint` are two different linters and both have to pass.**

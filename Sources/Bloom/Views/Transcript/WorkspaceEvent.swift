@@ -1,5 +1,6 @@
-import SwiftUI
+import BloomClient
 import BloomCore
+import SwiftUI
 
 /// Something Bloom itself did to a workspace, as the transcript shows it.
 ///
@@ -155,8 +156,17 @@ struct WorkspaceEvent: Identifiable, Equatable {
             )
 
         case .succeeded:
-            guard !log.isEmpty else { return nil }
-            let lines = LogTail.lineCount(log)
+            // Nothing a reader would see is nothing, however many bytes it is: see
+            // `LogTail.hasSomethingToShow`, which was written for a finished setup that drew a
+            // chevron over five blank lines.
+            guard LogTail.hasSomethingToShow(log) else { return nil }
+            // **What the project printed, not what Bloom said about it.** A machine writes a
+            // heading per setup step and a sentence for the outcome, all marked `[bloom] `, and
+            // counting those told a reader their setup script had printed a dozen lines it never
+            // wrote. A local log has no such lines, so nothing is taken off one but its blank
+            // ones, which a count should not have been promising either: it is a promise about
+            // what opening the disclosure shows, and a blank line shows nothing.
+            let lines = SetupLogVoice.outputLines(in: log)
             return WorkspaceEvent(
                 id: "setup", kind: .setup, outcome: .succeeded,
                 title: "Setup finished",

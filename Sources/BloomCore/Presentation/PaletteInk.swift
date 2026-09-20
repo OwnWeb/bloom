@@ -48,6 +48,26 @@ public enum PaletteInk {
     public static let running = Pair(light: 0x006BC2, dark: 0x70B5FF)
     public static let merged = Pair(light: 0x8250DF, dark: 0xAA7BF8)
     public static let mergedFill = Pair(light: 0x8250DF, dark: 0x8250DF)
+    /// A message somebody else in a shared Cloud workspace sent, as the fill of their bubble.
+    ///
+    /// **The colour is the fix; the name above it is the improvement.** The owner watched a
+    /// teammate say "hey" in a workspace he was sharing, read it as his own message, and had to
+    /// work out where it had come from: both bubbles were `accentFill`, and a name in small grey
+    /// type is not what stops that. So somebody else's turn is a different fill, and the two have
+    /// to be as far apart as two fills in this app ever need to be.
+    ///
+    /// **Measured against this app's own bar rather than chosen.** `PaletteContrastTests` already
+    /// holds one for "two fills a reader must never confuse": the distance between `warning` and
+    /// `negative`, which is 27.9 in light and 28.8 in dark. The first green tried here, `#197551`,
+    /// is `accentFill` with the blue pulled out of it and came to 27.3, **just under the bar**,
+    /// which is exactly the sort of near miss that gets nudged back later by somebody reading a
+    /// hex and not a reason. `#1E7B4D` is 30.3 from `accentFill` and carries white at 5.26 to 1,
+    /// so it clears both floors with room.
+    ///
+    /// One value in both appearances, for the reason `accentFill` and `mergedFill` are: a fill
+    /// exists to carry light text, and that is a different question from whether the same hue
+    /// works as ink on a page.
+    public static let teammateFill = Pair(light: 0x1E7B4D, dark: 0x1E7B4D)
     public static let diffPositive = Pair(light: 0x28CD41, dark: 0x30D158)
     public static let synKeyword = Pair(light: 0x9B2393, dark: 0xD08EE0)
     public static let synType = Pair(light: 0x0B7285, dark: 0x5BC8DB)

@@ -1,4 +1,5 @@
 import SwiftUI
+import BloomClient
 import BloomCore
 
 /// The left column: where you can go, every project with its workspaces, and a status bar that
@@ -23,6 +24,7 @@ import BloomCore
 /// custom label away and draws only the indicator, which is why it rendered as a lone letter.
 struct SidebarView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.isSidebarFolded) private var isSidebarFolded
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The window's undo manager. Only a view can see it, and `AppModel` is where the archive
@@ -46,6 +48,9 @@ struct SidebarView: View {
     /// Which shape the pane is in: projects with their workspaces, or sections by what each
     /// workspace needs. A preference for the same reason hiding a project is one, and the status
     /// bar binds the same key so the two cannot disagree. See `SidebarGrouping`.
+    /// Whether Bloom Cloud is in the sidebar at all. Off from the signed-out card's dismiss button,
+    /// back on from Settings, under Bloom Cloud, or by signing in. See `CloudSidebarPresence`.
+    @AppStorage(CloudSidebarPresence.settingKey) private var showsBloomCloud = true
     @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.status.rawValue
 
     /// The sections the owner has folded away. Only Idle can be one. Window state rather than a
@@ -167,6 +172,13 @@ struct SidebarView: View {
                 }
             } else {
                 Section { paneRowsList }
+            }
+            switch CloudSidebarPresence.decide(
+                isSignedIn: app.cloud.isSignedIn, isShown: showsBloomCloud
+            ) {
+            case .list: cloudSection
+            case .signInCard: cloudSignInCard
+            case .hidden: EmptyView()
             }
         }
         // The native list owns row height, keyboard navigation and which row is selected. How the
@@ -871,6 +883,83 @@ struct SidebarView: View {
             listHasKeyboard: listHasKeyboard,
             windowIsKey: windowIsKey
         )
+    }
+
+    // MARK: - Cloud workspaces
+
+    /// Signed out, one card and no heading. See `CloudSidebarCard` and `CloudSidebarPresence`.
+    private var cloudSignInCard: some View {
+        Section {
+            CloudSidebarCard(
+                isSigningIn: app.cloud.accountState == .signingIn,
+                signIn: { Task { await app.cloud.beginSignIn() } },
+                cancelSignIn: { app.cloud.signIn.cancelSignIn() },
+                dismiss: { showsBloomCloud = false }
+            )
+            .padding(.top, Metrics.spacing)
+            .selectionDisabled()
+            .moveDisabled(true)
+        }
+    }
+
+    /// Cloud workspaces, below the projects, only while a Bloom account is signed in.
+    ///
+    /// A section of their own rather than rows among a project's, because a Cloud workspace belongs
+    /// to a runbloom.app project and a team, not to a folder on this Mac, and because the one thing
+    /// the pane's drag moves is the order of this Mac's own rows. Newest first, as runbloom.app
+    /// lists them.
+    private var cloudSection: some View {
+        Section {
+            ForEach(app.cloud.items) { item in
+                let target = SidebarSelection.cloud(CloudWorkspaceID(item.id))
+                CloudWorkspaceRow(item: item, isSelected: listSelection == target) {
+                    app.selection = target
+                    app.cloud.askToArchive(CloudWorkspaceID(item.id), from: .row)
+                }
+                    // Indented to the section header's name the way a local workspace is indented
+                    // to its project's, in the shape where the local rows are indented at all, so
+                    // the marks and names of both sections stand in the same two columns.
+                    .padding(.leading, grouping == .projects ? SidebarMetrics.rowIndent : 0)
+                    .tag(target)
+                    .sidebarSelection(selectionStyle(for: target))
+                    .selectionDisabled(!item.canOpen)
+                    .moveDisabled(true)
+                    .contextMenu { CloudWorkspaceMenuItems(item: item) }
+            }
+            if let problem = app.cloud.listProblem {
+                Text(problem)
+                    .font(.caption)
+                    .foregroundStyle(Palette.textTertiary)
+                    .lineLimit(3)
+                    .selectionDisabled()
+            } else if app.cloud.items.isEmpty {
+                if app.cloud.emptyState.action == .createWorkspace {
+                    // Everything is in place and there is simply nothing yet, which is what an
+                    // empty project says, in the same quiet line: the header's `+` makes one, so
+                    // the notice needs no second button.
+                    SidebarEmptyNoticeRow(isFiltered: false)
+                        .selectionDisabled()
+                        .moveDisabled(true)
+                } else {
+                    // Something is in the way, signing in or finishing setup on runbloom.app, which
+                    // an empty project never has. So the section says what is true and carries the
+                    // one thing to do next. See `CloudEmptyState`.
+                    CloudEmptyStateView(state: app.cloud.emptyState, isCompact: true)
+                        .selectionDisabled()
+                        .moveDisabled(true)
+                }
+            }
+        } header: {
+            // The heading alone, at the owner's asking: "we don't need that small + there". A
+            // project's `+` earns its place because a project is the thing a workspace is made in
+            // and there is one per row; this section has one heading for the whole of Cloud, and
+            // the two doors it duplicated are both still open. The dock's New menu offers New Cloud
+            // Workspace beside New Workspace, the File menu carries the same item, and the section's
+            // own empty state has the button while there is nothing in it.
+            Text("Bloom Cloud workspaces")
+                .bold()
+                .accessibilityAddTraits(.isHeader)
+        }
     }
 
     // MARK: - Empty

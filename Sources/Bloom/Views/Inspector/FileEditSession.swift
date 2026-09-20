@@ -65,7 +65,9 @@ final class FileEditSession {
     /// exists to avoid, and finding out whether the file moved on underneath is the save's job,
     /// where there is a user to tell about it. A clean draft is only a cached read, so it is
     /// re-read instead, which is how reopening a file shows what the agent did to it since.
-    func load(path absolutePath: String) async {
+    /// - Parameter files: where the bytes come from, which is this Mac's disk for a worktree and
+    ///   the connection for a Cloud workspace. See `EditableFiles`.
+    func load(path absolutePath: String, from files: any EditableFiles = DiskFiles()) async {
         guard drafts[absolutePath]?.isDirty != true, !saving.contains(absolutePath) else { return }
         // Only the first read shows a spinner. Re-reading a clean draft has something to display
         // the whole time, and flashing the pane empty for it would read as a glitch.
@@ -73,9 +75,7 @@ final class FileEditSession {
 
         let operation = UUID()
         operations[absolutePath] = operation
-        let outcome = await Task.detached(priority: .userInitiated) {
-            Self.reading(absolutePath)
-        }.value
+        let outcome = await files.read(absolutePath)
         guard !Task.isCancelled, operations[absolutePath] == operation,
               drafts[absolutePath]?.isDirty != true, !saving.contains(absolutePath) else { return }
 
@@ -94,7 +94,7 @@ final class FileEditSession {
     /// contents no longer match what this draft was loaded from. That is the case the agent
     /// causes: it edited the same file while the user was typing, and overwriting it would throw
     /// away work nobody has seen.
-    func save(path absolutePath: String) async {
+    func save(path absolutePath: String, to files: any EditableFiles = DiskFiles()) async {
         guard let draft = drafts[absolutePath], draft.isDirty, !saving.contains(absolutePath) else { return }
         saving.insert(absolutePath)
         defer { saving.remove(absolutePath) }
@@ -103,9 +103,7 @@ final class FileEditSession {
 
         let text = draft.text
         let baseline = draft.baseline
-        let outcome = await Task.detached(priority: .userInitiated) {
-            Self.writing(text, over: baseline)
-        }.value
+        let outcome = await files.write(text, over: baseline)
         guard operations[absolutePath] == operation else { return }
 
         switch outcome {
@@ -121,11 +119,11 @@ final class FileEditSession {
         }
     }
 
-    func refresh(path: String) async {
+    func refresh(path: String, from files: any EditableFiles = DiskFiles()) async {
         guard let baseline = drafts[path]?.baseline, !saving.contains(path) else { return }
         let operation = UUID()
         operations[path] = operation
-        let outcome = await Task.detached(priority: .utility) { Self.reading(path) }.value
+        let outcome = await files.read(path)
         guard !Task.isCancelled, operations[path] == operation, !saving.contains(path),
               let current = drafts[path], current.baseline == baseline else { return }
         switch outcome {
@@ -142,21 +140,21 @@ final class FileEditSession {
         }
     }
 
-    func keepDraftOverDisk(path: String) async {
+    func keepDraftOverDisk(path: String, to files: any EditableFiles = DiskFiles()) async {
         guard let disk = diskVersions[path], var draft = drafts[path], !saving.contains(path) else { return }
         draft.baseline = disk
         drafts[path] = draft
-        await save(path: path)
+        await save(path: path, to: files)
     }
 
     /// Throw the draft away and read the file again. Only ever called from an explicit button,
     /// and only after the user has been told what it costs.
-    func reload(path absolutePath: String) async {
+    func reload(path absolutePath: String, from files: any EditableFiles = DiskFiles()) async {
         guard !saving.contains(absolutePath) else { return }
         diskVersions[absolutePath] = nil
         drafts[absolutePath] = nil
         status[absolutePath] = .idle
-        await load(path: absolutePath)
+        await load(path: absolutePath, from: files)
     }
 
     /// Forget a file entirely, for when the file itself is about to stop existing.
@@ -167,21 +165,8 @@ final class FileEditSession {
         status[absolutePath] = nil
     }
 
-    /// Typed throws do not survive being caught inside a `Task.detached` closure, so the two
-    /// calls that cross that boundary are wrapped here where the thrown type is still known.
-    nonisolated private static func reading(_ path: String) -> Result<EditableFile, FileEditorError> {
-        do { return .success(try FileEditor.read(path)) } catch { return .failure(error) }
-    }
-
-    nonisolated private static func writing(
-        _ text: String, over baseline: EditableFile
-    ) -> Result<EditableFile, FileEditorError> {
-        do {
-            return .success(try FileEditor.write(text, over: baseline))
-        } catch {
-            return .failure(error)
-        }
-    }
+    // Typed throws do not survive being caught inside a `Task.detached` closure, which is why the
+    // two calls that cross that boundary are wrapped in `DiskFiles` rather than here.
 
     private static func message(for error: FileEditorError) -> String {
         error.errorDescription ?? "\(error)"

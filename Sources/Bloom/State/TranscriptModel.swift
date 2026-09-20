@@ -1,6 +1,8 @@
 import SwiftUI
 import Observation
 import BloomCore
+import BloomClient
+import BloomProtocol
 
 /// One renderable row in a transcript.
 ///
@@ -40,6 +42,22 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
     /// What the transcript should say about how it was settled, when that is not obvious. Only
     /// ever set for a question a rule answered rather than a person.
     var permissionNote = ""
+    /// Who wrote a user row in a Cloud workspace, when it was somebody other than the reader. Nil
+    /// everywhere else, which is every local row: a Mac has one person at it.
+    ///
+    /// The name may be empty where the account has none, and an empty label is drawn as no label:
+    /// see `UserTurnRowView`. The colour of the bubble does not depend on it, which is what stops
+    /// a nameless teammate from being read as yourself.
+    var authorName: String?
+    /// Which account that was, for telling one run of messages from the next. The name would
+    /// nearly always do and is the wrong key: two people called Freek are two people.
+    var authorID: String?
+    /// Who the message was addressed to, which in a shared Cloud workspace is a different question
+    /// from who sent it. Nil for the agent, which is every local row. See `MessageAuthorship`.
+    var audience: MessageAudience?
+    /// Which agent wrote it on its author's behalf, when one did. Only a Cloud row has one. See
+    /// `MessageAuthorship.caption(_:via:)`.
+    var via: MessageVia?
 
     init(message: Message) {
         id = message.id
@@ -49,6 +67,10 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
         createdAt = message.createdAt
         durationMS = message.durationMS
         refID = message.refID
+        authorName = message.author?.name
+        authorID = message.author?.userID
+        audience = message.audience
+        via = message.via
     }
 
     /// This row in the only terms `TranscriptFold` cares about.
@@ -61,7 +83,10 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
     ///   - seq: the identity the fold names a run by. The row's own `seq` for a stored row; the
     ///     subagent pane passes its payload derived id, because its positions move on a re-read.
     ///   - isFresh: a tool call made moments ago. Only the live chat knows, so it is handed in.
-    nonisolated func foldFact(seq: Int? = nil, isFresh: Bool = false) -> TranscriptFold.Fact {
+    ///   - picturesFromCalls: whether a `media_show` call is itself the picture, which it is where
+    ///     the file is on this Mac. A Bloom Cloud machine writes a `media` row for the picture, and
+    ///     its call is then ordinary work to fold. See `TranscriptHome.drawsMediaFromCalls`.
+    nonisolated func foldFact(seq: Int? = nil, isFresh: Bool = false, picturesFromCalls: Bool = true) -> TranscriptFold.Fact {
         let settled: Bool
         switch kind {
         case .toolUse: settled = resultPayload != nil
@@ -73,7 +98,10 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
             kind: kind,
             failed: isError || refusal != nil,
             featured: isQuestion
-                || MediaShowRow.isCall(payload) || CodexImageViewRow.isCall(payload),
+                || kind == .media
+                || (picturesFromCalls && (MediaShowRow.isCall(payload) || CodexImageViewRow.isCall(payload)))
+                || (kind == .toolUse && WorkspaceSayRow.isCall(payload))
+                || TranscriptRowInk.isSessionStart(kind: kind, payload: payload),
             drawsNothing: TranscriptNoise.isHidden(self)
                 || TranscriptRowInk.drawsNothing(kind: kind, payload: payload),
             settled: settled,
@@ -108,22 +136,51 @@ final class TranscriptModel {
     let history = TranscriptHistory()
     /// The workspace as it was when this model was made, or nil for a chat that is in none.
     ///
-    /// **Nil is Ask Bloom and nothing else today.** Its id and path are stable and are what most
-    /// of the file needs; its name is not, and anything said out loud reads `workspaceNow`. Every
-    /// reader of this is a thing a worktree has and this chat does not: an inspector, a diff, an
-    /// unread mark, a notification that names a place. Each of them now says nothing rather than
-    /// saying it about a workspace that was invented to keep the type non-optional.
+    /// **Nil is a chat with no worktree on this Mac: Ask Bloom, and a chat in a Cloud workspace.**
+    /// A workspace's id and path are stable and are what most of the file needs; its name is not,
+    /// and anything said out loud reads `workspaceNow`. Every reader of this is a thing a worktree
+    /// has and these chats do not: an inspector, a diff, an unread mark, a notification that names
+    /// a place, and the setup row at the head of the transcript, which is why a Cloud workspace's
+    /// setup is its own tab and its own banner rather than a row in a conversation. Each of them
+    /// says nothing rather than saying it about a workspace invented to keep the type non-optional.
     let workspace: Workspace?
     /// Where this chat's agent runs: its worktree, or the directory retained by its Ask tab.
     /// New Ask conversations use the folder chosen in Settings, with Bloom's own folder as fallback.
     let cwd: String
     private unowned let app: AppModel
+    /// The machine this chat lives on, for a chat in a Cloud workspace, and nil for every other.
+    ///
+    /// **A Cloud chat has no store.** Its rows, queue and questions are the machine's, and they
+    /// arrive through `receiveCloud`; `store` below answers nil for it, which is what switches off
+    /// every local read and write in this file without a branch at each one. What it does have is
+    /// a handful of verbs that go to the machine instead: see the Cloud section at the foot.
+    let cloud: CloudChatLink?
+
+    /// What this workspace calls each account a message may have been addressed to, by id, for the
+    /// caption over a bubble. Empty for a local chat, which has nobody to address.
+    ///
+    /// **The reader is "you"**, and is in here rather than left out the way the composer's menu
+    /// leaves them out: a menu offering to address yourself has a row nobody will pick, but a
+    /// message somebody else addressed TO you is the one the caption is most worth drawing for.
+    /// See `MessageAuthorship.addressee`.
+    var addresseeNames: [String: String] {
+        guard let cloud else { return [:] }
+        var names = Dictionary(
+            uniqueKeysWithValues: cloud.people.map { ($0.id.rawValue, $0.name) }
+        )
+        if let reader = cloud.readerID { names[reader] = "you" }
+        return names
+    }
 
     /// Where this conversation's file paths point, and which workspace a file chip opens into.
     /// One value rather than the whole workspace, because those two fields are all a row has ever
     /// read off it. See `TranscriptHome`.
     var home: TranscriptHome {
-        TranscriptHome(workspaceID: workspace?.id, worktree: cwd)
+        TranscriptHome(
+            workspaceID: workspace?.id,
+            surfaceID: workspace.map { .local($0.id) } ?? cloud?.workspaceID.map { .cloud($0) },
+            worktree: cwd
+        )
     }
 
     /// The row as the app holds it now. The snapshot above goes stale the moment automatic
@@ -147,9 +204,11 @@ final class TranscriptModel {
     /// Each belongs to this session, including when its pane is displaying another workspace.
     func presentationFolds() -> TranscriptFold.Folds {
         let freshCalls = freshCalls
+        let picturesFromCalls = cloud == nil
         return foldCache.resolve(rows.lazy.map { row in
             row.foldFact(
-                isFresh: row.kind == .toolUse && row.refID.map(freshCalls.contains) == true
+                isFresh: row.kind == .toolUse && row.refID.map(freshCalls.contains) == true,
+                picturesFromCalls: picturesFromCalls
             )
         })
     }
@@ -316,6 +375,17 @@ final class TranscriptModel {
     /// when a turn ends sends it. Cleared there, and wherever the chat stops expecting a result.
     private var steering: Delivery?
 
+    /// Who the next message in this chat goes to, until a mention changes it.
+    ///
+    /// **The composer's, not the conversation's.** Two people in one Cloud workspace can be
+    /// addressing different people at the same moment, so a chat-level field would move the second
+    /// one's box under them. It is per chat rather than per window because "who I was last talking
+    /// to" is a fact about this conversation, and it is in memory rather than on disk because a
+    /// relaunch is a fresh start at the agent, which is the safe direction: a mode that outlived a
+    /// restart would send somebody's first message of the morning to a person they had forgotten
+    /// they were talking to. See `MentionAddress`.
+    var audience: ComposerAudience = .agent
+
     /// Whether the chat above this one has already been told that this turn ended.
     ///
     /// A turn has two endings that report, `.error` and `.result`, and they are not alternatives:
@@ -402,6 +472,7 @@ final class TranscriptModel {
         self.workspace = workspace
         self.cwd = workspace.path
         self.app = app
+        cloud = nil
         history.report = { [unowned app] in app.notice = BloomNotice(message: $0) }
     }
 
@@ -415,10 +486,58 @@ final class TranscriptModel {
         self.workspace = nil
         self.cwd = directory
         self.app = app
+        cloud = nil
         history.report = { [unowned app] in app.notice = BloomNotice(message: $0) }
     }
 
-    private var store: Store? { app.store }
+    /// A chat in a Cloud workspace, which lives on its machine. See `cloud`.
+    init(cloudChat session: Session, link: CloudChatLink, app: AppModel) {
+        self.session = session
+        self.workspace = nil
+        // No worktree on this Mac. A file chip in a Cloud row names a path on the machine, which
+        // an empty home leaves unresolved rather than pointing at whatever this Mac has there.
+        self.cwd = ""
+        self.app = app
+        cloud = link
+        isLoaded = true
+    }
+
+    private var store: Store? { cloud == nil ? app.store : nil }
+
+    /// Where an unsent draft is kept, which is **this Mac's database for both kinds of chat**.
+    ///
+    /// `store` above is nil for a Cloud chat on purpose: its rows, its queue and its questions are
+    /// the machine's, and every local read and write switches off without a branch at each one. **A
+    /// draft is the exception, because it is not the machine's.** It is what this person has typed
+    /// and not sent, on this Mac, and nobody else has any business seeing it; the same argument
+    /// that keeps a Cloud attachment staged here until the turn takes it.
+    ///
+    /// It was nil for a Cloud chat as well until now, so `saveDraft` returned at its first line
+    /// and half-written messages died with the launch.
+    ///
+    /// The `drafts` table is keyed by session id and holds no reference to anything, so a Cloud
+    /// chat's id sits in it beside a local session's without either knowing. Both are ids nothing
+    /// else mints.
+    private var draftStore: Store? { app.store }
+
+    /// Whether the saved draft has been looked for, so a chat opened, left and come back to does
+    /// not read it again over what has since been typed.
+    @ObservationIgnored private var hasReadDraft = false
+
+    /// Reads a Cloud chat's saved draft, once per launch.
+    ///
+    /// A local chat reads its own in `load()`, which a Cloud transcript never runs: it arrives
+    /// already loaded, because its rows come from the machine rather than from a read. So this is
+    /// called from the composer's own preparation, which is the moment a chat comes on screen.
+    ///
+    /// **It never writes over what is in the box.** The task that calls it runs when the chat is
+    /// shown, which is also true of a chat somebody has already typed into and switched away from.
+    func loadCloudDraft() async {
+        guard cloud != nil, !hasReadDraft, let store = draftStore else { return }
+        hasReadDraft = true
+        guard draft.isEmpty, let saved = try? await store.draft(sessionID: session.id), !saved.isEmpty else { return }
+        draft = saved
+    }
 
     // MARK: - Loading
 
@@ -616,6 +735,13 @@ final class TranscriptModel {
     }
 
     func markAllRead() async {
+        if let cloud {
+            guard let last = rows.last?.seq, last != session.lastReadSeq else { return }
+            // Moved only once the machine took it, so a mark made while the workspace could not be
+            // reached is made again next time rather than lost.
+            if await cloud.markRead(seq: last) { session.lastReadSeq = last }
+            return
+        }
         guard let store, let last = rows.last?.seq, last != session.lastReadSeq else { return }
         session.lastReadSeq = last
         try? await store.updateLastReadSeq(sessionID: session.id, seq: last)
@@ -647,6 +773,13 @@ final class TranscriptModel {
         implementationMode: PermissionMode? = nil,
         agentKind: AgentKind? = nil
     ) async {
+        if let cloud {
+            await updateCloudPreferences(
+                through: cloud, model: model, effort: effort, permissionMode: permissionMode,
+                interactionMode: interactionMode, agentKind: agentKind
+            )
+            return
+        }
         guard let store else { return }
         try? await store.updateSessionPreferences(
             id: session.id,
@@ -706,6 +839,7 @@ final class TranscriptModel {
             return false
         }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let cloud { return await submitToCloud(body, through: cloud, sourceDraft: sourceDraft) }
         guard !body.isEmpty, let store else { return false }
 
         // Review payloads expand compact chips into comments. Clear the source draft, while
@@ -801,6 +935,7 @@ final class TranscriptModel {
     /// question the moment a running turn stopped holding the queue on two of the four backends:
     /// the tooltip went on offering to queue a message that was about to go straight out.
     var queuesNextMessage: Bool {
+        if cloud != nil { return isRunning || isAwaitingPermission || !pendingDeliveries.isEmpty }
         if history.isCapturing || history.isFinalisingTurn || (history.hasActiveTurn && !isRunning) { return true }
         if isRunning, session.interactionMode != activeInteractionMode { return true }
         return !Delivery.goesImmediately(
@@ -814,6 +949,12 @@ final class TranscriptModel {
     /// business knowing, and because a caption that disagrees with the drain is the one thing this
     /// queue may not do: both read `DeliveryHold`. See `DeliveryHold.sentence(on:)`.
     var holdSentence: String? {
+        if cloud != nil {
+            return CloudQueueCaption.sentence(
+                first: pendingDeliveries.first, isRunning: isRunning, isAwaitingAnswer: isAwaitingPermission,
+                queueError: cloudQueueError, isSettingUp: cloud?.isSettingUp == true
+            )
+        }
         if history.isCapturing || history.isFinalisingTurn { return "Saving this turn's file changes." }
         if pendingDeliveries.first?.state == .uncertain {
             return "Bloom could not confirm delivery. Check the conversation before sending again."
@@ -923,8 +1064,16 @@ final class TranscriptModel {
     }
 
     /// Whether this delivery is at the front of an idle queue and can be attempted now.
+    ///
+    /// **Never for a Cloud chat, because there is nothing here to attempt it with.** Its queue is
+    /// the machine's, `drain` returns at its own `store != nil` guard, and `retryPending` calls
+    /// `drain`: the button was drawn on local-queue questions that happen to be true and then did
+    /// nothing at all when pressed. The owner met that under a prompt of his that had stopped
+    /// moving, which is the worst place for a control that cannot act. What the machine offers
+    /// instead belongs on the machine's own verbs, and the caption is where the reason goes.
     func canRetry(_ delivery: Delivery) -> Bool {
-        pendingDeliveries.first?.id == delivery.id
+        guard cloud == nil else { return false }
+        return pendingDeliveries.first?.id == delivery.id
             && dispatchingDeliveryID != delivery.id && drainState == .idle
             && deliveryHold.allowsDelivery(on: session.agentKind)
     }
@@ -964,6 +1113,10 @@ final class TranscriptModel {
     /// whether the sentence can go back into it.
     func confirmDiscard(_ delivery: Delivery) async {
         discarding = nil
+        if let cloud {
+            await cloud.cancelQueued(delivery.id)
+            return
+        }
         guard dispatchingDeliveryID != delivery.id else { return }
         guard let store else { return }
         let recovery = PendingMessageDiscard.recovery(of: delivery, composerDraft: draft)
@@ -998,7 +1151,21 @@ final class TranscriptModel {
     /// The join is worked out after the row is gone rather than before, so the words go in front
     /// of whatever the box holds by then rather than in front of what it held a round trip ago.
     func editPending(_ delivery: Delivery) async {
-        guard dispatchingDeliveryID != delivery.id, PendingMessageEdit.canEdit(delivery), let store else { return }
+        if let cloud {
+            // Only somebody's own message comes back into their composer. Anybody may remove a
+            // queued prompt, and the machine records who did, but nobody's words are typed into
+            // anybody else's box.
+            guard !MessageAuthorship.isFromSomebodyElse(
+                author: delivery.author?.userID, reader: cloud.readerID
+            ) else { return }
+            guard await cloud.cancelQueued(delivery.id) else { return }
+            draft = PendingMessageEdit.draft(taking: delivery, into: draft)
+            composerFocusRequests += 1
+            jumpToLiveEnd()
+            return
+        }
+        guard dispatchingDeliveryID != delivery.id,
+              PendingMessageEdit.canEdit(delivery, reader: cloud?.readerID), let store else { return }
         let removed = (try? await store.cancelDelivery(id: delivery.id)) ?? false
         await refreshQueue()
 
@@ -1029,7 +1196,7 @@ final class TranscriptModel {
     private func returnQueueToComposer() async {
         guard let store else { return }
         await refreshQueue()
-        let wanted = PendingMessageReturn.returning(from: pendingDeliveries)
+        let wanted = PendingMessageReturn.returning(from: pendingDeliveries, reader: cloud?.readerID)
         guard !wanted.isEmpty else { return }
 
         // One cancel each, and only what really left the queue reaches the box. A message that
@@ -1056,8 +1223,38 @@ final class TranscriptModel {
     }
 
     /// Whether this queued message may be sent in place of the turn that is running.
+    ///
+    /// Two rules rather than one, because the two queues are in different places. A local queue is
+    /// this app's and this Mac has one person at it; a Cloud chat's is the machine's, shared, and
+    /// drained by the machine in the order it arrived. What has to be true for a cancel, a stop and
+    /// a send to add up to a Steer at all is `CloudSteer`.
     func canSteer(_ delivery: Delivery) -> Bool {
-        DeliverySteer.canSteer(delivery, hold: deliveryHold, on: session.agentKind)
+        guard cloud == nil else {
+            return CloudSteer.canSteer(
+                isRunning: isRunning,
+                // The same rule the bubbles are coloured by, rather than "it carries no author":
+                // the machine sends the reader's own work back with their account on it, and the
+                // clearing where the queue is built is one account id away from not happening.
+                // See `MessageAuthorship.isFromSomebodyElse`.
+                promptIsReaders: !MessageAuthorship.isFromSomebodyElse(
+                    author: delivery.author?.userID, reader: cloud?.readerID
+                ) && delivery.crewMessage == nil,
+                runningTurnIsReaders: runningTurnIsReaders,
+                queued: pendingDeliveries.count
+            )
+        }
+        return DeliverySteer.canSteer(delivery, hold: deliveryHold, on: session.agentKind)
+    }
+
+    /// Whether the turn running now was started by this reader, which is what makes stopping it
+    /// theirs to do. Read off the last thing anybody said.
+    ///
+    /// **The account rather than the name**, which is what it used to ask. A teammate runbloom.app
+    /// has no name for carries an empty name and an account all the same, and reading the name
+    /// made their turn look like the reader's own and offered a Steer over it.
+    private var runningTurnIsReaders: Bool {
+        guard let last = rows.last(where: { $0.kind == .user }) else { return true }
+        return !MessageAuthorship.isFromSomebodyElse(author: last.authorID, reader: cloud?.readerID)
     }
 
     /// Stops the turn that is running and sends this queued message into the space it makes.
@@ -1067,10 +1264,37 @@ final class TranscriptModel {
     /// `DeliverySteer.queue(after:from:)`.
     func steer(_ delivery: Delivery) async {
         guard canSteer(delivery) else { return }
+        if let cloud { return await steerOnCloud(delivery, through: cloud) }
         // Booked rather than sent. See `steering` for why a send here would race the result of
         // the turn this is about to cancel.
         steering = delivery
         cancelTurn()
+    }
+
+    /// The same three words on a machine: take this message out of the queue, stop the turn, say it
+    /// again now.
+    ///
+    /// **The order is what makes it safe.** The cancel goes first, so a machine that will not take
+    /// the message back leaves the running turn alone and nothing has happened. The send goes last
+    /// and is not waited for: `CloudSteer` has already established that the queue held nothing but
+    /// this message, so a send that arrives while the turn is still dying is queued into an empty
+    /// queue and started the moment it ends, which is the whole of what Steer promises. Waiting for
+    /// the turn to die first would be a race with no benefit.
+    ///
+    /// A stop that fails is said and the message is still sent, because the queue it goes back into
+    /// is the queue it just left: nothing is lost, and the turn simply runs on.
+    private func steerOnCloud(_ delivery: Delivery, through cloud: CloudChatLink) async {
+        guard await cloud.cancelQueued(delivery.id) else {
+            app.alert = BloomAlert(
+                title: "That message was not sent early",
+                message: "The Bloom Cloud workspace would not take it back out of the queue, so the turn that is running was left alone."
+            )
+            return
+        }
+        await cloud.stop()
+        // Its files are on the machine already: this text came back from there, and the paths in it
+        // are the machine's. See `uploading`.
+        _ = await submitToCloud(delivery.body, through: cloud, sourceDraft: nil, uploadingFiles: false)
     }
 
     /// Hands over the message a Steer picked, once the turn it stopped has ended.
@@ -1253,7 +1477,7 @@ final class TranscriptModel {
     }
 
     func saveDraft() async {
-        guard let store else { return }
+        guard let store = draftStore else { return }
         try? await store.saveDraft(sessionID: session.id, body: draft)
     }
 
@@ -1317,6 +1541,14 @@ final class TranscriptModel {
     /// turn still emits its own result, and that event is what writes the final state back into the
     /// session row. Tearing the pump down here used to strand the session until the next launch.
     func stop() {
+        if let cloud {
+            // The machine's queue pauses and its turn stops; what the chat shows next comes back
+            // on the event stream. Nothing is handed back to the composer, because the queue may
+            // hold other people's messages.
+            statusLabel = nil
+            Task { await cloud.stop() }
+            return
+        }
         steering = nil
         cancelTurn()
 
@@ -1980,6 +2212,10 @@ final class TranscriptModel {
     /// buttons stop being pressable the moment one of them is, and a slow store cannot leave two
     /// answers on their way to the same question.
     func answer(requestID: String, decision: PermissionDecision) async {
+        if let cloud {
+            await answerOnCloud(requestID: requestID, decision: decision, through: cloud)
+            return
+        }
         if case .approvePlan = decision {
             // Saving the implementation mode can fail. Keep the card answerable until the
             // runner confirms it, rather than showing a settled plan above a blocked agent.
@@ -2267,6 +2503,328 @@ final class TranscriptModel {
         await app.archiveIfRequested(
             workspaceNow, endedIn: session.id, wasStopped: wasStoppedByHand
         )
+    }
+
+    // MARK: - Cloud
+
+    /// Why the machine's queue for this chat is paused, when it is. See `holdSentence`.
+    private(set) var cloudQueueError: String?
+    /// How many machine rows the list above was built from, so a page that arrives after its
+    /// events (and lands in the middle) is told apart from rows arriving at the end.
+    @ObservationIgnored private var cloudRowCount = 0
+    @ObservationIgnored private var cloudChatRecord: ChatRecord?
+    @ObservationIgnored private var cloudPendingQuestions: Set<String>?
+
+    /// Folds what the machine says about this chat into the model the transcript and the composer
+    /// draw: its rows, its streaming text, whether a turn is running, its questions and its queue.
+    ///
+    /// Rows arriving at the end are absorbed one by one, as a local turn's are. Anything else (a
+    /// history page landing under rows the stream already delivered) rebuilds the list, which is
+    /// the one read `read(from:)` would have done; it happens once per page, not per event.
+    /// **Nothing here decides whose a message is any more, and that is the point.**
+    ///
+    /// This used to clear the author of every row and every queued prompt whose account matched
+    /// the reader, so that "there is an author, so it is not mine" would come out right. It was a
+    /// layer implementing a contract that does not exist: `author` means "who wrote this row", and
+    /// one message record is encoded once and sent to every subscriber, so it structurally cannot
+    /// differ by reader. **A rule that is only correct because a different layer cleaned up first
+    /// is not a rule**, and this layer is how "the machine leaves your account on your own
+    /// messages" stayed invisible to the one person testing it. `MessageAuthorship` decides it now,
+    /// from the account, in the core where a test can reach it.
+    func receiveCloud(_ chat: CloudChatState, streaming: String, workspaceID: CloudWorkspaceID) {
+        guard cloud != nil else { return }
+        if let record = chat.chat, record != cloudChatRecord {
+            cloudChatRecord = record
+            var fresh = Session(cloudChat: record)
+            fresh.lastReadSeq = session.lastReadSeq
+            if fresh != session { session = fresh }
+        }
+
+        let pending = Set(chat.questions.map(\.requestID))
+        let messages = chat.messages
+        func converted(_ record: MessageRecord) -> Message {
+            Message(cloudMessage: record, id: CloudMessageIdentity.id(workspace: workspaceID, cursor: record.cursor))
+        }
+        // Rows only ever arrive at the end, unless a history page landed under rows the stream had
+        // already delivered. The row at the old count still being the newest one held says which,
+        // without walking the chat.
+        let appendsOnly = messages.count >= cloudRowCount
+            && (cloudRowCount == 0 ? highestSeenMessageSeq == -1 : messages[cloudRowCount - 1].seq == highestSeenMessageSeq)
+        let appended = messages.count != cloudRowCount
+        if appendsOnly {
+            let appendedFrom = rows.count
+            for record in messages.dropFirst(cloudRowCount) {
+                absorb(converted(record))
+                highestSeenMessageSeq = max(highestSeenMessageSeq, record.seq)
+            }
+            // **The context gauge, which never appeared on a Cloud chat.** `contextUsage` is only
+            // moved by `noteContextWindow`, and only the local read path called it: this one
+            // absorbed a machine's rows and never asked what they said about the window. Over what
+            // arrived rather than over the transcript, for the reason the local path gives.
+            noteContextWindow(in: rows[min(appendedFrom, rows.count)...])
+        } else {
+            var built: [TranscriptRow] = []
+            var index: [String: Int] = [:]
+            for record in messages {
+                Self.absorb(converted(record), decisions: [:], into: &built, indexByRefID: &index)
+            }
+            foldCache.reset()
+            questionIndex = PinnedQuestionIndex()
+            rows = built
+            indexByRefID = index
+            highestSeenMessageSeq = messages.last?.seq ?? -1
+            presentationRevision += 1
+            // A whole history read, so the reading is taken from the whole of it, as `load()` does
+            // for a local chat. Without this a page of history arriving under the stream would
+            // leave the gauge at whatever the newest few rows had said, or at nothing.
+            let reading = ContextWindowUsage.latest(in: built)
+            if reading != contextUsage { contextUsage = reading }
+        }
+        cloudRowCount = messages.count
+
+        // A question nobody is waiting on any more was answered, by this reader or somebody else.
+        // The reader's own answer is already on the row in their words; anybody else's reads as
+        // answered.
+        if appended || pending != cloudPendingQuestions {
+            cloudPendingQuestions = pending
+            for position in rows.indices where rows[position].kind == .permissionAsk && rows[position].permissionDecision == nil {
+                guard let ask = PermissionAsk.decode(payload: rows[position].payload), !pending.contains(ask.requestID) else { continue }
+                foldCache.invalidate(row: position)
+                rows[position].permissionDecision = PermissionDecision.answer(input: .null).storedName
+                presentationRevision += 1
+            }
+        }
+
+        receiveCloudStreaming(streaming)
+        setRunning(chat.isRunning)
+        setAwaitingPermission(!chat.questions.isEmpty)
+        if !chat.isRunning, statusLabel != nil { statusLabel = nil }
+
+        let queue = chat.queue.prompts.map { Delivery(cloudPrompt: $0, chatID: chat.id) }
+        if queue != pendingDeliveries { pendingDeliveries = queue }
+        if cloudQueueError != chat.queue.error { cloudQueueError = chat.queue.error }
+        if let echo = sending, queue.contains(where: { $0.body == echo.body }) || rows.last?.kind == .user {
+            // The machine has it now, as a queued prompt or as a row, so the echo retires.
+            sending = nil
+        }
+    }
+
+    /// Streaming text for a Cloud chat, on its own, because it arrives a few tokens at a time and
+    /// nothing else about the chat moves with it.
+    func receiveCloudStreaming(_ text: String) {
+        if streamingText != text { streamingText = text }
+    }
+
+    /// `submit`, for a chat whose queue is on its machine.
+    private func submitToCloud(
+        _ text: String, through cloud: CloudChatLink, sourceDraft: String?, uploadingFiles: Bool = true
+    ) async -> Bool {
+        guard !text.isEmpty else { return false }
+        let submittedDraft = SubmittedDraft.matching(current: draft, message: text, source: sourceDraft)
+        if submittedDraft != nil { draft = "" }
+
+        // The files go before the words do, because the words name where the files will be. A
+        // refusal puts the draft back exactly as a refused send does, which is the one behaviour
+        // this must share with the send below: somebody who attached a screenshot and got an
+        // apology has lost nothing but the press.
+        let body: String
+        switch uploadingFiles ? await uploading(text, through: cloud) : .sent(text) {
+        case .sent(let rewritten):
+            body = rewritten
+        case .refused(let title, let sentence):
+            draft = PendingMessageReturn.draft(taking: [Delivery(targetSessionID: session.id, body: text)], into: draft)
+            composerFocusRequests += 1
+            app.alert = BloomAlert(title: title, message: sentence)
+            return false
+        }
+
+        // Who this one is for: what it names, or where the last one went. The mention travels with
+        // it rather than being stripped here, because the machine takes it off the text it hands
+        // the model and nowhere else, so an agent asked "@agent run the tests" reads "run the
+        // tests" while the transcript keeps what was typed. See `MentionAddress`.
+        //
+        // **Worked out before the message leaves, from the value that then sticks, and in that
+        // order.** The web client shipped the other order and found it the hard way: the audience
+        // was updated after the send, so `@seb hello` went to the agent and the NEXT message went
+        // to Seb, with a right banner, a right menu, a sent message and a cleared box. The only
+        // thing on screen that said anything was wrong was a missing caption. One value, moved
+        // first, and the record derived from it rather than from the draft a second time.
+        let previousAudience = audience
+        let named = MentionAddress.mentioned(in: body, people: cloud.people, runningAgent: cloud.runningAgent)
+        audience = named ?? audience
+        let record = Self.record(for: audience, mention: named == nil ? nil : MentionAddress.token(in: body))
+        let delivery = Delivery(targetSessionID: session.id, body: body)
+        messageArrivals.sent(delivery.id)
+        // The echo only when nothing is ahead of it, which is when the machine will start it at
+        // once; otherwise the queue event that follows draws it where it waits.
+        if !queuesNextMessage { sending = delivery }
+        jumpToLiveEnd()
+        let outcome = await cloud.send(body, audience: record)
+        guard let sentence = outcome.sentence else { return true }
+        // The echo goes either way: it said the turn had started, and for the unknown case that
+        // is exactly what nobody can promise. What the machine really did is in the transcript,
+        // which is why the sentence sends the reader there.
+        if sending?.id == delivery.id { sending = nil }
+        // **A mode entered by a message that did not go does not stick.** The words come back with
+        // their `@seb` still on the front, so pressing Return again addresses the same person and
+        // the state follows the box; leaving the composer addressed to somebody the machine has
+        // just refused would point every plain message after it at the same refusal.
+        audience = previousAudience
+        // The words come back to the composer in both cases, because losing them is worse than
+        // either answer. What differs is what the person is told: see `CloudSendOutcome`.
+        draft = PendingMessageReturn.draft(taking: [delivery], into: draft)
+        composerFocusRequests += 1
+        app.alert = BloomAlert(title: outcome.title, message: sentence)
+        return false
+    }
+
+    /// What became of a Cloud turn's files.
+    enum CloudUpload {
+        /// The turn, with every file named where the machine put it.
+        case sent(String)
+        /// Nothing went. The reason, in the machine's words where it has any.
+        case refused(title: String, sentence: String)
+    }
+
+    /// Puts every file this turn names on the machine, and answers the turn with their new paths.
+    ///
+    /// **Read out of the text rather than out of the store**, which is what makes this work for a
+    /// turn composed anywhere: a message typed in the box, a quick prompt fired into it, a review
+    /// with comments. A path under `.bloom/attachments` is recognisable as Bloom's own copy from
+    /// the text alone, which is the property `AttachmentDraft` was built on, so the sentence is
+    /// the whole record of what this turn carries.
+    ///
+    /// **A file that cannot go stops the turn.** The local rule is the opposite, and rightly so:
+    /// there a path that no longer resolves is taken out of the sentence, because the file was
+    /// deleted by somebody and the words are still worth sending. Here the file is the point.
+    /// Somebody who drags a screenshot in and presses Return is asking about the screenshot, and a
+    /// turn that arrives without it spends a real one on the machine answering the wrong question.
+    /// So the words come back to the composer with the reason, and pressing Return again is the
+    /// whole of the retry.
+    private func uploading(_ text: String, through cloud: CloudChatLink) async -> CloudUpload {
+        let parsed = AttachmentDraft.parse(text)
+        let paths = Array(Set(parsed.paths))
+        guard !paths.isEmpty else { return .sent(text) }
+
+        let root = AttachmentStaging.directory(draftID: session.id.rawValue)
+        var moved: [String: String] = [:]
+        for path in paths {
+            let file = URL(filePath: (root as NSString).appendingPathComponent(path))
+            guard let data = try? Data(contentsOf: file) else {
+                return .refused(
+                    title: "That file was not sent",
+                    sentence: "\((path as NSString).lastPathComponent) is not on this Mac any more, so nothing was sent to the Bloom Cloud workspace."
+                )
+            }
+            switch await cloud.upload(name: (path as NSString).lastPathComponent, data: data) {
+            case .at(let remote):
+                moved[path] = remote
+            case .refused(let sentence):
+                return .refused(title: "That file was not sent", sentence: sentence)
+            }
+        }
+
+        // The staged copies have served their purpose the moment the machine has them, and they
+        // are in the temporary directory rather than in a worktree somebody works in, so they go.
+        // Only after every one of them arrived: a turn that is coming back to the composer has to
+        // be sendable again by pressing Return.
+        for path in moved.keys {
+            try? FileManager.default.removeItem(atPath: (root as NSString).appendingPathComponent(path))
+        }
+        PromptAttachmentStore.shared.clear(sessionID: session.id.rawValue)
+        return .sent(parsed.mapping { moved[$0] })
+    }
+
+    /// The audience as the wire carries it, or nil for a message to the agent with nothing typed
+    /// in front of it.
+    ///
+    /// **Nil rather than an explicit agent for the ordinary case**, because absent means the agent
+    /// on the wire as well and every message Bloom has ever sent is that one: a client that started
+    /// spelling it out would be saying something new about messages that have not changed. What is
+    /// spelled out is a message that named somebody, either way, so the machine can strip the
+    /// mention it carries.
+    private static func record(for audience: ComposerAudience, mention: String?) -> AudienceRecord? {
+        switch audience {
+        case .agent:
+            guard let mention else { return nil }
+            return AudienceRecord(kind: AudienceRecord.agent, mention: mention)
+        case .person(let person):
+            return AudienceRecord(kind: AudienceRecord.person, userID: person.id.rawValue, mention: mention)
+        }
+    }
+
+    private func answerOnCloud(requestID: String, decision: PermissionDecision, through cloud: CloudChatLink) async {
+        settle(PermissionResolution(requestID: requestID, decision: decision.storedName))
+        refreshAwaitingPermission()
+        guard let failure = await cloud.answer(requestID: requestID, decision: decision) else { return }
+        if failure.code == .alreadyAnswered {
+            // Somebody else got there first, which is how a shared question is meant to end.
+            app.notice = BloomNotice(message: failure.message)
+            return
+        }
+        if let index = rows.firstIndex(where: {
+            $0.kind == .permissionAsk && PermissionAsk.decode(payload: $0.payload)?.requestID == requestID
+        }) {
+            foldCache.invalidate(row: index)
+            rows[index].permissionDecision = nil
+            presentationRevision += 1
+        }
+        refreshAwaitingPermission()
+        app.alert = BloomAlert(title: "Could not send the answer", message: failure.message)
+    }
+
+    /// The composer's pickers, for a Cloud chat: last writer wins on the machine, and the event it
+    /// sends back names who wrote it.
+    private func updateCloudPreferences(
+        through cloud: CloudChatLink, model: String?, effort: String?, permissionMode: PermissionMode?,
+        interactionMode: InteractionMode?, agentKind: AgentKind?
+    ) async {
+        var next = session
+        if let agentKind { next.agentKind = agentKind }
+        if let model { next.model = model }
+        if let effort { next.effort = effort }
+        if let permissionMode { next.permissionMode = permissionMode }
+        if let interactionMode { next.interactionMode = interactionMode }
+        var controls = cloud.controls ?? ComposerControls(session: next, isFastMode: false, outputStyle: OutputStyle.defaultName)
+        controls.agentKind = next.agentKind
+        controls.model = next.model
+        controls.effort = next.effort
+        controls.permissionMode = next.permissionMode
+        controls.interactionMode = next.interactionMode
+        let previous = session
+        session = next
+        if let failure = await cloud.setComposer(controls) {
+            session = previous
+            app.alert = BloomAlert(title: "Could not change this chat", message: failure)
+        }
+    }
+
+    /// Sends a Cloud chat's whole composer to its machine: all nine values, not the five a
+    /// `Session` has columns for.
+    ///
+    /// The five are moved on the session first, so the picker shows the new model the moment it
+    /// is chosen, and put back if the machine refuses, which is what `updateCloudPreferences`
+    /// already did for them. The other four are the composer's own state and follow the machine's
+    /// answer when it arrives. See `ComposerView.apply(controls:)` for the bug this closes.
+    ///
+    /// - Returns: whether the machine took it. A refusal leaves the machine's controls as they
+    ///   were, so no answer arrives to move the other four back, and the composer has to do that
+    ///   itself or it goes on showing a fast mode the machine said no to.
+    @discardableResult
+    func setCloudControls(_ controls: ComposerControls) async -> Bool {
+        guard let cloud else { return false }
+        var next = session
+        next.agentKind = controls.agentKind
+        next.model = controls.model
+        next.effort = controls.effort
+        next.permissionMode = controls.permissionMode
+        next.interactionMode = controls.interactionMode
+        let previous = session
+        if next != session { session = next }
+        guard let failure = await cloud.setComposer(controls) else { return true }
+        session = previous
+        app.alert = BloomAlert(title: "Could not change this chat", message: failure)
+        return false
     }
 }
 

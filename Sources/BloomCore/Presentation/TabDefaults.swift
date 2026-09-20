@@ -33,7 +33,13 @@ public enum TabDefaults {
     public static let tabListPrefix = "center.tabs."
 
     public static func tabListKey(_ workspaceID: WorkspaceID) -> String {
-        tabListPrefix + workspaceID.rawValue
+        tabListKey(.local(workspaceID))
+    }
+
+    /// The same key for a workspace of either kind. A local one's key is its id, so nothing a
+    /// previous version wrote moves; see `WorkspaceSurfaceID.storageKey`.
+    public static func tabListKey(_ workspaceID: WorkspaceSurfaceID) -> String {
+        tabListPrefix + workspaceID.storageKey
     }
 
     /// The order the user has dragged one workspace's strip into. See `StripOrder`.
@@ -46,7 +52,11 @@ public enum TabDefaults {
     public static let stripPrefix = "center.strip."
 
     public static func stripKey(_ workspaceID: WorkspaceID) -> String {
-        stripPrefix + workspaceID.rawValue
+        stripKey(.local(workspaceID))
+    }
+
+    public static func stripKey(_ workspaceID: WorkspaceSurfaceID) -> String {
+        stripPrefix + workspaceID.storageKey
     }
 
     /// `TerminalSplitStore`'s pane tree, per tab, and the second half of what the census reads.

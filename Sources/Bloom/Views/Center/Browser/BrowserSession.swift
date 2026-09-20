@@ -51,6 +51,15 @@ final class BrowserSession {
     /// commits, because a failed load leaves the previous page in place and the reader is then
     /// looking at something real again. See `BrowserLoadFailure`.
     private(set) var failure: BrowserLoadFailure?
+    /// What the server answered with for the document on screen, or nil where there was no HTTP
+    /// response at all: a file, a load that never reached one, or a page that has not started.
+    ///
+    /// Recorded because a failing page and a failed load are not the same thing, and only one of
+    /// them reaches `failure`. A gateway in front of a port nobody is listening on answers, with a
+    /// status and an empty body, so WebKit reports a perfectly successful navigation and the pane
+    /// draws white. `CloudPreviewReadiness` is the one reader of this, and what it does with it is
+    /// written there.
+    private(set) var pageStatus: Int?
     /// Where the page is and what it says it is called, as one value.
     ///
     /// The pair rather than two properties, because the strip has to be told about both in one
@@ -485,6 +494,12 @@ final class BrowserSession {
         if failure != nil { failure = nil }
     }
 
+    /// The status of a main frame response, or nil at the start of a navigation that has not had
+    /// one yet. Only the main frame: a page whose stylesheet 404s is a page, not a 404.
+    fileprivate func record(status: Int?) {
+        if pageStatus != status { pageStatus = status }
+    }
+
     // MARK: - Find in page
 
     /// One of the four things the keyboard asks of Find in Page, from the Edit menu or from the
@@ -702,6 +717,8 @@ private final class NavigationObserver: NSObject, WKNavigationDelegate {
     weak var owner: BrowserSession?
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        // The status belongs to the document on screen, and this one is on its way out.
+        owner?.record(status: nil)
         owner?.refresh()
     }
 
@@ -758,7 +775,11 @@ private final class NavigationObserver: NSObject, WKNavigationDelegate {
         _ webView: WKWebView,
         decidePolicyFor navigationResponse: WKNavigationResponse
     ) async -> WKNavigationResponsePolicy {
-        navigationResponse.canShowMIMEType ? .allow : .download
+        if navigationResponse.isForMainFrame,
+           let http = navigationResponse.response as? HTTPURLResponse {
+            owner?.record(status: http.statusCode)
+        }
+        return navigationResponse.canShowMIMEType ? .allow : .download
     }
 
     func webView(

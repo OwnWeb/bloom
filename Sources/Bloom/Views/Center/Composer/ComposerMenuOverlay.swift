@@ -7,6 +7,11 @@ struct ComposerMenuOverlay: View {
     var commands: [SlashCommandMatch]
     var commandsAreLoaded: Bool
     var files: [FileMatch]
+    /// The agent and the people an `@` at the head of the draft offers, and empty everywhere the
+    /// `@` means a file, which is everywhere else and every workspace with nobody else in it. See
+    /// `MentionAddress.offersPeople`.
+    var candidates: [MentionCandidate] = []
+    var offersPeople = false
     var selectedIndex: Int
     /// What the room on the menu's side of the box allows, already decided by the composer's
     /// placement rule. See `MenuLayout.placement`.
@@ -14,6 +19,7 @@ struct ComposerMenuOverlay: View {
     var availableWidth: CGFloat
     var onPickCommand: @MainActor (SlashCommand) -> Void
     var onPickFile: @MainActor (FileMatch) -> Void
+    var onPickCandidate: @MainActor (MentionCandidate) -> Void = { _ in }
     var onHighlight: @MainActor (Int) -> Void
 
     var body: some View {
@@ -27,6 +33,15 @@ struct ComposerMenuOverlay: View {
                 maxHeight: maxHeight,
                 availableWidth: availableWidth,
                 onPick: onPickCommand,
+                onHighlight: onHighlight
+            )
+        case .mention(let token) where offersPeople:
+            PersonMentionMenu(
+                candidates: candidates,
+                query: token.query,
+                selectedIndex: selectedIndex,
+                maxHeight: maxHeight,
+                onPick: onPickCandidate,
                 onHighlight: onHighlight
             )
         case .mention(let token):

@@ -10,9 +10,9 @@ import BloomCore
 /// or goes.
 extension WorkspaceTabsStore {
     func busySignal(
-        in model: WorkspaceModel, entries: [PaneContent], selected: PaneContent?, isStripShown: Bool
+        in model: some WorkspaceSurface, entries: [PaneContent], selected: PaneContent?, isStripShown: Bool
     ) -> BusySignalPlacement<PaneContent> {
-        let tools = CenterTabStore.shared.tabs(for: model.workspace.id)
+        let tools = CenterTabStore.shared.tabs(for: model.surfaceID)
         return BusySignalPlacement.resolve(
             isStripShown: isStripShown,
             tabs: entries,
@@ -24,7 +24,7 @@ extension WorkspaceTabsStore {
                 // command. A plain terminal is never polled and never counts.
                 switch content {
                 case .chat(let id):
-                    model.sessions.first { $0.id == id }.map(model.isRunning) ?? false
+                    model.isRunningChat(id)
                 case .tool(let id):
                     tools.first { $0.id == id }.map(RunScriptLauncher.shared.isRunning) ?? false
                 }

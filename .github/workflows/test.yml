@@ -316,6 +316,21 @@ jobs:
       - name: Check that a ticked file folds
         run: ./Tools/review-run-probe.sh --review-fold-only
 
+      # A Cloud workspace with no chats yet used to send the tab store and the workspace round
+      # each other until the stack ran out, and it crashed on the first Cloud workspace anybody
+      # made. Cheap enough to run on every push: no fixture, no window, four objects.
+      - name: Check that a Cloud workspace cannot recurse with the tab store
+        run: ./Tools/review-run-probe.sh --cloud-selection-only
+
+      # The same for a Cloud terminal's reattach frame, which is a redraw and must replace the
+      # screen rather than be appended to it.
+      - name: Check what a Cloud terminal shows after a reattach
+        run: ./Tools/review-run-probe.sh --cloud-terminal-only
+
+      # And what a workspace's tabs are written as, which is the re-keying the two above sit on.
+      - name: Check the tab store's keys and what a relaunch reads back
+        run: ./Tools/review-run-probe.sh --tab-store-only
+
       - name: Preserve failed review probe evidence
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -443,6 +458,12 @@ jobs:
 
       - name: Run the core tests
         run: ./Tools/test-core.sh
+
+      # The Mac client's own package: runbloom.app's API, the connection to a Cloud workspace's
+      # machine and the merging rules, against fakes of both. On the Mac runner because the
+      # event stream is read with URLSession's byte streams, which Linux Foundation lacks.
+      - name: Run the Cloud workspace client tests
+        run: swift test --package-path Packages/BloomClient -Xswiftc -warnings-as-errors
 
   # The server half, on the platform it ships to. A Cloud workspace runs on
   # Ubuntu x86_64 and nothing on a Mac compiles for it, so a Darwin-only call

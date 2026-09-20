@@ -5,11 +5,14 @@ import BloomCore
 ///
 /// The list polls only while it is on screen. A dozen workspaces each asking gh for check runs
 /// every twenty seconds would be a dozen subprocesses a minute for panels nobody is looking at.
-struct ChecksView: View {
-    let model: WorkspaceModel
+/// How often GitHub is asked again while the tab is on screen, in a type of its own because a
+/// generic view may hold no stored static.
+private enum ChecksPolling {
+    static let interval = Duration.seconds(20)
+}
 
-    /// How often GitHub is asked again while the tab is on screen.
-    private static let pollInterval = Duration.seconds(20)
+struct ChecksView<Model: WorkspaceSurface>: View {
+    let model: Model
 
     @State private var runs: [CheckRun] = []
     @State private var groups: [CheckRunGroup] = []
@@ -22,10 +25,10 @@ struct ChecksView: View {
     /// Bumped to restart the poll at once, rather than waiting out the twenty seconds, when
     /// something has happened that would change the answer.
     @State private var reload = 0
-    /// The gh call behind the hand-off button, and the flag that stops a second press landing on
-    /// top of the first. One per pane rather than one per row, because only one check is ever
-    /// being fetched at a time.
-    @State private var sender = CheckFailureSender()
+    /// Which run is being handed to the agent, so its row can go quiet while it is in flight. One
+    /// per pane rather than one per row, because only one is ever being fetched at a time; the
+    /// work itself belongs to the workspace, which is what can run a subprocess.
+    @State private var sendingID: String?
 
     @Environment(AppModel.self) private var app
 
@@ -37,6 +40,17 @@ struct ChecksView: View {
                 summary
                 Hairline()
             }
+            // Only where the answer is not as fresh as the question. A workspace whose checks come
+            // from a cache says how old they are rather than letting the list imply they are live.
+            if let note = model.checksNote {
+                Text(note)
+                    .font(Typo.caption)
+                    .foregroundStyle(Palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, InspectorLayout.inset)
+                    .padding(.vertical, Metrics.spacingSmall)
+                Hairline()
+            }
             if runs.isEmpty {
                 empty
             } else {
@@ -44,7 +58,7 @@ struct ChecksView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task(id: "\(model.workspace.id)|\(reload)") { await poll() }
+        .task(id: "\(model.surfaceID.storageKey)|\(reload)") { await poll() }
     }
 
     private var list: some View {
@@ -68,14 +82,14 @@ struct ChecksView: View {
         // Nil rather than a button that would explain itself: a check that passed has nothing to
         // hand over, and a workspace with no conversation has nowhere to hand it.
         var onSend: (@MainActor () -> Void)?
-        if CheckFailureSender.canSend(run), model.activeSession != nil {
+        if CheckFailureSender.canSend(run), model.canSendCheckFailure {
             onSend = { send(run) }
         }
 
         return CheckRunRow(
             run: run,
             isHovered: hovered == run.id,
-            isSending: sender.isSending(run),
+            isSending: sendingID == run.id,
             onSend: onSend
         )
             // Nothing here is selectable, but a row that opens a browser has to say so on hover,
@@ -143,7 +157,7 @@ struct ChecksView: View {
                     ? "Checks come from GitHub through the gh command, and it is not on this Mac."
                     : "Checks come from GitHub through the gh command, and it is signed out.",
                 actionTitle: github == .notInstalled ? "Install the GitHub CLI" : "Connect GitHub",
-                action: { GitHubSignIn.shared.run(directory: model.workspace.path) { reload += 1 } }
+                action: { GitHubSignIn.shared.run(directory: model.worktreePath ?? "") { reload += 1 } }
             )
         } else if checksUnavailable {
             EmptyStateView(
@@ -200,8 +214,11 @@ struct ChecksView: View {
     /// Fetches the failed run's log and puts it in the composer. See `CheckFailureSender`, which
     /// is where the gh call and every decision about the log live; this is the press.
     private func send(_ run: CheckRun) {
+        guard sendingID == nil else { return }
+        sendingID = run.id
         Task {
-            guard let failure = await sender.send(run, in: model) else { return }
+            defer { sendingID = nil }
+            guard let failure = await model.sendCheckFailure(run) else { return }
             app.alert = BloomAlert(
                 title: "That check was not sent to the agent", message: failure
             )
@@ -215,17 +232,20 @@ struct ChecksView: View {
             // Asked every pass rather than once: gh can be signed in from a terminal while this
             // tab is open, and the answer is cached, so this costs a subprocess only when it
             // has actually expired.
-            let state = await GitHubAvailability.shared.check()
+            // Asked of the workspace rather than of this Mac: a local one answers with what `gh`
+            // is doing here, and a Cloud one is never in the dark, because its checks come from
+            // runbloom.app's own GitHub App.
+            let state = model.worktreePath == nil ? model.gitHubReadiness : await GitHubAvailability.shared.check()
             github = state
 
             if state == .ready {
-                let found = await GitHubBridge.checks(for: model.workspace)
+                let found = await model.readChecks()
                 checksUnavailable = found == nil
                 runs = found ?? []
                 groups = CheckRunGroup.build(from: runs)
             }
             hasLoaded = true
-            try? await Task.sleep(for: Self.pollInterval)
+            try? await Task.sleep(for: ChecksPolling.interval)
         }
     }
 }

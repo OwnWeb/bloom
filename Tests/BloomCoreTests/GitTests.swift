@@ -193,6 +193,52 @@ struct GitTests {
         #expect(long.hasSuffix(" ") == false)
     }
 
+    /// **A title is cut at the last space inside its limit, and that is the whole reason the
+    /// owner's gibberish came out short.** He typed "show me the homepage" with ninety characters
+    /// of keyboard-mashing welded to the last word and asked whether the branch would be enormous.
+    /// It was not, and not because of a word budget: the run of gibberish crosses the 72 character
+    /// cap, so the cut lands on the last space before it and the tail goes with the word it was
+    /// stuck to. What is left is the three words that fitted.
+    @Test("cuts a title at a space, so a long run of gibberish takes its own word with it")
+    func titleCutsAtASpace() {
+        let mashed = "show me the homepage" + String(repeating: "qsdfjklm", count: 12)
+        #expect(Git.title(from: mashed) == "Show me the")
+
+        // And the case that rule cannot help: one word and no space to cut at, which keeps the
+        // prefix as it stands. The branch derived from it is capped separately, because a ref is
+        // typed and read by people: see `CloudBranchName.suggestion`.
+        let oneWord = Git.title(from: String(repeating: "q", count: 200))
+        #expect(oneWord.count == 72)
+        #expect(!oneWord.contains(" "))
+    }
+
+    /// **The owner's own sentence, and the shape of the complaint: a long sentence must give a
+    /// short branch.** His workspace cut
+    /// `freekmurze/show-me-the-homepage-in-a-pane-next-to-this-chat`, because the Cloud window
+    /// slugged the workspace NAME, which is a sentence. A branch comes from the prompt through
+    /// this, which drops the stop words and keeps five.
+    @Test("a sentence gives a branch short enough to read in a git listing")
+    func slugStaysShort() {
+        let slug = Git.slug(from: "show me the homepage in a pane next to this chat")
+        #expect(slug == "show-me-homepage-pane-next")
+        #expect(Git.branchStem(prompt: "show me the homepage in a pane next to this chat", prefix: "freekmurze")
+            == "freekmurze/show-me-homepage-pane-next")
+        #expect(slug.count < "show-me-the-homepage-in-a-pane-next-to-this-chat".count)
+    }
+
+    /// And the case a word budget cannot help with, which is the one he asked about: ninety
+    /// characters of keyboard mashing is one word, so five words and sixty characters both leave it
+    /// whole. A word is capped as well now. See `Git.longestWord` for why twenty four.
+    @Test("one enormous word is cut to something a person can read")
+    func slugCapsAWord() {
+        let mashed = Git.slug(from: String(repeating: "qsdf", count: 30))
+        #expect(mashed.count == Git.longestWord)
+        #expect(!mashed.contains("-"))
+
+        // A real identifier of that length survives whole, which is what the number was chosen for.
+        #expect(Git.slug(from: "fix WorkspaceConnectionTests").contains("workspaceconnectiontests"))
+    }
+
     @Test("keeps the file a prompt names, so sibling workspaces stay distinguishable")
     func slugKeepsTheDistinguishingFile() {
         let invoice = Git.slug(from: "Add a class-level docblock to app/Domain/Invoice.php saying what it represents")

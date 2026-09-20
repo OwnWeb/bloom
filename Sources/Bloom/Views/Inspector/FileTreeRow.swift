@@ -23,8 +23,9 @@ struct FileTreeRow: View, Equatable {
     var isExpanded: Bool
     var isChanged: Bool
     var containsChanges: Bool = false
-    /// The node's location on disk, for the menu items that hand it to another app.
-    var fullPath: String
+    /// The node's location on disk, for the menu items that hand it to another app. Nil for a
+    /// workspace whose files are in the cloud; those items say so rather than going.
+    var fullPath: String?
     var action: () -> Void
     /// Opens a shell in this row, which only a folder row offers. See `FolderTerminal`.
     var onOpenTerminal: () -> Void
@@ -63,11 +64,11 @@ struct FileTreeRow: View, Equatable {
         }
         .buttonStyle(.plain)
         .background {
-            if !item.node.isDirectory { HoverQuickLook(url: URL(fileURLWithPath: fullPath)) }
+            if !item.node.isDirectory, let fullPath { HoverQuickLook(url: URL(fileURLWithPath: fullPath)) }
         }
         // Folders included: dragging a directory out of a worktree is the same gesture in Finder,
         // and the provider carries whichever of the two this row is.
-        .fileDrag(path: fullPath)
+        .fileDrag(path: fullPath ?? "", enabled: fullPath != nil)
         .contextMenu {
             FileLocationMenuItems(
                 path: fullPath,

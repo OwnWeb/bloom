@@ -13,6 +13,10 @@ struct MediaShowRowView: View {
     enum Source {
         case workspace
         case codexImageView
+        /// A copy already on this Mac, which is a Bloom Cloud machine's picture once it has been
+        /// fetched. Its `relativePath` is what is written under it: the file's own name, since the
+        /// path is the machine's. See `CloudMediaRowView`.
+        case fetched(WorkspaceMedia)
     }
 
     var request: MediaShowRequest
@@ -78,6 +82,8 @@ struct MediaShowRowView: View {
             WorkspaceMedia.resolve(path: request.path, in: home.worktree)
         case .codexImageView:
             WorkspaceMedia.resolveImageView(path: request.path, in: home.worktree)
+        case .fetched(let media):
+            media
         }
     }
 

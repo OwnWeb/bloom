@@ -297,4 +297,34 @@ struct AttachmentDraftTests {
         #expect(result.text == "have a look at this `\(Self.copy)` ")
         #expect(AttachmentDraft.parse(result.text).paths == [Self.copy])
     }
+
+    // MARK: - Files that move on the way to the agent
+
+    @Test("A path the machine saved the file at replaces the one this Mac wrote")
+    func aFileUploadedToAMachineIsNamedWhereTheMachinePutIt() {
+        let machine = ".bloom/attachments/3E2A-9F/shot.png"
+        let draft = "look at `\(Self.copy)` and tell me why"
+        let sent = AttachmentDraft.parse(draft).mapping { path in
+            path == Self.copy ? machine : nil
+        }
+        #expect(sent == "look at `\(machine)` and tell me why")
+    }
+
+    @Test("A file that could not be uploaded leaves the sentence as cleanly as a missing one does")
+    func anUploadThatFailedTakesItsPathOut() {
+        let draft = "look at `\(Self.copy)` and tell me why"
+        let sent = AttachmentDraft.parse(draft).mapping { _ in nil }
+        #expect(sent == AttachmentDraft.parse(draft).keeping { _ in false })
+        #expect(sent == "look at and tell me why")
+    }
+
+    @Test("Two files, one moved and one dropped, in one sentence")
+    func oneOfEach() {
+        let machine = ".bloom/attachments/3E2A-9F/shot.png"
+        let draft = "`\(Self.copy)` `\(Self.spaced)` compare these"
+        let sent = AttachmentDraft.parse(draft).mapping { path in
+            path == Self.copy ? machine : nil
+        }
+        #expect(sent == "`\(machine)` compare these")
+    }
 }

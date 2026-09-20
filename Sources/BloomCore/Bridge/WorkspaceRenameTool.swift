@@ -59,8 +59,8 @@ public enum WorkspaceRenameTrouble: Error, Sendable, Equatable {
         case let .ambiguous(given, ids):
             return """
                 \(ids.count) workspaces are called '\(given)', so renaming one of them would be \
-                renaming a workspace you did not name. Pass the id instead, which workspace_list \
-                prints: \(BridgeWorkspaceLookup.list(ids)).
+                renaming a workspace you did not name. Pass one of these ids instead: \
+                \(BridgeWorkspaceLookup.list(ids)).
                 """
 
         case .notInAWorkspace:

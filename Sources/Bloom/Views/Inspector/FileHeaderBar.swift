@@ -33,8 +33,8 @@ import BloomCore
 /// The control cluster collapses into a menu when the pane is too narrow for it. A segmented
 /// control and a row of toggle buttons do not truncate: they overflow and get clipped, which is
 /// how a control ends up half visible at the edge of a narrow inspector.
-struct FileHeaderBar: View {
-    let model: WorkspaceModel
+struct FileHeaderBar<Model: WorkspaceSurface>: View {
+    let model: Model
     let file: ChangedFile
     let session: FileEditSession
     /// The parsed patch, for the share text. Nil while it is still being read.
@@ -66,15 +66,17 @@ struct FileHeaderBar: View {
     /// from `body`: see `UnsavedEditsDot` for what reading it here used to cost.
     private var allowsWorktreeActions: Bool { model.diffScope.allowsWorktreeActions(for: file) }
 
-    private var isDirty: Bool { session.isDirty(absolutePath) }
+    private var isDirty: Bool { session.isDirty(fileKey) }
 
     /// Why Discard cannot be pressed right now, or nil when it can. An agent mid turn is writing
     /// this worktree, and a discard landing between two of its writes throws away half of an edit
     /// it is about to build on.
     private var discardBlocker: String? { model.isRunning ? HunkDiscard.agentIsWorking : nil }
 
-    private var absolutePath: String {
-        (model.workspace.path as NSString).appendingPathComponent(file.path)
+    /// What the editor files this file under: its path on this Mac, or a key naming the Cloud
+    /// workspace and the file. See `WorkspaceSurface.editorKey(for:)`.
+    private var fileKey: String {
+        model.editorKey(for: file.path)
     }
 
     var body: some View {
@@ -97,7 +99,7 @@ struct FileHeaderBar: View {
             // `UnsavedEditsDot` rather than answered here, so a keystroke invalidates the dot
             // instead of the bar it sits in.
             if allowsWorktreeActions {
-                UnsavedEditsDot(session: session, path: absolutePath)
+                UnsavedEditsDot(session: session, path: fileKey)
             }
             if let layer = file.layer {
                 Text(layer.title).font(Typo.caption).foregroundStyle(Palette.textSecondary)
@@ -318,7 +320,7 @@ struct FileHeaderBar: View {
             title: FileBarControls.discardQuestion(path: file.path),
             // Naming what disappears, rather than asking "are you sure?", the way archiving a
             // workspace does.
-            message: { FileRevert.losses(for: file, in: model.workspace, hasDraft: isDirty) },
+            message: { FileRevert.losses(for: file, baseBranch: model.surfaceBaseBranch, hasDraft: isDirty) },
             onConfirm: onRevert
         )
     }
@@ -412,8 +414,8 @@ struct FileHeaderBar: View {
     private func copy() {
         copyFlash.copy {
             mode == .edit
-                ? session.draft(for: absolutePath)?.text
-                : await model.patch(for: file)
+                ? session.draft(for: fileKey)?.text
+                : try? await model.readPatch(for: file)
         }
     }
 }

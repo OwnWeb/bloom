@@ -20,16 +20,19 @@ import BloomCore
 /// in the frame and cut off at both ends, which is what happened to the Continue notice. So what
 /// the strip has to SAY, as opposed to show, goes to `model.pullRequestNotice` and is drawn by
 /// `InspectorView` at the top of the column, one row lower and as tall as it needs to be.
-struct PullRequestBar: View {
-    let model: WorkspaceModel
+/// How often the strip asks GitHub again, in a type of its own because a generic view may hold no
+/// stored static. Nothing about the numbers is generic.
+private enum PullRequestPolling {
+    static let interval = Duration.seconds(20)
+    /// How stale an answer an arrival will settle for, so landing back on a workspace the window
+    /// left four seconds ago costs nothing. The same thirty seconds `WorkspaceModel` arrives with.
+    static let arrivalMaxAge = Duration.seconds(30)
+}
 
-    /// Continue and Archive are both about the workspace rather than about the pull request, so
-    /// they go through the app the way every other archive does rather than being reimplemented
-    /// against git from a view.
+struct PullRequestBar<Model: WorkspaceSurface>: View {
+    let model: Model
+
     @Environment(AppModel.self) private var app
-
-    /// How often GitHub is asked again while the bar is on screen.
-    private static let pollInterval = Duration.seconds(20)
 
     @State private var isWorking = false
     @State private var pendingArchive: ArchiveRequest?
@@ -43,8 +46,18 @@ struct PullRequestBar: View {
 
     var body: some View {
         strip
-            .task(id: model.workspace.id) { await poll() }
-            .onChange(of: model.workspace.id) { _, _ in pendingArchive = nil }
+            // A Bloom Cloud workspace's archive question, raised from this strip's own Archive
+            // button. On the strip rather than on the button itself, because the button is drawn
+            // inside `PullRequestSummary`, which is shared with local workspaces and knows nothing
+            // about Bloom Cloud; the strip is what the person clicked in, and it is one row high.
+            // See `CloudWorkspaces.ArchiveAnchor`.
+            .popover(isPresented: cloudArchive, arrowEdge: .top) {
+                if case .cloud(let id) = model.surfaceID {
+                    CloudArchivePopover(id: id) { app.cloud.archiving = nil }
+                }
+            }
+            .task(id: model.surfaceID) { await poll() }
+            .onChange(of: model.surfaceID) { _, _ in pendingArchive = nil }
             .onAppear { isVisible = true }
             .onDisappear {
                 isVisible = false
@@ -94,9 +107,11 @@ struct PullRequestBar: View {
         if let pullRequest = model.pullRequest {
             PullRequestSummary(
                 pullRequest: pullRequest,
-                baseBranch: model.workspace.baseBranch,
-                worktree: model.workspace.path,
+                baseBranch: model.surfaceBaseBranch,
+                worktree: model.worktreePath ?? model.surfaceID.storageKey,
                 localWork: model.localWork,
+                continueBlocker: model.continueBlocker,
+                managementBlocker: managementBlocker,
                 isWorking: isWorking,
                 branchActions: branchActions,
                 mergeMethod: model.mergeMethod,
@@ -112,11 +127,12 @@ struct PullRequestBar: View {
             )
         } else {
             PullRequestCreator(
-                branch: model.workspace.branch,
-                baseBranch: model.workspace.baseBranch,
+                branch: model.surfaceBranch,
+                baseBranch: model.surfaceBaseBranch,
                 isWorking: isWorking || model.isLoadingPullRequest,
                 branchActions: branchActions,
-                worktree: model.workspace.path,
+                worktree: model.worktreePath ?? "",
+                github: model.gitHubReadiness,
                 hasChanges: hasChanges,
                 continued: model.continued,
                 action: createPullRequest
@@ -127,18 +143,21 @@ struct PullRequestBar: View {
     /// Message requests stay available during a turn. Continue and Archive still read the
     /// workspace-wide busy signal, shared with the sidebar through `AppModel.isRunning`.
     private var branchActions: BranchActionAvailability {
-        .mayActOnBranch(
-            isAgentBusy: app.isRunning(model.workspace),
-            pullRequest: model.pullRequest
-        )
+        .mayActOnBranch(isAgentBusy: model.isRunning, pullRequest: model.pullRequest)
+    }
+
+    /// Why this workspace cannot act on the pull request itself, or nil when it can. Merging and
+    /// marking ready are GitHub's, done as the signed-in person; everything else in the strip
+    /// composes a turn for the agent and works wherever the agent is.
+    private var managementBlocker: String? {
+        model.capabilities.has(.managePullRequest)
+            ? nil : WorkspaceCapabilities.Capability.managePullRequest.cloudSentence
     }
 
     /// Whether the branch has anything on it. The inspector's own list first, because it is the
     /// freshest thing here, and the workspace row's counts behind it for the moment before the
     /// list has been read.
-    private var hasChanges: Bool {
-        !model.changedFiles.isEmpty || model.workspace.hasDiff
-    }
+    private var hasChanges: Bool { model.hasKnownChanges }
 
     // MARK: - Actions
 
@@ -162,11 +181,11 @@ struct PullRequestBar: View {
         // to be what the band says in the next one, and switching workspace is what starts this.
         await model.loadMergeMethod()
 
-        var maxAge = WorkspaceModel.pullRequestArrivalMaxAge
+        var maxAge = PullRequestPolling.arrivalMaxAge
         while !Task.isCancelled {
             await model.refreshPullRequest(maxAge: maxAge)
             maxAge = .zero
-            try? await Task.sleep(for: Self.pollInterval)
+            try? await Task.sleep(for: PullRequestPolling.interval)
         }
     }
 
@@ -264,13 +283,15 @@ struct PullRequestBar: View {
 
         Task {
             defer { isWorking = false }
-            switch await app.continueAfterMerge(model.workspace, pullRequest: pullRequest) {
-            case .continued:
+            switch await model.continueAfterMerge(pullRequest) {
+            case .continued, .continuedOnMachine:
                 break
             case .refused(let refusal):
                 report = PullRequestNotice(
                     tone: .info, title: "Nothing was changed", message: refusal.sentence
                 )
+            case .declined(let sentence):
+                report = PullRequestNotice(tone: .info, title: "Nothing was changed", message: sentence)
             case .failed(let reason):
                 report = PullRequestNotice(
                     tone: .failure,
@@ -285,23 +306,37 @@ struct PullRequestBar: View {
         }
     }
 
+    private var cloudArchive: Binding<Bool> {
+        Binding(
+            get: {
+                guard case .cloud(let id) = model.surfaceID else { return false }
+                return isVisible && app.cloud.isAskingToArchive(id, at: .pullRequest)
+            },
+            set: { shown in
+                guard !shown, case .cloud(let id) = model.surfaceID,
+                      app.cloud.isAskingToArchive(id, at: .pullRequest) else { return }
+                app.cloud.archiving = nil
+            }
+        )
+    }
+
     /// The safety checks stay in AppModel; only their presentation belongs to this button.
     private func archive() {
-        let workspace = model.workspace
-        Task {
-            await app.archive(workspace, presentConfirmation: presentArchive)
-        }
+        Task { await model.requestArchive(presenting: presentArchive) }
     }
 
     private func confirmArchive(_ request: ArchiveRequest) {
         pendingArchive = nil
         Task {
-            await app.confirmArchive(request, presentConfirmation: presentArchive)
+            await model.confirmArchive(request, presenting: presentArchive)
         }
     }
 
+    /// The confirmation lands on the strip that asked for it, and only while that strip is still
+    /// the one on screen: an archive check started for one workspace must not raise its popover
+    /// over another.
     private func presentArchive(_ request: ArchiveRequest) {
-        guard isVisible, app.selection.workspaceID == request.workspace.id else { return }
+        guard isVisible, model.surfaceID == .local(request.workspace.id) else { return }
         pendingArchive = request
     }
 

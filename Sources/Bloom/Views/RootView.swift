@@ -22,10 +22,14 @@ struct RootView: View {
     @Bindable private var projectSetup = ProjectSetup.shared
     @Bindable private var closeSession = CloseSessionAlert.shared
     @Bindable private var setupRun = SetupRunAlert.shared
+    @Bindable private var cloudStart = CloudStartAlert.shared
     /// The two Help menu sheets, and the drafts typed into them. See `FeedbackPresenter`.
     @Bindable private var feedback = FeedbackPresenter.shared
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    /// Whether the Cloud workspace's share popover is open. Held by the window rather than by the
+    /// toolbar item, because `ToolbarContent` is a value the window rebuilds under the popover.
+    @State private var isSharingCloudWorkspace = false
 
     private var sidebarTintOpacity: Double {
         let preference = ColourThemePreference.shared
@@ -95,7 +99,8 @@ struct RootView: View {
                     .toolbar {
                         BloomWindowToolbar(
                             app: app,
-                            isSidebarFolded: columnVisibility == .detailOnly
+                            isSidebarFolded: columnVisibility == .detailOnly,
+                            isSharingCloudWorkspace: $isSharingCloudWorkspace
                         )
                     }
                     // Said here as well as under `navigationTitle` below, and deliberately.
@@ -287,6 +292,32 @@ struct RootView: View {
             } onConfirm: { request in
                 request.model.runSetupAgain()
             }
+            // The question asked before an agent's Bloom Cloud workspace is created. On the window
+            // because the ask comes from the bridge, which has no control of its own to hang it on.
+            // See `CloudStartAlert`.
+            .confirmation($cloudStart.request) { request in
+                Confirmation(
+                    title: request.question.title,
+                    message: request.question.message,
+                    confirmLabel: request.question.confirmLabel,
+                    cancelLabel: request.question.cancelLabel,
+                    tone: .completing,
+                    layout: .compact
+                )
+            } onConfirm: { _ in
+                cloudStart.answered(true)
+            } onCancel: {
+                cloudStart.answered(false)
+            }
+            // The last resort for a Bloom Cloud archive question whose caller has nothing on
+            // screen to point at, so it hangs on the window itself rather than bringing back the
+            // sheet this replaced. Nothing asks for it today; it is here so a caller that has to
+            // cannot leave the question undrawable. See `CloudWorkspaces.ArchiveAnchor`.
+            .popover(isPresented: cloudArchiveOnWindow) {
+                if let id = app.cloud.archiving {
+                    CloudArchivePopover(id: id) { app.cloud.archiving = nil }
+                }
+            }
             // A single OK that does nothing but dismiss, which `errorAlert` says why it leaves to
             // the system rather than spelling out.
             .errorAlert(item: $app.alert) { $0.title } message: { $0.message }
@@ -295,6 +326,9 @@ struct RootView: View {
                 // has since been archived opens its transcript instead of landing on Home with no
                 // explanation. See `AppModel.open(workspaceID:)`.
                 Task { await app.open(workspaceID: id) }
+            }
+            .onReceive(OpenWorkspaceNotification.cloudPublisher()) { id in
+                app.selection = .cloud(id)
             }
             // Shift+Cmd+F, and Cmd+F where nothing in front can find, are handled in
             // `windowWiring` below, and they open the panel rather than putting a keyboard
@@ -419,6 +453,17 @@ struct RootView: View {
     /// It is the model's, because the window's own minimum width depends on the same answer and
     /// `BloomApp` cannot read a private computed property on a view. See `AppModel`.
     private var isInspectorPresented: Bool { app.isInspectorPresented }
+
+    /// See the popover above: only ever the `.window` anchor, never the row's or the strip's.
+    private var cloudArchiveOnWindow: Binding<Bool> {
+        Binding(
+            get: {
+                guard let id = app.cloud.archiving else { return false }
+                return app.cloud.isAskingToArchive(id, at: .window)
+            },
+            set: { if !$0 { app.cloud.archiving = nil } }
+        )
+    }
 
     /// What the first column may be dragged out to on the display this window is on, or nil when
     /// there is no room for one at all. See `WindowWidths.sidebarMaximum`.

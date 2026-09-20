@@ -44,9 +44,9 @@ final class TabCarry {
     /// The slot the carried tab would land in, and nil while it is out of the strip.
     private(set) var target: Int?
     private(set) var isInStrip = true
-    /// Where the pointer is, in `CenterColumnView.space`.
+    /// Where the pointer is, in `CentreColumnMeasure.space`.
     private(set) var pointer: CGPoint = .zero
-    /// The part of a pane the tab would land in, in `CenterColumnView.space`, and nil for anywhere
+    /// The part of a pane the tab would land in, in `CentreColumnMeasure.space`, and nil for anywhere
     /// that would not take it.
     private(set) var landing: PaneLanding?
 

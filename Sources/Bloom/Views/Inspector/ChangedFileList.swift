@@ -11,8 +11,8 @@ import BloomCore
 ///
 /// Selection, hover, the revert dialog and the empty states live here rather than in either shape,
 /// which is what keeps picking a file identical in both.
-struct ChangedFileList: View {
-    let model: WorkspaceModel
+struct ChangedFileList<Model: WorkspaceSurface>: View {
+    let model: Model
 
     @State private var pendingRevert: ChangedFile?
     /// A revert that failed, so the user hears about it. It used to be a `try?` that threw the
@@ -153,7 +153,7 @@ struct ChangedFileList: View {
     }
 
     private var followsReviewScroll: Bool {
-        CenterTabStore.shared.review(for: model.workspace.id)?.showsAllFiles == true
+        model.showsAllFiles
     }
 
     private var list: some View {
@@ -193,7 +193,16 @@ struct ChangedFileList: View {
     private var empty: some View {
         // "Nobody has looked yet" first, because an empty list before git has answered is not an
         // answer. See `WorkspaceModel.hasReadChanges`.
-        if model.isLoadingChanges || !model.hasReadChanges {
+        if model.isPreparingChanges {
+            // Nothing has been asked for, because there is nothing to ask yet: the machine is
+            // still making the worktree. A spinner would promise something is on its way.
+            EmptyStateView(
+                glyph: PaneGlyph.setup,
+                title: "Nothing to read yet",
+                message: "This Bloom Cloud workspace is setting up. Its changes appear once it has finished."
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.isLoadingChanges || !model.hasReadChanges {
             LoadingView("Reading the worktree")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let problem = model.changesError {
@@ -211,7 +220,7 @@ struct ChangedFileList: View {
             EmptyStateView(
                 glyph: "checkmark.circle",
                 title: "No changes yet",
-                message: model.diffScope.emptyMessage(base: model.workspace.baseBranch)
+                message: model.diffScope.emptyMessage(base: model.surfaceBaseBranch)
             )
         }
     }
@@ -266,7 +275,7 @@ struct ChangedFileList: View {
                     fullPath: fullPath(item.node.path),
                     action: { activate(folder: item.node.path) },
                     onOpenTerminal: {
-                        FolderTerminalTab.open(folder: fullPath(item.node.path), in: model)
+                        model.openTerminal(in: item.node.path)
                     }
                 )
                 .equatable()
@@ -303,8 +312,8 @@ struct ChangedFileList: View {
                         pendingRevert = file
                     }
                 },
-                onOpenPage: { BrowserTab.openFile(fullPath(file.path), in: model) },
-                onSplitPage: { BrowserTab.splitFile(fullPath(file.path), in: model, axis: $0) },
+                onOpenPage: { model.openPage(path: file.path, splittingAxis: nil) },
+                onSplitPage: { model.openPage(path: file.path, splittingAxis: $0) },
                 onSetViewed: { setViewed($0, file: file) }
             )
             .equatable()
@@ -323,8 +332,8 @@ struct ChangedFileList: View {
             // different operations.
             message: {
                 FileRevert.losses(
-                    for: file, in: model.workspace,
-                    hasDraft: FileEditSession.shared.isDirty(fullPath(file.path))
+                    for: file, baseBranch: model.surfaceBaseBranch,
+                    hasDraft: fullPath(file.path).map { FileEditSession.shared.isDirty($0) } ?? false
                 )
             },
             onConfirm: { revert(file) }
@@ -527,7 +536,7 @@ struct ChangedFileList: View {
 
         if let file = model.changedFiles.first(where: { $0.path == path }) {
             model.selectedFilePath = file.path
-            FileReview.open(path: file.path, in: model)
+            model.openFile(path: file.path)
         }
 
         // Opening a review moves the centre column, so the keyboard is put back here afterwards
@@ -587,8 +596,10 @@ struct ChangedFileList: View {
         return treeRows.first(where: { $0.node.file != nil })?.node.path
     }
 
-    private func fullPath(_ relative: String) -> String {
-        (model.workspace.path as NSString).appendingPathComponent(relative)
+    /// The file on this Mac, for the things only a worktree here has. Nil for a workspace whose
+    /// files are in the cloud, where every control that reads this is already behind a capability.
+    private func fullPath(_ relative: String) -> String? {
+        model.absolutePath(for: relative)
     }
 
     /// Follows the cursor rather than the model's selection, so the space bar previews the row
@@ -596,7 +607,7 @@ struct ChangedFileList: View {
     /// rather than opening a panel on a folder.
     private func refreshPreview() {
         guard !model.diffScope.isHistorical else { previewURL = nil; return }
-        previewURL = cursor.flatMap { QuickLookTarget.url(for: fullPath($0)) }
+        previewURL = cursor.flatMap { fullPath($0) }.flatMap { QuickLookTarget.url(for: $0) }
     }
 
     private func refresh() {
@@ -612,13 +623,12 @@ struct ChangedFileList: View {
     /// neither half.
     private func revert(_ file: ChangedFile) {
         guard model.diffScope.allowsWorktreeActions(for: file) else { return }
-        let workspace = model.workspace
         let absolute = fullPath(file.path)
         Task {
             // The draft goes with the file, exactly as it does from the header bar. Left behind,
             // an open Edit pane would keep offering to save the text that was just reverted.
-            FileEditSession.shared.discard(path: absolute)
-            if let message = await FileRevert.revert(file: file, in: workspace) {
+            if let absolute { FileEditSession.shared.discard(path: absolute) }
+            if let message = await model.revert(file: file) {
                 revertProblem = RevertProblem(filename: file.filename, message: message)
             }
             // As from the header bar's own Revert: what the review pane is holding for this file

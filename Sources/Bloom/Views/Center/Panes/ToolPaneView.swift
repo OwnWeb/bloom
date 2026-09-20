@@ -30,7 +30,7 @@ struct ToolPaneView: View {
     /// A tab id rather than a flag, for the same reason `TranscriptListView.drawnInFull` is one:
     /// this view is reused from one workspace to the next rather than built again, so a flag left
     /// standing from the last workspace's terminal would let the next one's shell be forked before
-    /// its port had been allocated. See `CenterPanesView.soloPane`.
+    /// its port had been allocated. See `CentrePaneMeasure.soloPane`.
     @State private var readyTabID: String?
 
     /// Read for the setup strip's slide. See the `.animation` in `body`.
@@ -106,6 +106,15 @@ struct ToolPaneView: View {
             NotesPaneView(model: model)
                 .id(model.workspace.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        // A tab only a Cloud workspace opens: a local workspace's setup output is a row in its
+        // transcript, where the reader already is. See `CloudWorkspaceSession.toolPane`.
+        case .setup:
+            EmptyStateView(
+                glyph: PaneGlyph.setup,
+                title: "Nothing to show",
+                message: "This workspace's setup is in its conversation rather than in a tab."
+            )
         }
     }
 

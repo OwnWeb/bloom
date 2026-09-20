@@ -26,8 +26,9 @@ struct CloudSetupGuideTests {
     @Test("it says setup runs again after an interrupted machine, where it says setup runs once")
     func idempotence() {
         let text = CloudSetupGuide.text
-        let lifecycles = try? #require(text.range(of: "There are two lifecycles"))
+        let lifecycles = text.range(of: "There are two lifecycles")
         let interrupted = text.range(of: "stopped in the middle of setup runs")
+        #expect(lifecycles != nil)
         #expect(interrupted != nil)
         // In the section that claims "once", so a reader meets the exception with the rule rather
         // than two sections later.

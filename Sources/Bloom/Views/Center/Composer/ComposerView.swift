@@ -119,13 +119,54 @@ struct ComposerView: View {
         .padding(.bottom, ComposerLayout.bottomInset)
     }
 
+    /// Where an attached file is copied to, which the workspace answers rather than this view:
+    /// see `WorkspaceSurface.attachmentRoot`. Nil model is Ask Bloom, which has no workspace and
+    /// no worktree, and whose composer attaches into the transcript's own directory.
+    private var attachmentRoot: String {
+        if let model { return model.attachmentRoot(for: transcript.session.id) }
+        // A Cloud chat has no `WorkspaceModel` here at all: its composer is handed a transcript and
+        // a link to its machine. The link asks the workspace the same question.
+        return transcript.cloud?.attachmentRoot ?? transcript.cwd
+    }
+
+    /// Where the next message would go **if it were sent now**, which is not the same as where the
+    /// last one went.
+    ///
+    /// **The tint has to arrive on the keystroke, not on the send.** The whole complaint this
+    /// answers is that addressing a person is invisible until afterwards, so a box that waited for
+    /// the audience to stick would be late by exactly one message: typing `@seb ` would leave the
+    /// composer its ordinary colour and the bubble would come out terracotta. The web client built
+    /// it this way first and was right; the same rule resolves both, in the core, so the two
+    /// windows cannot disagree about when the colour appears.
+    private var prospectiveAudience: ComposerAudience {
+        MentionAddress.audience(
+            for: transcript.draft,
+            people: transcript.cloud?.people ?? [],
+            runningAgent: transcript.cloud?.runningAgent,
+            current: transcript.audience
+        )
+    }
+
+    /// What "Write to @bloom" does, which is what typing `@bloom` does: the audience goes back to
+    /// Bloom, and a person's mention at the head of the draft goes with it, since the draft names
+    /// somebody before the audience is asked. See `MentionAddress.withoutMention`.
+    private func writeToBloom() {
+        transcript.audience = .agent
+        transcript.draft = MentionAddress.withoutMention(transcript.draft)
+    }
+
     private var composer: some View {
         ComposerPrompt(
             text: $transcript.draft,
             caret: $caret,
             isFocused: $isFocused,
             mentionRoot: transcript.cwd,
-            attachmentRoot: transcript.cwd,
+            people: transcript.cloud?.people ?? [],
+            isAddressingAPerson: prospectiveAudience.person != nil,
+            addressedName: prospectiveAudience.person?.name,
+            onWriteToBloom: writeToBloom,
+            runningAgent: transcript.cloud?.runningAgent,
+            attachmentRoot: attachmentRoot,
             attachmentKey: transcript.session.id.rawValue,
             reviewComments: reviewComments,
             onRemoveReviewComment: remove(reviewComment:),
@@ -164,6 +205,9 @@ struct ComposerView: View {
             if let store = app.store { await ComposerPlanningSupport.shared.refresh(from: store) }
         }
         .onChange(of: transcript.draft) { _, _ in scheduleDraftSave() }
+        // Somebody else changed this Cloud chat's composer, or the machine answered a change of
+        // ours. Nil for every local chat, so this never fires there.
+        .onChange(of: transcript.cloud?.controls) { _, machine in seed(fromMachine: machine) }
         // Something put words in the box for the owner to carry on writing, which today is Edit on
         // a queued message. The caret goes to the start rather than the end, because the words that
         // just arrived are at the front and are the ones the button was pressed to change.
@@ -226,8 +270,13 @@ struct ComposerView: View {
     }
 
     /// The pending review, which rides with whatever is sent next from this workspace.
+    ///
+    /// A Cloud chat has no `WorkspaceModel` here, so it asks through its link, the same way the
+    /// attachment root does: the notes belong to the workspace either way.
     private var reviewComments: [ReviewComment] {
-        includesReviewComments ? (model?.reviewComments ?? []) : []
+        guard includesReviewComments else { return [] }
+        if let model { return model.reviewComments }
+        return transcript.cloud?.reviewComments ?? []
     }
 
     /// Attachments alone are a turn. Dropping a screenshot in and pressing send is a sentence, and
@@ -289,9 +338,16 @@ struct ComposerView: View {
     /// Writes the footer's choices back where a conversation keeps them: the four that are columns
     /// go on the session row, and fast mode and the output style go in the store's key value table.
     private func apply(controls new: ComposerControls) {
+        // What the footer showed before this change, for the Cloud path below: it has to know
+        // whether anything moved, and the four values held in state are about to be overwritten.
+        let before = controls
+        // A Cloud chat's settings are its machine's. Writing them into this Mac's settings table
+        // as well kept a second copy nothing read, under a key named after somebody else's chat.
+        let keepsLocally = transcript.cloud == nil
+
         if new.codexFastMode != codexFastMode {
             codexFastMode = new.codexFastMode
-            if let store = app.store {
+            if keepsLocally, let store = app.store {
                 let key = CodexSpeed.key(sessionID: transcript.session.id)
                 let value = new.codexFastMode.map { $0 ? "1" : "0" }
                 Task { try? await store.setSetting(key, value) }
@@ -300,7 +356,7 @@ struct ComposerView: View {
 
         if new.isFastMode != isFastMode {
             isFastMode = new.isFastMode
-            if let store = app.store {
+            if keepsLocally, let store = app.store {
                 let key = ComposerControls.fastModeKey(sessionID: transcript.session.id)
                 let value = new.isFastMode ? "1" : nil
                 Task { try? await store.setSetting(key, value) }
@@ -309,7 +365,7 @@ struct ComposerView: View {
 
         if new.outputStyle != outputStyle {
             outputStyle = new.outputStyle
-            if let store = app.store {
+            if keepsLocally, let store = app.store {
                 let key = ComposerControls.outputStyleKey(sessionID: transcript.session.id)
                 // The default is stored as no row at all, so a session that was set back to it
                 // reads the same as one that was never asked. See `AgentRunner.refreshOutputStyle`.
@@ -320,7 +376,7 @@ struct ComposerView: View {
 
         if new.codexContextWindow != codexContextWindow {
             codexContextWindow = new.codexContextWindow
-            if let store = app.store {
+            if keepsLocally, let store = app.store {
                 let key = ComposerControls.contextWindowKey(sessionID: transcript.session.id)
                 // Nil for the model's own window, so a chat set back to it reads the same as one
                 // nobody ever asked. `CodexRunner.applyContextWindowChange` reads it on the next
@@ -354,6 +410,23 @@ struct ComposerView: View {
             break
         }
 
+        // **All nine, to the machine, whichever of them moved.** This used to fall through to
+        // the guard below, which compares the five fields a `Session` has and nothing else: so a
+        // Cloud chat's fast mode, Codex fast mode, output style and context window changed this
+        // view and never reached the machine. The wire carries all nine and the Mac was using
+        // five. The lightning bolt in the middle of the owner's screenshot was one of the four.
+        if !keepsLocally {
+            guard new != before else { return }
+            Task {
+                // Refused: put the four back to what the machine still has, since no answer is
+                // coming that would. The five on the session are put back by the call itself.
+                if await !transcript.setCloudControls(new) {
+                    seed(fromMachine: transcript.cloud?.controls)
+                }
+            }
+            return
+        }
+
         guard new.model != session.model
             || new.effort != session.effort
             || new.agentKind != session.agentKind
@@ -368,6 +441,20 @@ struct ComposerView: View {
             $0.permissionMode = new.permissionMode
             $0.interactionMode = new.interactionMode
         }
+    }
+
+    /// Takes the four values a `Session` has no column for off the machine's own account of this
+    /// chat's composer.
+    ///
+    /// Called when the chat is prepared and again whenever the machine's controls change, which is
+    /// what another person changing this chat's model or fast mode looks like from here. Nil is a
+    /// machine that has not said yet, and leaves the values alone rather than resetting them.
+    private func seed(fromMachine machine: ComposerControls?) {
+        guard let machine else { return }
+        if isFastMode != machine.isFastMode { isFastMode = machine.isFastMode }
+        if codexFastMode != machine.codexFastMode { codexFastMode = machine.codexFastMode }
+        if outputStyle != machine.outputStyle { outputStyle = machine.outputStyle }
+        if codexContextWindow != machine.codexContextWindow { codexContextWindow = machine.codexContextWindow }
     }
 
     /// A chat that has already spoken gets a new chat beside it rather than being turned into
@@ -448,7 +535,13 @@ struct ComposerView: View {
 
         if let question = SideConversation.question(in: transcript.draft) {
             guard canOpenSideConversation, let model else {
-                app.notice = BloomNotice(message: "Use /btw in a workspace chat to open a side conversation.")
+                // Two different reasons, and the old sentence gave the first to both. Ask Bloom has
+                // no workspace, so "use it in a workspace chat" is the way forward. A Cloud chat
+                // IS a workspace chat, and telling somebody standing in one to go and use a
+                // workspace chat sends them looking for a thing they already have.
+                app.notice = BloomNotice(message: transcript.cloud == nil
+                    ? "Use /btw in a workspace chat to open a side conversation."
+                    : "Side conversations are not available in a Bloom Cloud workspace yet.")
                 return
             }
             // The command itself belongs to Bloom. Leave review comments on the main chat.
@@ -481,12 +574,16 @@ struct ComposerView: View {
         // and a file that fails it is taken out of the sentence rather than sent as a path to
         // nothing.
         let worktree = transcript.cwd
+        // Where the files themselves are, which for a Cloud chat is the staging directory rather
+        // than the worktree: see `attachmentRoot`. The check below is about a file on this Mac
+        // either way, so it asks the root the composer copied into.
+        let root = attachmentRoot
         let sourceDraft = transcript.draft
         let draftText = AttachmentDraft
             .parse(sourceDraft, paths: attachments.map(\.path))
             .keeping { path in
                 FileManager.default.fileExists(
-                    atPath: PromptAttachment.sent(path: path).url(in: worktree).path
+                    atPath: PromptAttachment.sent(path: path).url(in: root).path
                 )
             }
 
@@ -499,7 +596,7 @@ struct ComposerView: View {
         // names those paths, and deleting them out from under it would break the one thing they
         // were for.
         PromptAttachmentStore.shared.settle(
-            sent: draftText, sessionID: transcript.session.id.rawValue, workspace: worktree
+            sent: draftText, sessionID: transcript.session.id.rawValue, workspace: root
         )
         caret = 0
         let transcript = transcript
@@ -522,12 +619,19 @@ struct ComposerView: View {
                 ReviewTurn.compose(
                     message: message,
                     comments: comments,
-                    worktreePath: worktree,
+                    // Nil rather than an empty string for a Cloud workspace, which has no worktree
+                    // on this Mac: the payload then renders each note from the lines its anchor
+                    // captured when it was written, rather than resolving every path against "/".
+                    worktreePath: worktree.isEmpty ? nil : worktree,
                     template: template
                 )
             }.value
             await transcript.submit(composed, clearingDraft: sourceDraft)
-            await model?.removeReviewComments(ids: comments.map(\.id))
+            if let model {
+                await model.removeReviewComments(ids: comments.map(\.id))
+            } else {
+                transcript.cloud?.removeReviewComments(ids: comments.map(\.id))
+            }
         }
     }
 
@@ -612,7 +716,7 @@ struct ComposerView: View {
                     if let owner, let pane {
                         tabs.replace(pane: pane, of: owner, with: .chat(next.id), in: model)
                     }
-                    tabs.forget(.chat(previous.session.id), workspaceID: model.workspace.id)
+                    tabs.forget(.chat(previous.session.id), workspaceID: model.surfaceID)
                     tabs.reorder(order.map { entry in
                         entry == .chat(previous.session.id) ? .chat(next.id) : entry
                     }, in: model)
@@ -666,12 +770,12 @@ struct ComposerView: View {
 
     /// A comment chip opens the diff it was written on, where its band is.
     private func open(reviewComment comment: ReviewComment) {
-        guard let model else { return }
-        FileReview.open(path: comment.filePath, in: model)
+        if let model { return FileReview.open(path: comment.filePath, in: model) }
+        transcript.cloud?.openFile(path: comment.filePath)
     }
 
     private func remove(reviewComment id: ReviewCommentID) {
-        guard let model else { return }
+        guard let model else { return transcript.cloud?.removeReviewComment(id: id) ?? () }
         Task { await model.removeReviewComment(id: id) }
     }
 
@@ -727,7 +831,24 @@ struct ComposerView: View {
             SwitchTrace.markOnScreen("composer.prepared", workspace: transcript.workspace?.id)
         }
         isFocused = true
+        // Before the caret is placed, or a Cloud chat's saved draft arrives behind a caret that
+        // was put at the end of an empty box. A local chat has already read its own in `load()`
+        // and this answers at once for it.
+        await transcript.loadCloudDraft()
         caret = (transcript.draft as NSString).length
+
+        // A Cloud chat's controls are its machine's, set by whoever wrote last. Nothing on this Mac
+        // (its defaults, its model list, the settings kept per session in its database) may write
+        // over them just because this reader opened the chat.
+        //
+        // **But they have to be read from it**, which is the half that was missing. The four
+        // values held in state were only ever seeded further down, past this guard, so a Cloud
+        // chat's fast mode, output style and context window started at this Mac's defaults and
+        // showed those rather than what the machine was going to run with.
+        guard transcript.cloud == nil else {
+            seed(fromMachine: transcript.cloud?.controls)
+            return
+        }
 
         repairModel()
 

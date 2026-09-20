@@ -32,6 +32,14 @@ struct DatabaseDirectoryTests {
         #expect(Store.devBundleIdentifier == "be.spatie.bloom.dev")
     }
 
+    /// `Tools/cloud-build.sh` puts this same path in `LSEnvironment`, for the reason the dev copy's
+    /// test gives.
+    @Test("the Cloud copy lands where cloud-build.sh already points it")
+    func theCloudCopy() {
+        #expect(name(Store.cloudBundleIdentifier) == "Bloom Cloud")
+        #expect(Store.cloudBundleIdentifier == "be.spatie.bloom.cloud")
+    }
+
     /// The case nothing warned about. `swift run Bloom` and `.build/debug/Bloom` are not inside a
     /// bundle, so there is no identifier at all, and until this they resolved to the real database.
     @Test("a binary in no bundle gets a directory that says so")

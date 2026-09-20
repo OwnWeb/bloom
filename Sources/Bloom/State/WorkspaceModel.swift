@@ -16,7 +16,9 @@ struct GitFailure: Error, Sendable {
 @Observable
 final class WorkspaceModel {
     var workspace: Workspace
-    private unowned let app: AppModel
+    /// The window this workspace belongs to. `fileprivate` rather than `private` so the surface
+    /// conformance beside it can reach the archive and the continuation, which are the app's.
+    unowned let app: AppModel
 
     var sessions: [Session] = []
     var sideConversations: [SessionID: SideConversationState] = [:]
@@ -84,6 +86,11 @@ final class WorkspaceModel {
         changedFiles.first { $0.path == path && $0.layer == selectedChangeLayer }
             ?? changedFiles.first { $0.path == path }
     }
+
+    /// The hand-off of a failed check to the agent, which runs `gh` and writes an attachment. On
+    /// the model rather than in the pane, so the "one at a time" guard survives the pane being
+    /// scrolled away, and so the pane can be written against the protocol.
+    @ObservationIgnored private(set) lazy var checkFailures = CheckFailureSender()
 
     func loadMoreCommits() {
         historyLimit += BranchCommitList.limit
@@ -458,7 +465,7 @@ final class WorkspaceModel {
         WorkspaceTabsStore.shared.updateOrder(
             sessions: TabSet.tabbable(fresh),
             tools: tabs.hasReadTabs(for: workspace.id) ? tabs.tabs(for: workspace.id).map(\.id) : nil,
-            workspaceID: workspace.id
+            workspaceID: surfaceID
         )
         SwitchTrace.mark("sessions.assigned", workspace: workspace.id)
         if activeSessionID == nil || !sessions.contains(where: { $0.id == activeSessionID }) {
@@ -518,10 +525,14 @@ final class WorkspaceModel {
         return stored
     }
 
+    func createChat(title: String? = nil) async -> PaneContent? {
+        await createChat(title: title, controls: nil, usesCLI: nil)
+    }
+
     func createChat(
-        title: String? = nil,
-        controls suppliedControls: ComposerControls? = nil,
-        usesCLI suppliedCLIChoice: Bool? = nil
+        title: String?,
+        controls suppliedControls: ComposerControls?,
+        usesCLI suppliedCLIChoice: Bool?
     ) async -> PaneContent? {
         guard let store, let repo = app.repo(for: workspace) else { return nil }
         let defaults = await AppDefaults.loadForNewSessions(from: store)
@@ -631,7 +642,7 @@ final class WorkspaceModel {
         }
         let tabs = WorkspaceTabsStore.shared
         tabs.prepareToClose(.chat(session.id), in: self)
-        tabs.forget(.chat(session.id), workspaceID: workspace.id)
+        tabs.forget(.chat(session.id), workspaceID: surfaceID)
         if let terminal = CenterTabStore.shared.terminal(for: session.id, in: workspace.id) {
             await CenterTabStore.shared.close(terminal, in: self)
             pendingCLILaunches.remove(session.id)
@@ -1718,15 +1729,6 @@ final class WorkspaceModel {
 
     /// Why a refresh of the changed file list was asked for, which is what decides how loud it is
     /// allowed to be.
-    enum ChangesRefresh {
-        /// The reader did something that changed the worktree, or the pane has just opened.
-        /// Reports progress, and opens the first file when nothing is open.
-        case requested
-        /// The poll that keeps the list honest while an agent writes. It has to be invisible: a
-        /// spinner every six seconds says less than a list one tick out of date, and moving the
-        /// selection would reopen a diff the reader had just closed.
-        case quiet
-    }
 
     func refreshChanges(_ reason: ChangesRefresh = .requested) async {
         // A refresh already on its way is about to answer about this same worktree, so the poll

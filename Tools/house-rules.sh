@@ -91,6 +91,7 @@ echo "==> the app is called Bloom"
 baton_allowed=(
   '*PROTOCOL.md'                                    # quotes a recorded session
   '*build.sh'                                       # BATON_CODESIGN_IDENTITY, kept working on purpose
+  'Tools/codesign-identity.sh'                      # the same variable, now resolved in one place
   '*fixtures/'                                      # recorded sessions, byte for byte
   'Sources/BloomCore/Persistence/LegacyDatabase.swift'          # reads the old app's database
   'Sources/BloomCore/Persistence/LegacyDefaults.swift'          # reads the old app's preferences
@@ -298,6 +299,7 @@ id_type_allowed_files=(
   'Sources/BloomCore/Agent/AgentRetry.swift'   # the same stream-json, one line of it
   'Sources/BloomCore/Remote/RemoteSummary.swift'      # runbloom.app's summary body, ids as JSON strings
   'Sources/BloomCore/Remote/RemoteUsageMeter.swift'   # runbloom.app's usage body and the kernel's boot id
+  'Sources/BloomCore/Bridge/CloudWorkspaceReach.swift' # Bloom Cloud workspace and chat ids, which runbloom.app and the machine assign
   'Sources/BloomRunner/Machine/MachineConfiguration.swift' # runbloom.app's workspace.json
   'Sources/BloomCore/Transcript/ContextCompaction.swift' # the same stream-json, one line of it
 )
@@ -319,6 +321,13 @@ id_type_allowed_names=(
   processID         # a pid, as text
   bundleID          # macOS, not Bloom
   ownerID           # a split pane, which is the layout's namespace and not a row
+  authorID          # runbloom.app's account for whoever wrote a message, as `AuthorRecord`
+                    # spells it. Never a Bloom row: it is compared with the reader's own id and
+                    # with the previous message's, and looked up in nothing
+  previousAuthorID  # the same id, one message earlier, for labelling a run of them
+  stagingDraftID    # a composer draft's attachment folder under the temporary directory, and the
+                    # bucket key PromptAttachmentStore holds it by. Never a row, and its own copy
+                    # lives in BloomClient, which cannot import the typed ids at all
 )
 # The remaining stored `String` ids, each one a deliberate decision. This list
 # should only ever get shorter.
@@ -348,6 +357,7 @@ id_type_allowed_properties=(
   'Sources/BloomCore/Agent/Delivery.swift:providerTurnID'             # the provider's accepted turn, used for recovery
   'Sources/BloomCore/Agent/PlanArtefact.swift:sourceID'               # the provider's plan item or tool-use token
   'Sources/BloomCore/Agent/Delivery.swift:remoteTurnID'               # runbloom.app's turn, a ULID it assigns
+  'Sources/Bloom/State/Cloud/CloudSharing.swift:teamID'               # runbloom.app's team, a ULID it assigns
   'Sources/BloomCore/Model/MessageAuthor.swift:userID'                # runbloom.app's user, the token's sub
   'Sources/BloomCore/Model/MessageAudience.swift:userID'              # the same, as who a message was addressed to
   'Sources/BloomCore/Remote/WorkspaceMembers.swift:userID'            # the same, as runbloom.app lists a team

@@ -13,26 +13,58 @@ struct EmptyStateView: View {
     let message: String
     let actionTitle: String?
     let action: (() -> Void)?
+    /// Something still happening while this is on screen, drawn as a spinner and a line under the
+    /// message. Nil for the empty states that are a settled answer, which is most of them.
+    let progress: String?
 
     init(
         glyph: String,
         title: String,
         message: String,
         actionTitle: String? = nil,
-        action: (() -> Void)? = nil
+        action: (() -> Void)? = nil,
+        progress: String? = nil
     ) {
         self.glyph = glyph
         self.title = title
         self.message = message
         self.actionTitle = actionTitle
         self.action = action
+        self.progress = progress
     }
 
     var body: some View {
         ContentUnavailableView {
             Label(title, systemImage: glyph)
         } description: {
-            Text(message)
+            VStack(spacing: Metrics.spacingWide) {
+                // Wrapped rather than clipped. `ContentUnavailableView` lays its description out
+                // in a column of its own and will cut a long sentence off mid-word, which the
+                // owner met on the Cloud empty state: "A Cloud workspace runs in the cloud instead
+                // of on…". A sentence cut in half reads as a bug, and this one is the first thing
+                // somebody meets before they have signed in.
+                Text(message)
+                    .fixedSize(horizontal: false, vertical: true)
+                // **Above the sentence rather than beside it, because the sentence wraps.**
+                // Beside it, the spinner is vertically centred against however many lines the
+                // sentence takes and sits outside the block that is being centred: on "Its machine
+                // is not ready yet, and this will reconnect automatically once it is." it hung off
+                // the left edge of two centred lines, aligned to nothing, and read as a stray glyph
+                // rather than as part of the sentence. A row only works where the words are one
+                // line at every width the pane can be, and nothing here can promise that.
+                if let progress {
+                    VStack(spacing: Metrics.spacingSmall) {
+                        ProgressView().controlSize(.small)
+                        Text(progress)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .foregroundStyle(Palette.textTertiary)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(progress)
+                }
+            }
         } actions: {
             if let actionTitle, let action {
                 Button(actionTitle, action: action)

@@ -14,6 +14,11 @@ struct ComposerOption: Identifiable, Hashable {
     /// footnote under the whole menu, which is what the owner could not read before choosing.
     var detail: String?
 
+    /// **The fallback, not the list.** Claude Code's models come from the `claude` CLI itself
+    /// (`ClaudeModelList`, through `ComposerModelCatalog`), which is where a Bloom Cloud machine
+    /// reads them too. This is what the picker offers until the CLI has answered, on a Mac where it
+    /// never does, and the names for ids a chat was set to before the CLI's list replaced this one.
+    ///
     /// Most capable first, which here means most expensive first: see `ClaudeModelRank`, whose
     /// head carries the prices this order is read off. The order is not left to this literal.
     /// `ranked` sorts it, so a model pinned in a settings file lands among these rather than
@@ -56,13 +61,18 @@ struct ComposerOption: Identifiable, Hashable {
     /// where an id that names its own backend is now read rather than stored whole
     /// (`ModelIdentifier`), so a row like that no longer appears and, if an old one does, it
     /// appears in the section it belongs to and can be pressed away.
-    static func adding(_ extras: [String], to options: [ComposerOption]) -> [ComposerOption] {
+    ///
+    /// - Parameter names: more rows to take a label from, for an id that is not on `options`. The
+    ///   model menu passes the written Claude list here once the CLI's has replaced it, so a chat
+    ///   still set to `opus`, which the CLI now lists as `opus[1m]`, reads "Opus 5" rather than
+    ///   a tidied "Opus".
+    static func adding(_ extras: [String], to options: [ComposerOption], names: [ComposerOption] = []) -> [ComposerOption] {
         var known = Set(options.map(\.id))
         var result = options
         for id in extras {
             let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty, known.insert(trimmed).inserted else { continue }
-            result.append(ComposerOption(id: trimmed, label: label(for: trimmed, in: options)))
+            result.append(ComposerOption(id: trimmed, label: label(for: trimmed, in: options + names)))
         }
         return result
     }

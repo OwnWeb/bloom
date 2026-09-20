@@ -4,6 +4,13 @@
 # Pass --review-navigation-only to check file jumps without sending any input events.
 # Pass --changes-review-only to check history and staging in invisible windows, without input events.
 # Pass --review-fold-only to check that ticking a file folds it and that the row controls line up.
+# Pass --tab-store-only to check what a workspace's tabs are written as and what comes back.
+# Pass --cloud-terminal-only to check what a Cloud terminal shows after the machine reattaches it.
+# Pass --share-popover-only to draw two Share popover designs, offscreen, into the evidence folder.
+# Pass --cloud-settings-only to draw Settings' Bloom Cloud pane, signed out and in, light and dark.
+# Pass --terminal-scroller-only to check both terminals' scroll bars follow the system's setting.
+# Pass --cloud-selection-only to check that a Cloud workspace with no chats cannot recurse with the
+# tab store. It crashes rather than fails on the code this was written for, which is the failure.
 # Set BLOOM_PROBE_VERBOSE=1 to print the probe's own log on a passing run as well as a failing
 # one, which is how a check that only goes wrong on someone else's machine is read.
 set -euo pipefail
@@ -82,21 +89,39 @@ for index in range(8):
         f'let file{index}Line{line} = "' + ('wrapped text ' * (index + 4)) + '"\n'
         for line in range(30 + index * 7)
     ))
+# **Not `check=True`, and the reason is a probe that answers too quickly.** `open -W` waits for
+# the application by asking the kernel to watch a process that has to still be there when it
+# asks, and a probe with no window to draw can be finished before that: on the CI runner
+# `--cloud-selection-only` came back "Unable to block on applications (initial call to kevent()
+# failed: No such process)" and exit 1, having written a perfectly good result a moment earlier.
+# What the exit status of `open` cannot tell apart, the result file can, so the result is what
+# is believed: written means it ran, absent means it died. See the crash branch below, which is
+# the case this must not swallow.
 try:
     subprocess.run(
         ['open', '-g', '-n', '-W', '-a', str(pathlib.Path(binary).parents[2]),
          '--stdout', f'{root}/result.json', '--stderr', f'{root}/probe.log',
          '--args', '--review-run-probe', root, *arguments],
-        timeout=120, check=True,
+        timeout=120,
     )
 except subprocess.TimeoutExpired:
     print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
     raise
-report = pathlib.Path(root, 'result.json').read_text()
+result_path = pathlib.Path(root, 'result.json')
+report = result_path.read_text() if result_path.exists() else ''
 print(report)
 if os.environ.get('BLOOM_PROBE_VERBOSE'):
     print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
-if not json.loads(report)['passed']:
+# A probe that died wrote nothing, and `open -W` reports its own exit status rather than the
+# app's, so a crash arrives here as an empty file. It used to come out as a JSON traceback, which
+# reads as the harness being broken rather than the thing under test. `--cloud-selection-only`
+# exists for a recursion that takes the process with it, so this is its ordinary failure.
+try:
+    passed = json.loads(report)['passed']
+except json.JSONDecodeError:
+    print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
+    raise SystemExit(f'Probe wrote no result: it crashed or was killed. Evidence: {root}')
+if not passed:
     if os.environ.get('RUNNER_TEMP'):
         evidence = pathlib.Path(os.environ['RUNNER_TEMP'], 'bloom-review-probe')
         evidence.mkdir(exist_ok=True)

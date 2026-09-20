@@ -121,7 +121,12 @@ struct PaletteContrastTests {
     /// exactly this reason, and the doc comments on them state ratios this now re-checks.
     @Test("white on a fill clears the text floor")
     func fillsCarryTheirLabel() {
-        for (name, ink) in [("accentFill", PaletteInk.accentFill), ("mergedFill", PaletteInk.mergedFill)] {
+        for (name, ink) in [
+            ("accentFill", PaletteInk.accentFill),
+            ("mergedFill", PaletteInk.mergedFill),
+            ("teammateFill", PaletteInk.teammateFill),
+            ("directFill", PaletteInk.directFill),
+        ] {
             for (appearance, isDark) in Self.appearances {
                 let ratio = Contrast.ratio(0xFFFFFF, ink.member(dark: isDark))
                 #expect(
@@ -129,6 +134,29 @@ struct PaletteContrastTests {
                     "white on \(name), \(appearance): \(ratio.rounded(to: 2)) to 1"
                 )
             }
+        }
+    }
+
+    /// **Your own message to a person has to be told from your own message to Bloom at a glance**,
+    /// which is what a caption in small grey type was failing to do. The hue was chosen from twelve
+    /// candidates shown as runs beside the teal and then measured: this holds the two numbers, so
+    /// nobody nudges the hex without meeting them.
+    ///
+    /// The distance bar is `teammateFill`'s: the gap between `warning` and `negative`, which is
+    /// what this app already holds two fills a reader must never confuse to. `directFill` is far
+    /// past it, which is the point of picking the furthest apart thing that still carries white.
+    @Test("your own two bubbles are told apart by more than a caption")
+    func theDirectFillIsFarFromTheAccent() {
+        for (appearance, isDark) in Self.appearances {
+            let distance = Contrast.deltaE(
+                PaletteInk.directFill.member(dark: isDark), PaletteInk.accentFill.member(dark: isDark)
+            )
+            #expect(distance >= 30, "directFill against accentFill, \(appearance): \(distance.rounded(to: 1))")
+            // And from the fill it shares a transcript with, so three bubbles in one run are three.
+            let fromTeammate = Contrast.deltaE(
+                PaletteInk.directFill.member(dark: isDark), PaletteInk.teammateFill.member(dark: isDark)
+            )
+            #expect(fromTeammate >= 30, "directFill against teammateFill, \(appearance): \(fromTeammate.rounded(to: 1))")
         }
     }
 
@@ -157,6 +185,30 @@ struct PaletteContrastTests {
             #expect(
                 apart >= bar,
                 "workspaceMessageFill against accentFill, \(appearance): \(apart.rounded(to: 1)) against \(bar.rounded(to: 1))"
+            )
+        }
+    }
+
+    /// A teammate's message in a shared Cloud workspace is not the owner's bubble in another
+    /// green, and it is held to the same bar the workspace message fill is held to: the distance
+    /// between the two meaning colours this app most deliberately draws apart.
+    ///
+    /// The bar is the point rather than the number. The first green tried was `accentFill` with
+    /// the blue pulled out of it, which measured 27.3 and looked fine on screen, and it is exactly
+    /// the kind of near miss that comes back when somebody reads a hex without a reason attached.
+    /// See `PaletteInk.teammateFill`.
+    @Test("a teammate's message is not the owner's bubble in another colour")
+    func teammateMessagesAreTheirOwnBubble() {
+        for (appearance, isDark) in Self.appearances {
+            let bar = Contrast.deltaE(
+                PaletteInk.warning.member(dark: isDark), PaletteInk.negative.member(dark: isDark)
+            )
+            let apart = Contrast.deltaE(
+                PaletteInk.teammateFill.member(dark: isDark), PaletteInk.accentFill.member(dark: isDark)
+            )
+            #expect(
+                apart >= bar,
+                "teammateFill against accentFill, \(appearance): \(apart.rounded(to: 1)) against \(bar.rounded(to: 1))"
             )
         }
     }

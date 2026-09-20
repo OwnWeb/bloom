@@ -51,6 +51,15 @@ extension ClosedChat {
             closedAt: closedAt
         )
     }
+
+    /// A client-side row from the wire. Unknown agents are omitted rather than mislabelled.
+    public init?(record: ClosedChatRecord) {
+        guard let agent = AgentKind.named(wire: record.agent) else { return nil }
+        self.init(
+            id: SessionID(record.id), title: record.title, agentKind: agent,
+            messageCount: record.messageCount, closedAt: record.closedAt
+        )
+    }
 }
 
 extension Message {

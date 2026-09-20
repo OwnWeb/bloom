@@ -23,6 +23,18 @@ public enum OpenWorkspaceNotification {
     /// Private, and load bearing. A visible `Notification.Name` is a second encoder: any file that
     /// can name it can post whatever it likes down the channel, which is precisely what happened.
     private static let name = Notification.Name("bloomOpenWorkspace")
+    /// A Cloud workspace's own channel, for the same reason a `CloudWorkspaceID` is its own type.
+    private static let cloudName = Notification.Name("bloomOpenCloudWorkspace")
+
+    public static func postCloud(_ id: CloudWorkspaceID, on centre: NotificationCenter = .default) {
+        centre.post(name: cloudName, object: id)
+    }
+
+    public static func cloudPublisher(on centre: NotificationCenter = .default) -> AnyPublisher<CloudWorkspaceID, Never> {
+        centre.publisher(for: cloudName)
+            .compactMap { $0.object as? CloudWorkspaceID }
+            .eraseToAnyPublisher()
+    }
 
     /// The centre is a parameter so a test can post on its own rather than on the one the running
     /// app is listening to.

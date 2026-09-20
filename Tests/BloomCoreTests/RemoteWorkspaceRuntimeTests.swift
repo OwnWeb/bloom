@@ -616,28 +616,31 @@ struct RemoteWorkspaceRuntimeTests {
             Issue.record("no workspace"); return
         }
         #expect(snapshot.chats.count == 1)
-        #expect(!snapshot.composerDefaults.agent.isEmpty)
-        #expect(!snapshot.composerDefaults.model.isEmpty)
+        // Required by the current protocol, so the runtime has to send useful values rather than
+        // an empty record. See `WorkspaceSnapshotRecord.composerDefaults`.
+        let defaults = snapshot.composerDefaults
+        #expect(!defaults.agent.isEmpty)
+        #expect(!defaults.model.isEmpty)
 
         // And the same values through `composer` with no chat, which carries the choices too.
         guard case .composer(let offered)? = await fixture.runtime.respond(to: CommandRequest(.composer(chatID: nil)), as: caller).result else {
             Issue.record("no composer"); return
         }
         #expect(offered.chatID == nil, "there is no chat to name")
-        #expect(offered.controls == snapshot.composerDefaults, "one answer, two places to read it")
+        #expect(offered.controls == defaults, "one answer, two places to read it")
         #expect(offered.availableAgents.isEmpty == false)
 
         // A chat started on them is started on exactly what was offered, which is the property the
         // two clients were each guessing at.
         guard case .chat(let made)? = await fixture.runtime.respond(
-            to: CommandRequest(.newChat(controls: snapshot.composerDefaults)), as: caller).result else {
+            to: CommandRequest(.newChat(controls: defaults)), as: caller).result else {
             Issue.record("no chat"); return
         }
         guard case .composer(let settled)? = await fixture.runtime.respond(
             to: CommandRequest(.composer(chatID: made.id)), as: caller).result else {
             Issue.record("no composer"); return
         }
-        #expect(settled.controls == snapshot.composerDefaults)
+        #expect(settled.controls == defaults)
         await fixture.runtime.shutdown()
     }
 

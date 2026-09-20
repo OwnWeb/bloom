@@ -4,7 +4,7 @@ import BloomCore
 /// What a tab carried out of the strip draws over the centre column: the part of the pane it would
 /// land in, and a small token of the tab under the pointer.
 ///
-/// Drawn by the column over everything, in `CenterColumnView.space`, rather than by each pane. The
+/// Drawn by the column over everything, in `CentreColumnMeasure.space`, rather than by each pane. The
 /// panes used to wash themselves from their own drop sessions, which is why this is the same accent
 /// at the same strength `CenterPanesView` washes a moving pane with: one wash means "this is where
 /// it goes" whichever thing is being carried.

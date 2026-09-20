@@ -32,13 +32,17 @@ struct WorkspaceEventsView: View, Equatable {
     /// through a storage box and is never stale, and the one stored value they reach, the
     /// transcript, cannot change without the workspace changing, which is compared here.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.workspaceID == rhs.workspaceID
+        lhs.surfaceID == rhs.surfaceID
             && lhs.isRunning == rhs.isRunning
             && lhs.isFirstThing == rhs.isFirstThing
             && lhs.paneHeight == rhs.paneHeight
     }
 
-    var workspaceID: WorkspaceID
+    /// The workspace whose setup this is, of either kind. A local one's events come from its
+    /// model's memoised timeline; a Cloud one's from the machine's last setup record and the log
+    /// it has streamed. See `CloudSetupEvents` for why a machine's setup is a row here rather than
+    /// a tab of its own.
+    var surfaceID: WorkspaceSurfaceID
     /// Whether a setup run is in flight, as the pane above already knows it. The stored state
     /// catches up a moment later, when the workspace row is next read.
     var isRunning: Bool
@@ -67,11 +71,46 @@ struct WorkspaceEventsView: View, Equatable {
 
     @Environment(AppModel.self) private var app
 
-    private var model: WorkspaceModel? { app.existingModel(for: workspaceID) }
+    /// The local workspace behind this feed, and nil for a Cloud one. What it is still for is the
+    /// two actions only a worktree has: ignoring a failure, and stopping a run.
+    private var model: WorkspaceModel? {
+        surfaceID.local.flatMap { app.existingModel(for: $0) }
+    }
 
+    private var session: CloudWorkspaceSession? {
+        surfaceID.cloudID.flatMap { app.cloud.existingSession(for: $0) }
+    }
+
+    /// Read here rather than in `TranscriptListView`, for both kinds and for the same reason: a
+    /// setup script flushes several times a second, and a list that read the log would re-run its
+    /// `ForEach` over every row in the session on every flush. Observation redraws this view alone.
     private var events: [WorkspaceEvent] {
-        guard let model else { return [] }
-        return model.timeline(isRunningSetup: isRunning)
+        if let model { return model.timeline(isRunningSetup: isRunning) }
+        guard let session else { return [] }
+        return CloudSetupEvents.events(setup: session.state.setup, log: session.state.setupLog)
+    }
+
+    /// Running setup again, which both kinds can do and each does its own way: a worktree asks
+    /// first, because it is about to run a script on this Mac, and a machine is told.
+    private var runSetupAgain: (@MainActor () -> Void)? {
+        if let model {
+            guard model.canRunSetup else { return nil }
+            return { @MainActor in SetupRunAlert.shared.ask(model) }
+        }
+        guard let session, session.allows("files") else { return nil }
+        return { @MainActor in Task { await session.run(.runSetup) } }
+    }
+
+    /// Stopping a running setup, which both kinds can do: a worktree's script is this Mac's to end,
+    /// and a machine is told with `stop_setup`, which ends the step running and starts nothing
+    /// after it. Nil while nothing is running or for a reader who may not change files.
+    private var stopSetup: (@MainActor () -> Void)? {
+        if let model {
+            guard model.isRunningSetup else { return nil }
+            return { @MainActor in model.stopSetup() }
+        }
+        guard let session, session.allows("files"), session.state.setup?.state == "running" else { return nil }
+        return { @MainActor in Task { await session.run(.stopSetup) } }
     }
 
     var body: some View {
@@ -87,6 +126,8 @@ struct WorkspaceEventsView: View, Equatable {
                     isFirstThing: isFirstThing,
                     paneHeight: paneHeight,
                     model: model,
+                    runSetupAgain: runSetupAgain,
+                    stopSetup: stopSetup,
                     onShowLogEnd: onShowLogEnd
                 )
             }
@@ -128,11 +169,18 @@ struct WorkspaceEventRow: View {
     /// See `WorkspaceEventsView.paneHeight`, and `tailCap`.
     var paneHeight: CGFloat = 0
     var model: WorkspaceModel?
+    /// What the Run setup again link does, or nil where this reader may not. Handed in rather than
+    /// taken off the model, because a Cloud workspace has no model here and does have the verb.
+    var runSetupAgain: (@MainActor () -> Void)?
+    /// What Stop setup does, handed in for the same reason. See `WorkspaceEventsView.stopSetup`.
+    var stopSetup: (@MainActor () -> Void)?
     /// See `endID`, and `WorkspaceEventsView.onShowLogEnd`.
     var onShowLogEnd: (@MainActor (Bool) -> Void)?
 
     @State private var isExpanded = false
     @State private var isHovered = false
+    /// One line of the running block, as it was actually laid out. See `drawnLineHeight`.
+    @State private var measuredLine: CGFloat?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// What the conversation is set at, which is what a line of the tail is set at, and therefore
@@ -298,7 +346,12 @@ struct WorkspaceEventRow: View {
 
     /// Only where there is something behind the disclosure. A merge has no log, and a chevron that
     /// opens onto nothing is worse than no chevron.
-    private var canExpand: Bool { !event.log.isEmpty }
+    ///
+    /// Asked of what the log would draw rather than of its length. A log of blank lines, or of a
+    /// clear-screen and nothing else, is not an empty string and is still nothing to read: the
+    /// owner met exactly that, a "Setup finished" row whose chevron opened onto a blank space. See
+    /// `LogTail.hasSomethingToShow`.
+    private var canExpand: Bool { LogTail.hasSomethingToShow(event.log) }
 
     private var note: String {
         if event.isRunning, isFirstThing, event.kind == .setup {
@@ -308,7 +361,7 @@ struct WorkspaceEventRow: View {
     }
 
     private var tail: String {
-        guard !event.log.isEmpty else { return "" }
+        guard canExpand else { return "" }
         if isExpanded { return LogTail.last(event.log, lines: Self.expandedTail) }
 
         switch event.outcome {
@@ -355,7 +408,7 @@ struct WorkspaceEventRow: View {
                         .truncationMode(.tail)
                         // And a line is the same height whatever glyphs are in it, so a blank
                         // line or a line of dots takes the same room as a sentence.
-                        .frame(height: lineHeight)
+                        .frame(height: drawnLineHeight)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         // In at the bottom, out at the top, one line of travel each, which is the
                         // same line of travel the survivors between them are making. Every
@@ -384,7 +437,33 @@ struct WorkspaceEventRow: View {
             // with `lines`, and the settle below therefore carries the block's own growth as well
             // as the travel inside it: the block opens by a line as the line that fills it slides
             // in, over the same 0.12s.
-            .frame(height: lineHeight * CGFloat(runningTail), alignment: .top)
+            .frame(height: drawnLineHeight * CGFloat(runningTail), alignment: .top)
+            // What a line of this text is really drawn at, which is the only number that cannot
+            // disagree with the frame above it.
+            //
+            // **The height was computed rather than measured, and the owner met the difference.**
+            // `SetupLineHeight` asks AppKit for the default line height of the monospaced system
+            // font at the callout size times the font scale, and the transcript draws its code in
+            // whatever `Typo.code` is under the reader's own chat font and line height. Where those
+            // two answers differ by a point, ten lines of block are ten points short, `clipped`
+            // takes the difference off the bottom, and the last line is cut through the middle of
+            // its glyphs. That is what "i also cannot scroll down" was: the rest was not below a
+            // fold, it was underneath the frame. Measuring one line and using it for both is what
+            // makes the two agree by construction rather than by two functions staying in step.
+            .background(alignment: .topLeading) {
+                // One line of the same text, laid out with nothing imposed on it, behind a block
+                // that has a height imposed on every line. A background is outside the layout, so
+                // this costs the block nothing and answers the only question that matters: how
+                // tall is a line of this font, at this reader's chat text size and line height.
+                Text("M")
+                    .font(Typo.code)
+                    .lineLimit(1)
+                    .hidden()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        guard height > 0, abs(height - drawnLineHeight) > 0.5 else { return }
+                        measuredLine = height
+                    }
+            }
             // So the departing line leaves the block rather than being drawn over the row above,
             // or over the link below, which is where it used to land.
             .clipped()
@@ -420,6 +499,10 @@ struct WorkspaceEventRow: View {
     /// How tall one line of the tail is. See `SetupLineHeight`, which is where it is worked out
     /// and where it is held.
     private var lineHeight: CGFloat { SetupLineHeight.height(fontScale: fontScale) }
+
+    /// The computed height until a line has been drawn, and the drawn one from then on. See the
+    /// note on the block's own frame for what disagreeing with it cost.
+    private var drawnLineHeight: CGFloat { measuredLine ?? lineHeight }
 
     /// One line of travel, and it is over before the next line is due.
     ///
@@ -489,8 +572,11 @@ struct WorkspaceEventRow: View {
                     //
                     // Not hidden from accessibility the way its neighbour is. Nothing else on this
                     // row does what it does, so there is no second announcement of it to prefer.
-                    if showsRunSetupAgain, let model {
-                        Button("Run setup again") { SetupRunAlert.shared.ask(model) }
+                    if showsRunSetupAgain, let runSetupAgain {
+                        // "Again" only where there was a first time. A workspace created without
+                        // setup has not run it, and offering to run it "again" is the sort of
+                        // small lie that makes somebody doubt the rest of the sentence.
+                        Button(event.outcome == .skipped ? "Run setup" : "Run setup again", action: runSetupAgain)
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                             .font(Typo.caption)
@@ -509,8 +595,8 @@ struct WorkspaceEventRow: View {
 
                     // No confirmation, unlike the run: stopping costs nothing that "Run setup
                     // again" on the failed row it leaves behind cannot give back.
-                    if showsStopSetup, let model {
-                        Button("Stop setup") { model.stopSetup() }
+                    if showsStopSetup, let stopSetup {
+                        Button("Stop setup", action: stopSetup)
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                             .font(Typo.caption)
@@ -547,7 +633,7 @@ struct WorkspaceEventRow: View {
     /// with a line saying what it went looking for, so the worst case is an explanation rather than
     /// a wrong answer.
     private var showsRunSetupAgain: Bool {
-        event.kind == .setup && [.failed, .ignored].contains(event.outcome) && model?.canRunSetup == true
+        event.kind == .setup && [.failed, .ignored, .skipped].contains(event.outcome) && runSetupAgain != nil
     }
 
     /// Whether this row offers to dismiss the failure. Not gated on a setup script existing, since
@@ -558,7 +644,7 @@ struct WorkspaceEventRow: View {
 
     /// Whether this row offers to stop the run, which is for as long as the script is going.
     private var showsStopSetup: Bool {
-        event.kind == .setup && event.isRunning && model?.isRunningSetup == true
+        event.kind == .setup && event.isRunning && stopSetup != nil
     }
 
     /// Whether unfolding this row would actually show anything the reader cannot already see.
@@ -572,8 +658,28 @@ struct WorkspaceEventRow: View {
     /// while the block is still filling: `runningTail` is the log's own length there, so comparing
     /// against it would say there is more to show about a log that is entirely on screen, which is
     /// the dead link this note is about.
+    /// Whether there is more log than the block is showing, and therefore something for the link
+    /// to unfold.
+    ///
+    /// **Asked against what is drawn rather than against the cap**, which is the same question only
+    /// while the two agree. A running block is drawn at `runningTail`, which is the cap or the log,
+    /// whichever is smaller; a finished or failed one is drawn at its own number. Comparing the log
+    /// to the cap said "nothing more to show" for a block that was showing less than the cap, and
+    /// left the rest of the log with no way to reach it. See the owner's "i also cannot scroll
+    /// down", which was two faults in one screen: a block cut through a line, and a link that was
+    /// not drawn because the arithmetic said the log fitted.
     private var hasMoreToShow: Bool {
-        event.logLines > (event.isFailure ? failedTail : tailCap)
+        event.logLines > drawnLines
+    }
+
+    /// How many lines the block is drawing right now.
+    private var drawnLines: Int {
+        if isExpanded { return Self.expandedTail }
+        switch event.outcome {
+        case .running: return runningTail
+        case .failed: return failedTail
+        case .succeeded, .skipped, .ignored: return 0
+        }
     }
 }
 

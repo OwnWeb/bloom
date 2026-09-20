@@ -7,8 +7,31 @@ import BloomCore
 /// The bar lives here rather than in the panes above, because this is the one view every route to
 /// a file goes through: the changes tab, the file tree and the review pane all end up in it, and a
 /// header bar bolted onto each of them would be three bars to keep in step.
-struct DiffView: View {
-    let model: WorkspaceModel
+/// The numbers this view is drawn to, in a type of their own because a generic type may hold no
+/// stored static. Nothing about them is generic: they are about a diff, not about the workspace
+/// under it.
+private enum DiffMeasure {
+    /// Above this many changed lines the diff is gated behind a tap. Rendering is lazy and would
+    /// survive it, but the preparation pass and the user's attention would both rather not.
+    static let largeDiff = 5_000
+    /// How much context a single tap on a between-hunks expander reveals.
+    static let gapStep = 24
+    /// Context runs longer than this collapse to three lines at each end.
+    static let collapseThreshold = 8
+    static let keptContext = 3
+    /// How much of a diff is highlighted before anybody scrolls to it. Several screens, which is
+    /// what a reader gets through before the cache is warm anyway, and far short of the four
+    /// thousand lines `SyntaxCache` holds across every open file: priming a whole large diff would
+    /// evict what it had just put in, and a diff between that limit and `largeDiff` can already
+    /// thrash it by being scrolled.
+    static let prime = 600
+    /// Vertically centred on a row, horizontally at the start of the sheet. See the anchors on
+    /// `standaloneDiff` for why it is not `.center`.
+    static let leadingCentre = UnitPoint(x: 0, y: 0.5)
+}
+
+struct DiffView<Model: WorkspaceSurface>: View {
+    let model: Model
     let file: ChangedFile
     /// Non-nil when the all-files review owns vertical scrolling.
     let embeddedWidth: CGFloat?
@@ -21,15 +44,6 @@ struct DiffView: View {
     var onNavigationLayout: (() -> Void)?
     var onPrepared: (() -> Void)?
     var onToggleCollapsed: (() -> Void)?
-
-    /// Above this many changed lines the diff is gated behind a tap. Rendering is lazy and would
-    /// survive it, but the preparation pass and the user's attention would both rather not.
-    private static let largeDiffLimit = 5_000
-    /// How much context a single tap on a between-hunks expander reveals.
-    private static let gapStep = 24
-    /// Context runs longer than this collapse to three lines at each end.
-    private static let collapseThreshold = 8
-    private static let keptContext = 3
 
     @AppStorage(DiffLayoutSetting.storageKey) private var isSideBySide = false
     @AppStorage(DiffWhitespaceSetting.storageKey) private var ignoresWhitespace = false
@@ -83,7 +97,13 @@ struct DiffView: View {
     /// answered the first death and not the second; see `WorkspaceModel.reviewDrafts` for the
     /// fragment that committing on disappear minted instead.
     private var allowsWorktreeActions: Bool { model.diffScope.allowsWorktreeActions(for: file) }
-    private var draft: ReviewDraft? { allowsWorktreeActions ? model.reviewDrafts[file.path] : nil }
+    /// Whether a note can be left on this diff: the same question, and the capability besides.
+    /// A workspace without it draws no gutter `+`, no bands and no editor, and `FileHeaderBar`
+    /// says why where the control would be.
+    private var allowsComments: Bool { allowsWorktreeActions && model.capabilities.has(.reviewComments) }
+    /// The same for the in-place editor, which writes the file.
+    private var allowsEditing: Bool { allowsWorktreeActions && model.capabilities.has(.editFiles) }
+    private var draft: ReviewDraft? { allowsComments ? model.reviewDrafts[file.path] : nil }
     private var draftSelection: ReviewSelection? { draft?.selection }
     /// Where the editor is drawn: under the LAST line the note will cover, so a note begun by
     /// dragging reads as being about the lines above the box rather than as covering them. The
@@ -165,7 +185,7 @@ struct DiffView: View {
     /// available yet here, and it has to be part of the question: ignoring whitespace changes
     /// which hunks there are.
     init(
-        model: WorkspaceModel, file: ChangedFile, embeddedWidth: CGFloat? = nil,
+        model: Model, file: ChangedFile, embeddedWidth: CGFloat? = nil,
         embeddedViewportHeight: CGFloat? = nil, isCollapsed: Bool = false,
         onScrollFocus: (() -> Void)? = nil, navigationTarget: Bool = false,
         onNavigationLayout: (() -> Void)? = nil, onPrepared: (() -> Void)? = nil,
@@ -181,8 +201,9 @@ struct DiffView: View {
         self.onNavigationLayout = onNavigationLayout
         self.onPrepared = onPrepared
         self.onToggleCollapsed = onToggleCollapsed
-        let absolute = (model.workspace.path as NSString).appendingPathComponent(file.path)
-        _mode = State(initialValue: model.diffScope.allowsWorktreeActions(for: file) && (FileEditSession.shared.isDirty(absolute)
+        let absolute = model.editorKey(for: file.path)
+        _mode = State(initialValue: model.capabilities.has(.editFiles)
+            && model.diffScope.allowsWorktreeActions(for: file) && (FileEditSession.shared.isDirty(absolute)
             || SourceEditorState.file(absolute).prefersEditing
             || (embeddedWidth == nil && SourceEditorState.file(absolute).request != nil)) ? .edit : .diff)
 
@@ -208,7 +229,7 @@ struct DiffView: View {
 
     private struct LoadID: Hashable {
         var language: Language
-        var workspaceID: WorkspaceID
+        var workspaceID: WorkspaceSurfaceID
         var file: ChangedFile
         var scope: DiffScope
         var generation: Int
@@ -232,7 +253,7 @@ struct DiffView: View {
     }
 
     private var effectiveLanguage: Language {
-        SourceEditorState.file(absolutePath).languageOverride ?? Language.detect(path: file.path)
+        SourceEditorState.file(fileKey).languageOverride ?? Language.detect(path: file.path)
     }
 
     private var presentedLanguage: Language? {
@@ -240,13 +261,20 @@ struct DiffView: View {
         return nil
     }
 
-    private var absolutePath: String {
-        (model.workspace.path as NSString).appendingPathComponent(file.path)
+    /// What the editor, the find bar and the source state file this file under: its path on this
+    /// Mac for a worktree, and a key naming the workspace and the file for one in the cloud.
+    /// Nothing here opens it; everything that reads or writes the file is behind `.editFiles`.
+    private var fileKey: String {
+        model.editorKey(for: file.path)
     }
+
+    /// The worktree on this Mac, for the one thing that genuinely needs one: previewing a
+    /// Markdown or HTML file by reading it, and the links inside that preview.
+    private var worktree: String? { model.worktreePath }
 
     var body: some View {
         observedBody
-        .focusedValue(\.sourceFind, mode == .diff ? SourceFindAction(path: absolutePath) { action in
+        .focusedValue(\.sourceFind, mode == .diff ? SourceFindAction(path: fileKey) { action in
             switch action {
             case .nextMatch: stepFind(1)
             case .previousMatch: stepFind(-1)
@@ -254,7 +282,7 @@ struct DiffView: View {
             }
         } : nil)
         .onChange(of: mode) { old, mode in
-            let state = SourceEditorState.file(absolutePath)
+            let state = SourceEditorState.file(fileKey)
             state.prefersEditing = mode == .edit
             if old == .diff, mode == .edit, state.request == nil {
                 state.go(to: CodeLocation(path: file.path, line: state.diffLine))
@@ -264,11 +292,11 @@ struct DiffView: View {
                 state.diffRow = rows.first { $0.sourceLines.contains { $0.newNumber == state.line } }?.id ?? state.diffRow
             }
         }
-        .onChange(of: SourceEditorState.file(absolutePath).revision) { _, _ in
+        .onChange(of: SourceEditorState.file(fileKey).revision) { _, _ in
             if isEditable, embeddedWidth == nil { mode = .edit }
         }
-        .onChange(of: SourceEditorState.file(absolutePath).diffRevision, initial: true) { _, _ in
-            let state = SourceEditorState.file(absolutePath)
+        .onChange(of: SourceEditorState.file(fileKey).diffRevision, initial: true) { _, _ in
+            let state = SourceEditorState.file(fileKey)
             guard state.diffRequest != nil, embeddedWidth != nil || state.request == nil else { return }
             mode = .diff
             pendingDiffNavigation = true
@@ -278,14 +306,14 @@ struct DiffView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if mode == .diff, let message = SourceEditorState.file(absolutePath).message {
+            if mode == .diff, let message = SourceEditorState.file(fileKey).message {
                 Text(message).font(Typo.caption).padding(8).background(Palette.surfaceSunken)
             }
         }
     }
 
     private var observedBody: some View {
-        let tracksFile = navigationTarget && SourceEditorState.file(absolutePath).diffRequest == nil
+        let tracksFile = navigationTarget && SourceEditorState.file(fileKey).diffRequest == nil
         return Group {
             if embeddedWidth != nil {
                 Section {
@@ -308,14 +336,7 @@ struct DiffView: View {
                             .overlay(alignment: .bottom) { Hairline() }
                     }
                 } header: {
-                    fileHeader
-                        .onGeometryChange(for: Bool.self) { proxy in
-                            let frame = proxy.frame(in: .scrollView(axis: .vertical))
-                            return isCollapsed && frame.minY <= 0 && frame.maxY > 0
-                        } action: { active in
-                            if active { onScrollFocus?() }
-                        }
-                        .overlay(alignment: .bottom) { Hairline() }
+                    pinnedHeader
                 }
             } else {
                 VStack(spacing: 0) {
@@ -331,7 +352,7 @@ struct DiffView: View {
         }
         .task(id: LoadID(
             language: effectiveLanguage,
-            workspaceID: model.workspace.id, file: file, scope: model.diffScope,
+            workspaceID: model.surfaceID, file: file, scope: model.diffScope,
             generation: model.diffScope.isHistorical ? 0 : model.changesGeneration,
             isCollapsed: isCollapsed, ignoringWhitespace: ignoresWhitespace
         )) {
@@ -376,6 +397,23 @@ struct DiffView: View {
         }
     }
 
+    /// The header while the section is pinned to the top of the all-files review, which is the
+    /// one place it reports where it is.
+    ///
+    /// `isCollapsed` is read into a local first, because the closure `onGeometryChange` takes is
+    /// sendable and reading the property inside it captures this view, whose `Model` is not.
+    private var pinnedHeader: some View {
+        let collapsed = isCollapsed
+        return fileHeader
+            .onGeometryChange(for: Bool.self) { proxy in
+                let frame = proxy.frame(in: .scrollView(axis: .vertical))
+                return collapsed && frame.minY <= 0 && frame.maxY > 0
+            } action: { active in
+                if active { onScrollFocus?() }
+            }
+            .overlay(alignment: .bottom) { Hairline() }
+    }
+
     private var fileHeader: some View {
         FileHeaderBar(
             model: model, file: file, session: session, diff: source,
@@ -390,7 +428,8 @@ struct DiffView: View {
         // A section of the all-files review previews Markdown natively, at a fixed height. An HTML
         // report in a box that size is not a way to read one, so it gets its preview in the file tab.
         let kind = DocumentPreview.kind(path: file.path)
-        guard allowsWorktreeActions, kind == .markdown || (kind == .html && embeddedWidth == nil),
+        guard allowsWorktreeActions, model.worktreePath != nil,
+              kind == .markdown || (kind == .html && embeddedWidth == nil),
               !file.isBinary, file.change != .deleted else {
             return nil
         }
@@ -402,16 +441,19 @@ struct DiffView: View {
 
     @ViewBuilder
     private var fileContent: some View {
-        if embeddedWidth == nil {
+        // The preview renders a Markdown or HTML file by reading it off this Mac, and the links
+        // inside it open other files the same way, so it belongs to a worktree. Without one
+        // `markdownPreviewAction` is nil as well, so nothing offers a preview that cannot be made.
+        if embeddedWidth == nil, let worktree = model.worktreePath {
             MarkdownPreviewContent(
-                path: absolutePath, worktree: model.workspace.path, revision: model.changesGeneration,
+                path: fileKey, worktree: worktree, revision: model.changesGeneration,
                 isPresented: $showsMarkdownPreview,
-                openFile: { FileReview.open(absolutePath: $0, in: model) }
+                openFile: { model.openSource(at: CodeLocation(path: $0)) }
             ) {
                 sourceContent
             }
         } else if showsMarkdownPreview {
-            MarkdownFilePreview(path: absolutePath, revision: model.changesGeneration) {
+            MarkdownFilePreview(path: fileKey, revision: model.changesGeneration) {
                 showsMarkdownPreview = false
             }
             .frame(height: 480)
@@ -447,7 +489,7 @@ struct DiffView: View {
                     closeEdit()
                 }
         case .edit:
-            FileEditPane(model: model, path: file.path, session: session)
+            model.editorPane(path: file.path, session: session)
                 .frame(height: embeddedWidth == nil ? nil : 400)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -593,13 +635,13 @@ struct DiffView: View {
         // where a `stat` and a read of the first bytes of the file stood between the reader and
         // the thing they had clicked. Nothing above it needs the answer; only the header bar's
         // Edit control does, and it appears with the bar rather than with the diff.
-        let absolute = absolutePath
+        let absolute = fileKey
         let binary = file.isBinary
-        let editable = await Task.detached(priority: .utility) {
-            !binary && FileEditor.isEditable(absolute)
-        }.value
+        // The workspace answers it: a stat on this Mac, and what the diff already said for a file
+        // on a machine. See `EditableFiles.isEditable`.
+        let editable = binary ? false : await model.editableFiles.isEditable(absolute)
         guard !Task.isCancelled else { return }
-        isEditable = editable && allowsWorktreeActions
+        isEditable = editable && allowsEditing
     }
 
     /// Turn the parsed patch into whatever the current settings say it should be.
@@ -620,7 +662,7 @@ struct DiffView: View {
         }
 
         let changed = fileDiff.additions + fileDiff.deletions
-        if changed > Self.largeDiffLimit {
+        if changed > DiffMeasure.largeDiff {
             phase = .gated(fileDiff, changed: changed, ignoringWhitespace: ignoringWhitespace)
             return
         }
@@ -632,11 +674,11 @@ struct DiffView: View {
     private func revert() {
         guard allowsWorktreeActions, !model.isRunning else { return }
         Task {
-            session.discard(path: absolutePath)
+            session.discard(path: fileKey)
             // The file is about to be replaced or deleted outright, so a box open on the lines it
             // used to have is a box that can only refuse.
-            edits.close(path: absolutePath)
-            revertProblem = await FileRevert.revert(file: file, in: model.workspace)
+            edits.close(path: fileKey)
+            revertProblem = await model.revert(file: file)
             // What this view is holding for the file is about a file that no longer says any of
             // it, and a revert is exactly the press that must not be answered with the old lines
             // for even one frame. See `WorkspaceModel.forgetHeldDiff`.
@@ -658,11 +700,10 @@ struct DiffView: View {
     /// re-key this view's task on its own.
     private func discard(_ hunk: DiffHunk) {
         guard hunkDiscard == .enabled else { return }
-        let scope = model.diffScope
         Task {
             // A box open on the lines being put back could only refuse to save from here on.
-            edits.close(path: absolutePath)
-            hunkProblem = await FileRevert.discard(hunk: hunk, of: file, in: model.workspace, scope: scope)
+            edits.close(path: fileKey)
+            hunkProblem = await model.discard(hunk: hunk, of: file)
             model.forgetHeldDiff(for: file.path)
             await model.refreshChanges()
             await load()
@@ -675,7 +716,6 @@ struct DiffView: View {
         let whitespace = ignoringWhitespace ?? ignoresWhitespace
         guard whitespace == ignoresWhitespace else { return }
         let path = file.path
-        let worktree = model.workspace.path
         // The worktree copy is read here rather than after the await, which is where it used to be
         // and where it read and split a whole file on the main actor on every file click.
         //
@@ -688,44 +728,34 @@ struct DiffView: View {
         let language = effectiveLanguage
         let scope = model.diffScope
         let selectedFile = file
+        // Started before the detached prepare and read after it, so the two still overlap the way
+        // they did when both ran inside the same detached task. A `Task` rather than an `async let`
+        // because the workspace is not `Sendable` and this one stays on the main actor with it.
+        let reading = Task { await model.reviewContents(for: selectedFile) }
         let prepared = await Task.detached(priority: .userInitiated) {
-            (
-                document: DiffDocument.prepare(file: fileDiff, path: path, language: language),
-                lines: await WorkspaceModel.reviewContents(worktree: worktree, file: selectedFile, scope: scope)
-                    .map(ReviewCommentAnchor.split)
-            )
+            DiffDocument.prepare(file: fileDiff, path: path, language: language)
         }.value
+        let lines = await reading.value.map(ReviewCommentAnchor.split)
 
         guard !Task.isCancelled, whitespace == ignoresWhitespace, language == effectiveLanguage, scope == model.diffScope else { return }
 
-        let document = prepared.document
-        fileLines = prepared.lines
+        let document = prepared
+        fileLines = lines
         phase = .ready(document)
-        if SourceEditorState.file(absolutePath).diffRequest != nil {
+        if SourceEditorState.file(fileKey).diffRequest != nil {
             expandedRuns.formUnion(document.file.hunks.flatMap(\.lines).map(\.index))
         }
         // Held for the next visit, keyed on the question it answers. `source` is the patch before
         // the whitespace setting was applied to it, which is what a later visit compares against.
         // See `DiffPresentationCache`.
         model.holdDiff(
-            DiffPresentation(source: raw ?? source ?? fileDiff, document: document, lines: prepared.lines),
+            DiffPresentation(source: raw ?? source ?? fileDiff, document: document, lines: lines),
             for: file,
             ignoringWhitespace: whitespace
         )
         rebuild()
         prime(document)
     }
-
-    /// How much of a diff is highlighted before anybody scrolls to it. Several screens, which is
-    /// what a reader gets through before the cache is warm anyway, and far short of the four
-    /// thousand lines `SyntaxCache` holds across every open file: priming a whole large diff would
-    /// evict what it had just put in, and a diff between that limit and `largeDiffLimit` can
-    /// already thrash it by being scrolled.
-    private static let primeLimit = 600
-
-    /// Vertically centred on a row, horizontally at the start of the sheet. See the anchors on
-    /// `standaloneDiff` for why it is not `.center`.
-    private static let leadingCentre = UnitPoint(x: 0, y: 0.5)
 
     /// Highlight the top of the diff off the main thread, so the rows a reader actually reaches
     /// are a lookup rather than a lex.
@@ -736,7 +766,7 @@ struct DiffView: View {
     /// safe for exactly this, so the second pass can happen before the first row is asked for.
     private func prime(_ document: DiffDocument) {
         let language = document.language
-        let lines = document.linesToPrime(limit: Self.primeLimit)
+        let lines = document.linesToPrime(limit: DiffMeasure.prime)
         priming?.cancel()
         let scheme = ColourThemePreference.shared.codeScheme
         let colours = Palette.codeColours
@@ -870,10 +900,10 @@ struct DiffView: View {
 
     private var diffFindBar: some View {
         HStack(spacing: InspectorLayout.gap) {
-            Button { SourceNavigation.shared.move(-1, in: model) } label: { Image(systemName: "chevron.left") }
-                .disabled(SourceNavigation.shared.histories[model.workspace.id]?.canGoBack != true).help("Go back")
-            Button { SourceNavigation.shared.move(1, in: model) } label: { Image(systemName: "chevron.right") }
-                .disabled(SourceNavigation.shared.histories[model.workspace.id]?.canGoForward != true).help("Go forward")
+            Button { model.stepSourceHistory(-1) } label: { Image(systemName: "chevron.left") }
+                .disabled(!model.canStepSourceHistory.back).help("Go back")
+            Button { model.stepSourceHistory(1) } label: { Image(systemName: "chevron.right") }
+                .disabled(!model.canStepSourceHistory.forward).help("Go forward")
             TextField("Find in diff", text: $findText).textFieldStyle(.roundedBorder).focused($findFocused)
                 .onSubmit { stepFind(1) }
             Text("\(findMatches.isEmpty ? 0 : min(findIndex + 1, findMatches.count))/\(findMatches.count)")
@@ -881,8 +911,8 @@ struct DiffView: View {
             Button { stepFind(-1) } label: { Image(systemName: "chevron.up") }.disabled(findMatches.isEmpty).help("Previous match")
             Button { stepFind(1) } label: { Image(systemName: "chevron.down") }.disabled(findMatches.isEmpty).help("Next match")
             Button("Open source") {
-                FileReview.open(location: CodeLocation(path: file.path,
-                    line: selectedFind?.newNumber ?? SourceEditorState.file(absolutePath).diffLine), in: model)
+                model.openSource(at: CodeLocation(path: file.path,
+                    line: selectedFind?.newNumber ?? SourceEditorState.file(fileKey).diffLine))
             }.disabled(!isEditable)
         }
         .buttonStyle(.borderless).controlSize(.small)
@@ -901,12 +931,12 @@ struct DiffView: View {
     }
 
     private func isDiffDestination(_ row: DiffRow) -> Bool {
-        guard let destination = SourceEditorState.file(absolutePath).diffRequest else { return false }
+        guard let destination = SourceEditorState.file(fileKey).diffRequest else { return false }
         return row.sourceLines.contains { $0.kind != .deletion && $0.newNumber == destination.line }
     }
 
     private func diffDestinationID(_ row: DiffRow) -> String {
-        if isDiffDestination(row), let destination = SourceEditorState.file(absolutePath).diffRequest {
+        if isDiffDestination(row), let destination = SourceEditorState.file(fileKey).diffRequest {
             return "\(file.path):definition:\(destination.line)"
         }
         return "\(file.path):\(row.id)"
@@ -932,7 +962,7 @@ struct DiffView: View {
                                     .contextMenu {
                                         if let line = row.sourceLines.compactMap(\.newNumber).first {
                                             Button("Open source at line \(line)") {
-                                                FileReview.open(location: CodeLocation(path: file.path, line: line), in: model)
+                                                model.openSource(at: CodeLocation(path: file.path, line: line))
                                             }
                                         }
                                     }
@@ -943,8 +973,8 @@ struct DiffView: View {
                         .id(document.file)
                         .frame(width: width, alignment: .leading)
                     }
-                    .scrollPosition(id: Binding(get: { SourceEditorState.file(absolutePath).diffRow }, set: { id in
-                        let state = SourceEditorState.file(absolutePath)
+                    .scrollPosition(id: Binding(get: { SourceEditorState.file(fileKey).diffRow }, set: { id in
+                        let state = SourceEditorState.file(fileKey)
                         state.diffRow = id
                         if let line = rows.first(where: { $0.id == id })?.sourceLines.compactMap(\.newNumber).first {
                             state.diffLine = line
@@ -957,18 +987,18 @@ struct DiffView: View {
                     // blank padding with no code at all.
                     .defaultScrollAnchor(.topLeading)
                     .scrollBounceBehavior(.basedOnSize)
-                    .onChange(of: SourceEditorState.file(absolutePath).diffRevision, initial: true) { _, _ in
-                        if let row = rows.first(where: isDiffDestination) { reader.scrollTo(row.id, anchor: Self.leadingCentre) }
+                    .onChange(of: SourceEditorState.file(fileKey).diffRevision, initial: true) { _, _ in
+                        if let row = rows.first(where: isDiffDestination) { reader.scrollTo(row.id, anchor: DiffMeasure.leadingCentre) }
                     }
                     .onChange(of: rowRevision) { _, _ in
-                        if pendingDiffNavigation, let row = rows.first(where: isDiffDestination) { reader.scrollTo(row.id, anchor: Self.leadingCentre) }
+                        if pendingDiffNavigation, let row = rows.first(where: isDiffDestination) { reader.scrollTo(row.id, anchor: DiffMeasure.leadingCentre) }
                     }
                     .onScrollPhaseChange { _, phase in
                         if phase == .tracking || phase == .interacting || phase == .decelerating { pendingDiffNavigation = false }
                     }
                     .onChange(of: findRevision) { _, _ in
                         if let match = selectedFind, let row = rows.first(where: { $0.sourceLines.contains { $0.index == match.index } }) {
-                            reader.scrollTo(row.id, anchor: Self.leadingCentre)
+                            reader.scrollTo(row.id, anchor: DiffMeasure.leadingCentre)
                         }
                     }
                 }
@@ -1003,9 +1033,9 @@ struct DiffView: View {
 
             case let .gapExpander(gapID, hidden):
                 DiffExpanderView(
-                    title: "Expand \(Counted.of(min(hidden, Self.gapStep), "line"))", width: width
+                    title: "Expand \(Counted.of(min(hidden, DiffMeasure.gapStep), "line"))", width: width
                 ) {
-                    revealedGaps[gapID, default: 0] += min(hidden, Self.gapStep)
+                    revealedGaps[gapID, default: 0] += min(hidden, DiffMeasure.gapStep)
                     rebuild()
                 }
 
@@ -1046,9 +1076,9 @@ struct DiffView: View {
                     // Read out of `typed` rather than off the editor, so a keystroke invalidates this
                     // one band instead of everything that had to ask where the box is. The same split
                     // `ReviewTextHost` makes, and for the same measured reason.
-                    text: edits.binding(for: absolutePath),
+                    text: edits.binding(for: fileKey),
                     language: document.language,
-                    status: edits.editor(for: absolutePath)?.status ?? .editing,
+                    status: edits.editor(for: fileKey)?.status ?? .editing,
                     width: width,
                     onSave: saveEdit,
                     onCancel: cancelEdit
@@ -1189,24 +1219,24 @@ struct DiffView: View {
             width: width,
             wrappedHeights: wrappedHeights,
             lookupRevision: rowRevision,
-            isReadOnly: !allowsWorktreeActions,
+            isReadOnly: !allowsEditing,
             onLookup: { view, offset, references, automatic, newTab in
-                guard allowsWorktreeActions, isCurrent(document), let fileLines else { return }
-                SourceActions.lookupInDiff(at: offset, view: view, lines: lines, source: fileLines.joined(separator: "\n"),
-                    path: file.path, model: model, references: references, automatic: automatic, newTab: newTab) { location, newTab in
+                guard allowsWorktreeActions, model.offersSourceLookup, isCurrent(document), let fileLines else { return }
+                model.lookUpInDiff(at: offset, view: view, lines: lines, source: fileLines.joined(separator: "\n"),
+                    path: file.path, references: references, automatic: automatic, newTab: newTab) { location, newTab in
                     guard isCurrent(document) else { return }
-                    SourceEditorState.file(absolutePath).navigationTask = Task {
-                        await FileReview.openFromDiff(location, in: model, newTab: newTab)
+                    SourceEditorState.file(fileKey).navigationTask = Task {
+                        await model.openFromDiff(location, newTab: newTab)
                     }
                 }
             },
-            destination: SourceEditorState.file(absolutePath).diffRequest,
-            onComment: allowsWorktreeActions ? { if isCurrent(document) { beginDraft(at: $0) } } : nil,
+            destination: SourceEditorState.file(fileKey).diffRequest,
+            onComment: allowsComments ? { if isCurrent(document) { beginDraft(at: $0) } } : nil,
             onDragComment: { if isCurrent(document) { extendDrag(from: $0, to: $1) } },
             onEndCommentDrag: {
                 if isCurrent(document) { finishDrag() } else { rangeDrag = nil }
             },
-            onEdit: allowsWorktreeActions ? { if isCurrent(document) { beginEdit(at: $0) } } : nil
+            onEdit: allowsEditing ? { if isCurrent(document) { beginEdit(at: $0) } } : nil
         )
         // For the reason given at the per line call sites above, and up to four hundred times as
         // much of it: one of these stands in for a whole run of rows.
@@ -1231,7 +1261,7 @@ struct DiffView: View {
 
     /// The pending comments on this one file, which is all a diff of it can place.
     private var fileComments: [ReviewComment] {
-        allowsWorktreeActions ? model.reviewComments.filter { $0.filePath == file.path } : []
+        allowsComments ? model.reviewComments.filter { $0.filePath == file.path } : []
     }
 
     /// The spots one rendered row answers for, filtered the way `DiffLineView.offeredSpot` is,
@@ -1272,7 +1302,8 @@ struct DiffView: View {
     /// The same, for a note about several lines at once, which is what a drag down the gutter
     /// asks for. The anchor keeps the first line and the count; see `ReviewCommentAnchor.span`.
     private func beginDraft(selection: ReviewSelection) {
-        guard case let .ready(document) = phase,
+        guard allowsComments,
+              case let .ready(document) = phase,
               let anchor = ReviewCapture.anchor(
                 at: selection, hunks: document.file.hunks, fileLines: fileLines
               )
@@ -1350,7 +1381,7 @@ struct DiffView: View {
     /// The lines being edited in place on this file, or nil. Held by the session rather than by
     /// this view for the reason written out on `DiffEditSession`: everything that moves a diff
     /// destroys this view, and none of it is the user saying they have finished typing.
-    private var editRegion: DiffEditRegion? { allowsWorktreeActions ? edits.editor(for: absolutePath)?.region : nil }
+    private var editRegion: DiffEditRegion? { allowsEditing ? edits.editor(for: fileKey)?.region : nil }
 
     /// Open a box on the lines around `line`, or say why not.
     ///
@@ -1358,22 +1389,22 @@ struct DiffView: View {
     /// a whitespace refold changes which lines are printed, and the numbers in the gutter the
     /// reader right clicked are these ones.
     private func beginEdit(at line: Int) {
-        guard allowsWorktreeActions else { return }
+        guard allowsEditing else { return }
         guard case let .ready(document) = phase else { return }
 
         // Not while Edit mode is holding unsaved text for the same file. Two boxes over one file
         // is two baselines, and whichever saved first would make the other one refuse: better to
         // say so now than to let somebody type into the one that cannot land.
-        guard !session.isDirty(absolutePath) else {
+        guard !session.isDirty(fileKey) else {
             editProblem = "\(file.filename) has unsaved changes open in Edit mode. "
                 + "Save or discard those first."
             return
         }
 
         let hunks = document.file.hunks
-        let path = absolutePath
+        let path = fileKey
         Task {
-            if let problem = await edits.begin(path: path, at: line, hunks: hunks) {
+            if let problem = await edits.begin(path: path, at: line, hunks: hunks, from: model.editableFiles) {
                 editProblem = problem
             }
             rebuild()
@@ -1388,9 +1419,9 @@ struct DiffView: View {
     /// it was, nothing re-keys this view's task, and the diff goes on showing the line the reader
     /// has just replaced.
     private func saveEdit() {
-        let path = absolutePath
+        let path = fileKey
         Task {
-            let saved = await edits.save(path: path)
+            let saved = await edits.save(path: path, to: model.editableFiles)
             rebuild()
             guard saved else { return }
             // The bytes on disk are not what this file was last drawn from any more, so what the
@@ -1407,7 +1438,7 @@ struct DiffView: View {
     /// text back.
     private func cancelEdit() {
         guard let region = editRegion else { return }
-        guard DiffEdit.Discard.needed(closing: edits.text(for: absolutePath), of: region) else {
+        guard DiffEdit.Discard.needed(closing: edits.text(for: fileKey), of: region) else {
             closeEdit()
             return
         }
@@ -1415,7 +1446,7 @@ struct DiffView: View {
     }
 
     private func closeEdit() {
-        edits.close(path: absolutePath)
+        edits.close(path: fileKey)
         rebuild()
     }
 
@@ -1532,8 +1563,9 @@ struct DiffView: View {
     /// while comments or an open editor are pending on this one file, and the load path already
     /// reads the same file the same way.
     private func refreshWorktreeCopy() {
-        guard allowsWorktreeActions else { return }
-        let isEditing = edits.isOpen(absolutePath)
+        // Only where notes or an open box are pending on a file, which is a worktree on this Mac.
+        guard allowsComments || allowsEditing else { return }
+        let isEditing = edits.isOpen(fileKey)
         guard case .ready = phase, !fileComments.isEmpty || draftSelection != nil || isEditing else {
             return
         }
@@ -1541,7 +1573,7 @@ struct DiffView: View {
         // The one read serves both. An open box is told the file has moved on while it is still
         // worth being told: at the save it would only be told too late to do anything except copy
         // the text out. Advisory, and it disables nothing: `FileEditor.write` is what decides.
-        if isEditing { edits.recheck(path: absolutePath, contents: contents) }
+        if isEditing { edits.recheck(path: fileKey, contents: contents) }
         let fresh = contents.map(ReviewCommentAnchor.split)
         guard fresh != fileLines else { return }
         fileLines = fresh
@@ -1598,7 +1630,7 @@ struct DiffView: View {
         // across two of them. `DiffRow.grouped` says why it is a post pass, `DiffRunGrouping`
         // says where a run stops.
         rows = DiffRow.grouped(isSideBySide ? splitRows(document) : unifiedRows(document),
-                               stoppingAt: SourceEditorState.file(absolutePath).diffRequest?.line)
+                               stoppingAt: SourceEditorState.file(fileKey).diffRequest?.line)
 
         // The editor follows its line, and a rebuild can take that line off the screen: a reload
         // after the agent edits, or a whitespace refold dropping the expanded run the line sat
@@ -1789,10 +1821,10 @@ struct DiffView: View {
 
             let length = end - index
             let id = runID(index)
-            if length > collapseThreshold, !expanded.contains(id) {
-                chunks.append(.visible(pending..<(index + keptContext)))
-                chunks.append(.hidden(runID: id, count: length - keptContext * 2))
-                pending = end - keptContext
+            if length > DiffMeasure.collapseThreshold, !expanded.contains(id) {
+                chunks.append(.visible(pending..<(index + DiffMeasure.keptContext)))
+                chunks.append(.hidden(runID: id, count: length - DiffMeasure.keptContext * 2))
+                pending = end - DiffMeasure.keptContext
             }
             index = end
         }

@@ -293,10 +293,10 @@ final class TerminalSessionStore {
             defer { startingPanes.remove(pane) }
             if let tab = CenterTabStore.shared.tabsByWorkspace.values.joined().first(where: { $0.id == pane }),
                let sessionID = tab.agentSessionID {
-                guard let store = repoStore,
+                guard let store = repoStore, let workspaceID = tab.localWorkspaceID,
                       let session = try? await store.session(id: sessionID), session.archivedAt == nil,
-                      let workspace = try? await store.workspace(id: tab.workspaceID),
-                      CenterTabStore.shared.terminal(for: sessionID, in: tab.workspaceID)?.id == pane else { return }
+                      let workspace = try? await store.workspace(id: workspaceID),
+                      CenterTabStore.shared.terminal(for: sessionID, in: workspaceID)?.id == pane else { return }
                 _ = cliBridge(for: session, workspace: workspace)
             }
             guard write(command, submit: true, paneID: pane) else { return }
@@ -472,12 +472,16 @@ final class TerminalSessionStore {
         })
         var turns: [SessionID: AgentTurns.Live] = [:]
         for tab in linkedTabs {
-            guard let sessionID = tab.agentSessionID,
+            // Every shell this sweeps is a tmux session on this Mac, so a tab without a worktree
+            // here has nothing in it to find. A Cloud workspace's terminal is a stream to a machine
+            // and is not a `CenterTab` of this kind at all.
+            guard let workspaceID = tab.localWorkspaceID,
+                  let sessionID = tab.agentSessionID,
                   let session = try? await store.session(id: sessionID),
                   session.archivedAt == nil else { continue }
             let paneIDs = TerminalSplitStore.shared.panes(of: tab.id)
             for pane in paneIDs where detected[pane] == nil {
-                let name = TmuxSessions.sessionName(workspaceID: tab.workspaceID, paneID: pane)
+                let name = TmuxSessions.sessionName(workspaceID: workspaceID, paneID: pane)
                 if let shell = pids[name], let process = table.interactiveAgentProcess(ofShell: shell) {
                     detected[pane] = ProcessTable.interactiveAgent(command: process.command)
                     processes[pane] = process.pid
@@ -507,13 +511,13 @@ final class TerminalSessionStore {
                         if modified >= activityStartedAt,
                            let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                            event["hook_event_name"] as? String == "Stop" {
-                            await onAgentTurnFinished?(tab.workspaceID)
+                            await onAgentTurnFinished?(workspaceID)
                         }
                     }
                 }
             }
-            if let workspace = try? await store.workspace(id: tab.workspaceID),
-               CenterTabStore.shared.terminal(for: sessionID, in: tab.workspaceID)?.id == tab.id,
+            if let workspace = try? await store.workspace(id: workspaceID),
+               CenterTabStore.shared.terminal(for: sessionID, in: workspaceID)?.id == tab.id,
                !Task.isCancelled {
                 if let externalSession = externalSession ?? session.agentSessionID,
                    let resume = try? prepareCLICommand(
@@ -526,7 +530,7 @@ final class TerminalSessionStore {
             }
             if isPresent { runningPanes.remove(tab.id) }
             turns[sessionID] = AgentTurns.Live(
-                sessionID: sessionID, workspaceID: tab.workspaceID,
+                sessionID: sessionID, workspaceID: workspaceID,
                 isRunning: state == .running, isAwaitingPermission: state == .waiting
             )
             if session.state != state || (externalSession != nil && session.agentSessionID != externalSession) {

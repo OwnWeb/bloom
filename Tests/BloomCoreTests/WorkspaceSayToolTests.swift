@@ -545,3 +545,19 @@ struct WorkspaceSayToolTests {
         #expect(watch.watcherSessionID == f.fixerChat.id)
     }
 }
+
+/// The sent message is drawn as a bubble, so the fold keeps it on screen. See `WorkspaceSayRow`.
+@Suite("A sent workspace_say is content, not an action")
+struct WorkspaceSayRowTests {
+    private func call(_ name: String) -> Data {
+        Data(#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"\#(name)","input":{"workspace":"w","message":"hello"}}]}}"#.utf8)
+    }
+
+    @Test("the call is recognised under any server's prefix, and nothing else is")
+    func recognised() {
+        #expect(WorkspaceSayRow.isCall(call("mcp__bloom-workspace-bridge__workspace_say")))
+        #expect(WorkspaceSayRow.isCall(call("mcp__bloom-owner-bridge__workspace_say")))
+        #expect(!WorkspaceSayRow.isCall(call("mcp__bloom-workspace-bridge__workspace_start")))
+        #expect(!WorkspaceSayRow.isCall(call("Bash")))
+    }
+}

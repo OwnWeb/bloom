@@ -70,4 +70,30 @@ struct LogTailTests {
         #expect(LogTail.last(big, lines: 2) == "line 19998\nline 19999")
         #expect(LogTail.lastLine(big) == "line 19999")
     }
+
+    // MARK: - Whether there is anything to open a disclosure onto
+
+    /// The bug: a finished setup drew a chevron and "5 lines of output", and opening it showed a
+    /// blank space, because the tail drops trailing newlines and there was nothing else in the log.
+    @Test("Blank lines are not something to show")
+    func blankLinesAreNothing() {
+        #expect(!LogTail.hasSomethingToShow(""))
+        #expect(!LogTail.hasSomethingToShow("\n\n\n\n\n"))
+        #expect(!LogTail.hasSomethingToShow("   \n\t\n  "))
+    }
+
+    /// And the same thing one step further on: escape sequences are bytes that draw nothing.
+    @Test("A log that is only escape sequences is not something to show")
+    func escapesAreNothing() {
+        #expect(!LogTail.hasSomethingToShow("\u{1b}[2J\u{1b}[H"))
+        #expect(!LogTail.hasSomethingToShow("\u{1b}[0m\n\u{1b}[0m\n"))
+    }
+
+    @Test("Anything that would leave a mark is")
+    func realOutputIs() {
+        #expect(LogTail.hasSomethingToShow("composer install\n"))
+        // Colour round a word is still a word.
+        #expect(LogTail.hasSomethingToShow("\u{1b}[32mdone\u{1b}[0m\n"))
+        #expect(LogTail.hasSomethingToShow("   x   "))
+    }
 }

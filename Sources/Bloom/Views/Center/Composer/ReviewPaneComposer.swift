@@ -3,8 +3,8 @@ import BloomCore
 
 /// File and browser reviews use the conversation's real draft and send path. Reserving this
 /// space when the pane opens means adding a comment cannot change the content's viewport.
-struct ReviewPaneComposer: View {
-    @Bindable var model: WorkspaceModel
+struct ReviewPaneComposer<Model: WorkspaceSurface>: View {
+    let model: Model
     var room: ComposerRoom
     var destinationID: SessionID?
 
@@ -13,7 +13,7 @@ struct ReviewPaneComposer: View {
     private var lineHeight: ChatLineHeight { ColourThemePreference.shared.chatLineHeight }
 
     private var destination: Session? {
-        if let destinationID { return model.sessions.first { $0.id == destinationID } }
+        if let destinationID { return model.chats.first { $0.id == destinationID } }
         return model.reviewDestination
     }
 
@@ -21,10 +21,10 @@ struct ReviewPaneComposer: View {
         Group {
             if let destination, let transcript = model.existingTranscript(for: destination.id) {
                 ComposerView(
-                    transcript: transcript, model: model, room: room,
+                    transcript: transcript, model: model.composerWorkspace, room: room,
                     destinationLabel: ReviewDestination.label(for: destination.title),
                     destinations: destinationID == nil
-                        ? model.sessions.map { ComposerDestination(id: $0.id, title: $0.title) } : [],
+                        ? model.chats.map { ComposerDestination(id: $0.id, title: $0.title) } : [],
                     onSelectDestination: choose
                 )
                 .environment(\.fontScale, textSize.scale)

@@ -986,6 +986,13 @@ enum Snapshot {
             // useless: the two paths write the same `review-comments-<appearance>.png` into the
             // same directory, so whichever ran second replaced a real photograph with a yellow
             // bar, and they disagreed about the width while doing it (800 here, 820 there).
+            //
+            // **And no mention-menu scene, for a second cause worth telling apart from the first.**
+            // That page holds no representable at all; its rows are a `LazyVStack` inside a
+            // `ScrollView`, and `ImageRenderer` does not lay a lazy container out, so the panel
+            // renders as an empty plate. Measured both ways, at an unbounded height and at a fixed
+            // one. So: a representable comes out yellow, a lazy list comes out empty, and both
+            // belong in a window. `--snapshot-gallery <dir> --gallery mention-menu`.
 
             // The usage panel's dashboard on its own ground, drawn from what the two CLIs answered.
             // See `UsagePanelView`.

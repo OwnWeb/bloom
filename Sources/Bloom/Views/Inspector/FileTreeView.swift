@@ -6,8 +6,8 @@ import BloomCore
 /// `git ls-files` is asked once and turned into a directory index. Rows are then produced only
 /// for directories the user actually opened, so a repository with fifty thousand files costs one
 /// subprocess and a handful of views rather than a tree of fifty thousand nodes.
-struct FileTreeView: View {
-    let model: WorkspaceModel
+struct FileTreeView<Model: WorkspaceSurface>: View {
+    let model: Model
 
     /// Which folders this reader has opened. The listing itself is the model's: see
     /// `WorkspaceModel.fileTree`, and the note there for why it cannot live in this view.
@@ -56,53 +56,18 @@ struct FileTreeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct LoadID: Hashable {
-        var workspaceID: WorkspaceID
-        var workspacePath: String
+        var workspaceID: WorkspaceSurfaceID
+        var workspacePath: String?
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Only over a listing there is something to narrow. A filter above "Nothing tracked"
-            // is a control that cannot do anything, offered at the one moment it is useless.
-            if model.hasReadFileTree, !model.fileTree.isEmpty {
-                InspectorFilterField(query: $query, onEscape: escape, onReturn: enterTree)
-                Hairline()
-            }
+        watched
+    }
 
-            ScrollViewReader { proxy in
-                tree
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // The row an arrow key moved to comes into view, which is the other half of
-                    // the key. Only while the tree holds the keyboard, so a listing that arrives
-                    // while the reader is elsewhere does not move what they are looking at.
-                    .onChange(of: selection) { _, path in
-                        guard hasKeyboard, let path else { return }
-                        proxy.scrollTo(path)
-                    }
-                    .onChange(of: revealPath) { _, path in
-                        if let path { proxy.scrollTo(path, anchor: .center) }
-                    }
-                    .onChange(of: rows) { _, rows in
-                        if let revealPath, rows.contains(where: { $0.id == revealPath }) {
-                            proxy.scrollTo(revealPath, anchor: .center)
-                        }
-                    }
-                    .onScrollPhaseChange { _, phase in
-                        if phase == .tracking || phase == .interacting || phase == .decelerating { revealPath = nil }
-                    }
-            }
-            // Arrows, left and right through the folders, Home and End, type-select, Return, and
-            // the space bar Quick Look that used to be reachable only with the pointer. See
-            // `ListKeyboardHost`. Around the tree rather than around the whole tab, so the ring it
-            // draws says the TREE has the keyboard at the moment the field above it does not.
-            .listKeyboard(
-                hasKeyboard: $hasKeyboard,
-                previewing: previewURL,
-                armToken: keyboardArm,
-                onKey: handle
-            )
-        }
-        .task(id: LoadID(workspaceID: model.workspace.id, workspacePath: model.workspace.path)) {
+    /// Reading the listing, and the two watches that come off the workspace itself.
+    private var loading: some View {
+        stack
+        .task(id: LoadID(workspaceID: model.surfaceID, workspacePath: model.worktreePath)) {
             // Nothing is thrown away first. A workspace whose listing has already been read draws
             // it on the frame it arrives on, and this returns without a subprocess.
             expanded = Set(UserDefaults.standard.stringArray(forKey: expansionKey) ?? [])
@@ -113,7 +78,7 @@ struct FileTreeView: View {
             query = ""
             await model.refreshFileTree()
             guard !Task.isCancelled else { return }
-            if let path = FileReview.activePath(in: model), let ancestors = FileTreeNode.ancestors(of: path, in: model.fileTree) {
+            if let path = model.activeReviewPath, let ancestors = FileTreeNode.ancestors(of: path, in: model.fileTree) {
                 expanded.formUnion(ancestors)
                 rebuildRows()
                 selection = path
@@ -126,6 +91,12 @@ struct FileTreeView: View {
             UserDefaults.standard.set(paths.sorted(), forKey: expansionKey)
         }
         .onChange(of: model.fileTree, initial: true) { _, _ in rebuildRows() }
+    }
+
+    /// The second half of the same chain. Two properties rather than one, because the whole of it
+    /// as a single expression, generic over `Model`, is past what the type checker will finish.
+    private var watched: some View {
+        loading
         .onChange(of: query) { _, _ in
             revealPath = nil
             rebuildRows()
@@ -134,7 +105,9 @@ struct FileTreeView: View {
             if !focused { keyboard.forgetTyping() }
         }
         .onChange(of: selection) { _, path in
-            previewURL = path.flatMap { QuickLookTarget.url(for: fullPath($0)) }
+            // Nothing to look at quickly for a file that is not on this Mac, so nil, and the
+            // space bar does nothing rather than opening an empty panel.
+            previewURL = path.flatMap(fullPath).flatMap(QuickLookTarget.url(for:))
         }
         .onChange(of: model.changedFiles, initial: true) { _, files in
             changedPaths = Set(files.map(\.path))
@@ -142,7 +115,51 @@ struct FileTreeView: View {
         }
     }
 
-    private var expansionKey: String { "fileTree.expanded." + model.workspace.id.rawValue }
+    /// The field and the tree under it. Its own property because the whole of this view's body,
+    /// with the task and the six `onChange`s inline and every one of them generic over `Model`, is
+    /// past what the CI runner's type checker will finish in the time it allows itself.
+    private var stack: some View {
+        VStack(spacing: 0) {
+            // Only over a listing there is something to narrow. A filter above "Nothing tracked"
+            // is a control that cannot do anything, offered at the one moment it is useless.
+            if model.hasReadFileTree, !model.fileTree.isEmpty {
+                InspectorFilterField(query: $query, onEscape: escape, onReturn: enterTree)
+                Hairline()
+            }
+
+            scroller
+        }
+    }
+
+    /// The tree itself, kept scrolled to what the keyboard is pointing at, with that keyboard
+    /// around it. Split out of `stack` for the same reason `stack` is split out of `body`.
+    private var scroller: some View {
+        ScrollViewReader { proxy in
+            tree
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The row an arrow key moved to comes into view, which is the other half of the
+                // key. Only while the tree holds the keyboard, so a listing that arrives while the
+                // reader is elsewhere does not move what they are looking at.
+                .modifier(FileTreeScrolling(
+                    proxy: proxy, selection: selection, revealPath: revealPath, rows: rows, hasKeyboard: hasKeyboard
+                ))
+                .onScrollPhaseChange { _, phase in
+                    if phase == .tracking || phase == .interacting || phase == .decelerating { revealPath = nil }
+                }
+        }
+        // Arrows, left and right through the folders, Home and End, type-select, Return, and the
+        // space bar Quick Look that used to be reachable only with the pointer. See
+        // `ListKeyboardHost`. Around the tree rather than around the whole tab, so the ring it
+        // draws says the TREE has the keyboard at the moment the field above it does not.
+        .listKeyboard(
+            hasKeyboard: $hasKeyboard,
+            previewing: previewURL,
+            armToken: keyboardArm,
+            onKey: handle
+        )
+    }
+
+    private var expansionKey: String { "fileTree.expanded." + model.surfaceID.storageKey }
 
     // MARK: - Tree
 
@@ -191,9 +208,9 @@ struct FileTreeView: View {
                 containsChanges: highlightedPaths.contains(path),
                 fullPath: fullPath(path),
                 action: { activate(item.node) },
-                onOpenTerminal: { FolderTerminalTab.open(folder: fullPath(path), in: model) },
-                onOpenPage: { BrowserTab.openFile(fullPath(path), in: model) },
-                onSplitPage: { BrowserTab.splitFile(fullPath(path), in: model, axis: $0) }
+                onOpenTerminal: { model.openTerminal(in: path) },
+                onOpenPage: { model.openPage(path: path, splittingAxis: nil) },
+                onSplitPage: { model.openPage(path: path, splittingAxis: $0) }
             )
             .equatable()
         }
@@ -233,7 +250,7 @@ struct FileTreeView: View {
         guard node.isDirectory else {
             selection = node.path
             if changedPaths.contains(node.path) { model.selectedFilePath = node.path }
-            FileReview.open(path: node.path, in: model)
+            model.openFile(path: node.path)
             return
         }
 
@@ -399,8 +416,38 @@ struct FileTreeView: View {
         keyboardArm += 1
     }
 
-    private func fullPath(_ relative: String) -> String {
-        (model.workspace.path as NSString).appendingPathComponent(relative)
+    /// The file on this Mac, or nil for a workspace whose files are in the cloud.
+    private func fullPath(_ relative: String) -> String? {
+        model.absolutePath(for: relative)
     }
 
+}
+
+/// Keeping the tree scrolled to what the keyboard and a reveal are pointing at.
+///
+/// Its own modifier because the three `onChange`s inline, inside a generic view, are past what the
+/// CI runner's type checker will finish. See `SidebarView`, which carries the same note for the
+/// same reason.
+private struct FileTreeScrolling: ViewModifier {
+    let proxy: ScrollViewProxy
+    let selection: String?
+    let revealPath: String?
+    let rows: [FileTreeRowItem]
+    let hasKeyboard: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: selection) { _, path in
+                guard hasKeyboard, let path else { return }
+                proxy.scrollTo(path)
+            }
+            .onChange(of: revealPath) { _, path in
+                if let path { proxy.scrollTo(path, anchor: .center) }
+            }
+            .onChange(of: rows) { _, rows in
+                if let revealPath, rows.contains(where: { $0.id == revealPath }) {
+                    proxy.scrollTo(revealPath, anchor: .center)
+                }
+            }
+    }
 }

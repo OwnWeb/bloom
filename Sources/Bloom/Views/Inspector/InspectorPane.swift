@@ -16,6 +16,10 @@ import SwiftUI
 /// left here is the one question this column answers.
 struct InspectorPane: View {
     let model: WorkspaceModel?
+    /// The Cloud workspace on screen, when that is what the window is showing. One of the two is
+    /// nil: the column draws the same `InspectorView` over whichever it was handed, because that
+    /// view is generic over `WorkspaceSurface` rather than over a kind of workspace.
+    var cloud: CloudWorkspaceSession?
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -30,6 +34,18 @@ struct InspectorPane: View {
                 .disabled(app.isArchiving(model.workspace.id))
                 // Rebuilt per workspace, so a diff selection never leaks across a switch.
                 .id(model.workspace.id)
+        } else if let cloud {
+            InspectorView(model: cloud)
+                .id(cloud.id)
+        } else if app.selection.cloudWorkspaceID != nil {
+            // A Cloud workspace is selected and there is no session to draw over: the list has not
+            // arrived yet, or this account cannot open it. Either way something IS selected, and
+            // saying nothing is says the opposite of what the window next to it says.
+            EmptyStateView(
+                glyph: "sidebar.right",
+                title: "Nothing to show yet",
+                message: "This Bloom Cloud workspace has not opened. Its changes appear here when it does."
+            )
         } else {
             EmptyStateView(
                 glyph: "sidebar.right",

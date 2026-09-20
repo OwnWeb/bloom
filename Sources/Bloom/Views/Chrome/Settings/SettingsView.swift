@@ -31,7 +31,7 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             List(selection: $tab) {
                 Section("Bloom") {
-                    navigationRows([.general, .appearance, .menuBar, .notifications])
+                    navigationRows([.general, .account, .appearance, .menuBar, .notifications])
                 }
                 Section("Agents") {
                     navigationRows([.agents, .sessions, .presets, .permissions, .prompts])
@@ -119,6 +119,7 @@ struct SettingsView: View {
         case .prompts: PromptSettingsView()
         case .terminal: TerminalSettingsView()
         case .commandLine: CommandLineSettingsView()
+        case .account: CloudSettingsView()
         }
     }
 }

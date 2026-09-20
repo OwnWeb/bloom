@@ -7,13 +7,20 @@ import Foundation
 /// what to do next, and the window is the one place nothing can test.
 public enum BrowserInteractionReport {
     /// What every answer that used a reference says when the reference no longer names anything.
+    ///
+    /// **It says what to do and stops short of saying which of the two happened**, because it
+    /// cannot tell: a reference the page has forgotten looks the same whether a snapshot replaced
+    /// it or a navigation cleared it. It used to name both causes as though the list were
+    /// exhaustive, and for a while it was wrong about both: the references were being lost to a
+    /// third thing entirely, and the next person to read this sentence went looking for a
+    /// navigation that had never happened. See `BrowserSession.agentWorld`, which is what it was.
     static func lost(_ word: String, ref: BrowserElementRef) -> BrowserPaneAnswer? {
         switch word {
         case "missing":
             return .refused(
-                "There is no \(ref.label) on this page. References last until the next "
-                    + "browser_snapshot or until the page navigates, whichever comes first. Take a "
-                    + "new snapshot and use a reference from it."
+                "There is no \(ref.label) on this page any more. A reference lasts until the next "
+                    + "browser_snapshot or until the page navigates, and Bloom cannot tell which "
+                    + "of those happened here. Take a new snapshot and use a reference from it."
             )
         case "detached":
             return .refused(

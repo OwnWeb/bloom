@@ -8,9 +8,9 @@ import BloomCore
 /// two panes can hold two different conversations at once and neither of them is "the" session any
 /// more. Everything the pair share is measured here, which is also per pane: the divider between
 /// them can be dragged to a different place in each.
-struct ChatPaneView: View {
+struct ChatPaneView<Model: WorkspaceSurface>: View {
     var transcript: TranscriptModel
-    @Bindable var model: WorkspaceModel
+    let model: Model
     /// Which pane of the tab this is, and the only thing it is used for is remembering where the
     /// reader had got to in the conversation. See `TranscriptPaneMemory`.
     var pane: String
@@ -37,23 +37,6 @@ struct ChatPaneView: View {
     /// what a re-run costs to nothing at all. The transcript is rebuilt by neither now. See
     /// `ComposerRoom`.
     @State private var room = ComposerRoom()
-    @State private var sideOrigin: SideConversation.Snapshot?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var isSideConversationVisible: Bool {
-        model.sideConversations[transcript.session.id]?.isVisible == true
-    }
-
-    /// Grows out of the button it hangs off, a little, as a popover does. Only a fade under Reduce
-    /// Motion, and with the animation dropped there as well, as `ComposerDock` does for its pill.
-    private func sideConversationTransition(_ placement: SideConversationPlacement) -> AnyTransition {
-        guard !reduceMotion else { return .opacity }
-        let pivot = UnitPoint(
-            x: placement.frame.width > 0 ? (placement.tailX ?? placement.frame.width) / placement.frame.width : 1,
-            y: 1
-        )
-        return .scale(scale: 0.96, anchor: pivot).combined(with: .opacity)
-    }
 
     /// The conversation's text size, applied here because this pane is exactly what the setting is
     /// scoped to: what was said and what you are about to say. The sidebar, the inspector and the
@@ -83,7 +66,7 @@ struct ChatPaneView: View {
         TranscriptView(
             transcript: transcript,
             isRunningSetup: model.isRunningSetup,
-            memory: TranscriptPaneMemory(model: model, pane: pane)
+            memory: model.transcriptMemory(pane: pane)
         ) { isTranscriptScrolledUp = $0 }
         .environment(\.composerRoom, room)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -97,54 +80,19 @@ struct ChatPaneView: View {
                 showsJumpToNewest: isTranscriptScrolledUp,
                 onJumpToNewest: transcript.jumpToLiveEnd
             ) {
-                ComposerView(transcript: transcript, model: model, room: room)
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            if let origin = sideOrigin, transcript.session.sideConversationParentID == nil {
-                Button {
-                    WorkspaceTabsStore.shared.reveal(.chat(origin.parentID), in: model)
-                } label: {
-                    Label("From \(origin.title)", systemImage: "arrow.turn.up.left")
-                        .font(.caption)
-                        .padding(8)
-                        .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .disabled(!model.sessions.contains { $0.id == origin.parentID })
-                .padding(8)
-            }
-        }
-        // Dressed as a popover off the side conversation button, and deliberately not a
-        // `.popover`. A side conversation is long lived: its turn runs for minutes and stops to ask
-        // for approvals while the owner goes on clicking and selecting text in the main transcript.
-        // A transient popover closes on the first click outside it and takes key focus when it
-        // opens, so it would be dismissed by exactly the work it is meant to sit beside. As an
-        // overlay it stays until Escape or its close button. See `SideConversationPlacement` for
-        // where it goes and where its tail points.
-        .overlayPreferenceValue(SideConversationButtonAnchor.self) { anchor in
-            GeometryReader { geometry in
-                if let state = model.sideConversations[transcript.session.id], state.isVisible {
-                    let placement = SideConversationPlacement(
-                        pane: geometry.size,
-                        anchor: anchor.map { geometry[$0] },
-                        cornerRadius: SideConversationView.corner
-                    )
-                    SideConversationView(parent: transcript, state: state, model: model, tailX: placement.tailX)
-                        .frame(width: placement.frame.width, height: placement.frame.height)
-                        // Before the offset, so the scale pivots on the tail in the card's own
-                        // bounds rather than on a point in the pane's corner.
-                        .transition(sideConversationTransition(placement))
-                        .offset(x: placement.frame.minX, y: placement.frame.minY)
+                VStack(spacing: Metrics.spacingWide) {
+                    // What this workspace cannot start a turn without, said before anything is
+                    // typed. Nil for a local workspace, which has no such state.
+                    if let notice = model.composerNotice(for: transcript) {
+                        ChatComposerNoticeView(notice: notice)
+                    }
+                    ComposerView(transcript: transcript, model: model.composerWorkspace, room: room)
                 }
             }
-            .animation(reduceMotion ? nil : Motion.pane, value: isSideConversationVisible)
         }
-        .task(id: transcript.session.id) {
-            let origin = try? await model.store?.sideConversationSnapshot(sessionID: transcript.session.id)
-            guard !Task.isCancelled else { return }
-            sideOrigin = origin
-        }
+        // Whatever this workspace hangs over a conversation: a local one its side conversations
+        // and the pill back to the chat one was opened from. See `WorkspaceSurface.chatLayer`.
+        .overlay { model.chatLayer(for: transcript) }
         .onGeometryChange(for: CGFloat.self) { PaneMeasure.room($0.size.height) } action: {
             room.height = $0
         }

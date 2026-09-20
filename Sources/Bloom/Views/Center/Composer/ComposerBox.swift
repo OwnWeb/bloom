@@ -6,6 +6,16 @@ struct ComposerBox: ViewModifier {
     @Binding var isFocused: Bool
     var isFloating = false
     var isDropTarget = false
+    /// The fill the next message will carry, when that is not the ordinary one: terracotta while
+    /// the composer is addressed to a person.
+    ///
+    /// **The composer and the bubble it becomes are one object at two moments.** The owner's
+    /// complaint was that addressing a person is invisible until after the message has gone, and a
+    /// box that tints to the colour the bubble will be is the whole answer: what you see before you
+    /// press Return is what you get after. The value handed in is the same `Palette.directFill` the
+    /// bubble uses rather than a colour chosen to look like it; the box wears it as a wash and a
+    /// border, because filled solid it was louder than the message it becomes.
+    var addressedTint: Color?
 
     @Environment(\.controlActiveState) private var activeState
     @Environment(\.colorSchemeContrast) private var contrast
@@ -36,7 +46,21 @@ struct ComposerBox: ViewModifier {
             padded
                 // One material for the whole composer. Its controls keep their ordinary styles,
                 // and completion menus are attached outside this modifier.
-                .glassEffect(.regular, in: shape)
+                // **A wash, not a fill.** Tinted with the colour itself, the glass came out solid
+                // terracotta, which the owner found "a bit much" beside the mockup, where the box
+                // stays pale and the colour is a tint and a border. The web's
+                // `--color-to-person-wash` is the same eight per cent.
+                .glassEffect(addressedTint.map { .regular.tint($0.opacity(Self.washOpacity)) } ?? .regular, in: shape)
+                // The border carries it as well as the material, because glass over a colour is a
+                // suggestion of that colour and this has to be unmistakable on the frame before
+                // somebody presses Return. Under the focus ring and the drop target, both of which
+                // are about what is happening now rather than where the message is going.
+                .overlay {
+                    if let addressedTint {
+                        shape.strokeBorder(addressedTint.opacity(Self.borderOpacity), lineWidth: 1)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .overlay {
                     shape.strokeBorder(
                         isDropTarget ? Palette.controlAccent : focusColour,
@@ -70,14 +94,21 @@ struct ComposerBox: ViewModifier {
     }
 
     private var focusOpacity: Double { contrast == .increased ? 1 : 0.2 }
+
+    /// The mockup's measures: the colour at eight per cent over the box, and at forty-five on its
+    /// edge, which is what keeps the mode unmistakable once the fill is only a wash.
+    private static let washOpacity = 0.08
+    private static let borderOpacity = 0.45
 }
 
 extension View {
     func composerBox(
-        isFocused: Binding<Bool>, isDropTarget: Bool = false, isFloating: Bool = false
+        isFocused: Binding<Bool>, isDropTarget: Bool = false, isFloating: Bool = false,
+        addressedTint: Color? = nil
     ) -> some View {
         modifier(ComposerBox(
-            isFocused: isFocused, isFloating: isFloating, isDropTarget: isDropTarget
+            isFocused: isFocused, isFloating: isFloating, isDropTarget: isDropTarget,
+            addressedTint: addressedTint
         ))
     }
 }

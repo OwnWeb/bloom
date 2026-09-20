@@ -31,11 +31,17 @@ public enum BridgeReadTarget: Sendable, Equatable {
     case own(WorkspaceID)
     /// A workspace the caller named, which may still turn out to be its own.
     case named(Workspace)
+    /// A Bloom Cloud workspace the caller named, reached through `CloudWorkspaceReach`. Only ever
+    /// when no local workspace answers to the name: this Mac's own work wins a tie.
+    case cloud(CloudWorkspaceTarget)
 
-    public var workspaceID: WorkspaceID {
+    /// The local workspace's id. Nil for a Bloom Cloud one, which has no row here to read, so a
+    /// caller cannot read the store for it by accident.
+    public var workspaceID: WorkspaceID? {
         switch self {
         case .own(let id): return id
         case .named(let workspace): return workspace.id
+        case .cloud: return nil
         }
     }
 
@@ -46,8 +52,9 @@ public enum BridgeReadTarget: Sendable, Equatable {
     static let schemaProperty: JSONValue = .object([
         "type": .string("string"),
         "description": .string(
-            "Another workspace to read, by the id workspace_list or workspace_start reports, or by "
-                + "its name when no other active workspace shares it. Leave it out to read your own. "
+            "Another workspace to read, by the id workspace_start or workspace_list reports, or by "
+                + "its name when no other active workspace shares it. A Bloom Cloud workspace's id or "
+                + "name works too. Leave it out to read your own. "
                 + "Required from a client that is not working in a workspace."
         ),
     ])
@@ -70,7 +77,7 @@ public enum BridgeReadTarget: Sendable, Equatable {
 
     /// Resolves the `workspace` argument of `request` for `identity`.
     static func resolve(
-        _ request: MCPRequest, as identity: BridgeIdentity, store: Store
+        _ request: MCPRequest, as identity: BridgeIdentity, store: Store, cloud: CloudWorkspaceReach? = nil
     ) async throws -> Result<BridgeReadTarget, BridgeReadTrouble> {
         var given: String?
         // A null is a model spelling "leave it out", and is read as that.
@@ -97,7 +104,16 @@ public enum BridgeReadTarget: Sendable, Equatable {
             if case .found(let archived) = BridgeWorkspaceLookup.find(given, among: all) {
                 return .failure(.archived(name: archived.name))
             }
-            return .failure(.unknown(given: given, known: active.map(\.name)))
+            guard let cloud else { return .failure(.unknown(given: given, known: active.map(\.name))) }
+            let targets = await cloud.workspaces()
+            switch CloudWorkspaceLookup.find(given, among: targets) {
+            case .found(let target):
+                return .success(.cloud(target))
+            case .ambiguous(let matches):
+                return .failure(.ambiguous(given: given, ids: matches.map(\.id)))
+            case .unknown:
+                return .failure(.unknown(given: given, known: active.map(\.name) + targets.map(\.name)))
+            }
         }
     }
 }
@@ -131,7 +147,7 @@ public enum BridgeReadTrouble: Error, Sendable, Equatable {
             return """
                 Bloom has no active workspace called '\(given)'. Active workspaces: \
                 \(BridgeWorkspaceLookup.list(known)). Retrying with the same name will fail the \
-                same way, so pass an id workspace_list reports.
+                same way, so pass one of those.
                 """
 
         case let .ambiguous(given, ids):

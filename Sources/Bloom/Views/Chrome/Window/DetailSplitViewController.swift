@@ -467,6 +467,17 @@ struct DetailSplitView: NSViewControllerRepresentable {
     }
 
     private var inspector: AnyView {
-        AnyView(InspectorPane(model: app.selectedModel).environment(app))
+        AnyView(
+            // **`selectedCloudSession` rather than `existingSession`, and that was the bug.** The
+            // sessions are held outside observation, so a nil read here never came back: the
+            // inspector was built in the same pass that the centre column made the session, got
+            // nothing, and nothing afterwards told it to look again. What the owner saw was "No
+            // workspace selected" beside a title bar naming the workspace and its branch. This is
+            // the accessor the column, the title bar and the window's own commands all use, and
+            // making a session opens no connection and wakes nothing: see
+            // `CloudWorkspaces.session(for:)`.
+            InspectorPane(model: app.selectedModel, cloud: app.selectedCloudSession)
+            .environment(app)
+        )
     }
 }

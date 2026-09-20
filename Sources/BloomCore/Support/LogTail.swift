@@ -40,6 +40,40 @@ public enum LogTail {
         return String(text[start..<end])
     }
 
+    /// Whether there is anything in this log a reader would see.
+    ///
+    /// **A chevron that opens onto nothing is worse than no chevron**, and "the log is not an empty
+    /// string" is not the same question as "there is something to read". A setup whose output was
+    /// five blank lines drew a disclosure, said "5 lines of output" under the row, and opened onto
+    /// nothing at all, because the tail drops trailing newlines and there was nothing else in it.
+    /// Escape sequences do the same thing one step further on: a clear-screen is four bytes, is not
+    /// whitespace, and draws as nothing.
+    ///
+    /// So this asks the only question the row cares about: is there a character in here that would
+    /// leave a mark. CSI sequences are walked over rather than counted, which covers the colours
+    /// and cursor moves a script's output carries; anything else that is not whitespace and not a
+    /// control character is something to show.
+    public static func hasSomethingToShow(_ text: String) -> Bool {
+        let scalars = Array(text.unicodeScalars)
+        var index = 0
+        while index < scalars.count {
+            let scalar = scalars[index]
+            // ESC [ … final, which is every colour, cursor move and clear this meets.
+            if scalar == "\u{1b}" {
+                index += 1
+                if index < scalars.count, scalars[index] == "[" { index += 1 }
+                while index < scalars.count, !("\u{40}"..."\u{7e}").contains(scalars[index]) { index += 1 }
+                index += 1
+                continue
+            }
+            if !CharacterSet.whitespacesAndNewlines.contains(scalar), !CharacterSet.controlCharacters.contains(scalar) {
+                return true
+            }
+            index += 1
+        }
+        return false
+    }
+
     /// The last line with anything on it, which is what a one line status shows while a script is
     /// running. Empty when the log is empty or is nothing but whitespace.
     public static func lastLine(_ text: String) -> String {

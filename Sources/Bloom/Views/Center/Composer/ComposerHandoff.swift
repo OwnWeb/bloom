@@ -38,10 +38,16 @@ enum ComposerHandoff {
     /// browser away to show a box that was never hidden. It is only when the pane is filling the
     /// window that the tab changes, and then it has to: an attachment you cannot see did not
     /// visibly happen.
+    ///
+    /// **Generic over the workspace rather than about a worktree.** It took a `WorkspaceModel`,
+    /// which is a worktree on this Mac, so the one pane a Cloud workspace has that needs this, the
+    /// window onto its own app, had no way in. Everything here is the same for both kinds: the
+    /// store, the chip, the sentence, the reveal. The one thing that differs is where the bytes are
+    /// written, and the workspace answers that: see `WorkspaceSurface.attachmentRoot`.
     @discardableResult
-    static func attach(
+    static func attach<Model: WorkspaceSurface>(
         _ sources: [AttachmentSource],
-        to model: WorkspaceModel,
+        to model: Model,
         sessionID: SessionID? = nil,
         revealConversation: Bool = true,
         imageComment: BrowserImageComment? = nil,
@@ -49,10 +55,16 @@ enum ComposerHandoff {
     ) async -> Outcome {
         // A review can stay open while another chat becomes active. An explicit destination
         // must never fall back to that new chat if the original conversation has been closed.
+        //
+        // **And the chat in front is not always a chat.** A Cloud workspace's notion of the active
+        // one is the tab strip's own selection, so pressing a button in the pane beside the
+        // conversation asks a workspace whose selected tab is that pane: it answers nil, and the
+        // first chat is the right fallback, because a workspace with one conversation is where
+        // this is pressed.
         let destination: Session? = if let sessionID {
-            model.sessions.first { $0.id == sessionID }
+            model.chats.first { $0.id == sessionID }
         } else {
-            model.activeSession
+            model.activeChat ?? model.chats.first
         }
         guard let session = destination else {
             return Outcome(failure: sessionID == nil
@@ -68,7 +80,7 @@ enum ComposerHandoff {
         let store = PromptAttachmentStore.shared
         store.load(sessionID: key)
 
-        let added = await store.add(sources, sessionID: key, workspace: model.workspace.path)
+        let added = await store.add(sources, sessionID: key, workspace: model.attachmentRoot(for: session.id))
         guard !added.paths.isEmpty else {
             return Outcome(failure: added.failures.first ?? "Nothing could be attached.")
         }
@@ -86,8 +98,8 @@ enum ComposerHandoff {
     /// conclusion and the URL are worth handing over on their own, and going through the
     /// attachment path with no files would only produce a failure to report.
     @discardableResult
-    static func write(_ sentence: String, to model: WorkspaceModel) async -> Outcome {
-        guard let session = model.activeSession else {
+    static func write<Model: WorkspaceSurface>(_ sentence: String, to model: Model) async -> Outcome {
+        guard let session = model.activeChat ?? model.chats.first else {
             return Outcome(failure: "This workspace has no conversation to write to yet.")
         }
         model.prepareTranscript(for: session.id)

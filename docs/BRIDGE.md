@@ -154,8 +154,9 @@ places: the listing, the dispatch and the gate.
 | `project_add` | Register a git repository that **already exists** as a project | | ✓ |
 | `project_hide` | Take a project out of the sidebar. A view preference and nothing more | | ✓ |
 | `project_unhide` | Put it back, in the place it already had | | ✓ |
-| `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why | | ✓ |
+| `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why, then the Bloom Cloud workspaces the signed-in person can open. Read only | ✓ | ✓ |
 | `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. A workspace agent starts it in its own project, or in another one it names With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
+| `cloud_workspace_start` | Create a Bloom Cloud workspace on runbloom.app, which is a machine and costs money. Refused unless the owner has turned on "Let agents create Bloom Cloud workspaces" under Settings, Bloom Cloud. Never answered by Bloom itself, and Bloom asks the owner in its own window first unless "Ask before an agent creates a Bloom Cloud workspace" is off. Same arguments as a machine's own copy: required `name`, then optional `prompt`, `branch`, `base_branch`, `run_setup`, `project`. A workspace agent leaving `project` out gets the project whose repository is its own. Returns flat `id`, `name`, `state`, `url` and `note` fields as soon as it exists, without selecting it | ✓ | ✓ |
 | `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own by default, or any workspace named out loud by name or id; the owner must name one | ✓ | ✓ |
 | `workspace_archive` | Archive a workspace through normal safety checks, keeping its branch and history. For a workspace agent, its own once the turn asking for it has ended, or one it started, by id and at once; any of them, named out loud and at once, for the owner | ✓ | ✓ |
 | `workspace_merge` | Ask a workspace's own agent to merge its pull request | | ✓ |
@@ -420,6 +421,46 @@ and both editing the same files. It holds no database connection of its own eith
 actor whose `update` methods re-read inside the actor, so a handler on a background task calls them
 directly, and a second `SQLiteDatabase` on the file is the cross-connection sequence race that
 `UNIQUE(session_id, seq)` exists to survive rather than to invite.
+
+### Bloom Cloud workspaces from this Mac
+
+`workspace_list`, `workspace_say`, `chat_list`, `chat_read` and `workspace_diff` also take a Bloom
+Cloud workspace's id or name, through the connection the window already holds to its machine and
+as the signed-in person (`CloudWorkspaceReach`, filled in by `AppModel+CloudWorkspaceReach`).
+
+- **Only workspaces runbloom.app lists for that person and that they can open.** Anything else is
+  "no such workspace", not a machine's refusal. A local workspace with the same name wins.
+- **`workspace_list`** puts them after this Mac's, marked `"cloud": true`, with runbloom.app's id,
+  name, state, repository and branch. Naming a project leaves them out.
+- **`workspace_say`** becomes the machine's `send` on the most recently active top-level chat, never
+  a subagent's. The words go as written, with `via` on `send` naming the sending workspace and chat
+  (none from the owner's own client), and every client draws it under the author: "Via an agent in
+  Queue retries · Chat" (`MessageAuthorship.caption(_:via:)`). The same throttle as a local message applies,
+  read from `CloudSayLedger`. No reply can come back and `notify_when_done` is not available,
+  because a machine cannot reach this Mac, and the answer says to read the chat instead.
+- **`chat_list` and `chat_read`** read the machine's chats and transcript in the local answer's
+  shape. **A message addressed to a person is left out**, before paging, so a page is still full.
+- **`workspace_diff`** reads the machine's review snapshot at branch scope and one patch per file,
+  paged as a local diff.
+- **A workspace not open in the window** is opened for the call and closed after it, which wakes a
+  sleeping machine, as anybody doing anything there does.
+- **Known: a message sent to a Bloom Cloud workspace draws in the sending chat as an ordinary tool
+  row**, not as the "To" bubble a local one gets. The bubble is drawn from a `message_id` in this
+  Mac's store (`WorkspaceSayRecord`), and a Cloud send makes no row here to have one.
+- **A workspace agent lists them too**, since the owner widened `workspace_list` to the workspace
+  role. What it lists is `CloudWorkspaceItem.isReachableFromBridge`: never a teammate's private
+  workspace that an owner or admin is sent only to see and archive, and never an archived one.
+
+### Messages from Bloom Cloud agents to this Mac
+
+An agent in a Bloom Cloud workspace can write to a workspace on this Mac. With a stream open to that
+workspace it arrives as the `mac_message` event; without one, runbloom.app holds it, and Bloom
+drains `GET /api/v1/me/mac-messages` on every list refresh (so also on signing in and on coming
+back to the app) and whenever a stream comes up. Either way it goes through `MacMessageIntake`: the
+signed-in person's own, a workspace here by that name, once per id, in the untrusted envelope and
+without the owner's authority. A held message is acknowledged (`DELETE .../{id}`) only once it has
+landed, one drain at a time (`MacMessageDrain`). One for a workspace name this Mac does not have is
+told to the person in a notice that carries the words and stays until dismissed.
 
 ## 4. What an agent cannot reach through it
 
@@ -918,10 +959,23 @@ So `BridgeToolApproval` names the tools Bloom answers for itself:
 
 | Self-approved | Not |
 | --- | --- |
-| `whoami`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `chat_create`, `chat_close`, `chat_rename`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list` | everything else |
+| `whoami`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `chat_create`, `chat_close`, `chat_rename`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list`, `workspace_list` | everything else |
 
 It is a list rather than "anything with our prefix", so a tool added later is opted in by somebody
 thinking about it rather than by inheriting a decision made before it existed.
+
+`cloud_workspace_start` is off that list on purpose: Bloom cannot weigh whether a machine is worth
+what it costs, and that is the one thing a person can, so Bloom never answers its ask itself.
+The CLI's ask alone is not a promise that the owner is asked: a chat that asks before using tools
+asks the owner before each one, and a chat set to bypass permissions asks nobody. So Bloom asks as
+well. With "Ask before an agent creates a Bloom Cloud workspace" on, which is the default, the
+window shows what would be created (who asked, the name, the project, the branch and its base) and
+nothing is created on runbloom.app until the owner answers, whatever the chat's permission mode. One
+question at a time: a second call while one is up is refused, and so is a call the owner declines,
+with a sentence telling the agent not to ask again unprompted. With it off, the setting "Let agents
+create Bloom Cloud workspaces", itself off by default, decides alone. Both are preferences this
+client keeps, not an authorisation: anything holding the owner's sign in can create Bloom Cloud
+workspaces with either setting on or off.
 
 Answering is not a shortcut round consent, because **Bloom is on both ends of this question**. It
 wrote the tool, it minted the token, it knows which workspace is asking, and it enforces every

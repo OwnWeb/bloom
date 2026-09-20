@@ -58,6 +58,18 @@ public struct RepoID: Identifier {
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }
 
+/// A person on runbloom.app, as the wire spells their account: the author of a message in a shared
+/// Cloud workspace, the audience of one addressed to them, and a row in the presence list.
+///
+/// **Typed even though it is never looked up in this Mac's database, and that is the point.** It
+/// sits beside a workspace id, a chat id and a handle in the same values, and a handle is the one
+/// it would be confused with: both are strings that name a person, one is what they are called
+/// this week in this team and the other is who they are. See `MessageAudience.Person`.
+public struct CloudUserID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
 /// A worktree on disk. The id outlives the worktree: an archived workspace keeps its row, and the
 /// row is what a restore reads.
 public struct WorkspaceID: Identifier {

@@ -35,6 +35,10 @@ enum Log {
 
     static let crashes = Logger(subsystem: subsystem, category: "crashes")
 
+    /// A Cloud terminal's output, batched per display refresh: how many of the machine's frames
+    /// each feed of the emulator carried. See `TerminalOutputBatch`.
+    static let cloudTerminal = Logger(subsystem: subsystem, category: "cloud-terminal")
+
     /// The launch sweep for project artwork, which is the only work the app does that nobody
     /// asked for and that changes something on screen. When a badge is suddenly a picture, this
     /// is where it says which projects it looked at and how long it spent.

@@ -48,7 +48,7 @@ struct PaneSplitTests {
     /// core must not have changed a byte of them.
     @Test("the stored spellings survived the move into the core")
     func wireFormat() {
-        #expect(CenterTabKind.allCases.map(\.rawValue) == ["terminal", "browser", "review", "notes"])
+        #expect(CenterTabKind.allCases.map(\.rawValue) == ["terminal", "browser", "review", "notes", "setup"])
     }
 
     // MARK: - Which row of a Split submenu carries the key

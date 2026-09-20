@@ -13,11 +13,11 @@ import BloomCore
 /// rearranged tree changes the frame a pane is drawn at and never which view is drawing it: the
 /// `ForEach` below is keyed by pane id, so SwiftUI moves the view it already has rather than
 /// building a new one. A moved terminal keeps its shell and a moved browser keeps its page.
-struct CenterPanesView: View {
-    @Bindable var model: WorkspaceModel
-
-    private var tabs: WorkspaceTabsStore { .shared }
-
+/// The names and numbers the centre's panes are laid out to.
+///
+/// Their own type because three of them are read from outside the view, and because the view is
+/// generic over the workspace now and a generic type may hold no stored static.
+enum CentrePaneMeasure {
     /// What a split takes out of the space its two panes share. One point, because the strip the
     /// pointer aims at is drawn over the panes rather than reserved between them.
     ///
@@ -62,6 +62,16 @@ struct CenterPanesView: View {
     /// on the main actor, and a name that never changes has no business being one of them.
     nonisolated static let soloPane = "solo"
 
+    /// The plate a carried pane is drawn as: wide enough to read as a pane rather than a chip,
+    /// and small enough not to cover the drop target it is being moved onto.
+    nonisolated static let ghostSize = CGSize(width: 96, height: 56)
+}
+
+struct CenterPanesView<Model: WorkspaceSurface>: View {
+    let model: Model
+
+    private var tabs: WorkspaceTabsStore { .shared }
+
     /// A pane being carried, and where it would land if it were let go now.
     ///
     /// `landing` is nil for a drag over somewhere that would not take it, which is the whole of
@@ -83,10 +93,10 @@ struct CenterPanesView: View {
         // Nil is a workspace with neither a conversation nor a tool tab to be in. It still gets
         // one pane, so `CenterPaneView` can draw the empty states that offer a way out of it.
         let tab = tabs.selectedTab(in: model)
-        let layout = tab.map { tabs.layout(of: $0) } ?? SplitLayout(pane: Self.soloPane)
+        let layout = tab.map { tabs.layout(of: $0) } ?? SplitLayout(pane: CentrePaneMeasure.soloPane)
 
         return GeometryReader { proxy in
-            let geometry = layout.geometry(in: proxy.size, dividerThickness: Self.dividerThickness)
+            let geometry = layout.geometry(in: proxy.size, dividerThickness: CentrePaneMeasure.dividerThickness)
 
             ZStack(alignment: .topLeading) {
                 if proxy.size.width > 1, proxy.size.height > 1 {
@@ -156,7 +166,7 @@ struct CenterPanesView: View {
                     }
                 }
             }
-            .coordinateSpace(.named(Self.space))
+            .coordinateSpace(.named(CentrePaneMeasure.space))
         }
         .background(Palette.windowBackground)
     }
@@ -208,8 +218,6 @@ struct CenterPanesView: View {
     /// The plate a carried pane is drawn as: wide enough to read as a pane rather than a chip,
     /// and small enough not to cover the drop target it is being moved onto. Named because it was
     /// two bare numbers in the middle of the stack below.
-    private static let ghostSize = CGSize(width: 96, height: 56)
-
     /// The small plate under the pointer while a pane is being carried.
     ///
     /// Deliberately a token rather than a picture of the pane. A live shell or a loaded page cannot
@@ -227,7 +235,7 @@ struct CenterPanesView: View {
                     .strokeBorder(Palette.border, lineWidth: Metrics.outline)
             }
             .overlay { Image(systemName: symbol).foregroundStyle(Palette.textSecondary) }
-            .frame(width: Self.ghostSize.width, height: Self.ghostSize.height)
+            .frame(width: CentrePaneMeasure.ghostSize.width, height: CentrePaneMeasure.ghostSize.height)
             // Carried under the pointer, which is `lifted`. It had a fourth recipe of its own.
             .elevation(.lifted)
             .position(x: move.point.x, y: move.point.y)
@@ -239,13 +247,13 @@ struct CenterPanesView: View {
         case .chat:
             return PaneKind.chat.symbol
         case .tool(let id):
-            let open = CenterTabStore.shared.tabs(for: model.workspace.id)
+            let open = CenterTabStore.shared.tabs(for: model.surfaceID)
             return open.first { $0.id == id }?.icon ?? PaneKind.terminal.symbol
         }
     }
 }
 
 extension SplitPaneFrame {
-    /// The name every unsplit tab's only pane answers to. See `CenterPanesView.soloPane`.
-    var soloIdentity: String { CenterPanesView.soloPane }
+    /// The name every unsplit tab's only pane answers to. See `CentrePaneMeasure.soloPane`.
+    var soloIdentity: String { CentrePaneMeasure.soloPane }
 }

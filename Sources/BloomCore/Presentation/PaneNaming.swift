@@ -48,6 +48,13 @@ public enum PaneNaming {
     public static let chat = "Chat"
     public static let terminal = "Terminal"
     public static let browser = "Browser"
+    /// The notes tab, which the local column names in `CenterTab` and a Cloud workspace's strip
+    /// names here, so the two cannot drift.
+    public static let notes = "Notes"
+    /// The changes, which both columns call the same thing in their `+` menu and their strip.
+    public static let changes = "Changes"
+    /// A Cloud workspace's setup output, which a local workspace has no tab for.
+    public static let setup = "Setup"
 
     /// What the strip draws over a conversation whose title is empty, and therefore the name
     /// `workspace_tabs` reports and `workspace_tab_select` takes back for it. Not `chat` above:

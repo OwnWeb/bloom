@@ -28,8 +28,8 @@ extension Git {
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
 
-        var kept = words.filter { !stopWords.contains($0) && $0.count > 1 }
-        if kept.isEmpty { kept = words }
+        var kept = words.filter { !stopWords.contains($0) && $0.count > 1 }.map(shortened)
+        if kept.isEmpty { kept = words.map(shortened) }
         if kept.isEmpty { return "workspace" }
 
         var parts = Array(kept.prefix(maxWords))
@@ -38,11 +38,31 @@ extension Git {
         // what falls off the end of the word budget. Without this, "add a docblock to Invoice.php"
         // and "... to Contact.php" produce the same branch, and the collision suffix (-2, -3)
         // leaves a sidebar full of names that say nothing about which is which.
-        if let token = distinguishingToken(from: firstLine), !parts.contains(token) {
+        if let token = distinguishingToken(from: firstLine).map(shortened), !parts.contains(token) {
             parts.append(token)
         }
 
         return String(parts.joined(separator: "-").prefix(60))
+    }
+
+    /// The longest one word a branch keeps.
+    ///
+    /// **Twenty four characters, and the number is about what somebody reads rather than a round
+    /// figure.** A branch is read in `git branch`, in a pull request's title bar and in a terminal
+    /// prompt, always beside other text, so the budget that matters is the whole ref: five words
+    /// and sixty characters under a prefix like `freekmurze/` is already about seventy, which is
+    /// most of a terminal line. One word may take a good share of that and no more. Twenty four
+    /// keeps the longest things anybody genuinely names, `WorkspaceConnectionTests` is exactly
+    /// twenty four and `laravel-medialibrary` is twenty, and cuts what is not a word at all: the
+    /// owner typed ninety characters of keyboard mashing to see what would happen, and a sixty
+    /// character run of it is not reasonable merely because it is one token.
+    ///
+    /// The cut is blind because there is nothing to cut on: a token with no boundary in it has no
+    /// better place to stop.
+    static let longestWord = 24
+
+    private static func shortened(_ word: String) -> String {
+        word.count > longestWord ? String(word.prefix(longestWord)) : word
     }
 
     /// The basename of the first path-like token in a line, lowercased and hyphenated.

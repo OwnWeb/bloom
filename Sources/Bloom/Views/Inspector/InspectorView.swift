@@ -12,8 +12,8 @@ import BloomCore
 /// two shared the column's height, so a wide diff got a narrow pane and a long list got a short
 /// one. Files open in the centre column now, which is where Conductor puts them and where there
 /// is room for them, and this column went back to being a list of what changed.
-struct InspectorView: View {
-    let model: WorkspaceModel
+struct InspectorView<Model: WorkspaceSurface>: View {
+    let model: Model
 
     /// The one Connect GitHub sheet, presented from the column's root rather than from whichever
     /// control raised it, so the pull request strip and the checks tab share one presentation.
@@ -142,7 +142,7 @@ struct InspectorView: View {
         }
         // Once, here, rather than a repository id threaded through every row of two lists that
         // have no other use for one. See `EnvironmentValues.openInRepoID`.
-        .environment(\.openInRepoID, model.repo?.id)
+        .environment(\.openInRepoID, model.openInRepoID)
     }
 
     @ViewBuilder
@@ -153,6 +153,8 @@ struct InspectorView: View {
         case .changes, .history:
             ChangesBrowser(model: model)
         case .checks:
+            // Checks are GitHub's, read through whatever the workspace can reach: `gh` in a
+            // worktree here, runbloom.app's own GitHub App for a workspace on a machine.
             ChecksView(model: model)
         }
     }

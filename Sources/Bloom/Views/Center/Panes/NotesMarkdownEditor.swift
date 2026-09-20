@@ -8,7 +8,10 @@ import MarkdownEngine
 struct NotesMarkdownEditor: NSViewControllerRepresentable {
     @Binding var text: String
     var isEditing: FocusState<Bool>.Binding
-    var workspaceID: WorkspaceID
+    /// What the editor files its own state under. The workspace's storage key, which is its id
+    /// for a worktree on this Mac and namespaced for one on a machine, so two workspaces cannot
+    /// share an undo stack. See `WorkspaceSurfaceID.storageKey`.
+    var documentKey: String
     var isEditable: Bool
     var showsSource: Bool
     var commands: NotesFormattingCommands
@@ -25,7 +28,7 @@ struct NotesMarkdownEditor: NSViewControllerRepresentable {
         let font = showsSource ? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular) : NSFont.systemFont(ofSize: 14)
         return NativeTextViewWrapper(
             text: $text, configuration: configuration, fontName: font.fontName, fontSize: font.pointSize,
-            documentId: workspaceID.rawValue, isEditable: isEditable,
+            documentId: documentKey, isEditable: isEditable,
             placeholder: isEditable ? NSAttributedString(string: "Start writing…", attributes: [
                 .font: font, .foregroundColor: NSColor.placeholderTextColor,
             ]) : nil

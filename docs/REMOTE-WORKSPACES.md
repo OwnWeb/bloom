@@ -675,7 +675,9 @@ nothing about it either, which is the whole reason `reporting` exists.
 ## Limits
 
 runbloom.app enforces per-team limits at three points: creating a workspace, issuing a workspace
-token (which is what wakes a sleeping machine), and starting a turn. Archive is never refused. A
+token (which reserves a slot against the awake limit, and wakes nothing: the client's own first
+request to the machine URL is what wakes a sleeping machine, because answering is waking), and
+starting a turn. Archive is never refused. A
 refusal is:
 
 ```json
@@ -1138,6 +1140,127 @@ and its builder confirmed them.
 - **Linux runs the core tests the server needs, by name.** `Package.swift` lists them, so a test
   written on a Mac about the window cannot fail a Linux job its author never thought about.
 
+### For the Mac client pull request
+
+Taken while building the Mac client. The runbloom.app shapes were agreed with its builder through
+the coordinator.
+
+- **runbloom.app answers Laravel resources:** `{"data": ...}`, lists as `{"data": [...]}` with no
+  pagination, `/me` as `{"data": {...}}`, refusals as `{"code", "message"}` plus `limit` and
+  `retry_after` where they apply.
+- **Sharing.** `GET /api/v1/cloud-workspaces/{id}/members` answers `{"data": {"shared_with_team",
+  "members": [{"user": {"id", "name", "avatar_url"}, "role"}]}}`; `POST` the same path with
+  `{"user_id"}` or `{"shared_with_team": bool}` answers the same body; `DELETE .../members/{user}`
+  answers 204 and cancels that person's queued turns, ends their running ones and closes their
+  streams, which the confirmation says. Owner only; 403 `no_team_agent_key` when a team key is
+  missing. Collaborators are chosen from `GET /api/v1/teams/{team}/members`, `{"data": [{"id",
+  "name", "email", "avatar_url", "role"}]}`.
+- **Members carry `push_access`**: true, false (no push access, or GitHub not connected) or null (not
+  checked, or GitHub unreachable). Only false is shown, as "Cannot push". A share's `created_by` may
+  be null. A workspace the reader cannot open is listed with only `id`, `team_id`, `name`, `state`,
+  `owner`, `role` (null), `can_open`, `can_archive`, `created_at` and `archived_at`, and is drawn as
+  not openable, archivable when `can_archive` says so.
+- **Every empty state is a title, a sentence and one button**, decided by `CloudEmptyState` and
+  drawn the same way in the sidebar's section (compact), the centre column and the create sheet: a
+  Mac that is not signed in says what a Cloud workspace is and offers signing in, a team in early
+  access says so, a team with steps left names the first one and goes to its own page on
+  runbloom.app (`setup_url`, plus `projects` or `agent-keys`), and a ready team with nothing created
+  offers creating the first one. The create sheet offers the same buttons rather than grey text, and
+  says in one line what is stopping Create.
+- **The sidebar's Cloud section is hidden until this Mac has signed in once**, and stays after
+  signing out, with the way back. Bloom needs no account, so a Mac that has never used a Cloud
+  workspace is not asked to in the pane somebody looks at all day; a Mac that has is missing a sign
+  in rather than being offered one.
+- **Every state a first Cloud workspace passes through says what it is and what to do.**
+  `CloudConnectionBanner` is the one place that decides it, and its tests name the states that must
+  offer something: setting up (watch the output), setup failed (read it, run it again), asleep
+  (wake), waking and getting ready (nothing, they finish by themselves), a limit that clears by
+  itself (nothing) against one that does not (runbloom.app, try again), no access and reconnecting
+  after a dropped network (try again). What a person is missing before they can prompt at all, a
+  GitHub connection or an agent key, is said over the composer before anything is typed
+  (`CloudPromptReadiness`), and a refusal from runbloom.app or a machine is shown in its own words
+  with the way back to where it is settled (`CloudRefusalNotice`).
+- **A team that is not ready says what is missing.** Each team in `/api/v1/me`, and
+  `/api/v1/teams/{team}` itself, carries `cloud_workspaces`: `enabled`, `setup_complete`,
+  `github_connected` (the signed in person's), `github_app_installed`, `has_project`,
+  `has_agent_key` (team keys only) and `setup_url` (`https://runbloom.app/app/<team>`, opened as given).
+  `setup_complete` is runbloom.app's own verdict and wins over counting the four here, because it
+  counts steps a given version of the app may not know about. The
+  create sheet and the Bloom Cloud settings pane list the steps still to take and offer "Finish setting up
+  on runbloom.app", which opens `setup_url` only when it is on runbloom.app's own origin; a team not
+  in early access says so. A runbloom.app that sends none of it changes nothing.
+- **`sharing_in_progress`** (409, `retry_after`) on a session or preview token, for anybody but the
+  owner while runbloom.app tells the machine the workspace became shared, is waited out like
+  `machine_not_ready`: a short starting state, then asked again.
+- **Refusals while sharing** are shown as runbloom.app words them: 422 `already_owner`, 403
+  `owner_cannot_be_removed`, 404 for removing somebody who is not a member, 409 `workspace_archived`
+  for any change to an archived workspace. A collaborator who left the team is still listed, so the
+  owner can remove them; the Mac shows them as having left, by their absence from the team's members.
+- **Preview links.** `GET .../shares` lists live ones as `{"id", "url", "created_at", "expires_at",
+  "created_by"}`; `POST {}` (or `{"expires_at"}`, a week by default and a month at most) answers 201;
+  `DELETE .../shares/{share}` revokes. Owner only. A link stops working when its creator can no longer
+  share, and shows a "still starting" page until the machine is ready.
+- **The opening prompt is the Mac's.** Create takes none. The Mac keeps it in its own defaults,
+  survives a relaunch, shows it as waiting, and sends it on the first live connection as `new_chat`
+  then `send`, each under a command id kept with the prompt so a retry cannot open two chats or
+  queue it twice. A prompt still held after a day is dropped.
+- **Where the code is.** `Packages/BloomClient` is Foundation and `BloomProtocol` only: runbloom.app's
+  API, `WorkspaceConnection` (tokens, commands with kept ids, the event stream, reconnecting, not
+  reconnecting after `sleeping`), `CloudWorkspaceState` (merging pages and events), the terminal
+  socket, the review cache and every decision the window draws. Its tests run in the macOS `test`
+  job, because the event stream is read with URLSession byte streams Linux Foundation lacks.
+  `Packages/BloomAuthentication` is #163's, on AppAuth 3.0.0 with the custom scheme; the tokens are
+  one keychain item per runbloom.app origin. `BLOOM_RUNBLOOM_URL`, or the
+  `cloudWorkspaces.runbloomOrigin` default, points a build at a development runbloom.app.
+- **A Cloud chat is a `TranscriptModel` with no store.** Its rows, queue and questions arrive from the
+  machine through `receiveCloud`, and send, stop, answer, the composer's pickers, removing a queued
+  prompt and marking read go to the machine through a `CloudChatLink`. So a Cloud conversation is
+  drawn by the app's own transcript and composer, and nothing from a machine is written to this
+  Mac's database. Its rows get negative ids, one per workspace and cursor, so no cache can confuse
+  one with a local row.
+- **A Cloud workspace is its own selection and its own column.** `SidebarSelection.cloud` answers
+  `workspaceID` with nil, so the inspector, the Workspace menu, the terminal pane and session restore
+  (all about a worktree on this Mac) leave it alone, and `CloudWorkspaceColumn` draws its chats,
+  terminal, changes and setup output as panes of its own.
+- **Signed out, nothing asks.** The sidebar has no Cloud section and the New menu no Cloud item until
+  a Bloom account is signed in; Settings has a Bloom Cloud pane that says what an account is for.
+- **The list is read every 20 seconds while Bloom is active, whenever it becomes active, and every
+  minute in the background,** where its notifications matter most. Notifications are derived from consecutive readings: into `waiting_for_input`,
+  `running` to `idle`, into `setup_failed`; not on the first reading, not for a workspace the reader
+  has no role in, and not for the one on screen while Bloom is in front.
+- **Waking.** The first request after a machine was last seen asleep gets 45 seconds before it counts
+  as no answer, later ones 25; a request with no answer is retried twice under its command id. The
+  column says the workspace is waking once half a second has passed.
+- **The review is read when its pane is shown and on `review` events,** not by a `wait: true` long
+  poll, which would hold a request open on a machine that is trying to sleep.
+- **Only the workspace on screen keeps its event stream.** Leaving one suspends its stream and keeps
+  its cursor, because a stream left open reconnects by itself after a dropped network, and a
+  reconnect is what wakes a machine. A stream refused twice in a row with fresh tokens stops.
+- **Sign in uses an ephemeral browser session,** so signing out leaves no web login behind for the
+  next person, and signing out revokes both tokens, clears held opening prompts and removes Cloud
+  banners. A token is only sent to an HTTPS machine address (plain HTTP only on loopback), and a
+  preview only opens on its own machine's host. A machine's shell cannot write this Mac's clipboard.
+- **Each person gets a terminal of their own,** named `shell-<user id>`, because a terminal is a
+  turn with its opener's keys and GitHub identity. A keystroke into a closed terminal reconnects it,
+  and reattaching by name answers with one frame that is clear screen, cursor home, then the pane as
+  it stands, so a client feeds it as it is and never appends it to what it was showing. The shell
+  behind it survives a socket that disappears with no close frame, which is a laptop closing, and
+  does not survive the workspace restarting, which takes tmux with it; one closed socket looks the
+  same either way, so the app says the connection stopped rather than guessing at the shell, and the
+  redraw is what answers it. `reauth` swaps a token on a live socket, so a long session does not
+  break when one expires. Nothing is written into the stream to mark a reconnection: the clear
+  screen takes anything written there off the screen and out of the scrollback, which
+  `CloudTerminalProbe` measures, and is also why there is nothing stale for a new prompt to be
+  confused with.
+- **Left out of the first Cloud release on the Mac:** attaching files to a Cloud chat (the composer
+  says so), Steer (a shared queue is first come, first served), and handing the queue back to the
+  composer on Stop, since it may hold other people's messages. Edit on a queued prompt takes back
+  only the reader's own. A Cloud chat's composer never applies this Mac's defaults over the
+  machine's controls.
+- **Archiving always asks,** whatever the local confirmation setting: the machine's own
+  `archive_preview` when it can answer, runbloom.app's last summary when it cannot, and the sentence
+  that the conversation is deleted first in both.
+
 ### The preview inside Bloom
 
 The preview opens in a Browser tab in Bloom, as a local workspace's does, and not only in the
@@ -1174,6 +1297,258 @@ and the RPC, event stream and terminal routes all refuse anything but a session 
 get another workspace (the cookie is `__Host-`, bound to that machine's host, in a store that holds
 only that machine), and they do not get the agent's keys or a GitHub token, which never leave the
 machine.
+
+## One UI, two kinds of workspace
+
+The owner's instruction, after the first Cloud panes were built beside the local ones: "I really
+want the UI to use the same code for local and remote, so that if I change this, it is both for
+local and cloud." So there are no Cloud views of things a local workspace already has. There is one
+set of views, written against protocols, with two implementations behind them.
+
+**`WorkspaceSurface` is the first of those protocols.** It is what the inspector and the
+review panes ask a workspace for: the changed files and their patches, the file tree and a file's
+contents, the read ticks, the scope, the branch's commits, the pull request and the things a reader
+can do to one. `WorkspaceModel` answers it out of the worktree on this Mac, `CloudWorkspaceSession`
+out of the machine. It was written from what the inspector already asked `WorkspaceModel` for, and
+`WorkspaceModel` conforms to it with five new members and not one changed one, which is the reason
+the local path could not regress: the views call the same methods on the same object they always
+did.
+
+**Generic over the protocol, never `any WorkspaceSurface`.** SwiftUI's `@Bindable` refuses an
+existential, and the inspector binds a selection and a tab. `struct FileTreeView<Model:
+WorkspaceSurface>` keeps the binding and keeps every type static, so the redraw behaviour
+these columns were tuned for is what it was. The cost is real and is paid in one place: a generic
+SwiftUI body is much harder work for the type checker, and `FileTreeView` had to be cut into
+`body`, `watched`, `loading`, `stack` and `scroller` before the CI runner would finish it. Cut a
+generic view up before it is a problem rather than after.
+
+**Differences are capabilities, not branches.** `WorkspaceCapabilities` in the core carries one
+case per thing a workspace might not be able to do (revealing a file, reverting, a shell, managing
+the pull request, history, transcript search, Keep Awake, a preview), and each case carries the one
+sentence that says why it is off for a Cloud workspace. A view asks whether the capability is
+there; it never asks which kind of workspace it has. An action that cannot work stays where it is,
+greyed, with that sentence, and with the honest equivalent beside it: GitHub where a local
+workspace offers the Finder, the workspace's own terminal where it offers a shell in a folder.
+
+**And the test that catches what a capability cannot: is this a question about a workspace, or a
+question about this Mac's disk?** Ask it of every question a shared view asks, one at a time, when a
+view is converted. A capability is a thing a workspace cannot do, declared and answered by the
+workspace; this is the other half, where a view asks something the local implementation can answer
+and the Cloud one can only answer wrongly, and nothing declares it. Two bugs came out of the review
+pane's conversion by asking it. `ReviewPaneView` handed `editorKey` to `FileManager.fileExists`,
+which for a Cloud workspace is a synthetic `cloud:<id>/<path>` and so reported every file as gone:
+a question about the disk, asked of a workspace that has none, and one that would have drawn
+something slightly wrong rather than crashed and been very hard to trace back. The empty
+conversation said "the setup script is still running", which is a worktree's sentence and not true
+of a machine that is still cloning.
+
+`editorKey` is the shape of the underlying fault and is worth stating on its own: it is a path for a
+local workspace and an opaque key for a Cloud one, so anything treating it as a path is wrong for
+half the workspaces, and nothing in the type system says so. The other reader of it in a shared view
+is `AllFilesReviewView`, which hands it to `SourceEditorState.file(_:)`. That one is harmless for a
+reason that can be stated rather than harmless because nothing broke: a Cloud key matches no editor
+state, so the scroll falls back to the file's own anchor. Two ways to finish this. Audit the rest of
+the protocol for any member whose value means one thing locally and another in the cloud, which is
+the same trap wherever it appears. Better, give that key its own type, so `FileManager` will not
+take one and the bug cannot be written; that is a change for after this branch merges, and it
+retires the rule instead of asking everyone to hold it.
+
+**The diff is `DiffView` on both sides.** The hunks, the expanders, the whitespace fold, the find
+bar, Viewed and Discard are one view over the protocol. Three things are asked for only where they
+can work, and each says so where the control would be rather than disappearing: the in-place editor
+and the whole-file editor (`.editFiles`), which need the bytes on this Mac and the language servers
+rooted in the worktree; notes on a diff (`.reviewComments`), which are worth sending the day the
+composer slice lands; and go to definition, which needs the same language server. The editor pane
+is built by the workspace rather than by the diff, which is the one place a view is handed back
+from a model: `WorkspaceModel.editorPane(path:session:)` answers with the editor and a Cloud
+**And the pane around the diff is `ReviewPaneView`, arrangement included.** All files against
+Selected file, the pinned tab that stays on the file it was opened with, the continuous review with
+its collapsible per-file headers, and the composer under it that sends what you read to a chosen
+chat, are one view over the protocol for both kinds. This was the last place a person could feel
+which kind of workspace they were in: a Cloud review used to be a list beside a diff and nothing
+else. One question in it really is the worktree's, and is asked as one: whether the file is still on
+disk. `FileManager.fileExists` is run only where there is a worktree to run it against, because a
+Cloud path resolves to nothing on this Mac and the pane would say a file that is perfectly present
+on the machine is gone. What a Cloud workspace does with a file that has gone is what the machine
+answers when asked for it.
+
+**The chat is `ChatPaneView`, the same view a local conversation is drawn with.** The transcript,
+the composer, the jump pill, the dock, the text size, the font and the line height are one view
+over `WorkspaceSurface`. Three things differ and each is asked of the workspace rather than
+branched on: where the reader had got to in a conversation (a local one keeps it on the model, a
+Cloud one on its session, so both survive switching tab); what the composer needs a worktree for,
+which is attaching a file, the project's quick prompts and its run scripts, and which a Cloud chat
+offers the way Ask Bloom does, having no worktree either; and what hangs over the conversation,
+which for a local workspace is the side conversation card and the pill back to the chat it was
+opened from, and for a Cloud workspace is nothing, because a side conversation is a second agent in
+the same worktree. A sentence above the composer says what runbloom.app would refuse a turn for
+before anybody types it.
+
+**And a Cloud workspace is started in the same window a local one is.** It was a modal sheet with a
+four row form in it, Project, Name, Branch, From, and a First message box under them, which asks
+somebody to fill in a record; the local window asks what you want to work on and derives the record
+from it. The owner put the two side by side and that was the whole of his verdict. So the Cloud one
+is `CreateWorkspaceView`'s window: the same band across the top, the same `Start with`, the same
+question, the same composer with its own controls and Create inside it, and the same closing
+sentence with one more under it, because a machine has to be made and set up before a first message
+can go and a worktree does not. The name and the branch are derived from the first line of the task
+rather than demanded, by the rule the local namer falls back to when no model answers. Three things
+are left out rather than greyed: `Open existing branch…`, because runbloom.app creates from a base
+branch and nothing else; the other two `Start with` segments, because a machine has no browser tab
+of this Mac's and its terminal is a tab of the workspace itself; and a branch menu, because a
+project answers with its default branch and no list, so the base is a chip with a field behind it.
+
+**What a first turn runs with is the machine's answer, and this Mac's only until there is one.** A
+client could not learn what a chat would open with until a chat existed: `new_chat` demands
+controls, and `composer` needed a `chat_id`. Runner `test.9` answers both, with `composer_defaults`
+on the workspace snapshot and a `composer` that takes no chat id, and the machine's answer is the
+better one because it has read the repository's own `.bloom/settings.toml` and clamped to the agents
+installed in its image, neither of which a client can see. **It belongs to the workspace and not to
+a chat.** This Mac keys composer state by chat id, and a reply with no chat id under a synthesised
+key would collide with a real chat the day the machine shortens its ids, which would show somebody
+another chat's settings and is the sort of bug nobody goes looking for. So it is a property of
+`CloudWorkspaceState` beside the chats rather than a row among them.
+
+The create window is the one place that cannot ask, because no machine exists while it is open. So
+it shows this Mac's choice, and **only a deliberate change is carried**: `PendingOpeningPrompt`
+holds nil for "whatever the machine would open with", and the first turn is opened with the
+machine's own defaults a couple of minutes later. A value nobody touched gives way to the better
+answer; a value somebody picked does not. New Chat in a workspace that already exists takes the
+chat in front's controls, and the machine's defaults when there is no chat in front.
+
+And the local choice stays as the fallback rather than being retired: a machine on an older runner
+answers without defaults for as long as such a machine exists. The snapshot's field is required in
+the schema and optional in what this client accepts, which is the asymmetry a client owes a server:
+a machine made before the field existed and not yet updated would otherwise not be openable at all,
+rather than merely missing a default.
+
+**`available_agents` is a fact about one machine at one moment.** Two machines created from the same
+release thirty seconds apart answered with different lists, which is being looked at and is not the
+client's to explain. What follows from it either way is that this list is never cached across
+workspaces and never drawn as the agents Bloom supports: it is what that machine can run, asked of
+that machine, and it is allowed to differ from the machine beside it.
+
+The protocol is `WorkspaceSurface` now rather than `WorkspaceReviewSurface`: it stopped being about
+the review the moment the band, the checks and the chat were written against it.
+
+**Setup is part of the conversation, in both kinds of workspace.** It had a tab of its own here for
+one day, on the argument that it is the one thing a Cloud workspace has and a local one does not.
+The owner put the two side by side and settled it: locally the setup output is a row at the head of
+the transcript, where the reader already is, and a tab only one kind of workspace has is exactly the
+feeling this whole section exists to remove. So the machine's setup goes through the same
+`WorkspaceEvent` the local one does, drawn by the same row, in the same place in the reading order,
+with the same disclosure over the log and the same Run setup again beside a failure. What the
+machine knows and a worktree does not is used inside that row rather than as a reason to keep a
+pane: the named step while it runs, and the last lines of a failure without asking for the whole
+log. The banner that offered to show the tab went with it, and `CenterTabKind.setup` stays only so
+that a tab list written while the tab existed still decodes; the store drops those tabs on the way
+in.
+
+**A Cloud workspace has no header bar of its own.** Its name is the window's title, its branch and
+its pull request are the title bar's band (`PullRequestBar`, over the protocol), and its `+` is the
+toolbar's, exactly as a local workspace's are. A bar above the tabs saying all three again was the
+largest thing that made a Cloud workspace feel like a different app. What is left is what a local
+workspace has no answer to, and it sits in the toolbar: who else has the workspace open, the
+preview, and sharing.
+
+The band draws what runbloom.app read from GitHub with its own App: the state, the checks rollup,
+the merge blockers, the review decision and whether this person may merge. The machine's own `gh`
+answer is the fallback for the moment before runbloom.app has replied, because it arrives with the
+workspace rather than on a request of its own. Merge and Mark ready for review go to runbloom.app
+and happen as the signed-in person, with the head commit sent so a branch that moved under the
+reader is refused rather than merged on trust; `can_merge` is what greys the control, so somebody
+without push access sees why rather than a failure after pressing. Open a pull request, Commit and
+push and Fix conflicts compose a turn for the agent and work as they do locally. The Checks tab is
+the local one, over the same list.
+
+**That state is cached and up to a minute old, and the app says so rather than implying it is
+live.** runbloom.app refreshes on a schedule, every body carries `fetched_at` and `stale`, and
+`CloudChecksWording.freshness` turns those into the line under the checks. Nothing polls harder in
+the hope of something fresher. Two shapes to know about: `mergeable` is genuinely three-valued,
+because GitHub answers null while it is still working it out, and null is "not known yet" rather
+than "no"; and the same count is `passed` in the pull request body and `succeeded` in the checks
+body, which is a wart of runbloom.app's and is read in one place here rather than papered over.
+
+**A machine's own runner restarts under an open window, and the client is tuned for it rather than
+against it.** A sleeping workspace updates itself the moment it wakes and goes idle, which is
+seconds after somebody opens it, and the process is gone for about eight seconds on the good path.
+Three things follow. A dropped connection says nothing for two seconds, so a drop that mends itself
+never raises a banner, and the reconnection attempts land at 0.5, 1, 2, 3 and 5 seconds before
+backing off to half a minute, so the common case is covered four times over. A command keeps trying
+for thirty seconds rather than five: three attempts a second apart gave up before the machine came
+back, which meant a prompt sent in that window was guaranteed to fail in front of the person for no
+reason. Retries go under one command id, so a machine that took the command before it died answers
+the retry from its journal. And a stream that resumes from a cursor the machine can no longer
+replay from answers `skipped`, which now makes every open chat read its history again rather than
+leaving the rows in the gap missing for the life of the window.
+
+**A machine that put itself back says so.** A Cloud workspace's machine updates itself, and when a
+new version will not start it restores the previous one. runbloom.app reports that as
+`runner_notice` on the workspace, in three kinds: being rolled back, rolled back, and the update
+failed. The first is drawn as progress and cannot be put away, because it ends by itself and is
+replaced by its outcome; the other two rest, and are dismissed on the same rule as a failed setup.
+The sentence is runbloom.app's own and is drawn as it stands, because it names versions this Mac
+does not know. A workspace quietly running an older version than anybody thinks is what produces a
+bug report nobody can reproduce.
+
+**A machine that cannot reach runbloom.app says so too, and this one is not drawn yet.** The
+workspace record carries `reporting` when something is wrong and leaves it out when nothing is, with
+`unreachable_since` and `shed`. `unreachable_since` is the moment of the last report that got
+through rather than the moment the first one failed, because an outage that began while nothing was
+being sent still began then, and it clears on the first success, so a flap does not read as an
+unending outage. `shed` appears once the queue has hit its four megabyte cap and started dropping
+its oldest entries, which is a fortnight of a quiet machine or about a day and a half of a busy one.
+
+The whole job here is the sentence, and it is about the record rather than about the work: the
+turns are still running and still saved, what they cost is not being recorded at the moment, and
+after the cap some of that account is gone for good. Anything that reads as "your work is being
+lost" is wrong and will frighten somebody for no reason. It belongs in `Packages/BloomClient` beside
+the other notices so that the web client inherits it rather than inventing a second story, and it is
+a banner rather than anything smaller, one that cannot be put away while it is true, because unlike
+a rollback it does not end by itself. Until it is built, a client that does not know the field
+ignores it: `CloudWorkspaceItem` decodes from a keyed container, so a key it has never heard of
+changes nothing.
+
+**History is the machine's own `git log`.** `history` pages the branch's commits and `commit_files`
+answers the files of the row somebody opened, so the History tab draws the rows it has always drawn.
+Two differences from a local workspace, both said where they matter: Load earlier commits pages from
+the oldest row rather than asking again with a larger limit, because a machine is across a network
+and may be asleep; and a commit's diff is `commit_patch`, its own operation rather than a third scope, because a sha
+in a scope would have to mean something for `review_snapshot` too. It is cached per commit for the
+life of the workspace, since a commit cannot change. A machine too old to know the operation
+refuses it as an invalid request, and that one refusal becomes the sentence saying the workspace
+has to be updated; every other refusal is the machine's own words, because "this file did not
+change in that commit" is something a reader can act on.
+
+**What is still a Cloud view of its own, and what each one is waiting for.** The tab strip is the
+next and the largest: `SessionTabsView` is written against `WorkspaceTabsStore` and `CenterTabStore`
+for its splits, its drag between panes and its ordering, and a Cloud workspace has none of those
+stores. Two ways out were weighed. Making the strip generic over `WorkspaceSurface` means another
+fifteen members on the protocol, several of them meaningless in the cloud (absorbing a tab,
+duplicating a pane). Keying the two stores by `WorkspaceSurfaceID` instead, so a Cloud workspace's
+tabs are ordinary rows in them, would give the strip, the panes, the splits and the `+` menu to
+both with no view changing at all, and would retire `CloudTabs`. The second is the better shape and
+the riskier change, and the risk is all on the local side, which is the side that must not regress.
+Take it with the stores' own tests in front of you rather than in passing.
+
+After that, in the order they are worth doing: the sidebar's Cloud column (its row already wears
+the column's own mark), the create and archive sheets and the empty state. The menus and the tab
+commands are done: New Chat, New Terminal Tab, Show Changes, Rename Tab and Close Tab act on a
+Cloud workspace on the same keys, and what a machine has no answer to is left out rather than
+faked. **Two things are deliberately not on that list, and this is why rather than an oversight.** The
+terminal pane and the share popover stay their own views. A local terminal is a process on this Mac
+that SwiftTerm drives directly; a Cloud one is a byte stream over a WebSocket that reconnects and
+redraws, with its own attach frame and its own name per person, so there is no local behaviour for
+it to converge on, only a shared look it already has. A share popover is a public link to a preview
+running on a machine, with people from a team on it: a local workspace has no such object at all,
+so a merged view would be one kind's view with the other kind's half greyed out for ever. If a
+later reader finds these two inconsistent with everything above, this paragraph is the answer:
+they were looked at and left alone on purpose.
+
+The slices, in the order they are being built: the review surface (this one), then the tab strip,
+header and banners, then the composer and transcript behind a chat backend, then the terminal and
+the browser tab, then the sidebar rows, menus and archiving. Each one leaves the app working, and
+each one reports what changed in the local path and how that was checked.
 
 ## When a Cloud workspace misbehaves
 

@@ -264,6 +264,44 @@ public struct AttachmentDraft: Equatable, Sendable {
         return result
     }
 
+    /// The draft with every file's path put through `moved`, and the ones it answers nil for
+    /// taken out and closed up behind, exactly as `keeping` does.
+    ///
+    /// **What a workspace on a machine needs and a worktree on this Mac does not.** A path in a
+    /// draft is relative to the worktree the agent stands in, so locally the path written when the
+    /// file was attached is already the path the agent reads. A Cloud chat's file is on this Mac
+    /// and its agent is on a machine, so the file is uploaded when the turn goes and the machine
+    /// answers with the path it saved it at: a different folder, and one nothing could have known
+    /// when the chip was written. This is the one rewrite that crossing needs.
+    ///
+    /// Written beside `keeping` rather than as a second parse, because the two answer the same
+    /// question about spacing and a draft that closed up one way in one and another way in the
+    /// other would be a sentence that reads differently depending on why the file went.
+    public func mapping(_ moved: (String) -> String?) -> String {
+        var result = ""
+        var dropsLeadingSpace = false
+
+        for segment in segments {
+            switch segment {
+            case .text(var text):
+                if dropsLeadingSpace, text.hasPrefix(" ") { text.removeFirst() }
+                dropsLeadingSpace = false
+                result += text
+            case .attachment(let path):
+                guard let moved = moved(path) else {
+                    if result.hasSuffix(" ") {
+                        result.removeLast()
+                    } else {
+                        dropsLeadingSpace = true
+                    }
+                    continue
+                }
+                result += Self.token(for: moved)
+            }
+        }
+        return result
+    }
+
     /// The file whose token starts at this offset in the draft, as its place in reading order.
     ///
     /// The way a chip in a text view names itself to the rules here, and it goes by position

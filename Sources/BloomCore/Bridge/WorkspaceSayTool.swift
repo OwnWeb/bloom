@@ -49,9 +49,12 @@ public struct WorkspaceSayTool: BridgeToolHandling {
     public static let maximumLength = 20_000
 
     private let deliver: WorkspaceMessageDelivering
+    /// The way into Bloom Cloud workspaces, when there is one. See `CloudWorkspaceReach`.
+    private let cloud: CloudWorkspaceReach?
 
-    public init(_ deliver: @escaping WorkspaceMessageDelivering) {
+    public init(_ deliver: @escaping WorkspaceMessageDelivering, cloud: CloudWorkspaceReach? = nil) {
         self.deliver = deliver
+        self.cloud = cloud
     }
 
     public let roles: Set<BridgeRole> = [.workspace, .owner]
@@ -63,8 +66,8 @@ public struct WorkspaceSayTool: BridgeToolHandling {
             chat and starts a turn there, the way agent_say does for a subagent in your own \
             workspace, or waits for the turn that is running.
 
-            Name the workspace by the id workspace_list or workspace_start reports, or by its name \
-            when no other workspace shares it. To answer a message that reached you from another \
+            Name the workspace by the id workspace_start or workspace_list reports, or by \
+            its name when no other workspace shares it. To answer a message that reached you from another \
             workspace, pass the id it names: your answer goes to the chat there that most recently \
             wrote to you.
 
@@ -99,8 +102,8 @@ public struct WorkspaceSayTool: BridgeToolHandling {
                 "workspace": .object([
                     "type": .string("string"),
                     "description": .string(
-                        "The workspace to send it to, by the id workspace_list reports, or by its "
-                            + "name when no other workspace shares it. To answer a message, the "
+                        "The workspace to send it to, by its id or by its name when no other "
+                            + "workspace shares it. To answer a message, the "
                             + "id it names."
                     ),
                 ]),
@@ -148,6 +151,19 @@ public struct WorkspaceSayTool: BridgeToolHandling {
 
             let target: Workspace
             switch try await Self.target(named: given, store: store) {
+            case .failure(.unknown(_, let known)) where cloud != nil:
+                // No workspace on this Mac answers to it, so a Bloom Cloud one may. This Mac's own
+                // work wins a tie, as it does for the read tools.
+                guard let cloud else { return .failure(WorkspaceSayTrouble.unexplained("").sentence) }
+                let targets = await cloud.workspaces()
+                switch CloudWorkspaceLookup.find(given, among: targets) {
+                case .found(let found):
+                    return await Self.sayToCloud(text, to: found, from: sender, as: identity, reach: cloud)
+                case .ambiguous(let matches):
+                    return .failure(WorkspaceSayTrouble.ambiguous(given: given, ids: matches.map(\.id)).sentence)
+                case .unknown:
+                    return .failure(WorkspaceSayTrouble.unknown(given: given, known: known + targets.map(\.name)).sentence)
+                }
             case .failure(let trouble): return .failure(trouble.sentence)
             case .success(let found): target = found
             }
@@ -202,6 +218,77 @@ public struct WorkspaceSayTool: BridgeToolHandling {
         } catch {
             return .failure(WorkspaceSayTrouble.unexplained(error.readableMessage).sentence)
         }
+    }
+
+    // MARK: - A Bloom Cloud workspace
+
+    /// A message to a Bloom Cloud workspace: its machine's `send`, on the chat its agent is in,
+    /// as the signed-in person.
+    ///
+    /// **Under the same brake as a local one.** A Cloud message is not a row in the store, so the
+    /// throttle reads `CloudSayLedger` instead, through the same `WorkspaceSayThrottle` rule; the
+    /// owner's own client is exempt here too.
+    ///
+    /// **It arrives as the person's own prompt**, because the token is theirs, and nothing is
+    /// written into the words to say otherwise. `via` says an agent sent it, from which workspace
+    /// and chat by name, and every client draws that under the person: a label on the record, not
+    /// text a model could forge. None from the owner's own client, which is the person typing.
+    ///
+    /// **No answer comes back this way.** A machine cannot reach this Mac, so the agent there
+    /// cannot `workspace_say` in reply and `notify_when_done` has nothing to report with; the
+    /// answer says to read the chat instead.
+    static func sayToCloud(
+        _ text: String, to target: CloudWorkspaceTarget, from sender: Sender, as identity: BridgeIdentity,
+        reach: CloudWorkspaceReach
+    ) async -> BridgeToolResult {
+        if identity.role != .owner, let source = sender.workspace {
+            let recent = await reach.sent.recent(from: source.id, to: target.id)
+            if let trouble = WorkspaceSayThrottle.refusal(sending: text, to: target.name, sent: recent) {
+                return .failure(trouble.sentence)
+            }
+        }
+        let chat: CloudChatSummary
+        switch await reach.chats(target.id) {
+        case .failure(let trouble):
+            return .failure(WorkspaceSayTrouble.appRefused(trouble.sentence).sentence)
+        case .success(let chats):
+            guard let chosen = CloudChatChoice.target(among: chats) else {
+                return .failure(WorkspaceSayTrouble.appRefused(
+                    "the Bloom Cloud workspace '\(target.name)' has no chat to put it in."
+                ).sentence)
+            }
+            chat = chosen
+        }
+        let started: Bool
+        let via = identity.role == .owner ? nil : MessageVia(
+            workspace: sender.workspace?.name, chat: sender.session.map { ChatListTool.title(of: $0) }
+        )
+        switch await reach.send(target.id, chat.id, text, via) {
+        case .failure(let trouble):
+            return .failure(WorkspaceSayTrouble.appRefused(trouble.sentence).sentence)
+        case .success(let value):
+            started = value
+        }
+        if let source = sender.workspace {
+            await reach.sent.record(from: source.id, to: target.id, text: text)
+        }
+        let title = chat.title.isEmpty ? PaneNaming.untitledChat : chat.title
+        return .json(.object([
+            Key.state: .string(started ? "sent" : "queued"),
+            Key.workspaceID: .string(target.id),
+            Key.workspace: .string(target.name),
+            Key.project: .string(target.repository),
+            Key.chat: .string(title),
+            Key.notifyWhenDone: .bool(false),
+            "cloud": .bool(true),
+            Key.note: .string(
+                "Sent to the chat '\(title)' in the Bloom Cloud workspace '\(target.name)', as the owner. "
+                    + (started ? "It started a turn there. " : "It waits behind the turn that is running there. ")
+                    + "The agent there cannot answer with workspace_say, because a machine cannot reach "
+                    + "this Mac, and Bloom cannot tell you when the turn ends: read its answer later with "
+                    + "chat_read. Get on with your own work."
+            ),
+        ]))
     }
 
     // MARK: - Who is writing, and to whom
@@ -347,6 +434,25 @@ public struct WorkspaceSayRecord: Sendable, Hashable {
     }
 }
 
+/// Whether a stored tool call is a `workspace_say`, answered without decoding it.
+///
+/// **So a sent message is never counted into "N actions".** The chat that sent it draws it as a
+/// bubble, which is conversation content wearing an activity row's clothes, and `TranscriptFold`
+/// keeps those on screen (its rule 2) the way it keeps `media_show`. It was not on that list and
+/// folded away with the reads around it, while the comment where it is drawn said it never folds.
+/// Asked from the call's arrival rather than once it has succeeded, for `MediaShowRow`'s reason: a
+/// row that became visible after being hidden would be the fold rearranging itself.
+public enum WorkspaceSayRow {
+    private static let probeLength = 1_024
+    /// The end of the tool's name and its closing quote, so any server prefix matches, which is
+    /// what `WorkspaceSayRecord.isWorkspaceSay` accepts as well.
+    private static let marker = Data("__\(WorkspaceSayTool.name)\"".utf8)
+
+    public static func isCall(_ payload: Data) -> Bool {
+        payload.prefix(probeLength).range(of: marker) != nil
+    }
+}
+
 /// Why `workspace_say` would not send, in terms a model can act on.
 public enum WorkspaceSayTrouble: Error, Sendable, Equatable {
     case noMessage
@@ -378,15 +484,15 @@ public enum WorkspaceSayTrouble: Error, Sendable, Equatable {
 
         case .noWorkspace:
             return """
-                workspace_say needs the 'workspace' to send it to. Call workspace_list and pass the \
-                id it reports, or pass the id named in the message you are answering.
+                workspace_say needs the 'workspace' to send it to: a workspace's name or id, or the \
+                id named in the message you are answering.
                 """
 
         case let .unknown(given, known):
             return """
                 Bloom has no active workspace called '\(given)'. Active workspaces: \
                 \(BridgeWorkspaceLookup.list(known)). Retrying with the same name will fail the \
-                same way, so pass an id workspace_list reports.
+                same way, so pass one of those.
                 """
 
         case let .ambiguous(given, ids):

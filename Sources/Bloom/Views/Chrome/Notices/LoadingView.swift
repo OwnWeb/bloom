@@ -46,6 +46,14 @@ struct LoadingView: View {
                 Text(label)
                     .font(Typo.label)
                     .foregroundStyle(Palette.textSecondary)
+                    // **One line, because the centring above is only true of one.** A spinner
+                    // beside a sentence that wraps is centred against the block and stands outside
+                    // it, which is what "Its machine is not ready yet…" looked like in
+                    // `EmptyStateView` before it was stacked. Every label here is a short phrase
+                    // but for "Reading <file>", which a narrow pane can wrap, and the middle of a
+                    // long filename is the part worth losing.
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
         // One announcement rather than "progress indicator" followed by a stray sentence.

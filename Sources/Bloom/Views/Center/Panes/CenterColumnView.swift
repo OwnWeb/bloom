@@ -8,8 +8,16 @@ import BloomCore
 /// conversation and a terminal rebuild the column and re-run the workspace's arrival work, and it
 /// is also what made a chat and a terminal mutually exclusive. A pane holds a tab, so now they are
 /// not.
-struct CenterColumnView: View {
-    @Bindable var model: WorkspaceModel
+/// The one name the column is measured in, outside the view because it is generic now.
+enum CentreColumnMeasure {
+    /// The space a carried tab's pointer is reported in and its landing is washed in. The column
+    /// rather than the window, because the strip, the panes and the overlay that washes them are
+    /// all inside it, so the three can share one set of numbers.
+    nonisolated static let space = "bloom.centreColumn"
+}
+
+struct CenterColumnView<Model: WorkspaceSurface>: View {
+    let model: Model
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -26,7 +34,7 @@ struct CenterColumnView: View {
     /// The space a carried tab's pointer is reported in and its landing is washed in. The column
     /// rather than the window, because the strip, the panes and the overlay that washes them are
     /// all inside it, so the three can share one set of numbers.
-    nonisolated static let space = "bloom.centreColumn"
+    nonisolated static var space: String { CentreColumnMeasure.space }
 
     private var store: WorkspaceTabsStore { .shared }
 
@@ -59,13 +67,13 @@ struct CenterColumnView: View {
                     // of the animation; the panes below close or open the gap either way.
                     .transition(.opacity)
             }
-            WorkspaceSettingsNotices(model: model)
+            model.settingsNotices()
             CenterPanesView(model: model)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(CentreColumnMeasure.space)) } action: {
                     panesFrame.value = $0
                 }
         }
-        .coordinateSpace(.named(Self.space))
+        .coordinateSpace(.named(CentreColumnMeasure.space))
         // With no strip, a short segment slides along the top of the column, directly under the
         // title bar, with nothing drawn behind it. See `ColumnBusySignal`.
         //
@@ -81,11 +89,11 @@ struct CenterColumnView: View {
         // item and cannot see this column's strip, so the answer is published for it, under this
         // workspace's selection. Keyed on the id, so moving to another workspace clears this one's
         // claim before the next is made.
-        .onChange(of: busy.showsColumnTop ? model.workspace.id : nil, initial: true) { was, now in
-            if let was { WindowTitleText.shared.setBusy(false, for: .workspace(was)) }
-            if let now { WindowTitleText.shared.setBusy(true, for: .workspace(now)) }
+        .onChange(of: busy.showsColumnTop ? model.surfaceID : nil, initial: true) { was, now in
+            if let was = was?.local { WindowTitleText.shared.setBusy(false, for: .workspace(was)) }
+            if let now = now?.local { WindowTitleText.shared.setBusy(true, for: .workspace(now)) }
         }
-        .onDisappear { WindowTitleText.shared.setBusy(false, for: .workspace(model.workspace.id)) }
+        .onDisappear { if let id = model.surfaceID.local { WindowTitleText.shared.setBusy(false, for: .workspace(id)) } }
         // Over the strip and the panes alike, and hit testing nothing, so the carried tab's wash
         // and ghost never take the release that lets it go.
         .overlay { TabCarryOverlay(carry: carry) }
@@ -106,17 +114,17 @@ struct CenterColumnView: View {
             renamingID = selected.id
         }
         // A field left open in one workspace is not one to carry into the next.
-        .onChange(of: model.workspace.id) { _, _ in renamingID = nil }
-        .task(id: model.workspace.id) {
+        .onChange(of: model.surfaceID) { _, _ in renamingID = nil }
+        .task(id: model.surfaceID) {
             // The icons this Mac has already seen, read back once per launch. Here rather than at
             // startup because this is what needs them: a workspace reopening on a browser tab
             // should draw its icon on the first frame instead of asking the page for something
             // that is already on disk. Its own task, so it does not hold up the one below.
             await BrowserFaviconStore.shared.warm()
         }
-        .task(id: model.workspace.id) {
+        .task(id: model.surfaceID) {
             openStartingPane()
-            await model.onAppear()
+            await model.onColumnAppear()
             // Last, and that ordering is the whole of it. `onAppear` does not return until the
             // first visit of a launch has the workspace's sessions in hand, and the tool tabs were
             // read back synchronously above, so this is the one place in the column where both
@@ -129,14 +137,14 @@ struct CenterColumnView: View {
             // After the reconcile, because starting a run script may add a tab, and a tab added
             // before the strip has been squared with what is stored is one the reconcile judges.
             // Once per workspace per launch; see `RunScriptLauncher.considerAutostart`.
-            await RunScriptLauncher.shared.considerAutostart(in: model)
+            model.considerRunScriptAutostart()
         }
         // A settings file that changes while the workspace is open is settled again. Without
         // this, a file added to an open workspace never asked and never started anything until
         // the next launch. Unchanged autostart commands settle to nothing; see
         // `RunScriptAutostart.signature(of:)`.
-        .onChange(of: model.settings.runScripts) { _, _ in
-            Task { await RunScriptLauncher.shared.considerAutostart(in: model) }
+        .onChange(of: model.runScripts) { _, _ in
+            model.considerRunScriptAutostart()
         }
         // Settings are otherwise re-read only on a switch, so a file edited in another app, or
         // pulled from a terminal outside Bloom, did not reach the `+` menu, the notices or the quick
@@ -162,7 +170,7 @@ struct CenterColumnView: View {
         guard frame.contains(point), let tab = store.selectedTab(in: model),
               store.canAbsorb(content) else { return nil }
         let geometry = store.layout(of: tab).geometry(
-            in: frame.size, dividerThickness: CenterPanesView.dividerThickness
+            in: frame.size, dividerThickness: CentrePaneMeasure.dividerThickness
         )
         let local = CGPoint(x: point.x - frame.minX, y: point.y - frame.minY)
         guard var landing = geometry.landing(at: local) else { return nil }
@@ -201,11 +209,12 @@ struct CenterColumnView: View {
     /// Through `NewPane`, which is the door the title bar's `+` and every split menu already use, so
     /// a tab a workspace is born on and a tab somebody opens a second later are the same tab.
     private func openStartingPane() {
-        let workspaceID = model.workspace.id
+        let workspaceID = model.surfaceID
         // Idempotent, and first: adding a tab to a workspace whose stored list has not been read
         // back yet would replace that list rather than extend it.
         CenterTabStore.shared.load(workspaceID: workspaceID)
-        guard let opening = WorkspaceStartMode.consumeOpeningTab(workspaceID: workspaceID) else {
+        guard let localID = workspaceID.local,
+              let opening = WorkspaceStartMode.consumeOpeningTab(workspaceID: localID) else {
             return
         }
         // No address for a browser, where the title bar's `+` passes the workspace's own dev server.

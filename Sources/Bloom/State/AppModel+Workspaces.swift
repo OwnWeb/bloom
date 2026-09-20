@@ -411,7 +411,13 @@ extension AppModel {
     /// the branch it cut and the base it cut from are the two things worth confirming.
     enum ContinuationOutcome {
         case continued(WorkspaceContinuation)
+        /// A Bloom Cloud machine cut the new branch in its own worktree. Only the name comes back:
+        /// the worktree is the machine's, and the strip learns the rest from its events.
+        case continuedOnMachine(branch: String)
         case refused(ContinuationRefusal)
+        /// The machine would not, in the sentence the Mac's own gate would have said. Nothing was
+        /// changed, which is what separates it from `failed`.
+        case declined(String)
         case failed(String)
     }
 
