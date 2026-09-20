@@ -246,12 +246,8 @@ public enum ServeCommand {
             repositoryPath: layout.worktree,
             loadRequest: { try await client.projectIconRequest() },
             report: { try await client.reportProjectIcon($0) },
-            alreadyReported: { request in
-                try await store.setting(ProjectIconDiscoveryMonitor.completedSetting) == request.completionMarker
-            },
-            markReported: { request in
-                try await store.setSetting(ProjectIconDiscoveryMonitor.completedSetting, request.completionMarker)
-            },
+            loadState: { try await store.setting(ProjectIconDiscoveryMonitor.stateSetting) },
+            saveState: { try await store.setSetting(ProjectIconDiscoveryMonitor.stateSetting, $0) },
             isAwake: { await awake.holding }
         )
         let measurements = WorktreeMeasurements(runtime: runtime, reporter: reporter)

@@ -69,7 +69,7 @@ struct ProjectIconDiscoveryTests {
 
     @Test("a successfully reported revision is not rediscovered after a Runner restart")
     func completedRevision() async throws {
-        let completed = Mutex<String?>(nil)
+        let stored = Mutex<String?>(nil)
         let calls = Mutex<[String]>([])
         let makeMonitor = {
             ProjectIconDiscoveryMonitor(
@@ -90,15 +90,15 @@ struct ProjectIconDiscoveryTests {
                     return ProjectIconInspection(sourceCommit: String(repeating: "e", count: 40), icon: nil)
                 },
                 report: { _ in calls.withLock { $0.append("report") } },
-                alreadyReported: { asked in completed.withLock { $0 == asked.completionMarker } },
-                markReported: { reported in completed.withLock { $0 = reported.completionMarker } }
+                loadState: { stored.withLock { $0 } },
+                saveState: { value in stored.withLock { $0 = value } }
             )
         }
 
         #expect(await makeMonitor().refresh() == .reported)
         #expect(await makeMonitor().refresh() == .alreadyReported)
         #expect(calls.withLock { $0 } == ["inspect", "report"])
-        #expect(completed.withLock { $0 } == request.completionMarker)
+        #expect(stored.withLock { $0 }?.contains(#""requestedRevision":3"#) == true)
     }
 
     @Test("shutdown cancellation waits for inspection and prevents a late report")
@@ -434,7 +434,7 @@ struct ProjectIconDiscoveryMonitorTests {
         #expect(inspections.withLock { $0 } == [4, 6])
     }
 
-    @Test("a failed report retries the identical prepared result without another inspection or store write")
+    @Test("a failed report retries the identical durable result with isolated state writes")
     func idempotentRetryAndWriteIsolation() async {
         let inspections = Mutex(0)
         let attempts = Mutex<[ProjectIconReport]>([])
@@ -453,17 +453,198 @@ struct ProjectIconDiscoveryMonitorTests {
                 }
                 if attempt == 1 { throw RunbloomError.unreachable("offline") }
             },
-            markReported: { request in writes.withLock { $0.append(request.completionMarker) } }
+            saveState: { value in writes.withLock { $0.append(value) } }
         )
 
         #expect(await monitor.refresh() == .retryPending)
-        #expect(writes.withLock { $0 }.isEmpty)
+        #expect(writes.withLock { $0 }.count == 2, "authority and exact prepared report persist before PUT")
+        #expect(writes.withLock { $0 }.last?.contains(#""prepared""#) == true)
         #expect(await monitor.refresh() == .reported)
         #expect(inspections.withLock { $0 } == 1)
         let sent = attempts.withLock { $0 }
         #expect(sent.count == 2)
         #expect(sent.first == sent.last)
-        #expect(writes.withLock { $0 } == ["1:7:main"])
+        #expect(writes.withLock { $0 }.count == 3)
+        #expect(writes.withLock { $0 }.last?.contains(#""completed""#) == true)
+    }
+
+    @Test("a restart cannot regress a completed revision to its stale bootstrap request")
+    func staleBootstrapAfterRestart() async {
+        let stored = Mutex<String?>(nil)
+        let inspections = Mutex<[Int]>([])
+        let reports = Mutex<[Int]>([])
+        let first = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: { Self.poll(revision: 2) },
+            inspect: { request, _ in
+                inspections.withLock { $0.append(request.requestedRevision) }
+                return Self.inspection(request.requestedRevision)
+            },
+            report: { report in reports.withLock { $0.append(report.requestedRevision) } },
+            loadState: { stored.withLock { $0 } },
+            saveState: { value in stored.withLock { $0 = value } }
+        )
+        #expect(await first.refresh() == .reported)
+
+        let pauses = ProjectIconPollGate()
+        let restarted = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: { Self.poll(revision: 2, shouldDiscover: false) },
+            inspect: { request, _ in
+                inspections.withLock { $0.append(request.requestedRevision) }
+                return Self.inspection(request.requestedRevision)
+            },
+            report: { report in reports.withLock { $0.append(report.requestedRevision) } },
+            loadState: { stored.withLock { $0 } },
+            saveState: { value in stored.withLock { $0 = value } },
+            pause: { try await pauses.pause($0) }
+        )
+        await restarted.start(initialRequest: ProjectIconDiscoveryRequest(
+            requestedRevision: 1,
+            detectorVersion: 1,
+            repositoryDefaultBranch: "main"
+        ))
+        await pauses.waitForCount(1)
+
+        #expect(inspections.withLock { $0 } == [2])
+        #expect(reports.withLock { $0 } == [2])
+        #expect(stored.withLock { $0 }?.contains(#""requestedRevision":1"#) != true)
+        #expect(stored.withLock { $0 }?.contains(#""requestedRevision":2"#) == true)
+        await restarted.stop()
+    }
+
+    @Test("the legacy completion marker remains a monotonic floor after upgrade")
+    func legacyCompletionMarker() async {
+        let reports = Mutex(0)
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: { Self.poll(revision: 4) },
+            inspect: { request, _ in Self.inspection(request.requestedRevision) },
+            report: { _ in reports.withLock { $0 += 1 } },
+            loadState: { "1:5:main" }
+        )
+
+        #expect(await monitor.refresh() == .stale)
+        #expect(reports.withLock { $0 } == 0)
+    }
+
+    @Test("a restart after PUT but before completion retries the durable report byte for byte")
+    func durablePreparedReportRetry() async {
+        let stored = Mutex<String?>(nil)
+        let completionSaveFails = Mutex(true)
+        let inspections = Mutex<[Int]>([])
+        let reports = Mutex<[ProjectIconReport]>([])
+        let save: @Sendable (String) async throws -> Void = { value in
+            if value.contains(#""completed""#), !value.contains(#""prepared""#),
+               completionSaveFails.withLock({ $0 }) {
+                completionSaveFails.withLock { $0 = false }
+                throw CocoaError(.fileWriteUnknown)
+            }
+            stored.withLock { $0 = value }
+        }
+        let icon = Data("canonical-pixels".utf8)
+        let first = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: { Self.poll(revision: 8) },
+            inspect: { request, _ in
+                inspections.withLock { $0.append(request.requestedRevision) }
+                return ProjectIconInspection(sourceCommit: String(repeating: "a", count: 40), icon: icon)
+            },
+            report: { report in reports.withLock { $0.append(report) } },
+            loadState: { stored.withLock { $0 } },
+            saveState: save
+        )
+        #expect(await first.refresh() == .retryPending)
+        #expect(stored.withLock { $0 }?.contains(#""prepared""#) == true)
+
+        let loadsAfterRestart = Mutex(0)
+        let restarted = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: {
+                loadsAfterRestart.withLock { $0 += 1 }
+                return Self.poll(revision: 9)
+            },
+            inspect: { request, _ in
+                inspections.withLock { $0.append(request.requestedRevision) }
+                return ProjectIconInspection(sourceCommit: String(repeating: "b", count: 40), icon: Data("changed".utf8))
+            },
+            report: { report in reports.withLock { $0.append(report) } },
+            loadState: { stored.withLock { $0 } },
+            saveState: save
+        )
+        #expect(await restarted.refresh() == .reported)
+
+        let sent = reports.withLock { $0 }
+        #expect(sent.count == 2)
+        #expect(sent.first == sent.last)
+        #expect(inspections.withLock { $0 } == [8])
+        #expect(loadsAfterRestart.withLock { $0 } == 0)
+        #expect(stored.withLock { $0 }?.contains(#""prepared""#) != true)
+    }
+
+    @Test("report feature refusals replace a long server cadence with five-minute recovery")
+    func reportRefusalCadence() async {
+        for status in [403, 404] {
+            let pauses = ProjectIconPollGate()
+            let monitor = ProjectIconDiscoveryMonitor(
+                repositoryPath: "/repo",
+                loadRequest: { Self.poll(revision: status, after: .seconds(86_400)) },
+                inspect: { request, _ in Self.inspection(request.requestedRevision) },
+                report: { _ in
+                    throw RunbloomError.refused(
+                        status: status, code: "feature_off", message: "Unavailable.",
+                        limit: nil, retryAfter: nil
+                    )
+                },
+                pause: { try await pauses.pause($0) }
+            )
+
+            await monitor.start(initialRequest: nil)
+            await pauses.waitForCount(1)
+            #expect(await pauses.recorded == [.seconds(300)])
+            await monitor.stop()
+        }
+    }
+
+    @Test("a report rejected for a replaced machine terminates discovery")
+    func reportReplacementIsTerminal() async {
+        let reports = Mutex(0)
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: { Self.poll(revision: 12) },
+            inspect: { request, _ in Self.inspection(request.requestedRevision) },
+            report: { _ in
+                reports.withLock { $0 += 1 }
+                throw RunbloomError.refused(
+                    status: 401, code: "invalid_workspace_secret", message: "This machine was replaced.",
+                    limit: nil, retryAfter: nil
+                )
+            }
+        )
+
+        #expect(await monitor.refresh() == .refused)
+        #expect(await monitor.refresh() == .stopped)
+        #expect(reports.withLock { $0 } == 1)
+    }
+
+    @Test("durable icon state changes only its one Store setting")
+    func storeWriteIsolation() async throws {
+        let root = try SetupTestSupport.directory("project-icon-state")
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let store = try Store(path: root + "/bloom.sqlite")
+        try await store.setSetting("unrelated", "keep")
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: { Self.poll(revision: 14) },
+            inspect: { request, _ in Self.inspection(request.requestedRevision) },
+            report: { _ in },
+            loadState: { try await store.setting(ProjectIconDiscoveryMonitor.stateSetting) },
+            saveState: { try await store.setSetting(ProjectIconDiscoveryMonitor.stateSetting, $0) }
+        )
+
+        #expect(await monitor.refresh() == .reported)
+        #expect(try await store.setting("unrelated") == "keep")
+        #expect(try await store.setting(ProjectIconDiscoveryMonitor.stateSetting)?.contains(#""completed""#) == true)
     }
 
     @Test("offline and server refusals confer no authority, and replacement is terminal")
@@ -507,6 +688,7 @@ struct ProjectIconDiscoveryMonitorTests {
     @Test("concurrent refresh hints share one authenticated load and discovery")
     func concurrentRefreshCoalesces() async {
         let gate = ProjectIconDiscoveryGate()
+        let coalesced = ProjectIconCoalescingGate(target: 8)
         let loads = Mutex(0)
         let inspections = Mutex(0)
         let monitor = ProjectIconDiscoveryMonitor(
@@ -520,14 +702,16 @@ struct ProjectIconDiscoveryMonitorTests {
                 inspections.withLock { $0 += 1 }
                 return Self.inspection(request.requestedRevision)
             },
-            report: { _ in }
+            report: { _ in },
+            observeCoalesced: { await coalesced.hold() }
         )
 
         let first = Task { await monitor.refresh() }
         await gate.waitUntilHeld()
         let others = (0..<8).map { _ in Task { await monitor.refresh() } }
-        for _ in 0..<8 { await Task.yield() }
+        await coalesced.waitUntilAllHeld()
         await gate.release()
+        await coalesced.releaseAll()
 
         #expect(await first.value == .reported)
         for task in others { #expect(await task.value == .reported) }
@@ -538,6 +722,7 @@ struct ProjectIconDiscoveryMonitorTests {
     @Test("a refresh arriving after authority loaded queues one follow-up instead of being lost")
     func refreshDuringInspection() async {
         let inspectionGate = ProjectIconDiscoveryGate()
+        let coalesced = ProjectIconCoalescingGate(target: 1)
         let revision = Mutex(1)
         let loads = Mutex(0)
         let reports = Mutex<[Int]>([])
@@ -551,18 +736,16 @@ struct ProjectIconDiscoveryMonitorTests {
                 if request.requestedRevision == 1 { await inspectionGate.hold() }
                 return Self.inspection(request.requestedRevision)
             },
-            report: { report in reports.withLock { $0.append(report.requestedRevision) } }
+            report: { report in reports.withLock { $0.append(report.requestedRevision) } },
+            observeCoalesced: { await coalesced.hold() }
         )
 
         let first = Task { await monitor.refresh() }
         await inspectionGate.waitUntilHeld()
         revision.withLock { $0 = 2 }
         let concurrent = Task { await monitor.refresh() }
-        for _ in 0..<100 {
-            if await monitor.hasQueuedRefresh { break }
-            await Task.yield()
-        }
-        #expect(await monitor.hasQueuedRefresh)
+        await coalesced.waitUntilAllHeld()
+        await coalesced.releaseAll()
         await inspectionGate.release()
 
         #expect(await first.value == .reported)
@@ -673,5 +856,36 @@ private actor ProjectIconPollGate {
         let ready = observers.filter { durations.count >= $0.count }
         observers.removeAll { durations.count >= $0.count }
         for observer in ready { observer.continuation.resume() }
+    }
+}
+
+private actor ProjectIconCoalescingGate {
+    private let target: Int
+    private var held = 0
+    private var arrival: CheckedContinuation<Void, Never>?
+    private var releases: [CheckedContinuation<Void, Never>] = []
+
+    init(target: Int) {
+        self.target = target
+    }
+
+    func hold() async {
+        held += 1
+        if held == target {
+            arrival?.resume()
+            arrival = nil
+        }
+        await withCheckedContinuation { releases.append($0) }
+    }
+
+    func waitUntilAllHeld() async {
+        guard held < target else { return }
+        await withCheckedContinuation { arrival = $0 }
+    }
+
+    func releaseAll() {
+        let releases = self.releases
+        self.releases = []
+        for release in releases { release.resume() }
     }
 }

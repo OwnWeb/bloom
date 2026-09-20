@@ -151,7 +151,7 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
     public var publicHost: String { URL(string: publicURL)?.host ?? "" }
 }
 
-public struct ProjectIconDiscoveryRequest: Sendable, Hashable {
+public struct ProjectIconDiscoveryRequest: Codable, Sendable, Hashable {
     public var requestedRevision: Int
     public var detectorVersion: Int
     public var repositoryDefaultBranch: String

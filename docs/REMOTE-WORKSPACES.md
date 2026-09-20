@@ -1021,7 +1021,8 @@ and its builder confirmed them.
   Once setup finishes, the running machine reloads the same server-authored request through its
   authenticated `project-icon-request` endpoint, again after a wake, and then at the response's
   bounded interval while awake. The reload has no body or query authority. Stale, duplicate and
-  unsupported detector revisions never run, and failed reports retry the exact prepared result.
+  unsupported detector revisions never run. The highest authority, completion and exact prepared
+  report bytes share one durable Store record, so a restart cannot regress or re-render a retry.
   Ids on every wire to runbloom.app are lowercase ULIDs.
 - **The release margin is runbloom.app's configuration** (five seconds there), not a number this
   document fixes.

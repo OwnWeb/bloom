@@ -1,14 +1,15 @@
+import BloomCore
 import Foundation
 
 /// Keeps project-icon discovery in step with runbloom.app while this machine is running.
 ///
 /// The authority is always loaded through the machine-authenticated client. A trigger carries no
 /// project, repository path or revision, so neither a caller nor another workspace can choose what
-/// this machine inspects. Concurrent triggers share one load and one worker. Failed reports retain
-/// their exact prepared body, making a later attempt idempotent without inspecting a moving ref
-/// twice for the same request.
+/// this machine inspects. Concurrent triggers share one load and one worker. The highest accepted
+/// authority, completion and exact prepared report are one durable record, so a restart cannot
+/// regress a revision or re-render bytes whose PUT acknowledgement was lost.
 public actor ProjectIconDiscoveryMonitor {
-    public static let completedSetting = "remote.project-icon.completed"
+    public static let stateSetting = "remote.project-icon.completed"
     public static let detectorVersion = 1
     public static let pollInterval = Duration.seconds(300)
 
@@ -26,15 +27,86 @@ public actor ProjectIconDiscoveryMonitor {
     public typealias LoadRequest = @Sendable () async throws -> ProjectIconRequestPoll
     public typealias Inspect = @Sendable (ProjectIconDiscoveryRequest, String) async throws -> ProjectIconInspection
     public typealias Report = @Sendable (ProjectIconReport) async throws -> Void
-    public typealias AlreadyReported = @Sendable (ProjectIconDiscoveryRequest) async throws -> Bool
-    public typealias MarkReported = @Sendable (ProjectIconDiscoveryRequest) async throws -> Void
+    public typealias LoadState = @Sendable () async throws -> String?
+    public typealias SaveState = @Sendable (String) async throws -> Void
     public typealias Pause = @Sendable (Duration) async throws -> Void
     public typealias IsAwake = @Sendable () async -> Bool
     public typealias ObserveFailure = @Sendable (any Error) -> Void
+    public typealias ObserveCoalesced = @Sendable () async -> Void
 
-    private struct Prepared: Sendable {
+    private struct Prepared: Codable, Sendable, Equatable {
         var request: ProjectIconDiscoveryRequest
         var report: ProjectIconReport
+    }
+
+    private struct PersistentState: Codable, Sendable, Equatable {
+        var version = 1
+        var highestRevision = 0
+        var latestRequest: ProjectIconDiscoveryRequest?
+        var latestShouldDiscover: Bool?
+        var noProjectAtHighestRevision = false
+        var completed: ProjectIconDiscoveryRequest?
+        var prepared: Prepared?
+
+        static func decode(_ text: String) throws -> PersistentState {
+            if text.first == "{" {
+                let decoded = try JSONDecoder().decode(PersistentState.self, from: Data(text.utf8))
+                guard decoded.version == 1,
+                      decoded.highestRevision >= 0,
+                      decoded.latestRequest.map({ valid($0, noLaterThan: decoded.highestRevision) }) ?? true,
+                      decoded.completed.map({ valid($0, noLaterThan: decoded.highestRevision) }) ?? true,
+                      decoded.prepared.map({ prepared in
+                          valid(prepared.request, noLaterThan: decoded.highestRevision)
+                              && prepared.report.requestedRevision == prepared.request.requestedRevision
+                              && prepared.report.detectorVersion == prepared.request.detectorVersion
+                              && prepared.report.sourceCommit.range(
+                                  of: "^[0-9a-f]{40}([0-9a-f]{24})?$", options: .regularExpression
+                              ) != nil
+                              && (prepared.report.icon?.count ?? 0) <= ProjectIconPNGNormalizer.maximumBytes
+                      }) ?? true
+                else { throw ProjectIconMonitorError.invalidStoredState }
+                return decoded
+            }
+
+            // The first 5C2 build stored only `detector:revision:branch`. Treat it as a completed
+            // authority so an upgraded Runner cannot regress it before the first authenticated GET.
+            let parts = text.split(separator: ":", maxSplits: 2).map(String.init)
+            guard parts.count == 3,
+                  let detectorVersion = Int(parts[0]),
+                  let requestedRevision = Int(parts[1]),
+                  requestedRevision > 0,
+                  detectorVersion > 0,
+                  Git.isValidBranchName(parts[2])
+            else { throw ProjectIconMonitorError.invalidStoredState }
+            let completed = ProjectIconDiscoveryRequest(
+                requestedRevision: requestedRevision,
+                detectorVersion: detectorVersion,
+                repositoryDefaultBranch: parts[2]
+            )
+            return PersistentState(
+                highestRevision: requestedRevision,
+                latestRequest: completed,
+                latestShouldDiscover: false,
+                completed: completed
+            )
+        }
+
+        func encoded() throws -> String {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(self)
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw ProjectIconMonitorError.invalidStoredState
+            }
+            return text
+        }
+
+        private static func valid(_ request: ProjectIconDiscoveryRequest, noLaterThan highest: Int) -> Bool {
+            (1...Int(UInt32.max)).contains(request.requestedRevision)
+                && request.requestedRevision <= highest
+                && (1...Int(UInt16.max)).contains(request.detectorVersion)
+                && Git.isValidBranchName(request.repositoryDefaultBranch)
+        }
     }
 
     private struct Active: Sendable {
@@ -52,18 +124,15 @@ public actor ProjectIconDiscoveryMonitor {
     private let loadRequest: LoadRequest
     private let inspect: Inspect
     private let report: Report
-    private let alreadyReported: AlreadyReported
-    private let markReported: MarkReported
+    private let loadState: LoadState
+    private let saveState: SaveState
     private let pause: Pause
     private let isAwake: IsAwake
     private let observeFailure: ObserveFailure
+    private let observeCoalesced: ObserveCoalesced
 
-    private var latestRequest: ProjectIconDiscoveryRequest?
-    private var latestShouldDiscover: Bool?
-    private var noProjectAtHighestRevision = false
-    private var highestRevision = 0
-    private var prepared: Prepared?
-    private var completed: ProjectIconDiscoveryRequest?
+    private var state = PersistentState()
+    private var didLoadState = false
     private var active: Active?
     private var activeHasLoadedAuthority = false
     private var reloadOwed = false
@@ -72,8 +141,6 @@ public actor ProjectIconDiscoveryMonitor {
     private var nextPollAfter: Duration
     private var isStopped = false
     private var isTerminal = false
-
-    var hasQueuedRefresh: Bool { reloadOwed }
 
     public init(
         repositoryPath: String,
@@ -84,11 +151,12 @@ public actor ProjectIconDiscoveryMonitor {
             try await ProjectIconSnapshot.inspect(request, repositoryPath: repositoryPath)
         },
         report: @escaping Report,
-        alreadyReported: @escaping AlreadyReported = { _ in false },
-        markReported: @escaping MarkReported = { _ in },
+        loadState: @escaping LoadState = { nil },
+        saveState: @escaping SaveState = { _ in },
         pause: @escaping Pause = { try await Task.sleep(for: $0) },
         isAwake: @escaping IsAwake = { true },
-        observeFailure: @escaping ObserveFailure = { _ in }
+        observeFailure: @escaping ObserveFailure = { _ in },
+        observeCoalesced: @escaping ObserveCoalesced = {}
     ) {
         self.repositoryPath = repositoryPath
         self.supportedDetectorVersion = supportedDetectorVersion
@@ -96,11 +164,12 @@ public actor ProjectIconDiscoveryMonitor {
         self.loadRequest = loadRequest
         self.inspect = inspect
         self.report = report
-        self.alreadyReported = alreadyReported
-        self.markReported = markReported
+        self.loadState = loadState
+        self.saveState = saveState
         self.pause = pause
         self.isAwake = isAwake
         self.observeFailure = observeFailure
+        self.observeCoalesced = observeCoalesced
     }
 
     /// Starts one bounded polling loop. Calling this twice does not create another worker.
@@ -108,9 +177,7 @@ public actor ProjectIconDiscoveryMonitor {
         guard polling == nil, !isStopped else { return }
         polling = Task { [weak self] in
             guard let self else { return }
-            if let initialRequest {
-                _ = await self.perform(.initial(initialRequest))
-            }
+            if let initialRequest { _ = await self.perform(.initial(initialRequest)) }
             _ = await self.refresh()
             while !Task.isCancelled {
                 guard await !self.hasTerminated else { break }
@@ -130,9 +197,6 @@ public actor ProjectIconDiscoveryMonitor {
     }
 
     /// Reloads the request without accepting any authority from the trigger itself.
-    ///
-    /// Reentrant callers observe the same task, so bursts from polling and a future authenticated
-    /// control hint coalesce into one server read and one discovery attempt.
     @discardableResult
     public func refresh() async -> Outcome {
         await perform(.reload)
@@ -147,8 +211,8 @@ public actor ProjectIconDiscoveryMonitor {
         let pollingPause = self.pollingPause
         self.polling = nil
         self.active = nil
-        reloadOwed = false
         self.pollingPause = nil
+        reloadOwed = false
         polling?.cancel()
         pollingPause?.cancel()
         active?.cancel()
@@ -161,6 +225,7 @@ public actor ProjectIconDiscoveryMonitor {
         guard !isStopped, !isTerminal else { return .stopped }
         if let active {
             if case .reload = trigger, activeHasLoadedAuthority { reloadOwed = true }
+            await observeCoalesced()
             return await active.task.value
         }
 
@@ -185,6 +250,20 @@ public actor ProjectIconDiscoveryMonitor {
 
     private func attempt(_ trigger: Trigger) async -> Outcome {
         guard !isStopped, !Task.isCancelled else { return .stopped }
+        do {
+            try await restoreState()
+        } catch {
+            return failure(error)
+        }
+
+        // This was written before the PUT. It is the one operation which intentionally precedes
+        // a fresh GET: a lost PUT acknowledgement must retry byte for byte after a restart.
+        if state.prepared != nil {
+            // A reload that arrives during this retry still owes one authenticated GET afterwards.
+            activeHasLoadedAuthority = true
+            return await deliverPrepared()
+        }
+
         let projectIcon: MachineConfiguration.ProjectIcon?
         do {
             switch trigger {
@@ -208,104 +287,144 @@ public actor ProjectIconDiscoveryMonitor {
             nextPollAfter = error.retryAfter
             observeFailure(error)
             return .retryPending
-        } catch let error as RunbloomError {
-            observeFailure(error)
-            if error.isTerminal { isTerminal = true }
-            if case .refused(let status, _, _, _, _) = error, status == 403 || status == 404 {
-                nextPollAfter = .seconds(300)
-            }
-            return error.isWorthRetrying ? .retryPending : .refused
         } catch {
-            observeFailure(error)
-            return .retryPending
+            return failure(error)
         }
         guard !isStopped, !Task.isCancelled else { return .stopped }
+        return await accept(projectIcon)
+    }
+
+    private func accept(_ projectIcon: MachineConfiguration.ProjectIcon?) async -> Outcome {
         guard let projectIcon else {
-            latestRequest = nil
-            latestShouldDiscover = false
-            noProjectAtHighestRevision = true
-            prepared = nil
-            return .noRequest
+            var updated = state
+            updated.latestRequest = nil
+            updated.latestShouldDiscover = false
+            updated.noProjectAtHighestRevision = true
+            updated.prepared = nil
+            return await persist(updated, outcome: .noRequest)
         }
         guard let request = projectIcon.identityRequest else { return .refused }
 
-        if request.requestedRevision < highestRevision { return .stale }
-        if request.requestedRevision == highestRevision,
-           let latestRequest,
+        if request.requestedRevision < state.highestRevision { return .stale }
+        if request.requestedRevision == state.highestRevision,
+           let latestRequest = state.latestRequest,
            latestRequest != request {
             return .stale
         }
-        if request.requestedRevision == highestRevision,
-           noProjectAtHighestRevision || (latestShouldDiscover == false && projectIcon.shouldDiscover == true) {
+        let reopensResolvedRequest = state.latestShouldDiscover == false && projectIcon.shouldDiscover == true
+        if request.requestedRevision == state.highestRevision,
+           state.noProjectAtHighestRevision || reopensResolvedRequest {
             return .stale
         }
-        if request.requestedRevision > highestRevision {
-            highestRevision = request.requestedRevision
-            latestRequest = request
-            latestShouldDiscover = projectIcon.shouldDiscover
-            noProjectAtHighestRevision = false
-            prepared = nil
-        } else if latestRequest == nil {
-            latestRequest = request
-            latestShouldDiscover = projectIcon.shouldDiscover
+
+        var updated = state
+        if request.requestedRevision > updated.highestRevision {
+            updated.highestRevision = request.requestedRevision
+            updated.latestRequest = request
+            updated.latestShouldDiscover = projectIcon.shouldDiscover
+            updated.noProjectAtHighestRevision = false
+            updated.prepared = nil
+        } else if updated.latestRequest == nil {
+            updated.latestRequest = request
+            updated.latestShouldDiscover = projectIcon.shouldDiscover
         }
 
-        guard projectIcon.shouldDiscover == true else {
-            latestShouldDiscover = false
-            prepared = nil
-            return .noRequest
+        if projectIcon.shouldDiscover != true {
+            updated.latestShouldDiscover = false
+            updated.prepared = nil
+            return await persist(updated, outcome: .noRequest)
         }
-
         guard request.detectorVersion == supportedDetectorVersion else {
-            prepared = nil
-            return .unsupportedDetector
+            updated.prepared = nil
+            return await persist(updated, outcome: .unsupportedDetector)
         }
-        if completed == request { return .alreadyReported }
+        if let completed = updated.completed {
+            if completed.requestedRevision > request.requestedRevision { return .stale }
+            if completed == request { return .alreadyReported }
+        }
 
         do {
-            if try await alreadyReported(request) {
-                completed = request
-                prepared = nil
-                return .alreadyReported
-            }
+            try await save(updated)
             try Task.checkCancellation()
-
-            let prepared: Prepared
-            if let cached = self.prepared, cached.request == request {
-                prepared = cached
-            } else {
-                let inspection = try await inspect(request, repositoryPath)
-                try Task.checkCancellation()
-                guard latestRequest == request else { return .stale }
-                prepared = Prepared(
-                    request: request,
-                    report: ProjectIconReport(
-                        requestedRevision: request.requestedRevision,
-                        detectorVersion: request.detectorVersion,
-                        sourceCommit: inspection.sourceCommit,
-                        icon: inspection.icon
-                    )
+            let inspection = try await inspect(request, repositoryPath)
+            try Task.checkCancellation()
+            guard state.latestRequest == request, state.latestShouldDiscover == true else { return .stale }
+            var prepared = state
+            prepared.prepared = Prepared(
+                request: request,
+                report: ProjectIconReport(
+                    requestedRevision: request.requestedRevision,
+                    detectorVersion: request.detectorVersion,
+                    sourceCommit: inspection.sourceCommit,
+                    icon: inspection.icon
                 )
-                self.prepared = prepared
-            }
+            )
+            try await save(prepared)
+            return await deliverPrepared()
+        } catch is CancellationError {
+            return .stopped
+        } catch {
+            return failure(error)
+        }
+    }
 
+    private func deliverPrepared() async -> Outcome {
+        guard let prepared = state.prepared else { return .alreadyReported }
+        if let completed = state.completed,
+           completed.requestedRevision > prepared.request.requestedRevision {
+            var updated = state
+            updated.prepared = nil
+            return await persist(updated, outcome: .stale)
+        }
+
+        do {
+            try Task.checkCancellation()
             try await report(prepared.report)
             try Task.checkCancellation()
-            guard latestRequest == request else { return .stale }
-            try await markReported(request)
-            completed = request
-            self.prepared = nil
+            var completed = state
+            if completed.completed.map({ $0.requestedRevision <= prepared.request.requestedRevision }) ?? true {
+                completed.completed = prepared.request
+            }
+            completed.highestRevision = max(completed.highestRevision, prepared.request.requestedRevision)
+            completed.prepared = nil
+            try await save(completed)
             return .reported
         } catch is CancellationError {
             return .stopped
-        } catch let error as RunbloomError {
-            observeFailure(error)
-            if error.isTerminal { isTerminal = true }
-            return error.isWorthRetrying ? .retryPending : .refused
         } catch {
-            observeFailure(error)
-            return .retryPending
+            return failure(error)
         }
+    }
+
+    private func restoreState() async throws {
+        guard !didLoadState else { return }
+        if let stored = try await loadState() { state = try PersistentState.decode(stored) }
+        didLoadState = true
+    }
+
+    private func save(_ updated: PersistentState) async throws {
+        guard updated != state else { return }
+        try await saveState(updated.encoded())
+        state = updated
+    }
+
+    private func persist(_ updated: PersistentState, outcome: Outcome) async -> Outcome {
+        do {
+            try await save(updated)
+            return outcome
+        } catch {
+            return failure(error)
+        }
+    }
+
+    private func failure(_ error: any Error) -> Outcome {
+        observeFailure(error)
+        guard let error = error as? RunbloomError else { return .retryPending }
+        if error.isTerminal { isTerminal = true }
+        if case .refused(let status, _, _, _, _) = error, status == 403 || status == 404 {
+            nextPollAfter = .seconds(300)
+        }
+        return error.isWorthRetrying ? .retryPending : .refused
     }
 
     private var hasTerminated: Bool { isStopped || isTerminal }
@@ -321,4 +440,8 @@ public actor ProjectIconDiscoveryMonitor {
         pollingPause = nil
         return (try? result.get()) != nil
     }
+}
+
+enum ProjectIconMonitorError: Error, Sendable, Equatable {
+    case invalidStoredState
 }

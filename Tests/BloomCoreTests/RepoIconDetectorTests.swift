@@ -597,7 +597,10 @@ struct RepoIconDetectorTests {
     func skippedDirectories() throws {
         let root = try repository([
             "node_modules/some-package/icon.png": png(512, 512),
+            "Node_Modules/Another/icon.png": png(512, 512),
             "vendor/other/public/favicon.svg": svgData(),
+            "Vendor/Other/icon.png": png(512, 512),
+            "BUILD/output/icon.png": png(512, 512),
             ".build/debug/Bloom.app/Contents/Resources/AppIcon.icns": icns(["ic10"]),
             "Pods/Thing/Assets.xcassets/AppIcon.appiconset/icon-1024.png": png(1024, 1024),
             ".git/hooks/logo.svg": svgData(),

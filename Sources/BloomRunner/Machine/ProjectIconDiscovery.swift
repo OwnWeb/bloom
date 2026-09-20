@@ -7,7 +7,7 @@ import BloomCore
 import Foundation
 
 /// One revisioned answer to runbloom.app's project authority.
-public struct ProjectIconReport: Sendable, Equatable {
+public struct ProjectIconReport: Codable, Sendable, Equatable {
     public var requestedRevision: Int
     public var detectorVersion: Int
     public var sourceCommit: String
@@ -108,8 +108,4 @@ public enum ProjectIconDiscoveryError: Error, Sendable, Equatable {
     case invalidDefaultBranch
     case invalidSourceCommit
     case normalisationFailed
-}
-
-extension ProjectIconDiscoveryRequest {
-    var completionMarker: String { "\(detectorVersion):\(requestedRevision):\(repositoryDefaultBranch)" }
 }

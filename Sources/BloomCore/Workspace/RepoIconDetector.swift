@@ -295,8 +295,8 @@ public enum RepoIconDetector {
     /// contains the very icon being looked for, and finding it inside `.build` would mean the
     /// answer changed depending on whether the project had been compiled.
     static let skippedDirectories: Set<String> = [
-        ".git", ".svn", ".hg", "node_modules", "vendor", "Pods", "Carthage", "build", ".build",
-        "DerivedData", "dist", "out", "target", ".venv", "venv", "__pycache__", ".next", ".nuxt",
+        ".git", ".svn", ".hg", "node_modules", "vendor", "pods", "carthage", "build", ".build",
+        "deriveddata", "dist", "out", "target", ".venv", "venv", "__pycache__", ".next", ".nuxt",
         ".cache", "coverage", "tmp", "bower_components", ".gradle", ".idea", ".swiftpm",
     ]
 
@@ -338,7 +338,7 @@ public enum RepoIconDetector {
                     continue
                 }
                 guard depth + 1 <= maximumDepth,
-                      !skippedDirectories.contains(name),
+                      !skippedDirectories.contains(name.lowercased()),
                       !passesThroughSkippedDirectory(path, under: root),
                       !name.hasPrefix("."),
                       !name.hasSuffix(".app"),
@@ -441,7 +441,8 @@ public enum RepoIconDetector {
         let candidateComponents = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
         guard candidateComponents.starts(with: rootComponents) else { return true }
         return candidateComponents.dropFirst(rootComponents.count).contains { component in
-            skippedDirectories.contains(component) || component.hasSuffix(".app")
+            let lower = component.lowercased()
+            return skippedDirectories.contains(lower) || lower.hasSuffix(".app")
         }
     }
 
