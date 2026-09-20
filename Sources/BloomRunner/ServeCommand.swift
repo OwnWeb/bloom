@@ -242,8 +242,23 @@ public enum ServeCommand {
             FileHandle.standardError.write(Data("bloom-runner: \(error)\n".utf8))
         }
 
+        let projectIcons = ProjectIconDiscoveryMonitor(
+            repositoryPath: layout.worktree,
+            loadRequest: { try await client.projectIconRequest() },
+            report: { try await client.reportProjectIcon($0) },
+            alreadyReported: { request in
+                try await store.setting(ProjectIconDiscoveryMonitor.completedSetting) == request.completionMarker
+            },
+            markReported: { request in
+                try await store.setSetting(ProjectIconDiscoveryMonitor.completedSetting, request.completionMarker)
+            },
+            isAwake: { await awake.holding }
+        )
         let measurements = WorktreeMeasurements(runtime: runtime, reporter: reporter)
-        await awake.whenWaking { await machineEnvironment.refresh() }
+        await awake.whenWaking {
+            await machineEnvironment.refresh()
+            await projectIcons.woke()
+        }
         await awake.start()
         await measurements.start()
         // After the first summary and with the server about to listen, so setup can be watched live.
@@ -251,40 +266,11 @@ public enum ServeCommand {
         // on an installed project; after a failed setup too, so the person sees why. See
         // `OpeningHandoff`.
         let openings = OpeningHandoff(client: client, runtime: runtime)
-        let projectIcons = ProjectIconDiscovery(
-            inspect: { request, repositoryPath in
-                try await ProjectIconSnapshot.inspect(request, repositoryPath: repositoryPath)
-            },
-            currentRequest: {
-                let fresh = try MachineConfiguration.load(environment: environment)
-                guard fresh.workspaceID == configuration.workspaceID else {
-                    throw MachineConfigurationError("workspace.json now names another workspace.")
-                }
-                return fresh.projectIconRequest
-            },
-            report: { try await client.reportProjectIcon($0) },
-            alreadyReported: { request in
-                try await store.setting(ProjectIconDiscovery.completedSetting) == request.completionMarker
-            },
-            markReported: { request in
-                try await store.setSetting(ProjectIconDiscovery.completedSetting, request.completionMarker)
-            }
-        )
         let setupRun = Task {
             await setup.run()
             guard !Task.isCancelled else { return }
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await openings.run() }
-                group.addTask {
-                    do {
-                        _ = try await projectIcons.run(configuration.projectIconRequest, repositoryPath: layout.worktree)
-                    } catch is CancellationError {
-                        // Wind down owns cancellation and waits for this structured child.
-                    } catch {
-                        note("project icon discovery did not finish: \(error)")
-                    }
-                }
-            }
+            await projectIcons.start(initialRequest: configuration.projectIconRequest)
+            await openings.run()
         }
         // An update waits for this file to go: deleting it once listening is how a new release says
         // it came up, which works whether or not the script that restarted the service survived it.
@@ -301,6 +287,7 @@ public enum ServeCommand {
             // Setup first, filed as interrupted, so nothing it would start begins now.
             setupRun.cancel()
             await setupRun.value
+            await projectIcons.stop()
             await measurements.stop()
             // Turns before the report, so the last usage report has every turn finishing in it.
             // This also closes every event stream.

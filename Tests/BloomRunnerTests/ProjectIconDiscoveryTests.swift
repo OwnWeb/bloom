@@ -13,24 +13,11 @@ struct ProjectIconDiscoveryTests {
     )
 
     @Test("old and disabled configurations never start discovery or report")
-    func configurationCompatibility() async throws {
+    func configurationCompatibility() throws {
         for projectIcon in [nil, [:], ["should_discover": false]] as [[String: Any]?] {
             let configuration = try Self.configuration(projectIcon: projectIcon)
             try configuration.validate()
             #expect(configuration.projectIconRequest == nil)
-
-            let calls = Mutex<[String]>([])
-            let discovery = ProjectIconDiscovery(
-                inspect: { _, _ in
-                    calls.withLock { $0.append("inspect") }
-                    return ProjectIconInspection(sourceCommit: String(repeating: "a", count: 40), icon: nil)
-                },
-                currentRequest: { nil },
-                report: { _ in calls.withLock { $0.append("report") } }
-            )
-            let outcome = try await discovery.run(configuration.projectIconRequest, repositoryPath: "/unused")
-            #expect(outcome == .notRequested)
-            #expect(calls.withLock { $0 }.isEmpty)
         }
     }
 
@@ -65,19 +52,14 @@ struct ProjectIconDiscoveryTests {
     }
 
     @Test("the report carries the requested revision, detector, commit, pixels and digest")
-    func reportEnvelope() async throws {
+    func reportEnvelope() {
         let icon = Data("canonical-png".utf8)
-        let reports = Mutex<[ProjectIconReport]>([])
-        let discovery = ProjectIconDiscovery(
-            inspect: { _, _ in ProjectIconInspection(sourceCommit: String(repeating: "b", count: 40), icon: icon) },
-            currentRequest: { request },
-            report: { report in reports.withLock { $0.append(report) } }
+        let report = ProjectIconReport(
+            requestedRevision: request.requestedRevision,
+            detectorVersion: request.detectorVersion,
+            sourceCommit: String(repeating: "b", count: 40),
+            icon: icon
         )
-
-        let outcome = try await discovery.run(request, repositoryPath: "/repo")
-
-        #expect(outcome == .reported)
-        let report = try #require(reports.withLock { $0 }.only)
         #expect(report.requestedRevision == 3)
         #expect(report.detectorVersion == 1)
         #expect(report.sourceCommit == String(repeating: "b", count: 40))
@@ -89,70 +71,67 @@ struct ProjectIconDiscoveryTests {
     func completedRevision() async throws {
         let completed = Mutex<String?>(nil)
         let calls = Mutex<[String]>([])
-        let discovery = ProjectIconDiscovery(
-            inspect: { _, _ in
-                calls.withLock { $0.append("inspect") }
-                return ProjectIconInspection(sourceCommit: String(repeating: "e", count: 40), icon: nil)
-            },
-            currentRequest: { request },
-            report: { _ in calls.withLock { $0.append("report") } },
-            alreadyReported: { asked in completed.withLock { $0 == asked.completionMarker } },
-            markReported: { reported in completed.withLock { $0 = reported.completionMarker } }
-        )
+        let makeMonitor = {
+            ProjectIconDiscoveryMonitor(
+                repositoryPath: "/repo",
+                loadRequest: {
+                    ProjectIconRequestPoll(
+                        projectIcon: MachineConfiguration.ProjectIcon(
+                            requestedRevision: self.request.requestedRevision,
+                            detectorVersion: self.request.detectorVersion,
+                            repositoryDefaultBranch: self.request.repositoryDefaultBranch,
+                            shouldDiscover: true
+                        ),
+                        pollAfter: .seconds(300)
+                    )
+                },
+                inspect: { _, _ in
+                    calls.withLock { $0.append("inspect") }
+                    return ProjectIconInspection(sourceCommit: String(repeating: "e", count: 40), icon: nil)
+                },
+                report: { _ in calls.withLock { $0.append("report") } },
+                alreadyReported: { asked in completed.withLock { $0 == asked.completionMarker } },
+                markReported: { reported in completed.withLock { $0 = reported.completionMarker } }
+            )
+        }
 
-        #expect(try await discovery.run(request, repositoryPath: "/repo") == .reported)
-        #expect(try await discovery.run(request, repositoryPath: "/repo") == .alreadyReported)
+        #expect(await makeMonitor().refresh() == .reported)
+        #expect(await makeMonitor().refresh() == .alreadyReported)
         #expect(calls.withLock { $0 } == ["inspect", "report"])
         #expect(completed.withLock { $0 } == request.completionMarker)
-    }
-
-    @Test("a revision replaced during inspection never reaches the endpoint")
-    func staleRevision() async throws {
-        let current = Mutex<ProjectIconDiscoveryRequest?>(request)
-        let reports = Mutex<[ProjectIconReport]>([])
-        let replacement = ProjectIconDiscoveryRequest(
-            requestedRevision: 4,
-            detectorVersion: 1,
-            repositoryDefaultBranch: "main"
-        )
-        let discovery = ProjectIconDiscovery(
-            inspect: { _, _ in
-                current.withLock { $0 = replacement }
-                return ProjectIconInspection(sourceCommit: String(repeating: "c", count: 40), icon: nil)
-            },
-            currentRequest: { current.withLock { $0 } },
-            report: { report in reports.withLock { $0.append(report) } }
-        )
-
-        let outcome = try await discovery.run(request, repositoryPath: "/repo")
-        #expect(outcome == .stale)
-        #expect(reports.withLock { $0 }.isEmpty)
     }
 
     @Test("shutdown cancellation waits for inspection and prevents a late report")
     func lifecycleCancellation() async throws {
         let gate = ProjectIconDiscoveryGate()
         let reports = Mutex<[ProjectIconReport]>([])
-        let discovery = ProjectIconDiscovery(
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: {
+                ProjectIconRequestPoll(
+                    projectIcon: MachineConfiguration.ProjectIcon(
+                        requestedRevision: self.request.requestedRevision,
+                        detectorVersion: self.request.detectorVersion,
+                        repositoryDefaultBranch: self.request.repositoryDefaultBranch,
+                        shouldDiscover: true
+                    ),
+                    pollAfter: .seconds(300)
+                )
+            },
             inspect: { _, _ in
                 await gate.hold()
                 try Task.checkCancellation()
                 return ProjectIconInspection(sourceCommit: String(repeating: "d", count: 40), icon: nil)
             },
-            currentRequest: { request },
             report: { report in reports.withLock { $0.append(report) } }
         )
-        let task = Task { try await discovery.run(request, repositoryPath: "/repo") }
+        let task = Task { await monitor.refresh() }
         await gate.waitUntilHeld()
-        task.cancel()
+        let stopping = Task { await monitor.stop() }
         await gate.release()
+        await stopping.value
 
-        do {
-            _ = try await task.value
-            Issue.record("Cancelled discovery completed")
-        } catch is CancellationError {
-            // Expected lifecycle result.
-        }
+        #expect(await task.value == .stopped)
         #expect(reports.withLock { $0 }.isEmpty)
     }
 
@@ -393,6 +372,306 @@ private actor ProjectIconDiscoveryGate {
     }
 }
 
-private extension Array {
-    var only: Element? { count == 1 ? first : nil }
+@Suite("Running project icon refresh")
+struct ProjectIconDiscoveryMonitorTests {
+    @Test("a running machine discovers a newly requested revision and stops when it resolves")
+    func refreshWhileRunning() async {
+        let revision = Mutex(1)
+        let inspections = Mutex<[Int]>([])
+        let reports = Mutex<[Int]>([])
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: {
+                Self.poll(revision: revision.withLock { $0 }, shouldDiscover: revision.withLock { $0 < 3 })
+            },
+            inspect: { request, _ in
+                inspections.withLock { $0.append(request.requestedRevision) }
+                return Self.inspection(request.requestedRevision)
+            },
+            report: { report in reports.withLock { $0.append(report.requestedRevision) } }
+        )
+
+        #expect(await monitor.refresh() == .reported)
+        revision.withLock { $0 = 2 }
+        #expect(await monitor.refresh() == .reported)
+        revision.withLock { $0 = 3 }
+        #expect(await monitor.refresh() == .noRequest)
+        #expect(inspections.withLock { $0 } == [1, 2])
+        #expect(reports.withLock { $0 } == [1, 2])
+    }
+
+    @Test("duplicate, out-of-order and future-detector answers cannot replace newer work")
+    func ordering() async {
+        let answers = Mutex([
+            Self.poll(revision: 4),
+            Self.poll(revision: 4),
+            Self.poll(revision: 4, shouldDiscover: false),
+            Self.poll(revision: 4),
+            Self.poll(revision: 3),
+            Self.poll(revision: 5, detectorVersion: 2),
+            Self.poll(revision: 4),
+            Self.poll(revision: 6),
+        ])
+        let inspections = Mutex<[Int]>([])
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: { answers.withLock { $0.removeFirst() } },
+            inspect: { request, _ in
+                inspections.withLock { $0.append(request.requestedRevision) }
+                return Self.inspection(request.requestedRevision)
+            },
+            report: { _ in }
+        )
+
+        #expect(await monitor.refresh() == .reported)
+        #expect(await monitor.refresh() == .alreadyReported)
+        #expect(await monitor.refresh() == .noRequest)
+        #expect(await monitor.refresh() == .stale)
+        #expect(await monitor.refresh() == .stale)
+        #expect(await monitor.refresh() == .unsupportedDetector)
+        #expect(await monitor.refresh() == .stale)
+        #expect(await monitor.refresh() == .reported)
+        #expect(inspections.withLock { $0 } == [4, 6])
+    }
+
+    @Test("a failed report retries the identical prepared result without another inspection or store write")
+    func idempotentRetryAndWriteIsolation() async {
+        let inspections = Mutex(0)
+        let attempts = Mutex<[ProjectIconReport]>([])
+        let writes = Mutex<[String]>([])
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: { Self.poll(revision: 7) },
+            inspect: { request, _ in
+                inspections.withLock { $0 += 1 }
+                return Self.inspection(request.requestedRevision)
+            },
+            report: { report in
+                let attempt = attempts.withLock { attempts -> Int in
+                    attempts.append(report)
+                    return attempts.count
+                }
+                if attempt == 1 { throw RunbloomError.unreachable("offline") }
+            },
+            markReported: { request in writes.withLock { $0.append(request.completionMarker) } }
+        )
+
+        #expect(await monitor.refresh() == .retryPending)
+        #expect(writes.withLock { $0 }.isEmpty)
+        #expect(await monitor.refresh() == .reported)
+        #expect(inspections.withLock { $0 } == 1)
+        let sent = attempts.withLock { $0 }
+        #expect(sent.count == 2)
+        #expect(sent.first == sent.last)
+        #expect(writes.withLock { $0 } == ["1:7:main"])
+    }
+
+    @Test("offline and server refusals confer no authority, and replacement is terminal")
+    func refusalAndReplacement() async {
+        let loads = Mutex(0)
+        let inspections = Mutex(0)
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: {
+                let call = loads.withLock { value -> Int in
+                    value += 1
+                    return value
+                }
+                switch call {
+                case 1: throw RunbloomError.unreachable("offline")
+                case 2: throw RunbloomError.refused(
+                    status: 403, code: "github_disabled", message: "GitHub access is disabled.",
+                    limit: nil, retryAfter: nil
+                )
+                default: throw RunbloomError.refused(
+                    status: 401, code: "invalid_workspace_secret", message: "This machine was replaced.",
+                    limit: nil, retryAfter: nil
+                )
+                }
+            },
+            inspect: { request, _ in
+                inspections.withLock { $0 += 1 }
+                return Self.inspection(request.requestedRevision)
+            },
+            report: { _ in }
+        )
+
+        #expect(await monitor.refresh() == .retryPending)
+        #expect(await monitor.refresh() == .refused)
+        #expect(await monitor.refresh() == .refused)
+        #expect(await monitor.refresh() == .stopped)
+        #expect(loads.withLock { $0 } == 3)
+        #expect(inspections.withLock { $0 } == 0)
+    }
+
+    @Test("concurrent refresh hints share one authenticated load and discovery")
+    func concurrentRefreshCoalesces() async {
+        let gate = ProjectIconDiscoveryGate()
+        let loads = Mutex(0)
+        let inspections = Mutex(0)
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: {
+                loads.withLock { $0 += 1 }
+                await gate.hold()
+                return Self.poll(revision: 9)
+            },
+            inspect: { request, _ in
+                inspections.withLock { $0 += 1 }
+                return Self.inspection(request.requestedRevision)
+            },
+            report: { _ in }
+        )
+
+        let first = Task { await monitor.refresh() }
+        await gate.waitUntilHeld()
+        let others = (0..<8).map { _ in Task { await monitor.refresh() } }
+        for _ in 0..<8 { await Task.yield() }
+        await gate.release()
+
+        #expect(await first.value == .reported)
+        for task in others { #expect(await task.value == .reported) }
+        #expect(loads.withLock { $0 } == 1)
+        #expect(inspections.withLock { $0 } == 1)
+    }
+
+    @Test("a refresh arriving after authority loaded queues one follow-up instead of being lost")
+    func refreshDuringInspection() async {
+        let inspectionGate = ProjectIconDiscoveryGate()
+        let revision = Mutex(1)
+        let loads = Mutex(0)
+        let reports = Mutex<[Int]>([])
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: {
+                loads.withLock { $0 += 1 }
+                return Self.poll(revision: revision.withLock { $0 })
+            },
+            inspect: { request, _ in
+                if request.requestedRevision == 1 { await inspectionGate.hold() }
+                return Self.inspection(request.requestedRevision)
+            },
+            report: { report in reports.withLock { $0.append(report.requestedRevision) } }
+        )
+
+        let first = Task { await monitor.refresh() }
+        await inspectionGate.waitUntilHeld()
+        revision.withLock { $0 = 2 }
+        let concurrent = Task { await monitor.refresh() }
+        for _ in 0..<100 {
+            if await monitor.hasQueuedRefresh { break }
+            await Task.yield()
+        }
+        #expect(await monitor.hasQueuedRefresh)
+        await inspectionGate.release()
+
+        #expect(await first.value == .reported)
+        _ = await concurrent.value
+        #expect(loads.withLock { $0 } == 2)
+        #expect(reports.withLock { $0 } == [1, 2])
+    }
+
+    @Test("polling honours retry-after, stays quiet while asleep and restarts its interval on wake")
+    func pollingLifecycle() async {
+        let pauses = ProjectIconPollGate()
+        let awake = Mutex(false)
+        let loads = Mutex(0)
+        let monitor = ProjectIconDiscoveryMonitor(
+            repositoryPath: "/repo",
+            loadRequest: {
+                let call = loads.withLock { value -> Int in
+                    value += 1
+                    return value
+                }
+                if call == 1 { throw ProjectIconRequestUnavailable(retryAfter: .seconds(60)) }
+                return ProjectIconRequestPoll(projectIcon: nil, pollAfter: .seconds(300))
+            },
+            report: { _ in },
+            pause: { try await pauses.pause($0) },
+            isAwake: { awake.withLock { $0 } }
+        )
+
+        await monitor.start(initialRequest: nil)
+        await pauses.waitForCount(1)
+        #expect(await pauses.recorded == [.seconds(60)])
+
+        await pauses.releaseFirst()
+        await pauses.waitForCount(2)
+        #expect(loads.withLock { $0 } == 1, "an elapsed timer does not poll an asleep machine")
+
+        awake.withLock { $0 = true }
+        await monitor.woke()
+        await pauses.waitForCount(3)
+        #expect(loads.withLock { $0 } == 2)
+        #expect(await pauses.recorded == [.seconds(60), .seconds(60), .seconds(300)])
+        await monitor.stop()
+    }
+
+    private static func poll(
+        revision: Int,
+        detectorVersion: Int = 1,
+        shouldDiscover: Bool = true,
+        after: Duration = .seconds(300)
+    ) -> ProjectIconRequestPoll {
+        ProjectIconRequestPoll(
+            projectIcon: MachineConfiguration.ProjectIcon(
+                requestedRevision: revision,
+                detectorVersion: detectorVersion,
+                repositoryDefaultBranch: "main",
+                shouldDiscover: shouldDiscover
+            ),
+            pollAfter: after
+        )
+    }
+
+    private static func inspection(_ revision: Int) -> ProjectIconInspection {
+        ProjectIconInspection(sourceCommit: String(repeating: String(revision % 10), count: 40), icon: nil)
+    }
+}
+
+private actor ProjectIconPollGate {
+    private struct Waiter {
+        var id: UUID
+        var continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private var durations: [Duration] = []
+    private var waiters: [Waiter] = []
+    private var observers: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    var recorded: [Duration] { durations }
+
+    func pause(_ duration: Duration) async throws {
+        let id = UUID()
+        durations.append(duration)
+        resumeObservers()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                waiters.append(Waiter(id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
+    }
+
+    func waitForCount(_ count: Int) async {
+        guard durations.count < count else { return }
+        await withCheckedContinuation { observers.append((count, $0)) }
+    }
+
+    func releaseFirst() {
+        guard !waiters.isEmpty else { return }
+        waiters.removeFirst().continuation.resume()
+    }
+
+    private func cancel(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+
+    private func resumeObservers() {
+        let ready = observers.filter { durations.count >= $0.count }
+        observers.removeAll { durations.count >= $0.count }
+        for observer in ready { observer.continuation.resume() }
+    }
 }

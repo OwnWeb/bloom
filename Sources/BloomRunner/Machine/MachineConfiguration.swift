@@ -21,6 +21,32 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
             case repositoryDefaultBranch = "repository_default_branch"
             case shouldDiscover = "should_discover"
         }
+
+        public init(requestedRevision: Int?, detectorVersion: Int?, repositoryDefaultBranch: String?, shouldDiscover: Bool?) {
+            self.requestedRevision = requestedRevision
+            self.detectorVersion = detectorVersion
+            self.repositoryDefaultBranch = repositoryDefaultBranch
+            self.shouldDiscover = shouldDiscover
+        }
+
+        var identityRequest: ProjectIconDiscoveryRequest? {
+            guard let requestedRevision, (1...Int(UInt32.max)).contains(requestedRevision),
+                  let detectorVersion, (1...Int(UInt16.max)).contains(detectorVersion),
+                  let repositoryDefaultBranch,
+                  Git.isValidBranchName(repositoryDefaultBranch)
+            else { return nil }
+            return ProjectIconDiscoveryRequest(
+                requestedRevision: requestedRevision,
+                detectorVersion: detectorVersion,
+                repositoryDefaultBranch: repositoryDefaultBranch
+            )
+        }
+
+        var discoveryRequest: ProjectIconDiscoveryRequest? {
+            shouldDiscover == true ? identityRequest : nil
+        }
+
+        var hasValidIdentity: Bool { identityRequest != nil }
     }
 
     public var workspaceID: String
@@ -118,17 +144,7 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
     /// Nil is an instruction to make no request, not a request to report that no icon exists.
     /// In particular, an older configuration with no `should_discover` key stays silent.
     public var projectIconRequest: ProjectIconDiscoveryRequest? {
-        guard let projectIcon, projectIcon.shouldDiscover == true,
-              let requestedRevision = projectIcon.requestedRevision, (1...Int(UInt32.max)).contains(requestedRevision),
-              let detectorVersion = projectIcon.detectorVersion, (1...Int(UInt16.max)).contains(detectorVersion),
-              let defaultBranch = projectIcon.repositoryDefaultBranch,
-              Git.isValidBranchName(defaultBranch)
-        else { return nil }
-        return ProjectIconDiscoveryRequest(
-            requestedRevision: requestedRevision,
-            detectorVersion: detectorVersion,
-            repositoryDefaultBranch: defaultBranch
-        )
+        projectIcon?.discoveryRequest
     }
 
     /// The host part of the public URL, which Vite and friends want on an allow list.

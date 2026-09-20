@@ -27,64 +27,6 @@ public struct ProjectIconReport: Sendable, Equatable {
     }
 }
 
-/// Discovers once after setup, then revalidates the revision before reporting.
-///
-/// A refresh can rewrite workspace.json while the snapshot is being inspected. Sending that old
-/// answer is harmless to the server, which also checks the revision, but avoiding the request here
-/// keeps an obsolete machine from doing work the authority has already replaced.
-public struct ProjectIconDiscovery: Sendable {
-    public static let completedSetting = "remote.project-icon.completed"
-
-    public enum Outcome: Sendable, Equatable {
-        case notRequested
-        case alreadyReported
-        case reported
-        case stale
-    }
-
-    public typealias Inspect = @Sendable (ProjectIconDiscoveryRequest, String) async throws -> ProjectIconInspection
-    public typealias CurrentRequest = @Sendable () throws -> ProjectIconDiscoveryRequest?
-    public typealias Report = @Sendable (ProjectIconReport) async throws -> Void
-    public typealias AlreadyReported = @Sendable (ProjectIconDiscoveryRequest) async throws -> Bool
-    public typealias MarkReported = @Sendable (ProjectIconDiscoveryRequest) async throws -> Void
-
-    private let inspect: Inspect
-    private let currentRequest: CurrentRequest
-    private let report: Report
-    private let alreadyReported: AlreadyReported
-    private let markReported: MarkReported
-
-    public init(
-        inspect: @escaping Inspect,
-        currentRequest: @escaping CurrentRequest,
-        report: @escaping Report,
-        alreadyReported: @escaping AlreadyReported = { _ in false },
-        markReported: @escaping MarkReported = { _ in }
-    ) {
-        self.inspect = inspect
-        self.currentRequest = currentRequest
-        self.report = report
-        self.alreadyReported = alreadyReported
-        self.markReported = markReported
-    }
-
-    public func run(_ request: ProjectIconDiscoveryRequest?, repositoryPath: String) async throws -> Outcome {
-        guard let request else { return .notRequested }
-        guard try await alreadyReported(request) == false else { return .alreadyReported }
-        let inspected = try await inspect(request, repositoryPath)
-        try Task.checkCancellation()
-        guard try currentRequest() == request else { return .stale }
-        try await report(ProjectIconReport(
-            requestedRevision: request.requestedRevision,
-            detectorVersion: request.detectorVersion,
-            sourceCommit: inspected.sourceCommit,
-            icon: inspected.icon
-        ))
-        try await markReported(request)
-        return .reported
-    }
-}
-
 public struct ProjectIconInspection: Sendable, Equatable {
     public var sourceCommit: String
     public var icon: Data?

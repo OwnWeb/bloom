@@ -29,6 +29,7 @@ final class FakeControlServer: Sendable {
     struct Scripted: Sendable {
         var status: Int
         var body: String?
+        var headers: [String: String] = [:]
 
         static let noContent = Scripted(status: 204, body: nil)
 
@@ -248,6 +249,8 @@ final class FakeControlServer: Sendable {
             return .json(200, ["token": "ghs_faketoken", "expires_at": "2026-09-17T10:00:00.250000Z", "username": "x-access-token"])
         case ("PUT", ["project-icon"]):
             return .noContent
+        case ("GET", ["project-icon-request"]):
+            return .json(200, ["project_icon": NSNull(), "poll_after_seconds": 300])
         default:
             return .refusal(status: 404, code: "not_found", message: "No such endpoint.")
         }
@@ -260,10 +263,15 @@ final class FakeControlServer: Sendable {
     }
 
     private static func response(_ scripted: Scripted) -> Response {
-        guard let body = scripted.body else { return Response(status: .init(code: scripted.status)) }
+        var headers = HTTPFields()
+        for (name, value) in scripted.headers {
+            if let name = HTTPField.Name(name) { headers[name] = value }
+        }
+        guard let body = scripted.body else { return Response(status: .init(code: scripted.status), headers: headers) }
+        headers[.contentType] = "application/json"
         return Response(
             status: .init(code: scripted.status),
-            headers: [.contentType: "application/json"],
+            headers: headers,
             body: .init(byteBuffer: ByteBuffer(string: body))
         )
     }
