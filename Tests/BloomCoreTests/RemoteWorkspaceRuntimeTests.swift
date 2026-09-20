@@ -616,11 +616,9 @@ struct RemoteWorkspaceRuntimeTests {
             Issue.record("no workspace"); return
         }
         #expect(snapshot.chats.count == 1)
-        // Required of a server, and unwrapped here rather than read through `?`, which is the
-        // difference this asserts: the field is optional in what a client accepts, because a
-        // machine made before it existed must still be openable, and not optional in what this
-        // runtime sends. See `WorkspaceSnapshotRecord.composerDefaults`.
-        let defaults = try #require(snapshot.composerDefaults, "the snapshot must carry the defaults")
+        // Required by the current protocol, so the runtime has to send useful values rather than
+        // an empty record. See `WorkspaceSnapshotRecord.composerDefaults`.
+        let defaults = snapshot.composerDefaults
         #expect(!defaults.agent.isEmpty)
         #expect(!defaults.model.isEmpty)
 
