@@ -531,14 +531,20 @@ struct ProjectIconDiscoveryMonitorTests {
     @Test("out-of-range and cross-field-corrupt durable state fails closed")
     func corruptStateFailsClosed() async {
         let commit = String(repeating: "a", count: 40)
-        let corrupt = [
+        var corrupt = [
             "65536:1:main",
             "1:4294967296:main",
             #"{"version":1,"highestRevision":4294967296,"latestShouldDiscover":false,"noProjectAtHighestRevision":true}"#,
             #"{"version":1,"highestRevision":2,"latestRequest":{"requestedRevision":1,"detectorVersion":1,"repositoryDefaultBranch":"main"},"latestShouldDiscover":true,"noProjectAtHighestRevision":false}"#,
             #"{"version":1,"highestRevision":2,"latestRequest":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"latestShouldDiscover":true,"noProjectAtHighestRevision":false,"prepared":{"request":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"develop"},"report":{"requestedRevision":2,"detectorVersion":1,"sourceCommit":"\#(commit)","icon":null}}}"#,
             #"{"version":1,"highestRevision":2,"latestRequest":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"develop"},"latestShouldDiscover":true,"noProjectAtHighestRevision":false,"completed":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"prepared":{"request":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"develop"},"report":{"requestedRevision":2,"detectorVersion":1,"sourceCommit":"\#(commit)","icon":null}}}"#,
+            #"{"version":1,"highestRevision":2,"latestRequest":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"latestShouldDiscover":true,"noProjectAtHighestRevision":false,"prepared":{"request":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"report":{"requestedRevision":2,"detectorVersion":1,"sourceCommit":"\#(commit)","icon":"bm90LWEtY2Fub25pY2FsLXBuZw=="}}}"#,
         ]
+        var corruptPNG = Self.canonicalPNG
+        corruptPNG[corruptPNG.count - 1] ^= 0xff
+        corrupt.append(
+            #"{"version":1,"highestRevision":2,"latestRequest":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"latestShouldDiscover":true,"noProjectAtHighestRevision":false,"prepared":{"request":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"report":{"requestedRevision":2,"detectorVersion":1,"sourceCommit":"\#(commit)","icon":"\#(corruptPNG.base64EncodedString())"}}}"#
+        )
 
         for stored in corrupt {
             let loads = Mutex(0)
@@ -577,7 +583,7 @@ struct ProjectIconDiscoveryMonitorTests {
             }
             stored.withLock { $0 = value }
         }
-        let icon = Data("canonical-pixels".utf8)
+        let icon = Self.canonicalPNG
         let first = ProjectIconDiscoveryMonitor(
             repositoryPath: "/repo",
             loadRequest: { Self.poll(revision: 8) },
@@ -638,6 +644,120 @@ struct ProjectIconDiscoveryMonitorTests {
             await monitor.start(initialRequest: nil)
             await pauses.waitForCount(1)
             #expect(await pauses.recorded == [.seconds(300)])
+            await monitor.stop()
+        }
+    }
+
+    @Test("wake replaces a captured long pause when its report installs refusal backoff")
+    func wakeReplacesLongPauseWithReportRefusalCadence() async {
+        for status in [403, 404] {
+            let pauses = ProjectIconPollGate()
+            let refusingReport = ProjectIconDiscoveryGate()
+            let loads = Mutex(0)
+            let reports = Mutex<[ProjectIconReport]>([])
+            let monitor = ProjectIconDiscoveryMonitor(
+                repositoryPath: "/repo",
+                loadRequest: {
+                    let call = loads.withLock { value -> Int in
+                        value += 1
+                        return value
+                    }
+                    switch call {
+                    case 1: return Self.poll(revision: status, shouldDiscover: false, after: .seconds(86_400))
+                    case 2: return Self.poll(revision: status + 1, after: .seconds(86_400))
+                    default: return Self.poll(revision: status + 1, shouldDiscover: false)
+                    }
+                },
+                inspect: { request, _ in Self.inspection(request.requestedRevision) },
+                report: { report in
+                    let attempt = reports.withLock { value -> Int in
+                        value.append(report)
+                        return value.count
+                    }
+                    if attempt == 1 {
+                        await refusingReport.hold()
+                        throw RunbloomError.refused(
+                            status: status, code: "feature_off", message: "Unavailable.",
+                            limit: nil, retryAfter: nil
+                        )
+                    }
+                },
+                pause: { try await pauses.pause($0) }
+            )
+
+            await monitor.start(initialRequest: nil)
+            await pauses.waitForCount(1)
+            let wake = Task { await monitor.woke() }
+            await refusingReport.waitUntilHeld()
+            await refusingReport.release()
+            await wake.value
+            await pauses.waitForCount(2)
+
+            #expect(await pauses.recorded == [.seconds(86_400), .seconds(300)])
+            #expect(loads.withLock { $0 } == 2)
+            #expect(reports.withLock { $0.count } == 1)
+
+            await pauses.releaseFirst()
+            await pauses.waitForCount(3)
+            let sent = reports.withLock { $0 }
+            #expect(sent.count == 2)
+            #expect(sent.first == sent.last, "the exact prepared report retried after the refusal cadence")
+            #expect(loads.withLock { $0 } == 3, "the successful retry was followed by authenticated GET")
+            await monitor.stop()
+        }
+    }
+
+    @Test("a refusal from a freshly inspected report gates its queued reload")
+    func freshReportRefusalGatesQueuedReload() async {
+        for status in [403, 404] {
+            let reportGate = ProjectIconDiscoveryGate()
+            let coalesced = ProjectIconCoalescingGate(target: 1)
+            let pauses = ProjectIconPollGate()
+            let loads = Mutex(0)
+            let reports = Mutex<[ProjectIconReport]>([])
+            let monitor = ProjectIconDiscoveryMonitor(
+                repositoryPath: "/repo",
+                loadRequest: {
+                    loads.withLock { $0 += 1 }
+                    return Self.poll(revision: status)
+                },
+                inspect: { request, _ in Self.inspection(request.requestedRevision) },
+                report: { report in
+                    let attempt = reports.withLock { value -> Int in
+                        value.append(report)
+                        return value.count
+                    }
+                    if attempt == 1 {
+                        await reportGate.hold()
+                        throw RunbloomError.refused(
+                            status: status, code: "feature_off", message: "Unavailable.",
+                            limit: nil, retryAfter: nil
+                        )
+                    }
+                },
+                pause: { try await pauses.pause($0) },
+                observeCoalesced: { await coalesced.hold() }
+            )
+
+            await monitor.start(initialRequest: nil)
+            await reportGate.waitUntilHeld()
+            let overlapping = Task { await monitor.refresh() }
+            await coalesced.waitUntilAllHeld()
+            await coalesced.releaseAll()
+            await reportGate.release()
+            #expect(await overlapping.value == .refused)
+            await pauses.waitForCount(1)
+
+            #expect(await pauses.recorded == [.seconds(300)])
+            #expect(loads.withLock { $0 } == 1)
+            #expect(reports.withLock { $0.count } == 1)
+
+            await pauses.releaseFirst()
+            await pauses.waitForCount(2)
+            let sent = reports.withLock { $0 }
+            #expect(sent.count == 2)
+            #expect(sent.first == sent.last)
+            #expect(loads.withLock { $0 } == 2)
             await monitor.stop()
         }
     }
@@ -915,6 +1035,14 @@ struct ProjectIconDiscoveryMonitorTests {
     private static func inspection(_ revision: Int) -> ProjectIconInspection {
         ProjectIconInspection(sourceCommit: String(repeating: String(revision % 10), count: 40), icon: nil)
     }
+
+    private static let canonicalPNG = Data(base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAABFUlEQVR42u3BMQEAAADCoPVP7WsIoAAAAAAAAAAAAAAAAAAAAAAA"
+            + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            + "AAAAAAAAAAAAAAAAeAMBPAAB2ClDBAAAAABJRU5ErkJggg=="
+    )!
 }
 
 private actor ProjectIconPollGate {

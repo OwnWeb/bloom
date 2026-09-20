@@ -62,7 +62,7 @@ public actor ProjectIconDiscoveryMonitor {
                               && prepared.report.sourceCommit.range(
                                   of: "^[0-9a-f]{40}([0-9a-f]{24})?$", options: .regularExpression
                               ) != nil
-                              && (prepared.report.icon?.count ?? 0) <= ProjectIconPNGNormalizer.maximumBytes
+                              && (prepared.report.icon.map(ProjectIconPNGNormalizer.isCanonical) ?? true)
                       }) ?? true,
                       validRelationships(decoded)
                 else { throw ProjectIconMonitorError.invalidStoredState }
@@ -224,10 +224,13 @@ public actor ProjectIconDiscoveryMonitor {
     /// A wake bypasses the old schedule once, then starts a fresh server-provided interval.
     public func woke() async {
         guard polling != nil, !isStopped, !isTerminal else { return }
+        let alreadyBackingOffRefusal = refusalBackoff
         _ = await refresh()
         // Cancel after the refresh has installed its interval. If the old timer expires while the
         // request is in flight, its refresh coalesces with this one and cannot issue a second GET.
-        if !refusalBackoff { pollingPause?.cancel() }
+        // A refusal newly installed by this wake must also replace the timer whose duration was
+        // captured before the wake. An existing refusal keeps its five-minute timer intact.
+        if !refusalBackoff || !alreadyBackingOffRefusal { pollingPause?.cancel() }
     }
 
     /// Reloads the request without accepting any authority from the trigger itself.
