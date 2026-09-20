@@ -131,7 +131,7 @@ let package = Package(
         .testTarget(
             name: "BloomRunnerTests",
             dependencies: [
-                "BloomRunner", "BloomCore", .product(name: "BloomProtocol", package: "BloomProtocol"),
+                "BloomRunner", "BloomCore", "CZlib", .product(name: "BloomProtocol", package: "BloomProtocol"),
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
@@ -240,7 +240,7 @@ let package = Package(
         .testTarget(
             name: "BloomRunnerTests",
             dependencies: [
-                "BloomRunner", "BloomCore", .product(name: "BloomProtocol", package: "BloomProtocol"),
+                "BloomRunner", "BloomCore", "CZlib", .product(name: "BloomProtocol", package: "BloomProtocol"),
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]

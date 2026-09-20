@@ -3,6 +3,7 @@ import Synchronization
 import Testing
 @testable import BloomCore
 @testable import BloomRunner
+import CZlib
 
 @Suite("Project icon discovery")
 struct ProjectIconDiscoveryTests {
@@ -385,6 +386,11 @@ struct ProjectIconDiscoveryMonitorTests {
         checked.append(invalidDeflate[41..<(41 + idatLength)])
         Self.writeBigEndianUInt32(Self.crc32(checked), to: &invalidDeflate, at: 41 + idatLength)
         #expect(!ProjectIconPNGNormalizer.isCanonical(invalidDeflate))
+
+        let trailingPayload = Self.appendingTrailingIDATBytes(to: Self.canonicalPNG)
+        #expect(ProjectIconPNGNormalizer.canonicalCompressedPayload(trailingPayload) != nil)
+        #expect(Self.oldInflationChecksPass(trailingPayload))
+        #expect(!ProjectIconPNGNormalizer.isCanonical(trailingPayload))
     }
 
     @Test("a running machine discovers a newly requested revision and stops when it resolves")
@@ -557,6 +563,10 @@ struct ProjectIconDiscoveryMonitorTests {
         corruptPNG[corruptPNG.count - 1] ^= 0xff
         corrupt.append(
             #"{"version":1,"highestRevision":2,"latestRequest":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"latestShouldDiscover":true,"noProjectAtHighestRevision":false,"prepared":{"request":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"report":{"requestedRevision":2,"detectorVersion":1,"sourceCommit":"\#(commit)","icon":"\#(corruptPNG.base64EncodedString())"}}}"#
+        )
+        let trailingPayload = Self.appendingTrailingIDATBytes(to: Self.canonicalPNG)
+        corrupt.append(
+            #"{"version":1,"highestRevision":2,"latestRequest":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"latestShouldDiscover":true,"noProjectAtHighestRevision":false,"prepared":{"request":{"requestedRevision":2,"detectorVersion":1,"repositoryDefaultBranch":"main"},"report":{"requestedRevision":2,"detectorVersion":1,"sourceCommit":"\#(commit)","icon":"\#(trailingPayload.base64EncodedString())"}}}"#
         )
 
         for stored in corrupt {
@@ -1075,6 +1085,41 @@ struct ProjectIconDiscoveryMonitorTests {
             for _ in 0..<8 { value = (value & 1) == 1 ? (value >> 1) ^ 0xedb8_8320 : value >> 1 }
         }
         return value ^ 0xffff_ffff
+    }
+
+    private static func appendingTrailingIDATBytes(to data: Data) -> Data {
+        var result = data
+        let oldLength = Int(readBigEndianUInt32(result, at: 33))
+        let contentsStart = 41
+        let trailing = Data([0xde, 0xad, 0xbe, 0xef])
+        result.insert(contentsOf: trailing, at: contentsStart + oldLength)
+        let newLength = oldLength + trailing.count
+        writeBigEndianUInt32(UInt32(newLength), to: &result, at: 33)
+        var checked = Data("IDAT".utf8)
+        checked.append(result[contentsStart..<(contentsStart + newLength)])
+        writeBigEndianUInt32(crc32(checked), to: &result, at: contentsStart + newLength)
+        return result
+    }
+
+    private static func oldInflationChecksPass(_ data: Data) -> Bool {
+        let length = Int(readBigEndianUInt32(data, at: 33))
+        let compressed = Data(data[41..<(41 + length)])
+        let rowBytes = 256 * 4 + 1
+        var decoded = [UInt8](repeating: 0, count: rowBytes * 256)
+        var decodedCount = uLongf(decoded.count)
+        let status = decoded.withUnsafeMutableBytes { destination in
+            compressed.withUnsafeBytes { source in
+                uncompress(
+                    destination.bindMemory(to: Bytef.self).baseAddress,
+                    &decodedCount,
+                    source.bindMemory(to: Bytef.self).baseAddress,
+                    uLong(source.count)
+                )
+            }
+        }
+        return status == Z_OK
+            && decodedCount == decoded.count
+            && stride(from: 0, to: decoded.count, by: rowBytes).allSatisfy { decoded[$0] == 0 }
     }
 }
 

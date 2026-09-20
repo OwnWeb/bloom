@@ -17,14 +17,38 @@ public enum ProjectIconPNGNormalizer {
     /// Checks the exact bounded output shape produced by the fixed normaliser before durable bytes
     /// are trusted for a retry. This is deliberately stricter than ordinary PNG validation.
     static func isCanonical(_ data: Data) -> Bool {
+        guard let compressed = canonicalCompressedPayload(data) else { return false }
+
+        let rowBytes = 256 * 4 + 1
+        var decoded = [UInt8](repeating: 0, count: rowBytes * 256)
+        var decodedCount = uLongf(decoded.count)
+        var sourceCount = uLong(compressed.count)
+        let status = decoded.withUnsafeMutableBytes { destination in
+            compressed.withUnsafeBytes { source in
+                uncompress2(
+                    destination.bindMemory(to: Bytef.self).baseAddress,
+                    &decodedCount,
+                    source.bindMemory(to: Bytef.self).baseAddress,
+                    &sourceCount
+                )
+            }
+        }
+        guard status == Z_OK,
+              decodedCount == decoded.count,
+              sourceCount == compressed.count
+        else { return false }
+        return stride(from: 0, to: decoded.count, by: rowBytes).allSatisfy { decoded[$0] == 0 }
+    }
+
+    static func canonicalCompressedPayload(_ data: Data) -> Data? {
         let signature = Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-        guard data.count <= maximumBytes, data.prefix(signature.count) == signature else { return false }
+        guard data.count <= maximumBytes, data.prefix(signature.count) == signature else { return nil }
 
         var offset = signature.count
         var chunks: [(kind: String, contents: Data)] = []
         while offset <= data.count - 12 {
             let length = Int(readBigEndianUInt32(data, at: offset))
-            guard length <= maximumBytes, offset <= data.count - 12 - length else { return false }
+            guard length <= maximumBytes, offset <= data.count - 12 - length else { return nil }
             let kindRange = (offset + 4)..<(offset + 8)
             let contentsRange = (offset + 8)..<(offset + 8 + length)
             let checksumOffset = offset + 8 + length
@@ -32,7 +56,7 @@ public enum ProjectIconPNGNormalizer {
             let contents = Data(data[contentsRange])
             var checked = kind
             checked.append(contents)
-            guard crc32(checked) == readBigEndianUInt32(data, at: checksumOffset) else { return false }
+            guard crc32(checked) == readBigEndianUInt32(data, at: checksumOffset) else { return nil }
             chunks.append((String(decoding: kind, as: UTF8.self), contents))
             offset = checksumOffset + 4
         }
@@ -43,23 +67,8 @@ public enum ProjectIconPNGNormalizer {
               chunks[0].contents == Data([0, 0, 1, 0, 0, 0, 1, 0, 8, 6, 0, 0, 0]),
               chunks[1].kind == "IDAT", !chunks[1].contents.isEmpty,
               chunks[2].kind == "IEND", chunks[2].contents.isEmpty
-        else { return false }
-
-        let rowBytes = 256 * 4 + 1
-        var decoded = [UInt8](repeating: 0, count: rowBytes * 256)
-        var decodedCount = uLongf(decoded.count)
-        let status = decoded.withUnsafeMutableBytes { destination in
-            chunks[1].contents.withUnsafeBytes { source in
-                uncompress(
-                    destination.bindMemory(to: Bytef.self).baseAddress,
-                    &decodedCount,
-                    source.bindMemory(to: Bytef.self).baseAddress,
-                    uLong(source.count)
-                )
-            }
-        }
-        guard status == Z_OK, decodedCount == decoded.count else { return false }
-        return stride(from: 0, to: decoded.count, by: rowBytes).allSatisfy { decoded[$0] == 0 }
+        else { return nil }
+        return chunks[1].contents
     }
 
     private static func readBigEndianUInt32(_ data: Data, at offset: Int) -> UInt32 {
