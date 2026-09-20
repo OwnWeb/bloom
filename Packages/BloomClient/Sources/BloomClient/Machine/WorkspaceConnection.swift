@@ -263,6 +263,7 @@ public actor WorkspaceConnection {
     /// it was first given. Inside this call, a request that got no answer is retried with the same
     /// id, which the machine answers from its record if it had run it.
     public func perform(_ operation: WorkspaceOperation, commandID: String = UUID().uuidString.lowercased()) async throws(CommandFailure) -> OperationResult {
+        guard !Task.isCancelled else { throw .cancelled }
         let command = CommandRequest(operation, commandID: commandID)
         if case .asleep = phase { resume() }
         var lastProblem = "It did not answer."

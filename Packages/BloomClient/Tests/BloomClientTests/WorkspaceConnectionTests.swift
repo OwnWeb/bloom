@@ -153,12 +153,12 @@ import Testing
             }
         }
         await connection.open()
-        await transport.waitForRequests(to: "/session-token", count: 3)
+        let retried = await transport.waitForRequests(to: "/session-token", count: 3)
         await connection.close()
         watcher.cancel()
 
         let starting = log.phases.filter { if case .notReady = $0 { true } else { false } }
-        #expect(transport.requests(to: "/session-token").count >= 3, "the loop did not try again")
+        #expect(retried, "the loop did not try again")
         #expect(starting.count == 1, "the banner came and went: \(log.phases)")
     }
 
@@ -172,7 +172,8 @@ import Testing
         let command = Task {
             try await connection.perform(.markRead(chatID: "c1", seq: 1), commandID: "cancelled")
         }
-        await transport.waitForRequests(to: "/_bloom/v1/rpc", count: 1)
+        let sent = await transport.waitForRequests(to: "/_bloom/v1/rpc", count: 1)
+        #expect(sent, "the command was never sent")
         command.cancel()
         do {
             _ = try await command.value

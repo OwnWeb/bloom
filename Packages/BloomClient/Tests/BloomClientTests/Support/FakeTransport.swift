@@ -48,12 +48,29 @@ final class FakeTransport: HTTPTransport, @unchecked Sendable {
         requests.filter { $0.url?.path().hasSuffix(suffix) == true }
     }
 
-    /// Waits on the fake's own observable boundary, never on elapsed time or polling.
-    func waitForRequests(to suffix: String, count: Int) async {
-        if requests(to: suffix).count >= count { return }
-        for await request in requestEvents {
-            guard request.url?.path().hasSuffix(suffix) == true else { continue }
-            if requests(to: suffix).count >= count { return }
+    /// Waits on the fake's own observable boundary, never on elapsed time or polling. The timeout
+    /// is only a cap on a broken test, below the suite's own ceiling.
+    func waitForRequests(to suffix: String, count: Int, timeout: Duration = .seconds(30)) async -> Bool {
+        if requests(to: suffix).count >= count { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [requestEvents] in
+                for await request in requestEvents {
+                    guard request.url?.path().hasSuffix(suffix) == true else { continue }
+                    if self.requests(to: suffix).count >= count { return true }
+                }
+                return false
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(for: timeout)
+                    return false
+                } catch {
+                    return false
+                }
+            }
+            let reached = await group.next() ?? false
+            group.cancelAll()
+            return reached
         }
     }
 
