@@ -38,7 +38,7 @@ struct CloudWorkspaceMenuItems: View {
         }
         if item.canArchive {
             Divider()
-            Button("Archive…") {
+            Button("Delete Workspace…", role: .destructive) {
                 app.selection = .cloud(id)
                 // The menu was opened on the row, so the row is the thing to hang it on.
                 app.cloud.askToArchive(id, from: .row)

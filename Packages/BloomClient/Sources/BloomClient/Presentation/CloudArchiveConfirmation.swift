@@ -1,7 +1,7 @@
 import BloomProtocol
 import Foundation
 
-/// What archiving a Cloud workspace would lose, in sentences, and whether to ask twice.
+/// What deleting a Cloud workspace would lose, in sentences, and whether to ask twice.
 ///
 /// Archiving deletes the machine, and with it the conversation, so the sentence about the
 /// conversation is always there, first. The rest is the machine's own measurement when it could be
@@ -11,16 +11,18 @@ public struct CloudArchiveConfirmation: Sendable, Hashable {
     public var losses: [String]
     /// The id the machine checks its answer against, or nil when the machine was not asked.
     public var confirmationID: String?
-    /// Whether anything but the conversation would be lost, which is what makes the button red.
+    /// Whether deleting this workspace is destructive. It always is, even when the worktree is
+    /// clean, because the machine and conversation have no archive or restore path.
     public var isDestructive: Bool
 
-    public static let conversationSentence = "The conversation is deleted with the Bloom Cloud workspace. It cannot be restored."
+    public static let conversationSentence =
+        "This permanently deletes the machine, its worktree, the conversation and any unpushed work. Nothing can be restored."
 
     /// What is not lost, said as plainly as what is, so somebody archiving at the end of a day
     /// knows what they still have. **There is no export, by decision rather than by omission**: an
     /// archived Cloud workspace does not keep its conversation, and nothing here leaves room for
     /// one. See "Decided by the owner" in docs/REMOTE-WORKSPACES.md.
-    public static let survivesSentence = "The branch stays on GitHub with everything pushed to it."
+    public static let survivesSentence = "The branch and everything already pushed to it remain on GitHub."
 
     /// What the sheet says when the machine could not be asked at all.
     ///
@@ -29,7 +31,7 @@ public struct CloudArchiveConfirmation: Sendable, Hashable {
     /// it needs no machine and never did. So the sheet says what it could not find out, and
     /// archives.
     public static let unaskedSentence =
-        "The machine did not answer, so this is what runbloom.app last heard about it. Archiving stops and deletes it anyway."
+        "The machine did not answer. These details are from its latest report to runbloom.app."
 
     public init(preview: ArchivePreviewRecord) {
         var losses = [Self.conversationSentence]
@@ -48,7 +50,7 @@ public struct CloudArchiveConfirmation: Sendable, Hashable {
         }
         self.losses = losses
         confirmationID = preview.confirmationID
-        isDestructive = losses.count > 1
+        isDestructive = true
     }
 
     /// When the machine could not be asked. The summary is as old as the machine's last report, so
@@ -56,9 +58,7 @@ public struct CloudArchiveConfirmation: Sendable, Hashable {
     public init(summary: CloudWorkspaceSummary?) {
         var losses = [Self.conversationSentence]
         if let diff = summary?.diff, diff.files > 0 {
-            losses.append("When it last reported, \(diff.files == 1 ? "one file had" : "\(diff.files) files had") changes. Anything not pushed is lost.")
-        } else {
-            losses.append("Anything that was not pushed is lost.")
+            losses.append("At its latest report, \(diff.files == 1 ? "one file had" : "\(diff.files) files had") changes.")
         }
         self.losses = losses
         confirmationID = nil

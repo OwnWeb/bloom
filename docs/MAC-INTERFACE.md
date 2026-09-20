@@ -717,33 +717,32 @@ The detail line is the checks sentence from `GitHub.rollup`, in this order:
 4. "N optional checks failed" (still positive)
 5. "N checks passed"
 
-## Archiving a Bloom Cloud workspace, as the Mac asks it
+## Deleting a Bloom Cloud workspace, as the Mac asks it
 
-Worth porting, because every client archives and archiving is the one thing here that cannot be
-undone. The Mac raises `CloudArchivePopover` from whatever control was clicked: the sidebar row's
-archive box, the pull request strip's Archive button, or, for a caller with nothing on screen to
-point at, the window. It is the same dialog a local workspace's archive uses.
+Worth porting, because every client calls the archive route and the result cannot be undone. The
+Mac presents that action as Delete Workspace and raises `CloudArchivePopover` from whatever
+control was clicked: the sidebar row's delete button, the pull request strip's Delete Workspace
+button, or, for a caller with nothing on screen to point at, the window.
 
 What it says, in this order, is `CloudArchiveConfirmation`:
 
 1. The workspace's name, on its own line under a fixed title. A name is not a word and never goes
    inside the question.
-2. The conversation sentence, always first: it is deleted with the workspace and cannot be
-   restored.
+2. The permanent-loss sentence, always first: the machine, worktree, conversation and any
+   unpushed work are deleted with no restore path.
 3. Whatever else would be lost, from the machine's `archive_preview` when it answers, and from
    runbloom.app's last summary when it does not.
-4. What survives: the branch on GitHub, with everything pushed to it.
-5. One quiet line saying whether the machine has been asked yet, and a machine that never answered
-   says so rather than blocking. **Archiving never waits on the machine**, because the workspace
-   somebody most wants out of is the one whose machine will not wake, and archiving is the control
-   server's work.
+4. One quiet line beside the consequences saying whether the machine has been asked yet. A machine
+   that never answered says so rather than blocking. **Deletion never waits on the machine**,
+   because the workspace somebody most wants out of is the one whose machine will not wake, and
+   the archive route is the control server's work.
+5. What survives: the branch on GitHub, with everything pushed to it.
 
-**The dialog never changes size after it opens**, which is the part worth copying exactly. It
-opens on what the control server already knows and the machine's answer swaps in afterwards, so
-every part that can change has a slot of fixed height from the first frame: the losses scroll
-inside a fixed region, faded at the bottom rather than cut, and the status line always holds two
-lines' worth of room. The Mac's probe renders the three states and fails the build if their
-measured sizes differ.
+The anchored popover fits its content rather than reserving space for a worst-case answer. Every
+consequence and the survival sentence wraps in full, including at the probe's narrow width. The
+Mac's offscreen probe renders light and dark appearances, Increased Contrast and Reduce
+Transparency, checks the complete accessibility reading order, and verifies that Escape cancels
+while Return does nothing.
 
 ## What the wire would need, in the order it decides
 

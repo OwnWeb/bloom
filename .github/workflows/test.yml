@@ -327,6 +327,9 @@ jobs:
       - name: Check what a Cloud terminal shows after a reattach
         run: ./Tools/review-run-probe.sh --cloud-terminal-only
 
+      - name: Check the Bloom Cloud delete confirmation
+        run: ./Tools/review-run-probe.sh --cloud-archive-only --cloud-archive-keyboard
+
       # And what a workspace's tabs are written as, which is the re-keying the two above sit on.
       - name: Check the tab store's keys and what a relaunch reads back
         run: ./Tools/review-run-probe.sh --tab-store-only

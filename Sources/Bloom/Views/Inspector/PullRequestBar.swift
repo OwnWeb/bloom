@@ -114,6 +114,7 @@ struct PullRequestBar<Model: WorkspaceSurface>: View {
                 managementBlocker: managementBlocker,
                 isWorking: isWorking,
                 branchActions: branchActions,
+                isCloudWorkspace: model.surfaceID.cloudID != nil,
                 mergeMethod: model.mergeMethod,
                 onChooseMergeMethod: chooseMergeMethod,
                 onMerge: merge,

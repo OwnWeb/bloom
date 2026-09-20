@@ -287,8 +287,18 @@ import Testing
                                          isAgentRunning: false, isPullRequestMerged: true, createdAt: Date())
         let confirmation = CloudArchiveConfirmation(preview: clean)
         #expect(confirmation.losses == [CloudArchiveConfirmation.conversationSentence])
-        #expect(!confirmation.isDestructive)
+        #expect(confirmation.isDestructive)
         #expect(confirmation.confirmationID == "c")
+    }
+
+    @Test func permanentLossAndWhatSurvivesAreExplicit() {
+        let loss = CloudArchiveConfirmation.conversationSentence
+        #expect(loss.contains("machine"))
+        #expect(loss.contains("worktree"))
+        #expect(loss.contains("conversation"))
+        #expect(loss.contains("unpushed work"))
+        #expect(loss.contains("Nothing can be restored"))
+        #expect(CloudArchiveConfirmation.survivesSentence == "The branch and everything already pushed to it remain on GitHub.")
     }
 
     @Test func everyHazardIsNamed() {
@@ -305,6 +315,7 @@ import Testing
         #expect(confirmation.confirmationID == nil)
         #expect(confirmation.losses.first == CloudArchiveConfirmation.conversationSentence)
         #expect(confirmation.losses.last?.contains("3 files") == true)
+        #expect(confirmation.isDestructive)
     }
 }
 

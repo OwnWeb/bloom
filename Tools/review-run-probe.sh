@@ -8,6 +8,8 @@
 # Pass --cloud-terminal-only to check what a Cloud terminal shows after the machine reattaches it.
 # Pass --share-popover-only to draw two Share popover designs, offscreen, into the evidence folder.
 # Pass --cloud-settings-only to draw Settings' Bloom Cloud pane, signed out and in, light and dark.
+# Pass --cloud-archive-only to check the Cloud delete confirmation's layout and semantics.
+# Add --cloud-archive-keyboard to drive its Return and Escape key equivalents.
 # Pass --terminal-scroller-only to check both terminals' scroll bars follow the system's setting.
 # Pass --cloud-selection-only to check that a Cloud workspace with no chats cannot recurse with the
 # tab store. It crashes rather than fails on the code this was written for, which is the failure.
@@ -97,16 +99,50 @@ for index in range(8):
 # What the exit status of `open` cannot tell apart, the result file can, so the result is what
 # is believed: written means it ran, absent means it died. See the crash branch below, which is
 # the case this must not swallow.
-try:
+keyboard_mode = None
+keyboard_mode_was_set = False
+if '--cloud-archive-keyboard' in arguments and os.environ.get('CI'):
+    # Buttons accept focus only when macOS keyboard navigation is enabled. Set that preference for
+    # this disposable CI app, then put the runner back exactly as it was after the process exits.
+    previous = subprocess.run(
+        ['defaults', 'read', '-g', 'AppleKeyboardUIMode'], capture_output=True, text=True,
+    )
+    keyboard_mode_was_set = previous.returncode == 0
+    if keyboard_mode_was_set:
+        keyboard_mode = previous.stdout.strip()
     subprocess.run(
-        ['open', '-g', '-n', '-W', '-a', str(pathlib.Path(binary).parents[2]),
-         '--stdout', f'{root}/result.json', '--stderr', f'{root}/probe.log',
-         '--args', '--review-run-probe', root, *arguments],
+        ['defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', '3'], check=True,
+    )
+try:
+    open_arguments = ['open']
+    # Every ordinary probe stays in the background. The keyboard variant is the exception: `-g`
+    # explicitly forbids the disposable app from activating, so AppKit cannot give its offscreen
+    # confirmation a key window and SwiftUI cannot resolve the default focus. It runs only in CI,
+    # where allowing this isolated accessory app to activate is how the real focus path is tested.
+    if '--cloud-archive-keyboard' not in arguments:
+        open_arguments.append('-g')
+    open_arguments.extend([
+        '-n', '-W', '-a', str(pathlib.Path(binary).parents[2]),
+        '--stdout', f'{root}/result.json', '--stderr', f'{root}/probe.log',
+        '--args', '--review-run-probe', root, *arguments,
+    ])
+    subprocess.run(
+        open_arguments,
         timeout=120,
     )
 except subprocess.TimeoutExpired:
     print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
     raise
+finally:
+    if '--cloud-archive-keyboard' in arguments and os.environ.get('CI'):
+        if keyboard_mode_was_set:
+            subprocess.run(
+                ['defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', keyboard_mode], check=True,
+            )
+        else:
+            subprocess.run(
+                ['defaults', 'delete', '-g', 'AppleKeyboardUIMode'], check=True, capture_output=True,
+            )
 result_path = pathlib.Path(root, 'result.json')
 report = result_path.read_text() if result_path.exists() else ''
 print(report)

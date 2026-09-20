@@ -12,7 +12,14 @@ enum ReviewRunProbe {
 
     static func runAndExit() -> Never {
         guard Bundle.main.bundleIdentifier == "be.spatie.bloom.review-probe" else { exit(1) }
-        NSApplication.shared.setActivationPolicy(.prohibited)
+        // The keyboard confirmation probe needs one real key window so SwiftUI can resolve its
+        // default focus. Give that dedicated process accessory status before AppKit finishes
+        // launching it. Switching a running prohibited app in the probe itself is too late on a
+        // fresh CI login, where Launch Services will decline the activation request.
+        let policy: NSApplication.ActivationPolicy = CommandLine.arguments.contains("--cloud-archive-keyboard")
+            ? .accessory
+            : .prohibited
+        NSApplication.shared.setActivationPolicy(policy)
         Task { await run() }
         RunLoop.main.run()
         exit(1)
@@ -66,16 +73,32 @@ enum ReviewRunProbe {
             progress("Drawing the Bloom Cloud settings pane, signed out and signed in")
             let written = CloudSettingsGallery.render(into: directory)
             check(written.count == 15, "the gallery drew \(written.count) of the fifteen images")
-            // The archive popover never changes size once it is open, whatever the machine says.
             check(BloomIconArtwork.hasLayers, "the bundle has no icon layers, so the hero has no icon")
             check(BloomIconArtwork.image(.ground, size: 64) != nil, "a layer could not be filled")
             let sizes = CloudSettingsGallery.archiveSizes
             check(sizes.count == 3, "the archive popover was drawn \(sizes.count) times, not three")
-            check(Set(sizes.map(\.height)).count == 1, "the archive popover's heights differ: \(sizes)")
             check(Set(sizes.map(\.width)).count == 1, "the archive popover's widths differ: \(sizes)")
+            if sizes.count == 3 {
+                check(sizes[1].height > sizes[0].height, "the machine's longer answer did not grow the popover: \(sizes)")
+            }
             let result: JSONValue = .object([
                 "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
                 "images": .strings(written),
+            ])
+            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
+        if CommandLine.arguments.contains("--cloud-archive-only"),
+           let directory = ProbeHarness.value(for: "--review-run-probe") {
+            progress("Checking the Bloom Cloud delete confirmation")
+            await CloudArchiveProbe.run(
+                directory: directory,
+                checksKeyboard: CommandLine.arguments.contains("--cloud-archive-keyboard"),
+                check: check
+            )
+            let result: JSONValue = .object([
+                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
             ])
             if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
             exit(failures.isEmpty ? 0 : 1)

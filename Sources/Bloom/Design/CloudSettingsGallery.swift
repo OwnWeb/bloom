@@ -146,12 +146,10 @@ enum CloudSettingsGallery {
         return written
     }
 
-    /// The Bloom Cloud archive popover in the three states it passes through, photographed and
+    /// The Bloom Cloud delete popover in the three states it passes through, photographed and
     /// measured: as it opens on what runbloom.app knows, once the machine has answered with a
-    /// longer list, and when the machine did not answer at all.
-    ///
-    /// **The sizes are the point.** The sheet this replaced grew twice while somebody was reading
-    /// it. `archiveSizes` is what `ReviewRunProbe` asserts are all equal.
+    /// longer list, and when the machine did not answer at all. The height follows each answer;
+    /// `CloudArchiveProbe` owns the focused layout and accessibility regression coverage.
     private(set) static var archiveSizes: [CGSize] = []
 
     private static func renderArchive(into directory: String) -> [String] {

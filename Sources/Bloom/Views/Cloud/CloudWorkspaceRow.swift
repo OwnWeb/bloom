@@ -95,15 +95,15 @@ struct CloudWorkspaceRow: View {
     /// The same box a local row draws, raising the Cloud archive rather than the local one.
     private var archiveButton: some View {
         Button(action: onArchive) {
-            Image(systemName: "archivebox")
+            Image(systemName: "trash")
                 .font(Typo.caption)
                 .frame(width: SidebarMetrics.rowButton, height: SidebarMetrics.rowButton)
                 .contentShape(RoundedRectangle(cornerRadius: Metrics.cornerSmall))
         }
         .buttonStyle(.plain)
         .foregroundStyle(isEmphasized ? Palette.textInverted : Palette.textSecondary)
-        .help("Archive this Bloom Cloud workspace")
-        .accessibilityLabel("Archive \(item.displayName)")
+        .help("Delete Workspace")
+        .accessibilityLabel("Delete workspace \(item.displayName)")
         // Anchored here, as a local row anchors its own. Held open, and the box with it, while
         // `cloud.archiving` names this workspace, whichever control asked. See `CloudArchivePopover`.
         .popover(isPresented: archiveBinding, arrowEdge: .leading) {

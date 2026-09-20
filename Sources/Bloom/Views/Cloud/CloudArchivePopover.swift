@@ -2,21 +2,13 @@ import BloomClient
 import BloomCore
 import SwiftUI
 
-/// Confirming that a Cloud workspace is archived, which deletes its machine and its conversation.
+/// Confirming that a Cloud workspace is deleted, which removes its machine and its conversation.
 ///
-/// **The local archive's popover, anchored on the row's archive box.** It was a sheet, and the
-/// owner found archiving a Cloud workspace jarring beside archiving a local one: a different kind
-/// of dialog, in a different place, which then grew. So it is `ConfirmationPopover`, the shell
-/// `ArchiveConfirmationPopover` is, at the same width, with the same title, the same two buttons
-/// and the same keys, raised from the same place on the row.
-///
-/// **It never changes size once it is open.** The sheet grew twice: it opened with nothing under
-/// the name, then the losses runbloom.app knew arrived, then the machine's own list replaced them,
-/// longer, and the line saying it was asking became a two-line sentence or went away. Here every
-/// part that can change has a slot of fixed height from the first frame: the losses sit in a
-/// region sized for the machine's longest usual answer, scrolling past that, and the status line
-/// always reserves two lines. What changes inside a slot cross-fades. The measured sizes are
-/// checked offscreen by `CloudSettingsGallery.renderArchive`.
+/// It stays anchored to the control that asked, but its height follows the content. The previous
+/// fixed loss and status slots left a large empty middle while clipping the two sentences that
+/// mattered. Every sentence now wraps in the ordinary reading order, with freshness directly
+/// after the consequences and the surviving branch directly after that. `CloudArchiveProbe`
+/// checks the compact and constrained forms offscreen.
 ///
 /// Always asked, whatever the owner's "confirm before archiving" setting says: that setting is
 /// about a local worktree, whose conversation stays in this Mac's database after it goes.
@@ -43,8 +35,8 @@ struct CloudArchivePopover: View {
         )
         .task(id: id) {
             let asked = await app.cloud.machineArchivePreview(id)
-            // Only while the reader is still deciding. An answer that lands after Archive was
-            // pressed would otherwise change what is being archived under them.
+            // Only while the reader is still deciding. An answer that lands after Delete was
+            // pressed would otherwise change what is being deleted under them.
             guard !isArchiving else { return }
             if let asked { confirmation = asked }
             if case .failed = status { return }
@@ -61,7 +53,7 @@ struct CloudArchivePopover: View {
                 onClose()
             case .moved(let fresh):
                 confirmation = fresh
-                status = .failed("Something changed in the Bloom Cloud workspace since this was checked. Read it again before archiving.")
+                status = .failed("Something changed in the Bloom Cloud workspace since this was checked. Read the updated details before deleting.")
                 isArchiving = false
             case .failed(let message):
                 status = .failed(message)
@@ -71,9 +63,10 @@ struct CloudArchivePopover: View {
     }
 }
 
-/// What the popover draws, as a value, so the gallery can draw every state of it and measure that
-/// they are the same size.
+/// What the popover draws, as a value, so the offscreen probe can exercise every state.
 struct CloudArchivePopoverBody: View {
+    static let title = "Delete this Bloom Cloud workspace?"
+
     enum Status: Equatable {
         case asking
         case answered
@@ -87,75 +80,126 @@ struct CloudArchivePopoverBody: View {
     var isArchiving: Bool
     var onConfirm: () -> Void
     var onCancel: () -> Void
+    var width: CGFloat = 380
+#if DEBUG
+    var onFocusChange: ((String?) -> Void)?
+#endif
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var focus: Field?
 
-    /// Room for the conversation sentence, three more losses and the line about what survives,
-    /// which covers all but the machine's longest answers. A longer list scrolls inside the region
-    /// rather than growing the popover, and the last line it can show is faded off rather than cut,
-    /// so a clipped row reads as more to scroll instead of as a bug.
-    static let lossesHeight: CGFloat = 152
+    private enum Field: Hashable { case cancel, confirm }
 
-    /// Two lines of the caption, as a height rather than as a reserved line count: `lineLimit(2,
-    /// reservesSpace: true)` alone left the unanswered sentence a point taller than the other two,
-    /// which the probe caught and which is exactly the kind of growth this popover exists to stop.
-    static let statusHeight: CGFloat = 30
+    /// The sequence is not a description beside the view. `body` renders these elements in order,
+    /// so the probe pins the same source that determines VoiceOver's traversal.
+    var semanticReadingOrder: [String] {
+        presentationElements.flatMap(\.spoken)
+    }
 
     var body: some View {
-        ConfirmationPopover(
-            title: "Archive this Bloom Cloud workspace?",
-            confirmLabel: isArchiving ? "Archiving…" : "Archive",
-            tint: confirmation.isDestructive ? Palette.negative : Palette.controlAccent,
-            canConfirm: !isArchiving,
-            onConfirm: onConfirm,
-            onCancel: onCancel,
-            width: 380
-        ) {
-            // A name is not a word and does not go in the title: see the local archive dialog.
-            // Known when the popover opens, so it cannot move anything later.
-            Text(name)
-                .foregroundStyle(Palette.textSecondary)
-                .lineLimit(2, reservesSpace: true)
-                .truncationMode(.tail)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: Metrics.spacingWide) {
-                    ForEach(confirmation.losses, id: \.self) { loss in
-                        line(loss, glyph: loss == CloudArchiveConfirmation.conversationSentence
-                             ? "bubble.left.and.exclamationmark.bubble.right" : "exclamationmark.triangle",
-                             tint: Palette.warning)
-                    }
-                    line(CloudArchiveConfirmation.survivesSentence, glyph: "arrow.triangle.branch", tint: Palette.textSecondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .id(confirmation)
-                .transition(.opacity)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(presentationElements) { element in
+                row(element).padding(.top, element.spacingBefore)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(height: Self.lossesHeight)
-            .mask {
-                LinearGradient(
-                    stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.9), .init(color: .clear, location: 1)],
-                    startPoint: .top, endPoint: .bottom
-                )
-            }
-
-            Text(statusText)
-                .font(Typo.caption)
-                .foregroundStyle(statusIsFailure ? Palette.negative : Palette.textSecondary)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, minHeight: Self.statusHeight, maxHeight: Self.statusHeight, alignment: .topLeading)
-                .id(statusText)
-                .transition(.opacity)
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: confirmation)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: status)
+        // Hierarchical .primary otherwise resolves through the selected row's white foreground.
+        .environment(\.backgroundProminence, .standard)
+        .environment(\.isOnEmphasizedSelection, false)
+        .foregroundStyle(Palette.textPrimary)
+        .font(.body)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(20)
+        .frame(width: width)
+        .defaultFocus($focus, .cancel)
+        .task {
+            // Dynamic rows can miss SwiftUI's first default-focus evaluation. Wait until that
+            // pass is over, then choose the safe answer only if nothing, including a quick user
+            // action, has already taken focus.
+            await Task.yield()
+            guard !Task.isCancelled, focus == nil else { return }
+            focus = .cancel
+        }
+#if DEBUG
+        .onChange(of: focus, initial: true) { _, value in
+            onFocusChange?(value.map { $0 == .cancel ? "Cancel" : "Delete" })
+        }
+#endif
+    }
+
+    private var presentationElements: [PresentationElement] {
+        var elements: [PresentationElement] = [
+            .title(Self.title),
+            .name(name),
+        ]
+        elements += confirmation.losses.enumerated().map { index, loss in
+            .consequence(index: index, text: loss, isPrimary: loss == CloudArchiveConfirmation.conversationSentence)
+        }
+        elements += [
+            .freshness(statusText, isFailure: statusIsFailure),
+            .survives(CloudArchiveConfirmation.survivesSentence),
+            .actions(confirmLabel: isArchiving ? "Deleting…" : "Delete"),
+        ]
+        return elements
+    }
+
+    @ViewBuilder
+    private func row(_ element: PresentationElement) -> some View {
+        switch element {
+        case .title(let text):
+            Text(text)
+                .font(.headline)
+                .accessibilityIdentifier("confirmation-title")
+        case .name(let text):
+            // A name is not a word and does not go in the title: see the local archive dialog.
+            Text(text)
+                .foregroundStyle(Palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("cloud-delete-name")
+        case .consequence(let index, let text, let isPrimary):
+            line(
+                text,
+                glyph: isPrimary ? "trash" : "exclamationmark.triangle",
+                tint: Palette.negative,
+                identifier: "cloud-delete-consequence-\(index)"
+            )
+        case .freshness(let text, let isFailure):
+            Text(text)
+                .font(Typo.caption)
+                .foregroundStyle(isFailure ? Palette.negative : Palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("cloud-delete-status")
+        case .survives(let text):
+            line(
+                text,
+                glyph: "arrow.triangle.branch",
+                tint: Palette.textSecondary,
+                identifier: "cloud-delete-survives"
+            )
+        case .actions(let confirmLabel):
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.bordered)
+                    .focused($focus, equals: .cancel)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("confirmation-cancel")
+                Button(confirmLabel, role: .destructive) {
+                    guard !isArchiving else { return }
+                    onConfirm()
+                }
+                .buttonStyle(.bordered)
+                .tint(Palette.negative)
+                .foregroundStyle(Palette.negative)
+                .focused($focus, equals: .confirm)
+                .disabled(isArchiving)
+                .accessibilityIdentifier("confirmation-confirm")
+            }
+        }
     }
 
     private var statusText: String {
         switch status {
-        case .asking: "Asking the machine what else would be lost…"
-        case .answered: "Checked with the machine just now."
+        case .asking: "Checking the machine for current work…"
+        case .answered: "Verified with the machine just now."
         case .unanswered: CloudArchiveConfirmation.unaskedSentence
         case .failed(let message): message
         }
@@ -165,11 +209,52 @@ struct CloudArchivePopoverBody: View {
         if case .failed = status { true } else { false }
     }
 
-    private func line(_ text: String, glyph: String, tint: Color) -> some View {
-        Label {
+    private func line(_ text: String, glyph: String, tint: Color, identifier: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Metrics.spacing) {
+            Image(systemName: glyph)
+                .foregroundStyle(tint)
+                .frame(width: 18)
+                .accessibilityHidden(true)
             Text(text).fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: glyph).foregroundStyle(tint)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private enum PresentationElement: Identifiable {
+        case title(String)
+        case name(String)
+        case consequence(index: Int, text: String, isPrimary: Bool)
+        case freshness(String, isFailure: Bool)
+        case survives(String)
+        case actions(confirmLabel: String)
+
+        var id: String {
+            switch self {
+            case .title: "title"
+            case .name: "name"
+            case .consequence(let index, _, _): "consequence-\(index)"
+            case .freshness: "freshness"
+            case .survives: "survives"
+            case .actions: "actions"
+            }
+        }
+
+        var spoken: [String] {
+            switch self {
+            case .title(let text), .name(let text), .freshness(let text, _), .survives(let text): [text]
+            case .consequence(_, let text, _): [text]
+            case .actions(let confirmLabel): ["Cancel", confirmLabel]
+            }
+        }
+
+        var spacingBefore: CGFloat {
+            switch self {
+            case .title: 0
+            case .freshness: Metrics.spacing
+            case .actions: 16
+            case .name, .consequence, .survives: 12
+            }
         }
     }
 }

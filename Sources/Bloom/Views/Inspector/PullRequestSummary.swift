@@ -35,6 +35,8 @@ struct PullRequestSummary: View {
     /// Message requests stay available during a turn. Continue and Archive act immediately
     /// and still require an idle workspace. `PullRequestCreator` shares the same decision.
     var branchActions: BranchActionAvailability
+    /// Cloud workspaces are permanently deleted rather than kept in Bloom's local archive.
+    var isCloudWorkspace: Bool
     /// How this project merges, which the split button promises and its menu ticks. Per project
     /// and remembered: see `MergeMethodChoice`.
     var mergeMethod: GitHub.MergeMethod
@@ -380,7 +382,11 @@ struct PullRequestSummary: View {
     }
 
     private var archiveControl: some View {
-        Button("Archive", systemImage: "archivebox", action: onArchive)
+        Button(
+            isCloudWorkspace ? "Delete Workspace" : "Archive",
+            systemImage: isCloudWorkspace ? "trash" : "archivebox",
+            action: onArchive
+        )
             .archiveConfirmation(
                 $archiveRequest,
                 canConfirm: branchActions.isAllowed && !isWorking,
@@ -393,9 +399,16 @@ struct PullRequestSummary: View {
             .controlSize(.regular)
             .help(
                 branchActions.reason
-                    ?? "Remove this workspace's worktree. #\(pullRequest.number) is merged, so "
-                        + "this asks first only when something here exists nowhere else."
+                    ?? archiveHelp
             )
+    }
+
+    private var archiveHelp: String {
+        if isCloudWorkspace {
+            return "Permanently delete this Bloom Cloud workspace, including its machine, worktree and conversation."
+        }
+        return "Remove this workspace's worktree. #\(pullRequest.number) is merged, so "
+            + "this asks first only when something here exists nowhere else."
     }
 
     /// Commit what is outstanding and push it, by asking the agent to.
