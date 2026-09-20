@@ -53,6 +53,18 @@ struct CloudWorkspaceRow: View {
                     DiffStatLabel(additions: diff.additions, deletions: diff.deletions, compact: true, quiet: true)
                         .opacity(isHovered && item.canArchive ? 0 : 1)
                 }
+                if let project = item.project {
+                    CloudProjectIcon(
+                        teamID: CloudTeamID(item.teamID),
+                        projectID: CloudProjectID(project.id),
+                        repository: project.repository,
+                        iconURL: project.iconURL,
+                        size: Metrics.repoIconSmall,
+                        accessibilityName: "Project \(project.repository)"
+                    )
+                    .frame(width: SidebarMetrics.rowButton)
+                    .opacity(isHovered && item.canArchive ? 0 : 1)
+                }
             }
             // The local row's own hover control and the ground it clears, so the archive box is
             // under the pointer in the same place in both sections of the column.
@@ -70,9 +82,14 @@ struct CloudWorkspaceRow: View {
         .labelStyle(SidebarRowLabelStyle())
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
+        .task(id: projectSettingsKey) { await app.cloud.loadProjectIconSettings(for: item) }
         .accessibilityElement(children: .combine)
         .accessibilityValue(status.phrase + (item.unread ? ", unread" : ""))
         .environment(\.isOnEmphasizedSelection, isEmphasized)
+    }
+
+    private var projectSettingsKey: String? {
+        item.project.map { "\(item.teamID):\($0.id):\($0.settingsURL ?? "")" }
     }
 
     /// The same box a local row draws, raising the Cloud archive rather than the local one.

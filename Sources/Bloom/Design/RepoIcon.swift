@@ -44,6 +44,20 @@ struct RepoIcon: View {
         self.size = size
     }
 
+    /// The shared project mark with artwork supplied by somewhere other than this Mac's project
+    /// folder. The initials stay underneath it in the same fixed tile, so a remote picture arriving
+    /// cannot move the row it belongs to.
+    init(
+        name: String, accent: String?, size: CGFloat = Metrics.repoIcon,
+        artwork: RepoArtwork?, artworkKey: String?
+    ) {
+        self.name = name
+        self.accent = accent
+        self.size = size
+        self.artwork = artwork
+        self.artworkKey = artworkKey
+    }
+
     init(repo: Repo?, size: CGFloat = Metrics.repoIcon) {
         self.init(name: repo?.name ?? "", accent: repo?.accent, size: size)
         artwork = repo.flatMap(RepoIconArt.artwork(for:))

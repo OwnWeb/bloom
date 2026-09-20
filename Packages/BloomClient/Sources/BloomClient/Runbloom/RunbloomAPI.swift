@@ -113,6 +113,40 @@ public struct RunbloomAPI: Sendable {
         return try await send("PUT", path, body: Body(colour: colour))
     }
 
+    /// Reads the exact authorised project settings endpoint supplied with a Cloud workspace.
+    public func projectSettings(at endpoint: String) async throws -> RunbloomProjectSettings {
+        guard let path = sameAPIPath(endpoint) else { throw unsafeProjectEndpoint() }
+        return try await get(path)
+    }
+
+    /// Requests another server-side project icon check through the exact authorised endpoint in
+    /// the settings response. It does not contact or wake a workspace machine from this client.
+    public func refreshProjectIcon(at endpoint: String) async throws -> RunbloomProjectSettings {
+        guard let path = sameAPIPath(endpoint) else { throw unsafeProjectEndpoint() }
+        return try await send("POST", path, body: Empty())
+    }
+
+    /// Downloads only a server-authorised API PNG. A missing, stale or broken revision is an
+    /// ordinary refusal for the caller to turn into the immediate initials fallback.
+    public func projectIcon(at endpoint: String) async throws -> Data {
+        guard let path = sameAPIPath(endpoint) else { throw unsafeProjectEndpoint() }
+        let answer = try await performAnswer("GET", path, body: nil, accept: "image/png")
+        let type = answer.1.value(forHTTPHeaderField: "Content-Type")?
+            .split(separator: ";", maxSplits: 1).first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard type == "image/png", !answer.0.isEmpty, answer.0.count <= 512 * 1024 else {
+            throw RunbloomRefusal(
+                status: answer.1.statusCode, code: "unreadable_project_icon",
+                message: "runbloom.app did not return a usable project icon."
+            )
+        }
+        return answer.0
+    }
+
+    /// Whether a server-supplied address can receive this sign-in's bearer token.
+    public func allowsAPIEndpoint(_ endpoint: String) -> Bool {
+        sameAPIPath(endpoint) != nil
+    }
+
     public func sessionToken(for id: String) async throws -> SessionToken {
         try await send("POST", "cloud-workspaces/\(id)/session-token", body: Empty())
     }
@@ -243,30 +277,53 @@ public struct RunbloomAPI: Sendable {
         }
     }
 
-    private func perform(_ method: String, _ path: String, body: Data?, query: [URLQueryItem] = []) async throws -> Data {
-        let first = try await request(method, path, body: body, query: query, token: try await accessToken(false))
+    private func perform(
+        _ method: String, _ path: String, body: Data?, query: [URLQueryItem] = [], accept: String = "application/json"
+    ) async throws -> Data {
+        try await performAnswer(method, path, body: body, query: query, accept: accept).0
+    }
+
+    private func performAnswer(
+        _ method: String, _ path: String, body: Data?, query: [URLQueryItem] = [], accept: String = "application/json"
+    ) async throws -> (Data, HTTPURLResponse) {
+        let first = try await request(
+            method, path, body: body, query: query, token: try await accessToken(false), accept: accept
+        )
         if first.1.statusCode == 401 {
-            let second = try await request(method, path, body: body, query: query, token: try await accessToken(true))
-            return try Self.check(second)
+            let second = try await request(
+                method, path, body: body, query: query, token: try await accessToken(true), accept: accept
+            )
+            return try Self.checkAnswer(second)
         }
-        return try Self.check(first)
+        return try Self.checkAnswer(first)
     }
 
     /// A server-supplied mutation URL is followed only inside this signed-in API. This keeps the
     /// bearer token from travelling to a host or API root named by an untrusted response.
     private func sameAPIPath(_ value: String) -> String? {
-        guard let url = URL(string: value, relativeTo: baseURL)?.absoluteURL,
+        guard let components = URLComponents(string: value),
+              components.user == nil, components.password == nil, components.fragment == nil,
+              let url = components.url, url.absoluteString == value,
               url.scheme == baseURL.scheme,
               url.host == baseURL.host,
-              url.port == baseURL.port else { return nil }
+              url.port == baseURL.port,
+              components.query == nil else { return nil }
         let root = baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard path == root || path.hasPrefix(root + "/") else { return nil }
         return String(path.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
+    private func unsafeProjectEndpoint() -> RunbloomRefusal {
+        RunbloomRefusal(
+            status: 0, code: "unsafe_endpoint",
+            message: "runbloom.app supplied a project address outside its API. Refresh and try again."
+        )
+    }
+
     private func request(
-        _ method: String, _ path: String, body: Data?, query: [URLQueryItem] = [], token: String
+        _ method: String, _ path: String, body: Data?, query: [URLQueryItem] = [], token: String,
+        accept: String = "application/json"
     ) async throws -> (Data, HTTPURLResponse) {
         // Query items appended as items, never written into `path`: `appending(path:)` would
         // encode the `?` as part of the path.
@@ -274,7 +331,7 @@ public struct RunbloomAPI: Sendable {
         if !query.isEmpty { url.append(queryItems: query) }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(accept, forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 30
         if let body {
@@ -285,11 +342,15 @@ public struct RunbloomAPI: Sendable {
     }
 
     private static func check(_ answer: (Data, HTTPURLResponse)) throws -> Data {
+        try checkAnswer(answer).0
+    }
+
+    private static func checkAnswer(_ answer: (Data, HTTPURLResponse)) throws -> (Data, HTTPURLResponse) {
         let (data, response) = answer
         guard (200..<300).contains(response.statusCode) else {
             throw RunbloomRefusal.from(status: response.statusCode, body: data)
         }
-        return data
+        return (data, response)
     }
 }
 

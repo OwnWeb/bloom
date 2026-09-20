@@ -26,6 +26,13 @@ struct CloudWorkspaceMenuItems: View {
                 NSWorkspace.shared.open(settings.url)
             }
         }
+        if let project = item.project,
+           let icon = app.cloud.projectIcons.state(
+               for: .init(teamID: CloudTeamID(item.teamID), projectID: CloudProjectID(project.id)),
+               settingsEndpoint: project.settingsURL
+           ) {
+            CloudProjectIconMenu(item: item, icon: icon, cloud: app.cloud)
+        }
         if item.canColour, item.colourURL != nil {
             CloudWorkspaceColourItem(item: item, cloud: app.cloud)
         }
@@ -36,6 +43,37 @@ struct CloudWorkspaceMenuItems: View {
                 // The menu was opened on the row, so the row is the thing to hang it on.
                 app.cloud.askToArchive(id, from: .row)
             }
+        }
+    }
+}
+
+/// Discovery status and the authorised refresh action for a Cloud project's shared mark.
+private struct CloudProjectIconMenu: View {
+    var item: CloudWorkspaceItem
+    var icon: RunbloomProjectSettings.Icon
+    var cloud: CloudWorkspaces
+
+    var body: some View {
+        Menu {
+            Label(status.title, systemImage: status.symbol)
+                .disabled(true)
+            if let refreshURL = icon.refreshURL, cloud.api.allowsAPIEndpoint(refreshURL) {
+                Divider()
+                Button("Check Again") { Task { await cloud.refreshProjectIcon(for: item) } }
+                    .accessibilityLabel("Check for a new project icon")
+            }
+        } label: {
+            Label("Project Icon", systemImage: "photo")
+        }
+        .accessibilityValue(status.accessibilityValue)
+    }
+
+    private var status: (title: String, symbol: String, accessibilityValue: String) {
+        switch icon.status {
+        case "available": ("Artwork available", "checkmark", "Artwork available")
+        case "missing": ("Using initials", "textformat", "No artwork found, using initials")
+        case "pending": ("Check pending", "clock", "Project icon check pending")
+        default: ("Status unavailable", "questionmark", "Project icon status unavailable")
         }
     }
 }

@@ -139,6 +139,115 @@ import Testing
             == [#"{"colour":"4C8DF6"}"#, #"{"colour":null}"#])
     }
 
+    @Test func readsAndRefreshesProjectIconStateOnlyAtSuppliedAPIEndpoints() async throws {
+        let transport = FakeTransport()
+        let settings = "https://runbloom.test/api/v1/teams/t/projects/p/settings"
+        let refresh = "https://runbloom.test/api/v1/teams/t/projects/p/icon-refreshes"
+        let icon = "https://runbloom.test/api/v1/teams/t/projects/p/icon/4"
+        transport.on("GET", "/teams/t/projects/p/settings", .json("""
+        {"data":{"id":"p","repository":"spatie/bloom","icon_url":"\(icon)",
+         "icon":{"status":"available","checked_at":"2026-09-20T04:00:00Z","refresh_url":"\(refresh)"}}}
+        """))
+        transport.on("POST", "/teams/t/projects/p/icon-refreshes", .json("""
+        {"data":{"id":"p","repository":"spatie/bloom","icon_url":"\(icon)",
+         "icon":{"status":"pending","checked_at":"2026-09-20T04:00:00Z","refresh_url":"\(refresh)"}}}
+        """))
+        let api = Fixtures.api(transport)
+
+        let current = try await api.projectSettings(at: settings)
+        let requested = try await api.refreshProjectIcon(at: try #require(current.icon.refreshURL))
+
+        #expect(current.icon.status == "available")
+        #expect(current.iconURL == icon)
+        #expect(requested.icon.status == "pending")
+        #expect(transport.requests.map(\.url?.absoluteString) == [settings, refresh])
+    }
+
+    @Test func downloadsAProjectIconWithBearerAuthenticationAndPNGAccept() async throws {
+        let transport = FakeTransport()
+        let endpoint = "https://runbloom.test/api/v1/teams/t/projects/p/icon/9"
+        let png = Data([0x89, 0x50, 0x4e, 0x47])
+        transport.on("GET", "/teams/t/projects/p/icon/9", .init(
+            status: 200, body: png, headers: ["Content-Type": "image/png", "Cache-Control": "private, immutable"]
+        ))
+
+        #expect(try await Fixtures.api(transport).projectIcon(at: endpoint) == png)
+        let request = try #require(transport.requests.first)
+        #expect(request.url?.absoluteString == endpoint)
+        #expect(request.value(forHTTPHeaderField: "Accept") == "image/png")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer access")
+    }
+
+    @Test func aWithheldRefreshAndMissingIconRemainValidProjectSettings() async throws {
+        let transport = FakeTransport()
+        transport.on("GET", "/teams/t/projects/p/settings", .json("""
+        {"data":{"id":"p","repository":"spatie/bloom","icon_url":null,
+         "icon":{"status":"missing","checked_at":null,"refresh_url":null}}}
+        """))
+
+        let settings = try await Fixtures.api(transport).projectSettings(
+            at: "https://runbloom.test/api/v1/teams/t/projects/p/settings"
+        )
+        #expect(settings.iconURL == nil)
+        #expect(settings.icon.status == "missing")
+        #expect(settings.icon.refreshURL == nil)
+    }
+
+    @Test func aStaleIconRevisionDoesNotChangeTheReplacementAddress() async throws {
+        let transport = FakeTransport()
+        let old = "https://runbloom.test/api/v1/teams/t/projects/p/icon/4"
+        let replacement = "https://runbloom.test/api/v1/teams/t/projects/p/icon/5"
+        transport.on("GET", "/teams/t/projects/p/icon/4", .json(
+            #"{"code":"not_found","message":"Not found."}"#, status: 404
+        ))
+        transport.on("GET", "/teams/t/projects/p/icon/5", .init(
+            status: 200, body: Data([0x89, 0x50, 0x4e, 0x47]), headers: ["Content-Type": "image/png"]
+        ))
+        let api = Fixtures.api(transport)
+
+        await #expect(throws: RunbloomRefusal.self) { try await api.projectIcon(at: old) }
+        #expect(try await api.projectIcon(at: replacement) == Data([0x89, 0x50, 0x4e, 0x47]))
+        #expect(transport.requests.map(\.url?.absoluteString) == [old, replacement])
+    }
+
+    @Test func refusesArbitraryOrBrokenProjectIconAddresses() async throws {
+        let transport = FakeTransport()
+        transport.on("GET", "/teams/t/projects/p/icon/1", .json("{}"))
+        let api = Fixtures.api(transport)
+
+        for endpoint in [
+            "https://elsewhere.test/api/v1/teams/t/projects/p/icon/1",
+            "https://user:secret@runbloom.test/api/v1/teams/t/projects/p/icon/1",
+            "https://runbloom.test/outside/icon.png",
+            "/teams/t/projects/p/icon/1",
+        ] {
+            #expect(!api.allowsAPIEndpoint(endpoint))
+            await #expect(throws: RunbloomRefusal.self) { try await api.projectIcon(at: endpoint) }
+        }
+        #expect(api.allowsAPIEndpoint("https://runbloom.test/api/v1/teams/t/projects/p/icon/1"))
+        await #expect(throws: RunbloomRefusal.self) {
+            try await api.projectIcon(at: "https://runbloom.test/api/v1/teams/t/projects/p/icon/1")
+        }
+    }
+
+    @Test func projectListsDecodeMissingAndMalformedIconsCompatibly() async throws {
+        let transport = FakeTransport()
+        transport.on("GET", "/teams/t/projects", .json("""
+        {"data":[
+          {"id":"one","repository":"spatie/one","default_branch":"main",
+           "icon_url":"https://runbloom.test/api/v1/teams/t/projects/one/icon/2"},
+          {"id":"two","repository":"spatie/two","default_branch":"main"},
+          {"id":"three","repository":"spatie/three","default_branch":"main","icon_url":{"bad":true}},
+          {"id":"four","repository":"spatie/four","default_branch":"main","icon_url":null}
+        ]}
+        """))
+
+        let projects = try await Fixtures.api(transport).projects(team: "t")
+        #expect(projects.map(\.iconURL) == [
+            "https://runbloom.test/api/v1/teams/t/projects/one/icon/2", nil, nil, nil,
+        ])
+    }
+
     @Test func refusesAWorkspaceColourEndpointOutsideTheSignedInAPI() async {
         let api = Fixtures.api(FakeTransport())
         await #expect(throws: RunbloomRefusal.self) {

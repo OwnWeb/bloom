@@ -76,20 +76,25 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
         /// The authorised browser page runbloom.app supplied. Kept apart from the API endpoint so
         /// a client can never put bearer credentials on a browser navigation by confusing them.
         public var browserSettingsURL: String?
+        /// The authorised, revisioned API address for the project's current artwork.
+        public var iconURL: String?
 
         public init(
-            id: String, repository: String, settingsURL: String? = nil, browserSettingsURL: String? = nil
+            id: String, repository: String, settingsURL: String? = nil, browserSettingsURL: String? = nil,
+            iconURL: String? = nil
         ) {
             self.id = id
             self.repository = repository
             self.settingsURL = settingsURL
             self.browserSettingsURL = browserSettingsURL
+            self.iconURL = iconURL
         }
 
         enum CodingKeys: String, CodingKey {
             case id, repository
             case settingsURL = "settings_url"
             case browserSettingsURL = "browser_settings_url"
+            case iconURL = "icon_url"
         }
 
         public init(from decoder: any Decoder) throws {
@@ -99,6 +104,8 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
             settingsURL = try c.decodeIfPresent(String.self, forKey: .settingsURL)
             // A bad optional browser link hides one menu action rather than losing the workspace.
             browserSettingsURL = try? c.decodeIfPresent(String.self, forKey: .browserSettingsURL)
+            // Artwork is optional presentation. Bad or newer data must leave the initials in place.
+            iconURL = try? c.decodeIfPresent(String.self, forKey: .iconURL)
         }
 
         public func encode(to encoder: any Encoder) throws {
@@ -107,6 +114,7 @@ public struct CloudWorkspaceItem: Codable, Sendable, Hashable, Identifiable {
             try c.encode(repository, forKey: .repository)
             try c.encodeIfPresent(settingsURL, forKey: .settingsURL)
             try c.encodeIfPresent(browserSettingsURL, forKey: .browserSettingsURL)
+            try c.encodeIfPresent(iconURL, forKey: .iconURL)
         }
     }
 

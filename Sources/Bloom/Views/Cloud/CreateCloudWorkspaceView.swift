@@ -217,7 +217,14 @@ struct CreateCloudWorkspaceView: View {
             tint: Palette.textPrimary,
             showsMenuIndicator: projects.count > 1 || teams.count > 1
         ) {
-            Image(systemName: "cloud")
+            if let project, let teamID {
+                CloudProjectIcon(
+                    teamID: CloudTeamID(teamID), projectID: CloudProjectID(project.id), repository: project.repository,
+                    iconURL: project.iconURL, size: Metrics.repoIconSmall
+                )
+            } else {
+                Image(systemName: "cloud")
+            }
         }
 
         if projects.count > 1 || teams.count > 1 {
@@ -229,7 +236,20 @@ struct CreateCloudWorkspaceView: View {
                     .pickerStyle(.inline)
                 }
                 Picker("Project", selection: $projectID) {
-                    ForEach(projects) { Text($0.repository).tag(Optional($0.id)) }
+                    ForEach(projects) { project in
+                        Label {
+                            Text(project.repository)
+                        } icon: {
+                            if let teamID {
+                                CloudProjectIcon(
+                                    teamID: CloudTeamID(teamID), projectID: CloudProjectID(project.id),
+                                    repository: project.repository,
+                                    iconURL: project.iconURL, size: Metrics.repoIconSmall
+                                )
+                            }
+                        }
+                        .tag(Optional(project.id))
+                    }
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
