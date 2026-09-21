@@ -477,6 +477,31 @@ struct TranscriptListView: View {
         var foldSeq: Int?
         var hiddenIndices: Set<Int> = []
 
+        // A completed turn's copy control belongs to its final prose row. Work out that small
+        // mapping before the rows are emitted, because the result that authorises the control
+        // follows the response in the list. Each turn is scanned once and stops at its own
+        // boundary, so the total walk remains linear in the visible history.
+        let answerRows = rows.lazy.map {
+            TurnAnswer.Row(
+                seq: $0.seq,
+                kind: $0.kind,
+                payload: $0.payload,
+                isNested: $0.parentToolUseID != nil
+            )
+        }
+        var responseCopies: [Int: String] = [:]
+        for resultRow in drawnRows where resultRow.kind == .result && resultRow.parentToolUseID == nil {
+            guard let placement = TurnAnswerPlacementCache.placement(rowID: resultRow.id, build: {
+                guard case .result(let result)? = TranscriptEventCache.event(
+                    rowID: resultRow.id, payload: resultRow.payload
+                ) else { return nil }
+                return TurnAnswer.placement(
+                    summary: result.summary, rows: answerRows, endingAt: resultRow.seq
+                )
+            }) else { continue }
+            responseCopies[placement.rowSeq] = placement.text
+        }
+
         // What an Agent call row opens. Built once for the pass, and nil where there is no
         // workspace for a pane to hang off, which is Ask Bloom. See `SubagentRunActions`.
         let runActions: SubagentRunActions? = home.workspaceID.map { workspaceID in
@@ -643,6 +668,7 @@ struct TranscriptListView: View {
             // count's reason: the row becomes openable where it stands.
             let subagentHasRun = row.kind == .toolUse && folds.hasRun(underCall: row.refID)
             let isExpanded = expanded.contains(row.seq)
+            let responseCopyText = responseCopies[row.seq]
             let wasStopped = row.seq == stoppedTurnSeq
             let recovered = recoveredRuns[row.seq]
             // The echo already follows this footer. Waiting for its stored row to land added
@@ -669,6 +695,7 @@ struct TranscriptListView: View {
                 $0.combine(row.parentToolUseID)
                 $0.combine(subagentActions)
                 $0.combine(subagentHasRun)
+                $0.combine(responseCopyText != nil)
                 $0.combine(wasStopped)
                 $0.combine(recovered != nil)
                 $0.combine(closesTranscript)
@@ -736,6 +763,7 @@ struct TranscriptListView: View {
                                 subagentHasRun: subagentHasRun,
                                 runActions: runActions,
                                 cloudLink: transcript.cloud,
+                                responseCopyText: responseCopyText,
                                 projectName: projectName,
                                 onToggle: { toggle(row.seq) },
                                 onAnswer: { requestID, decision in

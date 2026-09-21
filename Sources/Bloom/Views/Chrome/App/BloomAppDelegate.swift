@@ -43,6 +43,8 @@ final class BloomAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         RunningApp.attach(model)
         // Option+Tab steps through the strip, and the strip is the model's. See `TabCycleShortcut`.
         TabCycleShortcut.attach(model)
+        // A selected passage in the current transcript answers plain R by moving into the reply.
+        SelectionToChat.attachReplyShortcut()
         // The suppression rule needs to know which workspace the window is showing, and this is
         // the first moment there is a window to ask.
         NotificationService.shared.attach(model)

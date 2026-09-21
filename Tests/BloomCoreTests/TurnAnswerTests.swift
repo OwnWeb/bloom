@@ -7,6 +7,10 @@ struct TurnAnswerTests {
     @Test func preservesTheResultSummary() {
         let summary = "## Done\n\nThe complete answer.\n"
         #expect(TurnAnswer.text(summary: summary, rows: [prose(1, "An update")], endingAt: 2) == summary)
+        #expect(
+            TurnAnswer.placement(summary: summary, rows: [prose(1, "An update")], endingAt: 2)
+                == .init(rowSeq: 1, text: summary)
+        )
     }
 
     @Test(arguments: ["", " \n\t"])
@@ -63,6 +67,18 @@ struct TurnAnswerTests {
         let rows = [row(0, .user), prose(1, "The answer"), row(2, .system), row(3, .result)]
         #expect(TurnAnswer.text(summary: "", rows: rows[1...], endingAt: 3) == "The answer")
         #expect(TurnAnswer.text(summary: "", rows: rows[3...], endingAt: 3).isEmpty)
+    }
+
+    @Test("the copy control belongs to the final visible response row")
+    func copyPlacement() {
+        let rows = [
+            row(1, .user), prose(2, "An update"), row(3, .toolUse),
+            prose(4, "The answer"), row(5, .result),
+        ]
+        #expect(
+            TurnAnswer.placement(summary: "", rows: rows, endingAt: 5)
+                == .init(rowSeq: 4, text: "The answer")
+        )
     }
 
     private func row(_ seq: Int, _ kind: MessageKind, isNested: Bool = false) -> TurnAnswer.Row {

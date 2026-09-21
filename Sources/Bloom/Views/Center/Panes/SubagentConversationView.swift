@@ -103,6 +103,7 @@ struct SubagentConversationView: View {
                 row: row,
                 home: home,
                 isExpanded: expanded.contains(row.id),
+                responseCopyText: nil,
                 // Nil, because a subagent is never asked a permission question: the CLI puts
                 // those on the parent's stream, where the transcript answers them.
                 projectName: nil,

@@ -23,15 +23,12 @@ struct TranscriptFoldRowView: View {
                 TranscriptDisclosure(isExpanded: isExpanded, isVisible: true)
                     .frame(width: TranscriptLayout.disclosureWidth)
 
-                HStack(spacing: TranscriptLayout.glyphGap) {
-                    TranscriptGlyph(symbol: "circle")
-                        .environment(\.transcriptFoldCount, hiddenCount)
-
-                    Text("actions")
-                        .font(Typo.label)
-                        .foregroundStyle(Palette.textTertiary)
+                HStack(spacing: 0) {
+                    Text("\(hiddenCount) actions")
+                        .font(Typo.caption)
+                        .foregroundStyle(Palette.textSecondary)
+                        .monospacedDigit()
                         .lineLimit(1)
-
                     Spacer(minLength: 0)
                 }
                 .transcriptRowFrame()
@@ -52,5 +49,4 @@ struct TranscriptFoldRowView: View {
             }
         }
     }
-
 }

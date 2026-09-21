@@ -326,14 +326,10 @@ reader navigated to. Clicking the call's title opens the subagent's own pane; it
 brief and the result. **[checked]** (`Folds.absorbs`, `Folds.actions(underCall:)`, `ToolRowHeader`)
 
 **The group line itself** (`Sources/Bloom/Views/Transcript/TranscriptFoldRowView.swift`): a
-disclosure chevron, then **the count inside a small filled circle** (18 points, tertiary ink at 16%
-opacity behind a semibold micro number, `TranscriptGlyph` with `transcriptFoldCount` set), then the
-word "actions" in tertiary ink. Nothing else: no tool names, no durations, no failure mark, by
-decision. Collapsed, the number is how many rows it hides; opened, it is how many rows the group
-has. The whole line is the toggle. **[checked]** One small bug the code admits to: it always says
-"actions", so a count of one would read "1 actions", and the helper that would fix it
-(`TranscriptFold.label(hiding:)`) is not called yet. With `leastHidden` at 3 a collapsed line never
-says 1.
+disclosure chevron, then **a plain "N actions" caption** in the same secondary ink and regular
+weight as the turn's completion metadata. Nothing else: no badge, tool names, durations or failure
+mark. Collapsed, the number is how many rows it hides; opened, it is how many rows the group has.
+The whole line is the toggle. **[checked]**
 
 **Opened**, the rows are drawn in place under the line, each as its own row, exactly as they would
 be with no group. There is no separate "expanded group" design. **[checked]**
@@ -386,7 +382,7 @@ while a turn runs and nothing is streaming yet. **[checked]**
 `Sources/Bloom/Views/Transcript/TurnFooterView.swift`, drawn in place of the `result` row.
 **[checked]**
 
-- A hairline rule, inset to the text column, tight to the line under it.
+- Whitespace rather than a rule separates the response from the completion metadata.
 - **The duration**: "Completed in 9s", "Failed after 1m 4s", "Stopped after 12s". Whole seconds,
   then minutes and seconds (`TurnDuration.wholeSeconds`).
 - **No mark for an ordinary finish.** A glyph appears before the duration only for the other three
@@ -394,8 +390,9 @@ while a turn runs and nothing is streaming yet. **[checked]**
   stop symbol in secondary ink for stopped (never red, since nothing went wrong).
 - **The files the turn changed**, as chips with the counts, as many as fit (up to six, then fewer,
   then "3 files"), with "+N more".
-- **A copy button, "Copy this answer"**, copying the turn's answer text (`TurnAnswer.text`),
-  disabled when there is none.
+- **A quiet copy button, "Copy this answer"**, sits at the right of the final response and copies
+  the turn's answer text (`TurnAnswer.placement`). It keeps a normal keyboard and accessibility
+  target while drawing its symbol one scale smaller than the ordinary copy control.
 - Under the line, only when there is something to say: what denied calls mean and which setting
   denied them, the CLI's own words for a failure (prefixed "The agent said:"), what the agent left
   running in the background, and a note that the turn recovered from retries.

@@ -44,6 +44,7 @@ struct TranscriptRowView: View, Equatable {
             && lhs.isNested == rhs.isNested
             && lhs.subagentActions == rhs.subagentActions
             && lhs.subagentHasRun == rhs.subagentHasRun
+            && (lhs.responseCopyText != nil) == (rhs.responseCopyText != nil)
             && lhs.home == rhs.home
             // A question being answered has to redraw the row that asked it, and the decision is
             // the only thing about it that changes after it is stored.
@@ -81,6 +82,9 @@ struct TranscriptRowView: View, Equatable {
     /// What fetches a Bloom Cloud machine's picture. Nil everywhere else, and left out of `==`
     /// like `runActions`: it is the same for every row of a transcript.
     var cloudLink: CloudChatLink?
+    /// The completed response copied by the control beside this row, or nil for intermediate
+    /// prose and prose that is still streaming.
+    var responseCopyText: String?
     /// What the project is called, so a permission row can name where a rule would apply, or nil
     /// when there is no project behind this conversation. Handed down for the same reason `home`
     /// is: it is constant for a whole transcript.
@@ -158,7 +162,7 @@ struct TranscriptRowView: View, Equatable {
 
         case .assistantText:
             if let text = assistantText, !text.isEmpty {
-                ProseRowView(text: text)
+                ProseRowView(text: text, copyText: responseCopyText)
             }
 
         case .media:
