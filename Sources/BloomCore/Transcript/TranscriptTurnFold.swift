@@ -198,6 +198,7 @@ public enum TranscriptTurnFold {
     }
 
     public static func label(milliseconds: Int) -> String {
-        "Worked for \(TurnDuration.wholeSeconds(milliseconds))"
+        let duration = TurnDuration.wholeSeconds(milliseconds)
+        return duration == "0s" ? "Worked for a while" : "Worked for \(duration)"
     }
 }

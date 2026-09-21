@@ -41,6 +41,11 @@ struct TranscriptTurnFoldTests {
         #expect(TranscriptTurnFold.label(milliseconds: turn.durationMS ?? 0) == "Worked for 1m 5s")
     }
 
+    @Test("a zero-second legacy duration reads naturally")
+    func zeroDuration() {
+        #expect(TranscriptTurnFold.label(milliseconds: 0) == "Worked for a while")
+    }
+
     @Test("the process stays visible until a result identifies the final response")
     func liveTurn() throws {
         let facts = [fact(0, .user), fact(1, .assistantText), fact(2, .toolUse)]
