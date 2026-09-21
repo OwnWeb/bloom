@@ -4,6 +4,7 @@
 #   ./Tools/build.sh            debug build
 #   ./Tools/build.sh -r         release build
 #   ./Tools/build.sh -r --run   release build, then launch it
+#   ./Tools/build.sh -r --build-system native   reproduce the release runner's SwiftPM layout
 #
 #   make app / make run         the same two through the Makefile
 
@@ -20,6 +21,7 @@ while (( $# )); do
     -r|--release) CONFIG=release ;;
     --run) RUN=1 ;;
     --jobs) BUILD_ARGS+=(--jobs "${1:?--jobs needs a number}"); shift ;;
+    --build-system) BUILD_ARGS+=(--build-system "${1:?--build-system needs a value}"); shift ;;
     *) echo "unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -33,7 +35,7 @@ swift build -c "$CONFIG" "${BUILD_ARGS[@]}" --product bloom-bridge
 # The privileged daemon that holds the lid, for the same reason: one product per invocation.
 swift build -c "$CONFIG" "${BUILD_ARGS[@]}" --product bloom-sleep-helper
 
-BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
+BIN_DIR="$(swift build -c "$CONFIG" "${BUILD_ARGS[@]}" --show-bin-path)"
 APP="$BIN_DIR/Bloom.app"
 
 rm -rf "$APP"
@@ -332,7 +334,7 @@ done
 # SwiftTerm and BloomCore as well. A separate pass over the app target alone costs a few seconds
 # and answers about exactly the module that owns the intents.
 emit_app_intents_metadata() {
-  local toolchain processor sdk deployment triple sources constvalues protocols modulemap
+  local toolchain processor sdk deployment triple sources constvalues protocols modulemap umbrella
   local -a clangModuleArguments
   toolchain="$(xcode-select -p 2>/dev/null)/Toolchains/XcodeDefault.xctoolchain"
   processor="$toolchain/usr/bin/appintentsmetadataprocessor"
@@ -389,6 +391,11 @@ PY
   # the app itself had already compiled successfully.
   for modulemap in "$BIN_DIR"/*.build/module.modulemap(N); do
     clangModuleArguments+=(-Xcc "-fmodule-map-file=$modulemap")
+    # An umbrella module can contain a header that includes another module's header by its bare
+    # filename. Clang resolves that through the same header search paths SwiftPM supplied to the
+    # real build, so reconstruct those paths from every generated umbrella directory too.
+    umbrella="$(sed -n 's/^[[:space:]]*umbrella "\(.*\)"[[:space:]]*$/\1/p' "$modulemap")"
+    [[ -n "$umbrella" ]] && clangModuleArguments+=(-Xcc "-I$umbrella")
   done
 
   swiftc -typecheck -wmo \
