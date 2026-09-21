@@ -42,10 +42,10 @@ extension WorkspaceHTTPServerTests {
     func terminalTurnEnvironmentIsScrubbed() async throws {
         let fixture = try await fixture()
         let grant = RemoteTurnGrant(
-            agentKeys: [
-                .claudeCode: RemoteAgentKey(key: "anthropic-sentinel", identity: "a", source: "personal"),
-                .codex: RemoteAgentKey(key: "openai-sentinel", identity: "o", source: "personal"),
-                .grok: RemoteAgentKey(key: "xai-sentinel", identity: "x", source: "personal"),
+            agentEnvironments: [
+                .claudeCode: ["ANTHROPIC_API_KEY": "anthropic-sentinel"],
+                .codex: ["OPENAI_API_KEY": "openai-sentinel"],
+                .grok: ["XAI_API_KEY": "xai-sentinel"],
             ],
             environment: [
                 "BLOOM_ALLOWED": "kept", "OPENAI_API_TOKEN": "alias-sentinel",
@@ -339,7 +339,7 @@ private struct TerminalEnvironmentGate: RemoteTurnGate {
     var grant: RemoteTurnGrant
 
     func register(
-        _ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, caller: RemoteCaller
+        _ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, model: String?, caller: RemoteCaller
     ) async throws -> String { "terminal-turn" }
 
     func start(turnID: String) async throws -> RemoteTurnGrant { grant }

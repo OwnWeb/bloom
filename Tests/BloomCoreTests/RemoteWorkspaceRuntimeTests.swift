@@ -978,14 +978,16 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
-    @Test("a grant supersedes personal credentials only where it shows the workspace is shared")
-    func supersedingIsPerAgent() {
-        let team = RemoteTurnGrant(agentKeys: [.codex: RemoteAgentKey(key: "k", identity: "i", source: "team")], environment: ["A": "b"])
-        #expect(team.supersedes(["codex"]))
-        #expect(!team.supersedes(["claude"]), "A team key for Codex says nothing about a personal Claude key")
+    @Test("a grant supersedes personal environment when the server no longer sends it")
+    func supersedingUsesPersonalEnvironment() {
+        let team = RemoteTurnGrant(
+            agentEnvironments: [.codex: ["OPENAI_API_KEY": "local-gateway"]],
+            environment: ["A": "b"]
+        )
+        #expect(!team.supersedes(["codex"]))
         #expect(!team.supersedes(["environment"]), "Personal environment still arrives, so the workspace is not shared")
         #expect(RemoteTurnGrant().supersedes(["environment"]))
-        #expect(team.personalMarks(for: [.codex]) == ["environment"])
+        #expect(team.personalMarks(for: [.codex]) == ["codex", "environment"])
     }
 
     @Test("a stop that sends no event still ends the turn, with the queue paused as a stop leaves it")
@@ -1578,7 +1580,9 @@ final class RemoteTestGate: RemoteTurnGate {
     let authorityWasRetiredAtEnd = Mutex<(@Sendable () -> Bool)?>(nil)
     let endObservedRetiredAuthority = Mutex<[Bool]>([])
 
-    func register(_ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, caller: RemoteCaller) async throws -> String {
+    func register(
+        _ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, model: String?, caller: RemoteCaller
+    ) async throws -> String {
         let id = "turn-\(UUID().uuidString.lowercased())"
         registered.withLock { $0.append((id, caller.sessionToken, caller.author?.userID)) }
         return id
@@ -1590,9 +1594,8 @@ final class RemoteTestGate: RemoteTurnGate {
         guard let key = keys.withLock({ $0[author] }) else {
             return RemoteTurnGrant(githubCredentialGrant: githubGrants.withLock { $0[author] })
         }
-        let source = key.contains("personal") ? "personal" : "team"
         return RemoteTurnGrant(
-            agentKeys: [.claudeCode: RemoteAgentKey(key: key, identity: "identity-of-\(key)", source: source)],
+            agentEnvironments: [.claudeCode: ["ANTHROPIC_API_KEY": key]],
             githubCredentialGrant: githubGrants.withLock { $0[author] }
         )
     }

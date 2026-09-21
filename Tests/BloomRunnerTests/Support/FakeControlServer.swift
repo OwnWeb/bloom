@@ -45,19 +45,32 @@ final class FakeControlServer: Sendable {
             return Scripted(status: status, body: String(decoding: data, as: UTF8.self))
         }
 
-        /// A granted start. `keys` is by wire agent name: `(key, identity, source)`.
+        /// A granted start. `models` is by wire agent name and emits the fixed provider and
+        /// operation contract for that agent.
         static func grant(
             turn: String = "",
-            keys: [String: (key: String, identity: String, source: String)] = [:],
+            models: [String: String] = [:],
             environment: [String: String] = [:],
             githubGrant: (token: String, expiresAt: String, revision: Int)? = nil
         ) -> Scripted {
-            var agentKeys: [String: Any] = [:]
-            for (agent, value) in keys {
-                agentKeys[agent] = ["key": value.key, "identity": value.identity, "source": value.source]
+            var modelGrants: [String: Any] = [:]
+            for (agent, model) in models {
+                let provider = agent == "claude" ? "anthropic" : (agent == "grok" ? "xai" : "openai")
+                let operation = agent == "claude" ? "anthropic_messages_stream"
+                    : (agent == "grok" ? "xai_responses_stream" : "openai_responses_stream")
+                modelGrants[agent] = [
+                    "version": "opaque_model_grant_v1",
+                    "token": String(repeating: agent == "claude" ? "a" : "b", count: 64),
+                    "expires_at": "2099-09-21T12:10:00Z",
+                    "revision": 1,
+                    "provider": provider,
+                    "model": model,
+                    "operation": operation,
+                ]
             }
             var body: [String: Any] = [
-                "turn_id": turn, "state": "running", "agent_keys": agentKeys, "environment": environment,
+                "turn_id": turn, "state": "running", "model_grants": modelGrants,
+                "environment": environment,
             ]
             if let githubGrant {
                 body["github_credential_grant"] = [
@@ -79,6 +92,18 @@ final class FakeControlServer: Sendable {
 
         static func refusal(status: Int = 403, code: String, message: String) -> Scripted {
             json(status, ["code": code, "message": message])
+        }
+
+        static func modelGrant(
+            status: Int, token: String = String(repeating: "m", count: 64),
+            revision: Int = 1, provider: String = "openai", model: String = "gpt-5-codex",
+            operation: String = "openai_responses_stream"
+        ) -> Scripted {
+            json(status, ["model_grant": [
+                "version": "opaque_model_grant_v1", "token": token,
+                "expires_at": "2099-09-21T12:10:00Z", "revision": revision,
+                "provider": provider, "model": model, "operation": operation,
+            ]])
         }
     }
 
@@ -292,7 +317,7 @@ final class FakeControlServer: Sendable {
             if let name = HTTPField.Name(name) { headers[name] = value }
         }
         guard let body = scripted.body else { return Response(status: .init(code: scripted.status), headers: headers) }
-        headers[.contentType] = "application/json"
+        if headers[.contentType] == nil { headers[.contentType] = "application/json" }
         return Response(
             status: .init(code: scripted.status),
             headers: headers,

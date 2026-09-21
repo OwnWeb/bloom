@@ -15,16 +15,19 @@ struct ProviderCredentialEnvironmentTests {
         #expect(scrubbed == ["BLOOM_ALLOWED": "kept"])
     }
 
-    @Test("each explicit agent boundary receives only its selected server credential",
+    @Test("each explicit agent boundary receives only its selected local gateway credential",
           arguments: AgentKind.allCases)
     func agentBoundary(agent: AgentKind) {
         var inherited = ["PATH": "/usr/bin", "BLOOM_ALLOWED": "inherited"]
         for name in ProviderCredentialEnvironment.prohibitedNames {
             inherited[name] = "inherited-sentinel"
         }
-        let granted = ProviderCredentialEnvironment.agent(
-            agent, key: "selected-sentinel", environment: ["TURN_ALLOWED": "granted"]
-        )
+        let canonical = switch agent {
+        case .claudeCode, .cursor, .openCode: "ANTHROPIC_API_KEY"
+        case .codex: "OPENAI_API_KEY"
+        case .grok: "XAI_API_KEY"
+        }
+        let granted = [canonical: "selected-sentinel", "TURN_ALLOWED": "granted"]
 
         let result = ProviderCredentialEnvironment.agent(
             agent, granted: granted, inheriting: inherited

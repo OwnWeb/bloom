@@ -74,7 +74,14 @@ public enum ServeCommand {
             configurationPath: configurationPath
         )
         let configuration = bootConfiguration
-        let gate = RunbloomTurns(client: client)
+        let modelGateway = ModelGateway(client: client)
+        let modelGatewayServer = try await ModelGatewayServer.start(gateway: modelGateway)
+        defer { modelGatewayServer.cancel() }
+        let gate = RunbloomTurns(
+            client: client, modelGateway: modelGateway,
+            modelGatewayBaseURL: modelGatewayServer.baseURL,
+            modelGatewayUsable: { modelGatewayServer.isReady }
+        )
         let personBoundBroker = PersonBoundCredentialBroker(
             repository: configuration.repository,
             registry: personBound.registry,
@@ -243,7 +250,11 @@ public enum ServeCommand {
         })
         let reporter = MachineReporter(
             runtime: runtime, store: store, delivery: delivery, host: host, version: version,
-            capabilitiesProvider: { personBound.capabilities + [MachineIdentitySigner.capability] }
+            capabilitiesProvider: {
+                personBound.capabilities
+                    + [MachineIdentitySigner.capability]
+                    + (modelGatewayServer.isReady ? [ModelGateway.capability] : [])
+            }
         )
         let awake = AwakeController(host: host, runtime: runtime, reporter: reporter)
         let machineEnvironment = MachineEnvironment(
@@ -323,7 +334,7 @@ public enum ServeCommand {
             terminalsEnabled: false,
             services: { await services.status },
             appPort: layout.appPort,
-            reservedPorts: layout.reservedPorts.map(\.port)
+            reservedPorts: layout.reservedPorts.map(\.port) + [modelGatewayServer.port]
         ))
 
         let credentialSocket = try PersonBoundCredentialSocket(
@@ -421,6 +432,8 @@ public enum ServeCommand {
             // Turns before the report, so the last usage report has every turn finishing in it.
             // This also closes every event stream.
             await runtime.shutdown()
+            await modelGateway.shutdown()
+            await modelGatewayServer.stop()
             await terminals.closeAll()
             await services.stopAll()
             await caddy.stop()

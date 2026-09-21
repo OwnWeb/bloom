@@ -145,7 +145,10 @@ struct RunbloomClientTests {
 
     @Test func aTurnIsRegisteredWithTheTokenChatAndAgent() async throws {
         try await Self.withFake { fake, client in
-            let turn = try await client.registerTurn(kind: .turn, chatID: "chat-1", agent: .claudeCode, sessionToken: "jwt.for.prompter")
+            let turn = try await client.registerTurn(
+                kind: .turn, chatID: "chat-1", agent: .claudeCode,
+                model: "claude-sonnet-4-5", sessionToken: "jwt.for.prompter"
+            )
             #expect(turn == FakeControlServer.turnID(1))
 
             let json = try #require(fake.requests("POST", "/turns").first?.json)
@@ -153,36 +156,40 @@ struct RunbloomClientTests {
             #expect(json["session_token"] as? String == "jwt.for.prompter")
             #expect(json["chat_id"] as? String == "chat-1")
             #expect(json["agent"] as? String == "claude")
+            #expect(json["model"] as? String == "claude-sonnet-4-5")
         }
     }
 
     @Test func aTerminalIsRegisteredWithNullChatAndAgent() async throws {
         try await Self.withFake { fake, client in
-            _ = try await client.registerTurn(kind: .terminal, chatID: nil, agent: nil, sessionToken: "jwt")
+            _ = try await client.registerTurn(
+                kind: .terminal, chatID: nil, agent: nil, model: nil, sessionToken: "jwt"
+            )
             let json = try #require(fake.requests("POST", "/turns").first?.json)
             #expect(json["kind"] as? String == "terminal")
             #expect(json["chat_id"] is NSNull)
             #expect(json["agent"] is NSNull)
+            #expect(json["model"] is NSNull)
         }
     }
 
-    @Test func startingDecodesKeysByAgentAndSkipsAgentsItDoesNotKnow() async throws {
+    @Test func startingDecodesOpaqueGrantsByAgentAndSkipsAgentsItDoesNotKnow() async throws {
         try await Self.withFake { fake, client in
             fake.setStart(turnID: "01jturnstart", response: .grant(
-                keys: [
-                    "claude": ("sk-ant-1", "hash-1", "team"),
-                    "codex": ("sk-openai", "hash-2", "personal"),
-                    "someday": ("x", "y", "team"),
+                models: [
+                    "claude": "claude-sonnet-4-5",
+                    "codex": "gpt-5-codex",
+                    "someday": "future-model",
                 ],
                 environment: ["GREETING": "hello"]
             ))
             let start = try await client.startTurn("01jturnstart")
 
-            #expect(start.agentKeys[.claudeCode] == RemoteAgentKey(key: "sk-ant-1", identity: "hash-1", source: "team"))
-            #expect(start.agentKeys[.codex] == RemoteAgentKey(key: "sk-openai", identity: "hash-2", source: "personal"))
-            #expect(start.agentKeys.count == 2)
+            #expect(start.modelGrants[.claudeCode]?.model == "claude-sonnet-4-5")
+            #expect(start.modelGrants[.codex]?.operation == .openAIResponsesStream)
+            #expect(start.modelGrants.count == 2)
             #expect(start.environment == ["GREETING": "hello"])
-            #expect(!start.description.contains("sk-ant-1"))
+            #expect(!start.description.contains(String(repeating: "a", count: 64)))
 
             let request = try #require(fake.requests.first)
             #expect(request.method == "POST")
@@ -196,6 +203,46 @@ struct RunbloomClientTests {
             try await client.endTurn("01jturnend")
             #expect(fake.requests.map(\.method) == ["DELETE"])
             #expect(fake.requests.map(\.path) == ["/turns/01jturnend"])
+        }
+    }
+
+    @Test("terminal grant issue, renewal and cancellation use the exact versioned bodies")
+    func opaqueModelGrantCalls() async throws {
+        try await Self.withFake { fake, client in
+            let issueID = UUID(uuidString: "e579cbaa-3143-4e2d-8503-9cf620433742")!
+            let renewID = UUID(uuidString: "bc2ba416-995c-4cd7-b3d6-b13a7b59f3cb")!
+            let streamID = UUID(uuidString: "19c558bd-8783-4059-85e0-878d48ec19c8")!
+            let old = String(repeating: "o", count: 64)
+            let rotated = String(repeating: "r", count: 64)
+            fake.script("POST", "/turns/terminal-1/model-grants", .modelGrant(status: 201))
+            fake.script("POST", "/turns/terminal-1/model-grant-renewals", .modelGrant(
+                status: 200, token: rotated, revision: 2
+            ))
+            fake.script(
+                "DELETE", "/model-gateway/requests/\(streamID.uuidString.lowercased())", .noContent
+            )
+
+            _ = try await client.issueModelGrant(
+                turnID: "terminal-1", agent: .codex, model: "gpt-5-codex", requestID: issueID
+            )
+            _ = try await client.renewModelGrant(
+                turnID: "terminal-1", grant: old, requestID: renewID
+            )
+            try await client.cancelModelStream(requestID: streamID, grant: rotated)
+
+            let issue = try #require(fake.requests("POST", "/turns/terminal-1/model-grants").first?.json)
+            #expect(Set(issue.keys) == ["version", "agent", "model", "request_id"])
+            #expect(issue["request_id"] as? String == issueID.uuidString.lowercased())
+            let renewal = try #require(fake.requests(
+                "POST", "/turns/terminal-1/model-grant-renewals"
+            ).first?.json)
+            #expect(Set(renewal.keys) == ["version", "grant", "request_id"])
+            #expect(renewal["grant"] as? String == old)
+            let cancellation = try #require(fake.requests(
+                "DELETE", "/model-gateway/requests/\(streamID.uuidString.lowercased())"
+            ).first?.json)
+            #expect(Set(cancellation.keys) == ["version", "grant"])
+            #expect(cancellation["grant"] as? String == rotated)
         }
     }
 
@@ -264,7 +311,7 @@ struct RunbloomClientTests {
             let started = try await client.startTurn("01jv2turn")
             #expect(started.githubCredentialGrant?.token == token)
             #expect(started.githubCredentialGrant?.revision == 9)
-            #expect(!String(reflecting: started.grant).contains(token))
+            #expect(!String(reflecting: started).contains(token))
             #expect(!started.description.contains(token))
         }
     }
@@ -484,7 +531,10 @@ struct RunbloomClientTests {
         try await Self.withFake { fake, client in
             fake.script("POST", "/turns", .refusal(code: "missing_ability", message: "No prompting."))
             await #expect(throws: RunbloomError.refused(status: 403, code: "missing_ability", message: "No prompting.", limit: nil, retryAfter: nil)) {
-                try await client.registerTurn(kind: .turn, chatID: "c", agent: .codex, sessionToken: "jwt")
+                try await client.registerTurn(
+                    kind: .turn, chatID: "c", agent: .codex, model: "gpt-5-codex",
+                    sessionToken: "jwt"
+                )
             }
             fake.setStart(turnID: "t2", response: .refusal(status: 409, code: "turn_not_startable", message: "Too old."))
             await #expect(throws: RunbloomError.refused(status: 409, code: "turn_not_startable", message: "Too old.", limit: nil, retryAfter: nil)) {

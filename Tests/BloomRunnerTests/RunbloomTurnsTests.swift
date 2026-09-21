@@ -9,7 +9,12 @@ struct RunbloomTurnsTests {
     private static func withTurns(_ body: (FakeControlServer, RunbloomTurns) async throws -> Void) async throws {
         let fake = try await FakeControlServer.start()
         let client = RunbloomClient(baseURL: fake.baseURL, workspaceID: fake.workspaceID, secret: fake.secret, http: .shared)
-        let turns = RunbloomTurns(client: client, endAttempts: 4, endRetryDelay: .milliseconds(10))
+        let gateway = ModelGateway(client: client)
+        let turns = RunbloomTurns(
+            client: client, modelGateway: gateway, modelGatewayBaseURL: "http://127.0.0.1:1",
+            modelGatewayUsable: { true },
+            endAttempts: 4, endRetryDelay: .milliseconds(10)
+        )
         do {
             try await body(fake, turns)
         } catch {
@@ -26,22 +31,28 @@ struct RunbloomTurnsTests {
     @Test func registerSendsTheCallersToken() async throws {
         try await Self.withTurns { fake, turns in
             let chat = SessionID(rawValue: "chat-7")
-            let turn = try await turns.register(.turn, chat: chat, agent: .codex, caller: Self.prompter(token: "fresh.jwt"))
+            let turn = try await turns.register(
+                .turn, chat: chat, agent: .codex, model: "gpt-5-codex",
+                caller: Self.prompter(token: "fresh.jwt")
+            )
             #expect(turn == FakeControlServer.turnID(1))
             let json = try #require(fake.requests("POST", "/turns").first?.json)
             #expect(json["session_token"] as? String == "fresh.jwt")
             #expect(json["chat_id"] as? String == "chat-7")
             #expect(json["agent"] as? String == "codex")
+            #expect(json["model"] as? String == "gpt-5-codex")
         }
     }
 
     @Test func aCallerWithNoTokenIsRefusedWithoutAsking() async throws {
         try await Self.withTurns { fake, turns in
             await #expect(throws: RemoteFailure.self) {
-                try await turns.register(.terminal, chat: nil, agent: nil, caller: .server)
+                try await turns.register(.terminal, chat: nil, agent: nil, model: nil, caller: .server)
             }
             do {
-                _ = try await turns.register(.terminal, chat: nil, agent: nil, caller: Self.prompter(token: ""))
+                _ = try await turns.register(
+                    .terminal, chat: nil, agent: nil, model: nil, caller: Self.prompter(token: "")
+                )
             } catch let failure as RemoteFailure {
                 #expect(failure.code == .unauthenticated)
             }
@@ -58,7 +69,10 @@ struct RunbloomTurnsTests {
         try await Self.withTurns { fake, turns in
             fake.script("POST", "/turns", .refusal(code: code, message: "Said by runbloom.app."))
             do {
-                _ = try await turns.register(.turn, chat: SessionID(rawValue: "c"), agent: .claudeCode, caller: Self.prompter(token: "jwt"))
+                _ = try await turns.register(
+                    .turn, chat: SessionID(rawValue: "c"), agent: .claudeCode,
+                    model: "claude-sonnet-4-5", caller: Self.prompter(token: "jwt")
+                )
                 Issue.record("The refusal was not thrown.")
             } catch let failure as RemoteFailure {
                 #expect(failure == RemoteFailure(expected, "Said by runbloom.app."))
@@ -68,11 +82,34 @@ struct RunbloomTurnsTests {
 
     @Test func startHandsBackTheGrant() async throws {
         try await Self.withTurns { fake, turns in
-            fake.setStart(turnID: "t1", response: .grant(keys: ["claude": ("sk-ant", "id-1", "team")], environment: ["A": "1"]))
+            fake.setStart(turnID: "t1", response: .grant(
+                models: ["claude": "claude-sonnet-4-5"], environment: ["A": "1"]
+            ))
             let grant = try await turns.start(turnID: "t1")
-            #expect(grant.agentKeys[.claudeCode]?.identity == "id-1")
-            #expect(grant.environment(for: .claudeCode)["ANTHROPIC_API_KEY"] == "sk-ant")
+            #expect(grant.environment(for: .claudeCode)["ANTHROPIC_API_KEY"]?.count == 64)
+            #expect(grant.environment(for: .claudeCode)["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:1")
             #expect(grant.environment["A"] == "1")
+        }
+    }
+
+    @Test("a terminal starts empty and a trusted publishing agent requests one exact grant")
+    func terminalPublishingAgentGrant() async throws {
+        try await Self.withTurns { fake, turns in
+            let turn = try await turns.register(
+                .terminal, chat: nil, agent: nil, model: nil,
+                caller: Self.prompter(token: "terminal.jwt")
+            )
+            let shell = try await turns.start(turnID: turn)
+            #expect(shell.agentEnvironments.isEmpty)
+            fake.script("POST", "/turns/\(turn)/model-grants", .modelGrant(status: 201))
+
+            let agent = try await turns.issueModelAccess(
+                turnID: turn, agent: .codex, model: "gpt-5-codex", requestID: UUID()
+            )
+            #expect(agent["OPENAI_API_KEY"]?.count == 64)
+            #expect(agent["OPENAI_BASE_URL"] == "http://127.0.0.1:1/v1")
+            let request = try #require(fake.requests("POST", "/turns/\(turn)/model-grants").first?.json)
+            #expect(Set(request.keys) == ["version", "agent", "model", "request_id"])
         }
     }
 

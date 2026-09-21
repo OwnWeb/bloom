@@ -3,10 +3,10 @@ import Foundation
 /// The one place a Cloud workspace chat becomes an agent process.
 ///
 /// The Mac decides this in `TranscriptModel.makeRunner`, in the app target, which the server does
-/// not link. The difference that makes a second copy worth having is the environment: a turn's key
+/// not link. The difference that makes a second copy worth having is the environment: a turn's local gateway credential
 /// and the prompter's personal variables go into that process's environment and nowhere else, not
 /// argv, not disk, not the transcript. Each runner already takes the factory it spawns through, so
-/// the environment is merged there and no runner learns about keys.
+/// the environment is merged there and no runner learns about the server grant.
 ///
 /// The bridge handle is minted per process, by the runtime, for the same reason the Mac mints it
 /// beside `makeRunner`: registering revokes the previous token for that chat, so it belongs where
