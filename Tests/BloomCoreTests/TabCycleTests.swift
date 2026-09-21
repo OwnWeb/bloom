@@ -69,6 +69,54 @@ struct TabCycleTests {
         #expect(TabCycle.offset(forTabWith: [.control]) == nil)
     }
 
+    // MARK: - Command+Option+Arrow
+
+    @Test("Command+Option+Left and Right move backwards and forwards")
+    func commandOptionArrows() {
+        #expect(TabCycle.offset(
+            for: .left, modifiers: [.command, .option], tabCount: tabs.count,
+            responderOwnsShortcut: false, isComposing: false
+        ) == -1)
+        #expect(TabCycle.offset(
+            for: .right, modifiers: [.command, .option], tabCount: tabs.count,
+            responderOwnsShortcut: false, isComposing: false
+        ) == 1)
+    }
+
+    @Test("arrow cycling leaves other modifier combinations alone")
+    func otherArrowModifiersAreLeftAlone() {
+        for modifiers: MenuShortcut.Modifiers in [
+            [], [.option], [.command], [.command, .option, .shift], [.command, .option, .control],
+        ] {
+            #expect(TabCycle.offset(
+                for: .right, modifiers: modifiers, tabCount: tabs.count,
+                responderOwnsShortcut: false, isComposing: false
+            ) == nil)
+        }
+    }
+
+    @Test("arrow cycling needs a thread with more than one tab")
+    func arrowCyclingNeedsSeveralTabs() {
+        for count in [Int?.none, 0, 1] {
+            #expect(TabCycle.offset(
+                for: .right, modifiers: [.command, .option], tabCount: count,
+                responderOwnsShortcut: false, isComposing: false
+            ) == nil)
+        }
+    }
+
+    @Test("editable responders and text composition keep arrow shortcuts")
+    func respondersKeepTheirArrows() {
+        #expect(TabCycle.offset(
+            for: .left, modifiers: [.command, .option], tabCount: tabs.count,
+            responderOwnsShortcut: true, isComposing: false
+        ) == nil)
+        #expect(TabCycle.offset(
+            for: .left, modifiers: [.command, .option], tabCount: tabs.count,
+            responderOwnsShortcut: false, isComposing: true
+        ) == nil)
+    }
+
     // MARK: - Cmd+1 to Cmd+9
 
     /// Safari, Terminal and Xcode all give 9 to the LAST tab rather than to the ninth, which is

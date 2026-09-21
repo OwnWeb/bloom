@@ -7,6 +7,7 @@ struct ReviewPaneComposer<Model: WorkspaceSurface>: View {
     let model: Model
     var room: ComposerRoom
     var destinationID: SessionID?
+    var showsDestinationStrip = true
 
     private var textSize: ChatTextSize { ColourThemePreference.shared.chatTextSize }
     private var chatFontID: String { ColourThemePreference.shared.chatFont }
@@ -22,7 +23,8 @@ struct ReviewPaneComposer<Model: WorkspaceSurface>: View {
             if let destination, let transcript = model.existingTranscript(for: destination.id) {
                 ComposerView(
                     transcript: transcript, model: model.composerWorkspace, room: room,
-                    destinationLabel: ReviewDestination.label(for: destination.title),
+                    destinationLabel: showsDestinationStrip
+                        ? ReviewDestination.label(for: destination.title) : nil,
                     destinations: destinationID == nil
                         ? model.chats.map { ComposerDestination(id: $0.id, title: $0.title) } : [],
                     onSelectDestination: choose

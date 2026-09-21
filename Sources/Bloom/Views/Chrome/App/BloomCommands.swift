@@ -279,7 +279,11 @@ struct BloomCommands: Commands {
             // act as Copy: take what is selected and put it somewhere. Never disabled, for Find's
             // reason: whether anything is selected is the responder chain's to say, and it says so
             // at the moment the key is pressed rather than when this body was last built.
-            MenuCommand(.addSelectionToChat) {
+            MenuCommand(
+                .addSelectionToChat,
+                title: model.browserLocationTarget == nil ? nil : "Open Location…"
+            ) {
+                if model.focusBrowserLocation() { return }
                 if !SelectionToChat.perform() { NSSound.beep() }
             }
 

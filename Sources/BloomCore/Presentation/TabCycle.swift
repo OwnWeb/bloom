@@ -11,6 +11,11 @@ import Foundation
 /// It wraps, which is what every one of those four does and what makes a single shortcut enough to
 /// reach any tab in a strip of three or four.
 public enum TabCycle {
+    public enum Arrow: Sendable {
+        case left
+        case right
+    }
+
     /// The tab an offset away from the current one, wrapping at both ends.
     ///
     /// Nil only when there is nothing to move to: an empty strip, or a strip of one, where every
@@ -42,6 +47,26 @@ public enum TabCycle {
         case [.option, .shift]: -1
         default: nil
         }
+    }
+
+    /// Command+Option+Left and Right move through a workspace's strip when the responder has not
+    /// already claimed the gesture for editing, composition or its own navigation.
+    ///
+    /// The tab count is optional so `nil` can mean there is no workspace thread in front. An
+    /// empty or one-tab strip answers nil too, leaving the event untouched and avoiding a write
+    /// of the selection to the value it already has.
+    public static func offset(
+        for arrow: Arrow,
+        modifiers: MenuShortcut.Modifiers,
+        tabCount: Int?,
+        responderOwnsShortcut: Bool,
+        isComposing: Bool
+    ) -> Int? {
+        guard modifiers == [.command, .option],
+              let tabCount, tabCount > 1,
+              !responderOwnsShortcut,
+              !isComposing else { return nil }
+        return arrow == .left ? -1 : 1
     }
 
     /// The tab a number reaches: Cmd+1 to Cmd+8 are the first eight, and Cmd+9 is the last one
