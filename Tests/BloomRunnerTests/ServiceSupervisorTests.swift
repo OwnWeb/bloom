@@ -35,8 +35,8 @@ struct ServiceSupervisorTests {
         }
         let (supervisor, root) = try supervisor(appPort: listener.port)
         await supervisor.start([
-            .init(name: "vite", command: "date +%s%N > vite.started; exec sleep 60", dependsOn: ["app"]),
-            .init(name: "app", command: "echo app output; exec sleep 60", http: true, ready: "http:/up"),
+            .init(id: "vite", name: "vite", command: "date +%s%N > vite.started; exec sleep 60", dependsOn: ["app"]),
+            .init(id: "app", name: "app", command: "echo app output; exec sleep 60", http: true, ready: "http:/up"),
         ], environment: ProcessInfo.processInfo.environment)
 
         #expect(await SetupTestSupport.eventually { await Self.state(supervisor, "app") == .starting })
@@ -62,8 +62,8 @@ struct ServiceSupervisorTests {
         tuning.readinessDeadline = .milliseconds(800)
         let (supervisor, root) = try supervisor(appPort: port, tuning: tuning)
         await supervisor.start([
-            .init(name: "app", command: "exec sleep 60", ready: "http:/up"),
-            .init(name: "worker", command: "touch worker.started; exec sleep 60", dependsOn: ["app"]),
+            .init(id: "app", name: "app", command: "exec sleep 60", ready: "http:/up"),
+            .init(id: "worker", name: "worker", command: "touch worker.started; exec sleep 60", dependsOn: ["app"]),
         ], environment: ProcessInfo.processInfo.environment)
 
         #expect(await SetupTestSupport.eventually { await Self.state(supervisor, "app") == .notReady })
@@ -78,7 +78,7 @@ struct ServiceSupervisorTests {
     func restartAfterCrash() async throws {
         let (supervisor, root) = try supervisor()
         await supervisor.start([
-            .init(name: "flaky", command: "echo run >> runs; exit 1"),
+            .init(id: "flaky", name: "flaky", command: "echo run >> runs; exit 1"),
         ], environment: ProcessInfo.processInfo.environment)
 
         #expect(await SetupTestSupport.eventually { SetupTestSupport.read(root + "/runs").split(separator: "\n").count >= 3 })
@@ -98,7 +98,7 @@ struct ServiceSupervisorTests {
         // `trap '' TERM` is inherited by the background child, so only SIGKILL after the grace
         // period ends either of them.
         await supervisor.start([
-            .init(name: "stubborn", command: "trap '' TERM; sleep 120 & echo $! > child.pid; echo $$ > shell.pid; wait"),
+            .init(id: "stubborn", name: "stubborn", command: "trap '' TERM; sleep 120 & echo $! > child.pid; echo $$ > shell.pid; wait"),
         ], environment: ProcessInfo.processInfo.environment)
 
         #expect(await SetupTestSupport.eventually { !SetupTestSupport.read(root + "/child.pid").isEmpty && !SetupTestSupport.read(root + "/shell.pid").isEmpty })
@@ -118,7 +118,7 @@ struct ServiceSupervisorTests {
         var environment = ProcessInfo.processInfo.environment
         environment["GREETING"] = "first"
         await supervisor.start([
-            .init(name: "echo", command: "echo \"$GREETING\" >> greetings; exec sleep 60"),
+            .init(id: "echo", name: "echo", command: "echo \"$GREETING\" >> greetings; exec sleep 60"),
         ], environment: environment)
         #expect(await SetupTestSupport.eventually { SetupTestSupport.read(root + "/greetings") == "first\n" })
 
@@ -126,6 +126,65 @@ struct ServiceSupervisorTests {
         await supervisor.restartAll(environment: environment)
         #expect(await SetupTestSupport.eventually { SetupTestSupport.read(root + "/greetings") == "first\nsecond\n" })
         #expect(await supervisor.status.first?.restarts == 0)
+        await supervisor.stopAll()
+    }
+
+    @Test("each service and restart receives only its named secret, and logs redact it")
+    func scopedSecrets() async throws {
+        let root = try SetupTestSupport.directory("service-secrets")
+        let layout = MachineLayout(dataDirectory: root + "/data", worktree: root)
+        let secrets = Mutex(["backend": "app-secret-sentinel", "jobs": "worker-secret-sentinel"])
+        let supervisor = ServiceSupervisor(
+            layout: layout,
+            tuning: Self.fast,
+            scopedEnvironment: { name, base in
+                let value = secrets.withLock { $0[name] ?? "" }
+                var environment = base
+                environment[name == "backend" ? "APP_SECRET" : "WORKER_SECRET"] = value
+                return ScopedProcessEnvironment(values: environment, redactions: [value])
+            }
+        )
+        await supervisor.start([
+            .init(id: "backend", name: "app", command: "test -n \"$APP_SECRET\" && test -z \"${WORKER_SECRET:-}\" && echo app-ok > app.scope; echo \"$APP_SECRET\"; exec sleep 60"),
+            .init(id: "jobs", name: "worker", command: "test -n \"$WORKER_SECRET\" && test -z \"${APP_SECRET:-}\" && echo worker-ok > worker.scope; echo \"$WORKER_SECRET\"; exec sleep 60"),
+        ], environment: ProcessInfo.processInfo.environment)
+
+        #expect(await SetupTestSupport.eventually {
+            SetupTestSupport.read(root + "/app.scope").contains("app-ok")
+                && SetupTestSupport.read(root + "/worker.scope").contains("worker-ok")
+        })
+        #expect(!SetupTestSupport.read(supervisor.logPath(for: "backend")).contains("app-secret-sentinel"))
+        #expect(!SetupTestSupport.read(supervisor.logPath(for: "jobs")).contains("worker-secret-sentinel"))
+        #expect(SetupTestSupport.read(supervisor.logPath(for: "backend")).contains(SecretRedaction.mask))
+
+        secrets.withLock { $0["backend"] = "rotated-app-sentinel" }
+        await supervisor.restartAll(environment: ProcessInfo.processInfo.environment)
+        #expect(await SetupTestSupport.eventually { await Self.state(supervisor, "app") == .running })
+        #expect(!SetupTestSupport.read(supervisor.logPath(for: "backend")).contains("rotated-app-sentinel"))
+        await supervisor.stopAll()
+    }
+
+    @Test("a missing scoped environment launches no service and reveals no failure detail")
+    func scopedEnvironmentFailure() async throws {
+        struct SecretFailure: Error, CustomStringConvertible {
+            var description: String { "must-not-leak-service-sentinel" }
+        }
+        let root = try SetupTestSupport.directory("service-secret-failure")
+        let supervisor = ServiceSupervisor(
+            layout: .init(dataDirectory: root + "/data", worktree: root),
+            tuning: Self.fast,
+            scopedEnvironment: { _, _ in throw SecretFailure() }
+        )
+        await supervisor.start([
+            .init(id: "app", name: "app", command: "touch should-not-run"),
+        ], environment: ProcessInfo.processInfo.environment)
+
+        #expect(await SetupTestSupport.eventually { await Self.state(supervisor, "app") == .crashed })
+        #expect(!FileManager.default.fileExists(atPath: root + "/should-not-run"))
+        let log = SetupTestSupport.read(supervisor.logPath(for: "app"))
+        #expect(log.contains("scoped environment was unavailable"))
+        #expect(!log.contains("must-not-leak-service-sentinel"))
+        #expect(!(await supervisor.status.first?.message ?? "").contains("must-not-leak-service-sentinel"))
         await supervisor.stopAll()
     }
 

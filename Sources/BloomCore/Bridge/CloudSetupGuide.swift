@@ -61,7 +61,8 @@ public enum CloudSetupGuide {
         A command that does not return belongs in `[[services]]`. In `setup` it would hold the step \
         until the step's timeout and then be killed.
 
-        A service has a `command`, an optional `ready` and an optional `depends_on`, and \
+        A service has a stable lowercase `id`, a display `name`, a `command`, an optional `ready` \
+        and an optional `depends_on` containing service ids. \
         **`http = true` marks the one the preview routes to**. `ready` is what decides that a service \
         counts as up, such as `http:/up`.
 

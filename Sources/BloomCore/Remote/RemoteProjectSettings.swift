@@ -15,6 +15,8 @@ import Foundation
 /// everything else it found.
 public struct RemoteProjectSettings: Sendable, Hashable {
     public struct Service: Sendable, Hashable {
+        /// Stable repository-declared authority identity. Display-name changes do not change it.
+        public var id: String
         public var name: String
         public var command: String
         /// The one service the preview routes to.
@@ -23,7 +25,9 @@ public struct RemoteProjectSettings: Sendable, Hashable {
         public var ready: String?
         public var dependsOn: [String]
 
-        public init(name: String, command: String, http: Bool = false, ready: String? = nil, dependsOn: [String] = []) {
+        public init(id: String, name: String, command: String, http: Bool = false, ready: String? = nil,
+                    dependsOn: [String] = []) {
+            self.id = id
             self.name = name
             self.command = command
             self.http = http
@@ -116,13 +120,14 @@ public struct RemoteProjectSettings: Sendable, Hashable {
                 problems.append("\(label) is not a table.")
                 continue
             }
+            let id = table["id"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
             let name = table["name"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
             guard let command = table["command"]?.stringValue,
                   !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 problems.append("\(label) has no command, so it was left out.")
                 continue
             }
-            var service = Service(name: name, command: command)
+            var service = Service(id: id, name: name, command: command)
             if let http = table["http"] {
                 if let flag = http.boolValue { service.http = flag } else { problems.append("\(label): http has to be true or false.") }
             }
@@ -137,7 +142,7 @@ public struct RemoteProjectSettings: Sendable, Hashable {
                 if let names = depends.arrayValue, names.allSatisfy({ $0.stringValue != nil }) {
                     service.dependsOn = names.compactMap(\.stringValue)
                 } else {
-                    problems.append("\(label): depends_on has to be a list of service names.")
+                    problems.append("\(label): depends_on has to be a list of service ids.")
                 }
             }
             read.append(service)
@@ -148,19 +153,27 @@ public struct RemoteProjectSettings: Sendable, Hashable {
     /// Everything wrong with a list of services, in the order a person would fix it.
     static func validate(_ services: [Service]) -> [String] {
         var problems: [String] = []
-        var seen: Set<String> = []
+        var seenIDs: Set<String> = []
+        var seenNames: Set<String> = []
         for service in services {
+            if !validServiceID(service.id) {
+                problems.append("A service has a missing or invalid id. Use lowercase letters, numbers, dots, underscores or hyphens.")
+            } else if !seenIDs.insert(service.id).inserted {
+                problems.append("More than one service has id \"\(service.id)\". Service ids have to be unique.")
+            }
             if service.name.isEmpty {
                 problems.append("A service has no name. Give every [[services]] entry a name.")
-            } else if !seen.insert(service.name).inserted {
+            } else if service.name.count > 100 {
+                problems.append("Service \"\(service.id)\" has a name longer than 100 characters.")
+            } else if !seenNames.insert(service.name).inserted {
                 problems.append("More than one service is called \"\(service.name)\". Service names have to be unique.")
             }
         }
-        for service in services where !service.name.isEmpty {
-            for dependency in service.dependsOn where !seen.contains(dependency) {
+        for service in services where validServiceID(service.id) {
+            for dependency in service.dependsOn where !seenIDs.contains(dependency) {
                 problems.append("\"\(service.name)\" depends on \"\(dependency)\", which is not a service.")
             }
-            if service.dependsOn.contains(service.name) {
+            if service.dependsOn.contains(service.id) {
                 problems.append("\"\(service.name)\" depends on itself.")
             }
         }
@@ -174,12 +187,20 @@ public struct RemoteProjectSettings: Sendable, Hashable {
         return problems
     }
 
+    public static func validServiceID(_ id: String) -> Bool {
+        guard (1...64).contains(id.utf8.count), let first = id.utf8.first,
+              (97...122).contains(first) || (48...57).contains(first) else { return false }
+        return id.utf8.allSatisfy {
+            (97...122).contains($0) || (48...57).contains($0) || $0 == 46 || $0 == 95 || $0 == 45
+        }
+    }
+
     /// The first loop of two or more services, named in order and closed on its first name. A
     /// service depending on itself is reported on its own above, so it is not repeated here.
     static func cycle(in services: [Service]) -> [String]? {
         var edges: [String: [String]] = [:]
-        for service in services where !service.name.isEmpty {
-            edges[service.name, default: []] += service.dependsOn.filter { $0 != service.name }
+        for service in services where validServiceID(service.id) {
+            edges[service.id, default: []] += service.dependsOn.filter { $0 != service.id }
         }
         var finished: Set<String> = []
         var path: [String] = []
@@ -196,8 +217,8 @@ public struct RemoteProjectSettings: Sendable, Hashable {
             return nil
         }
 
-        for service in services where !service.name.isEmpty {
-            if let found = visit(service.name) { return found }
+        for service in services where validServiceID(service.id) {
+            if let found = visit(service.id) { return found }
         }
         return nil
     }

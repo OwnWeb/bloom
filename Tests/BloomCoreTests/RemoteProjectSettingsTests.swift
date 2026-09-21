@@ -24,12 +24,14 @@ struct RemoteProjectSettingsTests {
             resume = "php artisan config:clear"
 
             [[services]]
+            id = "app"
             name = "app"
             command = "php artisan octane:start --port=$BLOOM_APP_PORT"
             http = true
             ready = "http:/up"
 
             [[services]]
+            id = "vite"
             name = "vite"
             command = "npm run dev"
             depends_on = ["app"]
@@ -46,8 +48,8 @@ struct RemoteProjectSettingsTests {
         #expect(settings.resumeFile == nil)
         #expect(settings.size == "default")
         #expect(settings.services == [
-            .init(name: "app", command: "php artisan octane:start --port=$BLOOM_APP_PORT", http: true, ready: "http:/up"),
-            .init(name: "vite", command: "npm run dev", dependsOn: ["app"]),
+            .init(id: "app", name: "app", command: "php artisan octane:start --port=$BLOOM_APP_PORT", http: true, ready: "http:/up"),
+            .init(id: "vite", name: "vite", command: "npm run dev", dependsOn: ["app"]),
         ])
         #expect(settings.httpService?.name == "app")
     }
@@ -73,6 +75,7 @@ struct RemoteProjectSettingsTests {
             resume = "kept"
 
             [[services]]
+            id = "old"
             name = "old"
             command = "old"
             """,
@@ -81,6 +84,7 @@ struct RemoteProjectSettingsTests {
             prepare = "from local"
 
             [[services]]
+            id = "new"
             name = "new"
             command = "new"
             """,
@@ -93,14 +97,16 @@ struct RemoteProjectSettingsTests {
 
     @Test func servicesAreValidatedIntoSentences() {
         let services: [RemoteProjectSettings.Service] = [
-            .init(name: "", command: "a"),
-            .init(name: "app", command: "a", http: true),
-            .init(name: "app", command: "b", http: true),
-            .init(name: "worker", command: "c", dependsOn: ["queue"]),
+            .init(id: "", name: "", command: "a"),
+            .init(id: "app", name: "app", command: "a", http: true),
+            .init(id: "app", name: "app", command: "b", http: true),
+            .init(id: "worker", name: "worker", command: "c", dependsOn: ["queue"]),
         ]
         let problems = RemoteProjectSettings.validate(services)
         #expect(problems == [
+            "A service has a missing or invalid id. Use lowercase letters, numbers, dots, underscores or hyphens.",
             "A service has no name. Give every [[services]] entry a name.",
+            "More than one service has id \"app\". Service ids have to be unique.",
             "More than one service is called \"app\". Service names have to be unique.",
             "\"worker\" depends on \"queue\", which is not a service.",
             "Only one service can set http = true, and 2 do: app, app.",
@@ -109,17 +115,17 @@ struct RemoteProjectSettingsTests {
 
     @Test func dependencyCyclesAreNamedInOrder() {
         let services: [RemoteProjectSettings.Service] = [
-            .init(name: "web", command: "a", dependsOn: ["api"]),
-            .init(name: "api", command: "b", dependsOn: ["db"]),
-            .init(name: "db", command: "c", dependsOn: ["api"]),
-            .init(name: "solo", command: "d", dependsOn: ["solo"]),
+            .init(id: "web", name: "web", command: "a", dependsOn: ["api"]),
+            .init(id: "api", name: "api", command: "b", dependsOn: ["db"]),
+            .init(id: "db", name: "db", command: "c", dependsOn: ["api"]),
+            .init(id: "solo", name: "solo", command: "d", dependsOn: ["solo"]),
         ]
         let problems = RemoteProjectSettings.validate(services)
         #expect(problems == [
             "\"solo\" depends on itself.",
             "These services depend on each other in a circle: api -> db -> api.",
         ])
-        #expect(RemoteProjectSettings.validate([.init(name: "a", command: "a"), .init(name: "b", command: "b", dependsOn: ["a"])]).isEmpty)
+        #expect(RemoteProjectSettings.validate([.init(id: "a", name: "a", command: "a"), .init(id: "b", name: "b", command: "b", dependsOn: ["a"])]).isEmpty)
     }
 
     @Test func wrongTypesAreReportedAndTheRestIsStillRead() throws {
@@ -128,6 +134,7 @@ struct RemoteProjectSettingsTests {
             size = 4
 
             [[services]]
+            id = "app"
             name = "app"
             command = "serve"
             http = "yes"
@@ -135,17 +142,18 @@ struct RemoteProjectSettingsTests {
             depends_on = "db"
 
             [[services]]
+            id = "empty"
             name = "empty"
             """])
         let settings = RemoteProjectSettings.load(repo: root)
         let source = root + "/.bloom/settings.toml"
-        #expect(settings.services == [.init(name: "app", command: "serve")])
+        #expect(settings.services == [.init(id: "app", name: "app", command: "serve")])
         #expect(settings.size == nil)
         #expect(settings.problems == [
             "\(source): remote.size has to be a string.",
             "\(source): service 1: http has to be true or false.",
             "\(source): service 1: ready has to be a path to wait for, written like \"http:/up\".",
-            "\(source): service 1: depends_on has to be a list of service names.",
+            "\(source): service 1: depends_on has to be a list of service ids.",
             "\(source): service 2 has no command, so it was left out.",
         ])
     }

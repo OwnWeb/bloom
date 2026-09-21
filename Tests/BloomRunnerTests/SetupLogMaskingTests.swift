@@ -13,12 +13,12 @@ struct SetupLogMaskingTests {
         #expect(SetupLog.masking(line, hiding: hidden) == "+ export STRIPE_KEY=****** OTHER=******")
     }
 
-    @Test("short values are left alone, so numbers and flags still read")
-    func shortValuesStay() async throws {
+    @Test("even short secrets are masked")
+    func shortValuesStayHidden() async throws {
         let store = try Store(path: SetupTestSupport.directory("setup-mask") + "/bloom.sqlite")
         let log = SetupLog(store: store, workspaceID: WorkspaceID("w"), directory: try SetupTestSupport.directory("setup-mask-steps"))
-        await log.hide(["true", "3000", "a-real-secret-value"])
+        await log.redact(["true", "3000", "a-real-secret-value"])
         await log.append("PORT=3000 DEBUG=true TOKEN=a-real-secret-value")
-        #expect(await log.text.contains("PORT=3000 DEBUG=true TOKEN=******"))
+        #expect(await log.text.contains("PORT=****** DEBUG=****** TOKEN=******"))
     }
 }
