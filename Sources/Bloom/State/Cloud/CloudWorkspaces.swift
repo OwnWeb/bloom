@@ -166,9 +166,6 @@ final class CloudWorkspaces {
         generation += 1
         do {
             try await signIn.signIn(presenting: window)
-            // Somebody who has just signed in is using Bloom Cloud, so a sidebar they once hid it
-            // from shows it again. See `CloudSidebarPresence`.
-            UserDefaults.standard.set(true, forKey: CloudSidebarPresence.settingKey)
             accountState = .loading
             startPolling()
             await refresh()

@@ -6,7 +6,7 @@ import SwiftUI
 
 #if DEBUG
 /// Settings' Bloom Cloud pane, photographed offscreen: signed out and signed in, light and dark,
-/// with the question asked before an agent's Bloom Cloud workspace and the sidebar's signed-out card.
+/// with the question asked before an agent's Bloom Cloud workspace.
 ///
 /// The real `CloudSettingsPane`, not a mock of it, with `.drawn` controls because `ImageRenderer`
 /// draws an AppKit-backed button or switch as a placeholder, and with the water held still
@@ -41,7 +41,7 @@ enum CloudSettingsGallery {
                 let pane = CloudSettingsPane(
                     phase: phase, environment: environment,
                     agentsCreateCloudWorkspaces: .constant(name.hasSuffix("signed-in")),
-                    asksBeforeCloudWorkspaceStart: .constant(true), showsInSidebar: .constant(true), drawing: .drawn, actions: .init()
+                    asksBeforeCloudWorkspaceStart: .constant(true), drawing: .drawn, actions: .init()
                 )
                 .frame(width: 640)
                 .background(Palette.surface)
@@ -63,86 +63,6 @@ enum CloudSettingsGallery {
         }
         written += renderQuestion(into: directory)
         written += renderArchive(into: directory)
-        written += renderSidebarCard(into: directory)
-        written += renderSidebarList(into: directory)
-        return written
-    }
-
-    /// The card where it really sits: a row of a `.sidebar` `List` after a Projects section, in a
-    /// window never ordered in, drawn through `cacheDisplay` so the list's own insets and row
-    /// chrome are AppKit's rather than a stand-in's. The window's vibrancy does not draw that way,
-    /// so the ground is the sidebar's flat colour.
-    private static func renderSidebarList(into directory: String) -> [String] {
-        var written: [String] = []
-        for dark in [false, true] {
-            let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-            let list = List {
-                Section {
-                    ForEach(["Queue retries", "Fix the flaky upload test", "Rename the billing job"], id: \.self) { name in
-                        Label(name, systemImage: "arrow.triangle.branch")
-                    }
-                } header: {
-                    Text("Projects").bold()
-                }
-                Section {
-                    CloudSidebarCard(isSigningIn: false, signIn: {}, cancelSignIn: {}, dismiss: {}, showsDismiss: true)
-                        .padding(.top, Metrics.spacing)
-                        .selectionDisabled()
-                }
-            }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .background(Palette.sidebar)
-            let host = NSHostingView(rootView: list)
-            host.appearance = appearance
-            host.frame = NSRect(x: 0, y: 0, width: Metrics.sidebarWidth, height: 360)
-            let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
-            window.appearance = appearance
-            window.contentView = host
-            window.layoutIfNeeded()
-            // Two runloop turns for the table to lay out its rows.
-            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
-            host.layoutSubtreeIfNeeded()
-            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { continue }
-            host.cacheDisplay(in: host.bounds, to: bitmap)
-            let path = "\(directory)/cloud-sidebar-list-\(dark ? "dark" : "light").png"
-            guard (try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(filePath: path))) != nil else { continue }
-            written.append(path)
-        }
-        return written
-    }
-
-    /// The sidebar's signed-out card, at the sidebar's width on its ground, at rest and under the
-    /// pointer, light and dark. A heading row above it stands in for the Projects list, so the
-    /// photograph shows the card against what it sits beneath.
-    private static func renderSidebarCard(into directory: String) -> [String] {
-        var written: [String] = []
-        for (state, hovered) in [("rest", false), ("hover", true)] {
-            for dark in [false, true] {
-                let view = VStack(alignment: .leading, spacing: Metrics.spacing) {
-                    Text("Projects").bold().foregroundStyle(Palette.textSecondary)
-                    CloudSidebarCard(
-                        isSigningIn: false, signIn: {}, cancelSignIn: {}, dismiss: {},
-                        showsDismiss: hovered
-                    )
-                }
-                .padding(Metrics.spacingWide)
-                .frame(width: Metrics.sidebarWidth, alignment: .topLeading)
-                .background(Palette.sidebar)
-                .environment(\.colorScheme, dark ? .dark : .light)
-                var image: NSImage?
-                NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
-                    let renderer = ImageRenderer(content: view)
-                    renderer.scale = 2
-                    image = renderer.nsImage
-                }
-                guard let image, let data = image.tiffRepresentation, let rep = NSBitmapImageRep(data: data),
-                      let png = rep.representation(using: .png, properties: [:]) else { continue }
-                let path = "\(directory)/cloud-sidebar-card-\(state)-\(dark ? "dark" : "light").png"
-                try? png.write(to: URL(filePath: path))
-                written.append(path)
-            }
-        }
         return written
     }
 

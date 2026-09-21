@@ -48,9 +48,6 @@ struct SidebarView: View {
     /// Which shape the pane is in: projects with their workspaces, or sections by what each
     /// workspace needs. A preference for the same reason hiding a project is one, and the status
     /// bar binds the same key so the two cannot disagree. See `SidebarGrouping`.
-    /// Whether Bloom Cloud is in the sidebar at all. Off from the signed-out card's dismiss button,
-    /// back on from Settings, under Bloom Cloud, or by signing in. See `CloudSidebarPresence`.
-    @AppStorage(CloudSidebarPresence.settingKey) private var showsBloomCloud = true
     @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.status.rawValue
     @AppStorage(SidebarPreferences.showsDiffStatsKey)
     private var showsDiffStats = SidebarPreferences.showsDiffStatsByDefault
@@ -175,12 +172,8 @@ struct SidebarView: View {
             } else {
                 Section { paneRowsList }
             }
-            switch CloudSidebarPresence.decide(
-                isSignedIn: app.cloud.isSignedIn, isShown: showsBloomCloud
-            ) {
-            case .list: cloudSection
-            case .signInCard: cloudSignInCard
-            case .hidden: EmptyView()
+            if app.cloud.isSignedIn {
+                cloudSection
             }
         }
         // The native list owns row height, keyboard navigation and which row is selected. How the
@@ -888,21 +881,6 @@ struct SidebarView: View {
     }
 
     // MARK: - Cloud workspaces
-
-    /// Signed out, one card and no heading. See `CloudSidebarCard` and `CloudSidebarPresence`.
-    private var cloudSignInCard: some View {
-        Section {
-            CloudSidebarCard(
-                isSigningIn: app.cloud.accountState == .signingIn,
-                signIn: { Task { await app.cloud.beginSignIn() } },
-                cancelSignIn: { app.cloud.signIn.cancelSignIn() },
-                dismiss: { showsBloomCloud = false }
-            )
-            .padding(.top, Metrics.spacing)
-            .selectionDisabled()
-            .moveDisabled(true)
-        }
-    }
 
     /// Cloud workspaces, below the projects, only while a Bloom account is signed in.
     ///
