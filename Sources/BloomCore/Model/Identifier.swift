@@ -83,6 +83,18 @@ public struct CloudProjectID: Identifier {
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }
 
+/// A Cloud machine record on runbloom.app, bound to one workspace and one signing key.
+public struct CloudMachineID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
+/// The lowercase SHA-256 fingerprint naming one machine identity public key.
+public struct MachineIdentityKeyID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
 /// A worktree on disk. The id outlives the worktree: an archived workspace keeps its row, and the
 /// row is what a restore reads.
 public struct WorkspaceID: Identifier {

@@ -19,6 +19,7 @@ final class FakeControlServer: Sendable {
         var authorization: String?
         var contentType: String?
         var idempotencyKey: String?
+        var proof: [String: String]
         var body: Data
 
         var json: [String: Any]? {
@@ -207,6 +208,20 @@ final class FakeControlServer: Sendable {
             authorization: request.headers[.authorization],
             contentType: request.headers[.contentType],
             idempotencyKey: HTTPField.Name("Idempotency-Key").flatMap { request.headers[$0] },
+            proof: Dictionary(uniqueKeysWithValues: [
+                "version", "key-id", "timestamp", "request-id", "signature", "registration",
+            ].compactMap { short in
+                let wire = [
+                    "version": "X-Bloom-Proof-Version",
+                    "key-id": "X-Bloom-Proof-Key-Id",
+                    "timestamp": "X-Bloom-Proof-Timestamp",
+                    "request-id": "X-Bloom-Proof-Request-Id",
+                    "signature": "X-Bloom-Proof-Signature",
+                    "registration": "X-Bloom-Identity-Registration",
+                ][short]!
+                guard let name = HTTPField.Name(wire), let value = request.headers[name] else { return nil }
+                return (short, value)
+            }),
             body: body
         )
         let scripted: Scripted? = state.withLock { state in

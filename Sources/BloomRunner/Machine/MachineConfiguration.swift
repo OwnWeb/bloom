@@ -9,6 +9,33 @@ import Foundation
 /// server at another runbloom.app. The file is `/etc/bloom/workspace.json`, mode 600, because it
 /// holds the workspace secret; `BLOOM_WORKSPACE_CONFIG` names another for development and tests.
 public struct MachineConfiguration: Codable, Sendable, Hashable {
+    public struct MachineIdentity: Codable, Sendable, Hashable {
+        public var version: Int
+        public var machineID: CloudMachineID
+        public var registrationToken: String?
+        public var registrationExpiresAt: String?
+        public var keyID: MachineIdentityKeyID?
+
+        enum CodingKeys: String, CodingKey {
+            case version
+            case machineID = "machine_id"
+            case registrationToken = "registration_token"
+            case registrationExpiresAt = "registration_expires_at"
+            case keyID = "key_id"
+        }
+
+        public init(
+            version: Int, machineID: CloudMachineID, registrationToken: String?,
+            registrationExpiresAt: String?, keyID: MachineIdentityKeyID?
+        ) {
+            self.version = version
+            self.machineID = machineID
+            self.registrationToken = registrationToken
+            self.registrationExpiresAt = registrationExpiresAt
+            self.keyID = keyID
+        }
+    }
+
     public struct ProjectIcon: Codable, Sendable, Hashable {
         public var requestedRevision: Int?
         public var detectorVersion: Int?
@@ -85,6 +112,9 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
     /// A revisioned request from the project authority. Optional at every level so a Runner can
     /// still boot from configuration written before project icons existed.
     public var projectIcon: ProjectIcon?
+    /// Proof-of-possession binding written by runbloom.app. Absence is deliberately fatal for a
+    /// Cloud Runner. An old bearer-only machine must be rewritten or replaced.
+    public var machineIdentity: MachineIdentity?
 
     enum CodingKeys: String, CodingKey {
         case workspaceID = "workspace_id"
@@ -99,6 +129,7 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
         case teamID = "team_id"
         case runSetup = "run_setup"
         case projectIcon = "project_icon"
+        case machineIdentity = "machine_identity"
     }
 
     public static let defaultPath = "/etc/bloom/workspace.json"
@@ -117,11 +148,11 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
         } catch {
             throw MachineConfigurationError("\(path) is not a workspace configuration: \(error)")
         }
-        try configuration.validate()
+        try configuration.validate(requiresMachineIdentity: true)
         return configuration
     }
 
-    func validate() throws {
+    func validate(requiresMachineIdentity: Bool = false) throws {
         for (name, value) in [("workspace_id", workspaceID), ("issuer", issuer), ("jwks_url", jwksURL), ("base_url", baseURL),
                               ("workspace_secret", workspaceSecret), ("public_url", publicURL), ("repository", repository),
                               ("branch", branch), ("base_branch", baseBranch)] where value.isEmpty {
@@ -135,6 +166,31 @@ public struct MachineConfiguration: Codable, Sendable, Hashable {
         }
         if projectIcon?.shouldDiscover == true, projectIconRequest == nil {
             throw MachineConfigurationError("The workspace configuration has an invalid project_icon discovery request.")
+        }
+        guard let identity = machineIdentity else {
+            if !requiresMachineIdentity { return }
+            throw MachineConfigurationError(
+                "The workspace configuration has no machine_identity. Rewrite or replace this machine."
+            )
+        }
+        guard identity.version == 1, !identity.machineID.rawValue.isEmpty else {
+            throw MachineConfigurationError("The workspace configuration has an invalid machine_identity.")
+        }
+        let isLowercaseHex: (String) -> Bool = { value in
+            value.count == 64 && value.utf8.allSatisfy {
+                ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66)
+            }
+        }
+        if let keyID = identity.keyID, !isLowercaseHex(keyID.rawValue) {
+            throw MachineConfigurationError("The workspace configuration has an invalid machine_identity key_id.")
+        }
+        if let token = identity.registrationToken, token.count != 64 {
+            throw MachineConfigurationError("The workspace configuration has an invalid machine_identity registration_token.")
+        }
+        if identity.keyID == nil, identity.registrationToken == nil {
+            throw MachineConfigurationError(
+                "The machine identity is unbound. Rewrite or replace this machine's configuration."
+            )
         }
     }
 
