@@ -105,6 +105,10 @@ struct PastedAttachmentTests {
         #expect(PastedImageFormat.tiff.written == .png)
         #expect(PastedImageFormat.png.isWorthReencoding == false)
         #expect(PastedImageFormat.png.written == .png)
+        #expect(PastedImageFormat.heic.isWorthReencoding == false)
+        #expect(PastedImageFormat.heic.written == .heic)
+        #expect(PastedImageFormat.heif.isWorthReencoding == false)
+        #expect(PastedImageFormat.heif.written == .heif)
         #expect(PastedImageFormat.jpeg.isWorthReencoding == false)
         #expect(PastedImageFormat.jpeg.written == .jpeg)
     }
@@ -113,6 +117,8 @@ struct PastedAttachmentTests {
     func utis() {
         #expect(PastedImageFormat.png.uti == "public.png")
         #expect(PastedImageFormat.jpeg.uti == "public.jpeg")
+        #expect(PastedImageFormat.heic.uti == "public.heic")
+        #expect(PastedImageFormat.heif.uti == "public.heif")
         #expect(PastedImageFormat.tiff.uti == "public.tiff")
         #expect(PastedImageFormat.jpeg.fileExtension == "jpg")
         for format in PastedImageFormat.allCases {

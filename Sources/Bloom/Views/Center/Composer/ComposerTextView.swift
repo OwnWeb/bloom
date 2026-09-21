@@ -5,6 +5,7 @@ import BloomCore
 /// resized or focused so the SwiftUI side can keep up, and hands over anything that arrives as a
 /// file or a picture rather than as text.
 final class ComposerTextView: NSTextView, HoverQuickLookSource {
+    private var attachmentDropSession = AttachmentDropSession()
     var previewAttachment: (@MainActor (String) -> URL?)?
 
     func quickLookURL(at point: NSPoint) -> URL? {
@@ -69,6 +70,10 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
         super.viewDidMoveToWindow()
         HoverQuickLookController.shared.update(self)
         if window == nil { resetChipHover() }
+        if window == nil { attachmentDropSession.cancelAll() }
+        if window != nil, !attachmentDropSession.isActive {
+            attachmentDropSession = AttachmentDropSession()
+        }
         if window != nil { onWindowChange?() }
     }
 
@@ -93,7 +98,8 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
         if AttachmentDrop.canRead(sender.draggingPasteboard), onAttach != nil {
             let range = dropRange(for: sender)
             return AttachmentDrop.receive(
-                sender.draggingPasteboard,
+                sender,
+                session: attachmentDropSession,
                 onReceive: { [weak self] sources in self?.receiveDrop(sources, at: range) ?? false },
                 onFailure: onAttachmentFailure
             )

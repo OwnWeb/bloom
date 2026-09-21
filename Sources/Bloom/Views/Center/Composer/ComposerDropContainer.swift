@@ -54,6 +54,7 @@ final class ComposerDropController: NSViewController {
 }
 
 final class ComposerDropSurface: NSView {
+    private var attachmentDropSession = AttachmentDropSession()
     var onReceive: @MainActor @Sendable ([AttachmentSource]) -> Bool = { _ in false }
     var onFailure: @MainActor @Sendable (String) -> Void = { _ in }
     var onTarget: @MainActor (Bool) -> Void = { _ in }
@@ -82,8 +83,16 @@ final class ComposerDropSurface: NSView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer { onTarget(false) }
         return AttachmentDrop.receive(
-            sender.draggingPasteboard, onReceive: onReceive, onFailure: onFailure
+            sender, session: attachmentDropSession, onReceive: onReceive, onFailure: onFailure
         )
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { attachmentDropSession.cancelAll() }
+        if window != nil, !attachmentDropSession.isActive {
+            attachmentDropSession = AttachmentDropSession()
+        }
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) { onTarget(false) }
