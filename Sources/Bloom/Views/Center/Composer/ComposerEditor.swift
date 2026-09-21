@@ -5,6 +5,8 @@ import SwiftUI
 /// The caller caps the measured height to the space available in the pane. TextKit measures
 /// the wrapped draft here, including the selected font and inline attachment chips.
 struct ComposerEditor: View {
+    @Environment(\.fontScale) private var fontScale
+    @Environment(\.chatFont) private var chatFont
     @Binding var text: String
     @Binding var caret: Int
     @Binding var isFocused: Bool
@@ -57,7 +59,9 @@ struct ComposerEditor: View {
             attachmentRoot: attachmentRoot,
             handle: handle
         )
-        .frame(height: max(height, ComposerTextEditor.lineHeight))
+        // The unscaled minimum can be shorter than the empty text view's caret line,
+        // leaving a scrollbar visible when a pane or a manual resize caps the editor.
+        .frame(height: max(height, ComposerTextEditor.lineHeight(scale: fontScale, face: chatFont).rounded(.up)))
         // A background rather than a sibling in a stack, so the hint never sizes the box.
         // SwiftUI sets a 15 or 16 point line a point taller than TextKit does (19 against 18),
         // and as a sibling the hint made the empty box that point taller: the transcript

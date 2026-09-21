@@ -88,14 +88,18 @@ struct ComposerTextEditor: NSViewRepresentable {
     /// the cache on its own; a notification would be a second mechanism to keep in step with the
     /// first, and the one that could be forgotten.
     static var lineHeight: CGFloat {
-        let font = font
-        if let held = heldLineHeight, held.font == font { return held.height }
+        lineHeight(scale: 1, face: .system)
+    }
+
+    static func lineHeight(scale: CGFloat, face: ChatFont) -> CGFloat {
+        let font = font(scale: scale, face: face)
+        if let height = heldLineHeights[font] { return height }
         let height = NSLayoutManager().defaultLineHeight(for: font)
-        heldLineHeight = (font, height)
+        heldLineHeights[font] = height
         return height
     }
 
-    private static var heldLineHeight: (font: NSFont, height: CGFloat)?
+    private static var heldLineHeights: [NSFont: CGFloat] = [:]
 
     /// How far the writing starts from the sides of the box.
     ///

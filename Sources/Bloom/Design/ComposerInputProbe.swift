@@ -22,6 +22,7 @@ enum ComposerInputProbe {
         var text = ""
         var caret = 0
         var height = ComposerTextEditor.lineHeight
+        var heightLimit = CGFloat.greatestFiniteMagnitude
         var targeted = false
         var failures: [String] = []
         var attached: [String] = []
@@ -49,7 +50,7 @@ enum ComposerInputProbe {
             VStack(spacing: 8) {
                 ComposerEditor(
                     text: $draft.text, caret: $draft.caret, isFocused: .constant(false),
-                    height: draft.height, onContentHeightChange: { draft.height = $0 },
+                    height: min(draft.height, draft.heightLimit), onContentHeightChange: { draft.height = $0 },
                     onKey: { _ in false }, onAttach: { draft.receive($0, at: $1) },
                     onAttachmentFailure: { draft.failures.append($0) },
                     attachmentRoot: draft.root, handle: draft.handle
@@ -67,6 +68,7 @@ enum ComposerInputProbe {
                 onFailure: { draft.failures.append($0) }
             )
             .padding(16)
+            .environment(\.fontScale, ChatTextSize.defaultChoice.scale)
         }
     }
 
@@ -99,6 +101,33 @@ enum ComposerInputProbe {
             check(ancestor === surface, "drop surface is not an ancestor of the native editor")
 
             let line = NSLayoutManager().defaultLineHeight(for: text.font!)
+            check(text.frame.height <= scroll.contentSize.height,
+                  "initial empty draft overflows: document \(text.frame.height), viewport \(scroll.contentSize.height)")
+            draft.heightLimit = ComposerTextEditor.lineHeight
+            await settle(window)
+            check(text.frame.height <= scroll.contentSize.height,
+                  "empty draft overflows a minimum-height composer: "
+                  + "document \(text.frame.height), viewport \(scroll.contentSize.height)")
+            draft.heightLimit = .greatestFiniteMagnitude
+            await settle(window)
+            for style: NSScroller.Style in [.legacy, .overlay] {
+                scroll.scrollerStyle = style
+                for value in ["", "Short draft", String(repeating: "Line\n", count: 25), ""] {
+                    draft.text = value
+                    await settle(window)
+                    if value.isEmpty || value == "Short draft" {
+                        check(text.frame.height <= scroll.contentSize.height,
+                              "short draft overflows the editor with scroller style \(style.rawValue): "
+                              + "document \(text.frame.height), viewport \(scroll.contentSize.height)")
+                        if style == .legacy {
+                            check(scroll.verticalScroller?.isHidden != false,
+                                  "short draft shows an unnecessary scrollbar")
+                        }
+                    } else {
+                        check(text.frame.height > scroll.contentSize.height, "long draft cannot scroll")
+                    }
+                }
+            }
             for count in [1, 2, 10, 25, 1] {
                 draft.text = Array(repeating: "Line", count: count).joined(separator: "\n")
                 await settle(window)
