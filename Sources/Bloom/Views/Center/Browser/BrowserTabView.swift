@@ -43,6 +43,7 @@ struct BrowserTabView: View {
     @Environment(\.controlActiveState) private var activeState
 
     private var tabs: CenterTabStore { .shared }
+    private var workspaceTabs: WorkspaceTabsStore { .shared }
     /// The worktree is handed over with the tab, because a page opened from a file row is a
     /// `file://` address and the session cannot fetch that page's stylesheet without it. See
     /// `LocalPage.fileURL`.
@@ -170,11 +171,11 @@ struct BrowserTabView: View {
     }
 
     private func focusLocation() {
-        if let selected = tabs.selectedTab(in: model),
-           let pane = tabs.layout(of: selected).panes.first(where: {
-               tabs.content(of: $0, in: selected) == .tool(tab.id)
+        if let selected = workspaceTabs.selectedTab(in: model),
+           let pane = workspaceTabs.layout(of: selected).panes.first(where: {
+               workspaceTabs.content(of: $0, in: selected) == .tool(tab.id)
            }) {
-            tabs.focus(pane, in: selected, of: model)
+            workspaceTabs.focus(pane, in: selected, of: model)
         }
         locationFocusRequest &+= 1
     }

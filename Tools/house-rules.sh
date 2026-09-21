@@ -365,6 +365,9 @@ id_type_allowed_properties=(
   'Sources/BloomCore/Remote/AddressedReport.swift:id'                 # runbloom.app's dedupe key for one mail
   'Sources/BloomCore/Remote/RemoteOpening.swift:userID'              # runbloom.app's user who prompted the opening
   'Sources/BloomCore/Remote/RemoteTurnGate.swift:userID'             # runbloom.app's user bound to a registered turn
+  'Sources/BloomCore/Remote/RemoteProjectSettings.swift:id'          # a stable repository-declared service id, not a Bloom row
+  'Sources/BloomCore/Remote/RemoteProjectSettings.swift:seenIDs'     # those same service ids while validating one manifest
+  'Sources/BloomRunner/Runbloom/MachineEnvironmentSnapshot.swift:id' # runbloom.app's opaque one-use handoff ULID
   'Sources/BloomCore/Bridge/CloudWorkspaceStartTool.swift:id'         # runbloom.app's id for a workspace another machine holds
   'Sources/BloomRunner/Runbloom/RunbloomCloudWorkspaces.swift:id'     # the same id, as runbloom.app answers it
   'Sources/BloomCore/Remote/WorkspacePeers.swift:id'                  # runbloom.app's id for another team workspace

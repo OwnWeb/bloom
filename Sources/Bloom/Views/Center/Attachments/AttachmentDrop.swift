@@ -5,11 +5,16 @@ import BloomCore
 /// they only write after the drop is accepted. Hovering must never request those bytes.
 @MainActor
 enum AttachmentDrop {
-    static let types: [NSPasteboard.PasteboardType] = [.fileURL]
-        + PastedImageFormat.allCases.flatMap(\.providerTypeIdentifiers)
-            .map(NSPasteboard.PasteboardType.init)
-        + [NSPasteboard.PasteboardType(ImageDropLoader.genericImageType)]
-        + NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+    static let types: [NSPasteboard.PasteboardType] = {
+        var types: [NSPasteboard.PasteboardType] = [.fileURL]
+        types.append(contentsOf: PastedImageFormat.allCases
+            .flatMap(\.providerTypeIdentifiers)
+            .map { NSPasteboard.PasteboardType($0) })
+        types.append(NSPasteboard.PasteboardType(ImageDropLoader.genericImageType))
+        types.append(contentsOf: NSFilePromiseReceiver.readableDraggedTypes
+            .map { NSPasteboard.PasteboardType($0) })
+        return types
+    }()
 
     static func canRead(_ pasteboard: NSPasteboard) -> Bool {
         ComposerTextView.hasAttachables(on: pasteboard)
@@ -65,11 +70,11 @@ enum AttachmentDrop {
                     inputs, maxByteCount: AttachmentFiles.maxPastedByteCount
                 )
                 try Task.checkCancellation()
-                let attachments = result.loaded.map { loaded in
+                let attachments: [AttachmentSource] = result.loaded.map { loaded in
                     switch loaded.value {
-                    case .file(let url): .file(url)
+                    case .file(let url): return .file(url)
                     case .image(let data, let format):
-                        .image(
+                        return .image(
                             data,
                             format: format,
                             named: PastedAttachment.filename(format: format.written)

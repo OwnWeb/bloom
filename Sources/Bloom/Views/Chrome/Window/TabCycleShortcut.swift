@@ -34,7 +34,7 @@ enum TabCycleShortcut {
 
             guard let arrow = arrow(for: event.keyCode) else { return event }
             let handled = MainActor.assumeIsolated {
-                guard let model,
+                guard let model = Self.model,
                       let window = eligibleWindow,
                       let workspace = model.selectedModel,
                       let offset = TabCycle.offset(

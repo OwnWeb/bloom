@@ -356,8 +356,9 @@ public actor MachineSetup {
         }
         let scripts = MachineScripts.load(repo: layout.worktree)
         if succeeded {
-            do { try await syncServiceManifest(scripts.services) }
-            catch {
+            do {
+                try await syncServiceManifest(scripts.services)
+            } catch {
                 await log.note("Bloom could not register the repository's service identities, so no repository code ran.")
                 succeeded = false
             }
@@ -453,8 +454,9 @@ public actor MachineSetup {
         moved(to: "configuring git")
         await configureGit(log: log)
         let scripts = MachineScripts.load(repo: layout.worktree)
-        do { try await syncServiceManifest(scripts.services) }
-        catch {
+        do {
+            try await syncServiceManifest(scripts.services)
+        } catch {
             await log.note("Bloom could not register the repository's service identities, so resume and services did not run.")
             await settle(log: log, succeeded: false)
             return false

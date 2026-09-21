@@ -23,8 +23,12 @@ public actor MachineEnvironment {
 
     @discardableResult
     public func refresh() async -> [String: String] {
-        do { return try await requiredRefresh() }
-        catch { await onChange?(); return variables }
+        do {
+            return try await requiredRefresh()
+        } catch {
+            await onChange?()
+            return variables
+        }
     }
 
     @discardableResult

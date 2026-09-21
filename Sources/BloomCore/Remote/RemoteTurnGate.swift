@@ -70,10 +70,8 @@ public struct RemoteTurnGrant: Sendable, Hashable, CustomStringConvertible,
     /// personal key for, or a grant with no personal environment where something holds some, means
     /// those credentials must go even if the `control/shared` call never arrived.
     public func supersedes(_ marks: Set<String>) -> Bool {
-        for mark in marks {
-            if mark == PersonalCredentials.environmentMark {
-                if environment.isEmpty { return true }
-            }
+        for mark in marks where mark == PersonalCredentials.environmentMark {
+            if environment.isEmpty { return true }
         }
         return false
     }
