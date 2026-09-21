@@ -578,6 +578,7 @@ public struct WorkspaceManager: Sendable {
         // `LoginShellPath`.
         await LoginShellPath.ready()
         let env = environment(for: workspace, repo: repo, port: port)
+        let artifactsBeforeSetup = await SetupArtifacts.snapshot(in: workspace.path)
         let runner = StreamingProcess(
             executable: launch.executable,
             arguments: launch.arguments,
@@ -622,6 +623,7 @@ public struct WorkspaceManager: Sendable {
         }
 
         let status: Int32? = didStart ? await runner.exitStatus : nil
+        await SetupArtifacts.recordChanges(from: artifactsBeforeSetup, in: workspace.path)
         if let status { onExit?(Int(status)) }
         let succeeded = status == 0 && !Task.isCancelled
         let printed = log
@@ -761,7 +763,7 @@ public struct WorkspaceManager: Sendable {
         let settings = SettingsLoader.load(repo: repo.path)
         let shouldDeleteBranch = deleteBranch ?? settings.deleteBranchOnArchive
 
-        let report: WorkspaceSafetyReport?
+        var report: WorkspaceSafetyReport?
         if force {
             // A forced archive still wants the report, to decide how hard to push on the branch,
             // but must not be blocked by a repository too broken to answer.
@@ -829,7 +831,28 @@ public struct WorkspaceManager: Sendable {
             }
         }
 
-        try await Git.removeWorktree(repo: repo.path, path: workspace.path, force: force)
+        if force {
+            try await Git.removeWorktree(repo: repo.path, path: workspace.path, force: true)
+        } else {
+            do {
+                try await Git.removeWorktree(repo: repo.path, path: workspace.path)
+            } catch {
+                // Git refuses to remove a worktree that contains ignored files, even when every
+                // one is disposable output such as dependencies, build products or caches. The
+                // report above classified them before the archive script ran, so it is already
+                // stale here: a teardown can have written a log or another file worth keeping.
+                // Classify the worktree again at the point of removal and only then use force.
+                let fresh = try await safetyReport(workspace: workspace, repo: repo)
+                guard fresh.isSafeToDiscard(
+                    deletingBranch: shouldDeleteBranch,
+                    isPullRequestMerged: isPullRequestMerged
+                ) else {
+                    throw WorkspaceError.unsafeToArchive(fresh)
+                }
+                report = fresh
+                try await Git.removeWorktree(repo: repo.path, path: workspace.path, force: true)
+            }
+        }
 
         // **Only when the worktree was really there.** Deleting a branch is the one step here
         // that does not touch the worktree at all, so it is the one step that still happens when

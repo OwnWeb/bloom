@@ -77,6 +77,14 @@ public enum ReproduciblePaths {
 public struct WorkspaceSafetyReport: Sendable, Hashable {
     /// Tracked files with modifications that were never committed.
     public var hasUncommittedChanges: Bool
+    /// Tracked paths changed only in the worktree.
+    public var modifiedTrackedFiles: [String]
+    /// Tracked paths whose changes are already in the index.
+    public var stagedFiles: [String]
+    /// Paths whose index entries are unmerged.
+    public var conflictedFiles: [String]
+    /// Submodules whose commit, tracked files or untracked files differ.
+    public var modifiedSubmodules: [String]
     /// Files git has never seen. These are the easiest to lose and the hardest to notice.
     public var untrackedFiles: [String]
     /// Commits reachable from this branch and from no other ref in the repository. Nothing
@@ -85,12 +93,13 @@ public struct WorkspaceSafetyReport: Sendable, Hashable {
     /// Whether the base branch already contains this branch's history.
     public var isBranchMerged: Bool
     /// Ignored paths that differ from the main checkout, or exist only here, minus everything a
-    /// tool can rebuild. A trailing slash means a whole directory, named once.
+    /// tool can rebuild or that still matches output recorded around a setup run. A trailing
+    /// slash means a whole directory, named once.
     ///
     /// `git status --porcelain` does not list ignored files and `git worktree remove` deletes them
     /// without a word, so these were invisible. Bloom copies `.env*` into every worktree, which
     /// makes an edited `.env` both the likeliest file to be destroyed and the one nobody would
-    /// think to check. What is NOT here, and why, is `ReproduciblePaths`.
+    /// think to check. What is NOT here, and why, is `ReproduciblePaths` and `SetupArtifacts`.
     public var modifiedIgnoredFiles: [String]
     /// Commits held only by this worktree's own HEAD, on no branch at all.
     ///
@@ -105,6 +114,10 @@ public struct WorkspaceSafetyReport: Sendable, Hashable {
 
     public init(
         hasUncommittedChanges: Bool = false,
+        modifiedTrackedFiles: [String] = [],
+        stagedFiles: [String] = [],
+        conflictedFiles: [String] = [],
+        modifiedSubmodules: [String] = [],
         untrackedFiles: [String] = [],
         unpushedCommits: Int = 0,
         isBranchMerged: Bool = false,
@@ -112,6 +125,14 @@ public struct WorkspaceSafetyReport: Sendable, Hashable {
         detachedCommits: Int = 0
     ) {
         self.hasUncommittedChanges = hasUncommittedChanges
+            || !modifiedTrackedFiles.isEmpty
+            || !stagedFiles.isEmpty
+            || !conflictedFiles.isEmpty
+            || !modifiedSubmodules.isEmpty
+        self.modifiedTrackedFiles = modifiedTrackedFiles
+        self.stagedFiles = stagedFiles
+        self.conflictedFiles = conflictedFiles
+        self.modifiedSubmodules = modifiedSubmodules
         self.untrackedFiles = untrackedFiles
         self.unpushedCommits = unpushedCommits
         self.isBranchMerged = isBranchMerged
@@ -187,13 +208,27 @@ public struct WorkspaceSafetyReport: Sendable, Hashable {
         deletingBranch: Bool, isPullRequestMerged: Bool = false
     ) -> [String] {
         var losses: [String] = []
-        if hasUncommittedChanges {
+        if !conflictedFiles.isEmpty {
+            losses.append(Self.paths(conflictedFiles, category: "conflicted path"))
+        }
+        if !stagedFiles.isEmpty {
+            losses.append(Self.paths(stagedFiles, category: "staged path"))
+        }
+        if !modifiedTrackedFiles.isEmpty {
+            losses.append(Self.paths(modifiedTrackedFiles, category: "modified tracked path"))
+        }
+        if !modifiedSubmodules.isEmpty {
+            losses.append(Self.paths(modifiedSubmodules, category: "modified submodule"))
+        }
+        if hasUncommittedChanges,
+           conflictedFiles.isEmpty,
+           stagedFiles.isEmpty,
+           modifiedTrackedFiles.isEmpty,
+           modifiedSubmodules.isEmpty {
             losses.append("uncommitted changes to tracked files")
         }
         if !untrackedFiles.isEmpty {
-            let sample = untrackedFiles.prefix(5).joined(separator: ", ")
-            let rest = untrackedFiles.count > 5 ? ", and \(untrackedFiles.count - 5) more" : ""
-            losses.append("\(Self.count(untrackedFiles.count, "untracked file")): \(sample)\(rest)")
+            losses.append(Self.paths(untrackedFiles, category: "untracked path"))
         }
         if deletingBranch, unpushedCommits > 0, !isBranchMerged, !isPullRequestMerged {
             losses.append(
@@ -247,6 +282,27 @@ public struct WorkspaceSafetyReport: Sendable, Hashable {
     private static func count(_ value: Int, _ noun: String) -> String {
         "\(value) \(noun)\(value == 1 ? "" : "s")"
     }
+
+    private static func paths(_ paths: [String], category: String) -> String {
+        let sample = paths.prefix(5).joined(separator: ", ")
+        let rest = paths.count > 5 ? ", and \(paths.count - 5) more" : ""
+        return "\(count(paths.count, category)): \(sample)\(rest)"
+    }
+}
+
+struct WorktreeStatus: Equatable {
+    var modifiedTrackedFiles: [String] = []
+    var stagedFiles: [String] = []
+    var conflictedFiles: [String] = []
+    var modifiedSubmodules: [String] = []
+    var untrackedFiles: [String] = []
+
+    var isDirty: Bool {
+        !modifiedTrackedFiles.isEmpty
+            || !stagedFiles.isEmpty
+            || !conflictedFiles.isEmpty
+            || !modifiedSubmodules.isEmpty
+    }
 }
 
 /// Everything throwing a workspace away would destroy, gathered before anything is thrown.
@@ -287,8 +343,16 @@ extension Git {
                     stderr: "\(worktree) is not a git worktree, so what is in it cannot be checked"
                 )
             }
-            let status = try await checkRaw(["status", "--porcelain", "-z"], in: worktree)
-            (report.hasUncommittedChanges, report.untrackedFiles) = parseStatus(status.stdout)
+            let output = try await checkRaw(
+                ["status", "--porcelain=v2", "--untracked-files=normal", "-z"], in: worktree
+            )
+            let status = parseStatus(output.stdout)
+            report.hasUncommittedChanges = status.isDirty
+            report.modifiedTrackedFiles = status.modifiedTrackedFiles
+            report.stagedFiles = status.stagedFiles
+            report.conflictedFiles = status.conflictedFiles
+            report.modifiedSubmodules = status.modifiedSubmodules
+            report.untrackedFiles = status.untrackedFiles
             report.modifiedIgnoredFiles = try await divergentIgnoredFiles(worktree: worktree, repo: repo)
             isDetached = try await isDetachedHead(worktree: worktree)
         }
@@ -329,29 +393,67 @@ extension Git {
         return report
     }
 
-    /// `status --porcelain -z` records: `XY path`, and for a rename or copy the new path is
-    /// followed by a second record holding the old path.
-    static func parseStatus(_ data: Data) -> (dirty: Bool, untracked: [String]) {
-        var dirty = false
-        var untracked: [String] = []
+    /// Parses `status --porcelain=v2 -z`, whose fixed fields leave path bytes untouched. Rename
+    /// records carry the old path in the following record; only the new path blocks removal.
+    static func parseStatus(_ data: Data) -> WorktreeStatus {
+        var status = WorktreeStatus()
         var records = nulRecords(data)[...]
 
         while let record = records.popFirst() {
-            guard record.count > 3 else { continue }
-            let code = String(decoding: record.prefix(2), as: UTF8.self)
-            let path = String(decoding: record.dropFirst(3), as: UTF8.self)
-            if code == "??" {
-                untracked.append(path)
-            } else {
-                dirty = true
-                if code.contains("R") || code.contains("C") { _ = records.popFirst() }
+            guard let kind = record.first else { continue }
+            if kind == UInt8(ascii: "?") {
+                status.untrackedFiles.append(String(decoding: record.dropFirst(2), as: UTF8.self))
+                continue
             }
+            guard kind != UInt8(ascii: "!") else { continue }
+
+            let fieldCount: Int
+            let isConflict: Bool
+            let hasOriginalPath: Bool
+            switch kind {
+            case UInt8(ascii: "1"):
+                fieldCount = 8
+                isConflict = false
+                hasOriginalPath = false
+            case UInt8(ascii: "2"):
+                fieldCount = 9
+                isConflict = false
+                hasOriginalPath = true
+            case UInt8(ascii: "u"):
+                fieldCount = 10
+                isConflict = true
+                hasOriginalPath = false
+            default:
+                continue
+            }
+
+            let fields = record.split(separator: UInt8(ascii: " "), maxSplits: fieldCount)
+            guard fields.count == fieldCount + 1 else { continue }
+            let code = String(decoding: fields[1], as: UTF8.self)
+            let submodule = String(decoding: fields[2], as: UTF8.self)
+            let path = String(decoding: fields[fieldCount], as: UTF8.self)
+
+            if isConflict {
+                status.conflictedFiles.append(path)
+            } else if submodule.first == "S" {
+                status.modifiedSubmodules.append(path)
+            } else {
+                if code.first != "." { status.stagedFiles.append(path) }
+                if code.last != "." { status.modifiedTrackedFiles.append(path) }
+            }
+            if hasOriginalPath { _ = records.popFirst() }
         }
-        return (dirty, untracked)
+        status.modifiedTrackedFiles.sort()
+        status.stagedFiles.sort()
+        status.conflictedFiles.sort()
+        status.modifiedSubmodules.sort()
+        status.untrackedFiles.sort()
+        return status
     }
 
     /// Ignored paths in the worktree that the main checkout does not have, or has differently,
-    /// with everything a tool can rebuild left out. See `ReproduciblePaths`.
+    /// with everything a tool can rebuild or setup provably left unchanged left out. See
+    /// `ReproduciblePaths` and `SetupArtifacts`.
     ///
     /// Only ignored paths are considered, because tracked and untracked ones are already covered.
     /// An ignored file that matches the main checkout byte for byte is not a loss: Bloom copied it
@@ -363,17 +465,7 @@ extension Git {
     /// paths and forty thousand file reads. It is also the level the reproducibility rule wants
     /// to work at: the answer for `node_modules/` is the answer for everything inside it.
     static func divergentIgnoredFiles(worktree: String, repo: String) async throws -> [String] {
-        let ignored = try await checkRaw(
-            ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
-            in: worktree
-        )
-
-        var paths: [String] = []
-        for record in nulRecords(ignored.stdout) {
-            let path = String(decoding: record, as: UTF8.self)
-            guard !path.isEmpty, !ReproduciblePaths.canBeRebuilt(path) else { continue }
-            paths.append(path)
-        }
+        let paths = try await ignoredCandidates(worktree: worktree)
 
         // Git lists a directory and, sometimes, a directory nested inside it. Reporting both
         // would name the same loss twice, so only the outermost entry survives: it covers
@@ -385,6 +477,7 @@ extension Git {
 
         var divergent: [String] = []
         for path in covering {
+            if SetupArtifacts.containsOnlyRecordedFiles(path, in: worktree) { continue }
             let here = (worktree as NSString).appendingPathComponent(path)
             let there = (repo as NSString).appendingPathComponent(path)
             if path.hasSuffix("/") {
@@ -396,6 +489,19 @@ extension Git {
             }
         }
         return divergent.sorted()
+    }
+
+    /// Ignored paths Git collapses to the directory level, minus names known to be regenerated.
+    /// Shared with `SetupArtifacts`, which expands only the remaining small, uncertain set.
+    static func ignoredCandidates(worktree: String) async throws -> [String] {
+        let ignored = try await checkRaw(
+            ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+            in: worktree
+        )
+        return nulRecords(ignored.stdout).compactMap { record in
+            let path = String(decoding: record, as: UTF8.self)
+            return path.isEmpty || ReproduciblePaths.canBeRebuilt(path) ? nil : path
+        }
     }
 
     /// Whether two files at the same repository-relative path hold different bytes.
