@@ -6,9 +6,9 @@ import BloomCore
 ///
 /// Two things the pane deliberately no longer does make this necessary. A project with no
 /// workspaces is not listed, and in the status view no project headers are listed either, so the
-/// header's `+` and its settings gear have nowhere to live. Both are here, per project, with the
-/// hidden ones included and marked, which also makes this the one route back to a project somebody
-/// hid other than the switch below it.
+/// header's `+` and context menu have nowhere to live. Their creation and settings actions are
+/// both here, per project, with the hidden ones included and marked, which also makes this the one
+/// route back to a project somebody hid other than the switch below it.
 ///
 /// A submenu rather than the popover this replaced. The popover needed a button of its own in the
 /// status bar, and the owner's objection to the strip growing controls applies to that button as

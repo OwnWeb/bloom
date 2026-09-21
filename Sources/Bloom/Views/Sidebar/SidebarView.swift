@@ -922,9 +922,8 @@ struct SidebarView: View {
                     app.selection = target
                     app.cloud.askToArchive(CloudWorkspaceID(item.id), from: .row)
                 }
-                    // Indented to the section header's name the way a local workspace is indented
-                    // to its project's, in the shape where the local rows are indented at all, so
-                    // the marks and names of both sections stand in the same two columns.
+                    // The same zero outer inset as a local workspace, so local, Cloud and status
+                    // groupings keep their marks and names in the same two columns.
                     .padding(.leading, grouping == .projects ? SidebarMetrics.rowIndent : 0)
                     .tag(target)
                     .sidebarSelection(selectionStyle(for: target))

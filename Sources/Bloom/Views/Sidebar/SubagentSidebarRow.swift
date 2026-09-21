@@ -53,8 +53,8 @@ struct SubagentSidebarRow: View {
         }
         .labelStyle(SidebarRowLabelStyle())
         // One step past the workspace rows, which do not step in from the project at all: they
-        // share its name column, so this indent is the only thing in the pane saying a subagent
-        // is inside its workspace. The last level this pane gets: see `SubagentRow.rows` for why
+        // begin at its icon, so this indent is the only thing in the pane saying a subagent is
+        // inside its workspace. The last level this pane gets: see `SubagentRow.rows` for why
         // depth past one is drawn here rather than a step further in.
         .padding(.leading, rowIndent + SidebarMetrics.subagentIndent)
         // The mark is the fact a sighted reader gets for free and a screen reader gets not at all.

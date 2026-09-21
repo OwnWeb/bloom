@@ -48,7 +48,7 @@ struct CloudEmptyStateView: View {
             }
         }
         .padding(.vertical, Metrics.spacingSmall)
-        .padding(.leading, SidebarMetrics.rowIndent)
+        .padding(.leading, SidebarMetrics.contentColumn)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }

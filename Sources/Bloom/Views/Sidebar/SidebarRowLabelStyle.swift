@@ -17,12 +17,10 @@ import SwiftUI
 /// agreement. `WorkspaceRow` and the notice that stands in for it when a project is empty both
 /// wear it, which is what stops them drifting apart the way two hand-built stacks would.
 ///
-/// The two columns are the project header's, term for term. The mark takes the tile's box and the
-/// gap after it is the header's own, so a row laid out with this and given
-/// `SidebarMetrics.rowIndent` puts its mark under the project's mark and its name under the
-/// project's name, which is `SidebarMetrics.nameColumn`. The numbers used to reproduce what the
-/// system's label geometry happened to measure at, and that is what made them a pair of literals
-/// nothing could move.
+/// The two columns are the project header's, term for term. The mark takes the disclosure box and
+/// the gap after it is the header's own, so the row's text begins where the project icon begins.
+/// The same box is kept for an idle row whose mark is clear, preventing status changes from moving
+/// its title.
 ///
 /// **The image scale has come off this style, and that is a fix rather than a tidy up.** A sidebar
 /// `Label` raises it for the icon slot and this style raised it as well, on a measurement that was
@@ -36,9 +34,8 @@ struct SidebarRowLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: Metrics.spacing) {
             configuration.icon
-                // Wider than the mark it holds, because it is the tile's box rather than the
-                // mark's: the glyph is centred in the project's column instead of hung off its
-                // leading edge.
+                // The disclosure's box exactly, so status marks and project carets share one
+                // stable vertical column.
                 .frame(width: SidebarMetrics.markColumn, height: Metrics.glyph)
             configuration.title
         }

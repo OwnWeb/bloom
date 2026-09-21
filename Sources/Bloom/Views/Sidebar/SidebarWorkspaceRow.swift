@@ -157,8 +157,7 @@ struct SidebarWorkspaceRow: View {
 ///
 /// A `Label` with nothing in its icon, so the sentence starts on the same column a workspace's
 /// name starts on rather than on a column of its own. It is a sentence about the project, not an
-/// item in the list, so it takes the name's column and not the mark's, and that column is the
-/// project's own name: the sentence begins directly under the name it is about.
+/// item in the list, so it follows the same indicator and content columns as a workspace row.
 ///
 /// It is a row in the run like any other now that the pane is flat, which is why it refuses both
 /// selection and the drag: a sentence is not something to pick up, and `SidebarReorder` refuses it
@@ -184,8 +183,8 @@ struct SidebarEmptyNoticeRow: View {
                 .foregroundStyle(Palette.textTertiary)
                 .accessibilityHidden(true)
         }
-        // The same layout the rows it stands in for use, so the sentence starts on the name's
-        // column rather than on a column of its own.
+        // The same layout the rows it stands in for use, so the sentence starts on the primary
+        // content column rather than on a column of its own.
         .labelStyle(SidebarRowLabelStyle())
         .padding(.leading, SidebarMetrics.rowIndent)
     }
