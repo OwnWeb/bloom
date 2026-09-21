@@ -26,7 +26,7 @@ extension WorkspaceRuntime {
         _ body: @Sendable (PublishingCommand?) async throws -> Value
     ) async throws -> Value {
         guard let publishing else { return try await body(nil) }
-        let turnID = try await gate.register(.terminal, chat: nil, agent: nil, caller: caller)
+        let turnID = try await gate.register(.terminal, chat: nil, agent: nil, model: nil, caller: caller)
         guard !turnID.isEmpty else {
             throw RemoteFailure(.unavailable, "No person-bound publishing turn was registered.")
         }

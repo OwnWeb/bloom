@@ -228,7 +228,7 @@ So:
   sharing the workspace is refused while it is there. A Codex ChatGPT plan `auth.json` is treated the
   same way.
 
-### How a key reaches a turn
+### How model authority reaches a turn
 
 Bloom today keeps one long-lived agent process per chat (Claude stream-json with stdin held open,
 the Codex app-server) and relaunches with `--resume` or `thread/resume` after a restart. On a
@@ -236,34 +236,35 @@ Sprite:
 
 1. **Registering.** A client sends a prompt with a workspace token carrying `prompt`, fresh at the
    moment of sending. Bloom Runner passes that token on at once to `POST
-   /api/machine/workspaces/{id}/turns`, and gets back a turn id in state `queued`, stored on the
-   delivery. The workspace secret alone cannot get a key: every key is tied to a turn a person
+   /api/machine/workspaces/{id}/turns`, including the exact agent and model, and gets back a turn id
+   in state `queued`, stored on the delivery. The workspace secret alone cannot get model authority:
+   every grant is tied to a turn a person
    asked for while their token was valid. Removing a member cancels their queued turns, and a turn
    registered more than 12 hours before it starts is refused.
 2. **Starting.** When the delivery reaches the front of the queue, which may be long after that
    token expired, Bloom Runner calls `POST .../turns/{turn}/start` with the workspace secret. The
-   reply carries the resolved key, an identity for it (a hash, not the key), and the prompter's
-   personal environment. The key is fetched at every start and never cached across turns.
-3. If the running process was started with the same identity, the delivery goes to its stdin. The
-   identity is the resolved key, not the person, so teammates sharing the team key never cause a
-   relaunch.
-4. Otherwise Bloom Runner waits for the running turn to end, stops the process and relaunches it
-   with `--resume` and the key in the process environment only (`ANTHROPIC_API_KEY`,
-   `OPENAI_API_KEY`). Resume reloads the session from local files on the Sprite, which is cheap.
-   **The prompt cache is not**: a different key is a cache miss, and the first turn after a switch
-   pays full input price for the whole context. That only happens when someone with a personal key
-   takes a turn after someone on another key.
+   reply carries one opaque grant for the exact agent, provider, model and streaming operation,
+   plus the prompter's personal environment. The provider key remains in runbloom.app.
+3. Bloom Runner keeps that grant in memory and gives the isolated agent a separate random local
+   bearer and a loopback provider base URL. The local bearer is bound to the turn, agent, provider,
+   model and operation. It is never a server grant and has no authority at runbloom.app.
+4. The provider client sends its normal streaming request to the loopback gateway. Bloom Runner
+   checks and removes `model`, `stream`, `store` and `background`, adds a fresh globally single-use
+   UUID, and relays the stream through runbloom.app using the signed machine transport. It renews
+   the opaque grant before expiry and swaps revisions atomically.
 5. A message from someone else is never injected into a running turn. It queues behind it.
 6. **Ending.** `DELETE .../turns/{turn}` when the turn ends, fails or is stopped.
 
-A running process keeps the key it was launched with for as long as consecutive turns resolve to
-the same identity. Personal environment applies only to that turn's processes; it is not given to
-project services. A terminal session registers the same way, `POST .../turns` with `kind:
+A running Cloud agent is retired after its turn, which revokes its local bearer and cancels any
+in-flight provider request. Personal environment applies only to that turn's processes; it is not
+given to project services. A terminal session registers the same way, `POST .../turns` with `kind:
 "terminal"` and a token carrying the `terminal` ability. Its shell gets the person's scrubbed
-personal environment and a turn id for the isolated GitHub credential exchange, but no model-provider key.
+personal environment and a turn id for the isolated GitHub credential exchange, but no local model
+gateway credential. A trusted isolated agent launched from a terminal requests its own exact grant.
 
-The key is never written to disk, never in argv, and never in the transcript. A cold wake kills
-the process, and the next delivery starts again at step 1.
+Provider keys and server grants are never written to disk, put in argv, or placed in a child
+environment or transcript. A cold wake kills the process and loses every local bearer, so the next
+delivery starts again at step 1.
 
 ## Collaboration
 
@@ -607,16 +608,17 @@ retry wait.
 
 ### Provider credential environment boundary
 
-`ProviderCredentialEnvironment` is the single policy for provider credentials. Every local or
+`ProviderCredentialEnvironment` is the single policy for provider and local gateway credentials. Every local or
 Cloud terminal, tmux server and client, setup or resume script, run script and project service
 crosses `untrustedProcess`, after all environment overlays have been applied. It removes the
 canonical Anthropic, OpenAI and xAI variables plus the Claude Code, Codex, Grok, Cursor and
 OpenCode aliases, case-insensitively. Ordinary workspace, user and Git helper variables remain.
 
 Only an explicitly classified agent launch may cross `agent`. That boundary first removes every
-provider credential inherited by Bloom Runner, then restores the one server-authorised canonical
-variable for the selected `AgentKind`. Both policy switches are exhaustive over `AgentKind`, so a
-new provider cannot compile until its canonical credential and aliases have an explicit decision.
+provider credential inherited by Bloom Runner, then restores the Runner's random local bearer in
+the canonical variable for the selected `AgentKind`, together with its loopback base URL. Both
+policy switches are exhaustive over `AgentKind`, so a new provider cannot compile until its
+canonical credential and aliases have an explicit decision.
 Values are never inspected or included in errors. GitHub credentials remain outside this policy:
 network Git and gh use the person-bound Unix-socket exchange and never receive a raw token in the
 terminal environment.
@@ -1161,10 +1163,12 @@ and its builder confirmed them.
   being wrong upwards is the direction to be wrong in, and a change that makes it exact by
   sometimes answering zero would be a worse number. See `RemoteWorkAtStake`.
 - **The machine API payloads are runbloom.app's**, recorded under "Machine API payloads" in its
-  design document: `turns` takes `kind`, `session_token`, `chat_id` and `agent`; `start` answers
-  `agent_keys` (per agent: `key`, `identity`, `source`) and `environment`, or the limit refusal, or
+  design document: `turns` takes `kind`, `session_token`, `chat_id`, `agent` and exact `model`;
+  `start` answers `model_grants` and `environment`, or the limit refusal, or
   `no_agent_key`, `not_a_collaborator`, `github_not_connected`, or 409 `turn_not_startable`;
-  `start` also carries the opaque person-bound grant for that turn.
+  `start` also carries the opaque person-bound GitHub grant for that turn. Model grant issue,
+  renewal, streaming and cancellation use the versioned routes in runbloom.app's opaque model grant
+  v1 contract. Every call carries workspace bearer authentication and machine identity proof v1.
   `github-credential-grants/bootstrap` accepts no caller fields. `github-credentials` takes only
   `grant`, the root-attested operation (`git_read`, `git_write`, `gh_read` or `gh_write`) and a
   one-use `request_id`; it answers one short-lived credential and the next rotating grant.
@@ -1229,13 +1233,12 @@ and its builder confirmed them.
   prompter's**: runbloom.app answers an installation token scoped to the repository, and refuses
   turns from anybody without push access with 403 `no_push_access`, which the machine handles like
   any other non-limit refusal.
-- **Becoming shared retires personal credentials.** runbloom.app calls `control/shared` before
+- **Becoming shared retires person-bound processes.** runbloom.app calls `control/shared` before
   anybody new gets access. The machine answers at once, then stops every agent process and ends
-  every terminal launched with personal environment; a turn running on a personal key ends
+  every terminal launched with personal environment; a running turn ends
   with "This Cloud workspace was shared, so the turn stopped; the next turn uses the team key", and
-  queued prompts stay queued. It is idempotent, and it also happens when a turn or terminal start
-  answers a team key for an agent something holds a personal key for, or no personal environment
-  where something holds some, in case the call was missed.
+  queued prompts stay queued. It is idempotent. The opaque grant does not reveal the upstream key
+  scope, so retiring every active model process is the safe boundary.
 - **Revoking takes effect at once, not when tokens run out.** Tokens and preview cookies issued
   before a revoke (plus the thirty seconds of clock skew) are refused, and the list is kept in the
   database for eight hours, the longest preview cookie. The person's queued prompts are removed

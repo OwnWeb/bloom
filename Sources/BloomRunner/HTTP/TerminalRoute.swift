@@ -13,7 +13,7 @@ import NIOCore
 /// and `reauth` are text frames. See `TerminalControlFrame`.
 ///
 /// **The shell is a turn.** It is registered with runbloom.app under the person's token and
-/// started, but the provider keys in that grant never cross the terminal boundary. Its scrubbed
+/// started, but model grants and local gateway credentials never cross the terminal boundary. Its scrubbed
 /// personal environment is for this shell alone. `BLOOM_TERMINAL` is what lets `git push` from it push as them:
 /// the credential route looks up the turn of whichever connection to that terminal is open now,
 /// because a shell outlives its connection and the turn it started with ends with that one.
@@ -87,7 +87,9 @@ enum TerminalRoute {
         do {
             token = try await authorise(raw, verifier: dependencies.verifier)
             let caller = token.caller(token: raw)
-            turnID = try await dependencies.gate.register(.terminal, chat: nil, agent: nil, caller: caller)
+            turnID = try await dependencies.gate.register(
+                .terminal, chat: nil, agent: nil, model: nil, caller: caller
+            )
             registered = turnID
             (environment, personal) = try await shellEnvironment(turnID: turnID, terminal: name, gate: dependencies.gate, runtime: dependencies.runtime)
         } catch {

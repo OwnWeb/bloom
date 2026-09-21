@@ -4,15 +4,19 @@ import Foundation
 /// when it reaches the front of the queue, and ending it.
 ///
 /// **Two steps, because a queue outlives a token.** A prompt can wait behind a long turn for far
-/// longer than the five minutes a session token lives, and the key for it must be tied to a person
+/// longer than the five minutes a session token lives, and its authority must be tied to a person
 /// who asked while their access was valid. So the token is handed on at `register`, and `start`
 /// later needs only the workspace secret. A leaked secret alone therefore cannot mint a turn. See
-/// docs/REMOTE-WORKSPACES.md, "How a key reaches a turn".
+/// docs/REMOTE-WORKSPACES.md, "How model authority reaches a turn".
+/// A normal turn registers its exact model beside its agent. A terminal registers both as nil and
+/// receives no model authority when it starts.
 ///
 /// A protocol so the runtime is testable with no runbloom.app, and so the Mac could run the same
 /// runtime with `UngatedTurns` if it ever wanted to.
 public protocol RemoteTurnGate: Sendable {
-    func register(_ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, caller: RemoteCaller) async throws -> String
+    func register(
+        _ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, model: String?, caller: RemoteCaller
+    ) async throws -> String
     func start(turnID: String) async throws -> RemoteTurnGrant
     func end(turnID: String) async
 }
@@ -22,33 +26,38 @@ public enum RemoteTurnKind: String, Sendable, Hashable {
     case terminal
 }
 
-/// What starting a turn hands the machine: keys for the agents the prompter may use, and the
-/// prompter's personal environment, both for that turn's processes only.
-public struct RemoteTurnGrant: Sendable, Hashable {
-    public var agentKeys: [AgentKind: RemoteAgentKey]
+/// What starting a turn hands the process boundary. A Cloud Runner puts only its local gateway
+/// credential here. Provider credentials and server grants never enter BloomCore or a child.
+public struct RemoteTurnGrant: Sendable, Hashable, CustomStringConvertible,
+    CustomDebugStringConvertible, CustomReflectable {
+    public var agentEnvironments: [AgentKind: [String: String]]
     public var environment: [String: String]
     /// An opaque bearer bound by runbloom.app to this exact running turn or terminal. A Runner
     /// refuses a missing value; nil remains useful for local and unit-test gates.
     public var githubCredentialGrant: RemoteGithubCredentialGrant?
 
-    public init(agentKeys: [AgentKind: RemoteAgentKey] = [:], environment: [String: String] = [:],
+    public init(agentEnvironments: [AgentKind: [String: String]] = [:], environment: [String: String] = [:],
                 githubCredentialGrant: RemoteGithubCredentialGrant? = nil) {
-        self.agentKeys = agentKeys
+        self.agentEnvironments = agentEnvironments
         self.environment = environment
         self.githubCredentialGrant = githubCredentialGrant
     }
 
-    /// The process environment for an agent of this kind: the key under the variable its CLI
-    /// reads, over the personal environment, so a personal variable cannot shadow the key.
+    /// The process environment for an agent of this kind. The Runner-provided gateway values win
+    /// over personal variables, and the ordinary provider aliases are removed first.
     public func environment(for agent: AgentKind) -> [String: String] {
-        ProviderCredentialEnvironment.agent(agent, key: agentKeys[agent]?.key, environment: environment)
+        var result = ProviderCredentialEnvironment.untrustedProcess(environment)
+        result.merge(agentEnvironments[agent] ?? [:]) { _, gateway in gateway }
+        return result
     }
 
     /// What a process or shell launched with this grant carries that belongs to one person: the
-    /// wire name of every agent whose key is personal, and `environment` when there is personal
-    /// environment. Empty means nothing of anybody's own. See `PersonalCredentials`.
+    /// wire name of every person-bound agent, and `environment` when there is personal environment.
+    /// Empty means nothing of anybody's own. See `PersonalCredentials`.
     public func personalMarks(for agents: [AgentKind]) -> Set<String> {
-        var marks = Set(agents.filter { agentKeys[$0]?.source == "personal" }.map(\.wireName))
+        // A shared-workspace control call retires every person-bound model process. The opaque
+        // grant intentionally does not reveal whether its upstream key was personal or team-owned.
+        var marks = Set(agents.map(\.wireName))
         if !ProviderCredentialEnvironment.untrustedProcess(environment).isEmpty {
             marks.insert(PersonalCredentials.environmentMark)
         }
@@ -64,20 +73,28 @@ public struct RemoteTurnGrant: Sendable, Hashable {
         for mark in marks {
             if mark == PersonalCredentials.environmentMark {
                 if environment.isEmpty { return true }
-            } else if let agent = AgentKind.named(wire: mark), agentKeys[agent]?.source == "team" {
-                return true
             }
         }
         return false
     }
 
-    /// What decides whether a running agent process can take this turn or has to be relaunched:
-    /// the key's identity, never the person, so teammates on the team key never cause a relaunch.
+    /// What decides whether a running agent process can take this turn or has to be relaunched.
+    /// Local gateway credentials are unique to a turn, so Cloud agents do not retain authority.
     public func launchIdentity(for agent: AgentKind) -> String {
         let personal = ProviderCredentialEnvironment.untrustedProcess(environment)
             .sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
-        return (agentKeys[agent]?.identity ?? "") + "\n" + personal
+        let gateway = (agentEnvironments[agent] ?? [:])
+            .sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
+        return gateway + "\n" + personal
     }
+
+    public var description: String {
+        let agents = agentEnvironments.keys.map(\.wireName).sorted().joined(separator: ", ")
+        let names = environment.keys.sorted().joined(separator: ", ")
+        return "RemoteTurnGrant(local gateway for: [\(agents)], environment: [\(names)])"
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: ["description": description]) }
 }
 
 /// The protocol-layer form of a person-bound grant. It stays in memory and redacts its bearer from every
@@ -115,20 +132,6 @@ public struct RemoteLaunchContext: Sendable, Hashable {
     }
 }
 
-public struct RemoteAgentKey: Sendable, Hashable {
-    public var key: String
-    /// A hash of the key from runbloom.app, never the key, so comparing two costs nothing secret.
-    public var identity: String
-    /// `team` or `personal`.
-    public var source: String
-
-    public init(key: String, identity: String, source: String) {
-        self.key = key
-        self.identity = identity
-        self.source = source
-    }
-}
-
 /// Personal keys are used only in a workspace that is not shared. When a workspace becomes shared,
 /// every process still holding them is stopped.
 public enum PersonalCredentials {
@@ -146,11 +149,13 @@ public enum RemoteTurnRefusal: Error, Sendable, Hashable {
     case refused(code: String, message: String)
 }
 
-/// No runbloom.app: every turn starts, with no key, and agents use whatever sign-in the machine
+/// No runbloom.app: every turn starts with no grant, and agents use whatever sign-in the machine
 /// already has. For tests, and for running the runtime anywhere a person is already the only user.
 public struct UngatedTurns: RemoteTurnGate {
     public init() {}
-    public func register(_ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, caller: RemoteCaller) async throws -> String { "" }
+    public func register(
+        _ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, model: String?, caller: RemoteCaller
+    ) async throws -> String { "" }
     public func start(turnID: String) async throws -> RemoteTurnGrant { RemoteTurnGrant() }
     public func end(turnID: String) async {}
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The process-environment boundary around Bloom-managed model-provider credentials.
+/// The process-environment boundary around Bloom-managed local model-gateway credentials.
 ///
 /// Agent execution is the only path that may receive one, and it receives only the canonical
 /// variable for the selected agent. Terminals, repository scripts, services and their descendants
@@ -16,19 +16,8 @@ public enum ProviderCredentialEnvironment {
         environment.filter { !blockedNames.contains($0.key.uppercased()) }
     }
 
-    /// The selected agent's process environment. Personal or machine environment cannot smuggle a
-    /// second provider credential through, and the server-issued key wins for its one canonical
-    /// variable.
-    public static func agent(
-        _ agent: AgentKind, key: String?, environment: [String: String]
-    ) -> [String: String] {
-        var allowed = untrustedProcess(environment)
-        if let key { allowed[canonicalName(for: agent)] = key }
-        return allowed
-    }
-
-    /// Overlays a server-authorised agent environment on a process environment without retaining
-    /// provider credentials inherited by the Runner itself. Only the selected agent's credential
+    /// Overlays a Runner-authorised local gateway environment without retaining provider
+    /// credentials inherited by the Runner itself. Only the selected agent's local credential
     /// from `granted` may cross this boundary.
     public static func agent(
         _ agent: AgentKind, granted: [String: String], inheriting inherited: [String: String]

@@ -20,6 +20,12 @@ public struct RunbloomClient: Sendable {
         var body: Data
         var retryAfter: String?
     }
+    struct ModelStreamResponse: Sendable {
+        var status: Int
+        var contentType: String?
+        var retryAfter: String?
+        var body: HTTPClientResponse.Body
+    }
     /// `{base}/api/machine/workspaces/{id}`, built once. Held as the path rather than the id so
     /// the id is never mistaken for one of Bloom's own.
     private let workspaceURL: String
@@ -183,7 +189,9 @@ public struct RunbloomClient: Sendable {
     /// Registers a turn or a terminal session while the prompter's token is fresh, and answers
     /// runbloom.app's turn id. `chatID` and `agent` go as JSON null for a terminal, as the contract
     /// has them present either way.
-    public func registerTurn(kind: RemoteTurnKind, chatID: String?, agent: AgentKind?, sessionToken: String) async throws -> String {
+    public func registerTurn(
+        kind: RemoteTurnKind, chatID: String?, agent: AgentKind?, model: String?, sessionToken: String
+    ) async throws -> String {
         struct Answer: Decodable {
             var turnID: String
             enum CodingKeys: String, CodingKey { case turnID = "turn_id" }
@@ -193,6 +201,7 @@ public struct RunbloomClient: Sendable {
             "session_token": sessionToken,
             "chat_id": chatID ?? NSNull(),
             "agent": agent?.wireName ?? NSNull(),
+            "model": model ?? NSNull(),
         ]
         let data = try await send(.POST, "/turns", body: JSONSerialization.data(withJSONObject: body), expecting: [201, 200])
         return try decode(Answer.self, data, status: 201).turnID
@@ -201,6 +210,77 @@ public struct RunbloomClient: Sendable {
     public func startTurn(_ id: String) async throws -> RunbloomTurnStart {
         let data = try await send(.POST, "/turns/\(id)/start", expecting: [200])
         return try decode(RunbloomTurnStartBody.self, data, status: 200).start
+    }
+
+    public func issueModelGrant(
+        turnID: String, agent: AgentKind, model: String, requestID: UUID
+    ) async throws -> OpaqueModelGrant {
+        struct Answer: Decodable { var modelGrant: OpaqueModelGrant
+            enum CodingKeys: String, CodingKey { case modelGrant = "model_grant" }
+        }
+        let body = try JSONSerialization.data(withJSONObject: [
+            "version": "opaque_model_grant_v1",
+            "agent": agent.wireName,
+            "model": model,
+            "request_id": requestID.uuidString.lowercased(),
+        ], options: [.sortedKeys])
+        let data = try await send(
+            .POST, "/turns/\(turnID)/model-grants", body: body, expecting: [201]
+        )
+        return try decode(Answer.self, data, status: 201).modelGrant
+    }
+
+    func renewModelGrant(
+        turnID: String, grant: String, requestID: UUID
+    ) async throws -> OpaqueModelGrant {
+        try await renewModelGrant(
+            turnID: turnID, body: modelGrantRenewalBody(grant: grant, requestID: requestID)
+        )
+    }
+
+    func modelGrantRenewalBody(grant: String, requestID: UUID) throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "version": "opaque_model_grant_v1",
+            "grant": grant,
+            "request_id": requestID.uuidString.lowercased(),
+        ], options: [.sortedKeys])
+    }
+
+    func renewModelGrant(turnID: String, body: Data) async throws -> OpaqueModelGrant {
+        struct Answer: Decodable { var modelGrant: OpaqueModelGrant
+            enum CodingKeys: String, CodingKey { case modelGrant = "model_grant" }
+        }
+        let data = try await send(
+            .POST, "/turns/\(turnID)/model-grant-renewals", body: body, expecting: [200]
+        )
+        return try decode(Answer.self, data, status: 200).modelGrant
+    }
+
+    func startModelStream(
+        grant: OpaqueModelGrant, requestID: UUID, modelRequest: Data
+    ) async throws -> ModelStreamResponse {
+        let request = try JSONSerialization.jsonObject(with: modelRequest)
+        let body = try JSONSerialization.data(withJSONObject: [
+            "version": "opaque_model_grant_v1",
+            "grant": grant.token,
+            "request_id": requestID.uuidString.lowercased(),
+            "operation": grant.operation.rawValue,
+            "provider": grant.provider.rawValue,
+            "model": grant.model,
+            "model_request": request,
+        ], options: [.sortedKeys])
+        return try await sendStreamingOnce(.POST, "/model-gateway/streams", body: body)
+    }
+
+    func cancelModelStream(requestID: UUID, grant: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "version": "opaque_model_grant_v1",
+            "grant": grant,
+        ], options: [.sortedKeys])
+        _ = try await send(
+            .DELETE, "/model-gateway/requests/\(requestID.uuidString.lowercased())",
+            body: body, expecting: [204]
+        )
     }
 
     /// Idempotent on runbloom.app, so a caller that is unsure whether an earlier attempt landed
@@ -269,26 +349,10 @@ public struct RunbloomClient: Sendable {
         proof suppliedProof: MachineIdentityProofHeaders? = nil,
         usesPendingProof: Bool = false
     ) async throws -> TransportResponse {
-        var request = HTTPClientRequest(url: workspaceURL + path)
-        request.method = method
-        request.headers.add(name: "Authorization", value: "Bearer \(secret.current)")
-        request.headers.add(name: "Accept", value: "application/json")
-        for (name, value) in headers { request.headers.add(name: name, value: value) }
-        if signsRequest {
-            let proof: MachineIdentityProofHeaders
-            if let suppliedProof {
-                proof = suppliedProof
-            } else {
-                proof = try await identity.requestHeaders(
-                    method: method, path: path, body: body, usingPending: usesPendingProof
-                )
-            }
-            for (name, value) in proof.fields { request.headers.add(name: name, value: value) }
-        }
-        if let body {
-            request.headers.add(name: "Content-Type", value: "application/json")
-            request.body = .bytes(ByteBuffer(bytes: body))
-        }
+        let request = try await request(
+            method, path, body: body, headers: headers, signsRequest: signsRequest,
+            proof: suppliedProof, usesPendingProof: usesPendingProof
+        )
 
         let status: Int
         let answer: Data
@@ -310,6 +374,54 @@ public struct RunbloomClient: Sendable {
         if success.contains(status) { return TransportResponse(status: status, body: answer, retryAfter: retryAfter) }
         if status >= 500 { throw RunbloomError.unreachable("runbloom.app answered \(status).") }
         throw Self.refusal(status: status, answer)
+    }
+
+    /// Streams are deliberately sent once. Their UUID is globally single-use, so even the usual
+    /// workspace-secret refresh must become a fresh local request and a fresh UUID.
+    private func sendStreamingOnce(
+        _ method: HTTPMethod, _ path: String, body: Data
+    ) async throws -> ModelStreamResponse {
+        let request = try await request(method, path, body: body, headers: [:])
+        do {
+            let response = try await http.execute(request, timeout: .hours(12))
+            return ModelStreamResponse(
+                status: Int(response.status.code),
+                contentType: response.headers.first(name: "Content-Type"),
+                retryAfter: response.headers.first(name: "Retry-After"),
+                body: response.body
+            )
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            throw RunbloomError.unreachable(String(describing: error))
+        }
+    }
+
+    private func request(
+        _ method: HTTPMethod, _ path: String, body: Data?, headers: [String: String],
+        signsRequest: Bool = true, proof suppliedProof: MachineIdentityProofHeaders? = nil,
+        usesPendingProof: Bool = false
+    ) async throws -> HTTPClientRequest {
+        var request = HTTPClientRequest(url: workspaceURL + path)
+        request.method = method
+        request.headers.add(name: "Authorization", value: "Bearer \(secret.current)")
+        request.headers.add(name: "Accept", value: "application/json")
+        for (name, value) in headers { request.headers.add(name: name, value: value) }
+        if signsRequest {
+            let proof: MachineIdentityProofHeaders
+            if let suppliedProof {
+                proof = suppliedProof
+            } else {
+                proof = try await identity.requestHeaders(
+                    method: method, path: path, body: body, usingPending: usesPendingProof
+                )
+            }
+            for (name, value) in proof.fields { request.headers.add(name: name, value: value) }
+        }
+        if let body {
+            request.headers.add(name: "Content-Type", value: "application/json")
+            request.body = .bytes(ByteBuffer(bytes: body))
+        }
+        return request
     }
 
     /// A 4xx with runbloom.app's `code` and `message` is a refusal; one without them (a proxy's

@@ -13,9 +13,9 @@ import Foundation
 /// acceptance retires it. So after a crash a prompt that may have reached the agent is shown as
 /// uncertain and waits for a person, rather than being sent twice.
 ///
-/// **runbloom.app decides whether a turn may start, and with which key.** Each prompt was
+/// **runbloom.app decides whether a turn may start, and with which model grant.** Each prompt was
 /// registered when it was sent, while its author's token was fresh; here, at the front of the
-/// queue, the turn is started, which answers with a key or a refusal. A refusal for a team limit
+/// queue, the turn is started, which answers with an opaque grant or a refusal. A refusal for a team limit
 /// leaves the prompt queued and marked, and the queue stops asking: polling would keep the machine
 /// awake, which is the cost the limit exists to cap. `retryBlocked()` is what runbloom.app's
 /// `limits-cleared` call and every wake end up in.
@@ -30,8 +30,8 @@ actor RemotePromptQueue {
     private let changed: @Sendable (SessionID) async -> Void
     private let settled: @Sendable (SessionID, RemoteTurnEnd, String?) async -> Void
     private let started: @Sendable (SessionID, Delivery) async -> Void
-    /// Handed every grant before its chat's process is prepared, so a team key arriving while
-    /// other processes hold personal ones retires those.
+    /// Handed every grant before its chat's process is prepared, so changed personal environment
+    /// retires processes which still hold the earlier values.
     private let granted: @Sendable (RemoteTurnGrant) async -> Void
 
     private var tasks: [SessionID: Task<Void, Never>] = [:]
@@ -78,7 +78,10 @@ actor RemotePromptQueue {
     func enqueue(_ text: String, session: Session, caller: RemoteCaller, mention: String? = nil,
                  via: MessageVia? = nil) async throws -> DeliveryID {
         guard !closed else { throw RemoteFailure.shuttingDown }
-        let turnID = try await gate.register(.turn, chat: session.id, agent: session.agentKind, caller: caller)
+        let model = ModelIdentifier.resolve(session.model).model
+        let turnID = try await gate.register(
+            .turn, chat: session.id, agent: session.agentKind, model: model, caller: caller
+        )
         // The mention travels with the prompt so the transcript keeps it and the agent does not
         // read it; see `Delivery.sent`.
         let delivery = Delivery(targetSessionID: session.id, body: text, interactionMode: session.interactionMode,
