@@ -135,6 +135,15 @@ jobs:
       - name: Check what the runner's start wrapper decides
         run: zsh Tools/runner-start-probe.sh
 
+      # The modes the release archive carries, which decide whether a machine will serve at all:
+      # the person-bound attestor refuses an executable anyone but root can write. This was found
+      # the expensive way, by `packaged-runner` refusing the package after a Linux build, a
+      # package and a container, twenty minutes after the push. The promise is the archive
+      # filter's alone and needs nothing built to check, so it is answered here in a tenth of a
+      # second instead.
+      - name: Check the release archive's ownership and modes
+        run: python3 Tools/package-linux-runner.py --check
+
       # And the rules that are the language's rather than ours, which is the other half.
       # `.swiftlint.yml` is tuned rather than default: the head of that file has the counts every
       # disabled rule produced and why each one is off.

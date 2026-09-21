@@ -71,12 +71,74 @@ def copy_notice(source, destination):
 
 
 def root_owned_archive_entry(entry):
-    """Make extraction by root produce a root-controlled release tree."""
+    """Make extraction by root produce a root-controlled release tree.
+
+    Ownership is not enough, and the write bits are the half that bites. The person-bound
+    attestor refuses any executable whose path is group or other writable, every component of
+    it, and a machine that fails that check refuses to serve at all. The binaries are copied
+    out of the build directory with their modes, and a build user whose group is their own gets
+    umask 002 from pam_umask, so bloom-runner-exec left CI at 0775 and every installed release
+    would have carried that. The mode belongs to the release rather than to whoever built it.
+    """
     entry.uid = 0
     entry.gid = 0
     entry.uname = "root"
     entry.gname = "root"
+    entry.mode &= ~0o022
     return entry
+
+
+def self_test():
+    """What the filter above promises, checked without building anything.
+
+    This is here because the alternative cost twenty minutes to ask. `bloom-runner-exec` left
+    GitHub's builder at 0775, the person-bound attestor refuses an executable anyone but root can
+    write, and the packaged machine would not serve; the only thing that said so was a smoke test
+    sitting behind a full Linux build, a package and a container. None of that is needed to check
+    the promise. There is no Swift, no binary and no network here, so it runs in the lint job and
+    answers in milliseconds.
+
+    A build machine is not asked what it thinks the modes should be. That was the bug.
+    """
+    problems = []
+    with tempfile.TemporaryDirectory(prefix="package-linux-runner-check-") as scratch:
+        bundle = pathlib.Path(scratch) / "bin"
+        bundle.mkdir()
+        bundle.chmod(0o777)
+        # An executable as a group-writable builder leaves it, and the shield, whose whole point
+        # is that nobody can write to it. One has to lose a bit and the other has to keep its mode.
+        (bundle / "runner-exec").write_bytes(b"")
+        (bundle / "runner-exec").chmod(0o775)
+        (bundle / "shield.so").write_bytes(b"")
+        (bundle / "shield.so").chmod(0o555)
+        archive_path = pathlib.Path(scratch) / "probe.tar.gz"
+        with tarfile.open(archive_path, "w:gz") as archive:
+            archive.add(bundle, arcname="bin", filter=root_owned_archive_entry)
+        with tarfile.open(archive_path) as archive:
+            entries = {entry.name: entry for entry in archive.getmembers()}
+
+    for name, entry in sorted(entries.items()):
+        if entry.uid != 0 or entry.gid != 0:
+            problems.append(f"{name} is owned by {entry.uid}:{entry.gid} rather than by root")
+        if entry.mode & 0o022:
+            problems.append(f"{name} is {entry.mode:04o}, which someone other than root can write")
+    if entries["bin/runner-exec"].mode != 0o755:
+        problems.append(
+            f"a 0775 executable became {entries['bin/runner-exec'].mode:04o} rather than 0755"
+        )
+    if entries["bin/shield.so"].mode != 0o555:
+        problems.append(
+            f"a 0555 file became {entries['bin/shield.so'].mode:04o} rather than staying 0555"
+        )
+    if entries["bin"].mode != 0o755:
+        problems.append(f"a 0777 directory became {entries['bin'].mode:04o} rather than 0755")
+
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    if problems:
+        return 1
+    print(f"package-linux-runner: {len(entries)} archive entries are root-owned and root-writable only")
+    return 0
 
 
 def linux_dependencies(root):
@@ -238,6 +300,8 @@ def package(bin_directory, output_directory, version):
         with tarfile.open(archive_path, "r:gz") as archive:
             if any(entry.uid != 0 or entry.gid != 0 for entry in archive.getmembers()):
                 raise RuntimeError("The package contains an entry that is not owned by root")
+            if any(entry.mode & 0o022 for entry in archive.getmembers()):
+                raise RuntimeError("The package contains an entry anyone but root can write")
 
     digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
     (output_directory / (archive_path.name + ".sha256")).write_text(f"{digest}  {archive_path.name}\n")
@@ -246,9 +310,14 @@ def package(bin_directory, output_directory, version):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("bin_directory", type=pathlib.Path)
-    parser.add_argument("output_directory", type=pathlib.Path)
+    parser.add_argument("bin_directory", type=pathlib.Path, nargs="?")
+    parser.add_argument("output_directory", type=pathlib.Path, nargs="?")
     parser.add_argument("--version", default=os.environ.get("BLOOM_RUNNER_VERSION", "").removeprefix("v"))
+    parser.add_argument("--check", action="store_true", help="check the archive filter and exit")
     arguments = parser.parse_args()
+    if arguments.check:
+        sys.exit(self_test())
+    if not arguments.bin_directory or not arguments.output_directory:
+        parser.error("a bin directory and an output directory are required")
     version = arguments.version or "0.0.0-dev." + run("git", "rev-parse", "--short=12", "HEAD")
     package(arguments.bin_directory.resolve(), arguments.output_directory.resolve(), version)

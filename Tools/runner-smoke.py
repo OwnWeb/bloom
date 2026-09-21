@@ -30,8 +30,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from bloom_fake_runbloom import FakeRunbloom, Issuer  # noqa: E402
 
 WORKSPACE = "01k5a7d3v1x0m8n2q4r6s9t0wy"
+MACHINE = "01k5a7e4w2y1n9m3r5s7t0v1xz"
 USER = "01k5a7c2b0z9y8x7w6v5t4s3rq"
 SECRET = "smoke-secret-" + "x" * 51
+REGISTRATION_TOKEN = "r" * 64
 
 
 def free_port():
@@ -69,7 +71,10 @@ def main():
         fake_port = free_port()
         base = f"http://127.0.0.1:{fake_port}"
         issuer = Issuer(scratch / "issuer", base, WORKSPACE)
-        fake = FakeRunbloom(SECRET, issuer.jwks, port=fake_port)
+        fake = FakeRunbloom(
+            SECRET, issuer.jwks, workspace=WORKSPACE, machine=MACHINE,
+            registration_token=REGISTRATION_TOKEN, port=fake_port,
+        )
         threading.Thread(target=fake.serve_forever, daemon=True).start()
 
         config = scratch / "workspace.json"
@@ -77,6 +82,12 @@ def main():
             "workspace_id": WORKSPACE, "issuer": base, "jwks_url": base + "/.well-known/jwks.json", "base_url": base,
             "workspace_secret": SECRET, "allowed_origins": ["https://runbloom.app"], "public_url": "https://smoke.example",
             "repository": "spatie/bloom-smoke", "branch": "smoke", "base_branch": "main", "name": "Smoke", "team_id": "01k5a7b1a9y8x7w6v5t4s3r2qp",
+            "machine_identity": {
+                "version": 1, "machine_id": MACHINE, "registration_token": REGISTRATION_TOKEN,
+                "registration_expires_at": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 300)
+                ),
+            },
         }))
         config.chmod(0o600)
         environment = dict(os.environ, BLOOM_WORKSPACE_CONFIG=str(config), BLOOM_DATA_DIR=str(scratch / "data"),
