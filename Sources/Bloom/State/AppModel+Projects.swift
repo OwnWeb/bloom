@@ -21,19 +21,51 @@ extension AppModel {
     ///
     /// - Parameter surface: which window asked, so the offer appears on that one. See
     ///   `ProjectSetupSurface`.
-    func addRepository(at path: String, presentedIn surface: ProjectSetupSurface = .main) async {
-        guard manager != nil else { return }
+    @discardableResult
+    func addRepository(
+        at path: String,
+        presentedIn surface: ProjectSetupSurface = .main,
+        focusing: Bool = false
+    ) async -> Repo? {
+        guard manager != nil else { return nil }
 
         let facts = await RepositoryStarter.inspect(path)
         switch FolderVerdict.of(facts) {
         case .alreadyRepository(let root):
-            await addKnownRepository(at: root)
+            guard let repo = await addKnownRepository(at: root) else { return nil }
+            if focusing { await focus(repo) }
+            return repo
 
         case .refuse(let refusal):
             alert = BloomAlert(title: "Bloom will not add this folder", message: refusal.sentence)
+            return nil
 
         case .offer:
             await offerToStartRepository(at: facts.path, presentedIn: surface)
+            return nil
+        }
+    }
+
+    /// Brings an externally opened project into view. Project headers are intentionally not
+    /// selectable, so Home narrowed to this project is Bloom's project-focused destination. A
+    /// hidden or folded project is restored first, which also makes its sidebar work visible.
+    private func focus(_ repo: Repo) async {
+        guard let store else { return }
+        do {
+            if repo.hidden || repo.collapsed {
+                _ = try await store.update(repoID: repo.id) {
+                    $0.hidden = false
+                    $0.collapsed = false
+                }
+            }
+            await reload()
+            homeFilter.projects = [repo.id]
+            selection = .home
+        } catch {
+            alert = BloomAlert(
+                title: "Could not open that project",
+                message: error.readableMessage
+            )
         }
     }
 

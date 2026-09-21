@@ -26,17 +26,7 @@ enum BloomDeepLink {
         return registered.isEmpty ? ["bloom"] : Set(registered)
     }()
 
-    /// The Apple Event handler and SwiftUI's onOpenURL can both see the same link, and creating
-    /// the same workspace twice is a lot more annoying than dropping a genuine duplicate that
-    /// arrived within a second of the first.
-    private static var lastHandled: (url: URL, at: Date)?
-
     static func open(_ url: URL, in app: AppModel) {
-        if let last = lastHandled, last.url == url, Date.now.timeIntervalSince(last.at) < 2 {
-            return
-        }
-        lastHandled = (url, .now)
-
         guard let scheme = url.scheme?.lowercased(), Self.schemes.contains(scheme),
               let values = values(from: url),
               let prompt = values["prompt"]?.removingPercentEncoding,

@@ -95,7 +95,15 @@ public struct WorkspaceManager: Sendable {
             iconPath: icon?.path,
             iconSource: icon == nil ? .monogram : .detected
         )
-        return try await store.upsert(repo)
+        do {
+            return try await store.upsert(repo)
+        } catch {
+            // Two open events can inspect and prepare the same repository at the same time. The
+            // path's unique constraint decides which row wins; the other caller adopts that row
+            // instead of turning a harmless repeat into an error or trying another id.
+            if let existing = try? await store.repo(path: root) { return existing }
+            throw error
+        }
     }
 
     /// Puts a project back in the sidebar, because a workspace has just been added to it.

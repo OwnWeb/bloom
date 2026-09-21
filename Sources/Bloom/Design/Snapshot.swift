@@ -175,7 +175,7 @@ enum Snapshot {
         Task { @MainActor in
             // After `bootstrap`, or the repo list it needs is not loaded yet.
             try? await Task.sleep(for: .seconds(3))
-            NotificationCenter.default.post(name: .bloomHandleURL, object: url)
+            BloomOpenCoordinator.shared.receive(url)
         }
     }
 

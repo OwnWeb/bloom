@@ -6,14 +6,18 @@ struct BloomURLHandler: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // The Apple Event handler in BloomAppDelegate is the real entry point. onOpenURL is
-            // kept as a fallback for the case where macOS launches the app with the URL before
-            // the handler is installed.
-            .onReceive(NotificationCenter.default.publisher(for: .bloomHandleURL)) { note in
-                if let url = note.object as? URL { BloomDeepLink.open(url, in: app) }
-            }
+            // AppKit's URL and open-documents callbacks are the primary routes. SwiftUI can still
+            // see the same event, particularly during launch, so it feeds the shared coordinator
+            // rather than handling either kind for a second time.
             .onOpenURL { url in
-                BloomDeepLink.open(url, in: app)
+                BloomOpenCoordinator.shared.attach(app)
+                BloomOpenCoordinator.shared.receive(url)
+            }
+            // The delegate attaches as soon as the window exists, which can be before database
+            // bootstrap has made project addition available. This second attach is the readiness
+            // edge that releases anything macOS delivered during that cold-launch interval.
+            .onChange(of: app.isLoaded, initial: true) { _, isLoaded in
+                if isLoaded { BloomOpenCoordinator.shared.attach(app) }
             }
     }
 }
