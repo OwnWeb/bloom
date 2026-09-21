@@ -76,6 +76,10 @@ A prerelease is anything whose tag has a semver prerelease part, or anything
 you ticked the box on. Either one puts the item on Sparkle's `beta` channel,
 which nobody sees unless the app asks for that channel.
 
+Bloom Runner is released separately under a `runner-v<version>` tag. A normal `v<version>` Bloom
+release builds only the macOS app, so it spends no Linux runner time and publishes no server
+artefact. The release workflow selects the matching job from the tag prefix.
+
 The version in the bundle comes from the tag, not from `Resources/Info.plist`.
 The build number is the number of commits reachable from the tag, which is what
 Sparkle compares, and is why the workflow checks out with full history.

@@ -332,7 +332,8 @@ done
 # SwiftTerm and BloomCore as well. A separate pass over the app target alone costs a few seconds
 # and answers about exactly the module that owns the intents.
 emit_app_intents_metadata() {
-  local toolchain processor sdk deployment triple sources constvalues protocols
+  local toolchain processor sdk deployment triple sources constvalues protocols modulemap
+  local -a clangModuleArguments
   toolchain="$(xcode-select -p 2>/dev/null)/Toolchains/XcodeDefault.xctoolchain"
   processor="$toolchain/usr/bin/appintentsmetadataprocessor"
   protocols="$toolchain/usr/share/swift/SwiftConstantValues/AppIntents.json"
@@ -381,6 +382,15 @@ print(arguments[arguments.index('-package-name') + 1])
 PY
 )"
 
+  # Swift modules retain their Clang-module dependencies. The app imports BloomAuthentication,
+  # whose compiled module in turn requires AppAuth and AppAuthCore, so this second typecheck needs
+  # every module map SwiftPM generated beside the real build. Keeping only CrashReporter's map
+  # worked until the app gained a second Clang dependency and then made release builds fail after
+  # the app itself had already compiled successfully.
+  for modulemap in "$BIN_DIR"/*.build/module.modulemap(N); do
+    clangModuleArguments+=(-Xcc "-fmodule-map-file=$modulemap")
+  done
+
   swiftc -typecheck -wmo \
     -module-name Bloom \
     -package-name "$package_name" \
@@ -388,7 +398,7 @@ PY
     -target "$triple" \
     -sdk "$sdk" \
     -I "$BIN_DIR/Modules" \
-    -Xcc "-fmodule-map-file=$BIN_DIR/CrashReporter.build/module.modulemap" \
+    "${clangModuleArguments[@]}" \
     -F "${SPARKLE_SEARCH_PATH:-$BIN_DIR}" \
     -emit-const-values-path "$constvalues" \
     -Xfrontend -const-gather-protocols-file -Xfrontend "$protocolList" \

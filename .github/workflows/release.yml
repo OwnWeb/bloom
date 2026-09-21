@@ -44,11 +44,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # bloom-runner for Cloud workspaces, published beside the app on the same release. runbloom.app
-  # installs a machine from exactly these two names, so a release without them is a release no new
-  # Cloud workspace can be created from. Separate from the Mac job because it needs nothing of it:
-  # a Linux runner, the Swift image the server is tested on, and its own packaging.
+  # Bloom Runner has releases of its own. A Mac release does not spend a Linux runner or publish a
+  # server artefact; only an explicit runner-v tag reaches this job.
   runner:
+    if: ${{ startsWith(github.event.release.tag_name, 'runner-v') || startsWith(inputs.tag, 'runner-v') }}
     runs-on: ubuntu-latest
     container: swift:6.3.3-noble@sha256:8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5
     timeout-minutes: 60
@@ -67,7 +66,7 @@ jobs:
           if [ "$EVENT" = "release" ]; then tag="$RELEASE_TAG"; else tag="$INPUT_TAG"; fi
           [ -n "$tag" ] || { echo "No tag to build."; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          # `runner-v1.2.3` is a runner-only release for testing; `v1.2.3` is Bloom's own.
+          # This job only accepts runner-v tags, stripped to the version in the archive name.
           version="${tag#runner-}"
           echo "version=${version#v}" >> "$GITHUB_OUTPUT"
 
