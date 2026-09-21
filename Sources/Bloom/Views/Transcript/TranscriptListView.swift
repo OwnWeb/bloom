@@ -220,9 +220,9 @@ struct TranscriptListView: View {
 
     /// How much of the session the table is being handed, and which session that is about.
     ///
-    /// A session id rather than a bare index, because this view is the same view in the same place
-    /// for every workspace the window visits, and a window left standing from the last one would
-    /// name a row in a conversation nobody is looking at.
+    /// A session id rather than a bare index, because this view can be pointed at another tab's
+    /// conversation, and a window left standing from the last one would name a row in a
+    /// conversation nobody is looking at.
     private struct Drawn: Equatable {
         var session: SessionID
         var window: TranscriptWindow
@@ -234,12 +234,11 @@ struct TranscriptListView: View {
     /// Where `remember` writes, captured beside the state it is writing rather than read from the
     /// body when the write happens.
     ///
-    /// **This view is not torn down when the reader changes workspace.** The centre column hands
-    /// the same view a different model and a different session, so by the time anything notices
-    /// the change, `memory` and `transcript` are already the conversation being ARRIVED at, while
-    /// `drawn`, `contentOffset` and `geometry` still describe the one being left. `remember` read
-    /// one half from each, so a scroll that settled in that window wrote the old conversation's
-    /// place under the new conversation's key.
+    /// **This view is not torn down when its pane changes conversation.** By the time anything
+    /// notices the change, `memory` and `transcript` are already the conversation being ARRIVED at,
+    /// while `drawn`, `contentOffset` and `geometry` still describe the one being left. `remember`
+    /// read one half from each, so a scroll that settled in that window wrote the old
+    /// conversation's place under the new conversation's key.
     private struct WriteTarget {
         var memory: TranscriptPaneMemory
         var session: SessionID
@@ -901,7 +900,7 @@ struct TranscriptListView: View {
         // `TranscriptRowHeights` takes a correction from a drawn row as authoritative.
         out.append(TranscriptTableEntry(
             // **The session is part of the key, and it is load bearing.** The height cache
-            // survives a workspace switch, and a bare "streaming" would hand the next
+            // survives a conversation switch, and a bare "streaming" would hand the next
             // conversation the last one's tail height: a pane opening on its live end with
             // several hundred points of blank under the newest row, closing again the moment the
             // cell is drawn. Every stored row is keyed by a row id, which is unique across
@@ -1010,7 +1009,7 @@ struct TranscriptListView: View {
     /// The line that stands for a folded turn, or an entry holding its place while it does not.
     ///
     /// **The session is in the key, and it is load bearing for the reason the streaming tail's
-    /// is.** The height cache survives a workspace switch and every other entry is keyed by a row
+    /// is.** The height cache survives a conversation switch and every other entry is keyed by a row
     /// id, which is unique across sessions; a run's first sequence number is not, so without this
     /// the next conversation's fold would be handed the last one's height.
     ///
@@ -1182,14 +1181,8 @@ struct TranscriptListView: View {
         // The case the whole of `TranscriptResume` is about: a tab switch destroys this view, and
         // a reader who arrived, read what was on screen and moved on has scrolled nothing for the
         // settle to fire on.
-        .onAppear { isVisible.value = true }
-        .onDisappear {
-            remember()
-            scroller.stop()
-            follower.stop()
-            isVisible.value = false
-            isGrowing.value = false
-        }
+        .onDisappear { setColumnActive(false) }
+        .background { WorkspaceColumnActivitySignal(changed: setColumnActive) }
         .onChange(of: transcript.presentationRevision, initial: true) { _, _ in
             updatePinnedQuestion()
             position()
@@ -1236,7 +1229,7 @@ struct TranscriptListView: View {
         // Both of these move when a person changes something about the window, which is not a
         // thing that happens while an answer arrives.
         .onChange(of: activeState, initial: true) { _, state in
-            follower.isFrontmost = state != .inactive
+            follower.isFrontmost = isVisible.value && state != .inactive
         }
         .onChange(of: reduceMotion, initial: true) { _, reduced in
             follower.travels = TranscriptFollow.travels(reduceMotion: reduced)
@@ -1326,7 +1319,7 @@ struct TranscriptListView: View {
                 ),
                 rowCount: transcript.rows.count
             )
-            TranscriptDrawn.note(drawn.window.count)
+            TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
             writingTo = memory.map { WriteTarget(memory: $0, session: transcript.session.id) }
             // **And the positioning is owed again, because the one that has already run was run
             // too early to mean anything.** `position` latches on `didPosition`, and the row
@@ -1379,7 +1372,7 @@ struct TranscriptListView: View {
                 from: drawn.window, rowCount: transcript.rows.count
             )
             drawn = Drawn(session: transcript.session.id, window: settled, rowCount: transcript.rows.count)
-            TranscriptDrawn.note(settled.count)
+            TranscriptDrawn.note(settled.count, session: transcript.session.id)
             SwitchTrace.mark("transcript.window", workspace: transcript.workspace?.id)
             SwitchTrace.markOnScreen("transcript.window", workspace: transcript.workspace?.id)
             // Not an arrival. See `TranscriptLiveEndFollower.forget`.
@@ -1419,6 +1412,25 @@ struct TranscriptListView: View {
         } onConfirm: { delivery in
             Task { await transcript.confirmDiscard(delivery) }
         }
+    }
+
+    // MARK: - Column activity
+
+    /// A retained column stays in the hierarchy while another workspace is in front. Preserve its
+    /// table, but stop everything whose only owner is a visible reader.
+    private func setColumnActive(_ active: Bool) {
+        isVisible.value = active
+        controller.setColumnActive(active)
+        follower.isFrontmost = active && activeState != .inactive
+        guard active else {
+            remember()
+            scroller.stop()
+            follower.stop()
+            isGrowing.value = false
+            return
+        }
+        follower.nudge()
+        scheduleHistoryPreparation()
     }
 
     // MARK: - Geometry
@@ -1599,7 +1611,7 @@ struct TranscriptListView: View {
            drawn.window.canGrowDown(rowCount: transcript.rows.count) {
             drawn.window = TranscriptWindow.liveEnd(rowCount: transcript.rows.count)
             drawn.rowCount = transcript.rows.count
-            TranscriptDrawn.note(drawn.window.count)
+            TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
             // **No travel when the window moved.** The rows a glide would pass through are not in
             // the table yet: they go in on the next pass over this body, and a travel aimed at the
             // end of the content as it stands now is aimed at a row that is about to be somewhere
@@ -1682,7 +1694,7 @@ struct TranscriptListView: View {
                 ),
                 rowCount: rows.count
             )
-            TranscriptDrawn.note(drawn.window.count)
+            TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
         }
 
         Task { @MainActor in
@@ -1728,7 +1740,7 @@ struct TranscriptListView: View {
         // reason for it away. `drawnWindow` moves to hold a search result or an unread mark, and
         // both of those are gone moments from now.
         drawn = Drawn(session: transcript.session.id, window: drawnWindow, rowCount: transcript.rows.count)
-        TranscriptDrawn.note(drawn.window.count)
+        TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
 
         // A pane coming back to a session it has already drawn is put back where the reader left
         // it, and none of the three openings below applies: they are all answers to "where should
@@ -1858,7 +1870,7 @@ struct TranscriptListView: View {
         else { return }
         drawn.window = drawnWindow.grownDown(rowCount: transcript.rows.count)
         drawn.rowCount = transcript.rows.count
-        TranscriptDrawn.note(drawn.window.count)
+        TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
     }
 
     /// More history, above what is drawn.
@@ -1890,7 +1902,7 @@ struct TranscriptListView: View {
         else { return }
         isGrowing.value = true
         drawn.window = drawn.window.grownUp()
-        TranscriptDrawn.note(drawn.window.count)
+        TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(120))
             isGrowing.value = false
@@ -1926,7 +1938,7 @@ struct TranscriptListView: View {
                   drawn.session == transcript.session.id,
                   let prepared = drawn.window.preparedHistory(afterArrival: true) {
                 drawn.window = prepared
-                TranscriptDrawn.note(prepared.count)
+                TranscriptDrawn.note(prepared.count, session: transcript.session.id)
                 try? await Task.sleep(for: .milliseconds(180))
             }
             isGrowing.value = false

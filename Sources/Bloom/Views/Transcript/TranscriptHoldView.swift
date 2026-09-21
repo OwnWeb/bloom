@@ -13,9 +13,9 @@ protocol TranscriptHoldDelegate: AnyObject {
 /// **Holds a transcript back while its pane is pointed at a conversation that is not ready, and
 /// fades to it when it is.**
 ///
-/// An arrival is a workspace switch, a tab switch, the pane's first conversation, and a split,
-/// whose pane is rebuilt rather than resized (see `CenterPanesView`, whose `ForEach` identity
-/// deliberately changes when a tab goes from one pane to two).
+/// An arrival is a workspace outside the two-column cache, a tab switch, the pane's first
+/// conversation, and a split, whose pane is rebuilt rather than resized (see `CenterPanesView`,
+/// whose `ForEach` identity deliberately changes when a tab goes from one pane to two).
 ///
 /// **A resize is not held here.** This view used to keep the scroll view at its old frame for the
 /// length of a drag and crossfade to the reflowed transcript at the end, when measuring a row cost
@@ -25,11 +25,11 @@ protocol TranscriptHoldDelegate: AnyObject {
 ///
 /// ## What a hold draws
 ///
-/// The pane's own background, and it takes no clicks. A pane is NOT torn down by a workspace
-/// switch: the centre column hands the same view a different model and a different session, so
-/// without this the rows on screen for the moment after the switch are the conversation being
-/// left, then the tail lands at the top of the pane, then the view jumps to the live end. Three of
-/// those four states are a transcript nobody asked to see.
+/// The pane's own background, and it takes no clicks. A tab switch hands the same pane a different
+/// session, so without this the rows on screen for the moment after the switch are the conversation
+/// being left, then the tail lands at the top of the pane, then the view jumps to the live end.
+/// Three of those four states are a transcript nobody asked to see. Warm workspace switches do not
+/// take this path: `DetailColumn` keeps their separate panes rendered.
 ///
 /// A picture of the pane's own last frame would be better than nothing here and is not available:
 /// `Snapshot` records the measurement that `cacheDisplay` misses anything whose content lives in a
@@ -56,6 +56,9 @@ final class TranscriptHoldView: NSView {
 
     /// Whether this pane is drawing its own ground in place of the transcript.
     private(set) var isHolding = false
+    /// Read by the switch probe so a retained, dormant transcript is not mistaken for the one in
+    /// front merely because its document is taller.
+    private(set) var isColumnActive = true
     private var letGo: Task<Void, Never>?
 
     private static let fadeKey = "bloom.transcript.reveal"
@@ -109,6 +112,10 @@ final class TranscriptHoldView: NSView {
             delegate?.holdEnded()
         }
         TranscriptHoldCensus.revealed()
+    }
+
+    func setColumnActive(_ active: Bool) {
+        isColumnActive = active
     }
 
     private func armLetGo() {

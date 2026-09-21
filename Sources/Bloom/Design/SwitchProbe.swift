@@ -170,6 +170,7 @@ enum SwitchProbe {
         try? await Task.sleep(for: .milliseconds(settle))
         PaneLayoutTiming.isEnabled = false
         sidebarFrames?.stop()
+        let activeSessionID = app.existingModel(for: id)?.activeTranscript?.session.id
 
         return [
             "sidebarHighlightedBeforeActivation": sidebarFrames.map {
@@ -180,7 +181,7 @@ enum SwitchProbe {
             "name": .string(name),
             // Where the switch left the reader, which is the whole of what "it did not keep my
             // place" means. See `ProbeHarness.scrollPlace`.
-            "drawnRows": .integer(TranscriptDrawn.rows),
+            "drawnRows": .integer(TranscriptDrawn.rows(for: activeSessionID)),
             "place": .object(ProbeHarness.scrollPlace(
                 ProbeHarness.transcriptScrollView(in: contentView)
             )),
@@ -266,7 +267,8 @@ enum SwitchProbe {
             }
             try? await Task.sleep(for: .seconds(2))
             var reached = ProbeHarness.scrollPlace(scroll)
-            reached["drawnRows"] = .integer(TranscriptDrawn.rows)
+            let sessionID = app.existingModel(for: top)?.activeTranscript?.session.id
+            reached["drawnRows"] = .integer(TranscriptDrawn.rows(for: sessionID))
             if let model = app.existingModel(for: top),
                let session = model.activeSession,
                let transcript = model.existingTranscript(for: session.id) {

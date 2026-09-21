@@ -361,9 +361,11 @@ struct SidebarView: View {
             if selected == nil { listSelection = app.selection }
         }
         .background {
-            SidebarSelectionActivation(selection: listSelection, active: app.selection) { target, previous in
-                commitSelection(target, replacing: previous)
-            }
+            SidebarSelectionSync(
+                selection: listSelection,
+                onActivate: commitSelection,
+                onFollow: follow
+            )
             .allowsHitTesting(false)
         }
         .background {
@@ -391,9 +393,6 @@ struct SidebarView: View {
         // an edit being eaten: the field went and the draft went with it, so selecting another
         // workspace mid rename silently lost the name. The row watches `renaming` and commits when
         // it is taken away, which is `InPlaceRename`'s `dismissed` ending. See `WorkspaceRow.end`.
-        .onChange(of: app.selection, initial: true) { _, target in
-            follow(target)
-        }
         // Not observed state, so this write invalidates nothing and is safe from an update.
         .onChange(of: undoManager, initial: true) { _, manager in
             app.undoManager = manager
@@ -1020,6 +1019,28 @@ struct SidebarView: View {
     /// entry point posts and behaves identically.
     private func startProject() {
         NotificationCenter.default.post(name: .bloomNewProject, object: nil)
+    }
+}
+
+/// The only sidebar node that observes the model's selection. The list already owns its immediate
+/// highlight in `listSelection`; keeping the model echo here prevents that second write from
+/// reevaluating every visible row.
+private struct SidebarSelectionSync: View {
+    @Environment(AppModel.self) private var app
+
+    var selection: SidebarSelection?
+    var onActivate: (SidebarSelection, SidebarSelection) -> Void
+    var onFollow: (SidebarSelection) -> Void
+
+    var body: some View {
+        SidebarSelectionActivation(
+            selection: selection,
+            active: app.selection,
+            onActivate: onActivate
+        )
+        .onChange(of: app.selection, initial: true) { _, target in
+            onFollow(target)
+        }
     }
 }
 

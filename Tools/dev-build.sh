@@ -172,14 +172,13 @@ plist "Add :LSEnvironment:BLOOM_DB_PATH string $BLOOM_DEV_DB"
 # same CFBundleIconName, so Tools/build.sh compiles it with actool unchanged.
 python3 Tools/icon/dev-tint.py "$WORK/Resources/Bloom.icon/icon.json"
 
-# The window title, in all three of the places that set one.
+# The window title, in both places that set one.
 #
-# Three, and finding the third took two dev builds that came out titled "Bloom"
-# with the marks provably compiled into them:
+# Finding the former third writer took two dev builds that came out titled "Bloom"
+# with the marks provably compiled into them. `RootView` no longer has a
+# `.navigationTitle`, because that selection read invalidated the whole window.
+# The two remaining writers are:
 #
-#   RootView's `.navigationTitle`  the one that actually wins. SwiftUI reapplies
-#                                  it on every update of the view, so it is the
-#                                  last writer whatever the other two did
 #   the `Window` scene's title     what the window is called before the first
 #                                  update, and what the Window menu shows if the
 #                                  view above it never renders
@@ -191,7 +190,7 @@ python3 Tools/icon/dev-tint.py "$WORK/Resources/Bloom.icon/icon.json"
 #                                  names the file: `make dev` refused to build
 #                                  until the anchor was pointed here
 #
-# All three are marked rather than only the winner, because which of them wrote
+# Both are marked rather than only the winner, because which of them wrote
 # the title last is a matter of timing, and a title that loses its mark for a
 # frame whenever SwiftUI happens to run in a different order is exactly as
 # dangerous as one that never had it: the owner glances at the window and reads
@@ -245,10 +244,6 @@ patch_source "$WORK/Sources/Bloom/Views/Chrome/Window/WindowTitle.swift" \
 patch_source "$WORK/Sources/Bloom/BloomApp.swift" \
   '        Window("Bloom", id: Self.mainWindowID) {' \
   '        Window("[DEV] Bloom", id: Self.mainWindowID) {'
-
-patch_source "$WORK/Sources/Bloom/Views/RootView.swift" \
-  '            .navigationTitle(app.menuWorkspace?.name ?? "Bloom")' \
-  '            .navigationTitle("[DEV] " + (app.menuWorkspace?.name ?? "Bloom"))'
 
 # ------------------------------------------------------------------- the build
 

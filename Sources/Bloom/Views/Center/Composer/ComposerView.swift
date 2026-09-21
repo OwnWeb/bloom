@@ -217,6 +217,14 @@ struct ComposerView: View {
                 ? (SlashCommandDraft.parse(transcript.draft).body as NSString).length
                 : 0
         }
+        // A previous workspace stays laid out for an immediate return. Its editor must still give
+        // up the first responder, exactly as it did when switching destroyed the column. The
+        // signal is a child so observing activity does not rebuild this whole composer.
+        .background {
+            WorkspaceColumnActivitySignal { active in
+                if !active { isFocused = false }
+            }
+        }
         .focusedValue(\.composerTranscript, isFocused ? transcript : nil)
         .onDisappear(perform: saveDraftNow)
     }

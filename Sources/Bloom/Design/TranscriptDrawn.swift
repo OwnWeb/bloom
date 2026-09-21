@@ -1,4 +1,5 @@
 import Foundation
+import BloomCore
 
 /// How many rows the transcript is currently handing its lazy stack, for a probe to read.
 ///
@@ -9,6 +10,14 @@ import Foundation
 @MainActor
 enum TranscriptDrawn {
     private(set) static var rows = 0
+    private static var rowsBySession: [SessionID: Int] = [:]
 
-    static func note(_ count: Int) { rows = count }
+    static func note(_ count: Int, session: SessionID) {
+        rows = count
+        rowsBySession[session] = count
+    }
+
+    static func rows(for session: SessionID?) -> Int {
+        session.flatMap { rowsBySession[$0] } ?? rows
+    }
 }

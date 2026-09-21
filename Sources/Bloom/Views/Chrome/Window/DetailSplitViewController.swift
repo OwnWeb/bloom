@@ -290,8 +290,6 @@ final class DetailSplitViewController: NSSplitViewController {
     }
 
     func update(
-        detail: AnyView,
-        inspector: AnyView,
         isInspectorPresented: Bool,
         animated: Bool,
         content: SidebarSelection
@@ -299,12 +297,17 @@ final class DetailSplitViewController: NSSplitViewController {
         isUpdating = true
         defer { isUpdating = false }
         self.isInspectorPresented = isInspectorPresented
-        detailHost.rootView = detail
-        inspectorHost.rootView = inspector
 
-        // Read before the assignment below, because what matters is whether the two lines above
-        // have just handed SwiftUI a different pane to draw. See `InspectorTransition`, which is
-        // where the crash this answers is written down.
+        // The hosted roots are deliberately not reassigned here. Both read the shared observable
+        // `AppModel`, so replacing either root on every selection discarded its entire SwiftUI
+        // graph and every native view under it before Observation could update anything in place.
+        // On a warm workspace switch that was 100 to 180ms of main-thread graph and layout work,
+        // including a blank frame between the two transcripts. See `SelectedInspectorPane` and
+        // `DetailColumn`, which are the stable roots.
+        //
+        // What remains here is whether an inspector collapse may animate. That still needs to know
+        // whether the selection changed, because `InspectorTransition` carries the crash this
+        // distinction prevents.
         let isFirstUpdate = lastContent == nil
         let contentIsChanging = lastContent != nil && lastContent != content
         lastContent = content
@@ -448,8 +451,6 @@ struct DetailSplitView: NSViewControllerRepresentable {
             app?.isInspectorVisible = presented
         }
         controller.update(
-            detail: detail,
-            inspector: inspector,
             isInspectorPresented: isInspectorPresented,
             animated: animated,
             // What the detail column is showing, so the controller can tell a pane swap from an
@@ -468,16 +469,53 @@ struct DetailSplitView: NSViewControllerRepresentable {
 
     private var inspector: AnyView {
         AnyView(
-            // **`selectedCloudSession` rather than `existingSession`, and that was the bug.** The
-            // sessions are held outside observation, so a nil read here never came back: the
-            // inspector was built in the same pass that the centre column made the session, got
-            // nothing, and nothing afterwards told it to look again. What the owner saw was "No
-            // workspace selected" beside a title bar naming the workspace and its branch. This is
-            // the accessor the column, the title bar and the window's own commands all use, and
-            // making a session opens no connection and wakes nothing: see
-            // `CloudWorkspaces.session(for:)`.
-            InspectorPane(model: app.selectedModel, cloud: app.selectedCloudSession)
-            .environment(app)
+            SelectedInspectorPane()
+                .environment(app)
         )
+    }
+}
+
+/// The inspector's stable hosting root. It resolves the selected model inside its own observed
+/// body, so AppKit never has to replace the `NSHostingView.rootView` to point it elsewhere.
+private struct SelectedInspectorPane: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        ZStack {
+            retainedWorkspaces
+            selectionWithoutLocalWorkspace
+        }
+    }
+
+    /// The same two-workspace cache as the centre column. An inspector has its own file list,
+    /// selected path, diff rows and hosted editors, and rebuilding those around a different model
+    /// cost about 60ms of every otherwise warm switch.
+    @ViewBuilder
+    private var retainedWorkspaces: some View {
+        ForEach(app.retainedWorkspaceIDs, id: \.self) { id in
+            if let model = app.existingModel(for: id) {
+                let isActive = app.selection.workspaceID == id
+                InspectorPane(model: model, cloud: nil)
+                    .allowsHitTesting(isActive)
+                    .accessibilityHidden(!isActive)
+                    .zIndex(isActive ? 1 : 0)
+            }
+        }
+    }
+
+    /// Home, archived records and Cloud have no local workspace id. They keep the existing
+    /// inspector behaviour in front of the dormant local cache.
+    @ViewBuilder
+    private var selectionWithoutLocalWorkspace: some View {
+        if app.selection.workspaceID == nil {
+        // **`selectedCloudSession` rather than `existingSession`, and that was the bug.** The
+        // sessions are held outside observation, so a nil read here never came back: the inspector
+        // was built in the same pass that the centre column made the session, got nothing, and
+        // nothing afterwards told it to look again. This is the accessor the column, the title bar
+        // and the window's commands all use. Making a session opens no connection and wakes
+        // nothing: see `CloudWorkspaces.session(for:)`.
+            InspectorPane(model: app.selectedModel, cloud: app.selectedCloudSession)
+                .zIndex(2)
+        }
     }
 }

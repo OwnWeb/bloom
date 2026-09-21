@@ -141,6 +141,10 @@ final class TranscriptTableController {
     /// pane draws nothing. See `TranscriptHoldView.hold()`.
     func arrived() { coordinator?.arrived() }
 
+    /// Marks the table as the one its retained workspace column is presenting. This changes no
+    /// drawing; the probe uses it to choose between the two scroll views kept in the hierarchy.
+    func setColumnActive(_ active: Bool) { coordinator?.holdView?.setColumnActive(active) }
+
     /// Where the reader is, as the pair that puts them back: the stored row at the top of the
     /// pane, and how far above its own top the pane starts. See `Coordinator.topmostPlace`.
     var topmostPlace: (seq: Int, delta: CGFloat)? { coordinator?.topmostPlace }

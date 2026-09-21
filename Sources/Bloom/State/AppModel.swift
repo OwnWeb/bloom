@@ -61,7 +61,9 @@ final class AppModel {
     @ObservationIgnored let macMessageDrain = MacMessageDrain()
 
     private(set) var repos: [Repo] = []
-    private(set) var workspaces: [Workspace] = []
+    private(set) var workspaces: [Workspace] = [] {
+        didSet { updateInspectorPresentation() }
+    }
     /// Cloud workspaces: the Bloom account, runbloom.app's list and the open ones. See
     /// `CloudWorkspaces`, which holds all of it so this file holds one line.
     let cloud = CloudWorkspaces()
@@ -90,8 +92,10 @@ final class AppModel {
             if let id = newValue.workspaceID, id != storedSelection.workspaceID {
                 SwitchTrace.begin(workspaceID: id)
             }
+            updateRetainedWorkspaces(for: newValue)
             let vacated = storedSelection.workspaceID
             storedSelection = newValue
+            updateInspectorPresentation()
             Self.rememberSelection(newValue)
             // Opening or closing a subagent's pane changes which rows are exempt from being
             // removed. See `SubagentRetention`: the row you are reading stays. Both workspaces,
@@ -118,6 +122,56 @@ final class AppModel {
     }
 
     private var storedSelection: SidebarSelection = .home
+
+    /// The current workspace column and the one immediately before it, in stable structural order.
+    ///
+    /// Unlike `workspaceModels`, this is observed because `DetailColumn` uses membership to keep
+    /// two distinct SwiftUI and AppKit view trees alive. The models themselves remain outside
+    /// observation, so a transcript update in one workspace still invalidates only its own tree.
+    private(set) var retainedWorkspaceIDs: [WorkspaceID] = []
+    @ObservationIgnored private var workspaceColumnRecency: [WorkspaceID] = []
+    @ObservationIgnored private var workspaceColumnActivities: [WorkspaceID: WorkspaceColumnActivity] = [:]
+
+    /// Updates cache membership and the narrow activity signal each retained column receives.
+    /// The signal is an object so changing it invalidates only the lifecycle helpers that read its
+    /// property, not every row in the transcript beneath an environment value.
+    private func updateRetainedWorkspaces(for selection: SidebarSelection) {
+        if let id = selection.workspaceID {
+            workspaceColumnRecency = WorkspaceColumnCache.visiting(id, in: workspaceColumnRecency)
+            let retained = WorkspaceColumnCache.stableMembers(
+                retainedWorkspaceIDs, from: workspaceColumnRecency
+            )
+            if retained != retainedWorkspaceIDs { retainedWorkspaceIDs = retained }
+        }
+
+        let activeID: WorkspaceID?
+        if case .workspace(let id) = selection {
+            activeID = id
+        } else {
+            activeID = nil
+        }
+        for id in retainedWorkspaceIDs {
+            let activity = workspaceColumnActivities[id] ?? WorkspaceColumnActivity(isActive: false)
+            workspaceColumnActivities[id] = activity
+            let isActive = id == activeID
+            if activity.isActive != isActive { activity.isActive = isActive }
+        }
+        workspaceColumnActivities = workspaceColumnActivities.filter {
+            retainedWorkspaceIDs.contains($0.key)
+        }
+    }
+
+    func existingWorkspaceColumnActivity(for id: WorkspaceID) -> WorkspaceColumnActivity? {
+        workspaceColumnActivities[id]
+    }
+
+    /// Removes a column whose model is being torn down. Kept here beside the only writer because
+    /// `AppModel`'s archive and project subjects live in extensions in other files.
+    func forgetRetainedWorkspace(_ id: WorkspaceID) {
+        retainedWorkspaceIDs = WorkspaceColumnCache.removing(id, from: retainedWorkspaceIDs)
+        workspaceColumnRecency = WorkspaceColumnCache.removing(id, from: workspaceColumnRecency)
+        workspaceColumnActivities[id] = nil
+    }
 
     // MARK: - Remembering where you were
 
@@ -158,7 +212,14 @@ final class AppModel {
     /// behaves: an inspector is shown or hidden for the window, not remembered per document.
     /// It defaults to on and can be started off by `FrameProbe`, which is how a resize measurement
     /// tells the centre column's cost apart from the inspector's.
-    var isInspectorVisible = FrameProbe.wantsInspector
+    var isInspectorVisible = FrameProbe.wantsInspector {
+        didSet { updateInspectorPresentation() }
+    }
+
+    /// The resolved inspector state is stored separately from the selection. Window-level readers
+    /// observe this stable Boolean, so moving between two workspaces does not invalidate the whole
+    /// scene merely to discover that the inspector stayed visible.
+    private(set) var isInspectorPresented = false
 
     var alert: BloomAlert?
     /// The corner notice. See `BloomNotice`. Set from anywhere, drawn once by `RootView`.
@@ -1191,8 +1252,13 @@ final class AppModel {
     /// width now depends on it and `BloomApp` cannot see a private computed property on a view.
     /// Two spellings of one rule is how the window ends up refusing a width for a pane it is not
     /// drawing. See `WindowWidths`.
-    var isInspectorPresented: Bool {
-        isInspectorVisible && (selectedWorkspace != nil || selection.cloudWorkspaceID != nil)
+    private func updateInspectorPresentation() {
+        let hasLocalWorkspace = storedSelection.workspaceID.map { id in
+            workspaces.contains { $0.id == id }
+        } ?? false
+        let presented = isInspectorVisible
+            && (hasLocalWorkspace || storedSelection.cloudWorkspaceID != nil)
+        if isInspectorPresented != presented { isInspectorPresented = presented }
     }
 
     /// The archived workspace being read, if that is what the window is on.
@@ -1393,6 +1459,7 @@ final class AppModel {
     func forgetWorkspace(_ id: WorkspaceID) {
         stopHidingFromSidebar(id)
         workspaceModels[id] = nil
+        forgetRetainedWorkspace(id)
         // An archive that has happened cannot still be waiting to happen. Nothing books one twice
         // today, but a booking outliving the worktree it names is a request that can only ever be
         // refused, and it would be refused at the owner rather than at the agent that made it.
