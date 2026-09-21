@@ -30,6 +30,8 @@ public enum RunnerCommandLine {
             return PersonBoundSandboxCleanup.runStale()
         case "sandbox-peer-operation":
             return PersonBoundPeerOperation.runAttestor()
+        case "machine-identity-install":
+            return MachineIdentityStateStore.runInstaller()
         case "version", "--version":
             print(RunnerVersion.current)
             return 0

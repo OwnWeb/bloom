@@ -24,6 +24,7 @@ public struct RunbloomClient: Sendable {
     /// the id is never mistaken for one of Bloom's own.
     private let workspaceURL: String
     private let secret: WorkspaceSecret
+    private let identity: MachineIdentitySigner
     private let http: HTTPClient
     private let timeout: TimeAmount
     /// Nothing runbloom.app answers here is near this; it only bounds a misbehaving proxy.
@@ -32,17 +33,69 @@ public struct RunbloomClient: Sendable {
     /// Every call is small, and a queue or a flush before sleep waits on it, so a hung connection
     /// must not hold either for longer than `timeout`. A refused connection is retried by
     /// `HTTPClient` until then too, which is why a test passes something shorter.
-    public init(baseURL: String, workspaceID: String, secret: String, http: HTTPClient, timeout: Duration = .seconds(15)) {
-        self.init(baseURL: baseURL, workspaceID: workspaceID, secret: WorkspaceSecret(fixed: secret), http: http, timeout: timeout)
+    public init(
+        baseURL: String, workspaceID: String, secret: String, http: HTTPClient,
+        identity: MachineIdentitySigner? = nil, timeout: Duration = .seconds(15)
+    ) {
+        self.init(
+            baseURL: baseURL, workspaceID: workspaceID, secret: WorkspaceSecret(fixed: secret),
+            http: http, identity: identity, timeout: timeout
+        )
     }
 
-    public init(baseURL: String, workspaceID: String, secret: WorkspaceSecret, http: HTTPClient, timeout: Duration = .seconds(15)) {
+    public init(
+        baseURL: String, workspaceID: String, secret: WorkspaceSecret, http: HTTPClient,
+        identity: MachineIdentitySigner? = nil, timeout: Duration = .seconds(15)
+    ) {
         let (seconds, attoseconds) = timeout.components
         self.timeout = .nanoseconds(seconds * 1_000_000_000 + attoseconds / 1_000_000_000)
         let base = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
-        workspaceURL = "\(base)/api/machine/workspaces/\(workspaceID)"
+        let target = "/api/machine/workspaces/\(workspaceID)"
+        workspaceURL = base + target
         self.secret = secret
+        self.identity = identity ?? MachineIdentitySigner.generated(workspaceID: WorkspaceID(workspaceID))
         self.http = http
+    }
+
+    public func registerMachineIdentity(registrationToken: String) async throws -> MachineIdentityDescriptor {
+        let registration = try await identity.registration()
+        let response = try await sendOnce(
+            .POST, "/machine-identity", body: registration.body,
+            headers: [
+                "X-Bloom-Identity-Registration": registrationToken,
+                "X-Bloom-Proof-Version": "1",
+                "X-Bloom-Proof-Timestamp": String(registration.timestamp),
+                "X-Bloom-Proof-Request-Id": registration.requestID,
+            ], expecting: [201], signsRequest: false
+        )
+        let answer = try decode(MachineIdentityResponse.self, response.body, status: response.status)
+        let descriptor = await identity.descriptor
+        guard answer.version == 1, answer.keyID == descriptor.keyID else {
+            throw MachineIdentityError.mismatchedKey
+        }
+        return descriptor
+    }
+
+    public func rotateMachineIdentity() async throws -> MachineIdentityDescriptor {
+        let rotation = try await identity.prepareRotation()
+        let response = try await sendOnce(
+            .PUT, "/machine-identity", body: rotation.body, headers: [:], expecting: [200],
+            proof: rotation.headers
+        )
+        let answer = try decode(MachineIdentityResponse.self, response.body, status: response.status)
+        guard let pending = await identity.pendingDescriptor,
+              answer.version == 1, answer.keyID == pending.keyID else {
+            throw MachineIdentityError.mismatchedKey
+        }
+        try await identity.commitRotation()
+        return await identity.descriptor
+    }
+
+    func verifyMachineIdentity(usingPending: Bool = false) async throws {
+        _ = try await sendOnce(
+            .GET, "/members", body: nil, headers: [:], expecting: [200],
+            usesPendingProof: usingPending
+        )
     }
 
     public func postSummary(_ body: Data) async throws {
@@ -168,13 +221,28 @@ public struct RunbloomClient: Sendable {
         }
     }
 
-    private func sendOnce(_ method: HTTPMethod, _ path: String, body: Data?, headers: [String: String],
-                          expecting success: Set<Int>) async throws -> TransportResponse {
+    private func sendOnce(
+        _ method: HTTPMethod, _ path: String, body: Data?, headers: [String: String],
+        expecting success: Set<Int>, signsRequest: Bool = true,
+        proof suppliedProof: MachineIdentityProofHeaders? = nil,
+        usesPendingProof: Bool = false
+    ) async throws -> TransportResponse {
         var request = HTTPClientRequest(url: workspaceURL + path)
         request.method = method
         request.headers.add(name: "Authorization", value: "Bearer \(secret.current)")
         request.headers.add(name: "Accept", value: "application/json")
         for (name, value) in headers { request.headers.add(name: name, value: value) }
+        if signsRequest {
+            let proof: MachineIdentityProofHeaders
+            if let suppliedProof {
+                proof = suppliedProof
+            } else {
+                proof = try await identity.requestHeaders(
+                    method: method, path: path, body: body, usingPending: usesPendingProof
+                )
+            }
+            for (name, value) in proof.fields { request.headers.add(name: name, value: value) }
+        }
         if let body {
             request.headers.add(name: "Content-Type", value: "application/json")
             request.body = .bytes(ByteBuffer(bytes: body))

@@ -32,6 +32,10 @@ struct RunbloomClientTests {
             #expect(posted.allSatisfy { $0.authorization == "Bearer secret-for-tests" })
             #expect(posted.allSatisfy { $0.contentType == "application/json" })
             #expect(posted.map(\.body) == [summary, usage])
+            #expect(posted.allSatisfy { $0.proof["version"] == "1" })
+            #expect(posted.allSatisfy { $0.proof["key-id"]?.count == 64 })
+            #expect(Set(posted.compactMap { $0.proof["request-id"] }).count == 2)
+            #expect(posted.allSatisfy { $0.proof["signature"]?.isEmpty == false })
         }
     }
 
@@ -470,6 +474,9 @@ struct RunbloomClientTests {
         file.withLock { $0 = fake.secret }
         try await client.postSummary(Data("{}".utf8))
         #expect(fake.requests.map(\.authorization) == ["Bearer the-secret-before-rotation", "Bearer \(fake.secret)"])
+        #expect(Set(fake.requests.compactMap { $0.proof["request-id"] }).count == 2,
+                "a transport retry must sign a fresh proof")
+        #expect(Set(fake.requests.compactMap { $0.proof["signature"] }).count == 2)
         #expect(secret.current == fake.secret)
         await fake.stop()
     }

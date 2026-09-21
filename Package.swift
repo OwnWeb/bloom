@@ -133,6 +133,7 @@ let package = Package(
             dependencies: [
                 "BloomRunner", "BloomCore", "CZlib", .product(name: "BloomProtocol", package: "BloomProtocol"),
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
+                .product(name: "Crypto", package: "swift-crypto"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

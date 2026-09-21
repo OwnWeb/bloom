@@ -15,7 +15,7 @@ import Synchronization
 /// the process still leaves runbloom.app knowing where things stood.
 public enum ServeCommand {
     public static func run(environment: [String: String] = ProcessInfo.processInfo.environment) async throws {
-        let configuration = try MachineConfiguration.load(environment: environment)
+        var bootConfiguration = try MachineConfiguration.load(environment: environment)
         let layout = MachineLayout.from(environment: environment)
         try FileManager.default.createDirectory(atPath: layout.dataDirectory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
@@ -31,7 +31,7 @@ public enum ServeCommand {
             )
         }
         guard let personBound = await PersonBoundRuntimeFoundation.live(
-            executable: runnerExecutable, repository: configuration.repository,
+            executable: runnerExecutable, repository: bootConfiguration.repository,
             worktree: layout.worktree, gitExecutable: gitExecutable, ghExecutable: ghExecutable,
             gitRemoteHTTPSExecutable: gitRemoteHTTPSExecutable
         ) else {
@@ -46,19 +46,34 @@ public enum ServeCommand {
             )
         }
         let http = HTTPClient(eventLoopGroupProvider: .singleton)
+        let workspaceID = bootConfiguration.workspaceID
         // Only the secret is taken from a rewritten file. Everything else in it is fixed for the
         // life of the workspace, and a file naming another workspace is not this machine's.
-        let secret = WorkspaceSecret(configuration.workspaceSecret) {
+        let secret = WorkspaceSecret(bootConfiguration.workspaceSecret) {
             let fresh = try MachineConfiguration.load(environment: environment)
-            guard fresh.workspaceID == configuration.workspaceID else {
+            guard fresh.workspaceID == workspaceID else {
                 throw MachineConfigurationError("workspace.json now names another workspace.")
             }
             return fresh.workspaceSecret
         }
-        let client = RunbloomClient(
-            baseURL: configuration.baseURL, workspaceID: configuration.workspaceID,
-            secret: secret, http: http
+        guard let machineID = bootConfiguration.machineIdentity?.machineID else {
+            throw MachineIdentityError.invalidConfiguration("machine_identity is absent")
+        }
+        let identity = try MachineIdentitySigner.live(
+            machineID: machineID,
+            workspaceID: WorkspaceID(bootConfiguration.workspaceID),
+            executable: runnerExecutable
         )
+        let client = RunbloomClient(
+            baseURL: bootConfiguration.baseURL, workspaceID: bootConfiguration.workspaceID,
+            secret: secret, http: http, identity: identity
+        )
+        let configurationPath = environment["BLOOM_WORKSPACE_CONFIG"] ?? MachineConfiguration.defaultPath
+        try await MachineIdentityBootstrap.establish(
+            configuration: &bootConfiguration, client: client, signer: identity,
+            configurationPath: configurationPath
+        )
+        let configuration = bootConfiguration
         let gate = RunbloomTurns(client: client)
         let personBoundBroker = PersonBoundCredentialBroker(
             repository: configuration.repository,
@@ -228,7 +243,7 @@ public enum ServeCommand {
         })
         let reporter = MachineReporter(
             runtime: runtime, store: store, delivery: delivery, host: host, version: version,
-            capabilitiesProvider: { personBound.capabilities }
+            capabilitiesProvider: { personBound.capabilities + [MachineIdentitySigner.capability] }
         )
         let awake = AwakeController(host: host, runtime: runtime, reporter: reporter)
         let machineEnvironment = MachineEnvironment { try await client.environment() }
