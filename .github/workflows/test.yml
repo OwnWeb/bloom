@@ -498,7 +498,7 @@ jobs:
         run: |
           set -euo pipefail
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends libsqlite3-dev zlib1g-dev pkg-config git tmux patchelf python3 openssl sudo util-linux
+          apt-get install -y -qq --no-install-recommends libsqlite3-dev zlib1g-dev pkg-config git gh tmux patchelf python3 openssl sudo util-linux
           useradd --create-home --shell /bin/bash bloom-ci
           chown -R bloom-ci:bloom-ci "$GITHUB_WORKSPACE"
           runuser -u bloom-ci -- git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -533,9 +533,9 @@ jobs:
             -o /usr/local/lib/bloom-credential-shield.so
           chown root:root /usr/local/lib/bloom-credential-shield.so
           chmod 0555 /usr/local/lib/bloom-credential-shield.so
-          clang -O2 -Wall -Wextra -Werror Tests/fixtures/person-bound-fake-gh.c -o /usr/local/bin/gh
-          chown root:root /usr/local/bin/gh
-          chmod 0755 /usr/local/bin/gh
+          clang -O2 -Wall -Wextra -Werror Tests/fixtures/person-bound-fake-gh.c -o /usr/bin/gh
+          chown root:root /usr/bin/gh
+          chmod 0755 /usr/bin/gh
           clang -O2 -Wall -Wextra -Werror Tests/fixtures/person-bound-trusted-launch.c \
             -o /usr/local/bin/person-bound-trusted-launch
           chown root:root /usr/local/bin/person-bound-trusted-launch

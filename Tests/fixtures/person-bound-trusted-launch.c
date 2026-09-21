@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
             snprintf(path, sizeof(path), "/proc/%d/cmdline", wrapper);
             int command_count = read_file(path, buffer, sizeof(buffer));
             if (command_count < 0) _exit(command_count == -ENOENT ? 5 : 6);
-            if (memmem(buffer, (size_t)command_count, "/usr/local/bin/gh", 17) != NULL) {
+            if (memmem(buffer, (size_t)command_count, "/usr/bin/gh", sizeof("/usr/bin/gh") - 1) != NULL) {
                 snprintf(path, sizeof(path), "/proc/%d/environ", wrapper);
                 int environment_count = read_file(path, buffer, sizeof(buffer));
                 if (environment_count == -EACCES) _exit(0);

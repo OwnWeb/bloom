@@ -280,7 +280,7 @@ struct PersonBoundGithubCredentialTests {
         let executable = try #require(ProcessInfo.processInfo.environment["BLOOM_RUNNER_TEST_EXECUTABLE"])
         let worktree = try #require(ProcessInfo.processInfo.environment["BLOOM_WORKTREE"])
         let git = "/usr/bin/git"
-        let gh = "/usr/local/bin/gh"
+        let gh = "/usr/bin/gh"
         let remoteHTTPS = try #require(PersonBoundGitCommand.gitRemoteHTTPSExecutable(gitExecutable: git))
         let foundation = try #require(await PersonBoundRuntimeFoundation.live(
             executable: executable, repository: "spatie/bloom", worktree: worktree,
@@ -330,7 +330,7 @@ struct PersonBoundGithubCredentialTests {
         environment["BLOOM_REPOSITORY"] = "spatie/bloom"
         environment["BLOOM_RUNNER_EXECUTABLE"] = executable
         environment["BLOOM_REAL_GIT"] = git
-        environment["BLOOM_REAL_GH"] = "/usr/local/bin/gh"
+        environment["BLOOM_REAL_GH"] = gh
         environment["BLOOM_CREDENTIAL_SOCKET_V2"] = MachineSandbox.credentialV2SocketPath
         let prepared = foundation.launcher.prepare(
             AgentLaunch(
