@@ -90,10 +90,9 @@ struct SubagentConversationView: View {
     @ViewBuilder
     private func content(for entry: SubagentConversation.Entry) -> some View {
         switch entry {
-        case let .fold(firstSeq, hiding, showsMore, isFolded):
+        case let .fold(firstSeq, hiding, _, isFolded):
             TranscriptFoldRowView(
-                hiddenCount: hiding,
-                showsMore: showsMore,
+                label: TranscriptFold.label(hiding: hiding),
                 isExpanded: !isFolded,
                 onToggle: { toggle(&unfolded, firstSeq) }
             )

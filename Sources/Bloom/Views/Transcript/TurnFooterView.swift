@@ -38,6 +38,8 @@ struct TurnFooterView: View {
     /// `BackgroundWork`.
     var stillRunning: String?
     var transcript: TranscriptModel?
+    /// False when the completed turn disclosure above the response already carries the duration.
+    var showsDuration = true
 
     /// More chips than this and the footer stops being a footer.
     private static let visibleFileLimit = 6
@@ -68,66 +70,46 @@ struct TurnFooterView: View {
         return VStack(alignment: .leading, spacing: 0) {
             // A turn's duration is the number a user goes looking for, so it sits a rung above
             // the counts and timings that decorate a single row.
-            HStack(spacing: TranscriptLayout.block) {
-                if outcome != .finished {
-                    let appearance = Self.appearance(of: outcome)
-                    Image(systemName: appearance.glyph)
-                        .font(Typo.caption)
-                        .imageScale(.medium)
-                        .foregroundStyle(appearance.tint)
-                        .accessibilityLabel(outcome.label)
-                        .help(outcome.label)
+            if showsDuration || outcome != .finished || !files.isEmpty {
+                HStack(spacing: TranscriptLayout.block) {
+                    if outcome != .finished {
+                        let appearance = Self.appearance(of: outcome)
+                        Image(systemName: appearance.glyph)
+                            .font(Typo.caption)
+                            .imageScale(.medium)
+                            .foregroundStyle(appearance.tint)
+                            .accessibilityLabel(outcome.label)
+                            .help(outcome.label)
+                    }
+
+                    if showsDuration || outcome != .finished {
+                        Text(
+                            Self.durationLabel(
+                                outcome: outcome,
+                                milliseconds: row.durationMS ?? result?.durationMS ?? 0
+                            )
+                        )
+                            .font(Typo.caption)
+                            .foregroundStyle(Palette.textSecondary)
+                            .monospacedDigit()
+                            .fixedSize()
+                    }
+
+                    // More chips than fit step down to three, one, then a count rather than
+                    // squeezing every path into an empty rounded rectangle.
+                    ViewThatFits(in: .horizontal) {
+                        fileChips(limit: Self.visibleFileLimit)
+                        fileChips(limit: files.count > 3 ? 3 : 1)
+                        fileChips(limit: 1)
+                        countChip
+                        Color.clear.frame(width: 0, height: 0)
+                    }
                 }
-
-                Text(
-                    Self.durationLabel(
-                        outcome: outcome,
-                        milliseconds: row.durationMS ?? result?.durationMS ?? 0
-                    )
-                )
-                    .font(Typo.caption)
-                    .foregroundStyle(Palette.textSecondary)
-                    .monospacedDigit()
-                    .fixedSize()
-
-                // `ec8400d` removed: what a turn cost is no longer printed here, and there is
-                // nowhere else in the window it appears. Three decimal places of a dollar is not
-                // a number anybody acts on between one turn and the next, and it was the third
-                // thing on a line that exists to say the turn ended and how long it took. The
-                // figure is still parsed and still stored per session, so a readout that answers
-                // a question somebody actually has can be built off it later.
-
-                // How many chips there is room for, rather than a fixed count. The chips are the
-                // only thing in this row that can be dropped, and the alternative was every one of
-                // them being squeezed to an empty rounded rectangle while the duration and the
-                // two buttons kept their width.
-                //
-                // The second rung is where the ladder narrows rather than a fixed three, because
-                // `ViewThatFits` builds and measures every candidate it is offered until one fits.
-                // A turn that touched two or three files was offering the identical row of all of
-                // them twice before it got anywhere: two full sets of chips built and measured to
-                // draw one, on a turn shape that is most turns.
-                //
-                // Not a condition around the candidate, which is the obvious form and is wrong: an
-                // absent branch is an empty view, an empty view always fits, and the footer would
-                // draw nothing where it used to fall through to the count. The rung below is still
-                // offered when the two agree, and a candidate that has already failed fails again,
-                // so what is drawn is what was drawn before in every case.
-                ViewThatFits(in: .horizontal) {
-                    fileChips(limit: Self.visibleFileLimit)
-                    fileChips(limit: files.count > 3 ? 3 : 1)
-                    fileChips(limit: 1)
-                    countChip
-                    Color.clear.frame(width: 0, height: 0)
-                }
-
+                .foregroundStyle(Palette.textSecondary)
+                .padding(.horizontal, TranscriptLayout.inset)
+                .padding(.top, Metrics.gutter)
+                .padding(.bottom, Metrics.spacingSmall)
             }
-            .foregroundStyle(Palette.textSecondary)
-            .padding(.horizontal, TranscriptLayout.inset)
-            // Air now carries the boundary the old horizontal rule drew. A little more than the
-            // ordinary block gap keeps the completion metadata attached to the response above it.
-            .padding(.top, Metrics.gutter)
-            .padding(.bottom, Metrics.spacingSmall)
 
             // Under the row rather than in it, and only when there is something to say. This is
             // the one place in a turn that can name what went undone and what would undo it, and
