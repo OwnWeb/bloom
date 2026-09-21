@@ -29,6 +29,8 @@ public enum TranscriptEntryID: Hashable, Sendable, CustomStringConvertible {
     /// enough to fold, folding is a removal on its own and unfolding is an insertion on its own.
     /// See `TranscriptFold.leastGroup`, which is that gap.
     case fold(Int)
+    /// The line that replaces a completed turn's streamed process, by its first row.
+    case turnFold(Int)
     /// The bubble drawn from the moment Return is pressed until its stored row arrives. Its own
     /// case rather than a row, so that the stored row taking its place is an entry the table has
     /// not seen: that makes the swap a replacement rather than a row changing under the reader.
@@ -70,7 +72,7 @@ public enum TranscriptEntryID: Hashable, Sendable, CustomStringConvertible {
     /// promise that holds until the key moves.
     public var redrawsItself: Bool {
         switch self {
-        case .row, .fold, .bottomSpacing: false
+        case .row, .fold, .turnFold, .bottomSpacing: false
         case .setup, .sending, .streaming, .pending: true
         }
     }
@@ -80,6 +82,7 @@ public enum TranscriptEntryID: Hashable, Sendable, CustomStringConvertible {
         case .setup: "setup"
         case .row(let seq): "row.\(seq)"
         case .fold(let seq): "fold.\(seq)"
+        case .turnFold(let seq): "turnFold.\(seq)"
         case .sending: "sending"
         case .streaming: "streaming"
         case .pending(let id): "pending.\(id)"

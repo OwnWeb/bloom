@@ -58,6 +58,7 @@ struct TranscriptListView: View {
         let remembered = memory?.remembered(session: transcript.session.id)
         _expanded = State(initialValue: remembered?.expanded ?? [])
         _unfolded = State(initialValue: remembered?.unfolded ?? [])
+        _unfoldedTurns = State(initialValue: remembered?.unfoldedTurns ?? [])
         _liveEndRequest = State(initialValue: TranscriptLiveEndRequest(
             handled: remembered?.liveEndRequest ?? 0
         ))
@@ -89,6 +90,8 @@ struct TranscriptListView: View {
     /// each. Kept in the pane's memory beside `expanded` and for the same reason: a turn somebody
     /// opened to read must not fold itself away again behind a tab switch.
     @State private var unfolded: Set<Int> = []
+    /// Completed turns whose streamed process the reader has opened.
+    @State private var unfoldedTurns: Set<Int> = []
     /// Every turn's working in this session. See `TranscriptFold`.
     ///
     /// **State rather than a computed property, and the lag is the point.** It is refreshed from
@@ -103,6 +106,10 @@ struct TranscriptListView: View {
     @State private var folds = TranscriptFold.Folds.none
     @State private var foldSession: SessionID?
     @State private var foldRevision = -1
+    /// The outer fold that replaces a completed turn's commentary and action groups with its time.
+    @State private var turnFolds = TranscriptTurnFold.Folds.none
+    @State private var turnFoldSession: SessionID?
+    @State private var turnFoldRevision = -1
     @State private var geometry = TranscriptGeometry()
     /// The width a bubble may fill, held as an object rather than in `geometry` so a pane changing
     /// width invalidates the handful of views that draw a bubble rather than this whole body. See
@@ -379,6 +386,16 @@ struct TranscriptListView: View {
         return TranscriptFold.mayAdopt(fresh, over: folds, drawn: drawn) ? fresh : folds
     }
 
+    /// A result lands before the rows above it collapse, keeping the append and removal as two
+    /// table changes. A new session still gets its own answer on the first pass.
+    private func turnFoldsForThisPass() -> TranscriptTurnFold.Folds {
+        guard turnFoldSession == transcript.session.id else {
+            return transcript.presentationTurnFolds()
+        }
+        guard turnFoldRevision == transcript.presentationRevision else { return turnFolds }
+        return turnFolds
+    }
+
     /// What a link in any row of this transcript does. Comparable, so that a fresh struct per pass
     /// is not a change: see `TranscriptRowEnvironment`, which is what carries it to the rows.
     private var linkActions: TranscriptLinkActions {
@@ -456,6 +473,7 @@ struct TranscriptListView: View {
         // is a property of an `@Observable` or a set this body copies, and reading one inside a
         // per-row closure records an observation edge per row.
         let unfolded = self.unfolded
+        let unfoldedTurns = self.unfoldedTurns
         let revealed = revealedSeqs
         let sessionID = transcript.session.id
         // Read once, and the range taken off the slice itself rather than off `drawnWindow` a
@@ -468,6 +486,12 @@ struct TranscriptListView: View {
         // and a fold from landing as one edit. See `TranscriptFold.mayAdopt`, which is the rule,
         // and the `onChange` at the foot of `body`, which is the pass.
         let folds = foldsForThisPass(drawn: drawnRange)
+        let turnFolds = turnFoldsForThisPass()
+        let turnHiddenIndices = turnFolds.hiddenIndices(
+            unfolded: unfoldedTurns,
+            revealed: revealed,
+            drawn: drawnRange
+        )
         let lastVisibleRow = drawnRows.last(where: { !TranscriptNoise.isHidden($0) })
         let lastVisibleSeq = lastVisibleRow?.seq
         let hasCompletedTurn = drawnRange.upperBound == rows.count && sending == nil
@@ -593,6 +617,19 @@ struct TranscriptListView: View {
 
         for index in drawnRows.indices {
             let row = drawnRows[index]
+            // The completed turn's outer disclosure stands before the same process it replaces.
+            // Opened, the existing commentary and action folds below it draw unchanged.
+            if let turn = turnFolds.turn(startingAt: index) {
+                let isOpen = turnFolds.isOpen(turn, unfolded: unfoldedTurns, revealed: revealed)
+                out.append(turnFoldEntry(
+                    firstSeq: turn.firstSeq,
+                    milliseconds: turn.durationMS ?? 0,
+                    isExpanded: isOpen,
+                    shows: turn.hasHiddenRows,
+                    session: sessionID
+                ))
+            }
+            if turnHiddenIndices.contains(index) { continue }
             // A turn's working, drawn as one line and whatever of it still has to be on screen.
             // See `TranscriptFold`, which holds every decision about where a turn's working starts
             // and ends and what may be hidden; what happens here is only the emitting.
@@ -734,7 +771,8 @@ struct TranscriptListView: View {
                                 wasStopped: wasStopped,
                                 recovered: recovered,
                                 stillRunning: stillRunning,
-                                transcript: transcript
+                                transcript: transcript,
+                                showsDuration: turnFolds.turn(containing: index)?.hasHiddenRows != true
                             )
                             .arrivingRow(settles && arrivals.isArriving(row.seq))
                             .padding(.horizontal, TranscriptLayout.inset)
@@ -1012,8 +1050,7 @@ struct TranscriptListView: View {
                 guard shows else { return AnyView(EmptyView()) }
                 return AnyView(
                     TranscriptFoldRowView(
-                        hiddenCount: hiding,
-                        showsMore: showsMore,
+                        label: TranscriptFold.label(hiding: hiding),
                         isExpanded: !isFolded,
                         isNested: isNested,
                         onToggle: { toggleFold(firstSeq) }
@@ -1021,6 +1058,41 @@ struct TranscriptListView: View {
                     // The same two insets every row in this list carries: one here, and one inside
                     // `transcriptRowFrame`. A fold's line drawn with only the inner one would sit
                     // a gutter to the left of the run it stands for.
+                    .padding(.horizontal, TranscriptLayout.inset)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                )
+            }
+        )
+    }
+
+    private func turnFoldEntry(
+        firstSeq: Int,
+        milliseconds: Int,
+        isExpanded: Bool,
+        shows: Bool,
+        session: SessionID
+    ) -> TranscriptTableEntry {
+        let label = TranscriptTurnFold.label(milliseconds: milliseconds)
+        return TranscriptTableEntry(
+            id: .turnFold(firstSeq),
+            contentKey: TranscriptContentKey {
+                $0.combine("turn-fold")
+                $0.combine(session)
+                $0.combine(firstSeq)
+                $0.combine(milliseconds)
+                $0.combine(isExpanded)
+                $0.combine(shows)
+            },
+            drawsNothing: !shows,
+            shape: .fold,
+            content: {
+                guard shows else { return AnyView(EmptyView()) }
+                return AnyView(
+                    TranscriptFoldRowView(
+                        label: label,
+                        isExpanded: isExpanded,
+                        onToggle: { toggleTurnFold(firstSeq) }
+                    )
                     .padding(.horizontal, TranscriptLayout.inset)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 )
@@ -1135,6 +1207,10 @@ struct TranscriptListView: View {
             if rescanned != folds { folds = rescanned }
             foldSession = transcript.session.id
             foldRevision = transcript.presentationRevision
+            let rescannedTurns = transcript.presentationTurnFolds(extending: turnFolds)
+            if rescannedTurns != turnFolds { turnFolds = rescannedTurns }
+            turnFoldSession = transcript.session.id
+            turnFoldRevision = transcript.presentationRevision
             // An open live turn is useful while the reader is inspecting it. Once they are back at
             // the live end and more work arrives, it is a growing log again: keep the newest item
             // visible and return everything completed above it to the compact count.
@@ -1188,9 +1264,13 @@ struct TranscriptListView: View {
             liveEndRequest = TranscriptLiveEndRequest(handled: remembered?.liveEndRequest ?? 0)
             expanded = remembered?.expanded ?? []
             unfolded = remembered?.unfolded ?? []
+            unfoldedTurns = remembered?.unfoldedTurns ?? []
             folds = transcript.presentationFolds()
             foldSession = transcript.session.id
             foldRevision = transcript.presentationRevision
+            turnFolds = transcript.presentationTurnFolds()
+            turnFoldSession = transcript.session.id
+            turnFoldRevision = transcript.presentationRevision
             // A session opens at its live end whatever the one being left was scrolled to, and the
             // anchor is read before the new rows arrive.
             geometry.isNearBottom = true
@@ -1748,6 +1828,7 @@ struct TranscriptListView: View {
             TranscriptPaneState(
                 expanded: expanded,
                 unfolded: unfolded,
+                unfoldedTurns: unfoldedTurns,
                 offset: contentOffset.value,
                 // The row at the top of the pane and how far into it the reader was, which is the
                 // place; the offset above is what answers when there is no row to name.
@@ -1893,6 +1974,18 @@ struct TranscriptListView: View {
         }
         // Written down at once, for the reason `toggle` gives: opening a run to read it and
         // switching tab to look at what it did is one gesture.
+        remember()
+    }
+
+    private func toggleTurnFold(_ firstSeq: Int) {
+        scroller.stop()
+        follower.stop()
+        controller.willChangeFoldRows(.turnFold(firstSeq))
+        if unfoldedTurns.contains(firstSeq) {
+            unfoldedTurns.remove(firstSeq)
+        } else {
+            unfoldedTurns.insert(firstSeq)
+        }
         remember()
     }
 

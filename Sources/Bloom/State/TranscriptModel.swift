@@ -111,6 +111,19 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
             opensTurn: BackgroundWake.isRow(kind: kind, payload: payload)
         )
     }
+
+    /// This row in the terms of the completed turn fold around `TranscriptFold`.
+    nonisolated func turnFoldFact() -> TranscriptTurnFold.Fact {
+        TranscriptTurnFold.Fact(
+            seq: seq,
+            kind: kind,
+            drawsNothing: TranscriptNoise.isHidden(self)
+                || TranscriptRowInk.drawsNothing(kind: kind, payload: payload),
+            parentToolUseID: parentToolUseID,
+            opensTurn: BackgroundWake.isRow(kind: kind, payload: payload),
+            durationMS: kind == .result ? durationMS : nil
+        )
+    }
 }
 
 /// The state behind one session's transcript: the rows, whether the agent is running, and the
@@ -211,6 +224,12 @@ final class TranscriptModel {
                 picturesFromCalls: picturesFromCalls
             )
         })
+    }
+
+    func presentationTurnFolds(
+        extending previous: TranscriptTurnFold.Folds = .none
+    ) -> TranscriptTurnFold.Folds {
+        TranscriptTurnFold.folds(in: rows.lazy.map { $0.turnFoldFact() }, extending: previous)
     }
 
     /// Every prompt in the session, for the turn minimap. The same incremental index the pinned

@@ -60,6 +60,8 @@ public struct TranscriptPaneState: Equatable, Sendable {
     /// same one: this view is destroyed by every tab switch, so a run somebody opened to read
     /// would fold itself away again the moment they looked at the changes and came back.
     public var unfolded: Set<Int>
+    /// The completed turns whose streamed process the reader opened.
+    public var unfoldedTurns: Set<Int>
     /// Where the view was, in points from the top of the content.
     ///
     /// The fallback, not the answer. See `anchorSeq`.
@@ -110,6 +112,7 @@ public struct TranscriptPaneState: Equatable, Sendable {
     public init(
         expanded: Set<Int>,
         unfolded: Set<Int> = [],
+        unfoldedTurns: Set<Int> = [],
         offset: Double,
         anchorSeq: Int? = nil,
         anchorDelta: Double = 0,
@@ -120,6 +123,7 @@ public struct TranscriptPaneState: Equatable, Sendable {
     ) {
         self.expanded = expanded
         self.unfolded = unfolded
+        self.unfoldedTurns = unfoldedTurns
         self.offset = offset
         self.anchorSeq = anchorSeq
         self.anchorDelta = anchorDelta
