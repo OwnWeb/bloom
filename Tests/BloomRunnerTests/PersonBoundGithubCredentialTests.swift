@@ -470,6 +470,7 @@ struct PersonBoundGithubCredentialTests {
         #expect(deathStatus != 0, "supervised process status: \(deathStatus), output: \(deathLines)")
         #expect(members.allSatisfy { !FileManager.default.fileExists(atPath: "/proc/\($0)") })
         #expect(deathRegistry.isHealthy)
+        #expect(PersonBoundSandboxCleanup.cleanupStale(executable: executable))
     }
     #endif
 }

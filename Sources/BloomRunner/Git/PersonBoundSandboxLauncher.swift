@@ -257,10 +257,17 @@ enum PersonBoundSandboxExec {
         var pendingShieldGroups: Set<Int32> = []
         var allShieldGroups: Set<Int32> = []
         var pausedTracees: Set<Int32> = []
-        if provesCleanup, !spawnCleanupProof(leader: leader, uid: proofUID, group: proofGroup, cgroup: cgroup) {
-            _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-            return 1
+        var cleanupProof: Int32?
+        if provesCleanup {
+            cleanupProof = spawnCleanupProof(
+                leader: leader, uid: proofUID, group: proofGroup, cgroup: cgroup
+            )
+            guard cleanupProof != nil else {
+                _ = writeText("1\n", to: cgroup + "/cgroup.kill")
+                return 1
+            }
         }
+        defer { _ = terminateAndReapCleanupProof(&cleanupProof) }
         guard linuxPtrace(7, leader, nil, nil) == 0 else { return 1 } // PTRACE_CONT
 
         while !traced.isEmpty {
@@ -277,11 +284,20 @@ enum PersonBoundSandboxExec {
                 if errno == EINTR { continue }
                 if errno == ECHILD, let leaderStatus {
                     try? FileManager.default.removeItem(atPath: provenance)
+                    guard terminateAndReapCleanupProof(&cleanupProof) else { return 1 }
                     return leaderStatus
                 }
                 return 1
             }
             if exited(status) || signalled(status) {
+                if let proof = cleanupProof, waited == proof {
+                    cleanupProof = nil
+                    guard leaderStatus != nil else {
+                        _ = writeText("1\n", to: cgroup + "/cgroup.kill")
+                        return 1
+                    }
+                    continue
+                }
                 if waited == shieldingPID {
                     if protectedOperation == .git,
                        !unmaskRepositoryConfiguration(maskedGitConfiguration) { return 1 }
@@ -421,6 +437,7 @@ enum PersonBoundSandboxExec {
                     || errno == ESRCH else { return 1 }
         }
         try? FileManager.default.removeItem(atPath: provenance)
+        guard terminateAndReapCleanupProof(&cleanupProof) else { return 1 }
         return leaderStatus ?? 1
     }
 
@@ -436,9 +453,9 @@ enum PersonBoundSandboxExec {
 
     private static func spawnCleanupProof(
         leader: Int32, uid: UInt32, group: UInt32, cgroup: String
-    ) -> Bool {
+    ) -> Int32? {
         let proof = fork()
-        guard proof >= 0 else { return false }
+        guard proof >= 0 else { return nil }
         if proof == 0 {
             guard setpgid(0, leader) == 0,
                   writeText(String(getpid()) + "\n", to: cgroup + "/cgroup.procs") else { _exit(125) }
@@ -450,14 +467,34 @@ enum PersonBoundSandboxExec {
         for _ in 0..<100 {
             if let members = try? String(contentsOfFile: cgroup + "/cgroup.procs", encoding: .utf8),
                members.split(whereSeparator: \.isWhitespace).contains(where: { Int32($0) == proof }) {
-                return true
+                return proof
             }
             var status: Int32 = 0
-            if waitpid(proof, &status, WNOHANG) == proof { return false }
+            if waitpid(proof, &status, WNOHANG) == proof { return nil }
             usleep(1_000)
         }
-        _ = kill(proof, SIGKILL)
-        return false
+        var cleanupProof: Int32? = proof
+        _ = terminateAndReapCleanupProof(&cleanupProof)
+        return nil
+    }
+
+    private static func terminateAndReapCleanupProof(_ proof: inout Int32?) -> Bool {
+        guard let pid = proof else { return true }
+        guard kill(pid, SIGKILL) == 0 || errno == ESRCH else { return false }
+        var status: Int32 = 0
+        while true {
+            let waited = waitpid(pid, &status, 0)
+            if waited == pid {
+                proof = nil
+                return true
+            }
+            if waited < 0, errno == EINTR { continue }
+            if waited < 0, errno == ECHILD {
+                proof = nil
+                return true
+            }
+            return false
+        }
     }
 
     /// The local scopes Git reads for a normal repository or a linked worktree.
