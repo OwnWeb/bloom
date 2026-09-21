@@ -93,7 +93,10 @@ final class TerminalPersistence {
         guard let command else { return }
         knownSessions = Set(await sessionNames())
         guard !knownSessions.isEmpty else { return }
-        _ = try? await Shell.run(command.executable, command.sourceConfiguration, timeout: .seconds(5))
+        _ = try? await Shell.run(
+            command.executable, command.sourceConfiguration,
+            environment: terminalProcessEnvironment, timeout: .seconds(5)
+        )
     }
 
     private func sessionNames() async -> [String] {
@@ -116,7 +119,8 @@ final class TerminalPersistence {
         // simply "nothing persisted yet" here. A throw is different, and is the nil case: the
         // process could not be run, or it was still running when the timeout came round.
         guard let result = try? await Shell.run(
-            command.executable, command.listSessions, timeout: .seconds(5)
+            command.executable, command.listSessions,
+            environment: terminalProcessEnvironment, timeout: .seconds(5)
         ) else { return nil }
         return TmuxSessions.parseSessionList(result.stdout)
     }
@@ -137,7 +141,8 @@ final class TerminalPersistence {
     func panePIDSnapshot() async -> [String: Int32]? {
         guard let command else { return [:] }
         guard let result = try? await Shell.run(
-            command.executable, command.listPanes, timeout: .seconds(5)
+            command.executable, command.listPanes,
+            environment: terminalProcessEnvironment, timeout: .seconds(5)
         ) else { return nil }
         guard result.ok || result.stderr.contains("no server running")
             || result.stderr.contains("No such file or directory") else { return nil }
@@ -170,10 +175,15 @@ final class TerminalPersistence {
         guard let command, !sessions.isEmpty else { return }
         for session in sessions {
             _ = try? await Shell.run(
-                command.executable, command.killSession(session), timeout: .seconds(5)
+                command.executable, command.killSession(session),
+                environment: terminalProcessEnvironment, timeout: .seconds(5)
             )
             knownSessions.remove(session)
         }
+    }
+
+    private var terminalProcessEnvironment: [String: String] {
+        Shell.terminalEnvironment(inheriting: Shell.environment())
     }
 
     /// The launch sweep. Everything on our socket whose pane is no longer reachable from the

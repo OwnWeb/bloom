@@ -583,7 +583,7 @@ public struct WorkspaceManager: Sendable {
             executable: launch.executable,
             arguments: launch.arguments,
             cwd: workspace.path,
-            environment: Shell.environment(extra: env)
+            environment: ProviderCredentialEnvironment.untrustedProcess(Shell.environment(extra: env))
         )
 
         var log = preparationLog
@@ -818,7 +818,9 @@ public struct WorkspaceManager: Sendable {
             do {
                 result = try await Shell.run(
                     archiveLaunch.executable, archiveLaunch.arguments,
-                    cwd: workspace.path, env: env, timeout: archiveScriptTimeout
+                    cwd: workspace.path,
+                    environment: ProviderCredentialEnvironment.untrustedProcess(Shell.environment(extra: env)),
+                    timeout: archiveScriptTimeout
                 )
             } catch let failure as ShellFailure {
                 throw WorkspaceError.archiveScriptIncomplete(failure)

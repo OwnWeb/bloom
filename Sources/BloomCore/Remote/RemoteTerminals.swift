@@ -50,7 +50,9 @@ public actor RemoteTerminals {
         self.makeAttachProcess = makeAttachProcess ?? { command, session, cwd in
             StreamingProcess(executable: command.executable,
                              arguments: command.arguments(["-C", "attach-session", "-t", "=" + session]),
-                             cwd: cwd, environment: Shell.environment(extra: ["TERM": "xterm-256color"]))
+                             cwd: cwd, environment: Shell.terminalEnvironment(
+                                 inheriting: Shell.environment(), extra: ["TERM": "xterm-256color"]
+                             ))
         }
     }
 
@@ -58,13 +60,13 @@ public actor RemoteTerminals {
     ///
     /// `environment` reaches the shell only when the session is created, and never through tmux's
     /// arguments: a command line is readable by every process on the machine, and these are
-    /// people's keys. tmux copies the variables `update-environment` names from the creating
+    /// people's non-provider values. tmux copies the variables `update-environment` names from the creating
     /// client's own environment, so they are handed to that one short-lived process instead. A
     /// session that already exists keeps the environment it started with, which is the right
     /// answer for a person's own keys: they belong to the shell they opened.
     ///
-    /// **A terminal belongs to whoever opened it.** Its shell carries that person's key, their
-    /// personal environment and the turn their git credentials are asked for under, so somebody
+    /// **A terminal belongs to whoever opened it.** Its shell carries that person's scrubbed
+    /// personal environment and the turn their Git credentials are asked for under, so somebody
     /// else attaching by name would act as them. `owner` nil is the server's own, such as the
     /// shell a run script is typed into, which anybody may open.
     @discardableResult
@@ -81,6 +83,7 @@ public actor RemoteTerminals {
                               personal: Set<String> = [], runScript: String? = nil) async throws -> String {
         guard !closed else { throw RemoteFailure.shuttingDown }
         try Self.validate(name: name)
+        let environment = ProviderCredentialEnvironment.untrustedProcess(environment)
         for key in environment.keys where !Self.isValidVariableName(key) {
             throw RemoteFailure.invalid("Environment variable names can only hold letters, digits and underscores.")
         }
@@ -113,14 +116,21 @@ public actor RemoteTerminals {
         worktree: String, runScript: String?
     ) async throws {
         let names = environment.keys.sorted().joined(separator: " ")
-        _ = try await Shell.run(command.executable, command.arguments(["set-option", "-g", "update-environment", names]), cwd: worktree)
+        let processEnvironment = terminalProcessEnvironment(extra: environment)
+        _ = try await Shell.run(
+            command.executable, command.arguments(["set-option", "-g", "update-environment", names]),
+            cwd: worktree, environment: processEnvironment
+        )
         // **The shell this machine's user actually has, not the one the service was started with.**
         // tmux takes `default-shell` from the environment of whoever started the server, which here
         // is Bloom Runner under a service manager, so a pane ran `/bin/sh`: a bare `$`, no profile,
         // and a different shell from the one a run script's pane ended in. With `default-command`
         // left empty, tmux starts `default-shell` as a login shell itself. See `LoginShell`.
         let shell = LoginShell.machinePath()
-        _ = try await Shell.run(command.executable, command.arguments(["set-option", "-g", "default-shell", shell]), cwd: worktree)
+        _ = try await Shell.run(
+            command.executable, command.arguments(["set-option", "-g", "default-shell", shell]),
+            cwd: worktree, environment: processEnvironment
+        )
         // One tmux invocation, so the owner is on the session before anybody can attach to it.
         var arguments = ["new-session", "-d", "-s", session, "-c", worktree]
         // The shell stays after it, so a person can read what happened and carry on in the same
@@ -134,21 +144,30 @@ public actor RemoteTerminals {
         if let owner { arguments += [";", "set-option", "-t", "=" + session + ":", ownerOption, owner] }
         if !personal.isEmpty { arguments += [";", "set-option", "-t", "=" + session + ":", personalOption, personal.sorted().joined(separator: " ")] }
         let created = try await Shell.run(command.executable, command.arguments(arguments), cwd: worktree,
-                                          env: Shell.environment(extra: environment))
+                                          environment: processEnvironment)
         // Emptied again at once, so a later attach does not copy the attaching client's variables
         // of those names over this session's.
-        _ = try await Shell.run(command.executable, command.arguments(["set-option", "-g", "update-environment", ""]), cwd: worktree)
+        _ = try await Shell.run(
+            command.executable, command.arguments(["set-option", "-g", "update-environment", ""]),
+            cwd: worktree, environment: processEnvironment
+        )
         guard created.ok else { throw RemoteFailure(.unavailable, created.stderr) }
     }
 
     private func exists(_ session: String, command: TmuxCommand) async throws -> Bool {
-        try await Shell.run(command.executable, command.arguments(["has-session", "-t", "=" + session]), cwd: worktree).ok
+        try await Shell.run(
+            command.executable, command.arguments(["has-session", "-t", "=" + session]),
+            cwd: worktree, environment: Self.terminalProcessEnvironment()
+        ).ok
     }
 
     private func requireOwner(_ requester: String?, of session: String, command: TmuxCommand) async throws {
         // `-q` answers an unset option as empty, so any failure left is a real one and refuses.
-        let shown = try await Shell.run(command.executable, command.arguments(["show-options", "-t", "=" + session + ":", "-qv", Self.ownerOption]),
-                                        cwd: worktree)
+        let shown = try await Shell.run(
+            command.executable,
+            command.arguments(["show-options", "-t", "=" + session + ":", "-qv", Self.ownerOption]),
+            cwd: worktree, environment: Self.terminalProcessEnvironment()
+        )
         guard shown.ok else { throw RemoteFailure(.unavailable, "This terminal could not be checked. Try again.") }
         let owner = shown.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard owner.isEmpty || owner == requester else {
@@ -197,7 +216,10 @@ public actor RemoteTerminals {
         let command = TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath, sandbox: sandbox)
         let session = TmuxSessions.sessionName(workspaceID: workspaceID, paneID: name)
         if let requester { try await requireOwner(requester, of: session, command: command) }
-        _ = try await Shell.run(executable, command.arguments(["kill-session", "-t", "=" + session]), cwd: stateDirectory)
+        _ = try await Shell.run(
+            executable, command.arguments(["kill-session", "-t", "=" + session]),
+            cwd: stateDirectory, environment: Self.terminalProcessEnvironment()
+        )
     }
 
     /// Ends every shell a person opened, which is what losing access to the workspace means for
@@ -218,14 +240,20 @@ public actor RemoteTerminals {
         // Tab separated in tmux's own terms would print as `_`, so a `|`, which neither a session
         // name nor a user id nor an agent's name holds.
         let format = "#{session_name}|#{\(Self.ownerOption)}|#{\(Self.personalOption)}"
-        let listed = try await Shell.run(executable, command.arguments(["list-sessions", "-F", format]), cwd: stateDirectory)
+        let listed = try await Shell.run(
+            executable, command.arguments(["list-sessions", "-F", format]),
+            cwd: stateDirectory, environment: Self.terminalProcessEnvironment()
+        )
         guard listed.ok else { return }
         for line in listed.stdout.split(separator: "\n") {
             let fields = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
             guard fields.count == 3, !TmuxSessions.sessions(ofWorkspace: workspaceID, in: [fields[0]]).isEmpty else { continue }
             let personal = Set(fields[2].split(separator: " ").map(String.init))
             guard matching((owner: fields[1], personal: personal)) else { continue }
-            _ = try await Shell.run(executable, command.arguments(["kill-session", "-t", "=" + fields[0]]), cwd: stateDirectory)
+            _ = try await Shell.run(
+                executable, command.arguments(["kill-session", "-t", "=" + fields[0]]),
+                cwd: stateDirectory, environment: Self.terminalProcessEnvironment()
+            )
         }
     }
 
@@ -233,11 +261,17 @@ public actor RemoteTerminals {
     public func closeAll() async throws {
         guard let executable = Shell.which("tmux") else { return }
         let command = TmuxCommand(executable: executable, socketName: socketName, configPath: configurationPath, sandbox: sandbox)
-        let listed = try await Shell.run(executable, command.arguments(["list-sessions", "-F", "#{session_name}"]), cwd: stateDirectory)
+        let listed = try await Shell.run(
+            executable, command.arguments(["list-sessions", "-F", "#{session_name}"]),
+            cwd: stateDirectory, environment: Self.terminalProcessEnvironment()
+        )
         guard listed.ok else { return }
         let names = TmuxSessions.sessions(ofWorkspace: workspaceID, in: TmuxSessions.parseSessionList(listed.stdout))
         for name in names {
-            _ = try await Shell.run(executable, command.arguments(["kill-session", "-t", "=" + name]), cwd: stateDirectory)
+            _ = try await Shell.run(
+                executable, command.arguments(["kill-session", "-t", "=" + name]),
+                cwd: stateDirectory, environment: Self.terminalProcessEnvironment()
+            )
         }
     }
 
@@ -252,7 +286,10 @@ public actor RemoteTerminals {
     /// tell whose shell is asking for a git token. Empty when tmux is not running.
     public func panePIDs() async -> [String: Int32] {
         guard let command = try? tmuxCommand(),
-              let listed = try? await Shell.run(command.executable, command.listPanes, cwd: worktree, timeout: .seconds(5)),
+              let listed = try? await Shell.run(
+                  command.executable, command.listPanes, cwd: worktree,
+                  environment: Self.terminalProcessEnvironment(), timeout: .seconds(5)
+              ),
               listed.ok else { return [:] }
         var byTerminal: [String: Int32] = [:]
         for (session, pid) in TmuxSessions.parsePanePIDs(listed.stdout) {
@@ -277,6 +314,10 @@ public actor RemoteTerminals {
     /// Whether a terminal name would be accepted, for a caller deciding before it has anything to
     /// throw into, such as a WebSocket upgrade.
     public static func isValid(name: String) -> Bool { (try? validate(name: name)) != nil }
+
+    private static func terminalProcessEnvironment(extra: [String: String] = [:]) -> [String: String] {
+        Shell.terminalEnvironment(inheriting: Shell.environment(), extra: extra)
+    }
 
     static func validate(name: String) throws {
         guard !name.isEmpty, name.utf8.count <= 64,

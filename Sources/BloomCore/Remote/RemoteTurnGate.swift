@@ -41,15 +41,7 @@ public struct RemoteTurnGrant: Sendable, Hashable {
     /// The process environment for an agent of this kind: the key under the variable its CLI
     /// reads, over the personal environment, so a personal variable cannot shadow the key.
     public func environment(for agent: AgentKind) -> [String: String] {
-        var values = environment
-        if let key = agentKeys[agent] {
-            switch agent {
-            case .codex: values["OPENAI_API_KEY"] = key.key
-            case .grok: values["XAI_API_KEY"] = key.key
-            case .claudeCode, .cursor, .openCode: values["ANTHROPIC_API_KEY"] = key.key
-            }
-        }
-        return values
+        ProviderCredentialEnvironment.agent(agent, key: agentKeys[agent]?.key, environment: environment)
     }
 
     /// What a process or shell launched with this grant carries that belongs to one person: the
@@ -57,7 +49,9 @@ public struct RemoteTurnGrant: Sendable, Hashable {
     /// environment. Empty means nothing of anybody's own. See `PersonalCredentials`.
     public func personalMarks(for agents: [AgentKind]) -> Set<String> {
         var marks = Set(agents.filter { agentKeys[$0]?.source == "personal" }.map(\.wireName))
-        if !environment.isEmpty { marks.insert(PersonalCredentials.environmentMark) }
+        if !ProviderCredentialEnvironment.untrustedProcess(environment).isEmpty {
+            marks.insert(PersonalCredentials.environmentMark)
+        }
         return marks
     }
 
@@ -80,7 +74,8 @@ public struct RemoteTurnGrant: Sendable, Hashable {
     /// What decides whether a running agent process can take this turn or has to be relaunched:
     /// the key's identity, never the person, so teammates on the team key never cause a relaunch.
     public func launchIdentity(for agent: AgentKind) -> String {
-        let personal = environment.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
+        let personal = ProviderCredentialEnvironment.untrustedProcess(environment)
+            .sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
         return (agentKeys[agent]?.identity ?? "") + "\n" + personal
     }
 }

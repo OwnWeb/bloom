@@ -38,6 +38,35 @@ extension WorkspaceHTTPServerTests {
         }
     }
 
+    @Test("a terminal turn receives personal environment but never provider credentials")
+    func terminalTurnEnvironmentIsScrubbed() async throws {
+        let fixture = try await fixture()
+        let grant = RemoteTurnGrant(
+            agentKeys: [
+                .claudeCode: RemoteAgentKey(key: "anthropic-sentinel", identity: "a", source: "personal"),
+                .codex: RemoteAgentKey(key: "openai-sentinel", identity: "o", source: "personal"),
+                .grok: RemoteAgentKey(key: "xai-sentinel", identity: "x", source: "personal"),
+            ],
+            environment: [
+                "BLOOM_ALLOWED": "kept", "OPENAI_API_TOKEN": "alias-sentinel",
+                "CLAUDE_CODE_OAUTH_TOKEN": "oauth-sentinel",
+            ]
+        )
+        let result = try await TerminalRoute.shellEnvironment(
+            turnID: "terminal-turn", terminal: "main",
+            gate: TerminalEnvironmentGate(grant: grant), runtime: fixture.runtime
+        )
+
+        #expect(result.environment["BLOOM_ALLOWED"] == "kept")
+        #expect(result.environment["BLOOM_TERMINAL"] == "main")
+        #expect(!result.environment.values.contains { $0.contains("sentinel") })
+        #expect(result.environment.keys.allSatisfy {
+            !ProviderCredentialEnvironment.prohibitedNames.contains($0.uppercased())
+        })
+        #expect(result.personal == [PersonalCredentials.environmentMark])
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a token for another workspace, an expired one and a preview token cannot command, watch or type")
     func foreignTokensAreRefusedEverywhere() async throws {
         let fixture = try await fixture()
@@ -304,4 +333,16 @@ extension WorkspaceHTTPServerTests {
         }
         await fixture.runtime.shutdown()
     }
+}
+
+private struct TerminalEnvironmentGate: RemoteTurnGate {
+    var grant: RemoteTurnGrant
+
+    func register(
+        _ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, caller: RemoteCaller
+    ) async throws -> String { "terminal-turn" }
+
+    func start(turnID: String) async throws -> RemoteTurnGrant { grant }
+
+    func end(turnID: String) async {}
 }

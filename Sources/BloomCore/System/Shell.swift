@@ -158,7 +158,8 @@ public enum Shell {
         variables["COLORTERM"] = "truecolor"
         variables["TERM_PROGRAM"] = "Bloom"
         if variables["LANG"] == nil { variables["LANG"] = "en_US.UTF-8" }
-        return variables.merging(extra) { _, requested in requested }
+        let merged = variables.merging(extra) { _, requested in requested }
+        return ProviderCredentialEnvironment.untrustedProcess(merged)
     }
 
     /// Where a name was last found, so a lookup is one `stat` rather than a walk of the whole PATH.
@@ -218,6 +219,33 @@ public enum Shell {
             executable, arguments, cwd: cwd, env: env,
             stdin: stdin.map { Data($0.utf8) }, timeout: timeout, outputLimit: outputLimit
         )
+        return ShellResult(
+            status: result.status,
+            stdout: String(decoding: result.stdout, as: UTF8.self),
+            stderr: String(decoding: result.stderr, as: UTF8.self)
+        )
+    }
+
+    /// Runs with exactly the supplied environment rather than overlaying it on Bloom's own. Use
+    /// this at a credential boundary where absence matters: an overlay cannot remove a variable
+    /// inherited by the parent process.
+    public static func run(
+        _ executable: String,
+        _ arguments: [String] = [],
+        cwd: String? = nil,
+        environment: [String: String],
+        stdin: String? = nil,
+        timeout: Duration? = nil,
+        outputLimit: Int = 64 * 1_024 * 1_024
+    ) async throws -> ShellResult {
+        try Task.checkCancellation()
+        guard let path = which(executable) else {
+            throw ShellError(command: executable, status: 127, stderr: "\(executable) not found on PATH")
+        }
+        let result = try await CapturedProcess(
+            executable: path, arguments: arguments, cwd: cwd, environment: environment,
+            input: stdin.map { Data($0.utf8) }, timeout: timeout, outputLimit: outputLimit
+        ).run()
         return ShellResult(
             status: result.status,
             stdout: String(decoding: result.stdout, as: UTF8.self),

@@ -7,6 +7,22 @@ import Testing
 /// Setup against a bare repository on disk standing in for GitHub, with real git and real scripts.
 @Suite("Setting a machine's workspace up")
 struct MachineSetupTests {
+    @Test("machine environment drops provider credentials on initial fetch and refresh")
+    func machineEnvironmentScrubsProviderCredentials() async {
+        let source = Mutex([
+            "BLOOM_ALLOWED": "first", "ANTHROPIC_API_KEY": "anthropic-sentinel",
+            "OPENAI_API_TOKEN": "openai-sentinel", "XAI_API_KEY": "xai-sentinel",
+        ])
+        let environment = MachineEnvironment { source.withLock { $0 } }
+
+        let initial = await environment.refresh()
+        #expect(initial == ["BLOOM_ALLOWED": "first"])
+
+        source.withLock { $0 = ["BLOOM_ALLOWED": "second", "CLAUDE_CODE_OAUTH_TOKEN": "sentinel"] }
+        let refreshed = await environment.refresh()
+        #expect(refreshed == ["BLOOM_ALLOWED": "second"])
+    }
+
     @Test("obsolete credential mode fields cannot select another Runner path")
     func obsoleteCredentialContractIsIgnored() throws {
         let base = """

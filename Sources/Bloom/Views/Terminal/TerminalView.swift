@@ -50,7 +50,7 @@ struct TerminalLaunch: Sendable, Hashable {
     ) -> TerminalLaunch {
         let variables = Shell.terminalEnvironment(inheriting: Shell.environment())
 
-        var sessionVariables = extra
+        var sessionVariables = ProviderCredentialEnvironment.untrustedProcess(extra)
         sessionVariables["COLORTERM"] = "truecolor"
         sessionVariables["TERM_PROGRAM"] = "Bloom"
 

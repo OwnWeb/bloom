@@ -52,14 +52,18 @@ public enum RemoteRunnerFactory {
         case .codex:
             return CodexRunner(workspacePath: workspacePath, session: session, store: store, bridge: bridge?.attachment) { configuration in
                 var configuration = configuration
-                configuration.environment.merge(environment) { _, extra in extra }
+                configuration.environment = ProviderCredentialEnvironment.agent(
+                    session.agentKind, granted: environment, inheriting: configuration.environment
+                )
                 if let sandbox { configuration.environment = sandbox.environment(configuration.environment) }
                 return CodexClient(configuration: configuration, makeProcess: launching)
             }
         case .grok:
             return GrokRunner(workspacePath: workspacePath, session: session, store: store, bridge: bridge?.attachment) { configuration in
                 var configuration = configuration
-                configuration.environment.merge(environment) { _, extra in extra }
+                configuration.environment = ProviderCredentialEnvironment.agent(
+                    session.agentKind, granted: environment, inheriting: configuration.environment
+                )
                 if let sandbox { configuration.environment = sandbox.environment(configuration.environment) }
                 return GrokClient(configuration: configuration, makeProcess: launching)
             }
@@ -68,7 +72,9 @@ public enum RemoteRunnerFactory {
             return AgentRunner(workspacePath: workspacePath, session: session, store: store, mcpConfigPath: bridge?.mcpConfigPath) { launch in
                 launching(AgentLaunch(
                     executable: launch.executable, arguments: launch.arguments, cwd: launch.cwd,
-                    environment: launch.environment.merging(environment) { _, extra in extra }
+                    environment: ProviderCredentialEnvironment.agent(
+                        session.agentKind, granted: environment, inheriting: launch.environment
+                    )
                 ))
             }
         }

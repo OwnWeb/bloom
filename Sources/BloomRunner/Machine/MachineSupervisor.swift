@@ -93,7 +93,8 @@ public actor MachineEnvironment {
     /// Fetches again, keeping what it had when runbloom.app cannot be reached.
     @discardableResult
     public func refresh() async -> [String: String] {
-        guard let fresh = try? await fetch() else { return values }
+        guard let fetched = try? await fetch() else { return values }
+        let fresh = ProviderCredentialEnvironment.untrustedProcess(fetched)
         let changed = fresh != values
         values = fresh
         if changed { await onChange?(fresh) }

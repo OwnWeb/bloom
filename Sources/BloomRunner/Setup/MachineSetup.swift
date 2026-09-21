@@ -506,7 +506,7 @@ public actor MachineSetup {
         // terminal nobody is at.
         environment["GIT_TERMINAL_PROMPT"] = "0"
         if let gitGlobalConfig { environment["GIT_CONFIG_GLOBAL"] = gitGlobalConfig }
-        return environment
+        return ProviderCredentialEnvironment.untrustedProcess(environment)
     }
 
     /// The repository's own name rather than the clone's folder, which on a machine is always
@@ -659,7 +659,8 @@ public actor MachineSetup {
             // rather than pushing into the base.
             let branch = configuration.branch
             let remote = try? await Shell.run(
-                "git", ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/\(branch)"], cwd: worktree, env: environment, timeout: .seconds(30)
+                "git", ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/\(branch)"],
+                cwd: worktree, environment: environment, timeout: .seconds(30)
             )
             let arguments = remote?.ok == true
                 ? ["checkout", "-B", branch, "origin/\(branch)"]

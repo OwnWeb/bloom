@@ -182,6 +182,43 @@ struct RemoteTerminalsTests {
         await terminals.shutdown()
     }
 
+    @Test func aTerminalAndItsTmuxShellNeverReceiveProviderCredentials() async throws {
+        guard Shell.which("tmux") != nil else { return }
+        let repo = try await TempRepo()
+        let databasePath = TestScratch.unique("terminal-provider-credentials") + "/bloom.sqlite"
+        try FileManager.default.createDirectory(
+            atPath: (databasePath as NSString).deletingLastPathComponent,
+            withIntermediateDirectories: true
+        )
+        let terminals = RemoteTerminals(
+            workspaceID: WorkspaceID("fixture"), worktree: repo.path, databasePath: databasePath
+        )
+        let output = repo.path + "/terminal-environment.txt"
+        var environment = ["BLOOM_ALLOWED": "kept"]
+        for name in ProviderCredentialEnvironment.prohibitedNames { environment[name] = "sentinel" }
+        do {
+            let attachment = try await terminals.attach(
+                name: "scrubbed", environment: environment,
+                runScript: "/usr/bin/env > \(output)"
+            )
+            await attachment.close()
+            await waitUntil("the terminal wrote its environment") {
+                (try? String(contentsOfFile: output, encoding: .utf8))?.contains("BLOOM_ALLOWED=kept") == true
+            }
+            let contents = try String(contentsOfFile: output, encoding: .utf8)
+            #expect(contents.contains("BLOOM_ALLOWED=kept"))
+            #expect(!contents.contains("sentinel"))
+            for name in ProviderCredentialEnvironment.prohibitedNames {
+                #expect(!contents.contains(name + "="))
+            }
+        } catch {
+            await terminals.shutdown()
+            throw error
+        }
+        try? await terminals.closeAll()
+        await terminals.shutdown()
+    }
+
     @Test func sharingEndsOnlyTheShellsHoldingPersonalCredentials() async throws {
         guard Shell.which("tmux") != nil else { return }
         let repo = try await TempRepo()
@@ -189,8 +226,11 @@ struct RemoteTerminalsTests {
         try FileManager.default.createDirectory(atPath: (databasePath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         let terminals = RemoteTerminals(workspaceID: WorkspaceID("fixture"), worktree: repo.path, databasePath: databasePath)
         do {
-            try await terminals.ensureSession(name: "personal", environment: ["ANTHROPIC_API_KEY": "mine"], owner: "freek", personal: ["claude"])
-            try await terminals.ensureSession(name: "team", environment: ["ANTHROPIC_API_KEY": "team"], owner: "seb")
+            try await terminals.ensureSession(
+                name: "personal", environment: ["PERSONAL_NAME": "mine"], owner: "freek",
+                personal: [PersonalCredentials.environmentMark]
+            )
+            try await terminals.ensureSession(name: "team", environment: ["TEAM_NAME": "team"], owner: "seb")
             try await terminals.closeAll { !$0.isEmpty }
             let tmux = try #require(Shell.which("tmux"))
             let socket = TmuxSessions.socketName(databasePath: databasePath)

@@ -55,14 +55,19 @@ struct TerminalLaunchScriptTests {
     }
     @Test("Terminal panes discard inherited headless colour settings")
     func terminalEnvironment() {
-        let environment = Shell.terminalEnvironment(inheriting: [
-            "NO_COLOR": "1", "TERM": "dumb", "COLORTERM": "", "PATH": "/bin"
-        ], extra: ["BLOOM_PORT": "3000"])
+        var inherited = ["NO_COLOR": "1", "TERM": "dumb", "COLORTERM": "", "PATH": "/bin"]
+        for name in ProviderCredentialEnvironment.prohibitedNames { inherited[name] = "sentinel" }
+        let environment = Shell.terminalEnvironment(
+            inheriting: inherited, extra: ["BLOOM_PORT": "3000", "OPENAI_API_KEY": "extra-sentinel"]
+        )
         #expect(environment["NO_COLOR"] == nil)
         #expect(environment["TERM"] == "xterm-256color")
         #expect(environment["COLORTERM"] == "truecolor")
         #expect(environment["PATH"] == "/bin")
         #expect(environment["BLOOM_PORT"] == "3000")
+        #expect(environment.keys.allSatisfy {
+            !ProviderCredentialEnvironment.prohibitedNames.contains($0.uppercased())
+        })
     }
 
 }

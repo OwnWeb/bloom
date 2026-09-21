@@ -1,0 +1,65 @@
+import Testing
+@testable import BloomCore
+
+@Suite("Provider credentials in process environments")
+struct ProviderCredentialEnvironmentTests {
+    @Test("untrusted processes lose every provider credential alias and keep ordinary variables")
+    func untrustedProcessesAreScrubbed() {
+        var environment = ["BLOOM_ALLOWED": "kept"]
+        for name in ProviderCredentialEnvironment.prohibitedNames {
+            environment[name.lowercased()] = "sentinel-\(name)"
+        }
+
+        let scrubbed = ProviderCredentialEnvironment.untrustedProcess(environment)
+
+        #expect(scrubbed == ["BLOOM_ALLOWED": "kept"])
+    }
+
+    @Test("each explicit agent boundary receives only its selected server credential",
+          arguments: AgentKind.allCases)
+    func agentBoundary(agent: AgentKind) {
+        var inherited = ["PATH": "/usr/bin", "BLOOM_ALLOWED": "inherited"]
+        for name in ProviderCredentialEnvironment.prohibitedNames {
+            inherited[name] = "inherited-sentinel"
+        }
+        let granted = ProviderCredentialEnvironment.agent(
+            agent, key: "selected-sentinel", environment: ["TURN_ALLOWED": "granted"]
+        )
+
+        let result = ProviderCredentialEnvironment.agent(
+            agent, granted: granted, inheriting: inherited
+        )
+        let providerValues = result.filter {
+            ProviderCredentialEnvironment.prohibitedNames.contains($0.key.uppercased())
+        }
+
+        #expect(providerValues.count == 1)
+        #expect(providerValues.first?.value == "selected-sentinel")
+        #expect(result["PATH"] == "/usr/bin")
+        #expect(result["BLOOM_ALLOWED"] == "inherited")
+        #expect(result["TURN_ALLOWED"] == "granted")
+        #expect(!result.values.contains("inherited-sentinel"))
+    }
+
+    @Test("provider aliases in personal environment do not mark or identify a launch")
+    func providerAliasesAreNotPersonalEnvironment() {
+        let grant = RemoteTurnGrant(environment: ["OPENAI_API_TOKEN": "sentinel"])
+
+        #expect(grant.personalMarks(for: []).isEmpty)
+        #expect(grant.launchIdentity(for: .codex) == "\n")
+    }
+
+    @Test("an exact subprocess environment does not merge Bloom's inherited variables")
+    func exactSubprocessEnvironment() async throws {
+        let result = try await Shell.run(
+            "/usr/bin/env", environment: ["BLOOM_ALLOWED": "kept"]
+        )
+
+        #expect(result.ok)
+        #expect(result.stdout.contains("BLOOM_ALLOWED=kept"))
+        #expect(!result.stdout.contains("PATH="))
+        for name in ProviderCredentialEnvironment.prohibitedNames {
+            #expect(!result.stdout.uppercased().contains(name + "="))
+        }
+    }
+}

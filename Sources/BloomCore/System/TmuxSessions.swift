@@ -325,6 +325,7 @@ public struct TmuxCommand: Sendable, Equatable {
         directory: String,
         environment: [String: String]
     ) -> [String] {
+        let environment = ProviderCredentialEnvironment.untrustedProcess(environment)
         // Existing servers keep their original environment even after Bloom is rebuilt.
         var tail = ["set-environment", "-gr", "NO_COLOR", ";",
                     "new-session", "-A", "-D", "-s", session, "-c", directory]

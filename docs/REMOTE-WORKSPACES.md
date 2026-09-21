@@ -259,8 +259,8 @@ Sprite:
 A running process keeps the key it was launched with for as long as consecutive turns resolve to
 the same identity. Personal environment applies only to that turn's processes; it is not given to
 project services. A terminal session registers the same way, `POST .../turns` with `kind:
-"terminal"` and a token carrying the `terminal` ability, and its
-shell gets that person's key, personal environment and GitHub token.
+"terminal"` and a token carrying the `terminal` ability. Its shell gets the person's scrubbed
+personal environment and a turn id for the isolated GitHub credential exchange, but no model-provider key.
 
 The key is never written to disk, never in argv, and never in the transcript. A cold wake kills
 the process, and the next delivery starts again at step 1.
@@ -556,9 +556,26 @@ Bloom injects into every script and service: `BLOOM_PUBLIC_URL` (the Sprite URL,
 the team and project environment runbloom.app holds. The repository maps them itself
 (`APP_URL=$BLOOM_PUBLIC_URL`, Vite's allowed hosts from `BLOOM_PUBLIC_HOST`). Team and project
 values arrive at setup and at every resume; personal values arrive only with a turn or a terminal
-session, apply only to its processes, and, like personal keys, are delivered only in a workspace
-that is not shared. All of it lives only in process environments; a script
+session, apply only to its processes, and are delivered only in a workspace that is not shared.
+Provider credential names are removed before setup, resume, services, terminals or run scripts
+start. All remaining values live only in process environments; a script
 that writes it into `.env` has made that choice itself.
+
+### Provider credential environment boundary
+
+`ProviderCredentialEnvironment` is the single policy for provider credentials. Every local or
+Cloud terminal, tmux server and client, setup or resume script, run script and project service
+crosses `untrustedProcess`, after all environment overlays have been applied. It removes the
+canonical Anthropic, OpenAI and xAI variables plus the Claude Code, Codex, Grok, Cursor and
+OpenCode aliases, case-insensitively. Ordinary workspace, user and Git helper variables remain.
+
+Only an explicitly classified agent launch may cross `agent`. That boundary first removes every
+provider credential inherited by Bloom Runner, then restores the one server-authorised canonical
+variable for the selected `AgentKind`. Both policy switches are exhaustive over `AgentKind`, so a
+new provider cannot compile until its canonical credential and aliases have an explicit decision.
+Values are never inspected or included in errors. GitHub credentials remain outside this policy:
+network Git and gh use the person-bound Unix-socket exchange and never receive a raw token in the
+terminal environment.
 
 Project services run under Bloom Runner's own supervisor, not as Sprite Services. A Sprite Service
 restarts on its own on cold wake, before `resume` has fetched fresh environment, and cannot be
@@ -1166,7 +1183,7 @@ and its builder confirmed them.
   any other non-limit refusal.
 - **Becoming shared retires personal credentials.** runbloom.app calls `control/shared` before
   anybody new gets access. The machine answers at once, then stops every agent process and ends
-  every terminal launched with a personal key or personal environment; a turn running on one ends
+  every terminal launched with personal environment; a turn running on a personal key ends
   with "This Cloud workspace was shared, so the turn stopped; the next turn uses the team key", and
   queued prompts stay queued. It is idempotent, and it also happens when a turn or terminal start
   answers a team key for an agent something holds a personal key for, or no personal environment
@@ -1177,14 +1194,12 @@ and its builder confirmed them.
   rather than left to pause the chat for everybody, their running turn stops, and the shells they
   opened end. Withdrawing a share link is a revoke too: runbloom.app sends the `share:<id>` subject
   as `user_id`, and that link's preview cookies stop working at once.
-- **A terminal belongs to whoever opened it.** Its shell holds that person's key, personal
-  environment and turn, so nobody else attaches to it or closes it by name. Keys reach tmux through
-  the creating client's environment (`update-environment`), never its arguments. A renewal of a
+- **A terminal belongs to whoever opened it.** Its shell holds that person's scrubbed personal
+  environment and turn, so nobody else attaches to it or closes it by name. Provider keys do not
+  reach tmux, its shell or their descendants. A renewal of a
   terminal or an event stream checks abilities again, and the command journal is kept per person.
-- **What the review accepted rather than changed.** Every terminal gets the agent keys runbloom.app
-  resolves for its person, as designed; with sudo on the machine that makes a team key readable
-  by anybody with the `terminal` ability. Agent to agent messages inside a workspace run on the key
-  their chat already has and are not registered as turns. Setup output reaches everybody who can
+- **What the review accepted rather than changed.** Agent to agent messages inside a workspace run
+  on the key their chat already has and are not registered as turns. Setup output reaches everybody who can
   view, so a script that prints its environment prints it to them. A hard link in the worktree is
   not refused on download, because pnpm fills `node_modules` with them and planting one needs code
   execution on the machine already. The verifier refuses `crit` headers and abilities named twice;
@@ -1303,7 +1318,7 @@ the coordinator.
   banners. A token is only sent to an HTTPS machine address (plain HTTP only on loopback), and a
   preview only opens on its own machine's host. A machine's shell cannot write this Mac's clipboard.
 - **Each person gets a terminal of their own,** named `shell-<user id>`, because a terminal is a
-  turn with its opener's keys and GitHub identity. A keystroke into a closed terminal reconnects it,
+  turn with its opener's personal environment and GitHub identity, but no provider key. A keystroke into a closed terminal reconnects it,
   and reattaching by name answers with one frame that is clear screen, cursor home, then the pane as
   it stands, so a client feeds it as it is and never appends it to what it was showing. The shell
   behind it survives a socket that disappears with no close frame, which is a laptop closing, and

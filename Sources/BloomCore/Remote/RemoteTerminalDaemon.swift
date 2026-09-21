@@ -27,10 +27,16 @@ actor RemoteTerminalDaemon {
         self.ownsDaemon = ownsDaemon ?? false
         #endif
         self.makeProcess = makeProcess ?? { command, cwd in
-            StreamingProcess(executable: command.executable, arguments: command.arguments(["-D"]), cwd: cwd)
+            StreamingProcess(
+                executable: command.executable, arguments: command.arguments(["-D"]), cwd: cwd,
+                environment: Shell.terminalEnvironment(inheriting: Shell.environment())
+            )
         }
         self.run = run ?? { command, arguments, cwd in
-            try await Shell.run(command.executable, command.arguments(arguments), cwd: cwd, timeout: .seconds(5))
+            try await Shell.run(
+                command.executable, command.arguments(arguments), cwd: cwd,
+                environment: Shell.terminalEnvironment(inheriting: Shell.environment()), timeout: .seconds(5)
+            )
         }
     }
 

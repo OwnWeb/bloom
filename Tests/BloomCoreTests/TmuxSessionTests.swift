@@ -329,7 +329,10 @@ struct TmuxCommandTests {
         let arguments = command.attachOrCreate(
             session: "bloom-x",
             directory: "/tmp/work",
-            environment: ["BLOOM_PORT": "3000", "CONDUCTOR_PORT": "3000"]
+            environment: [
+                "BLOOM_PORT": "3000", "CONDUCTOR_PORT": "3000",
+                "ANTHROPIC_API_KEY": "sentinel", "openai_api_token": "sentinel",
+            ]
         )
         #expect(arguments == [
             "-L", "bloom-deadbeef", "-f", "/cfg/tmux.conf", "-u",
@@ -338,6 +341,7 @@ struct TmuxCommandTests {
             "-e", "BLOOM_PORT=3000",
             "-e", "CONDUCTOR_PORT=3000",
         ])
+        #expect(!arguments.contains { $0.contains("sentinel") })
     }
 
     @Test("Kills name the session exactly, so a prefix match can never take a second one")

@@ -13,8 +13,8 @@ import NIOCore
 /// and `reauth` are text frames. See `TerminalControlFrame`.
 ///
 /// **The shell is a turn.** It is registered with runbloom.app under the person's token and
-/// started, which hands the machine that person's agent keys and personal environment for this
-/// shell alone. `BLOOM_TERMINAL` in its environment is what lets `git push` from it push as them:
+/// started, but the provider keys in that grant never cross the terminal boundary. Its scrubbed
+/// personal environment is for this shell alone. `BLOOM_TERMINAL` is what lets `git push` from it push as them:
 /// the credential route looks up the turn of whichever connection to that terminal is open now,
 /// because a shell outlives its connection and the turn it started with ends with that one.
 enum TerminalRoute {
@@ -165,23 +165,19 @@ enum TerminalRoute {
         await attachment.close()
     }
 
-    /// The shell's environment: every key runbloom.app resolved for this person, under the names
-    /// each CLI reads, their personal environment, and the turn git credentials are asked for.
-    /// Also answers what of it is one person's own, which the shell is tagged with, and retires
-    /// whatever this grant shows can no longer hold personal credentials.
+    /// The shell's environment: the person's non-provider environment and the turn Git
+    /// credentials are asked for. Provider keys remain on the agent-only launch boundary. Also
+    /// answers what of the environment is one person's own, and retires whatever this grant shows
+    /// can no longer hold personal credentials.
     static func shellEnvironment(
         turnID: String, terminal: String, gate: any RemoteTurnGate, runtime: WorkspaceRuntime
     ) async throws -> (environment: [String: String], personal: Set<String>) {
-        var environment: [String: String] = [:]
-        guard !turnID.isEmpty else { return (environment, []) }
+        guard !turnID.isEmpty else { return ([:], []) }
         let grant = try await gate.start(turnID: turnID)
         await runtime.retirePersonalCredentials(where: grant.supersedes)
-        for agent in grant.agentKeys.keys {
-            environment.merge(grant.environment(for: agent)) { _, new in new }
-        }
-        environment.merge(grant.environment) { current, _ in current }
+        var environment = ProviderCredentialEnvironment.untrustedProcess(grant.environment)
         environment["BLOOM_TERMINAL"] = terminal
-        return (environment, grant.personalMarks(for: Array(grant.agentKeys.keys)))
+        return (environment, grant.personalMarks(for: []))
     }
 }
 
