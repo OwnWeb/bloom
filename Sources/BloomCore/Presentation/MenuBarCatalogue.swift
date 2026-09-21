@@ -100,8 +100,9 @@ public enum MenuBarCatalogue {
 
         // MARK: Edit
 
-        // Always live, because what it acts on is a selection and a selection is not something the
-        // menu bar is told about. See `SelectionToChat`, which asks at the moment it is pressed.
+        // Always live. In a Browser view it is presented as Open Location and focuses that pane's
+        // address field. Everywhere else what it acts on is a selection, which is not something
+        // the menu bar is told about. See `SelectionToChat`, which asks when it is pressed.
         //
         // **A terminal keeps Cmd+L as well, and it is the same action by a shorter road**: the
         // shell hands its selection over itself, and hands the key back when it has none.

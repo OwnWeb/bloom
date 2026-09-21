@@ -3,16 +3,21 @@ import BloomCore
 
 /// One row of the menu bar, drawn from `MenuBarCatalogue`.
 ///
-/// **The title and the key come from the table, and this view supplies neither.** That is the
+/// **The title and the key come from the table by default.** That is the
 /// whole point of it: `BloomCommands` is a `Commands` body, which is a view, so a title written
 /// there is a title nothing can check and a key written there is a key nothing can compare against
 /// the rest of the bar. Two items on one keystroke is not a tie AppKit reports; it picks whichever
 /// it finds first and the other never fires, which is how `Cmd+0` was lost once already.
 ///
+/// The title override is for one contextual command: Cmd+L is Open Location while a Browser view
+/// is visible and Add to Chat everywhere else. It remains one keyed catalogue item, so the two
+/// meanings cannot compete for the same key equivalent.
+///
 /// What stays in the view is the closure, the greying and the separators, because all three depend
 /// on state the core cannot hold.
 struct MenuCommand: View {
     var action: MenuBarAction
+    var title: String?
     /// Which half of a two-state item to draw: already pinned, already unread. Ignored by every
     /// item that has one title.
     var alternate = false
@@ -25,11 +30,13 @@ struct MenuCommand: View {
     init(
         _ action: MenuBarAction,
         alternate: Bool = false,
+        title: String? = nil,
         symbol: String? = nil,
         perform: @escaping @MainActor () -> Void
     ) {
         self.action = action
         self.alternate = alternate
+        self.title = title
         self.symbol = symbol
         self.perform = perform
     }
@@ -46,10 +53,11 @@ struct MenuCommand: View {
 
     @ViewBuilder
     private var button: some View {
+        let label = title ?? item.title(alternate: alternate)
         if let symbol {
-            Button(item.title(alternate: alternate), systemImage: symbol, action: perform)
+            Button(label, systemImage: symbol, action: perform)
         } else {
-            Button(item.title(alternate: alternate), action: perform)
+            Button(label, action: perform)
         }
     }
 }

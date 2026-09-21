@@ -35,6 +35,7 @@ struct BrowserTabView: View {
     @State private var regionCapture: BrowserRegionCapture?
     @State private var viewportFrame: CGRect = .zero
     @State private var room = ComposerRoom()
+    @State private var locationFocusRequest = 0
 
     @Environment(AppModel.self) private var app
 
@@ -118,7 +119,10 @@ struct BrowserTabView: View {
                 }
             }
             if ReviewComposer.isDrawn(destination: regionCapture?.sessionID ?? model.reviewDestination?.id, panes: siblings) {
-                ReviewPaneComposer(model: model, room: room, destinationID: regionCapture?.sessionID)
+                ReviewPaneComposer(
+                    model: model, room: room, destinationID: regionCapture?.sessionID,
+                    showsDestinationStrip: false
+                )
             }
         }
         .onGeometryChange(for: CGFloat.self) { PaneMeasure.room($0.size.height) } action: { room.height = $0 }
@@ -159,6 +163,20 @@ struct BrowserTabView: View {
             if !isAddressFocused { address = session.displayAddress }
             tabs.setPage(session.page, for: tab)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .bloomFocusBrowserLocation)) { note in
+            guard note.object as? String == tab.id else { return }
+            focusLocation()
+        }
+    }
+
+    private func focusLocation() {
+        if let selected = tabs.selectedTab(in: model),
+           let pane = tabs.layout(of: selected).panes.first(where: {
+               tabs.content(of: $0, in: selected) == .tool(tab.id)
+           }) {
+            tabs.focus(pane, in: selected, of: model)
+        }
+        locationFocusRequest &+= 1
     }
 
     /// What the bar offers, given what the page can do. Every one of those answers is
@@ -176,6 +194,7 @@ struct BrowserTabView: View {
             ),
             address: $address,
             addressFocus: $isAddressFocused,
+            locationFocusRequest: locationFocusRequest,
             isRingVisible: isRingVisible,
             backHistory: session.backHistory,
             forwardHistory: session.forwardHistory,

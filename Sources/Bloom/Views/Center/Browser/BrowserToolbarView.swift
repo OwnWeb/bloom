@@ -55,6 +55,8 @@ struct BrowserToolbarView: View {
     /// Nil where there is no field to focus, which is a machine's pane: the capsule is there and
     /// holds the host, and nothing in it takes the keyboard. See `BrowserToolbar.Surface`.
     var addressFocus: FocusState<Bool>.Binding?
+    /// Incremented by Command-L. The native field uses the value as an idempotent request token.
+    var locationFocusRequest = 0
     /// Whether the ring should be drawn at all: focused, and in the window the keys are going to.
     var isRingVisible: Bool
     /// The pages behind and ahead of this one, nearest first, named by `BrowserToolbar`.
@@ -281,13 +283,14 @@ struct BrowserToolbarView: View {
     private var field: some View {
         if let addressFocus {
             ZStack(alignment: .leading) {
-                TextField("Address", text: $address)
-                    .textFieldStyle(.plain)
-                    .font(Typo.label)
-                    .focused(addressFocus)
-                    .autocorrectionDisabled()
-                    .foregroundStyle(isEditing ? Palette.textPrimary : .clear)
-                    .onSubmit(submit)
+                BrowserAddressField(
+                    text: $address,
+                    focus: addressFocus,
+                    focusRequest: locationFocusRequest,
+                    isEditing: isEditing,
+                    submit: submit
+                )
+                .frame(maxWidth: .infinity)
 
                 // Nothing over an empty field, so the placeholder is the one AppKit draws.
                 if !isEditing, !display.isEmpty {
