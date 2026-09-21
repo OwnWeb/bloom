@@ -6,46 +6,152 @@ import BloomCore
 @MainActor
 enum AttachmentDrop {
     static let types: [NSPasteboard.PasteboardType] = [.fileURL]
-        + PastedImageFormat.allCases.map { NSPasteboard.PasteboardType($0.uti) }
+        + PastedImageFormat.allCases.flatMap(\.providerTypeIdentifiers)
+            .map(NSPasteboard.PasteboardType.init)
+        + [NSPasteboard.PasteboardType(ImageDropLoader.genericImageType)]
         + NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
 
     static func canRead(_ pasteboard: NSPasteboard) -> Bool {
         ComposerTextView.hasAttachables(on: pasteboard)
+            || pasteboard.pasteboardItems?.contains(where: {
+                $0.types.contains(NSPasteboard.PasteboardType(ImageDropLoader.genericImageType))
+            }) == true
             || pasteboard.canReadObject(forClasses: [NSFilePromiseReceiver.self], options: nil)
     }
 
     static func receive(
-        _ pasteboard: NSPasteboard,
+        _ sender: any NSDraggingInfo,
+        session: AttachmentDropSession,
         onReceive: @escaping @MainActor @Sendable ([AttachmentSource]) -> Bool,
         onFailure: @escaping @MainActor @Sendable (String) -> Void
     ) -> Bool {
-        let sources = ComposerTextView.attachables(on: pasteboard)
-        if !sources.isEmpty { return onReceive(sources) }
-
-        guard let promises = pasteboard.readObjects(
+        let pasteboard = sender.draggingPasteboard
+        if let promises = pasteboard.readObjects(
             forClasses: [NSFilePromiseReceiver.self], options: nil
-        ) as? [NSFilePromiseReceiver], !promises.isEmpty else { return false }
-
-        for promise in promises {
-            do {
-                let storage = try PromisedAttachmentStorage()
-                promise.receivePromisedFiles(
-                    atDestination: storage.directory, options: [:], operationQueue: .main
-                ) { url, error in
-                    let failure = error?.localizedDescription
-                    Task { @MainActor in
-                        if let failure {
-                            onFailure(failure)
-                        } else {
-                            _ = onReceive([.promisedFile(url, storage)])
+        ) as? [NSFilePromiseReceiver], !promises.isEmpty {
+            for promise in promises {
+                do {
+                    let storage = try PromisedAttachmentStorage()
+                    promise.receivePromisedFiles(
+                        atDestination: storage.directory, options: [:], operationQueue: .main
+                    ) { url, error in
+                        let failure = error?.localizedDescription
+                        Task { @MainActor in
+                            guard session.isActive else { return }
+                            if let failure {
+                                onFailure(failure)
+                            } else {
+                                _ = onReceive([.promisedFile(url, storage)])
+                            }
                         }
                     }
+                } catch {
+                    onFailure(error.localizedDescription)
                 }
+            }
+            return true
+        }
+
+        let items = pasteboard.pasteboardItems ?? []
+        let offers = pasteboard.attachmentOffers(for: items)
+        let inputs = zip(items, offers)
+            .map { PasteboardDropProvider(($0.0, $0.1)).provider }
+            .filter(ImageDropLoader.canLoad)
+        guard !inputs.isEmpty else { return false }
+
+        session.start {
+            do {
+                let result = try await ImageDropLoader.load(
+                    inputs, maxByteCount: AttachmentFiles.maxPastedByteCount
+                )
+                try Task.checkCancellation()
+                let attachments = result.loaded.map { loaded in
+                    switch loaded.value {
+                    case .file(let url): .file(url)
+                    case .image(let data, let format):
+                        .image(
+                            data,
+                            format: format,
+                            named: PastedAttachment.filename(format: format.written)
+                        )
+                    }
+                }
+                await MainActor.run {
+                    guard session.isActive else { return }
+                    if !attachments.isEmpty { _ = onReceive(attachments) }
+                    if !result.failures.isEmpty {
+                        onFailure(result.failures.map(\.message).joined(separator: "\n\n"))
+                    }
+                }
+            } catch is CancellationError {
+                // The composer went away. A cancelled drop is a lifecycle outcome, not an alert.
             } catch {
-                onFailure(error.localizedDescription)
+                await MainActor.run {
+                    guard session.isActive else { return }
+                    onFailure(error.readableMessage)
+                }
             }
         }
         return true
+    }
+}
+
+/// Owns asynchronous provider loads for one drop target. Removing the target cancels every load,
+/// and result delivery checks the same lifetime before changing the draft.
+@MainActor
+final class AttachmentDropSession {
+    private var tasks: [UUID: Task<Void, Never>] = [:]
+    private(set) var isActive = true
+
+    func start(_ operation: @escaping @Sendable () async -> Void) {
+        let id = UUID()
+        tasks[id] = Task { [weak self] in
+            await operation()
+            self?.tasks[id] = nil
+        }
+    }
+
+    func cancelAll() {
+        isActive = false
+        for task in tasks.values { task.cancel() }
+        tasks.removeAll()
+    }
+
+    deinit {
+        for task in tasks.values { task.cancel() }
+    }
+}
+
+/// The AppKit half of `ImageDropProvider`. Transferable and `NSItemProvider` drags arrive at an
+/// AppKit destination as pasteboard items carrying their registered uniform types. The byte read
+/// happens in the loader rather than on the main actor that accepted the drop.
+private final class PasteboardDropProvider: @unchecked Sendable {
+    private let item: NSPasteboardItem
+    private let offer: PastedAttachment.Offer
+
+    init(_ pair: (NSPasteboardItem, PastedAttachment.Offer)) {
+        item = pair.0
+        offer = pair.1
+    }
+
+    var provider: ImageDropProvider {
+        if let path = offer.filePath {
+            return ImageDropProvider(
+                typeIdentifiers: [ImageDropLoader.fileURLType],
+                loadFileURL: { URL(filePath: path) },
+                loadData: { _ in throw ImageDropLoader.Failure.unsupported }
+            )
+        }
+        return ImageDropProvider(
+            typeIdentifiers: offer.types,
+            loadData: { [self] type in
+                try Task.checkCancellation()
+                guard let data = item.data(forType: NSPasteboard.PasteboardType(type)) else {
+                    throw ImageDropLoader.Failure.empty
+                }
+                return data
+            }
+        )
     }
 }
 

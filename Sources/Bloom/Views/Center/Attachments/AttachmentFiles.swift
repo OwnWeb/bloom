@@ -138,13 +138,16 @@ enum AttachmentFiles {
     }
 
     private static func attach(
-        image pasted: Data, format: PastedImageFormat, named name: String, workspace: String
+        image pasted: Data, format _: PastedImageFormat, named name: String, workspace: String
     ) throws -> PromptAttachment {
         guard pasted.count <= maxPastedByteCount else {
             throw Failure.tooLargeToPaste(name, pasted.count)
         }
 
-        let (data, filename) = readable(pasted, format: format, named: name)
+        let actual = try DroppedImageData.validate(pasted)
+        let base = (name as NSString).deletingPathExtension
+        let safeName = "\(base).\(actual.written.fileExtension)"
+        let (data, filename) = readable(pasted, format: actual, named: safeName)
 
         guard data.count <= maxByteCount else { throw Failure.tooLargeToPaste(filename, data.count) }
 
@@ -156,6 +159,7 @@ enum AttachmentFiles {
             try prepare(destination, in: workspace)
             try data.write(to: destination, options: .atomic)
         } catch {
+            try? FileManager.default.removeItem(at: destination.deletingLastPathComponent())
             throw Failure.copyFailed(filename, error.localizedDescription)
         }
 
@@ -172,8 +176,9 @@ enum AttachmentFiles {
     /// report as an unreadable file. What it costs is a decode and an encode of one picture, on a
     /// background task, once.
     ///
-    /// PNG and JPEG are left exactly as they arrived. Both are already compressed, re-encoding a
-    /// JPEG would throw away detail for nothing, and bytes that are not touched cannot be corrupted.
+    /// PNG, JPEG, HEIC and HEIF are left exactly as they arrived. They are already compressed,
+    /// re-encoding a lossy image would throw away detail for nothing, and bytes that are not
+    /// touched cannot be corrupted.
     ///
     /// A rewrite that does not work keeps the original bytes and takes the original extension back,
     /// because a TIFF written under a `.png` name is worse than a TIFF: everything that opens it

@@ -6,9 +6,11 @@ import Foundation
 /// already compressed, so it is written straight out. JPEG is already compressed too, and
 /// re-encoding it would only lose detail. TIFF is neither: it is what the system falls back to
 /// when nothing better was put on the board, it is often twenty times the size of the same
-/// picture as PNG, and it is the one of the three an agent is unlikely to be able to open.
+/// picture as PNG, and it is the one supported format an agent is unlikely to be able to open.
 public enum PastedImageFormat: String, Sendable, CaseIterable {
     case png
+    case heic
+    case heif
     case jpeg
     case tiff
 
@@ -16,6 +18,8 @@ public enum PastedImageFormat: String, Sendable, CaseIterable {
     public var uti: String {
         switch self {
         case .png: "public.png"
+        case .heic: "public.heic"
+        case .heif: "public.heif"
         case .jpeg: "public.jpeg"
         case .tiff: "public.tiff"
         }
@@ -26,6 +30,8 @@ public enum PastedImageFormat: String, Sendable, CaseIterable {
     public var fileExtension: String {
         switch self {
         case .png: "png"
+        case .heic: "heic"
+        case .heif: "heif"
         case .jpeg: "jpg"
         case .tiff: "tiff"
         }
@@ -39,9 +45,15 @@ public enum PastedImageFormat: String, Sendable, CaseIterable {
     /// The format a rewrite produces. Everything that is already compressed stays as it is.
     public var written: PastedImageFormat { isWorthReencoding ? .png : self }
 
+    /// The declared order of the enum is the deterministic preference order for a provider that
+    /// offers several versions of the same image.
+    public var providerTypeIdentifiers: [String] { [uti] }
+
     /// The best of what one pasteboard item offers, or nil when it offers no picture at all.
     public static func best(of utis: [String]) -> PastedImageFormat? {
-        allCases.first { format in utis.contains(format.uti) }
+        allCases.first { format in
+            format.providerTypeIdentifiers.contains { utis.contains($0) }
+        }
     }
 }
 
