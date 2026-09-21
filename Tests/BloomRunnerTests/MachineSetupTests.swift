@@ -13,7 +13,9 @@ struct MachineSetupTests {
             "BLOOM_ALLOWED": "first", "ANTHROPIC_API_KEY": "anthropic-sentinel",
             "OPENAI_API_TOKEN": "openai-sentinel", "XAI_API_KEY": "xai-sentinel",
         ])
-        let environment = MachineEnvironment { source.withLock { $0 } }
+        let environment = MachineEnvironment {
+            try MachineEnvironmentResponse(variables: source.withLock { $0 })
+        }
 
         let initial = await environment.refresh()
         #expect(initial == ["BLOOM_ALLOWED": "first"])
