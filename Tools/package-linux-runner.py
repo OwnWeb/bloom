@@ -75,10 +75,13 @@ def root_owned_archive_entry(entry):
 
     Ownership is not enough, and the write bits are the half that bites. The person-bound
     attestor refuses any executable whose path is group or other writable, every component of
-    it, and a machine that fails that check refuses to serve at all. The binaries are copied
-    out of the build directory with their modes, and a build user whose group is their own gets
-    umask 002 from pam_umask, so bloom-runner-exec left CI at 0775 and every installed release
-    would have carried that. The mode belongs to the release rather than to whoever built it.
+    it, and a machine that fails that check refuses to serve at all. The binaries are copied out
+    of the build directory with their modes, and those modes are not the same everywhere:
+    GitHub's builder produced bloom-runner-exec at 0775, where a Linux box building the same
+    commit in the same pinned image produced 0755. What makes the difference is not known, and
+    pam_umask was the first guess and the wrong one, measured at 0022 on both. Not knowing is
+    the argument rather than a gap in it. A release whose permissions answer "wherever it was
+    built" has no answer at all, so the mode belongs to the release. self_test() below holds it.
     """
     entry.uid = 0
     entry.gid = 0
