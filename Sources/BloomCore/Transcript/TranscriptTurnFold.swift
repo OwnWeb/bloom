@@ -44,6 +44,8 @@ public enum TranscriptTurnFold {
         public var hiddenSeqs: Set<Int>
         public var firstSeq: Int
         public var isComplete: Bool
+        /// Whether at least one hidden stored row draws content of its own.
+        public var hasHiddenRows: Bool
         public var durationMS: Int?
 
         public init(
@@ -52,6 +54,7 @@ public enum TranscriptTurnFold {
             hiddenSeqs: Set<Int>,
             firstSeq: Int,
             isComplete: Bool,
+            hasHiddenRows: Bool,
             durationMS: Int? = nil
         ) {
             self.span = span
@@ -59,10 +62,9 @@ public enum TranscriptTurnFold {
             self.hiddenSeqs = hiddenSeqs
             self.firstSeq = firstSeq
             self.isComplete = isComplete
+            self.hasHiddenRows = hasHiddenRows
             self.durationMS = durationMS
         }
-
-        public var hasHiddenRows: Bool { !hidden.isEmpty }
     }
 
     public struct Folds: Equatable, Sendable {
@@ -143,13 +145,14 @@ public enum TranscriptTurnFold {
             let first = facts[facts.index(facts.startIndex, offsetBy: turnStart)]
             var hidden: Set<Int> = []
             var hiddenSeqs: Set<Int> = []
+            var hasHiddenRows = false
 
             if let finalResponse, isComplete, turnStart < finalResponse {
                 for index in turnStart..<finalResponse {
                     let fact = facts[facts.index(facts.startIndex, offsetBy: index)]
-                    guard !fact.drawsNothing else { continue }
                     hidden.insert(index)
                     hiddenSeqs.insert(fact.seq)
+                    hasHiddenRows = hasHiddenRows || !fact.drawsNothing
                 }
             }
 
@@ -159,6 +162,7 @@ public enum TranscriptTurnFold {
                 hiddenSeqs: hiddenSeqs,
                 firstSeq: first.seq,
                 isComplete: isComplete,
+                hasHiddenRows: hasHiddenRows,
                 durationMS: durationMS
             ))
         }

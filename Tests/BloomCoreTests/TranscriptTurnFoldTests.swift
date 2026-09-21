@@ -34,8 +34,9 @@ struct TranscriptTurnFoldTests {
         let turn = try #require(folds.all.first)
 
         #expect(turn.firstSeq == 1)
-        #expect(turn.hidden == [1, 2])
-        #expect(turn.hiddenSeqs == [1, 2])
+        #expect(turn.hidden == [1, 2, 3])
+        #expect(turn.hiddenSeqs == [1, 2, 3])
+        #expect(turn.hasHiddenRows)
         #expect(turn.span == 1..<6)
         #expect(TranscriptTurnFold.label(milliseconds: turn.durationMS ?? 0) == "Worked for 1m 5s")
     }
@@ -58,6 +59,23 @@ struct TranscriptTurnFoldTests {
 
         #expect(turn.isComplete)
         #expect(!turn.hasHiddenRows)
+    }
+
+    @Test("invisible rows inside the process cannot leave an inner action fold behind")
+    func hidesInvisibleFoldHeaders() throws {
+        let facts = [
+            fact(0, .user),
+            fact(1, .assistantText),
+            fact(2, .system, drawsNothing: true),
+            fact(3, .toolUse),
+            fact(4, .assistantText),
+            fact(5, .result, durationMS: 14_000),
+        ]
+        let folds = TranscriptTurnFold.folds(in: facts)
+        let turn = try #require(folds.all.first)
+
+        #expect(turn.hidden == [1, 2, 3])
+        #expect(folds.hiddenIndices(unfolded: [], revealed: []) == [1, 2, 3])
     }
 
     @Test("revealing a hidden row opens its completed turn")

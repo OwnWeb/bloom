@@ -12,25 +12,48 @@ struct TranscriptFoldRowView: View {
     /// are drawn: indented under the call that started them, behind the same rule. A line at the
     /// margin standing for indented rows reads as work the main agent did.
     var isNested = false
+    /// The completed turn treatment, with the label held between two quiet rules.
+    var showsSeparator = false
     var onToggle: () -> Void
 
     @State private var isHovered = false
 
     var body: some View {
         ExpandableRowHeader(isExpanded: isExpanded, onToggle: onToggle) {
-            HStack(spacing: Metrics.spacingSmall) {
-                TranscriptDisclosure(isExpanded: isExpanded, isVisible: true)
-                    .frame(width: TranscriptLayout.disclosureWidth)
+            if showsSeparator {
+                HStack(spacing: TranscriptLayout.block) {
+                    separator
 
-                HStack(spacing: 0) {
-                    Text(label)
-                        .font(Typo.caption)
-                        .foregroundStyle(Palette.textSecondary)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
+                    HStack(spacing: Metrics.spacingSmall) {
+                        Text(label)
+                            .font(Typo.caption)
+                            .foregroundStyle(Palette.textSecondary)
+                            .monospacedDigit()
+                            .lineLimit(1)
+
+                        TranscriptDisclosure(isExpanded: isExpanded, isVisible: true)
+                            .frame(width: TranscriptLayout.disclosureWidth)
+                    }
+                    .fixedSize()
+
+                    separator
                 }
                 .transcriptRowFrame()
+            } else {
+                HStack(spacing: Metrics.spacingSmall) {
+                    TranscriptDisclosure(isExpanded: isExpanded, isVisible: true)
+                        .frame(width: TranscriptLayout.disclosureWidth)
+
+                    HStack(spacing: 0) {
+                        Text(label)
+                            .font(Typo.caption)
+                            .foregroundStyle(Palette.textSecondary)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .transcriptRowFrame()
+                }
             }
         }
         .accessibilityLabel(label)
@@ -47,5 +70,13 @@ struct TranscriptFoldRowView: View {
                     .padding(.leading, TranscriptLayout.inset)
             }
         }
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Palette.border)
+            .frame(maxWidth: .infinity)
+            .frame(height: Metrics.hairline)
+            .accessibilityHidden(true)
     }
 }

@@ -1091,6 +1091,7 @@ struct TranscriptListView: View {
                     TranscriptFoldRowView(
                         label: label,
                         isExpanded: isExpanded,
+                        showsSeparator: true,
                         onToggle: { toggleTurnFold(firstSeq) }
                     )
                     .padding(.horizontal, TranscriptLayout.inset)
