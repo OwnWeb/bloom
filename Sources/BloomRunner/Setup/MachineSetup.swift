@@ -23,6 +23,7 @@ import Synchronization
 /// `BLOOM_*` variables, are handed to each script and service as it starts and never written to
 /// disk. A script that writes them into `.env` has made that choice itself.
 public actor MachineSetup {
+    public typealias IsolateNetworkGit = @Sendable (AgentLaunch) async -> RemoteRunnerFactory.IsolatedLaunch?
     public static let completedSetting = "remote.setup.completed"
     /// Whether the last whole sequence skipped the scripts because the workspace asked for no
     /// setup, as distinct from having run them.
@@ -69,6 +70,7 @@ public actor MachineSetup {
     private let cloneURL: @Sendable (_ repository: String) -> String
     /// The user scripts and services run as, or nil where there is none. See `MachineSandbox`.
     private let sandbox: MachineSandbox?
+    private let isolateNetworkGit: IsolateNetworkGit
     private let gitGlobalConfig: String?
     private let timeouts: Timeouts
     /// How long this instance waits; a test cannot sit through five minutes to prove a sentence.
@@ -99,11 +101,14 @@ public actor MachineSetup {
         serverExecutable: String = MachineSetup.currentExecutable,
         cloneURL: @escaping @Sendable (_ repository: String) -> String = MachineSetup.gitHubCloneURL,
         gitGlobalConfig: String? = nil,
+        personBoundSharedDirectory: String = MachineSandbox.personBoundSharedDirectory,
+        isolateNetworkGit: @escaping IsolateNetworkGit,
         timeouts: Timeouts = .standard,
         stallAfter: TimeInterval = MachineSetup.stallAfter,
         sandbox: MachineSandbox? = nil
     ) {
         self.sandbox = sandbox
+        self.isolateNetworkGit = isolateNetworkGit
         self.runtime = runtime
         self.store = store
         self.configuration = configuration
@@ -111,8 +116,8 @@ public actor MachineSetup {
         machineEnvironment = environment
         self.services = services
         gitTools = MachineGitTools(
-            serverExecutable: serverExecutable, dataDirectory: layout.dataDirectory,
-            serverPort: layout.serverPort, repository: configuration.repository
+            serverExecutable: serverExecutable, repository: configuration.repository,
+            sharedDirectory: personBoundSharedDirectory
         )
         self.cloneURL = cloneURL
         self.gitGlobalConfig = gitGlobalConfig
@@ -329,7 +334,7 @@ public actor MachineSetup {
         await log.hide(await machineEnvironment.values.values)
         await log.endStep()
         await begin("git", log: log, continuing: interrupted)
-        await configureGit(environment: environment, log: log)
+        await configureGit(log: log)
         await log.endStep()
 
         var succeeded = await cloneIfNeeded(environment: environment, log: log, continuing: interrupted)
@@ -421,7 +426,7 @@ public actor MachineSetup {
         currentLog = log
         defer { currentLog = nil; activity = nil }
         moved(to: "configuring git")
-        await configureGit(environment: environment, log: log)
+        await configureGit(log: log)
         let scripts = MachineScripts.load(repo: layout.worktree)
         // A workspace that asked for no setup asks for none at every start, not only the first.
         // `resume` is one of the three scripts, and a service is declared in the same settings file
@@ -616,16 +621,9 @@ public actor MachineSetup {
         await runtime.setupStepStarted(step)
     }
 
-    /// Written at every start, quietly: a failure here is noted in the log but does not stop
-    /// setup, since a public repository clones without a credential and the scripts may not push.
-    private func configureGit(environment: [String: String], log: SetupLog) async {
-        for arguments in gitTools.configCommands {
-            let result = try? await Shell.run("git", arguments, env: environment, timeout: .seconds(30))
-            // `--unset-all` answers 5 when there was nothing to unset, which is the usual case.
-            if let result, !result.ok, !(arguments.contains("--unset-all") && result.status == 5) {
-                await log.note("git \(arguments.joined(separator: " ")) failed: \(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
-            }
-        }
+    /// Writes the sole Git and gh wrapper path. Network configuration is fixed per invocation by
+    /// `PersonBoundGitCommand`; no caller-controlled global helper is installed.
+    private func configureGit(log: SetupLog) async {
         do {
             try gitTools.writeGhWrapper()
         } catch {
@@ -652,7 +650,8 @@ public actor MachineSetup {
         try? FileManager.default.createDirectory(atPath: (worktree as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         var succeeded = await runProcess(
             "git", ["clone", cloneURL(configuration.repository), worktree],
-            directory: nil, timeout: timeouts.clone, environment: environment, log: log
+            directory: nil, timeout: timeouts.clone, environment: environment, log: log,
+            isolateNetworkGit: true
         )
         if succeeded {
             // The branch exists on GitHub when the workspace was made from one; otherwise it starts
@@ -709,15 +708,33 @@ public actor MachineSetup {
 
     private func runProcess(
         _ executable: String, _ arguments: [String], directory: String?, timeout: Duration, environment: [String: String],
-        log: SetupLog, step: String? = nil, privileged: Bool = true
+        log: SetupLog, step: String? = nil, privileged: Bool = true, isolateNetworkGit: Bool = false
     ) async -> Bool {
         // The machine's own work (git, the clone, provisioning) is privileged by default; a script
         // from the repository asks for it explicitly and almost never gets it.
         let command = privileged ? nil : sandbox
         let launch = command.map { $0.wrap(executable: executable, arguments: arguments) }
             ?? (executable: executable, arguments: arguments)
-        let process = StreamingProcess(executable: launch.executable, arguments: launch.arguments, cwd: directory,
-                                       environment: command.map { $0.environment(environment) } ?? environment)
+        let base = AgentLaunch(
+            executable: launch.executable, arguments: launch.arguments,
+            cwd: directory ?? FileManager.default.currentDirectoryPath,
+            environment: command.map { $0.environment(environment) } ?? environment
+        )
+        let isolated: RemoteRunnerFactory.IsolatedLaunch?
+        if isolateNetworkGit {
+            isolated = await self.isolateNetworkGit(base)
+            guard isolated != nil else {
+                await log.note("Bloom could not obtain an isolated bootstrap GitHub grant, so the repository was not cloned.")
+                return false
+            }
+        } else {
+            isolated = nil
+        }
+        let actual = isolated?.launch ?? base
+        let process = StreamingProcess(
+            executable: actual.executable, arguments: actual.arguments, cwd: actual.cwd,
+            environment: actual.environment, cleanup: isolated?.cleanup
+        )
         // Held so the watchdog can ask what is alive under it. The pid is read at the moment of
         // asking rather than kept, because `lines` is what starts the process and there is no pid
         // until then.

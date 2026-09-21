@@ -42,7 +42,7 @@ struct RemoteBridgeTests {
         let agents = CrewRunners()
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id,
-            makeRunner: { session, _, store, environment, bridge in
+            makeRunner: { session, _, store, environment, bridge, _ in
                 agents.make(session: session, store: store, environment: environment, bridge: bridge)
             },
             installedAgents: { [.claudeCode, .codex] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50),

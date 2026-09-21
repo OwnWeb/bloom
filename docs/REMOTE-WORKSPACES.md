@@ -153,22 +153,19 @@ environment.
 
 Generated at create, stored hashed on runbloom.app, written to the Sprite at
 `/etc/bloom/workspace.json` (mode 600) at bootstrap, and revoked on archive. It authorises the Sprite
-towards runbloom.app: posting its own summary, fetching git tokens for its own repository, fetching
+towards runbloom.app: posting its own summary, exchanging bound GitHub grants for its own repository, fetching
 team and project environment, and starting a turn a user has already registered (below). **It also
 reaches past its own workspace**, while a turn is running and the team's switches allow it: listing
 the other workspaces that turn's person can open and minting a token to message one
 (`RunbloomPeers`), creating a Cloud workspace (`RunbloomCloudWorkspaces`), and mailing a member
 through `/addressed`.
 
-An agent in the Sprite has passwordless sudo and can read that file, and it can read the
-environment of its own process, so it can make every one of those calls itself. The agent
-credential is visible to the agent in every design where the unmodified CLI runs, and within one
-workspace that is accepted. Beyond it, what holds is the other end: a token minted for an agent
-may only send a message on the receiving machine (see `RemoteCaller.agentMayRun`), runbloom.app
-limits minting per origin, and each switch is off by default. What narrows the damage otherwise is
-short lifetimes and (later, per project) the Sprite's DNS egress allowlist. Running the agent,
-terminals and scripts as a second Unix user without sudo, so that none of them can read the secret,
-is being designed after the security review of 19 September 2026.
+The Runner user has passwordless sudo for its root-owned launch, cleanup and update helpers. Agents,
+terminals, scripts and services run without sudo as the sandbox user and cannot read this file. An
+agent can read its own CLI credential because the unmodified CLI needs it. Beyond this workspace,
+what holds is the other end: a token minted for an agent may only send a message on the receiving
+machine (see `RemoteCaller.agentMayRun`), runbloom.app limits minting per origin, and each switch is
+off by default. Short lifetimes and the provider's network boundary further narrow the damage.
 
 ### The sandbox user
 
@@ -188,11 +185,11 @@ refused. The environment is passed with `-E` rather than in arguments, because a
 in it and `ps` shows arguments to everybody. See `MachineSandbox`.
 
 **What the two users share, and what they do not.** The worktree is group `bloom-work`, setgid, so
-both work in one checkout; `/var/lib/bloom/shared` holds what the Runner writes for the sandbox user,
-which is the tmux configuration and the credential socket. The Runner's data directory stays 0700:
-the database, and `~/.bloom/local-secret`, are not the sandbox user's to read. The agent CLIs are
-copied to `/usr/local/lib/bloom-agents`, root-owned and world-readable, because the image installs
-them under a 0750 home.
+both work in one checkout; `/var/lib/bloom/shared` holds the tmux configuration. Credential sockets
+and wrappers live in `/var/lib/bloom/person-bound-shared`, which the sandbox user can traverse but
+cannot modify. The Runner's data directory stays 0700, so the database is not the sandbox user's to
+read. The agent CLIs are copied to `/usr/local/lib/bloom-agents`, root-owned and world-readable,
+because the image installs them under a 0750 home.
 
 **Root for the first setup of a pristine checkout, and nothing else.** A workspace cut from the base
 branch runs its first setup as the Runner's user, so a project can install packages, add a PPA or
@@ -202,9 +199,8 @@ otherwise get root out of the next `npm install`. Whether a checkout is pristine
 never claimed. A script refused root gets a sentence naming the command and the code
 `setup_needs_fresh_machine`, which is also `setup.failure_code` on the wire.
 
-**A machine built before this runs as it always did.** `MachineSandbox.available()` answers nil where
-the user or `unshare` or `setpriv` is missing, and everything runs as the Runner's user, which is
-what the Runner says at start.
+**There is no unsandboxed compatibility path.** The Runner refuses startup when the user, `unshare`,
+`setpriv` or another mandatory isolation primitive is unavailable.
 
 ## Agent credentials
 
@@ -573,13 +569,71 @@ Setup runs natively. Docker is not supported on Sprites, for the measured reason
 
 ## GitHub
 
-runbloom.app adds a GitHub App with user authorisation. The Sprite never holds a long-lived token:
-`git` is configured with a credential helper, and `gh` with a wrapper, that ask Bloom Runner, which
-asks runbloom.app for a short-lived token. During a turn or a terminal session that is a user token
-for the person who started it. Outside one (prepare, setup, resume) it is an installation token for
-that one repository with read-only contents. There is no fallback to the owner's token. Nothing is
-written to disk. Pushes and pull requests are made as the person who asked for them. Commit signing
-is out of scope for phase 1.
+runbloom.app adds a GitHub App with user authorisation. Person-bound credentials are the only
+Runner credential path. Startup fails closed unless every mandatory host isolation check passes.
+There is no configuration switch, legacy route, loopback HTTP fallback, installation credential or
+external credential helper.
+
+The foundation reports one indivisible capability,
+`person_bound_github_credentials_v1`. The Runner reports it only after a live launch has proved all
+of the following: Linux peer credentials, a separate numeric Unix identity, a separate process
+group and cgroup, a synchronous launch gate, protected local control paths, the Sprite API socket
+masked in a private mount namespace, root-attested wrapper ancestry, a real cross-UID credential
+exchange, startup reclamation and complete descendant cleanup. The gate records PID, UID, `/proc`
+start time, cgroup and process group before the child executes. Credential requests re-read all five
+fields for the peer, wrapper and every ancestor through the registered leader, both during root
+attestation and again before returning a credential. PID reuse, a moved process, an unknown peer,
+a repository-controlled ancestor and a descendant of another identity are refused. The root launch
+supervisor traces every fork and exec before user code runs and records inherited provenance in a
+root-only directory. A script cannot erase that history by execing a system tool or the protected
+wrapper. Authority is
+forgotten before checked, retried process group and cgroup teardown. The privileged launch helper
+also watches the Runner identity, remains until the whole traced tree exits and kills the cgroup if
+the Runner or registered leader is killed. On startup the root
+cleanup path removes stale person-bound cgroups, numeric identities, processes and homes before the
+capability probe or credential socket can succeed. An agent process is retired after every turn.
+
+The credential door is a group-owned Unix socket below a Runner-owned directory that person-bound
+processes can traverse but cannot modify. The wrappers live below the same protected directory. Its
+request contains only protocol version and the configured `owner/name` repository. It accepts no
+operation, chat, turn or user identity from the caller. The Runner derives identity from the socket
+peer and the launch registry, and derives `git_read`, `git_write`, `gh_read` or `gh_write` from the
+root-observed wrapper command and complete process ancestry. A direct helper or socket request is
+refused. The root attestation also binds the rotating lease to the exact wrapper PID and start time.
+That operation identity may receive one raw credential only, including after the server returns the
+next rotating grant. It then exchanges one opaque rotating grant with runbloom.app.
+The current grant is removed before the network call. A failure or cancellation closes the lease,
+and the next grant is installed only after a successful response. Raw grants and credentials are
+memory-only values with redacted descriptions and reflection. They are never Store rows, snapshots,
+configuration, reports, logs or process arguments.
+
+The `git` wrapper permits only explicit local commands plus fetch, pull, push, clone and
+ls-remote. Every network command is rewritten to the exact configured HTTPS GitHub repository.
+SSH, another repository, submodules, external transports, remote helpers and credential overrides
+are refused. Network Git receives a fixed root-controlled configuration home, system CA, empty
+proxy, disabled hooks, fixed credential helper and HTTPS-only protocol policy. Root attestation
+checks the exact Git arguments, environment, HTTPS transport executable and canonical repository
+URL before the helper can receive a credential. Before network Git starts, the root supervisor
+stops the repository processes and bind-masks the repository and worktree configuration files in
+the turn's private mount namespace. Command configuration then fixes the exact smart HTTP endpoints
+and remote-specific proxy, so repository URL rewrites and more-specific transport settings cannot
+win. The `gh` wrapper uses a closed command and action
+table, forces `--repo` to the configured repository, and receives a root-owned empty `GH_CONFIG_DIR`
+so user or repository configuration cannot select an alternate Unix socket. It refuses open-ended
+or token-revealing surfaces such as `gh api`, extensions, file-backed bodies, release uploads and
+`gh auth token`. A root-owned preload makes the credential-bearing `gh` process non-dumpable before
+its main function. The root supervisor stops the rest of the reservation before the wrapper can
+receive a credential and resumes it only after the preload signals that protection is active, so
+another process under the ephemeral uid cannot race an environment read across exec. Setup
+scripts and services have no registered identity. Repository-controlled executables, task runners
+and script interpreters in a turn's root-recorded execution history are refused before an operation
+identity is issued.
+
+The initial clone obtains a machine-actor bootstrap grant and spends it through one exact isolated
+Git wrapper operation. Every person-authored turn must arrive with its own grant. A missing or
+refused grant stops the clone or turn, with no direct Git fallback. Setup scripts and services run
+under the repository sandbox without a registered credential identity. Persistent terminals stay
+disabled until they can use the same person-bound lifecycle without sharing an identity.
 
 ## Usage
 
@@ -810,7 +864,8 @@ No provider name in any path. All take the workspace secret except where noted.
 | `POST /api/machine/workspaces/{id}/turns` | registering a turn or terminal session, with the user's workspace token as well |
 | `POST /api/machine/workspaces/{id}/turns/{turn}/start` | the key and personal environment, or a limit refusal |
 | `DELETE /api/machine/workspaces/{id}/turns/{turn}` | ending a turn or terminal session |
-| `POST /api/machine/workspaces/{id}/git-credentials` | a short-lived GitHub token for the current turn, or read-only outside one |
+| `POST /api/machine/workspaces/{id}/github-credential-grants/bootstrap` | a rotating read-only grant for the Runner-owned initial clone |
+| `POST /api/machine/workspaces/{id}/github-credentials` | exchange one rotating grant for one root-attested Git or gh operation |
 | `GET /api/machine/workspaces/{id}/project-icon-request` | the current server-authored discovery revision and polling interval for this authenticated machine |
 | `PUT /api/machine/workspaces/{id}/project-icon` | one revisioned, canonical PNG or explicit no-icon result from the repository default branch |
 | `GET /.well-known/jwks.json` | public, the key set for workspace and control tokens |
@@ -1044,8 +1099,11 @@ and its builder confirmed them.
   design document: `turns` takes `kind`, `session_token`, `chat_id` and `agent`; `start` answers
   `agent_keys` (per agent: `key`, `identity`, `source`) and `environment`, or the limit refusal, or
   `no_agent_key`, `not_a_collaborator`, `github_not_connected`, or 409 `turn_not_startable`;
-  `git-credentials` takes `repository`, `operation` (`read` or `write`) and `turn_id`, and answers
-  `token`, `expires_at` and `username`. `project-icon-request` answers `project_icon` plus
+  `start` also carries the opaque person-bound grant for that turn.
+  `github-credential-grants/bootstrap` accepts no caller fields. `github-credentials` takes only
+  `grant`, the root-attested operation (`git_read`, `git_write`, `gh_read` or `gh_write`) and a
+  one-use `request_id`; it answers one short-lived credential and the next rotating grant.
+  `project-icon-request` answers `project_icon` plus
   `poll_after_seconds`; a null or false `should_discover` resolves to no work. `project-icon` takes the configured `requested_revision`
   and `detector_version`, the exact default-branch `source_commit`, and either a base64 canonical
   PNG with its SHA-256 or `icon: null`. `control/update` carries `version`, `sha256` and `tag`, and the
@@ -1119,18 +1177,6 @@ and its builder confirmed them.
   rather than left to pause the chat for everybody, their running turn stops, and the shells they
   opened end. Withdrawing a share link is a revoke too: runbloom.app sends the `share:<id>` subject
   as `user_id`, and that link's preview cookies stop working at once.
-- **The local git credential route takes a turn only while it is live on the machine.** A chat's
-  turn is looked up by `BLOOM_CHAT_ID`, a terminal's by `BLOOM_TERMINAL` (the turn of whichever
-  connection to it is open, since a shell outlives the connection it started with), and a bare
-  `turn_id` is accepted only while a push or pull request runs under it. Every shell can read the
-  local secret, so a named turn is otherwise another person's push waiting to happen. **And the
-  caller has to be what it names**: the route finds the calling process from its loopback port in
-  `/proc`, walks up to the child Bloom Runner started, and honours a chat only under that chat's
-  agent, a terminal only in a pane of the Runner's own tmux server, and a turn only under the
-  publishing command started for it. A setup script, a service or another chat's agent gets a
-  read-only token whatever it names (`LocalProcessTable`, M1 in the review of 19 September 2026).
-  Code running as the same user can still reach into those processes or the tmux server, which
-  running the agent as a second user is what ends.
 - **A terminal belongs to whoever opened it.** Its shell holds that person's key, personal
   environment and turn, so nobody else attaches to it or closes it by name. Keys reach tmux through
   the creating client's environment (`update-environment`), never its arguments. A renewal of a
@@ -1145,8 +1191,9 @@ and its builder confirmed them.
   runbloom.app's check of `iat` against a key's activation time does not apply on the machine,
   because the published key set carries no activation time.
 - **runbloom.app's refusals, as the machine treats them.** 401 `invalid_workspace_secret`, once
-  the file holds no other secret, is terminal: the machine stops reporting. 429 and 5xx (including 503 `unavailable` from
-  git-credentials while GitHub is down) are retried with backoff; any other 4xx drops that report.
+  the file holds no other secret, is terminal: the machine stops reporting. 429 and 5xx are retried
+  with backoff for idempotent calls. A rotating grant exchange is never retried because the server
+  may have consumed it; the reservation is closed instead. Any other 4xx drops that report.
   A turn start refused for anything but a limit pauses the chat's queue with runbloom.app's
   sentence rather than marking the prompt blocked, since that turn can never run as it is.
 - **For the Mac client:** a session token answers `{data: {token, expires_at, machine_url, awake,

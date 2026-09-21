@@ -12,26 +12,41 @@ import Foundation
 /// beside `makeRunner`: registering revokes the previous token for that chat, so it belongs where
 /// the process it is for is decided. Nil means the chat runs with no bridge tools.
 public enum RemoteRunnerFactory {
-    public typealias Make = @Sendable (
-        _ session: Session, _ workspacePath: String, _ store: Store, _ environment: [String: String], _ bridge: BridgeHandle?
-    ) -> any SessionRunner
+    public struct IsolatedLaunch: Sendable {
+        public var launch: AgentLaunch
+        public var cleanup: @Sendable () -> Void
 
-    public static let live: Make = { session, workspacePath, store, environment, bridge in
+        public init(launch: AgentLaunch, cleanup: @escaping @Sendable () -> Void) {
+            self.launch = launch
+            self.cleanup = cleanup
+        }
+    }
+
+    public typealias Isolate = @Sendable (AgentLaunch) -> IsolatedLaunch
+    public typealias Make = @Sendable (
+        _ session: Session, _ workspacePath: String, _ store: Store, _ environment: [String: String],
+        _ bridge: BridgeHandle?, _ context: RemoteLaunchContext?
+    ) async throws -> any SessionRunner
+
+    public static let live: Make = { session, workspacePath, store, environment, bridge, _ in
         make(session, workspacePath, store, environment, bridge, sandbox: nil)
     }
 
-    /// **`sandbox` is what makes an agent process unprivileged.** Nil runs it as this process's own
-    /// user, which is a Mac and a machine built before the sandbox existed; a sandbox runs it as a
-    /// user with no sudo, in a mount namespace with the machine's own API socket masked. Every agent
-    /// here spawns through an `AgentLaunch`, so one wrapping covers all four CLIs. See
-    /// `MachineSandbox`, and H1 in the security review of 19 September 2026.
+    /// **`sandbox` is what makes an ordinary launch unprivileged.** Nil runs it as this process's
+    /// own user unless `isolate` supplies a stronger launch boundary. Every agent here spawns
+    /// through an `AgentLaunch`, so one wrapping covers all four CLIs. See `MachineSandbox`, and H1
+    /// in the security review of 19 September 2026.
     public static func make(_ session: Session, _ workspacePath: String, _ store: Store, _ environment: [String: String],
                             _ bridge: BridgeHandle?, sandbox: MachineSandbox?,
+                            isolate: Isolate? = nil,
                             didStart: (@Sendable (Int32) -> Void)? = nil) -> any SessionRunner {
         let launching: @Sendable (AgentLaunch) -> any AgentProcessing = { launch in
             let wrapped = sandbox?.wrap(launch) ?? launch
-            return StreamingProcess(executable: wrapped.executable, arguments: wrapped.arguments, cwd: wrapped.cwd,
-                                    environment: wrapped.environment, mergeStderr: false, didStart: didStart)
+            let isolated = isolate?(wrapped)
+            let actual = isolated?.launch ?? wrapped
+            return StreamingProcess(executable: actual.executable, arguments: actual.arguments, cwd: actual.cwd,
+                                    environment: actual.environment, mergeStderr: false, didStart: didStart,
+                                    cleanup: isolated?.cleanup)
         }
         switch session.agentKind {
         case .codex:

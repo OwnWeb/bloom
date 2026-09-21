@@ -24,7 +24,9 @@ struct RemoteWorkspaceRuntimeTests {
         settings: String? = nil,
         peers: WorkspacePeers? = nil,
         lookUpMember: @escaping @Sendable (String) async -> MemberLookup = { _ in .unknown },
-        addressed: (@Sendable (AddressedReport) async -> Void)? = nil
+        addressed: (@Sendable (AddressedReport) async -> Void)? = nil,
+        publishing: RemotePublishing? = nil,
+        retiresRunnerAfterTurn: Bool = false
     ) async throws -> Fixture {
         let store = try makeTestStore("remote-runtime")
         let repo = try await store.upsert(Repo(name: "bloom", path: TestScratch.unique("repo")))
@@ -39,8 +41,11 @@ struct RemoteWorkspaceRuntimeTests {
         let runners = RemoteTestRunners()
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id, gate: gate,
-            makeRunner: { session, _, store, environment, _ in runners.make(session: session, store: store, environment: environment) },
-            installedAgents: { [.claudeCode, .codex] }, models: models, runnerExitGrace: .milliseconds(50),
+            makeRunner: { session, _, store, environment, _, context in
+                runners.make(session: session, store: store, environment: environment, context: context)
+            },
+            installedAgents: { [.claudeCode, .codex] }, models: models, publishing: publishing,
+            runnerExitGrace: .milliseconds(50), retiresRunnerAfterTurn: retiresRunnerAfterTurn,
             lookUpMember: lookUpMember, addressed: addressed,
             createCloudWorkspace: createCloudWorkspace, peers: peers
         )
@@ -50,6 +55,62 @@ struct RemoteWorkspaceRuntimeTests {
 
     static func caller(_ author: MessageAuthor, abilities: Set<String> = ["view", "prompt", "terminal", "files"]) -> RemoteCaller {
         RemoteCaller(author: author, abilities: abilities, sessionToken: "token-for-\(author.userID)")
+    }
+
+    @Test("publishing hands one server-bound grant to one isolated command without token injection")
+    func publishingUsesPersonBoundCommand() async throws {
+        let gate = RemoteTestGate()
+        gate.githubGrants.withLock {
+            $0[Self.freek.userID] = RemoteGithubCredentialGrant(
+                token: String(repeating: "g", count: 64), expiresAt: .distantFuture, revision: 7
+            )
+        }
+        let launches = Mutex<[(String, [String], RemoteLaunchContext)]>([])
+        let fixture = try await fixture(
+            gate: gate,
+            publishing: RemotePublishing { executable, arguments, _, context in
+                launches.withLock { $0.append((executable, arguments, context)) }
+                return ShellResult(status: 0, stdout: "ok\n", stderr: "")
+            }
+        )
+
+        let output = try await fixture.runtime.asPerson(Self.caller(Self.freek)) { command in
+            let command = try #require(command)
+            return try await command("git", ["push", "origin", "main"], fixture.workspace.path)
+        }
+
+        #expect(output.stdout == "ok\n")
+        let launch = try #require(launches.withLock { $0.first })
+        #expect(launch.0 == "git")
+        #expect(launch.1 == ["push", "origin", "main"])
+        #expect(!launch.1.joined().contains(String(repeating: "g", count: 64)))
+        #expect(launch.2.githubCredentialGrant?.revision == 7)
+        #expect(gate.registered.withLock { $0.count } == 1)
+        #expect(gate.ended.withLock { $0.count } == 1)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("publishing refuses a missing person-bound grant before starting a command")
+    func publishingWithoutGrantFailsClosed() async throws {
+        let gate = RemoteTestGate()
+        let ran = Mutex(false)
+        let fixture = try await fixture(
+            gate: gate,
+            publishing: RemotePublishing { _, _, _, _ in
+                ran.withLock { $0 = true }
+                return ShellResult(status: 0, stdout: "", stderr: "")
+            }
+        )
+
+        await #expect(throws: RemoteFailure.self) {
+            try await fixture.runtime.asPerson(Self.caller(Self.freek)) { command in
+                let command = try #require(command)
+                return try await command("git", ["push", "origin", "main"], fixture.workspace.path)
+            }
+        }
+        #expect(!ran.withLock { $0 })
+        #expect(gate.ended.withLock { $0.count } == 1)
+        await fixture.runtime.shutdown()
     }
 
     /// **Refused rather than stored when the machine cannot vouch for the id.** Writing a message
@@ -628,7 +689,7 @@ struct RemoteWorkspaceRuntimeTests {
         // The server starting again on the same database, which is what the machine does.
         let second = WorkspaceRuntime(
             store: first.store, workspaceID: first.workspace.id, gate: UngatedTurns(),
-            makeRunner: { session, _, store, environment, _ in first.runners.make(session: session, store: store, environment: environment) },
+            makeRunner: { session, _, store, environment, _, _ in first.runners.make(session: session, store: store, environment: environment) },
             installedAgents: { [.claudeCode] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50)
         )
         try await second.start()
@@ -645,7 +706,7 @@ struct RemoteWorkspaceRuntimeTests {
         // Idempotent: a second start writes nothing, or every restart would add a row.
         let again = WorkspaceRuntime(
             store: first.store, workspaceID: first.workspace.id, gate: UngatedTurns(),
-            makeRunner: { session, _, store, environment, _ in first.runners.make(session: session, store: store, environment: environment) },
+            makeRunner: { session, _, store, environment, _, _ in first.runners.make(session: session, store: store, environment: environment) },
             installedAgents: { [.claudeCode] }, models: { _ in [] }, runnerExitGrace: .milliseconds(50)
         )
         try await again.start()
@@ -804,6 +865,55 @@ struct RemoteWorkspaceRuntimeTests {
         #expect(launches.last?["ANTHROPIC_API_KEY"] == "seb-personal-key")
         #expect(gate.ended.withLock { $0 }.count >= 2, "Every finished turn is ended with runbloom.app")
         await fixture.runtime.shutdown()
+    }
+
+    @Test("v2 launch context is server-bound, never stored, and the runner ends with every grant")
+    func personBoundLaunchContextAndRetirement() async throws {
+        let gate = RemoteTestGate()
+        let rawGrant = String(repeating: "r", count: 64)
+        gate.keys.withLock { $0[Self.freek.userID] = "team-key" }
+        gate.githubGrants.withLock {
+            $0[Self.freek.userID] = .init(token: rawGrant, expiresAt: .distantFuture, revision: 4)
+        }
+        let fixture = try await fixture(gate: gate, retiresRunnerAfterTurn: true)
+        let chat = fixture.session.id.rawValue
+        let runners = fixture.runners
+        gate.authorityWasRetiredAtEnd.withLock { observe in
+            observe = {
+                runners.current.withLock { $0 }?.terminated.withLock { $0 } == true
+            }
+        }
+
+        _ = await fixture.runtime.respond(
+            to: CommandRequest(.send(chatID: chat, text: "First")), as: Self.caller(Self.freek)
+        )
+        await waitUntil("the v2 context reached the launch boundary") {
+            fixture.runners.contexts.withLock { !$0.isEmpty }
+        }
+        let context = try #require(fixture.runners.contexts.withLock { $0.compactMap { $0 }.first })
+        #expect(context.userID == Self.freek.userID)
+        #expect(context.turnID.hasPrefix("turn-"))
+        #expect(context.githubCredentialGrant?.token == rawGrant)
+        await fixture.runners.finishTurn()
+        await waitUntil("the v2 runner was retired") {
+            fixture.runners.current.withLock { $0 }?.terminated.withLock { $0 } == true
+        }
+        #expect(gate.endObservedRetiredAuthority.withLock { $0 } == [true])
+
+        _ = await fixture.runtime.respond(
+            to: CommandRequest(.send(chatID: chat, text: "Second")), as: Self.caller(Self.freek)
+        )
+        await waitUntil("the next grant launched a new process") {
+            fixture.runners.launches.withLock { $0.count } == 2
+        }
+        let summary = try await Self.summary(of: fixture.runtime)
+        #expect(!String(decoding: try WireJSON.encode(summary), as: UTF8.self).contains(rawGrant))
+        await fixture.runtime.shutdown()
+        for path in [fixture.store.path, fixture.store.path + "-wal", fixture.store.path + "-shm"]
+            where FileManager.default.fileExists(atPath: path) {
+            let bytes = try Data(contentsOf: URL(fileURLWithPath: path))
+            #expect(!String(decoding: bytes, as: UTF8.self).contains(rawGrant), "grant leaked to \(path)")
+        }
     }
 
     @Test("sharing stops a turn on a personal key with a row saying why, and the queue carries on on the team key")
@@ -1464,6 +1574,9 @@ final class RemoteTestGate: RemoteTurnGate {
     let keys = Mutex<[String: String]>([:])
     let refusal = Mutex<RemoteTurnRefusal?>(nil)
     let ended = Mutex<[String]>([])
+    let githubGrants = Mutex<[String: RemoteGithubCredentialGrant]>([:])
+    let authorityWasRetiredAtEnd = Mutex<(@Sendable () -> Bool)?>(nil)
+    let endObservedRetiredAuthority = Mutex<[Bool]>([])
 
     func register(_ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, caller: RemoteCaller) async throws -> String {
         let id = "turn-\(UUID().uuidString.lowercased())"
@@ -1474,12 +1587,20 @@ final class RemoteTestGate: RemoteTurnGate {
     func start(turnID: String) async throws -> RemoteTurnGrant {
         if let refusal = refusal.withLock({ $0 }) { throw refusal }
         let author = registered.withLock { $0.first { $0.turnID == turnID }?.author } ?? ""
-        guard let key = keys.withLock({ $0[author] }) else { return RemoteTurnGrant() }
+        guard let key = keys.withLock({ $0[author] }) else {
+            return RemoteTurnGrant(githubCredentialGrant: githubGrants.withLock { $0[author] })
+        }
         let source = key.contains("personal") ? "personal" : "team"
-        return RemoteTurnGrant(agentKeys: [.claudeCode: RemoteAgentKey(key: key, identity: "identity-of-\(key)", source: source)])
+        return RemoteTurnGrant(
+            agentKeys: [.claudeCode: RemoteAgentKey(key: key, identity: "identity-of-\(key)", source: source)],
+            githubCredentialGrant: githubGrants.withLock { $0[author] }
+        )
     }
 
     func end(turnID: String) async {
+        if let observe = authorityWasRetiredAtEnd.withLock({ $0 }) {
+            endObservedRetiredAuthority.withLock { $0.append(observe()) }
+        }
         ended.withLock { $0.append(turnID) }
     }
 }
@@ -1489,11 +1610,14 @@ final class RemoteTestRunners: Sendable {
     let launches = Mutex<[[String: String]]>([])
     let sent = Mutex<[String]>([])
     let current = Mutex<RemoteTestRunner?>(nil)
+    let contexts = Mutex<[RemoteLaunchContext?]>([])
     /// Stops the way Claude Code does: the store says cancelled, and no event arrives.
     let silentCancel = Mutex(false)
 
-    func make(session: Session, store: Store, environment: [String: String]) -> any SessionRunner {
+    func make(session: Session, store: Store, environment: [String: String],
+              context: RemoteLaunchContext? = nil) -> any SessionRunner {
         launches.withLock { $0.append(environment) }
+        contexts.withLock { $0.append(context) }
         let runner = RemoteTestRunner(sessionID: session.id, store: store, owner: self)
         current.withLock { $0 = runner }
         return runner

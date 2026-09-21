@@ -18,6 +18,7 @@ public actor MachineReporter {
     private let delivery: ReportDelivery
     private let host: any MachineHost
     private let version: String
+    private let capabilities: @Sendable () -> [String]
     private let now: @Sendable () -> Date
 
     private var schedule = RemoteSummarySchedule()
@@ -41,12 +42,15 @@ public actor MachineReporter {
     static let meterKey = "remote.usage.meter"
 
     public init(runtime: WorkspaceRuntime, store: Store, delivery: ReportDelivery, host: any MachineHost, version: String,
+                capabilities: [String] = [],
+                capabilitiesProvider: (@Sendable () -> [String])? = nil,
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.runtime = runtime
         self.store = store
         self.delivery = delivery
         self.host = host
         self.version = version
+        self.capabilities = capabilitiesProvider ?? { capabilities }
         self.now = now
     }
 
@@ -121,7 +125,8 @@ public actor MachineReporter {
         pendingIncludesSlow = false
         do {
             let revision = try await nextRevision()
-            let summary = try await runtime.summary(revision: revision, observedAt: now(), version: version, awake: awake,
+            let summary = try await runtime.summary(revision: revision, observedAt: now(), version: version,
+                                                    capabilities: capabilities(), awake: awake,
                                                     leaseUntil: leaseUntil, diff: diff, pullRequest: pullRequest, atStake: atStake)
             guard summary.content != lastSent?.content else { return }
             await delivery.submitSummary(try WireJSON.encode(summary))

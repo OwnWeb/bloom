@@ -46,8 +46,8 @@ note() {
     printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "${BLOOM_UPDATE_LOG:-/var/tmp/bloom-update.log}" 2>/dev/null || true
 }
 
-# Only a serve is a start worth deciding about. `version`, `git-credential` and `gh-token` are
-# called by other processes on the machine, many times, and have nothing to do with a release.
+# Only a serve is a start worth deciding about. The person-bound Git and gh helpers are called by
+# isolated processes many times and have nothing to do with a release.
 if [ "${1:-}" = "serve" ] && [ -f "$marker" ]; then
     asked="$(sed -n 1p "$marker" 2>/dev/null || true)"
     previous="$(sed -n 2p "$marker" 2>/dev/null || true)"

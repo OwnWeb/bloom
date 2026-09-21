@@ -27,10 +27,15 @@ public enum RemoteTurnKind: String, Sendable, Hashable {
 public struct RemoteTurnGrant: Sendable, Hashable {
     public var agentKeys: [AgentKind: RemoteAgentKey]
     public var environment: [String: String]
+    /// An opaque bearer bound by runbloom.app to this exact running turn or terminal. A Runner
+    /// refuses a missing value; nil remains useful for local and unit-test gates.
+    public var githubCredentialGrant: RemoteGithubCredentialGrant?
 
-    public init(agentKeys: [AgentKind: RemoteAgentKey] = [:], environment: [String: String] = [:]) {
+    public init(agentKeys: [AgentKind: RemoteAgentKey] = [:], environment: [String: String] = [:],
+                githubCredentialGrant: RemoteGithubCredentialGrant? = nil) {
         self.agentKeys = agentKeys
         self.environment = environment
+        self.githubCredentialGrant = githubCredentialGrant
     }
 
     /// The process environment for an agent of this kind: the key under the variable its CLI
@@ -80,6 +85,41 @@ public struct RemoteTurnGrant: Sendable, Hashable {
     }
 }
 
+/// The protocol-layer form of a person-bound grant. It stays in memory and redacts its bearer from every
+/// interpolated or reflected description.
+public struct RemoteGithubCredentialGrant: Sendable, Hashable, CustomStringConvertible,
+    CustomDebugStringConvertible, CustomReflectable {
+    public var token: String
+    public var expiresAt: Date
+    public var revision: Int
+
+    public init(token: String, expiresAt: Date, revision: Int) {
+        self.token = token
+        self.expiresAt = expiresAt
+        self.revision = revision
+    }
+
+    public var description: String {
+        "RemoteGithubCredentialGrant(expiresAt: \(expiresAt), revision: \(revision), token: [REDACTED])"
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: ["description": description]) }
+}
+
+/// Trusted launch context assembled by the queue from its registered turn and stored author. It is
+/// not decoded from a local credential request or read from the child environment.
+public struct RemoteLaunchContext: Sendable, Hashable {
+    public var turnID: String
+    public var userID: String
+    public var githubCredentialGrant: RemoteGithubCredentialGrant?
+
+    public init(turnID: String, userID: String, githubCredentialGrant: RemoteGithubCredentialGrant?) {
+        self.turnID = turnID
+        self.userID = userID
+        self.githubCredentialGrant = githubCredentialGrant
+    }
+}
+
 public struct RemoteAgentKey: Sendable, Hashable {
     public var key: String
     /// A hash of the key from runbloom.app, never the key, so comparing two costs nothing secret.
@@ -94,9 +134,8 @@ public struct RemoteAgentKey: Sendable, Hashable {
     }
 }
 
-/// Personal keys are used only in a workspace that is not shared, because everyone in a shared one
-/// has sudo on the machine and could read them from a running process. When a workspace becomes
-/// shared, every process and shell still holding them is stopped.
+/// Personal keys are used only in a workspace that is not shared. When a workspace becomes shared,
+/// every process still holding them is stopped.
 public enum PersonalCredentials {
     public static let environmentMark = "environment"
     public static let sharedSentence = "This Bloom Cloud workspace was shared, so the turn stopped; the next turn uses the team key."

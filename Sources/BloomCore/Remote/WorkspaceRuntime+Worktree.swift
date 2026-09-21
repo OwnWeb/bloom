@@ -40,13 +40,18 @@ extension WorkspaceRuntime {
             return .accepted
         case .push:
             let workspace = try await workspace()
-            try await asPerson(caller) { environment in try await self.push(workspace, environment: environment) }
+            try await asPerson(caller) { command in try await self.push(workspace, command: command) }
             return .accepted
         case .createPullRequest(let title, let body, let draft):
             guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RemoteFailure.invalid("Enter a pull request title.") }
             let workspace = try await workspace()
-            let url = try await asPerson(caller) { environment in
-                try await self.createPullRequest(workspace, title: title, body: body, draft: draft, environment: environment)
+            try await asPerson(caller) { command in
+                try await self.push(workspace, command: command)
+            }
+            let url = try await asPerson(caller) { command in
+                try await self.createPullRequest(
+                    workspace, title: title, body: body, draft: draft, command: command
+                )
             }
             return .text(url)
         case .runSetup:

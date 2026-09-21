@@ -132,21 +132,73 @@ struct RunbloomClientTests {
         }
     }
 
-    @Test func gitCredentialsAreAskedForAndDecoded() async throws {
+    @Test("the fake server pins bootstrap grant rotation and bodies")
+    func personBoundGithubCredentialProtocol() async throws {
         try await Self.withFake { fake, client in
-            let credential = try await client.gitCredentials(repository: "spatie/bloom", operation: .write, turnID: "01jturn")
-            #expect(credential.token == "ghs_faketoken")
-            #expect(credential.username == "x-access-token")
-            let expected = try Date.ISO8601FormatStyle().parse("2026-09-17T10:00:00Z").addingTimeInterval(0.25)
-            #expect(abs(credential.expiresAt.timeIntervalSince(expected)) < 0.001)
-            #expect(!credential.description.contains("ghs_faketoken"))
+            let first = String(repeating: "a", count: 64)
+            let third = String(repeating: "c", count: 64)
+            fake.script("POST", "/github-credential-grants/bootstrap", .raw(201, """
+            {"grant":{"token":"\(first)","expires_at":"2026-09-20T12:00:00Z","revision":1}}
+            """))
+            fake.script("POST", "/github-credentials", .raw(200, """
+            {"credential":{"username":"x-access-token","token":"raw-operation-token","expires_at":"2026-09-20T12:02:00Z"},"next_grant":{"token":"\(third)","expires_at":"2026-09-20T12:03:00Z","revision":3}}
+            """))
 
-            _ = try await client.gitCredentials(repository: "spatie/bloom", operation: .read, turnID: nil)
-            let bodies = fake.requests("POST", "/git-credentials").compactMap(\.json)
-            #expect(bodies.map { $0["repository"] as? String } == ["spatie/bloom", "spatie/bloom"])
-            #expect(bodies.map { $0["operation"] as? String } == ["write", "read"])
-            #expect(bodies.first?["turn_id"] as? String == "01jturn")
-            #expect(bodies.last?["turn_id"] is NSNull)
+            let bootstrap = try await client.bootstrapGithubCredentialGrant()
+            let requestID = try #require(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+            let issued = try await client.githubCredentials(
+                grant: bootstrap.token, operation: .gitRead, requestID: requestID
+            )
+
+            #expect(bootstrap.token == first)
+            #expect(issued.token == "raw-operation-token")
+            #expect(issued.nextGrant.token == third)
+            let bootstrapRequest = try #require(fake.requests("POST", "/github-credential-grants/bootstrap").first)
+            #expect(bootstrapRequest.body.isEmpty)
+            let exchange = try #require(fake.requests("POST", "/github-credentials").first?.json)
+            #expect(Set(exchange.keys) == ["grant", "operation", "request_id"])
+            #expect(exchange["grant"] as? String == first)
+            #expect(exchange["operation"] as? String == "git_read")
+            #expect(exchange["request_id"] as? String == requestID.uuidString.lowercased())
+            #expect(exchange["repository"] == nil)
+            #expect(exchange["turn_id"] == nil)
+            #expect(exchange["chat_id"] == nil)
+        }
+    }
+
+    @Test("a rotating v2 grant is never replayed after an authentication refusal")
+    func personBoundGrantIsNotRetried() async throws {
+        let fake = try await FakeControlServer.start()
+        let file = Mutex(fake.secret)
+        let secret = WorkspaceSecret("stale-machine-secret") { file.withLock { $0 } }
+        let client = RunbloomClient(baseURL: fake.baseURL, workspaceID: fake.workspaceID, secret: secret, http: .shared)
+        do {
+            _ = try await client.githubCredentials(
+                grant: String(repeating: "g", count: 64), operation: .gitRead, requestID: UUID()
+            )
+            Issue.record("A stale machine secret exchanged a grant.")
+        } catch {
+            #expect(error is RunbloomError)
+        }
+        let requests = fake.requests("POST", "/github-credentials")
+        #expect(requests.count == 1)
+        #expect(requests.first?.authorization == "Bearer stale-machine-secret")
+        #expect(secret.current == "stale-machine-secret")
+        await fake.stop()
+    }
+
+    @Test("a started turn decodes an opaque v2 grant without exposing it in descriptions")
+    func startedTurnCarriesPersonBoundGrant() async throws {
+        try await Self.withFake { fake, client in
+            let token = String(repeating: "g", count: 64)
+            fake.setStart(turnID: "01jv2turn", response: .grant(
+                githubGrant: (token, "2026-09-20T12:00:00Z", 9)
+            ))
+            let started = try await client.startTurn("01jv2turn")
+            #expect(started.githubCredentialGrant?.token == token)
+            #expect(started.githubCredentialGrant?.revision == 9)
+            #expect(!String(reflecting: started.grant).contains(token))
+            #expect(!started.description.contains(token))
         }
     }
 
@@ -346,10 +398,10 @@ struct RunbloomClientTests {
     }
 
     @Test func expiryReadsWithAndWithoutAFraction() throws {
-        let whole = try #require(RunbloomGitCredentialBody.date("2026-09-17T10:00:00Z"))
-        let micro = try #require(RunbloomGitCredentialBody.date("2026-09-17T10:00:00.500000Z"))
+        let whole = try #require(PersonBoundGithubGrantBody.date("2026-09-17T10:00:00Z"))
+        let micro = try #require(PersonBoundGithubGrantBody.date("2026-09-17T10:00:00.500000Z"))
         #expect(micro.timeIntervalSince(whole) == 0.5)
-        #expect(RunbloomGitCredentialBody.date("tomorrow") == nil)
+        #expect(PersonBoundGithubGrantBody.date("tomorrow") == nil)
     }
 
     @Test func aLimitRefusalCarriesTheLimitAndRetryAfter() async throws {
@@ -371,9 +423,12 @@ struct RunbloomClientTests {
             await #expect(throws: RunbloomError.refused(status: 409, code: "turn_not_startable", message: "Too old.", limit: nil, retryAfter: nil)) {
                 try await client.startTurn("t2")
             }
-            fake.script("POST", "/git-credentials", .refusal(code: "write_outside_turn", message: "Read only."))
-            await #expect(throws: RunbloomError.refused(status: 403, code: "write_outside_turn", message: "Read only.", limit: nil, retryAfter: nil)) {
-                try await client.gitCredentials(repository: "a/b", operation: .write, turnID: nil)
+            fake.script("POST", "/github-credentials", .refusal(code: "credential_grant_invalid", message: "Invalid grant."))
+            await #expect(throws: RunbloomError.refused(status: 403, code: "credential_grant_invalid", message: "Invalid grant.", limit: nil, retryAfter: nil)) {
+                try await client.githubCredentials(
+                    grant: String(repeating: "g", count: 64), operation: .gitWrite,
+                    requestID: UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")!
+                )
             }
         }
     }

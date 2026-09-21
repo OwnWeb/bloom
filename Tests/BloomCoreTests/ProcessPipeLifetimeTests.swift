@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import BloomCore
 
@@ -67,5 +68,40 @@ struct ProcessPipeLifetimeTests {
             }
             try await group.waitForAll()
         }
+    }
+
+    @Test("person-bound cleanup runs exactly once on natural exit and cancellation", .timeLimit(.minutes(1)))
+    func personBoundCleanupIsSingleShot() async throws {
+        let naturalCount = Mutex(0)
+        let natural = StreamingProcess(
+            executable: "/bin/sh", arguments: ["-c", "exit 0"],
+            cleanup: { naturalCount.withLock { $0 += 1 } }
+        )
+        for try await _ in natural.lines {}
+        _ = await natural.exitStatus
+        natural.terminate()
+        natural.kill()
+        #expect(naturalCount.withLock { $0 } == 1)
+
+        let cancelledCount = Mutex(0)
+        let started = Mutex(false)
+        let cancelled = StreamingProcess(
+            executable: "/bin/sh", arguments: ["-c", "sleep 30"],
+            didStart: { _ in started.withLock { $0 = true } },
+            cleanup: { cancelledCount.withLock { $0 += 1 } }
+        )
+        let reading = Task {
+            do {
+                for try await _ in cancelled.lines {}
+            } catch {
+                // Cancelling this consumer is the event the test is exercising.
+            }
+        }
+        await waitUntil("the cancellable process launched") { started.withLock { $0 } }
+        reading.cancel()
+        cancelled.terminate()
+        cancelled.kill()
+        await reading.value
+        #expect(cancelledCount.withLock { $0 } == 1)
     }
 }

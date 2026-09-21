@@ -11,12 +11,21 @@ public struct RunbloomTurnStart: Sendable, Hashable, CustomStringConvertible {
     public var agentKeys: [AgentKind: RemoteAgentKey]
     public var environment: [String: String]
 
-    public init(agentKeys: [AgentKind: RemoteAgentKey], environment: [String: String]) {
+    public init(agentKeys: [AgentKind: RemoteAgentKey], environment: [String: String],
+                githubCredentialGrant: RemoteGithubCredentialGrant? = nil) {
         self.agentKeys = agentKeys
         self.environment = environment
+        self.githubCredentialGrant = githubCredentialGrant
     }
 
-    public var grant: RemoteTurnGrant { RemoteTurnGrant(agentKeys: agentKeys, environment: environment) }
+    public var githubCredentialGrant: RemoteGithubCredentialGrant?
+
+    public var grant: RemoteTurnGrant {
+        RemoteTurnGrant(
+            agentKeys: agentKeys, environment: environment,
+            githubCredentialGrant: githubCredentialGrant
+        )
+    }
 
     public var description: String {
         let agents = agentKeys.keys.map(\.wireName).sorted().joined(separator: ", ")
@@ -36,10 +45,12 @@ struct RunbloomTurnStartBody: Decodable {
 
     var agentKeys: [String: Key]?
     var environment: [String: String]?
+    var githubCredentialGrant: PersonBoundGithubGrantBody?
 
     enum CodingKeys: String, CodingKey {
         case agentKeys = "agent_keys"
         case environment
+        case githubCredentialGrant = "github_credential_grant"
     }
 
     /// An agent runbloom.app names that this server does not know is skipped rather than failing
@@ -50,6 +61,9 @@ struct RunbloomTurnStartBody: Decodable {
             guard let agent = AgentKind.named(wire: name) else { continue }
             keys[agent] = RemoteAgentKey(key: value.key, identity: value.identity, source: value.source)
         }
-        return RunbloomTurnStart(agentKeys: keys, environment: environment ?? [:])
+        let remoteGrant = githubCredentialGrant?.grant.map {
+            RemoteGithubCredentialGrant(token: $0.token, expiresAt: $0.expiresAt, revision: $0.revision)
+        }
+        return RunbloomTurnStart(agentKeys: keys, environment: environment ?? [:], githubCredentialGrant: remoteGrant)
     }
 }

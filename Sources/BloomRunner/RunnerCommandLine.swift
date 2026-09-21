@@ -16,13 +16,25 @@ public enum RunnerCommandLine {
                 FileHandle.standardError.write(Data("bloom-runner: \(error)\n".utf8))
                 return 1
             }
-        case "git-credential", "gh-token":
-            return await GitCredentialCommand.run(arguments)
+        case "git-credential-v2":
+            return PersonBoundGitCommand.runCredentialHelper(Array(arguments.dropFirst()))
+        case "git-v2":
+            return await PersonBoundGitCommand.runGit(Array(arguments.dropFirst()))
+        case "gh-v2":
+            return await PersonBoundGitCommand.runGh(Array(arguments.dropFirst()))
+        case "sandbox-exec":
+            return PersonBoundSandboxExec.run(Array(arguments.dropFirst()))
+        case "sandbox-cleanup":
+            return PersonBoundSandboxCleanup.run()
+        case "sandbox-cleanup-stale":
+            return PersonBoundSandboxCleanup.runStale()
+        case "sandbox-peer-operation":
+            return PersonBoundPeerOperation.runAttestor()
         case "version", "--version":
             print(RunnerVersion.current)
             return 0
         default:
-            let usage = "usage: bloom-runner serve | git-credential get | gh-token | version\n"
+            let usage = "usage: bloom-runner serve | git-credential-v2 get | git-v2 | gh-v2 | version\n"
             FileHandle.standardError.write(Data(usage.utf8))
             return 64
         }

@@ -99,9 +99,19 @@ public struct MachineSandbox: Sendable, Hashable {
     /// `bloom-work` and setgid, because the Runner's own data directory stays 0700.
     public static let sharedDirectory = "/var/lib/bloom/shared"
 
-    /// The door a process on the machine asks for a GitHub token through, in the shared directory
-    /// so the sandbox user can reach it. See `LocalCredentialSocket`.
-    public static let credentialSocketPath = sharedDirectory + "/git-credentials.sock"
+    /// Credential endpoints and wrappers live below a Runner-owned directory. Person-bound processes may
+    /// traverse it and connect to its sockets, but cannot replace a socket or another turn's tool.
+    public static let personBoundSharedDirectory = "/var/lib/bloom/person-bound-shared"
+    public static let credentialV2SocketPath = personBoundSharedDirectory + "/git-credentials-v2.sock"
+    public static let launchGateSocketPath = personBoundSharedDirectory + "/person-bound-launch.sock"
+    /// Git and gh receive this as HOME, XDG_CONFIG_HOME and GH_CONFIG_DIR for network operations.
+    /// Provisioning owns it as root and makes it read-only, so neither a turn nor the Runner user
+    /// can install a proxy, CA, Unix socket, helper or URL rewrite there.
+    public static let personBoundCleanConfigDirectory = "/var/lib/bloom/person-bound-config"
+    public static let personBoundHomeRoot = "/var/lib/bloom/person-bound"
+    /// Root-only execution history written by the privileged supervisor at ptrace exec stops.
+    public static let personBoundProvenanceRoot = "/var/lib/bloom/person-bound-provenance"
+    public static let personBoundCredentialShield = "/usr/local/lib/bloom-credential-shield.so"
     /// The group that shares the worktree and the credential socket. See `Tools/provision-sandbox.sh`.
     public static let sharedGroup = "bloom-work"
 

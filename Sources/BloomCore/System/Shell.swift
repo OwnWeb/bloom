@@ -9,6 +9,12 @@ public struct ShellResult: Sendable {
 
     public var ok: Bool { status == 0 }
 
+    public init(status: Int32, stdout: String, stderr: String) {
+        self.status = status
+        self.stdout = stdout
+        self.stderr = stderr
+    }
+
     /// stdout with trailing newlines removed, the form almost every caller wants.
     public var trimmed: String {
         stdout.trimmingCharacters(in: .whitespacesAndNewlines)

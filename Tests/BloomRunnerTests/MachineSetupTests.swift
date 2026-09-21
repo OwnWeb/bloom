@@ -7,6 +7,20 @@ import Testing
 /// Setup against a bare repository on disk standing in for GitHub, with real git and real scripts.
 @Suite("Setting a machine's workspace up")
 struct MachineSetupTests {
+    @Test("obsolete credential mode fields cannot select another Runner path")
+    func obsoleteCredentialContractIsIgnored() throws {
+        let base = """
+        {"workspace_id":"workspace","issuer":"issuer","jwks_url":"https://example.test/jwks",
+         "base_url":"https://example.test","workspace_secret":"secret","allowed_origins":[],
+         "public_url":"https://machine.test","repository":"spatie/bloom","branch":"main",
+         "base_branch":"main","name":"Bloom"}
+        """
+        let obsolete = base.dropLast() + ",\"github_credential_contract\":\"legacy_v1\"}"
+        let configuration = try JSONDecoder().decode(MachineConfiguration.self, from: Data(obsolete.utf8))
+        #expect(!String(decoding: try JSONEncoder().encode(configuration), as: UTF8.self)
+            .contains("github_credential_contract"))
+    }
+
     final class Steps: Sendable {
         private let recorded = Mutex<[String]>([])
         var all: [String] { recorded.withLock { $0 } }
@@ -26,7 +40,10 @@ struct MachineSetupTests {
 
         func setup(timeouts: MachineSetup.Timeouts = .standard, origin: String? = nil,
                    stallAfter: TimeInterval = MachineSetup.stallAfter, runSetup: Bool? = nil,
-                   sandbox: MachineSandbox? = nil) throws -> MachineSetup {
+                   sandbox: MachineSandbox? = nil,
+                   isolateNetworkGit: @escaping MachineSetup.IsolateNetworkGit = {
+                       .init(launch: $0, cleanup: {})
+                   }) throws -> MachineSetup {
             // Written only when the test is about it, because the key being absent is the state
             // every machine bootstrapped before it existed is in, and that has to keep working.
             let runSetupKey = runSetup.map { ", \"run_setup\": \($0)" } ?? ""
@@ -41,7 +58,10 @@ struct MachineSetupTests {
                 runtime: runtime, store: store, configuration: configuration, layout: layout,
                 environment: MachineEnvironment { ["ORDER_FILE": orderFile, "TEAM_VALUE": "from the team"] },
                 services: services, serverExecutable: root + "/fake-bloom-runner",
-                cloneURL: { _ in origin }, gitGlobalConfig: gitConfig, timeouts: timeouts, stallAfter: stallAfter,
+                cloneURL: { _ in origin }, gitGlobalConfig: gitConfig,
+                personBoundSharedDirectory: root + "/person-bound-shared",
+                isolateNetworkGit: isolateNetworkGit,
+                timeouts: timeouts, stallAfter: stallAfter,
                 sandbox: sandbox
             )
         }
@@ -83,7 +103,7 @@ struct MachineSetupTests {
             store: store, id: "01k5bx7j9d3v2r8q6m4n0p1s2w", name: "Queue", repository: "spatie/example",
             path: layout.worktree, branch: "feature/queue", baseBranch: "main"
         )
-        let runtime = WorkspaceRuntime(store: store, workspaceID: workspace.id, makeRunner: { _, _, _, _, _ in NeverRunner() },
+        let runtime = WorkspaceRuntime(store: store, workspaceID: workspace.id, makeRunner: { _, _, _, _, _, _ in NeverRunner() },
                                        installedAgents: { [.claudeCode] }, models: { _ in [] })
         try await runtime.start()
         let steps = Steps()
@@ -114,6 +134,36 @@ struct MachineSetupTests {
     command -v gh >> "$ORDER_FILE.env"
     """
 
+    @Test("the initial clone crosses the isolated bootstrap gate exactly once")
+    func cloneUsesBootstrapIsolation() async throws {
+        let fixture = try await fixture(files: ["README.md": "fixture\n"])
+        let launches = Mutex<[AgentLaunch]>([])
+        let cleanups = Mutex(0)
+        let setup = try fixture.setup(isolateNetworkGit: { launch in
+            launches.withLock { $0.append(launch) }
+            return .init(launch: launch) { cleanups.withLock { $0 += 1 } }
+        })
+
+        #expect(await setup.runWholeSequence())
+        #expect(launches.withLock { $0.count } == 1)
+        let launch = try #require(launches.withLock { $0.first })
+        #expect(launch.executable == "git")
+        #expect(launch.arguments.first == "clone")
+        #expect(cleanups.withLock { $0 } == 1)
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a missing bootstrap grant refuses the clone without a direct Git fallback")
+    func cloneFailsClosedWithoutBootstrapIsolation() async throws {
+        let fixture = try await fixture(files: ["README.md": "fixture\n"])
+        let setup = try fixture.setup(isolateNetworkGit: { _ in nil })
+
+        #expect(await setup.runWholeSequence() == false)
+        #expect(!FileManager.default.fileExists(atPath: fixture.worktree + "/.git"))
+        #expect(try await fixture.workspace().setupLog.contains("could not obtain an isolated bootstrap GitHub grant"))
+        await fixture.runtime.shutdown()
+    }
+
     @Test("the whole sequence clones, checks the branch out, runs every script in order and records it all")
     func wholeSequence() async throws {
         let fixture = try await fixture(files: [".bloom/settings.toml": Self.settings, ".bloom/setup.sh": Self.setupScript], executables: [".bloom/setup.sh"])
@@ -143,9 +193,7 @@ struct MachineSetupTests {
         ))
         #expect(environment.contains(setup.binDirectory + "/gh"))
 
-        let gitConfig = SetupTestSupport.read(fixture.gitConfig)
-        #expect(gitConfig.contains("fake-bloom-runner' git-credential"))
-        #expect(gitConfig.contains("useHttpPath = true"))
+        #expect(SetupTestSupport.read(fixture.gitConfig).isEmpty)
         #expect(FileManager.default.isExecutableFile(atPath: setup.binDirectory + "/gh"))
         await fixture.runtime.shutdown()
     }
@@ -229,12 +277,12 @@ struct MachineSetupTests {
         echo "sudo: a password is required" >&2
         exit 1
         """
-        try FileManager.default.createDirectory(atPath: fixture.layout.dataDirectory + "/bin", withIntermediateDirectories: true)
-        try SetupTestSupport.write(refusing + "\n", to: fixture.layout.dataDirectory + "/bin/sudo", executable: true)
         let sandbox = MachineSandbox(user: "bloom-agent", maskedPaths: [], sudo: fixture.root + "/fake-sudo",
                                     unshare: fixture.root + "/fake-sudo", setpriv: fixture.root + "/fake-setpriv",
                                     shell: "/bin/bash")
         let setup = try fixture.setup(sandbox: sandbox)
+        try FileManager.default.createDirectory(atPath: setup.binDirectory, withIntermediateDirectories: true)
+        try SetupTestSupport.write(refusing + "\n", to: setup.binDirectory + "/sudo", executable: true)
         await setup.run()
         _ = await setup.rerunSetup()
 
@@ -495,13 +543,23 @@ struct MachineSetupTests {
         await setup.run()
 
         let workspace = try await fixture.workspace()
-        #expect(workspace.setupLog.contains("Setup has been in prepare for"), "\(workspace.setupLog.suffix(400))")
+        // A quiet earlier phase may have its own correct restart verdict. Keep that sentence in
+        // this proof deterministically: the old whole-log negative assertion fails on this log,
+        // while the prepare phase must still be judged only by its own verdict.
+        let log = """
+        [bloom] Setup has been in git for 7 seconds with nothing new. If it never moves, restarting this machine's server clears it.
+        \(workspace.setupLog)
+        """
+        #expect(log.contains("Setup has been in git for 7 seconds"))
+        #expect(log.contains("restarting this machine's server"), "the old whole-log negative assertion would fail")
+        let prepareStart = try #require(log.range(of: "[bloom] Running the prepare script."))
+        let sentence = log[prepareStart.lowerBound...]
+        #expect(sentence.contains("Setup has been in prepare for"), "\(sentence.suffix(400))")
         // **What it says next is the verdict's, and the verdict is only readable where `/proc` is.**
         // On a machine, `sleep 4` is alive and the sentence says so and advises nothing; on a Mac
         // there is nothing to read, and the advice is given because not knowing and knowing nothing
         // is alive are answered the same way. Asserting one wording here would have been asserting
         // which platform the suite runs on, and the Linux job said so within the hour.
-        let sentence = workspace.setupLog
         #if os(Linux)
         #expect(sentence.contains("still working") || sentence.contains("waiting on something"))
         #expect(!sentence.contains("restarting this machine's server"), "nothing needs restarting while it runs")
@@ -688,24 +746,27 @@ struct MachineSetupTests {
         await fixture.runtime.shutdown()
     }
 
-    @Test("the gh wrapper runs the real gh with a token from bloom-runner")
+    @Test("the gh wrapper delegates only to bloom-runner's protected command")
     func ghWrapper() throws {
         let root = try SetupTestSupport.directory("gh-wrapper")
-        let tools = MachineGitTools(serverExecutable: root + "/bloom server", dataDirectory: root + "/data", serverPort: 8081, repository: "spatie/example")
+        let tools = MachineGitTools(
+            serverExecutable: root + "/bloom server", repository: "spatie/example",
+            sharedDirectory: root + "/shared",
+            gitExecutable: "/usr/bin/git", ghExecutable: root + "/real/gh"
+        )
         try tools.writeGhWrapper()
         try SetupTestSupport.write("""
         #!/bin/sh
-        echo "token-for-$BLOOM_REPOSITORY-$1-$BLOOM_DATA_DIR"
+        echo "$*|$BLOOM_REPOSITORY|$BLOOM_REAL_GH"
         """, to: root + "/bloom server", executable: true)
         try SetupTestSupport.write("""
         #!/bin/sh
         echo "gh $* with $GH_TOKEN"
         """, to: root + "/real/gh", executable: true)
 
-        let output = try SetupTestSupport.bash("gh pr list --json", environment: ["PATH": "\(tools.binDirectory):\(root)/real:/usr/bin:/bin"])
-        #expect(output == "gh pr list --json with token-for-spatie/example-gh-token-\(root)/data\n")
-
-        let missing = try? SetupTestSupport.bash("gh --version", environment: ["PATH": "\(tools.binDirectory):/usr/bin:/bin"])
-        #expect(missing == nil)
+        let output = try SetupTestSupport.bash(
+            "gh pr list --json", environment: ["PATH": "\(tools.binDirectory):/usr/bin:/bin"]
+        )
+        #expect(output == "gh-v2 pr list --json|spatie/example|\(root)/real/gh\n")
     }
 }

@@ -6,8 +6,8 @@ machine by Tools/machine-test.py:
 
     python3 bloom_fake_runbloom.py --port 9000 --workspace <id> --secret-stdin --jwks-file jwks.json
 
-It answers the machine API the way runbloom.app does (summary, usage, environment, turns,
-git-credentials), records every request, and serves the key set it is given. It never holds a
+It answers the machine API the way runbloom.app does (summary, usage, environment, turns and
+person-bound GitHub grants), records every request, and serves the key set it is given. It never holds a
 private key: tokens are signed where the test runs.
 
 **A credential for a live turn only ever arrives over its test API, in memory.** `POST /test/grant`
@@ -85,7 +85,17 @@ class FakeRunbloom(http.server.ThreadingHTTPServer):
         self.refuse_reports = False
         self.refused_reports = 0
         self.turns = 0
+        self.github_grants = 0
+        self.person_bound_capable = False
         self.lock = threading.Lock()
+
+    def github_grant(self):
+        with self.lock:
+            self.github_grants += 1
+            number = self.github_grants
+        token = hashlib.sha256(f"fake-person-bound-grant-{number}".encode()).hexdigest()
+        expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 300))
+        return {"token": token, "expires_at": expires, "revision": number}
 
     def recorded(self, suffix):
         with self.lock:
@@ -123,13 +133,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if refusing:
                 return self.answer(503, b'{"code":"unavailable","message":"staged outage"}')
         parsed = json.loads(body) if body else None
+        if self.path.endswith("/summary") and isinstance(parsed, dict):
+            with server.lock:
+                server.person_bound_capable = "person_bound_github_credentials_v1" in parsed.get(
+                    "bloom_runner_capabilities", []
+                )
+        recorded = parsed
+        if self.path.endswith("/github-credentials") and isinstance(parsed, dict):
+            recorded = dict(parsed)
+            recorded["grant"] = "[REDACTED]"
         with server.lock:
-            # Never the grant's contents: the recording is what a test reads back and prints.
-            server.requests.append((method, self.path, parsed))
+            server.requests.append((method, self.path, recorded))
         if self.path.endswith("/environment"):
             return self.answer(200, b'{"environment":{"BLOOM_TEST":"1"}}')
-        if self.path.endswith("/git-credentials"):
-            return self.answer(403, b'{"code":"github_not_connected","message":"No GitHub in a test."}')
+        if self.path.endswith("/github-credential-grants/bootstrap") and method == "POST":
+            with server.lock:
+                capable = server.person_bound_capable
+            if not capable:
+                return self.answer(409, b'{"code":"missing_capability","message":"Runner capability not reported."}')
+            return self.answer(201, json.dumps({"grant": server.github_grant()}).encode())
+        if self.path.endswith("/github-credentials") and method == "POST":
+            expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 300))
+            answer = {
+                "credential": {
+                    "username": "x-access-token",
+                    "token": "ghu_fake_person_bound_credential",
+                    "expires_at": expires,
+                },
+                "next_grant": server.github_grant(),
+            }
+            return self.answer(200, json.dumps(answer).encode())
         if self.path.endswith("/turns") and method == "POST":
             with server.lock:
                 server.turns += 1
@@ -149,7 +182,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 environment = dict(grant.get("environment", {}))
                 if grant.get("key"):
                     keys[grant["agent"]] = {"key": grant["key"], "identity": hashlib.sha256(grant["key"].encode()).hexdigest(), "source": "personal"}
-            return self.answer(200, json.dumps({"turn_id": turn, "state": "running", "agent_keys": keys, "environment": environment}).encode())
+            answer = {
+                "turn_id": turn,
+                "state": "running",
+                "agent_keys": keys,
+                "environment": environment,
+                "github_credential_grant": server.github_grant(),
+            }
+            return self.answer(200, json.dumps(answer).encode())
         return self.answer(204)
 
     def test_api(self, method, body):

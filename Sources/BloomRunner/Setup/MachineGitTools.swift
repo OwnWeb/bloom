@@ -1,82 +1,67 @@
+import BloomCore
 import Foundation
 
-/// How `git` and `gh` on the machine get a GitHub token: by asking Bloom Runner every time.
+/// How `git` and `gh` on the machine get a person-bound GitHub token from Bloom Runner.
 ///
-/// Nothing long-lived is ever on disk. git is given `bloom-runner git-credential` as its helper for
-/// github.com, and `gh` is shadowed by a wrapper in Bloom Runner's own `bin` directory that asks
-/// `bloom-runner gh-token` before every command. Both are written at every start, because the path
-/// to Bloom Runner is part of what they say and an update can move it. See
+/// Nothing long-lived is ever on disk. Git and gh are shadowed by wrappers in Bloom Runner's
+/// protected `bin` directory. Both are written at every start, because the path to Bloom Runner is
+/// part of what they say and an update can move it. See
 /// docs/REMOTE-WORKSPACES.md, "GitHub".
 ///
-/// **The locations are baked in, the turn is not.** `BLOOM_DATA_DIR` and `BLOOM_RUNNER_PORT` go
-/// into the helper and the wrapper, so a shell somebody opens with none of Bloom's variables still
-/// finds the server. `BLOOM_CHAT_ID`, `BLOOM_TERMINAL` and `BLOOM_TURN_ID` stay in the environment of whichever
-/// process runs git, because they are what makes a push use the token of the person whose turn it
-/// is.
 struct MachineGitTools {
     var serverExecutable: String
-    var dataDirectory: String
-    var serverPort: Int
     var repository: String
+    var sharedDirectory: String = MachineSandbox.personBoundSharedDirectory
+    var gitExecutable: String = Shell.which("git") ?? "/usr/bin/git"
+    var ghExecutable: String = Shell.which("gh") ?? "/usr/bin/gh"
+    var gitRemoteHTTPSExecutable: String = "/usr/lib/git-core/git-remote-https"
 
-    var binDirectory: String { dataDirectory + "/bin" }
+    var binDirectory: String {
+        sharedDirectory + "/bin"
+    }
     var ghWrapperPath: String { binDirectory + "/gh" }
+    var gitWrapperPath: String { binDirectory + "/git" }
 
-    static let helperKey = "credential.https://github.com.helper"
-    static let useHttpPathKey = "credential.https://github.com.useHttpPath"
-
-    /// git's helper value. The `!` makes git run it through a shell, and git adds `get`, `store` or
-    /// `erase` to the end.
-    var credentialHelper: String {
-        "!BLOOM_DATA_DIR=\(Self.shellQuoted(dataDirectory)) BLOOM_RUNNER_PORT=\(serverPort) "
-            + "\(Self.shellQuoted(serverExecutable)) git-credential"
-    }
-
-    /// The `git config --global` invocations, in order. The empty helper first clears any helper a
-    /// system-wide configuration set for github.com, such as one `gh auth setup-git` left behind,
-    /// so git never tries a stored token before asking Bloom Runner.
-    var configCommands: [[String]] {
-        [
-            ["config", "--global", "--unset-all", Self.helperKey],
-            ["config", "--global", "--add", Self.helperKey, ""],
-            ["config", "--global", "--add", Self.helperKey, credentialHelper],
-            ["config", "--global", Self.useHttpPathKey, "true"],
-        ]
-    }
-
-    /// The `gh` wrapper. The real `gh` is looked up when it runs rather than when it is written,
-    /// because `prepare` may be what installs it, and `bin` itself is skipped so the wrapper cannot
-    /// find itself. A failed token lookup still runs `gh`, since `gh --version` needs none and a
-    /// command that does will say it is not signed in.
+    /// The `gh` wrapper. It delegates to Bloom Runner, which validates the exact operation before
+    /// running the root-attested gh executable with one operation-bound credential.
     var ghWrapper: String {
+        return """
+        #!/bin/sh
+        # Written by Bloom Runner. The command classifies and fixes the repository before asking
+        # the peer-authenticated Unix socket for one operation's credential.
+        export BLOOM_REPOSITORY=\(Self.shellQuoted(repository))
+        export BLOOM_BIN_DIR=\(Self.shellQuoted(binDirectory))
+        export BLOOM_RUNNER_EXECUTABLE=\(Self.shellQuoted(serverExecutable))
+        export BLOOM_REAL_GIT=\(Self.shellQuoted(gitExecutable))
+        export BLOOM_REAL_GH=\(Self.shellQuoted(ghExecutable))
+        export BLOOM_REAL_GIT_REMOTE_HTTPS=\(Self.shellQuoted(gitRemoteHTTPSExecutable))
+        exec \(Self.shellQuoted(serverExecutable)) gh-v2 "$@"
+
+        """
+    }
+
+    var gitWrapper: String {
         """
         #!/bin/sh
-        # Written by Bloom Runner at every start. Asks Bloom Runner for a short-lived GitHub token
-        # for each command, so no token is stored on this machine.
-        bloom_bin=\(Self.shellQuoted(binDirectory))
-        real_gh=''
-        saved_ifs=$IFS
-        IFS=:
-        for dir in $PATH; do
-          if [ -z "$dir" ] || [ "$dir" = "$bloom_bin" ]; then continue; fi
-          if [ -x "$dir/gh" ]; then real_gh="$dir/gh"; break; fi
-        done
-        IFS=$saved_ifs
-        if [ -z "$real_gh" ]; then
-          echo "gh is not installed on this machine." >&2
-          exit 127
-        fi
-        GH_TOKEN="$(BLOOM_DATA_DIR=\(Self.shellQuoted(dataDirectory)) BLOOM_RUNNER_PORT=\(serverPort) BLOOM_REPOSITORY="${BLOOM_REPOSITORY:-\(repository)}" \(Self.shellQuoted(serverExecutable)) gh-token)"
-        export GH_TOKEN
-        exec "$real_gh" "$@"
+        # Written by Bloom Runner. There is no legacy or SSH fallback in this v2 entry point.
+        export BLOOM_REPOSITORY=\(Self.shellQuoted(repository))
+        export BLOOM_BIN_DIR=\(Self.shellQuoted(binDirectory))
+        export BLOOM_RUNNER_EXECUTABLE=\(Self.shellQuoted(serverExecutable))
+        export BLOOM_REAL_GIT=\(Self.shellQuoted(gitExecutable))
+        export BLOOM_REAL_GH=\(Self.shellQuoted(ghExecutable))
+        export BLOOM_REAL_GIT_REMOTE_HTTPS=\(Self.shellQuoted(gitRemoteHTTPSExecutable))
+        exec \(Self.shellQuoted(serverExecutable)) git-v2 "$@"
 
         """
     }
 
     func writeGhWrapper() throws {
         try FileManager.default.createDirectory(atPath: binDirectory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binDirectory)
         try ghWrapper.write(toFile: ghWrapperPath, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ghWrapperPath)
+        try gitWrapper.write(toFile: gitWrapperPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gitWrapperPath)
     }
 
     static func shellQuoted(_ text: String) -> String {

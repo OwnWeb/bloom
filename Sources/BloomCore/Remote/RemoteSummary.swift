@@ -129,6 +129,8 @@ public struct RemoteSummary: Codable, Sendable, Hashable {
     public var revision: Int64
     public var observedAt: Date
     public var bloomRunnerVersion: String
+    /// Security capabilities proved by this running process, not features compiled into it.
+    public var bloomRunnerCapabilities: [String]
     public var title: String
     public var branch: String
     public var baseBranch: String
@@ -156,6 +158,7 @@ public struct RemoteSummary: Codable, Sendable, Hashable {
         case unpushedCommits = "unpushed_commits"
         case observedAt = "observed_at"
         case bloomRunnerVersion = "bloom_runner_version"
+        case bloomRunnerCapabilities = "bloom_runner_capabilities"
         case baseBranch = "base_branch"
         case presenceLeaseUntil = "presence_lease_until"
         case lastMessage = "last_message"
@@ -172,6 +175,7 @@ public struct RemoteSummary: Codable, Sendable, Hashable {
         try container.encode(revision, forKey: .revision)
         try container.encode(observedAt, forKey: .observedAt)
         try container.encode(bloomRunnerVersion, forKey: .bloomRunnerVersion)
+        try container.encode(bloomRunnerCapabilities, forKey: .bloomRunnerCapabilities)
         try container.encode(title, forKey: .title)
         try container.encode(branch, forKey: .branch)
         try container.encode(baseBranch, forKey: .baseBranch)

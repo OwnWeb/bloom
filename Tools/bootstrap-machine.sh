@@ -112,6 +112,13 @@ if [[ ! -x "$target/bin/bloom-runner" ]]; then
   sudo_if_needed mkdir -p "$prefix"
   sudo_if_needed rm -rf "$target.partial"
   sudo_if_needed cp -a "$unpacked" "$target.partial"
+  # Root attestation follows every executable ancestor. A release copied from the machine user's
+  # temporary directory must therefore become root-owned before it can ever be made current.
+  if [[ "$(id -u)" == "0" ]]; then
+    chown -R root:root "$target.partial"
+  elif [[ ! -w "$(dirname "$prefix")" && ! -w "$prefix" ]]; then
+    sudo chown -R root:root "$target.partial"
+  fi
   sudo_if_needed mv "$target.partial" "$target"
 fi
 

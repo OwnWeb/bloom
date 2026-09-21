@@ -282,8 +282,16 @@ actor RemotePromptQueue {
                     startedTurn = turnID
                     if delivery.block != nil { try await store.setDeliveryBlock(id: delivery.id, nil) }
                     await granted(grant)
-                    try await live.prepare(identity: grant.launchIdentity(for: agent), environment: grant.environment(for: agent),
-                                           personal: grant.personalMarks(for: [agent]))
+                    guard let userID = delivery.author?.userID else {
+                        throw RemoteFailure(.unauthenticated, "This turn has no person to bind GitHub credentials to.")
+                    }
+                    let context = RemoteLaunchContext(
+                        turnID: turnID, userID: userID, githubCredentialGrant: grant.githubCredentialGrant
+                    )
+                    try await live.prepare(
+                        identity: grant.launchIdentity(for: agent), environment: grant.environment(for: agent),
+                        personal: grant.personalMarks(for: [agent]), context: context
+                    )
                 } else {
                     // Not a person's turn, such as a subagent's report reaching its parent: it
                     // runs on whatever key the chat's process already has.

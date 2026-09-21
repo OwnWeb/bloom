@@ -629,13 +629,13 @@ def main():
                         "cat /etc/bloom/workspace.json >/dev/null 2>&1 && echo yes || echo no", "no"),
                     "it cannot read the Runner's database": (
                         "cat /home/sprite/.bloom/bloom.sqlite >/dev/null 2>&1 && echo yes || echo no", "no"),
-                    "it cannot read the local secret": (
-                        "cat /home/sprite/.bloom/local-secret >/dev/null 2>&1 && echo yes || echo no", "no"),
+                    "the removed local credential secret is absent": (
+                        "test -e /home/sprite/.bloom/local-secret && echo yes || echo no", "no"),
                     "it can work in the worktree": (
                         "touch /home/sprite/workspace/.sandbox-probe && rm /home/sprite/workspace/.sandbox-probe "
                         "&& echo yes || echo no", "yes"),
-                    "it can reach the credential socket": (
-                        "test -w /var/lib/bloom/shared/git-credentials.sock && echo yes || echo no", "yes"),
+                    "it can reach only the person-bound credential socket": (
+                        "test -w /var/lib/bloom/person-bound-shared/git-credentials-v2.sock && echo yes || echo no", "yes"),
                 }
                 for description, (script, expected) in checks.items():
                     answer = as_sandbox(script).strip().splitlines()[-1:] or [""]

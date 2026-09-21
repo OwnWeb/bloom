@@ -19,9 +19,32 @@ public enum ServeCommand {
         let layout = MachineLayout.from(environment: environment)
         try FileManager.default.createDirectory(atPath: layout.dataDirectory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        let localSecret = try writeLocalSecret(in: layout.dataDirectory)
-
         let store = try Store(path: layout.databasePath)
+        let runnerExecutable = MachineSetup.currentExecutable
+        let gitExecutable = "/usr/bin/git"
+        let ghExecutable = "/usr/bin/gh"
+        guard let gitRemoteHTTPSExecutable = PersonBoundGitCommand.gitRemoteHTTPSExecutable(
+            gitExecutable: gitExecutable
+        ) else {
+            throw MachineConfigurationError(
+                "The root-owned Git HTTPS transport required for person-bound credentials was not found."
+            )
+        }
+        guard let personBound = await PersonBoundRuntimeFoundation.live(
+            executable: runnerExecutable, repository: configuration.repository,
+            worktree: layout.worktree, gitExecutable: gitExecutable, ghExecutable: ghExecutable,
+            gitRemoteHTTPSExecutable: gitRemoteHTTPSExecutable
+        ) else {
+            throw MachineConfigurationError(
+                "This host did not pass every mandatory person-bound credential runtime self-test."
+            )
+        }
+        defer { personBound.launcher.close() }
+        guard let sandbox = MachineSandbox.available() else {
+            throw MachineConfigurationError(
+                "The mandatory repository script and service sandbox is unavailable."
+            )
+        }
         let http = HTTPClient(eventLoopGroupProvider: .singleton)
         // Only the secret is taken from a rewritten file. Everything else in it is fixed for the
         // life of the workspace, and a file naming another workspace is not this machine's.
@@ -32,24 +55,82 @@ public enum ServeCommand {
             }
             return fresh.workspaceSecret
         }
-        let client = RunbloomClient(baseURL: configuration.baseURL, workspaceID: configuration.workspaceID, secret: secret, http: http)
+        let client = RunbloomClient(
+            baseURL: configuration.baseURL, workspaceID: configuration.workspaceID,
+            secret: secret, http: http
+        )
         let gate = RunbloomTurns(client: client)
+        let personBoundBroker = PersonBoundCredentialBroker(
+            repository: configuration.repository,
+            registry: personBound.registry,
+            operation: { peer, binding in
+                PersonBoundPeerOperation.attest(
+                    peer: peer, binding: binding, repository: configuration.repository,
+                    worktree: layout.worktree,
+                    runnerExecutable: runnerExecutable, gitExecutable: gitExecutable,
+                    gitRemoteHTTPSExecutable: gitRemoteHTTPSExecutable
+                )
+            }
+        ) {
+            try await client.githubCredentials(grant: $0, operation: $1, requestID: $2)
+        }
+        let runPersonBoundCommand: RemotePublishing.Run = { executable, arguments, cwd, context in
+            guard ["git", "gh"].contains(executable), let grant = context.githubCredentialGrant,
+                  let reservation = personBound.registry.reserve(
+                      .turn(id: context.turnID, userID: context.userID)
+                  ) else {
+                throw RemoteFailure(.unavailable, "The isolated publishing command could not be reserved.")
+            }
+            personBoundBroker.install(
+                PersonBoundGithubGrant(
+                    token: grant.token, expiresAt: grant.expiresAt, revision: grant.revision
+                ), for: reservation
+            )
+            var environment = Shell.environment()
+            environment["BLOOM_REPOSITORY"] = configuration.repository
+            environment["BLOOM_RUNNER_EXECUTABLE"] = runnerExecutable
+            environment["BLOOM_REAL_GIT"] = gitExecutable
+            environment["BLOOM_REAL_GH"] = ghExecutable
+            environment["BLOOM_REAL_GIT_REMOTE_HTTPS"] = gitRemoteHTTPSExecutable
+            environment["BLOOM_CREDENTIAL_SOCKET_V2"] = MachineSandbox.credentialV2SocketPath
+            let launch = AgentLaunch(
+                executable: runnerExecutable,
+                arguments: [executable == "git" ? "git-v2" : "gh-v2"] + arguments,
+                cwd: cwd, environment: environment
+            )
+            let prepared = personBound.launcher.prepare(launch, reservation: reservation)
+            let process = StreamingProcess(
+                executable: prepared.launch.executable, arguments: prepared.launch.arguments,
+                cwd: prepared.launch.cwd, environment: prepared.launch.environment,
+                mergeStderr: false,
+                cleanup: {
+                    personBoundBroker.forget(reservation)
+                    prepared.cleanup()
+                }
+            )
+            let errors = Task {
+                var lines: [String] = []
+                for await line in process.errorLines { lines.append(line) }
+                return lines
+            }
+            var output: [String] = []
+            for try await line in process.lines { output.append(line) }
+            let status = await process.exitStatus
+            let errorOutput = await errors.value
+            return ShellResult(
+                status: status,
+                stdout: output.isEmpty ? "" : output.joined(separator: "\n") + "\n",
+                stderr: errorOutput.isEmpty ? "" : errorOutput.joined(separator: "\n") + "\n"
+            )
+        }
         let workspace = try await RemoteMachineWorkspace.ensure(
             store: store, id: configuration.workspaceID, name: configuration.name, repository: configuration.repository,
             path: layout.worktree, branch: configuration.branch, baseBranch: configuration.baseBranch
         )
         let version = RunnerVersion.current
-        // The user an agent, a terminal, a script and a service run as, or nil on a machine whose
-        // provisioning has not made one, which runs them as this process's user as it always did.
-        // See `MachineSandbox` and `Tools/provision-sandbox.sh`.
-        let sandbox = MachineSandbox.available()
-        // What this Runner started, and for whom, which is how the credential door recognises a
-        // caller now that a sandboxed process's environment is not the Runner's to read.
-        let processes = SpawnedProcesses()
-        FileHandle.standardError.write(Data((sandbox.map { "bloom-runner: agents run as \($0.user)\n" }
-            ?? "bloom-runner: no sandbox user on this machine, so agents run as this process does\n").utf8))
-        let binDirectory = layout.dataDirectory + "/bin"
-        let bridgeDirectory = sandbox == nil ? layout.dataDirectory : MachineSandbox.sharedDirectory
+        FileHandle.standardError.write(Data("bloom-runner: repository scripts and services run as \(sandbox.user)\n".utf8))
+        let binDirectory = MachineSandbox.personBoundSharedDirectory + "/bin"
+        let bridgeDirectory = MachineSandbox.sharedDirectory
         // Who may be addressed, pulled from runbloom.app and refetched on a miss so that somebody
         // who joined the team this morning is addressable this afternoon. See `MachineMembers`.
         let members = MachineMembers { try await client.members() }
@@ -59,21 +140,52 @@ public enum ServeCommand {
         let addressedReporter = AddressedReporter(store: store) { try await client.reportAddressed($0) }
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id, gate: gate,
-            makeRunner: { session, path, store, environment, bridge in
-                // Every agent process can find the gh wrapper first and says which chat it is, which
-                // is how its git credentials are asked for as whoever's turn it is running.
+            makeRunner: { session, path, store, environment, bridge, context in
+                // Every agent process finds Bloom's Git and gh wrappers before the system tools.
+                // The credential door trusts only the root-attested launch registration.
                 var extra = environment
-                extra["BLOOM_CHAT_ID"] = session.id.rawValue
                 extra["BLOOM_REPOSITORY"] = configuration.repository
                 extra["BLOOM_DATA_DIR"] = layout.dataDirectory
                 extra["BLOOM_RUNNER_PORT"] = String(layout.serverPort)
+                extra["BLOOM_CREDENTIAL_SOCKET_V2"] = MachineSandbox.credentialV2SocketPath
                 extra["PATH"] = binDirectory + ":" + (environment["PATH"] ?? Shell.environment()["PATH"] ?? "/usr/bin:/bin")
-                return RemoteRunnerFactory.make(session, path, store, extra, bridge, sandbox: sandbox,
-                                                didStart: { pid in Task { await processes.record(pid: pid, for: .chat(session.id)) } })
+                guard let context, let grant = context.githubCredentialGrant else {
+                    throw RemoteFailure(.unavailable, "This turn has no person-bound GitHub credential grant.")
+                }
+                let unclaimed = Mutex(true)
+                let isolate: RemoteRunnerFactory.Isolate = { launch in
+                    let claimed = unclaimed.withLock { available -> Bool in
+                        guard available else { return false }
+                        available = false
+                        return true
+                    }
+                    guard claimed, let reservation = personBound.registry.reserve(
+                        .turn(id: context.turnID, userID: context.userID)
+                    ) else {
+                        return .init(
+                            launch: AgentLaunch(
+                                executable: "/usr/bin/false", arguments: [], cwd: launch.cwd,
+                                environment: [:]
+                            ), cleanup: {}
+                        )
+                    }
+                    personBoundBroker.install(
+                        PersonBoundGithubGrant(
+                            token: grant.token, expiresAt: grant.expiresAt, revision: grant.revision
+                        ), for: reservation
+                    )
+                    let prepared = personBound.launcher.prepare(launch, reservation: reservation)
+                    return .init(launch: prepared.launch) {
+                        personBoundBroker.forget(reservation)
+                        prepared.cleanup()
+                    }
+                }
+                return RemoteRunnerFactory.make(
+                    session, path, store, extra, bridge, sandbox: nil, isolate: isolate
+                )
             },
-            publishing: RemotePublishing { turnID in
-                try await client.gitCredentials(repository: configuration.repository, operation: .write, turnID: turnID).token
-            },
+            publishing: RemotePublishing(run: runPersonBoundCommand),
+            retiresRunnerAfterTurn: true,
             // Short and group-shared when the sandboxed agent has to reach it. A machine without
             // that second user keeps the socket beside its private data, as it did before.
             bridgeSocketPath: bridgeDirectory + "/bridge.sock",
@@ -86,7 +198,8 @@ public enum ServeCommand {
             addressed: { _ in await addressedReporter.start() },
             createCloudWorkspace: { await client.createCloudWorkspace($0) },
             peers: RunbloomPeers.peers(client: client, http: http),
-            sandbox: sandbox, sharedDirectory: MachineSandbox.sharedDirectory
+            sandbox: nil,
+            sharedDirectory: MachineSandbox.sharedDirectory
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()
         // What the machine says about its own reporting goes two ways here, because the two readers
@@ -113,7 +226,10 @@ public enum ServeCommand {
                      + "\(status.queued) report(s) queued, \(status.queuedBytes) bytes")
             }
         })
-        let reporter = MachineReporter(runtime: runtime, store: store, delivery: delivery, host: host, version: version)
+        let reporter = MachineReporter(
+            runtime: runtime, store: store, delivery: delivery, host: host, version: version,
+            capabilitiesProvider: { personBound.capabilities }
+        )
         let awake = AwakeController(host: host, runtime: runtime, reporter: reporter)
         let machineEnvironment = MachineEnvironment { try await client.environment() }
         let keys = KeySet.live(url: configuration.jwksURL, client: http)
@@ -180,55 +296,48 @@ public enum ServeCommand {
         let server = WorkspaceHTTPServer(dependencies: .init(
             runtime: runtime, verifier: verifier, gate: gate, control: supervisor, store: store,
             allowedOrigins: configuration.allowedOrigins, version: version, streams: streams, terminals: terminals,
-            gitCredentials: .init(secret: localSecret, repository: configuration.repository) { repository, operation, turn in
-                try await client.gitCredentials(repository: repository, operation: operation, turnID: turn)
-            },
+            terminalsEnabled: false,
             services: { await services.status },
             appPort: layout.appPort,
             reservedPorts: layout.reservedPorts.map(\.port)
         ))
 
-        // The credential door for processes on this machine. **A unix socket, because the kernel
-        // names the caller on it**: with a sandbox, the Runner cannot read another user's `/proc`
-        // entry, and the loopback route's shared secret is not in the sandbox user's reach either.
-        // See `LocalCredentialSocket` and M1 in the security review of 19 September 2026.
-        let credentialSurroundings = LocalCredentialAuthority.Surroundings(
-            origin: { [weak runtime] pid in
-                if let purpose = await processes.origin(of: pid)?.purpose { return purpose }
-                guard let server = await runtime?.terminalServerProcessID(),
-                      await processes.ancestry(of: pid).contains(server) else { return nil }
-                return .terminalServer
-            },
-            ancestry: { await processes.ancestry(of: $0) },
-            panePIDs: { [weak runtime] in await runtime?.terminalPanePIDs() ?? [:] },
-            runningTurn: { [weak runtime] in await runtime?.runningTurnID(chat: $0) },
-            terminalTurn: { [terminals] in await terminals.liveTurn(terminal: $0) },
-            isPublishing: { [weak runtime] in await runtime?.isPublishingTurn($0) ?? false }
-        )
-        let credentialSocket: LocalCredentialSocket?
-        do {
-            credentialSocket = try LocalCredentialSocket(path: MachineSandbox.credentialSocketPath,
-                                                        group: sandbox == nil ? nil : MachineSandbox.sharedGroup) { asked, peer in
-                guard asked.repository.lowercased() == configuration.repository.lowercased() else { return nil }
-                let turn = await LocalCredentialAuthority.turn(for: asked, peer: peer, in: credentialSurroundings)
-                guard let credential = try? await client.gitCredentials(repository: configuration.repository,
-                                                                       operation: turn == nil ? .read : .write, turnID: turn) else {
-                    return nil
-                }
-                return GitCredentialRoute.Answer(username: credential.username, token: credential.token)
-            }
-        } catch {
-            // A machine without the shared directory keeps the loopback route, which is what
-            // everything used before the sandbox. Said out loud, because it is a difference in how
-            // a push is authorised.
-            FileHandle.standardError.write(Data("bloom-runner: the credential socket is not listening: \(error)\n".utf8))
-            credentialSocket = nil
+        let credentialSocket = try PersonBoundCredentialSocket(
+            path: MachineSandbox.credentialV2SocketPath, group: MachineSandbox.sharedGroup
+        ) { request, peer in
+            await personBoundBroker.credential(for: request, peer: peer)
         }
-        defer { credentialSocket?.close() }
+        defer { credentialSocket.close() }
 
         let caddy = CaddySupervisor(layout: layout, publicURL: configuration.publicURL)
-        let setup = MachineSetup(runtime: runtime, store: store, configuration: configuration, layout: layout,
-                                 environment: machineEnvironment, services: services, sandbox: sandbox)
+        let setup = MachineSetup(
+            runtime: runtime, store: store, configuration: configuration, layout: layout,
+            environment: machineEnvironment, services: services,
+            isolateNetworkGit: { launch in
+                guard launch.executable == "git",
+                      await delivery.flush(timeout: .seconds(15)),
+                      let grant = try? await client.bootstrapGithubCredentialGrant(),
+                      let reservation = personBound.registry.reserve(.bootstrap) else { return nil }
+                personBoundBroker.install(grant, for: reservation)
+                var environment = launch.environment
+                environment["BLOOM_REPOSITORY"] = configuration.repository
+                environment["BLOOM_RUNNER_EXECUTABLE"] = runnerExecutable
+                environment["BLOOM_REAL_GIT"] = gitExecutable
+                environment["BLOOM_REAL_GH"] = Shell.which("gh") ?? "/usr/bin/gh"
+                environment["BLOOM_REAL_GIT_REMOTE_HTTPS"] = gitRemoteHTTPSExecutable
+                environment["BLOOM_CREDENTIAL_SOCKET_V2"] = MachineSandbox.credentialV2SocketPath
+                let protected = AgentLaunch(
+                    executable: runnerExecutable, arguments: ["git-v2"] + launch.arguments,
+                    cwd: launch.cwd, environment: environment
+                )
+                let prepared = personBound.launcher.prepare(protected, reservation: reservation)
+                return .init(launch: prepared.launch) {
+                    personBoundBroker.forget(reservation)
+                    prepared.cleanup()
+                }
+            },
+            sandbox: sandbox
+        )
         await machineEnvironment.observe { _ in await setup.restartServices() }
         // `stop_setup` reaches the machine's own setup through here; one run by hand is the
         // runtime's own to stop. See `MachineSetup.stop(by:)`.
@@ -309,18 +418,6 @@ public enum ServeCommand {
         FileHandle.standardError.write(Data("bloom-runner: \(line)\n".utf8))
     }
 
-    /// The secret the git credential helper proves itself to the loopback route with. New on every
-    /// start, so a copy taken from an earlier run is worth nothing.
-    static func writeLocalSecret(in directory: String) throws -> String {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        for index in bytes.indices { bytes[index] = UInt8.random(in: .min ... .max) }
-        let secret = bytes.map { String(format: "%02x", $0) }.joined()
-        let path = directory + "/local-secret"
-        guard FileManager.default.createFile(atPath: path, contents: Data(secret.utf8), attributes: [.posixPermissions: 0o600]) else {
-            throw MachineConfigurationError("Cannot write \(path).")
-        }
-        return secret
-    }
 }
 
 /// Waits for the service group to begin shutting down, then does the machine's own shutdown.

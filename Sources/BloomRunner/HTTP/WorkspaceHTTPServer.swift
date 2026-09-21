@@ -18,7 +18,6 @@ import NIOCore
 /// | `GET /_bloom/preview/check` | Caddy's forward_auth for the preview |
 /// | `POST /_bloom/v1/control/*` | runbloom.app only, control token |
 /// | `GET /_bloom/health` | unauthenticated, the version only |
-/// | `POST /_bloom/local/git-credentials` | loopback only, never routed by Caddy |
 public struct WorkspaceHTTPServer: Sendable {
     public struct Dependencies: Sendable {
         public var runtime: WorkspaceRuntime
@@ -30,8 +29,9 @@ public struct WorkspaceHTTPServer: Sendable {
         public var version: String
         public var streams: EventStreams
         public var terminals: TerminalConnections
-        /// The loopback route git's credential helper asks, when there is one.
-        public var gitCredentials: GitCredentials?
+        /// False until persistent terminals use the mandatory person-bound process lifecycle. A
+        /// missing WebSocket route is a refusal.
+        public var terminalsEnabled: Bool
         /// The project's services as the supervisor has them, for the page somebody sees when the
         /// preview has nothing to show.
         public var services: @Sendable () async -> [ServiceSupervisor.Status]
@@ -44,7 +44,7 @@ public struct WorkspaceHTTPServer: Sendable {
 
         public init(runtime: WorkspaceRuntime, verifier: TokenVerifier, gate: any RemoteTurnGate, control: any MachineControl,
                     store: Store, allowedOrigins: [String], version: String, streams: EventStreams = EventStreams(),
-                    terminals: TerminalConnections = TerminalConnections(), gitCredentials: GitCredentials? = nil,
+                    terminals: TerminalConnections = TerminalConnections(), terminalsEnabled: Bool = true,
                     services: @escaping @Sendable () async -> [ServiceSupervisor.Status] = { [] },
                     appPort: Int = 3000,
                     reservedPorts: [Int] = []) {
@@ -57,24 +57,10 @@ public struct WorkspaceHTTPServer: Sendable {
             self.version = version
             self.streams = streams
             self.terminals = terminals
-            self.gitCredentials = gitCredentials
+            self.terminalsEnabled = terminalsEnabled
             self.services = services
             self.appPort = appPort
             self.reservedPorts = reservedPorts
-        }
-    }
-
-    public struct GitCredentials: Sendable {
-        public var secret: String
-        public var repository: String
-        public var fetch: @Sendable (String, RunbloomGitOperation, String?) async throws -> RunbloomGitCredential
-        /// Who a local caller is, by its port. Nil reads it from `/proc`; tests say it themselves.
-        var origin: (@Sendable (Int?) async -> LocalOrigin?)?
-
-        public init(secret: String, repository: String, fetch: @escaping @Sendable (String, RunbloomGitOperation, String?) async throws -> RunbloomGitCredential) {
-            self.secret = secret
-            self.repository = repository
-            self.fetch = fetch
         }
     }
 
@@ -98,23 +84,17 @@ public struct WorkspaceHTTPServer: Sendable {
         PreviewRoutes.register(on: router, verifier: dependencies.verifier, sessions: PreviewSessions(store: dependencies.store, revocations: dependencies.verifier.revocations),
                                runtime: dependencies.runtime, services: dependencies.services,
                                appPort: dependencies.appPort, reservedPorts: dependencies.reservedPorts)
-        if let credentials = dependencies.gitCredentials {
-            GitCredentialRoute.register(on: router, secret: credentials.secret, repository: credentials.repository,
-                                        runtime: dependencies.runtime, liveTerminalTurn: { [terminals] in await terminals.liveTurn(terminal: $0) },
-                                        origin: credentials.origin ?? { [runtime = dependencies.runtime] port in
-                                            guard let port else { return nil }
-                                            let server = await runtime.terminalServerProcessID()
-                                            return LocalProcessTable().origin(ofLocalPort: port, terminalServer: server)
-                                        },
-                                        fetch: credentials.fetch)
-        }
         return router
     }
 
     func webSocketRouter() -> Router<WorkspaceRequestContext> {
         let router = Router(context: WorkspaceRequestContext.self)
-        TerminalRoute.register(on: router, dependencies: .init(runtime: dependencies.runtime, verifier: dependencies.verifier,
-                                                               gate: dependencies.gate, connections: terminals))
+        if dependencies.terminalsEnabled {
+            TerminalRoute.register(on: router, dependencies: .init(
+                runtime: dependencies.runtime, verifier: dependencies.verifier,
+                gate: dependencies.gate, connections: terminals
+            ))
+        }
         return router
     }
 

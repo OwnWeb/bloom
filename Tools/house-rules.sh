@@ -364,6 +364,7 @@ id_type_allowed_properties=(
   'Sources/BloomCore/Remote/AddressedReport.swift:userID'             # the same, as who a message was addressed to
   'Sources/BloomCore/Remote/AddressedReport.swift:id'                 # runbloom.app's dedupe key for one mail
   'Sources/BloomCore/Remote/RemoteOpening.swift:userID'              # runbloom.app's user who prompted the opening
+  'Sources/BloomCore/Remote/RemoteTurnGate.swift:userID'             # runbloom.app's user bound to a registered turn
   'Sources/BloomCore/Bridge/CloudWorkspaceStartTool.swift:id'         # runbloom.app's id for a workspace another machine holds
   'Sources/BloomRunner/Runbloom/RunbloomCloudWorkspaces.swift:id'     # the same id, as runbloom.app answers it
   'Sources/BloomCore/Remote/WorkspacePeers.swift:id'                  # runbloom.app's id for another team workspace
@@ -372,7 +373,6 @@ id_type_allowed_properties=(
   'Sources/BloomCore/Remote/RemoteEventHub.swift:userID'              # the same user, holding an event stream open
   'Sources/BloomRunner/HTTP/EventStreams.swift:userID'                # the same user, on the server's side of the stream
   'Sources/BloomRunner/HTTP/ControlRoutes.swift:userID'               # runbloom.app's user, named in a revoke
-  'Sources/BloomRunner/Git/GitCredentialRoute.swift:chatID'           # a chat id off the loopback wire, typed on use
 )
 # A stored property whose name ends in ID or Ids and whose type is a bare
 # String. Trailing `{` is excluded by the `$` anchor, which is what leaves

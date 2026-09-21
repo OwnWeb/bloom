@@ -45,6 +45,9 @@ public final class StreamingProcess: Sendable {
         /// the child is done writing to it.
         var stdoutAtEOF = false
         var stderrAtEOF = false
+        /// A person-bound launch must lose broker authority before its cgroup is killed. The
+        /// callback is single-shot across explicit termination, launch failure and natural exit.
+        var cleanupCalled = false
         /// When the last byte arrived on either pipe, used to tell "still flushing" from
         /// "finished".
         var lastOutputAt = DispatchTime.now()
@@ -102,9 +105,11 @@ public final class StreamingProcess: Sendable {
         cwd: String? = nil,
         environment: [String: String] = Shell.environment(),
         mergeStderr: Bool = true,
-        didStart: (@Sendable (Int32) -> Void)? = nil
+        didStart: (@Sendable (Int32) -> Void)? = nil,
+        cleanup: (@Sendable () -> Void)? = nil
     ) {
         self.didStart = didStart
+        self.cleanup = cleanup
         self.executable = executable
         self.arguments = arguments
         self.cwd = cwd
@@ -147,6 +152,7 @@ public final class StreamingProcess: Sendable {
 
     /// Told the pid once the process is running. See `start()`.
     private let didStart: (@Sendable (Int32) -> Void)?
+    private let cleanup: (@Sendable () -> Void)?
 
     public var isRunning: Bool {
         state.withLock { $0.started && $0.status == nil }
@@ -230,21 +236,21 @@ public final class StreamingProcess: Sendable {
         #endif
 
         process.terminationHandler = { [weak self] process in
+            self?.runCleanup()
             self?.state.withLock { $0.wasSignalled = process.terminationReason == .uncaughtSignal }
             self?.settle(status: process.terminationStatus, deadline: nil)
         }
 
         do {
             try ProcessLaunch.run(process)
-            // **The pid, at the one moment it is knowable and before anything can use it.** A
-            // machine's git credential door recognises a caller by which of the Runner's own
-            // children it descends from, so it has to be told each one. See `SpawnedProcesses`.
+            // The pid is knowable only after launch and before the child can be observed elsewhere.
             if process.processIdentifier > 0 { didStart?(process.processIdentifier) }
             #if os(Linux)
             try startPipeReader(stdoutPipe.fileHandleForReading, stdout: true)
             try startPipeReader(stderrPipe.fileHandleForReading, stdout: false)
             #endif
         } catch {
+            runCleanup()
             if process.isRunning { process.terminate() }
             finish(status: -1, error: error)
             throw error
@@ -364,13 +370,24 @@ public final class StreamingProcess: Sendable {
     }
 
     public func terminate() {
+        runCleanup()
         signalGroup(SIGTERM)
         closeStdin()
     }
 
     /// SIGKILL, for a process that ignored SIGTERM.
     public func kill() {
+        runCleanup()
         signalGroup(SIGKILL)
+    }
+
+    private func runCleanup() {
+        let shouldRun = state.withLock { state -> Bool in
+            guard !state.cleanupCalled else { return false }
+            state.cleanupCalled = true
+            return true
+        }
+        if shouldRun { cleanup?() }
     }
 
     /// Signal the whole process group, not just the child.

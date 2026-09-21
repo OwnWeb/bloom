@@ -5,7 +5,7 @@ import Glibc
 import Darwin
 #endif
 
-/// Asking `LocalCredentialSocket` for a token, from the git credential helper and the gh wrapper.
+/// Asking the peer-authenticated local socket for one operation's credential.
 ///
 /// Blocking on purpose, and short: this runs inside a one-shot process git started and waited for,
 /// so there is nothing else for it to do, and a timeout keeps a machine whose Runner is restarting
@@ -13,7 +13,11 @@ import Darwin
 enum LocalCredentialClient {
     static let timeout = 30.0
 
-    static func ask(_ asked: GitCredentialRoute.Asked, over path: String) -> GitCredentialRoute.Answer? {
+    static func askV2(_ request: PersonBoundCredentialRequest, over path: String) -> PersonBoundCredentialAnswer? {
+        exchange(request, over: path)
+    }
+
+    static func exchange<Request: Encodable, Answer: Decodable>(_ request: Request, over path: String) -> Answer? {
         #if canImport(Glibc)
         let stream = Int32(SOCK_STREAM.rawValue)
         #else
@@ -35,7 +39,7 @@ enum LocalCredentialClient {
         let joined = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(descriptor, $0, size) }
         }
-        guard joined == 0, var body = try? JSONEncoder().encode(asked) else { return nil }
+        guard joined == 0, var body = try? JSONEncoder().encode(request) else { return nil }
         body.append(0x0A)
         let sent = body.withUnsafeBytes { raw -> Bool in
             var written = 0
@@ -46,7 +50,7 @@ enum LocalCredentialClient {
             }
             return true
         }
-        guard sent, let answered = LocalCredentialSocket.read(descriptor), !answered.isEmpty else { return nil }
-        return try? JSONDecoder().decode(GitCredentialRoute.Answer.self, from: answered)
+        guard sent, let answered = LocalSocket.read(descriptor), !answered.isEmpty else { return nil }
+        return try? JSONDecoder().decode(Answer.self, from: answered)
     }
 }

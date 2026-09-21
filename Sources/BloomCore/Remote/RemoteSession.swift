@@ -14,7 +14,7 @@ import Foundation
 /// conversation from the machine's own files. That costs a prompt cache miss, which is why it
 /// happens only when the key actually changes. See docs/REMOTE-WORKSPACES.md.
 actor RemoteSession {
-    typealias MakeRunner = @Sendable (_ environment: [String: String]) -> any SessionRunner
+    typealias MakeRunner = @Sendable (_ environment: [String: String], _ context: RemoteLaunchContext?) async throws -> any SessionRunner
 
     private let make: MakeRunner
     private(set) var runner: (any SessionRunner)?
@@ -30,6 +30,8 @@ actor RemoteSession {
     private(set) var streamingText = ""
     private var eventTask: Task<Void, Never>?
     private var isClosed = false
+    /// Invalidates a runner factory which is suspended while shutdown or a newer prepare wins.
+    private var prepareGeneration = 0
     private var isSending = false
     private var generation = 0
     private var answering: Set<String> = []
@@ -43,9 +45,11 @@ actor RemoteSession {
     private let onStream: @Sendable (_ text: String, _ reset: Bool) async -> Void
     /// How long shutdown waits for a terminated runner to exit. See `shutdown()`.
     private let runnerExitGrace: Duration
+    private let retiresRunnerAfterTurn: Bool
 
     init(
         runnerExitGrace: Duration = .seconds(6),
+        retiresRunnerAfterTurn: Bool = false,
         make: @escaping MakeRunner,
         onStream: @escaping @Sendable (_ text: String, _ reset: Bool) async -> Void = { _, _ in },
         onTurnEnded: @escaping @Sendable (RemoteTurnEnd) async -> Void = { _ in },
@@ -54,6 +58,7 @@ actor RemoteSession {
         self.onIdle = onIdle
         self.make = make
         self.runnerExitGrace = runnerExitGrace
+        self.retiresRunnerAfterTurn = retiresRunnerAfterTurn
         self.onStream = onStream
         self.onTurnEnded = onTurnEnded
     }
@@ -63,12 +68,24 @@ actor RemoteSession {
     ///
     /// A nil identity keeps whatever process is there, and launches one with no key when there
     /// is none: a turn nobody in particular asked for runs on the key the chat already has.
-    func prepare(identity: String?, environment: [String: String], personal: Set<String> = []) async throws {
+    func prepare(identity: String?, environment: [String: String], personal: Set<String> = [],
+                 context: RemoteLaunchContext? = nil) async throws {
         guard !isClosed else { throw RemoteFailure(.unavailable, "This conversation is closed.") }
         guard !isBusy else { throw RemoteFailure(.busy, "The agent is busy. Wait for it to finish or stop it first.") }
-        if runner != nil, identity == nil || launchIdentity == identity { return }
+        if !retiresRunnerAfterTurn, runner != nil, identity == nil || launchIdentity == identity { return }
+        prepareGeneration += 1
+        let preparing = prepareGeneration
         if runner != nil { await retireRunner() }
-        let fresh = make(environment)
+        guard !isClosed, preparing == prepareGeneration else {
+            if isClosed { throw RemoteFailure(.unavailable, "This conversation is closed.") }
+            throw RemoteFailure(.busy, "Another agent launch replaced this one.")
+        }
+        let fresh = try await make(environment, context)
+        guard !isClosed, preparing == prepareGeneration, runner == nil else {
+            await retire(fresh)
+            if isClosed { throw RemoteFailure(.unavailable, "This conversation is closed.") }
+            throw RemoteFailure(.busy, "Another agent launch replaced this one.")
+        }
         runner = fresh
         launchIdentity = identity
         personalMarks = personal
@@ -100,9 +117,12 @@ actor RemoteSession {
         do {
             try await runner.sendDelivery(delivery)
         } catch {
-            if claimEnd() {
-                await onTurnEnded(wasStopped ? .stopped(stopReason ?? error.localizedDescription) : .failed(error.localizedDescription))
-            }
+            let ending = claimEnd()
+                ? (wasStopped ? RemoteTurnEnd.stopped(stopReason ?? error.localizedDescription)
+                    : .failed(error.localizedDescription))
+                : nil
+            if retiresRunnerAfterTurn { await retireRunner() }
+            if let ending { await onTurnEnded(ending) }
             endTurn()
             throw error
         }
@@ -126,12 +146,14 @@ actor RemoteSession {
             guard claimEnd() else { return }
             streamingText = ""
             await onStream("", true)
+            if retiresRunnerAfterTurn { await retireRunner() }
             await onTurnEnded(wasStopped ? .stopped(stopReason ?? result.summary) : (result.isError ? .failed(result.summary) : .completed(result.summary)))
             endTurn()
         case .error(let error):
             guard claimEnd() else { return }
             streamingText = ""
             await onStream("", true)
+            if retiresRunnerAfterTurn { await retireRunner() }
             await onTurnEnded(wasStopped ? .stopped(stopReason ?? error.message) : .failed(error.message))
             endTurn()
         default: break
@@ -193,7 +215,9 @@ actor RemoteSession {
         guard isBusy, !isSending, generation == observedGeneration else { return }
         if let session, session.state == .cancelled, wasStopped {
             streamingText = ""
-            if claimEnd() { await onTurnEnded(.stopped(stopReason ?? "")) }
+            let ended = claimEnd()
+            if retiresRunnerAfterTurn { await retireRunner() }
+            if ended { await onTurnEnded(.stopped(stopReason ?? "")) }
             endTurn()
         }
     }
@@ -242,20 +266,31 @@ actor RemoteSession {
 
     private func retireRunner() async {
         guard let current = runner else { return }
-        current.terminateNow()
-        let deadline = ContinuousClock.now.advanced(by: runnerExitGrace)
-        while await current.isProcessAlive, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(25))
-        }
         eventTask?.cancel()
         eventTask = nil
         runner = nil
         launchIdentity = nil
         personalMarks = []
+        current.terminateNow()
+        let deadline = ContinuousClock.now.advanced(by: runnerExitGrace)
+        while await current.isProcessAlive, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+    }
+
+    /// A factory may finish after its launch was superseded. It never becomes actor state, but it
+    /// still owns a process and must receive the same bounded termination as an installed runner.
+    private func retire(_ fresh: any SessionRunner) async {
+        fresh.terminateNow()
+        let deadline = ContinuousClock.now.advanced(by: runnerExitGrace)
+        while await fresh.isProcessAlive, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
     }
 
     func shutdown() async {
         isClosed = true
+        prepareGeneration += 1
         // The runner escalates to SIGKILL on its own budget. Keep the server alive long enough for
         // that to run rather than orphaning a CLI that ignored SIGTERM, and bounded, so a runner
         // that never exits cannot hold shutdown for ever.

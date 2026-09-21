@@ -67,7 +67,8 @@ struct RemoteWorkAtStakeTests {
     @Test("the summary leaves the counts out when they are unknown, and sends them when they are known")
     func summaryOmitsUnknownCounts() throws {
         let base = RemoteSummary(
-            revision: 1, observedAt: Date(), bloomRunnerVersion: "1.0.0", title: "Queue", branch: "queue", baseBranch: "main",
+            revision: 1, observedAt: Date(), bloomRunnerVersion: "1.0.0", bloomRunnerCapabilities: [],
+            title: "Queue", branch: "queue", baseBranch: "main",
             state: "idle", awake: true, setup: .init(state: "succeeded"), diff: .init(files: 0, additions: 0, deletions: 0),
             chats: [], presentUserIDs: []
         )

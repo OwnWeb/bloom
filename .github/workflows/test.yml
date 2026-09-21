@@ -478,7 +478,11 @@ jobs:
   # what it runs refuses root outright.
   linux:
     runs-on: ubuntu-latest
-    container: swift:6.3.3-noble@sha256:8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5
+    container:
+      image: swift:6.3.3-noble@sha256:8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5
+      # The person-bound integration test creates a private mount namespace and a cgroup, exactly
+      # as the production Runner does. Unit tests still cover refusal paths without privileges.
+      options: --privileged
     timeout-minutes: 30
     # A container step runs under dash by default, which has no pipefail.
     defaults:
@@ -494,7 +498,7 @@ jobs:
         run: |
           set -euo pipefail
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends libsqlite3-dev zlib1g-dev pkg-config git tmux patchelf python3 openssl
+          apt-get install -y -qq --no-install-recommends libsqlite3-dev zlib1g-dev pkg-config git tmux patchelf python3 openssl sudo util-linux
           useradd --create-home --shell /bin/bash bloom-ci
           chown -R bloom-ci:bloom-ci "$GITHUB_WORKSPACE"
           runuser -u bloom-ci -- git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -507,10 +511,74 @@ jobs:
       - name: Run the Linux tests
         run: runuser -u bloom-ci -- swift test --skip-build
 
+      - name: Prove the live person-bound sandbox
+        run: |
+          set -euo pipefail
+          echo 'bloom-ci ALL=(ALL) NOPASSWD:SETENV: ALL' >/etc/sudoers.d/bloom-ci-bootstrap
+          chmod 0440 /etc/sudoers.d/bloom-ci-bootstrap
+          runuser -u bloom-ci -- env HOME=/home/bloom-ci BLOOM_WORKTREE="$GITHUB_WORKSPACE" bash Tools/provision-sandbox.sh
+          mkdir -p /.sprite
+          rm -f /.sprite/api.sock
+          python3 -c 'import socket,time; s=socket.socket(socket.AF_UNIX); s.bind("/.sprite/api.sock"); s.listen(); time.sleep(300)' &
+          socket_server=$!
+          trap 'kill "$socket_server" 2>/dev/null || true; wait "$socket_server" 2>/dev/null || true; rm -f /.sprite/api.sock' EXIT
+          for _ in {1..50}; do
+            [ -S /.sprite/api.sock ] && break
+            sleep 0.1
+          done
+          [ -S /.sprite/api.sock ]
+          runner="$(runuser -u bloom-ci -- swift build --show-bin-path)/bloom-runner"
+          install -o root -g root -m 0755 "$runner" /usr/local/bin/bloom-runner-ci
+          clang -shared -fPIC -O2 -Wall -Wextra -Werror Sources/BloomCredentialShield/shield.c \
+            -o /usr/local/lib/bloom-credential-shield.so
+          chown root:root /usr/local/lib/bloom-credential-shield.so
+          chmod 0555 /usr/local/lib/bloom-credential-shield.so
+          clang -O2 -Wall -Wextra -Werror Tests/fixtures/person-bound-fake-gh.c -o /usr/local/bin/gh
+          chown root:root /usr/local/bin/gh
+          chmod 0755 /usr/local/bin/gh
+          clang -O2 -Wall -Wextra -Werror Tests/fixtures/person-bound-trusted-launch.c \
+            -o /usr/local/bin/person-bound-trusted-launch
+          chown root:root /usr/local/bin/person-bound-trusted-launch
+          chmod 0755 /usr/local/bin/person-bound-trusted-launch
+          mkdir -p /sys/fs/cgroup/bloom-person-bound/stale-proof \
+            /var/lib/bloom/person-bound/stale-proof /var/lib/bloom/person-bound-provenance/stale-proof
+          python3 -c 'import os,time
+          child=os.fork()
+          if child == 0:
+              os.setsid(); os.setgid(200123); os.setuid(200123); time.sleep(300); os._exit(0)
+          open("/tmp/bloom-stale-pid", "w").write(str(child))
+          os.waitpid(child, 0)' &
+          stale_reaper=$!
+          for _ in {1..50}; do
+            [ -s /tmp/bloom-stale-pid ] && break
+            sleep 0.1
+          done
+          stale_pid="$(cat /tmp/bloom-stale-pid)"
+          echo "$stale_pid" >/sys/fs/cgroup/bloom-person-bound/stale-proof/cgroup.procs
+          runuser -u bloom-ci -- env BLOOM_PERSON_BOUND_INTEGRATION=1 BLOOM_WORKTREE="$GITHUB_WORKSPACE" \
+            BLOOM_PERSON_BOUND_STALE_PID="$stale_pid" BLOOM_RUNNER_TEST_EXECUTABLE=/usr/local/bin/bloom-runner-ci \
+            swift test --skip-build --filter liveLinuxFoundation
+          wait "$stale_reaper"
+
       # The wire shapes are their own package, so their vectors are checked on their own. On
       # Linux, because a client in another language is most likely to be reading them there.
       - name: Boot bloom-runner against a fake runbloom.app
-        run: runuser -u bloom-ci -- python3 Tools/runner-smoke.py "$(swift build --show-bin-path)/bloom-runner"
+        run: |
+          set -euo pipefail
+          rm -f /.sprite/api.sock
+          python3 -c 'import socket,time; s=socket.socket(socket.AF_UNIX); s.bind("/.sprite/api.sock"); s.listen(); time.sleep(300)' &
+          socket_server=$!
+          trap 'kill "$socket_server" 2>/dev/null || true; wait "$socket_server" 2>/dev/null || true; rm -f /.sprite/api.sock' EXIT
+          for _ in {1..50}; do
+            [ -S /.sprite/api.sock ] && break
+            sleep 0.1
+          done
+          [ -S /.sprite/api.sock ]
+          install -d -o bloom-ci -g bloom-ci /tmp/bloom-untrusted-bin
+          cp /bin/false /tmp/bloom-untrusted-bin/gh
+          chown bloom-ci:bloom-ci /tmp/bloom-untrusted-bin/gh
+          runuser -u bloom-ci -- env PATH="/tmp/bloom-untrusted-bin:$PATH" \
+            python3 Tools/runner-smoke.py /usr/local/bin/bloom-runner-ci
 
       # The package a release would publish, from this debug build, and the packaged server booted
       # against a fake runbloom.app on a machine with no Swift. The artefact is what a bloomdev
@@ -539,7 +607,9 @@ jobs:
   packaged-runner:
     needs: linux
     runs-on: ubuntu-latest
-    container: ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78
+    container:
+      image: ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78
+      options: --privileged
     timeout-minutes: 15
     defaults:
       run:
@@ -556,12 +626,30 @@ jobs:
         run: |
           set -euo pipefail
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends python3 openssl git ca-certificates
+          apt-get install -y -qq --no-install-recommends python3 openssl git gh ca-certificates sudo util-linux tmux
           if command -v swift >/dev/null; then echo "This job must not have Swift."; exit 1; fi
           cd package && sha256sum -c ./*.sha256 && cd ..
-          mkdir unpacked && tar -xzf package/*.tar.gz -C unpacked
-          unpacked/bin/bloom-runner version
-          unpacked/bin/caddy version
+          package_root=/opt/bloom/package-smoke
+          install -d -o root -g root "$package_root"
+          tar -xzf package/*.tar.gz -C "$package_root"
+          chown -R root:root "$package_root"
+          "$package_root/bin/bloom-runner" version
+          "$package_root/bin/caddy" version
           useradd --create-home smoke
-          chown -R smoke unpacked
-          runuser -u smoke -- python3 Tools/runner-smoke.py unpacked/bin/bloom-runner
+          echo 'smoke ALL=(ALL) NOPASSWD:SETENV: ALL' >/etc/sudoers.d/bloom-smoke-bootstrap
+          chmod 0440 /etc/sudoers.d/bloom-smoke-bootstrap
+          install -d -o smoke -g smoke /tmp/bloom-smoke-worktree
+          runuser -u smoke -- env HOME=/home/smoke BLOOM_WORKTREE=/tmp/bloom-smoke-worktree \
+            BLOOM_CREDENTIAL_SHIELD_SOURCE="$package_root/lib/bloom-credential-shield.so" \
+            bash "$package_root/bin/provision-sandbox.sh"
+          mkdir -p /.sprite
+          rm -f /.sprite/api.sock
+          python3 -c 'import socket,time; s=socket.socket(socket.AF_UNIX); s.bind("/.sprite/api.sock"); s.listen(); time.sleep(300)' &
+          socket_server=$!
+          trap 'kill "$socket_server" 2>/dev/null || true; wait "$socket_server" 2>/dev/null || true; rm -f /.sprite/api.sock' EXIT
+          for _ in {1..50}; do
+            [ -S /.sprite/api.sock ] && break
+            sleep 0.1
+          done
+          [ -S /.sprite/api.sock ]
+          runuser -u smoke -- python3 Tools/runner-smoke.py "$package_root/bin/bloom-runner"

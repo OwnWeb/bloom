@@ -17,20 +17,26 @@ struct AwakeControllerTests {
         let clock: TestClock
     }
 
-    func fixture() async throws -> Fixture {
+    func fixture(
+        capabilities: [String] = [],
+        capabilitiesProvider: (@Sendable () -> [String])? = nil
+    ) async throws -> Fixture {
         let store = try Store(path: NSTemporaryDirectory() + "bloom-awake-\(UUID().uuidString).sqlite")
         let path = NSTemporaryDirectory() + "bloom-awake-worktree-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         let workspace = try await RemoteMachineWorkspace.ensure(store: store, id: "01k5a7d3v1x0m8n2q4r6s9t0wy", name: "Queue retries",
                                                                  repository: "spatie/bloom", path: path, branch: "queue-retries", baseBranch: "main")
-        let runtime = WorkspaceRuntime(store: store, workspaceID: workspace.id, makeRunner: { _, _, _, _, _ in NeverRunner() },
+        let runtime = WorkspaceRuntime(store: store, workspaceID: workspace.id, makeRunner: { _, _, _, _, _, _ in NeverRunner() },
                                        installedAgents: { [.claudeCode] }, models: { _ in [] })
         try await runtime.start()
         let host = RecordingHost()
         let box = SentBox()
         let delivery = ReportDelivery(sender: .init(summary: { box.append("summary", $0) }, usage: { box.append("usage", $0) }))
         let clock = TestClock(Date())
-        let reporter = MachineReporter(runtime: runtime, store: store, delivery: delivery, host: host, version: "1.0.0", now: clock.reading)
+        let reporter = MachineReporter(
+            runtime: runtime, store: store, delivery: delivery, host: host, version: "1.0.0",
+            capabilities: capabilities, capabilitiesProvider: capabilitiesProvider, now: clock.reading
+        )
         let awake = AwakeController(host: host, runtime: runtime, reporter: reporter, now: clock.reading)
         return Fixture(store: store, runtime: runtime, host: host, box: box, reporter: reporter, awake: awake, clock: clock)
     }
@@ -95,6 +101,40 @@ struct AwakeControllerTests {
         #expect(summary.revision == Int64.max / 2 + 1)
         #expect(summary.title == "Queue retries")
         #expect(summary.state == "setting_up")
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a summary advertises only the single runtime-proved credential capability")
+    func summaryCarriesCapability() async throws {
+        let capability = PersonBoundRuntimeFoundation.capability
+        let fixture = try await fixture(capabilities: [capability])
+        await fixture.reporter.postSummaryNow()
+        _ = await fixture.reporter.flush(timeout: .seconds(2))
+        let body = try #require(fixture.box.sent.withLock { $0 }.last { $0.kind == "summary" }?.body)
+        let summary = try WireJSON.decode(RemoteSummary.self, from: body)
+        #expect(summary.bloomRunnerCapabilities == [capability])
+        let json = String(decoding: body, as: UTF8.self)
+        #expect(json.contains("\"bloom_runner_capabilities\":[\"person_bound_github_credentials_v1\"]"))
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a runtime failure removes a previously advertised capability")
+    func summaryReevaluatesCapabilities() async throws {
+        let healthy = Mutex(true)
+        let capability = PersonBoundRuntimeFoundation.capability
+        let fixture = try await fixture(capabilitiesProvider: {
+            healthy.withLock { $0 } ? [capability] : []
+        })
+        await fixture.reporter.postSummaryNow()
+        healthy.withLock { $0 = false }
+        await fixture.reporter.postSummaryNow()
+        _ = await fixture.reporter.flush(timeout: .seconds(2))
+
+        let bodies = fixture.box.sent.withLock { $0.filter { $0.kind == "summary" }.map(\.body) }
+        #expect(bodies.count == 2)
+        let body = try #require(bodies.last)
+        let last = try WireJSON.decode(RemoteSummary.self, from: body)
+        #expect(last.bloomRunnerCapabilities.isEmpty)
         await fixture.runtime.shutdown()
     }
 }

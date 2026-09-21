@@ -30,6 +30,9 @@ public actor WorkspaceRuntime {
     let installedAgents: AgentDiscovery
     let models: ModelDiscovery
     let runnerExitGrace: Duration
+    /// Person-bound grants and Unix identities belong to one turn. The process is retired after every
+    /// terminal event even when the next turn is by the same person with the same agent key.
+    let retiresRunnerAfterTurn: Bool
     let publishing: RemotePublishing?
     public nonisolated let events: RemoteEventHub
     let admissions = RemoteAdmissions()
@@ -43,10 +46,6 @@ public actor WorkspaceRuntime {
     /// Disk work running off the actor, and whose searches are among it. See `blocking`.
     var blockingInFlight = 0
     var searchesInFlight: Set<String> = []
-    /// Turns a push or pull request is running under right now, which the git credential route
-    /// accepts a turn id for. See `RemotePublishing`.
-    var publishingTurns: Set<String> = []
-
     var sessions: [SessionID: RemoteSession] = [:]
     var creating: [SessionID: Task<RemoteSession, Error>] = [:]
     var commands: [String: Task<CommandReply, Never>] = [:]
@@ -133,6 +132,7 @@ public actor WorkspaceRuntime {
         models: @escaping ModelDiscovery = WorkspaceRuntime.liveModels,
         publishing: RemotePublishing? = nil,
         runnerExitGrace: Duration = .seconds(6),
+        retiresRunnerAfterTurn: Bool = false,
         bridgeSocketPath: String? = nil,
         bridgeShimPath: String? = BridgeRegistration.shimPath(),
         runsSetup: Bool = true,
@@ -164,6 +164,7 @@ public actor WorkspaceRuntime {
         self.installedAgents = installedAgents
         self.models = models
         self.runnerExitGrace = runnerExitGrace
+        self.retiresRunnerAfterTurn = retiresRunnerAfterTurn
         // Weakly back to the runtime, because the hub is the runtime's and a strong reference
         // from its closure would keep both alive for ever.
         let box = WeakRuntime()
@@ -481,11 +482,12 @@ public actor WorkspaceRuntime {
             let store = self.store, make = self.makeRunner, bridge = self.bridge, shimPath = self.bridgeShimPath
             return RemoteSession(
                 runnerExitGrace: self.runnerExitGrace,
-                make: { environment in
+                retiresRunnerAfterTurn: self.retiresRunnerAfterTurn,
+                make: { environment, context in
                     // Per process rather than per chat, because a relaunch on another key is a new
                     // process and registering is what revokes the token the old one held.
                     let handle = bridge.flatMap { Self.registerBridge($0, shimPath: shimPath, session: session, workspace: workspace) }
-                    return make(session, workspace.path, store, environment, handle)
+                    return try await make(session, workspace.path, store, environment, handle, context)
                 },
                 onStream: { [weak self] text, reset in await self?.streamed(id, text: text, reset: reset) },
                 onTurnEnded: { [weak self] ending in await self?.queue().turnEnded(id, ending: ending) },

@@ -79,7 +79,7 @@ extension WorkspaceRuntime {
     /// The summary as it stands. Revision, time, version, awake and the lease are the server's to
     /// supply; the diff and pull request are measured on their own, slower, schedule.
     public func summary(
-        revision: Int64, observedAt: Date, version: String, awake: Bool, leaseUntil: Date?,
+        revision: Int64, observedAt: Date, version: String, capabilities: [String] = [], awake: Bool, leaseUntil: Date?,
         diff: RemoteSummary.Diff, pullRequest: RemoteSummary.PullRequest?, atStake: RemoteWorkAtStake?
     ) async throws -> RemoteSummary {
         let workspace = try await workspace()
@@ -108,7 +108,8 @@ extension WorkspaceRuntime {
         }
         let last = try await store.lastMessage(workspaceID: workspaceID, kinds: [.assistantText, .user, .crew])
         return RemoteSummary(
-            revision: revision, observedAt: observedAt, bloomRunnerVersion: version, title: workspace.name,
+            revision: revision, observedAt: observedAt, bloomRunnerVersion: version,
+            bloomRunnerCapabilities: capabilities, title: workspace.name,
             branch: workspace.branch, baseBranch: workspace.baseBranch,
             state: RemoteSummary.state(setup: workspace.setupState, chats: activities), awake: awake,
             presenceLeaseUntil: leaseUntil,

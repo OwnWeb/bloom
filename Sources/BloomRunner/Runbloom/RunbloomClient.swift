@@ -114,17 +114,38 @@ public struct RunbloomClient: Sendable {
         _ = try await send(.DELETE, "/turns/\(id)", expecting: [204, 200])
     }
 
-    public func gitCredentials(repository: String, operation: RunbloomGitOperation, turnID: String?) async throws -> RunbloomGitCredential {
-        let body: [String: Any] = [
-            "repository": repository,
+    /// The machine actor's read-only grant for Runner-owned bootstrap work. The response bearer is
+    /// held by the v2 broker only and is never written to Store or configuration.
+    public func bootstrapGithubCredentialGrant() async throws -> PersonBoundGithubGrant {
+        struct Answer: Decodable { var grant: PersonBoundGithubGrantBody }
+        let data = try await sendOnce(
+            .POST, "/github-credential-grants/bootstrap", body: nil, headers: [:], expecting: [201]
+        ).body
+        guard let grant = try decode(Answer.self, data, status: 201).grant.grant else {
+            throw RunbloomError.unexpected(status: 201)
+        }
+        return grant
+    }
+
+    /// Exchanges exactly one rotating v2 grant for exactly one typed operation. There is no
+    /// repository or identity in the request because both are bound to the opaque grant by 7B.
+    public func githubCredentials(
+        grant: String, operation: PersonBoundGithubOperation, requestID: UUID
+    ) async throws -> PersonBoundGithubCredentials {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "grant": grant,
             "operation": operation.rawValue,
-            "turn_id": turnID ?? NSNull(),
-        ]
-        let data = try await send(.POST, "/git-credentials", body: JSONSerialization.data(withJSONObject: body), expecting: [200])
-        guard let credential = try decode(RunbloomGitCredentialBody.self, data, status: 200).credential else {
+            "request_id": requestID.uuidString.lowercased(),
+        ])
+        // Rotating grants are not replayable. Even an authentication failure is returned to the
+        // broker without the usual machine-secret retry because the server may have consumed it.
+        let data = try await sendOnce(
+            .POST, "/github-credentials", body: body, headers: [:], expecting: [200]
+        ).body
+        guard let issued = try decode(PersonBoundGithubCredentialsBody.self, data, status: 200).issued else {
             throw RunbloomError.unexpected(status: 200)
         }
-        return credential
+        return issued
     }
 
     // MARK: - Transport

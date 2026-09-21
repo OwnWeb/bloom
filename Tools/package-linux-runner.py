@@ -70,6 +70,15 @@ def copy_notice(source, destination):
     shutil.copy2(source, destination)
 
 
+def root_owned_archive_entry(entry):
+    """Make extraction by root produce a root-controlled release tree."""
+    entry.uid = 0
+    entry.gid = 0
+    entry.uname = "root"
+    entry.gname = "root"
+    return entry
+
+
 def linux_dependencies(root):
     """The checkouts the Linux build actually depends on, by lower case name.
 
@@ -141,6 +150,12 @@ def package(bin_directory, output_directory, version):
         bundle = pathlib.Path(directory) / bundle_name
         (bundle / "bin").mkdir(parents=True)
         (bundle / "lib").mkdir()
+        shield = bundle / "lib" / "bloom-credential-shield.so"
+        subprocess.run([
+            "clang", "-shared", "-fPIC", "-O2", "-Wall", "-Wextra", "-Werror",
+            str(root / "Sources/BloomCredentialShield/shield.c"), "-o", str(shield),
+        ], check=True)
+        shield.chmod(0o555)
         notices = bundle / "licences"
         notices.mkdir()
         copy_notice(root / "LICENSE.md", notices / "Bloom.txt")
@@ -168,6 +183,7 @@ def package(bin_directory, output_directory, version):
             "protocol": "bloom-workspace", "protocolVersion": 1, "version": version, "architecture": machine,
             "glibc": run("getconf", "GNU_LIBC_VERSION"), "swift": swift_version, "caddy": CADDY_VERSION, "libraries": {},
         }
+        manifest["credentialShield"] = hashlib.sha256(shield.read_bytes()).hexdigest()
         for name, source in sorted(libraries.items()):
             destination = bundle / "lib" / name
             shutil.copy2(source, destination)
@@ -217,7 +233,11 @@ def package(bin_directory, output_directory, version):
             # bin/ at the root of the archive rather than inside a named directory, because
             # runbloom.app's bootstrap unpacks it straight into /opt/bloom/<version>.
             for entry in sorted(bundle.iterdir()):
-                archive.add(entry, arcname=entry.name)
+                archive.add(entry, arcname=entry.name, filter=root_owned_archive_entry)
+
+        with tarfile.open(archive_path, "r:gz") as archive:
+            if any(entry.uid != 0 or entry.gid != 0 for entry in archive.getmembers()):
+                raise RuntimeError("The package contains an entry that is not owned by root")
 
     digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
     (output_directory / (archive_path.name + ".sha256")).write_text(f"{digest}  {archive_path.name}\n")

@@ -170,7 +170,7 @@ public struct MachineConfigurationError: Error, CustomStringConvertible {
 
 /// Where Bloom Runner keeps what it owns on the machine, and the ports it uses.
 public struct MachineLayout: Sendable, Hashable {
-    /// The database, the tmux socket and configuration, the local secret.
+    /// The database and tmux socket and configuration.
     public var dataDirectory: String
     /// Where the repository is cloned.
     public var worktree: String

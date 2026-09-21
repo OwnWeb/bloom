@@ -50,7 +50,7 @@ struct MachineSandboxTests {
         #expect(wrapped.arguments.last?.contains("'/usr/local/bin/claude' '--print'") == true)
     }
 
-    /// A Mac, or a machine built before the sandbox existed, runs commands as it always did.
+    /// Availability is false where the sandbox account or either required tool is missing.
     @Test("nothing is wrapped where the user or the tools are missing")
     func availability() {
         #expect(MachineSandbox.available(hasUser: { _ in false }, isExecutable: { _ in true }) == nil)

@@ -25,6 +25,9 @@
 #   BLOOM_SANDBOX_GROUP  the shared group (default bloom-work)
 #   BLOOM_SANDBOX_HOME   that user's home (default /home/<user>)
 #   BLOOM_SHARED_DIR     what both users read (default /var/lib/bloom/shared)
+#   BLOOM_PERSON_BOUND_SHARED_DIR  Runner-owned v2 sockets and wrappers
+#   BLOOM_PERSON_BOUND_CONFIG_DIR  root-owned empty network configuration
+#   BLOOM_PERSON_BOUND_HOME_ROOT  ephemeral v2 homes (default /var/lib/bloom/person-bound)
 #   BLOOM_WORKTREE       the checkout to share (default $HOME/workspace)
 #   BLOOM_DATA_DIR       the Runner's own directory, left private (default $HOME/.bloom)
 #   BLOOM_AGENT_SOURCE   where the image keeps the CLIs (default $HOME/.local/share/sprite-agents)
@@ -106,6 +109,47 @@ shared="${BLOOM_SHARED_DIR:-/var/lib/bloom/shared}"
 $sudo_cmd mkdir -p "$shared"
 $sudo_cmd chgrp "$group" "$shared"
 $sudo_cmd chmod 2775 "$shared"
+
+# V2 processes may connect to these sockets and execute these wrappers, but cannot unlink or
+# replace either. The legacy shared directory remains writable for its existing uses.
+person_bound_shared="${BLOOM_PERSON_BOUND_SHARED_DIR:-/var/lib/bloom/person-bound-shared}"
+$sudo_cmd mkdir -p "$person_bound_shared"
+$sudo_cmd chown "$runner:$group" "$person_bound_shared"
+$sudo_cmd chmod 0750 "$person_bound_shared"
+
+# Network Git and gh run with this as their complete configuration home. Root owns it and nobody
+# may add a proxy, CA, URL rewrite, helper or alternate Unix socket after the runtime proof.
+person_bound_empty_config="${BLOOM_PERSON_BOUND_CONFIG_DIR:-/var/lib/bloom/person-bound-config}"
+$sudo_cmd mkdir -p "$person_bound_empty_config"
+$sudo_cmd chown root:root "$person_bound_empty_config"
+$sudo_cmd chmod 0555 "$person_bound_empty_config"
+
+# Numeric v2 users own only their one child of this root. The parent is traversable but not
+# writable, and each child is created mode 0700 by bloom-runner's privileged launch helper.
+person_bound_home_root="${BLOOM_PERSON_BOUND_HOME_ROOT:-/var/lib/bloom/person-bound}"
+$sudo_cmd mkdir -p "$person_bound_home_root"
+$sudo_cmd chown root:root "$person_bound_home_root"
+$sudo_cmd chmod 0711 "$person_bound_home_root"
+
+# Only the privileged launch supervisor and command attestor may write or read execution history.
+# A script cannot erase its provenance by execing a system binary before it reaches a wrapper.
+person_bound_provenance="${BLOOM_PERSON_BOUND_PROVENANCE_ROOT:-/var/lib/bloom/person-bound-provenance}"
+$sudo_cmd mkdir -p "$person_bound_provenance"
+$sudo_cmd chown root:root "$person_bound_provenance"
+$sudo_cmd chmod 0700 "$person_bound_provenance"
+
+# gh only accepts a token through its environment. This root-owned preload closes same-uid /proc
+# inspection before gh's main function can observe the token. Packaged Runners carry it in lib/.
+credential_shield="${BLOOM_CREDENTIAL_SHIELD_LIBRARY:-/usr/local/lib/bloom-credential-shield.so}"
+credential_shield_source="${BLOOM_CREDENTIAL_SHIELD_SOURCE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/bloom-credential-shield.so}"
+if [[ -f "$credential_shield_source" && "$credential_shield_source" != "$credential_shield" ]]; then
+  $sudo_cmd install -o root -g root -m 0555 "$credential_shield_source" "$credential_shield"
+elif [[ -f "$credential_shield" ]]; then
+  $sudo_cmd chown root:root "$credential_shield"
+  $sudo_cmd chmod 0555 "$credential_shield"
+else
+  say "credential shield is unavailable; Bloom Runner will refuse to start"
+fi
 
 # 6. Both users in one checkout, and the Runner's own directory still private.
 $sudo_cmd chmod 0751 "$home"

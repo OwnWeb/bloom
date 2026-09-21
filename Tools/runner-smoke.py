@@ -132,12 +132,14 @@ def main():
             usage = fake.recorded("/usage")
             events = [event for report in usage for event in report["events"]]
             # Every hold ends in exactly one `released`, the last word about being awake, because
-            # runbloom.app adds its margin once per `released`.
+            # runbloom.app adds its margin once per `released`. A fresh machine can fail closed
+            # during setup before it ever acquires a hold, which leaves this list empty.
             holds = [event["kind"] for event in events if event["kind"] in ("awake", "released")]
-            assert holds and holds[-1] == "released" and holds.count("awake") == holds.count("released"), usage
+            assert holds.count("awake") == holds.count("released"), usage
+            assert not holds or holds[-1] == "released", usage
         except BaseException:
             log.flush()
-            print((scratch / "server.log").read_text()[-4000:], file=sys.stderr)
+            print((scratch / "server.log").read_text()[-16000:], file=sys.stderr)
             raise
         finally:
             if process.poll() is None:

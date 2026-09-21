@@ -48,13 +48,24 @@ final class FakeControlServer: Sendable {
         static func grant(
             turn: String = "",
             keys: [String: (key: String, identity: String, source: String)] = [:],
-            environment: [String: String] = [:]
+            environment: [String: String] = [:],
+            githubGrant: (token: String, expiresAt: String, revision: Int)? = nil
         ) -> Scripted {
             var agentKeys: [String: Any] = [:]
             for (agent, value) in keys {
                 agentKeys[agent] = ["key": value.key, "identity": value.identity, "source": value.source]
             }
-            return json(200, ["turn_id": turn, "state": "running", "agent_keys": agentKeys, "environment": environment])
+            var body: [String: Any] = [
+                "turn_id": turn, "state": "running", "agent_keys": agentKeys, "environment": environment,
+            ]
+            if let githubGrant {
+                body["github_credential_grant"] = [
+                    "token": githubGrant.token,
+                    "expires_at": githubGrant.expiresAt,
+                    "revision": githubGrant.revision,
+                ]
+            }
+            return json(200, body)
         }
 
         /// runbloom.app's limit refusal: 429 with `retry_after` for the one that clears by itself,
@@ -245,8 +256,6 @@ final class FakeControlServer: Sendable {
             return state.withLock { $0.starts[parts[1]] ?? $0.defaultStart }
         case ("DELETE", let parts) where parts.count == 2 && parts[0] == "turns":
             return .noContent
-        case ("POST", ["git-credentials"]):
-            return .json(200, ["token": "ghs_faketoken", "expires_at": "2026-09-17T10:00:00.250000Z", "username": "x-access-token"])
         case ("PUT", ["project-icon"]):
             return .noContent
         case ("GET", ["project-icon-request"]):
