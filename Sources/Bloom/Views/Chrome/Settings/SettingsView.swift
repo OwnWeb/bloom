@@ -26,7 +26,7 @@ struct SettingsView: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var saveError: String?
     @State private var cloudDiscovery = CloudSettingsDiscovery()
-    @AppStorage(CloudSettingsDiscovery.unlockedKey) private var cloudSettingsUnlocked = false
+    @State private var cloudSettingsRevealed = false
 
     var body: some View {
         // A fixed sidebar avoids the split view's collapsible toolbar and its reserved top inset.
@@ -83,12 +83,21 @@ struct SettingsView: View {
         .onChange(of: showsCloudSettings) { _, visible in
             if !visible, tab == .account { tab = .general }
         }
+        .onChange(of: app.cloud.isSignedIn) { _, isSignedIn in
+            guard !isSignedIn else { return }
+            cloudSettingsRevealed = false
+            cloudDiscovery = CloudSettingsDiscovery()
+        }
+        .onDisappear {
+            cloudSettingsRevealed = false
+            cloudDiscovery = CloudSettingsDiscovery()
+        }
     }
 
     private var showsCloudSettings: Bool {
         CloudSettingsDiscovery.isVisible(
             isSignedIn: app.cloud.isSignedIn,
-            isUnlocked: cloudSettingsUnlocked
+            isRevealed: cloudSettingsRevealed
         )
     }
 
@@ -128,7 +137,7 @@ struct SettingsView: View {
                 .tag(item)
                 .simultaneousGesture(TapGesture().onEnded {
                     if cloudDiscovery.record(isGeneral: item == .general, at: Date()) {
-                        cloudSettingsUnlocked = true
+                        cloudSettingsRevealed = true
                     }
                 })
         }

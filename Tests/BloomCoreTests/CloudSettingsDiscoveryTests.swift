@@ -45,10 +45,10 @@ struct CloudSettingsDiscoveryTests {
         #expect(!revealed)
     }
 
-    @Test("a sign in or an earlier unlock makes the pane visible")
+    @Test("a sign in or a temporary reveal makes the pane visible")
     func visibility() {
-        #expect(!CloudSettingsDiscovery.isVisible(isSignedIn: false, isUnlocked: false))
-        #expect(CloudSettingsDiscovery.isVisible(isSignedIn: true, isUnlocked: false))
-        #expect(CloudSettingsDiscovery.isVisible(isSignedIn: false, isUnlocked: true))
+        #expect(!CloudSettingsDiscovery.isVisible(isSignedIn: false, isRevealed: false))
+        #expect(CloudSettingsDiscovery.isVisible(isSignedIn: true, isRevealed: false))
+        #expect(CloudSettingsDiscovery.isVisible(isSignedIn: false, isRevealed: true))
     }
 }

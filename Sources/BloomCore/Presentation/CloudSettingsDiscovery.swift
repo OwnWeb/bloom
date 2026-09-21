@@ -5,15 +5,13 @@ import Foundation
 /// Ten uninterrupted taps on General inside one ten second window reveal the pane. Any other
 /// settings row breaks the sequence, so ordinary navigation can never unlock it by accident.
 public struct CloudSettingsDiscovery: Sendable {
-    public static let unlockedKey = "settings.cloudUnlocked"
-
     private var count = 0
     private var startedAt: Date?
 
     public init() {}
 
-    public static func isVisible(isSignedIn: Bool, isUnlocked: Bool) -> Bool {
-        isSignedIn || isUnlocked
+    public static func isVisible(isSignedIn: Bool, isRevealed: Bool) -> Bool {
+        isSignedIn || isRevealed
     }
 
     /// Records one settings row tap and answers whether this tap completed the hidden sequence.

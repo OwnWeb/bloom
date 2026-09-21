@@ -24,8 +24,9 @@ import Foundation
 /// **Greyed rather than absent.** A menu bar is a map of what the app can do, so an item that
 /// vanishes when it cannot be pressed teaches nothing. That is the opposite of the habit the
 /// context menus have, on purpose: a context menu is a shortcut to somewhere you already are. The
-/// two exceptions in the table are the run scripts and the setup script, which are absent when the
-/// project defines none, because a permanently empty submenu teaches nothing either.
+/// The exceptions in the table are the run scripts and setup script, which are absent when the
+/// project defines none, and the Bloom Cloud workspace command, which stays undiscoverable until
+/// somebody signs in.
 public enum MenuBarCatalogue {
     /// The item for one action. Traps on an action with no row, which cannot happen: `commands`
     /// covers every case and `MenuBarCatalogueTests.everyActionHasARow` holds it.
@@ -63,8 +64,8 @@ public enum MenuBarCatalogue {
         // Beside the two above, because it starts the same kind of thing somewhere else. It is
         // here at all because the small `+` on the sidebar's Cloud heading came off at the owner's
         // asking, and the dock's New menu should not be the only door: "New Workspace…" is in File
-        // and its Cloud sibling belongs in the same place. Greyed until somebody signs in to a
-        // Bloom account, which is a fact the core cannot hold, hence `sometimes`. No key
+        // and its Cloud sibling belongs in the same place. It is absent until somebody signs in to
+        // a Bloom account, which is a fact the core cannot hold, hence `sometimes`. No key
         // equivalent: Cmd+N is the local one and this is the rarer of the two.
         MenuBarItem(.newCloudWorkspace, in: .file, "New Bloom Cloud Workspace…", availability: .sometimes),
         // The conversation above every project, started again. It existed only as a toolbar button
