@@ -1,11 +1,11 @@
 name: Test
 
-# What a push has to survive. release.yml only reacts to a published release,
-# so until this existed nothing compiled the app or ran a test in reaction to a
-# commit, and a branch could look fine right up to the moment somebody built it.
+# What a pull request has to survive. release.yml only reacts to a published
+# release, so the review workflow is where a proposed change is compiled and
+# tested before it lands.
 #
 # Three jobs, all three side by side, because they fail for different reasons
-# and one push should tell you everything that is wrong with it rather than one
+# and one run should tell you everything that is wrong with it rather than one
 # thing at a time.
 #
 #   lint     the workflows, the shell scripts, the house rules and SwiftLint,
@@ -37,13 +37,8 @@ name: Test
 # is the one that finds out, and it finds out at the worst moment.
 
 on:
-  # Push on main only, pull request for everything else. Running on both for
-  # every branch meant a branch with a pull request open was built twice for
-  # one commit, and a macOS minute on a private repository bills at ten times
-  # the rate of a Linux one. The consequence to know about: a branch with no
-  # pull request open is not built until it lands on main.
-  push:
-    branches: [main]
+  # Proposed changes run once through their pull request. A push to main does
+  # not repeat the same work after merge.
   pull_request:
   # The manual build. Run this workflow from the Actions tab, on any branch, to
   # get a Bloom.app out of it without cutting a release.
@@ -55,10 +50,10 @@ permissions:
   contents: read
 
 concurrency:
-  # A second push to a branch makes the first one's answer stale, so the older
+  # A second commit on a pull request makes the first answer stale, so the older
   # run is dropped rather than left to occupy a macOS runner. The event is part
-  # of the group so that a push does not cancel a manual build of the same
-  # branch: that run was asked for by a person who wants the zip at the end.
+  # of the group so that a pull request does not cancel a manual build of the
+  # same branch: that run was asked for by a person who wants the zip at the end.
   group: bloom-test-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 

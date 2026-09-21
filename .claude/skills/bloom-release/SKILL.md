@@ -16,8 +16,9 @@ and `.github/workflows/release.yml` for current implementation details. Use `gh`
    resolve it before creating the tag.
 2. **Generate release notes** from the commits and merged PRs since the preceding release to the
    selected commit. Check the changes and describe user-visible additions and fixes in concise
-   British English. Do not invent features or just paste the commit log. Use the same facts for
-   GitHub and the website. Write the GitHub Markdown to a temporary file for `--notes-file`.
+   British English. Apply every public-notes embargo in `RELEASING.md`. Do not invent features or
+   just paste the commit log. Use the same facts for GitHub and the website. Write the GitHub
+   Markdown to a temporary file for `--notes-file`.
 3. Prepare the tag and notes before publishing. A request to prepare a release stops at a
    reviewable draft; a request to publish authorises publication. For an existing pushed tag:
 

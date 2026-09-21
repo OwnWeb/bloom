@@ -63,6 +63,10 @@ through one piece of code on purpose.
 2. Generate release notes from the commits and merged PRs since the preceding release, checking
    them against the selected commit. Describe user-visible changes in concise British English.
    Publish them on GitHub; they become the description Sparkle shows.
+   **Bloom Cloud is embargoed until the owner explicitly says it is public.** Until then, exclude
+   Bloom Cloud and supporting infrastructure from every public release title, GitHub note, Sparkle
+   note and website changelog. Write and review the notes by hand rather than publishing generated
+   notes that may reveal it.
 3. Publish. Tick "set as a pre-release" for anything you do not want everyone
    offered.
 4. After the release workflow succeeds, [publish the website release notes](#publish-the-website-release-notes)

@@ -176,15 +176,15 @@ not a thing to sit and repeat.** The owner is working at this Mac while you run,
 build at once, and a day of that took the load average to 205. A sweep of everything on every edit
 is how his machine stalls, and the machine stalling costs more than the answer is worth.
 
-**The green that counts is CI on a pushed branch.** `.github/workflows/test.yml` builds the app
+**The green that counts is CI on a pull request.** `.github/workflows/test.yml` builds the app
 target with `-warnings-as-errors`, runs the house rules, parses every script and runs the whole
-core suite on a macOS 26 runner, on hardware that is not his. Push, wait for it, and read what it
+core suite on a macOS 26 runner, on hardware that is not his. Open the pull request, wait for it, and read what it
 says before calling anything done. `gh run watch` and `gh run list --branch <name>` are how you
 wait without polling the browser.
 
-One detail that has caught people out: that workflow runs on **push to `main` and on pull
-request**, and on nothing else. A branch pushed with no pull request open is not built at all, so
-opening the pull request is part of asking for the answer rather than a step after it.
+That workflow runs on **pull requests and manual dispatch**, and on nothing else. A branch pushed
+with no pull request open is not built, and merging does not repeat the run on `main`. Opening the
+pull request is part of asking for the answer rather than a step after it.
 
 The nightly workflow is separate and gates nothing: Thread Sanitizer, coverage and dead code, on a
 schedule, because they are too slow to put in front of a push. Read it when you want those
