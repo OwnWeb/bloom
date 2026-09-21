@@ -83,14 +83,12 @@ struct SettingsView: View {
         .onChange(of: showsCloudSettings) { _, visible in
             if !visible, tab == .account { tab = .general }
         }
-        .onChange(of: app.cloud.isSignedIn) { _, isSignedIn in
-            guard !isSignedIn else { return }
-            cloudSettingsRevealed = false
-            cloudDiscovery = CloudSettingsDiscovery()
+        .onChange(of: app.cloud.accountState) { oldState, newState in
+            guard oldState != newState, newState == .signedOut else { return }
+            hideCloudSettings()
         }
         .onDisappear {
-            cloudSettingsRevealed = false
-            cloudDiscovery = CloudSettingsDiscovery()
+            hideCloudSettings()
         }
     }
 
@@ -110,6 +108,11 @@ struct SettingsView: View {
 
     private func available(_ requested: SettingsTab) -> SettingsTab {
         requested == .account && !showsCloudSettings ? .general : requested
+    }
+
+    private func hideCloudSettings() {
+        cloudSettingsRevealed = false
+        cloudDiscovery = CloudSettingsDiscovery()
     }
 
     private var defaultsBinding: Binding<AppDefaults> {
