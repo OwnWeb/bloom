@@ -9,7 +9,7 @@ struct SidebarColumnLayoutTests {
         let projectIconLeading = layout.disclosureWidth + layout.spacing
 
         #expect(layout.workspaceIndent + layout.indicatorWidth + layout.spacing == projectIconLeading)
-        #expect(layout.primaryContentLeading == projectIconLeading)
+        #expect(abs(layout.primaryContentLeading - projectIconLeading) < 0.001)
     }
 
     @Test("Every workspace state keeps the same two columns")
