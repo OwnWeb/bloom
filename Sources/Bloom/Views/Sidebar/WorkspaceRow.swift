@@ -19,10 +19,9 @@ import BloomCore
 /// project line up with each other and with the notice that stands in for them when a project is
 /// empty, instead of the three columns the hand-built stack produced.
 ///
-/// The whole row is then indented to the project's tile by `SidebarWorkspaceRow`, which is what
-/// puts it under the project it belongs to rather than under Home and Search: the mark lands in
-/// the tile's column and the name on the project's own. See `SidebarMetrics.rowIndent` and
-/// `SidebarMetrics.nameColumn`.
+/// The mark occupies the project's disclosure column and the name begins where the project icon
+/// begins. `SidebarWorkspaceRow` supplies the same zero inset in project and status groupings, so
+/// changing status never changes either column.
 ///
 /// The row draws no background of its own. `SidebarView` hands the list one quiet grey for the
 /// selected row, in every state, through `sidebarSelection(_:)`. Painting a second highlight in
@@ -415,8 +414,8 @@ struct SidebarRowTrailingControl<Control: View>: ViewModifier {
     /// hovering is the reading state of one row under the pointer while rest is the reading state
     /// of the whole pane. Everything comes back the moment the pointer leaves.
     ///
-    /// The reveal follows the project header's GEAR rather than its `+`: from nothing, not lit
-    /// from a resting state. The `+` is present at rest because creating is the thing anyone does
+    /// The reveal arrives from nothing rather than from a resting highlight. The project `+` is
+    /// present at rest because creating is the thing anyone does
     /// often enough to go looking for. Archiving is the opposite, and a column of archive boxes
     /// down a pane whose job is to name the work would read as an invitation. The menu is the same
     /// argument: a column of ellipses says nothing about any of the rows it is drawn on.

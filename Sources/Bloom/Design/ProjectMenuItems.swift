@@ -47,17 +47,15 @@ struct ProjectMenuItems: View {
     var onRemove: () -> Void
 
     @Environment(AppModel.self) private var app
-    /// Opens the project settings window, the same call the gear on the header makes.
+    /// Opens the project settings window from the project's pointer-independent menu.
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Button("New workspace") { onCreateWorkspace(repo) }
         Divider()
         Button("Rename", action: onRename)
-        // The route to this project's settings that needs no pointer on the gear, which is drawn
-        // only while the pointer is on the header. File's own Project Settings item opens the
-        // selected workspace's project; this one opens the project it was raised from, which is
-        // not always the same thing.
+        // File's Project Settings item opens the selected workspace's project; this one opens the
+        // project it was raised from, which is not always the same thing.
         Button("Project settings…") {
             openWindow(id: RepoSettingsWindow.id, value: repo.id)
         }

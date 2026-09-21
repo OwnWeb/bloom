@@ -40,8 +40,7 @@ struct SidebarStatusHeadingRow: View {
                     .foregroundStyle(Palette.textTertiary)
                     .rotationEffect(.degrees(isFolded ? 0 : 90))
                     // At rest a fold nobody is using is furniture, so it is drawn only under the
-                    // pointer or while it is holding something away. The same rule the project
-                    // header's gear follows.
+                    // pointer or while it is holding something away.
                     .opacity(isHovered || isFolded ? 1 : 0)
             }
         }

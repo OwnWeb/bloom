@@ -36,9 +36,6 @@ struct RepoHeaderRow: View {
 
     @Environment(AppModel.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Opens the project settings window from the context menu, the same call the gear makes.
-    @Environment(\.openWindow) private var openWindow
-
     @State private var isRenamingRepo = false
     @State private var repoDraft = ""
     @FocusState private var repoFieldFocused: Bool
@@ -46,10 +43,8 @@ struct RepoHeaderRow: View {
     /// What the confirmation says, from the moment the menu item was pressed, and whether it is
     /// showing at all. See `askAboutRemoving`.
     @State private var removal: Confirmation?
-    /// Lights the `+` and swaps the project's mark for its settings gear. It belongs to this row
-    /// rather than to a hover id shared across the whole list, so crossing the pane lights one
-    /// project at a time.
-    @State private var isHeaderHovered = false
+    /// Lights the `+` only while the pointer is over the button itself.
+    @State private var isCreateHovered = false
 
     /// The list supplies the row's insets. Extra padding around the button makes the
     /// project taller than the workspace rows and offsets its content inside the right-click outline.
@@ -63,9 +58,8 @@ struct RepoHeaderRow: View {
             //
             // On the whole header rather than on the icon and the name separately, because it is
             // one dimming and two opacities that have to agree are two opacities that will not.
-            // The `+` and the settings gear are inside it and dim with it, which is right: they
-            // are furniture of a row that is being played down, and they are drawn only under the
-            // pointer anyway.
+            // The `+` is inside it and dims with it, which is right: it is furniture of a row that
+            // is being played down.
             //
             // The workspace rows underneath are NOT dimmed. They are real work, running or
             // waiting to be read, and greying out a turn that has finished because its project is
@@ -83,7 +77,7 @@ struct RepoHeaderRow: View {
         HStack(spacing: Metrics.spacing) {
             disclosure
 
-            mark
+            RepoIcon(repo: repo)
 
             if isRenamingRepo {
                 TextField("Project name", text: $repoDraft)
@@ -121,16 +115,16 @@ struct RepoHeaderRow: View {
                     )
                     .contentShape(RoundedRectangle(cornerRadius: Metrics.cornerSmall))
                     .background(
-                        isHeaderHovered ? Palette.hover : .clear,
+                        isCreateHovered ? Palette.hover : .clear,
                         in: RoundedRectangle(cornerRadius: Metrics.cornerSmall)
                     )
             }
             .buttonStyle(.plain)
-            .foregroundStyle(isHeaderHovered ? Palette.textPrimary : Palette.textSecondary)
+            .foregroundStyle(isCreateHovered ? Palette.textPrimary : Palette.textSecondary)
+            .onHoverChange { isCreateHovered = $0 }
             .help("New workspace in \(repo.name)")
         }
         .contentShape(Rectangle())
-        .onHoverChange { isHeaderHovered = $0 }
         // Every item and the reasoning for the shape is `ProjectMenuItems`, beside the workspace
         // row's own menu, so a menu can be photographed rather than only read.
         .contextMenu {
@@ -230,97 +224,6 @@ struct RepoHeaderRow: View {
         }
     }
 
-    /// The project's mark, and the settings gear that takes its place under the pointer.
-    ///
-    /// The gear used to sit at the trailing edge beside the `+`, revealed on hover in the same
-    /// way. The owner asked for it on the leading side, before the name, and still only under the
-    /// pointer. That is a harder place to put a control than it sounds, because the leading end of
-    /// this header is already two columns wide and both of them are load bearing: the chevron's
-    /// gutter is the first term of the indent every workspace row underneath is given, and the
-    /// tile IS the column a workspace's status mark is drawn in. A gear inserted between them, or
-    /// given a reserved slot of its own, moves one of those columns for good, and the rows below
-    /// with it.
-    /// A gear that appears and pushes the name aside reflows the row every time the pointer
-    /// crosses it, which is worse again.
-    ///
-    /// So it takes the tile's own box: sixteen points, the same box whether the pointer is there
-    /// or not, with the tile and the gear stacked in it and only their opacity moving. Nothing in
-    /// the header can move, because nothing about the layout depends on the hover, and the
-    /// alignment measured this morning is untouched: the chevron is where it was, the tile's
-    /// column is where it was, and the name starts where it started.
-    ///
-    /// The cost is honest and worth saying out loud, because this repeats a shape that was tried
-    /// and rejected here once. The chevron used to share the tile's box and the tile vanished to
-    /// make room for it, which took the one thing worth scanning out of the header exactly when
-    /// you looked at it, and the gutter was bought to get the tile back. The difference is what
-    /// the box is traded FOR. A chevron is furniture, and losing a project's mark for it buys
-    /// nothing; a gear is the control that was asked for, it is only ever hidden on the one row
-    /// the pointer is on, and the name it stands beside is still naming the project.
-    ///
-    /// The chevron is deliberately not the slot. It is the only way to fold a project with a
-    /// mouse, and a gear that covered it would take that away for as long as the pointer was on
-    /// the row.
-    ///
-    /// The fade goes when Reduce Motion is on, which leaves the swap instant rather than animated,
-    /// matching the archive button on a workspace row and the `+` beside this one.
-    private var mark: some View {
-        ZStack {
-            RepoIcon(repo: repo)
-                .opacity(isHeaderHovered ? 0 : 1)
-
-            settingsButton
-                // Clear ink rather than `.opacity(0)`, which `DiffLineView.commentButton`
-                // measured as taking the element out of the accessibility hierarchy: the gear
-                // existed only for a pointer, and the context menu and Cmd+Shift+comma were all
-                // anybody else had.
-                .foregroundStyle(isHeaderHovered ? Palette.textPrimary : Color.clear)
-                // An invisible button still takes clicks, and this one sits on top of the row's
-                // own mark. The pointer has to be on the header for it to be drawn at all, so
-                // this costs nothing real and stops a resting header eating a click on its tile.
-                .allowsHitTesting(isHeaderHovered)
-        }
-        .frame(width: Metrics.repoIcon, height: Metrics.repoIcon)
-        .animation(reduceMotion ? nil : Motion.hover, value: isHeaderHovered)
-    }
-
-    /// The gear itself.
-    ///
-    /// Built here rather than reusing `RepoSettingsButton`, which is boxed to
-    /// `Metrics.headerButton` and carries a hover plate: both were right at the trailing edge and
-    /// neither survives the move. A 20 point box in a 16 point column would hang two points over
-    /// the chevron and two over the name, and a rounded plate drawn in the tile's own column
-    /// would read as a second tile. It opens the window through the same call the menu item does.
-    ///
-    /// Nothing is lost with the pointer away, and that matters more here than it did at the
-    /// trailing edge: Project settings… is on this header's own context menu, and File carries
-    /// Project Settings at Command Shift comma.
-    ///
-    /// THE INK IS THE CALLER'S AND MUST NOT BE SET HERE. This carried its own
-    /// `.foregroundStyle(Palette.textPrimary)`, which sits nearer the label than the
-    /// `Color.clear` in `mark` above and therefore won every time: the gear was drawn in full
-    /// ink on top of every project's tile, at rest, on every row. It reads as a badly rendered
-    /// mark rather than as a stray control, which is how it survived: a project whose mark is
-    /// artwork came out muddy with a cog stamped through it, and a pale one came out as an
-    /// unreadable grey square. The same artwork in the project's settings window, where there is
-    /// no gear over it, was crisp, so the fault looked like the sidebar rasterising the picture
-    /// badly and was nothing of the kind.
-    private var settingsButton: some View {
-        Button {
-            openWindow(id: RepoSettingsWindow.id, value: repo.id)
-        } label: {
-            Label("Settings for \(repo.name)", systemImage: "gearshape")
-                .labelStyle(.iconOnly)
-                .font(Typo.label)
-                // The tile's box exactly. The click target is the label, because a button's hit
-                // area is its label, which is why a `contentShape` outside the button widens
-                // nothing.
-                .frame(width: Metrics.repoIcon, height: Metrics.repoIcon)
-                .contentShape(RoundedRectangle(cornerRadius: Metrics.cornerSmall))
-        }
-        .buttonStyle(.plain)
-        .help("Settings for \(repo.name)")
-    }
-
     /// The control that folds the project away, in a gutter of its own at the leading edge.
     ///
     /// It used to share the tile's box and appear only under the pointer, which spent no width on
@@ -328,11 +231,8 @@ struct RepoHeaderRow: View {
     /// away to do it: the one thing in the header worth scanning vanished exactly when you looked
     /// at the header. A gutter costs eleven points and gives the tile back for good.
     ///
-    /// Eleven points is also the first term of the indent every row underneath is given, which is
-    /// what makes a project read as containing its rows: the chevron sits alone at the pane's
-    /// leading edge, the project's tile starts one gutter and one gap in, and a row's status mark
-    /// starts on that same column. See `SidebarMetrics.rowIndent`, which is built from this number
-    /// and the gap this `HStack` puts after it.
+    /// Workspace status marks reuse this gutter, while their names begin one gap later where the
+    /// project tile begins. The two row types therefore share coordinates without an extra indent.
     ///
     /// The chevron is the smallest mark in the pane on purpose. It is furniture: it says the thing
     /// beside it opens, and then it should get out of the way of everything that has something to

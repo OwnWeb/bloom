@@ -1,22 +1,20 @@
 import SwiftUI
 import BloomCore
 
-/// Every row that can appear under a project, stacked at the pane's real width with a rule down
-/// the column their names are supposed to share.
+/// Every row that can appear under a project, stacked at the pane's real width with rules through
+/// the disclosure/status column and the project-icon/workspace-text column.
 ///
-/// It exists because the claim this layout makes is a claim about **one column across six row
-/// types**, and no single file shows it: the header is `RepoHeaderRow`, the ordinary row is
+/// It exists because the claim this layout makes spans six row types, and no single file shows it:
+/// the header is `RepoHeaderRow`, the ordinary row is
 /// `WorkspaceRow` under `SidebarWorkspaceRow`'s indent, the empty line is `SidebarEmptyNoticeRow`,
 /// the row a worktree is being cut behind is `PendingWorkspaceRow`, a crew member's is
 /// `CrewSidebarRow` and a subagent's is `SubagentSidebarRow`. Each was moved once and each could
 /// drift alone. A picture with a rule on it is the only thing that catches the sixth one being
 /// three points out.
 ///
-/// The rule is drawn at `SidebarMetrics.nameColumn`, which is derived from the header's own
-/// `HStack` rather than measured, so the page cannot flatter the layout: if the tile changes size
-/// and only some of the rows follow, the rule moves with the header and the stragglers are left
-/// beside it. A second, quieter pair of rules brackets `SidebarMetrics.markColumn`, which is the
-/// gutter the status marks were left in when the names moved right.
+/// The primary rule is drawn at `SidebarMetrics.contentColumn`, which is derived from the header's
+/// own `HStack` rather than measured. A quieter pair brackets the fixed indicator column. Idle,
+/// unread and changed rows all use the same geometry, so the capture catches conditional padding.
 ///
 /// Rendered offscreen by `--snapshot` as `sidebar-indent-<appearance>.png`, and in a window with
 ///
@@ -45,14 +43,16 @@ struct SidebarIndentGallery: View {
         VStack(alignment: .leading, spacing: 24) {
             Text("Sidebar indents")
                 .font(Typo.title)
-            Text("Every name under a project starts on the project's own name.")
+            Text(
+                "Workspace names start at the project icon; status marks share the disclosure column."
+            )
                 .font(Typo.label)
                 .foregroundStyle(Palette.textSecondary)
 
             HStack(alignment: .top, spacing: 24) {
                 pane("A project with work in it") {
                     header(count: 3)
-                    workspace(name: "sidebar name column", unread: true)
+                    workspace(name: "sidebar content column", unread: true)
                     workspace(name: "checks that go quiet", changed: true)
                     crew
                     subagent
@@ -96,13 +96,13 @@ struct SidebarIndentGallery: View {
         }
     }
 
-    /// The three lines the whole page is about: the mark's gutter, bracketed, and the name column
-    /// through it.
+    /// The indicator gutter, bracketed, and the primary content column through it.
     private var columns: some View {
         ZStack(alignment: .leading) {
             rule(at: SidebarMetrics.rowIndent, isFaint: true)
             rule(at: SidebarMetrics.rowIndent + SidebarMetrics.markColumn, isFaint: true)
-            rule(at: SidebarMetrics.nameColumn, isFaint: false)
+            rule(at: SidebarMetrics.contentColumn, isFaint: false)
+            rule(at: SidebarMetrics.projectNameColumn, isFaint: true)
         }
         .allowsHitTesting(false)
     }
