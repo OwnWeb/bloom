@@ -176,6 +176,16 @@ struct MenuBarSummaryTests {
         #expect(sections.isEmpty)
     }
 
+    @Test("a workspace name cannot widen the whole menu")
+    func workspaceTitleWidth() {
+        let short = "Build Seb's proposal"
+        let long = String(repeating: "A", count: MenuBarSummary.workspaceTitleLimit + 20)
+
+        #expect(MenuBarSummary.workspaceTitle(short) == short)
+        #expect(MenuBarSummary.workspaceTitle(long).count == MenuBarSummary.workspaceTitleLimit)
+        #expect(MenuBarSummary.workspaceTitle(long).hasSuffix("\u{2026}"))
+    }
+
     private func workspace(name: String, unread: Bool = false) -> Workspace {
         Workspace(
             repoID: RepoID("repo"),

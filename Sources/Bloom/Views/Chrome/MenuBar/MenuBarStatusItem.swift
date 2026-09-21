@@ -479,10 +479,13 @@ final class MenuBarStatusItem: NSObject, NSMenuDelegate {
         for section in sections {
             menu.addItem(disabled(section.heading))
             for workspace in section.workspaces {
-                let item = NSMenuItem(title: workspace.name, action: #selector(select(_:)), keyEquivalent: "")
+                let title = MenuBarSummary.workspaceTitle(workspace.name)
+                let item = NSMenuItem(title: title, action: #selector(select(_:)), keyEquivalent: "")
                 item.target = self
                 item.represent(workspace.id)
                 item.image = NSImage(systemSymbolName: section.symbolName, accessibilityDescription: section.label)
+                if title != workspace.name { item.toolTip = workspace.name }
+                item.setAccessibilityLabel("\(section.label), \(workspace.name)")
                 menu.addItem(item)
             }
         }

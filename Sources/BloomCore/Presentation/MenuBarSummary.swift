@@ -148,6 +148,16 @@ public enum MenuBarSummary {
     /// half of the argument the old wording was built on.
     public static let unreadHeading = "Finished"
 
+    /// A workspace name is allowed to fill the useful width of the menu, but not to set the width
+    /// of the whole menu by itself. The complete name remains on the menu item's tooltip and in
+    /// its accessibility label.
+    public static let workspaceTitleLimit = 44
+
+    public static func workspaceTitle(_ name: String) -> String {
+        guard name.count > workspaceTitleLimit else { return name }
+        return String(name.prefix(workspaceTitleLimit - 1)) + "\u{2026}"
+    }
+
     /// One heading in the menu and the workspaces listed under it.
     public struct Section: Equatable, Sendable {
         public let heading: String
