@@ -103,6 +103,77 @@ struct IgnoredPathsTests {
         #expect(sentence.contains(".bloom") == false)
     }
 
+    @Test("unchanged setup output is archived without treating every ignored file as disposable")
+    func setupOutputArchivesAutomatically() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        try repo.write(".gitignore", """
+        .env
+        database/
+        storage/framework/cache/
+        """)
+        try repo.write(".conductor/settings.toml", """
+        [scripts]
+        setup = '''
+        mkdir -p database storage/framework/cache/nested
+        printf 'APP_URL=http://localhost:%s\n' "$BLOOM_PORT" > .env
+        printf 'sqlite bytes\n' > 'database/local database.sqlite'
+        printf 'cache bytes\n' > 'storage/framework/cache/nested/cache [local].db'
+        '''
+        """)
+        try await repo.commit("add setup")
+
+        let store = try makeTestStore("ignored-setup")
+        let manager = WorkspaceManager(store: store)
+        let registered = try await manager.addRepository(at: repo.path)
+        let workspace = try await manager.createWorkspace(repo: registered, prompt: "Prepare locally")
+
+        #expect(await manager.runSetup(workspace: workspace, repo: registered, port: 3_100) { _ in })
+        let report = try await manager.safetyReport(workspace: workspace, repo: registered)
+        #expect(report.modifiedIgnoredFiles.isEmpty)
+        #expect(report.isSafeToDiscard(deletingBranch: false))
+
+        // Plain `git worktree remove` refuses these ignored files. Bloom may force only after the
+        // fresh report above proves that every remaining one still matches setup's output.
+        try await manager.archive(workspace: workspace, repo: registered, deleteBranch: false)
+        #expect(FileManager.default.fileExists(atPath: workspace.path) == false)
+        #expect(try await store.workspace(id: workspace.id)?.state == .archived)
+
+        // Repeating an archive is a no-op and cannot turn the already completed lifecycle into a
+        // branch deletion or a database error.
+        try await manager.archive(workspace: workspace, repo: registered, deleteBranch: true)
+        #expect(await Git.branchExists(workspace.branch, in: repo.path))
+    }
+
+    @Test("editing setup output makes its exact ignored path block archive")
+    func editedSetupOutputIsKept() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        try repo.write(".gitignore", ".env\n")
+        try repo.write(".conductor/settings.toml", """
+        [scripts]
+        setup = "printf 'APP_ENV=local\\n' > .env"
+        """)
+        try await repo.commit("add setup")
+
+        let store = try makeTestStore("ignored-setup-edited")
+        let manager = WorkspaceManager(store: store)
+        let registered = try await manager.addRepository(at: repo.path)
+        let workspace = try await manager.createWorkspace(repo: registered, prompt: "Prepare locally")
+        #expect(await manager.runSetup(workspace: workspace, repo: registered, port: 0) { _ in })
+
+        try TempRepo(existing: workspace.path).write(".env", "APP_ENV=local\nSECRET=worked-out-later\n")
+        let report = try await manager.safetyReport(workspace: workspace, repo: registered)
+        #expect(report.modifiedIgnoredFiles == [".env"])
+        #expect(report.losses(deletingBranch: false).contains { $0.contains(".env") })
+
+        await #expect(throws: WorkspaceError.self) {
+            try await manager.archive(workspace: workspace, repo: registered, deleteBranch: false)
+        }
+        #expect(TempRepo(existing: workspace.path).read(".env")?.contains("worked-out-later") == true)
+        #expect(try await store.workspace(id: workspace.id)?.state == .active)
+    }
+
     /// The performance half of the same change, said as a fact rather than as a timing. A wholly
     /// ignored directory is one record from `git ls-files --directory`, so nothing walks it and
     /// nothing reads the files inside it.

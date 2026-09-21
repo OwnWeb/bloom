@@ -79,6 +79,33 @@ struct GitSafetyTests {
         #expect(FileManager.default.fileExists(atPath: workspace.path + "/scratch/plan.md"))
     }
 
+    @Test("archive blockers name tracked, staged and unusual untracked paths")
+    func archiveBlockersNameTheirPaths() async throws {
+        let (repo, registered, manager, workspace) = try await makeWorkspace()
+        defer { repo.cleanUp() }
+
+        let worktree = TempRepo(existing: workspace.path)
+        try worktree.write("README.md", "unstaged edit\n")
+        try worktree.write("staged.txt", "ready for a commit\n")
+        try await Shell.check("git", ["add", "--", "staged.txt"], cwd: workspace.path)
+        let unusual = "notes with a tab\tand newline\n.txt"
+        try worktree.write(unusual, "do not lose this\n")
+
+        let report = try await manager.safetyReport(workspace: workspace, repo: registered)
+        #expect(report.modifiedTrackedFiles == ["README.md"])
+        #expect(report.stagedFiles == ["staged.txt"])
+        #expect(report.untrackedFiles == [unusual])
+        let losses = report.losses(deletingBranch: false).joined(separator: "\n")
+        #expect(losses.contains("modified tracked path"))
+        #expect(losses.contains("staged path"))
+        #expect(losses.contains(unusual))
+
+        await #expect(throws: WorkspaceError.self) {
+            try await manager.archive(workspace: workspace, repo: registered, deleteBranch: false)
+        }
+        #expect(FileManager.default.fileExists(atPath: workspace.path))
+    }
+
     @Test("archiving with commits no other ref holds refuses")
     func refusesToArchiveUnpushedCommits() async throws {
         let (repo, registered, manager, workspace) = try await makeWorkspace()
@@ -199,6 +226,36 @@ struct GitSafetyTests {
         #expect(FileManager.default.fileExists(atPath: workspace.path))
         #expect(await Git.branchExists(workspace.branch, in: repo.path))
         #expect(try await manager.store.workspace(id: workspace.id)?.state != .archived)
+    }
+
+    @Test("archive output is reclassified at removal and a partial failure can be retried")
+    func archiveOutputBlocksAndRetries() async throws {
+        let (repo, registered, manager, workspace) = try await makeWorkspace(settings: """
+        [scripts]
+        archive = '''
+        if [ ! -f "$BLOOM_ROOT_PATH/archive-attempted" ]; then
+          touch archive.log "$BLOOM_ROOT_PATH/archive-attempted"
+        fi
+        '''
+        """)
+        defer { repo.cleanUp() }
+
+        let error = await #expect(throws: WorkspaceError.self) {
+            try await manager.archive(workspace: workspace, repo: registered, deleteBranch: false)
+        }
+        guard case .unsafeToArchive(let report)? = error else {
+            Issue.record("expected unsafeToArchive, got \(String(describing: error))")
+            return
+        }
+        #expect(report.untrackedFiles == ["archive.log"])
+        #expect(report.losses(deletingBranch: false).contains { $0.contains("archive.log") })
+        #expect(FileManager.default.fileExists(atPath: workspace.path + "/archive.log"))
+        #expect(try await manager.store.workspace(id: workspace.id)?.state == .active)
+
+        try FileManager.default.removeItem(atPath: workspace.path + "/archive.log")
+        try await manager.archive(workspace: workspace, repo: registered, deleteBranch: false)
+        #expect(FileManager.default.fileExists(atPath: workspace.path) == false)
+        #expect(try await manager.store.workspace(id: workspace.id)?.state == .archived)
     }
 
     @Test("git branch -d failing is reported rather than swallowed")
@@ -429,10 +486,25 @@ struct GitSafetyTests {
         // A tab inside a path is not a field separator once the first two are consumed.
         #expect(files["a\tb.txt"]?.deletions == 9)
 
-        let status = Data("R  new.txt\u{0}old.txt\u{0}?? fresh.txt\u{0} M edited.txt\u{0}".utf8)
+        let status = Data(
+            "2 R. N... 100644 100644 100644 a b R100 new.txt\u{0}old.txt\u{0}"
+                .appending("? fresh.txt\u{0}1 .M N... 100644 100644 100644 a b edited.txt\u{0}")
+                .utf8
+        )
         let parsed = Git.parseStatus(status)
-        #expect(parsed.dirty)
-        #expect(parsed.untracked == ["fresh.txt"])
+        #expect(parsed.isDirty)
+        #expect(parsed.stagedFiles == ["new.txt"])
+        #expect(parsed.modifiedTrackedFiles == ["edited.txt"])
+        #expect(parsed.untrackedFiles == ["fresh.txt"])
+
+        let special = Data(
+            "u UU N... 100644 100644 100644 100644 a b c conflict.txt\u{0}"
+                .appending("1 .M S.MU 160000 160000 160000 a b Packages/Dependency\u{0}")
+                .utf8
+        )
+        let specialParsed = Git.parseStatus(special)
+        #expect(specialParsed.conflictedFiles == ["conflict.txt"])
+        #expect(specialParsed.modifiedSubmodules == ["Packages/Dependency"])
     }
 
     // MARK: - Bug 4: git failures were reported as "no changes"
