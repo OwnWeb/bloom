@@ -61,6 +61,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 os.environ.setdefault("OPENSSL", "/opt/homebrew/bin/openssl" if pathlib.Path("/opt/homebrew/bin/openssl").exists() else "openssl")
 from bloom_fake_runbloom import Issuer  # noqa: E402
+from secure_path_canary import CanaryReport, SecurePathCanary, assert_redacted, require_non_production  # noqa: E402
 
 ORGANISATION = os.environ.get("BLOOM_TEST_SPRITES_ORG") or sys.exit("Set BLOOM_TEST_SPRITES_ORG to the development Sprites organisation.")
 SPRITE = shutil.which("sprite") or str(pathlib.Path.home() / ".local/bin/sprite")
@@ -442,9 +443,23 @@ def main():
                              "chat that does not exist yet, and download of a picture where media_show copies one")
     parser.add_argument("--metrics", type=pathlib.Path, metavar="FILE",
                         help="write credential-free timing measurements as JSON, including partial results on failure")
+    parser.add_argument("--secure-path-canary", action="store_true",
+                        help="run the explicitly non-production secure-path compatibility canary")
+    parser.add_argument("--canary-report", type=pathlib.Path, metavar="FILE",
+                        help="write the secure-path canary's structured redacted JSON report")
     arguments = parser.parse_args()
     if not arguments.package and not arguments.from_release:
         raise SystemExit("--package or --from-release is needed.")
+    if arguments.secure_path_canary:
+        require_non_production(ORGANISATION, f"http://127.0.0.1:{FAKE_PORT}")
+        if arguments.keep:
+            raise SystemExit("Refusing secure-path canary: --keep weakens mandatory cleanup.")
+        if not arguments.canary_report:
+            raise SystemExit("--secure-path-canary needs --canary-report.")
+        if arguments.sleep is None:
+            arguments.sleep = 25.0
+    elif arguments.canary_report:
+        raise SystemExit("--canary-report is only valid with --secure-path-canary.")
     package = arguments.package.resolve() if arguments.package else None
     version = (package.name.removeprefix("bloom-runner-linux-x86_64-").removesuffix(".tar.gz") if package
                else arguments.from_release.removeprefix("runner-v").removeprefix("v"))
@@ -453,6 +468,8 @@ def main():
     global MACHINE
     name = MACHINE = "bloomtest-" + secrets.token_hex(4)
     workspace = "01k5" + "".join(secrets.choice("0123456789abcdefghjkmnpqrstvwxyz") for _ in range(22))
+    machine_id = "01k5" + "".join(secrets.choice("0123456789abcdefghjkmnpqrstvwxyz") for _ in range(22))
+    registration_token = secrets.token_hex(32)
     secret = secrets.token_hex(32)
     processes = []
     created = False
@@ -462,6 +479,8 @@ def main():
         "runner_version": version,
         "measurements": {},
     }
+    canary_report = CanaryReport(version, machine_id, workspace) if arguments.secure_path_canary else None
+    canary = None
 
     def measured(name, began):
         value = round((time.perf_counter() - began) * 1_000, 1)
@@ -520,6 +539,13 @@ def main():
                 "base_url": issuer.issuer, "workspace_secret": secret, "allowed_origins": ["https://runbloom.app"],
                 "public_url": url, "repository": REPOSITORY, "branch": "bloomtest-machine", "base_branch": "master",
                 "name": "Machine test", "team_id": "01k5a7b1a9y8x7w6v5t4s3r2qp",
+                "machine_identity": {
+                    "version": 1, "machine_id": machine_id,
+                    "registration_token": registration_token,
+                    "registration_expires_at": time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 300)
+                    ),
+                },
             }
             run_on(name, "sudo mkdir -p /etc/bloom && sudo tee /etc/bloom/workspace.json >/dev/null "
                          "&& sudo chown sprite /etc/bloom/workspace.json && sudo chmod 600 /etc/bloom/workspace.json",
@@ -529,6 +555,8 @@ def main():
             fake = subprocess.Popen([SPRITE, "exec", "-o", ORGANISATION, "-s", name, "--no-port-forward", "--",
                                      "python3", "/home/sprite/bloom_fake_runbloom.py", "--host", "0.0.0.0", "--port", str(FAKE_PORT),
                                      "--jwks-file", "/home/sprite/jwks.json",
+                                     "--workspace", workspace, "--machine", machine_id,
+                                     "--registration-token", registration_token, "--public-url", url,
                                      "--secret-stdin"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             processes.append(fake)
             fake.stdin.write(secret + "\n")
@@ -584,11 +612,6 @@ def main():
             step(f"the same answer through composer with no chat_id, offering {offered['available_agents']} "
                  f"and {len(offered['models'])} model(s)")
 
-            reader = EventReader(url, session())
-            reader.start()
-            wait_for("the event stream sends state", lambda: reader.find(lambda e: e["kind"] == "workspace"), 60)
-            step("event stream open")
-
             setup = wait_for("setup finishes", lambda: (lambda s: s if s["state"] in ("succeeded", "failed", "skipped") else None)(
                 rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]["setup"]), 600, interval=5)
             measured("cold_service_start_to_setup_finished", service_began)
@@ -597,6 +620,27 @@ def main():
             # would then be right by luck. A machine created by this test always has it on.
             assert setup.get("enabled") is True, f"setup did not say it was enabled: {setup}"
             step(f"setup {setup['state']}, enabled")
+
+            if arguments.secure_path_canary:
+                canary = SecurePathCanary(
+                    machine=name, workspace=workspace, public_url=url, report=canary_report,
+                    run_on=run_on, push=push, rpc=rpc, session=session, requests=requests,
+                    local=local, proxy_port=proxy_port, wait_for=wait_for,
+                )
+                canary.assert_provisioning()
+                canary.install_fixture(scratch)
+                wait_for("canary Runner health", lambda: https(url, path="/_bloom/health")[0] == 200, 120)
+                canary.assert_manifest_and_scopes()
+                canary.rerun_setup()
+                canary.assert_restart_persistence()
+                canary.assert_terminal_environment(Terminal)
+                canary.assert_negative_contracts()
+                canary.assert_gateway_contracts()
+
+            reader = EventReader(url, session())
+            reader.start()
+            wait_for("the event stream sends state", lambda: reader.find(lambda e: e["kind"] == "workspace"), 60)
+            step("event stream open")
 
             # The services this project declares, as the machine is running them. A service that
             # never started is invisible without this, so its absence from the record is the bug
@@ -873,6 +917,8 @@ def main():
                 events = [event for report in usage for event in report.get("events", [])]
                 step(f"usage events through the pause: {[event['kind'] for event in events][-6:]}")
                 step(f"the last summary says awake {[r['body'].get('awake') for r in requests() if r['path'].endswith('/summary')][-1]}")
+                if canary:
+                    canary.assert_cold_wake(paused_at is not None)
 
             if arguments.terminal:
                 # A dropped connection is what a person meets: a laptop sleeping, a tunnel dying, a
@@ -1121,12 +1167,21 @@ def main():
                     process.terminate()
                 if created and not arguments.keep:
                     step(f"deleting {name}")
-                    subprocess.run([SPRITE, "api", "-o", ORGANISATION, f"/v1/sprites/{name}", "--", "-X", "DELETE"],
-                                   capture_output=True, timeout=120)
+                    deleted = subprocess.run(
+                        [SPRITE, "api", "-o", ORGANISATION, f"/v1/sprites/{name}", "--", "-X", "DELETE"],
+                        capture_output=True, timeout=120
+                    ).returncode == 0
+                    if canary_report:
+                        canary_report.cleanup("passed" if deleted else "failed", {"machine_id": name})
+                elif canary_report:
+                    canary_report.cleanup("passed")
             finally:
                 if arguments.metrics:
                     arguments.metrics.parent.mkdir(parents=True, exist_ok=True)
                     arguments.metrics.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n")
+                if arguments.canary_report and canary_report:
+                    assert_redacted(canary_report.value)
+                    canary_report.write(arguments.canary_report)
 
 
 if __name__ == "__main__":

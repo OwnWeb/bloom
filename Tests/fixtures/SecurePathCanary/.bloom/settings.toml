@@ -1,0 +1,28 @@
+[scripts]
+setup = "python3 scripts/bootstrap.py setup"
+resume = "python3 scripts/bootstrap.py resume"
+
+[[services]]
+id = "app"
+name = "Canary app"
+command = "python3 scripts/service.py app CANARY_APP_SECRET"
+http = true
+ready = "http:/up"
+
+[[services]]
+id = "queue"
+name = "Canary queue worker"
+command = "python3 scripts/service.py queue CANARY_QUEUE_SECRET"
+depends_on = ["app"]
+
+[[services]]
+id = "realtime"
+name = "Canary realtime server"
+command = "python3 scripts/service.py realtime CANARY_REALTIME_SECRET"
+depends_on = ["app"]
+
+[[services]]
+id = "assets"
+name = "Canary asset server"
+command = "python3 scripts/service.py assets CANARY_ASSETS_SECRET"
+depends_on = ["app", "realtime"]

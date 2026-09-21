@@ -1,0 +1,11 @@
+{
+  "name": "bloom-secure-path-canary",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "vite": "6.1.0"
+  }
+}
