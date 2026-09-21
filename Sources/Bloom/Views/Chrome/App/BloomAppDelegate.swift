@@ -3,11 +3,6 @@ import SwiftUI
 import UserNotifications
 import BloomCore
 
-extension Notification.Name {
-    /// Carries a `bloom://` URL from the Apple Event handler to whichever window is open.
-    static let bloomHandleURL = Notification.Name("bloomHandleURL")
-}
-
 /// Bridges macOS lifecycle callbacks into the observation-driven app without introducing a second state owner.
 @MainActor
 final class BloomAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -31,6 +26,7 @@ final class BloomAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     func attach(_ model: AppModel) {
         Log.launchStep("window appeared")
         appModel = model
+        BloomOpenCoordinator.shared.attach(model)
         // The switch probe drives a selection and reads back what the window settled on, so it
         // needs the state too, and this is the same one moment everything else is handed it. It
         // keeps a weak reference and only ever looks when `--switch-probe` asked it to.
@@ -120,8 +116,15 @@ final class BloomAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
               let url = URL(string: text) else { return }
 
-        MainWindow.raise()
-        NotificationCenter.default.post(name: .bloomHandleURL, object: url)
+        BloomOpenCoordinator.shared.receive(url)
+    }
+
+    /// `open . -a Bloom` is an open-documents event, not an Internet URL event. Keeping this
+    /// callback separate is what prevents a file URL from reaching the Bloom deep-link parser.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            BloomOpenCoordinator.shared.receive(url)
+        }
     }
 
     /// False, because Bloom runs agents. Closing the only window must never be a silent way to end

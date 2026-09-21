@@ -61,12 +61,11 @@ enum RunningApp {
     }
 
     /// Hands the app a `bloom://` link, which is the entry point it already uses for creating a
-    /// workspace from outside. Posted rather than opened through `NSWorkspace`, because the URL
-    /// would take a round trip through LaunchServices only to arrive back in this process as the
-    /// same notification.
+    /// workspace from outside. Sent straight to the lifecycle coordinator rather than opened
+    /// through `NSWorkspace`, because the URL would take a round trip through LaunchServices only
+    /// to arrive back in this process as the same event.
     static func open(_ url: URL) {
-        MainWindow.raise()
-        NotificationCenter.default.post(name: .bloomHandleURL, object: url)
+        BloomOpenCoordinator.shared.receive(url)
     }
 
     /// Selects a workspace in the window, the same way a click in the dock menu does.

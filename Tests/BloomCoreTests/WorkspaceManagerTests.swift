@@ -20,6 +20,25 @@ struct WorkspaceManagerTests {
         #expect(try await manager.store.repos().count == 1)
     }
 
+    @Test("simultaneous registrations of one repository adopt the same row")
+    func registersRepositoryOnceUnderConcurrency() async throws {
+        let repo = try await TempRepo(defaultBranch: "main")
+        defer { repo.cleanUp() }
+        let manager = WorkspaceManager(store: try makeTestStore("wm-concurrent-register"))
+
+        let registered = try await withThrowingTaskGroup(of: Repo.self) { group in
+            for _ in 0..<4 {
+                group.addTask { try await manager.addRepository(at: repo.path) }
+            }
+            var rows: [Repo] = []
+            for try await row in group { rows.append(row) }
+            return rows
+        }
+
+        #expect(Set(registered.map(\.id)).count == 1)
+        #expect(try await manager.store.repos().count == 1)
+    }
+
     @Test("refuses a folder that is not a repository")
     func refusesNonRepository() async throws {
         let manager = WorkspaceManager(store: try makeTestStore("wm"))
