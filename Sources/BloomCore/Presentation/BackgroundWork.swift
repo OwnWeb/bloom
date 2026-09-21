@@ -19,19 +19,32 @@ import Foundation
 /// one. `description` is the phrase the agent wrote for the Bash call, "Wait for the PR's Test run
 /// to finish", which is exactly the sentence somebody wants here.
 public enum BackgroundWork {
+    /// The two lines drawn under the turn: what is running, then which work it is.
+    public struct Note: Hashable, Sendable {
+        public let title: String
+        public let detail: String
+
+        init(title: String, detail: String) {
+            self.title = title
+            self.detail = detail
+        }
+    }
+
     /// More names than this and the sentence is a list, so the rest are counted.
     static let namedLimit = 3
 
     /// What is still running, or nil when nothing is.
-    public static func note(for roster: SubagentRoster) -> String? {
+    public static func note(for roster: SubagentRoster) -> Note? {
         note(for: roster.subagents)
     }
 
-    static func note(for subagents: [Subagent]) -> String? {
+    static func note(for subagents: [Subagent]) -> Note? {
         let running = subagents.filter { $0.state == .running }
         guard case let (counted, names)? = described(running) else { return nil }
-        let verb = running.count == 1 ? "is" : "are"
-        return "\(capitalised(counted)) \(verb) still running: \(names)."
+        return Note(
+            title: "\(capitalised(counted)) running",
+            detail: "\(names)."
+        )
     }
 
     /// The notice after an archive that stopped background commands, or nil when it stopped none.
