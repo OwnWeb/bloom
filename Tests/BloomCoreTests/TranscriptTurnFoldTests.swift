@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import BloomCore
 
@@ -8,14 +9,16 @@ struct TranscriptTurnFoldTests {
         _ kind: MessageKind,
         drawsNothing: Bool = false,
         parent: String? = nil,
-        durationMS: Int? = nil
+        durationMS: Int? = nil,
+        createdAt: TimeInterval? = nil
     ) -> TranscriptTurnFold.Fact {
         TranscriptTurnFold.Fact(
             seq: seq,
             kind: kind,
             drawsNothing: drawsNothing,
             parentToolUseID: parent,
-            durationMS: durationMS
+            durationMS: durationMS,
+            createdAt: createdAt.map(Date.init(timeIntervalSince1970:))
         )
     }
 
@@ -38,6 +41,7 @@ struct TranscriptTurnFoldTests {
         #expect(turn.hiddenSeqs == [1, 2, 3])
         #expect(turn.hasHiddenRows)
         #expect(turn.span == 1..<6)
+        #expect(turn.displayIndex == 4)
         #expect(TranscriptTurnFold.label(milliseconds: turn.durationMS ?? 0) == "Worked for 1m 5s")
     }
 
@@ -81,6 +85,42 @@ struct TranscriptTurnFoldTests {
 
         #expect(turn.hidden == [1, 2, 3])
         #expect(folds.hiddenIndices(unfolded: [], revealed: []) == [1, 2, 3])
+    }
+
+    @Test("a missing backend duration is measured from the turn timestamps")
+    func measuredDuration() throws {
+        let facts = [
+            fact(0, .user, createdAt: 100),
+            fact(1, .toolUse, createdAt: 102),
+            fact(2, .assistantText, createdAt: 113),
+            fact(3, .result, durationMS: 0, createdAt: 114),
+        ]
+        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
+
+        #expect(turn.durationMS == 14_000)
+        #expect(TranscriptTurnFold.label(milliseconds: turn.durationMS ?? 0) == "Worked for 14s")
+    }
+
+    @Test("a steering message closes the work before its bubble and starts a new timer")
+    func steeringMessage() throws {
+        let facts = [
+            fact(0, .user, createdAt: 100),
+            fact(1, .assistantText, createdAt: 102),
+            fact(2, .toolUse, createdAt: 104),
+            fact(3, .user, createdAt: 110),
+            fact(4, .toolUse, createdAt: 111),
+            fact(5, .assistantText, createdAt: 113),
+            fact(6, .result, durationMS: 14_000, createdAt: 114),
+        ]
+        let turns = TranscriptTurnFold.folds(in: facts).all
+
+        #expect(turns.count == 2)
+        #expect(turns[0].hidden == [1, 2])
+        #expect(turns[0].displayIndex == 3)
+        #expect(turns[0].durationMS == 10_000)
+        #expect(turns[1].hidden == [4])
+        #expect(turns[1].displayIndex == 5)
+        #expect(turns[1].durationMS == 4_000)
     }
 
     @Test("revealing a hidden row opens its completed turn")

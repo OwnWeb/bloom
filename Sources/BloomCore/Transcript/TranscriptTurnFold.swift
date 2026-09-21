@@ -1,11 +1,11 @@
 import Foundation
 
-/// A completed turn's streamed working, folded behind one line before its final response.
+/// A completed work segment, folded behind one line before the next message that stays visible.
 ///
 /// `TranscriptFold` keeps a live turn readable by folding consecutive runs of actions while the
-/// agent's commentary stays in place. Once the result row arrives, that commentary is history as
-/// well: the last top-level assistant message is the response, and everything between the user's
-/// message and that response can leave the scrolling path until somebody asks to see it.
+/// agent's commentary stays in place. Once the result row or another user message arrives, the
+/// preceding work is history. A result keeps the last top-level assistant message as its response,
+/// while a steering message closes all the work before its own bubble.
 ///
 /// A live turn is still returned with nothing hidden. Its entry can therefore take its stable
 /// place at the start of the work before completion removes any rows from the table.
@@ -17,6 +17,7 @@ public enum TranscriptTurnFold {
         public var parentToolUseID: String?
         public var opensTurn: Bool
         public var durationMS: Int?
+        public var createdAt: Date?
 
         public init(
             seq: Int,
@@ -24,7 +25,8 @@ public enum TranscriptTurnFold {
             drawsNothing: Bool = false,
             parentToolUseID: String? = nil,
             opensTurn: Bool = false,
-            durationMS: Int? = nil
+            durationMS: Int? = nil,
+            createdAt: Date? = nil
         ) {
             self.seq = seq
             self.kind = kind
@@ -32,17 +34,20 @@ public enum TranscriptTurnFold {
             self.parentToolUseID = parentToolUseID
             self.opensTurn = opensTurn
             self.durationMS = durationMS
+            self.createdAt = createdAt
         }
     }
 
     public struct Turn: Equatable, Sendable {
         /// Every stored row from the first work row through the result, or through the live tail.
         public var span: Range<Int>
-        /// The rows before the final response. Empty until the turn has a result and a response.
+        /// The working rows replaced by the disclosure once this segment is complete.
         public var hidden: Set<Int>
         /// The sequence numbers corresponding to `hidden`, for a search or restored position.
         public var hiddenSeqs: Set<Int>
         public var firstSeq: Int
+        /// The row immediately after the folded work, where its disclosure is drawn.
+        public var displayIndex: Int
         public var isComplete: Bool
         /// Whether at least one hidden stored row draws content of its own.
         public var hasHiddenRows: Bool
@@ -53,6 +58,7 @@ public enum TranscriptTurnFold {
             hidden: Set<Int>,
             hiddenSeqs: Set<Int>,
             firstSeq: Int,
+            displayIndex: Int,
             isComplete: Bool,
             hasHiddenRows: Bool,
             durationMS: Int? = nil
@@ -61,6 +67,7 @@ public enum TranscriptTurnFold {
             self.hidden = hidden
             self.hiddenSeqs = hiddenSeqs
             self.firstSeq = firstSeq
+            self.displayIndex = displayIndex
             self.isComplete = isComplete
             self.hasHiddenRows = hasHiddenRows
             self.durationMS = durationMS
@@ -82,8 +89,20 @@ public enum TranscriptTurnFold {
         }
 
         public func turn(startingAt index: Int) -> Turn? {
-            guard let turn = turn(containing: index), turn.span.lowerBound == index else { return nil }
-            return turn
+            var low = 0
+            var high = all.count
+            while low < high {
+                let middle = low + (high - low) / 2
+                let displayIndex = all[middle].displayIndex
+                if displayIndex < index {
+                    low = middle + 1
+                } else if index < displayIndex {
+                    high = middle
+                } else {
+                    return all[middle]
+                }
+            }
+            return nil
         }
 
         public func turn(containing index: Int) -> Turn? {
@@ -137,18 +156,33 @@ public enum TranscriptTurnFold {
         }
 
         var turnStart: Int?
+        var turnStartedAt: Date?
+        var acceptsResultDuration = true
         var finalResponse: Int?
         var resume = start
 
-        func appendTurn(endingAt end: Int, isComplete: Bool, durationMS: Int?) {
+        func elapsed(until end: Date?) -> Int? {
+            turnStartedAt.flatMap { started in
+                end.map { max(0, Int($0.timeIntervalSince(started) * 1_000)) }
+            }
+        }
+
+        func appendTurn(
+            endingAt end: Int,
+            displayAt displayIndex: Int? = nil,
+            isComplete: Bool,
+            durationMS: Int?,
+            hidesEntireSpan: Bool = false
+        ) {
             guard let turnStart, turnStart < end else { return }
             let first = facts[facts.index(facts.startIndex, offsetBy: turnStart)]
             var hidden: Set<Int> = []
             var hiddenSeqs: Set<Int> = []
             var hasHiddenRows = false
 
-            if let finalResponse, isComplete, turnStart < finalResponse {
-                for index in turnStart..<finalResponse {
+            let hiddenEnd = hidesEntireSpan ? end : finalResponse
+            if let hiddenEnd, isComplete, turnStart < hiddenEnd {
+                for index in turnStart..<hiddenEnd {
                     let fact = facts[facts.index(facts.startIndex, offsetBy: index)]
                     hidden.insert(index)
                     hiddenSeqs.insert(fact.seq)
@@ -161,6 +195,7 @@ public enum TranscriptTurnFold {
                 hidden: hidden,
                 hiddenSeqs: hiddenSeqs,
                 firstSeq: first.seq,
+                displayIndex: displayIndex ?? finalResponse ?? turnStart,
                 isComplete: isComplete,
                 hasHiddenRows: hasHiddenRows,
                 durationMS: durationMS
@@ -172,6 +207,19 @@ public enum TranscriptTurnFold {
             guard fact.parentToolUseID == nil else { continue }
 
             if fact.kind == .user || fact.kind == .crew || fact.opensTurn {
+                if turnStart != nil {
+                    appendTurn(
+                        endingAt: offset,
+                        displayAt: offset,
+                        isComplete: true,
+                        durationMS: elapsed(until: fact.createdAt),
+                        hidesEntireSpan: true
+                    )
+                    acceptsResultDuration = false
+                } else {
+                    acceptsResultDuration = true
+                }
+                turnStartedAt = fact.createdAt
                 turnStart = offset + 1
                 finalResponse = nil
                 continue
@@ -183,8 +231,14 @@ public enum TranscriptTurnFold {
             }
 
             if fact.kind == .result {
-                appendTurn(endingAt: offset + 1, isComplete: true, durationMS: fact.durationMS)
+                let reported = acceptsResultDuration
+                    ? fact.durationMS.flatMap { $0 > 0 ? $0 : nil }
+                    : nil
+                let durationMS = reported ?? elapsed(until: fact.createdAt)
+                appendTurn(endingAt: offset + 1, isComplete: true, durationMS: durationMS)
                 turnStart = nil
+                turnStartedAt = nil
+                acceptsResultDuration = true
                 finalResponse = nil
                 resume = offset + 1
             }

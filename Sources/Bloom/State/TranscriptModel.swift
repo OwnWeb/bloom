@@ -121,7 +121,8 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
                 || TranscriptRowInk.drawsNothing(kind: kind, payload: payload),
             parentToolUseID: parentToolUseID,
             opensTurn: BackgroundWake.isRow(kind: kind, payload: payload),
-            durationMS: kind == .result ? durationMS : nil
+            durationMS: kind == .result ? durationMS : nil,
+            createdAt: createdAt
         )
     }
 }

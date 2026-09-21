@@ -772,7 +772,8 @@ struct TranscriptListView: View {
                                 recovered: recovered,
                                 stillRunning: stillRunning,
                                 transcript: transcript,
-                                showsDuration: turnFolds.turn(containing: index)?.hasHiddenRows != true
+                                showsDuration: turnFolds.turn(containing: index)?.hasHiddenRows != true,
+                                durationMS: turnFolds.turn(containing: index)?.durationMS
                             )
                             .arrivingRow(settles && arrivals.isArriving(row.seq))
                             .padding(.horizontal, TranscriptLayout.inset)

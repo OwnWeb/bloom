@@ -40,6 +40,8 @@ struct TurnFooterView: View {
     var transcript: TranscriptModel?
     /// False when the completed turn disclosure above the response already carries the duration.
     var showsDuration = true
+    /// The duration of the visible segment when a running turn was steered by another message.
+    var durationMS: Int?
 
     /// More chips than this and the footer stops being a footer.
     private static let visibleFileLimit = 6
@@ -86,7 +88,7 @@ struct TurnFooterView: View {
                         Text(
                             Self.durationLabel(
                                 outcome: outcome,
-                                milliseconds: row.durationMS ?? result?.durationMS ?? 0
+                                milliseconds: durationMS ?? row.durationMS ?? result?.durationMS ?? 0
                             )
                         )
                             .font(Typo.caption)
