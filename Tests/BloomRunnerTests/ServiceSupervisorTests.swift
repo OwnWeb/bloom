@@ -134,32 +134,47 @@ struct ServiceSupervisorTests {
         let root = try SetupTestSupport.directory("service-secrets")
         let layout = MachineLayout(dataDirectory: root + "/data", worktree: root)
         let secrets = Mutex(["backend": "app-secret-sentinel", "jobs": "worker-secret-sentinel"])
+        let launches = Mutex<[String: Int]>([:])
         let supervisor = ServiceSupervisor(
             layout: layout,
             tuning: Self.fast,
             scopedEnvironment: { name, base in
                 let value = secrets.withLock { $0[name] ?? "" }
+                let launch = launches.withLock { launches in
+                    launches[name, default: 0] += 1
+                    return launches[name, default: 0]
+                }
                 var environment = base
                 environment[name == "backend" ? "APP_SECRET" : "WORKER_SECRET"] = value
+                environment["BLOOM_TEST_SECRET_GENERATION"] = String(launch)
                 return ScopedProcessEnvironment(values: environment, redactions: [value])
             }
         )
         await supervisor.start([
-            .init(id: "backend", name: "app", command: "test -n \"$APP_SECRET\" && test -z \"${WORKER_SECRET:-}\" && echo app-ok > app.scope; echo \"$APP_SECRET\"; exec sleep 60"),
-            .init(id: "jobs", name: "worker", command: "test -n \"$WORKER_SECRET\" && test -z \"${APP_SECRET:-}\" && echo worker-ok > worker.scope; echo \"$WORKER_SECRET\"; exec sleep 60"),
+            .init(id: "backend", name: "app", command: "test -n \"$APP_SECRET\" && test -z \"${WORKER_SECRET:-}\" && echo app-ok > app.scope; echo \"$APP_SECRET\"; echo generation:$BLOOM_TEST_SECRET_GENERATION; exec sleep 60"),
+            .init(id: "jobs", name: "worker", command: "test -n \"$WORKER_SECRET\" && test -z \"${APP_SECRET:-}\" && echo worker-ok > worker.scope; echo \"$WORKER_SECRET\"; echo generation:$BLOOM_TEST_SECRET_GENERATION; exec sleep 60"),
         ], environment: ProcessInfo.processInfo.environment)
 
         #expect(await SetupTestSupport.eventually {
             SetupTestSupport.read(root + "/app.scope").contains("app-ok")
                 && SetupTestSupport.read(root + "/worker.scope").contains("worker-ok")
         })
+        #expect(await SetupTestSupport.eventually {
+            let backend = SetupTestSupport.read(supervisor.logPath(for: "backend"))
+            let jobs = SetupTestSupport.read(supervisor.logPath(for: "jobs"))
+            return backend.contains(SecretRedaction.mask) && backend.contains("generation:1")
+                && jobs.contains(SecretRedaction.mask) && jobs.contains("generation:1")
+        })
         #expect(!SetupTestSupport.read(supervisor.logPath(for: "backend")).contains("app-secret-sentinel"))
         #expect(!SetupTestSupport.read(supervisor.logPath(for: "jobs")).contains("worker-secret-sentinel"))
-        #expect(SetupTestSupport.read(supervisor.logPath(for: "backend")).contains(SecretRedaction.mask))
 
         secrets.withLock { $0["backend"] = "rotated-app-sentinel" }
         await supervisor.restartAll(environment: ProcessInfo.processInfo.environment)
         #expect(await SetupTestSupport.eventually { await Self.state(supervisor, "app") == .running })
+        #expect(await SetupTestSupport.eventually {
+            let backend = SetupTestSupport.read(supervisor.logPath(for: "backend"))
+            return backend.contains(SecretRedaction.mask) && backend.contains("generation:2")
+        })
         #expect(!SetupTestSupport.read(supervisor.logPath(for: "backend")).contains("rotated-app-sentinel"))
         await supervisor.stopAll()
     }
