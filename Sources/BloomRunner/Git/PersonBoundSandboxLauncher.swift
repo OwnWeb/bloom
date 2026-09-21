@@ -103,6 +103,22 @@ final class PersonBoundSandboxLauncher: @unchecked Sendable {
 /// private mount namespace. Its child drops to a fresh numeric uid, joins a fresh cgroup and blocks
 /// at the launch gate before `execve` replaces it with untrusted code.
 enum PersonBoundSandboxExec {
+    /// Every refusal below used to be a bare `return 1`, which is how a Cloud workspace spent a
+    /// night saying `live exchange (... output=[])` and nothing else: the most guarded path in the
+    /// Runner had no way to say which guard stopped it, and running it by hand printed nothing at
+    /// all. The reason is not a secret. Only root reaches this, through passwordless sudo, and a
+    /// machine that cannot launch a sandbox is broken rather than under attack.
+    /// The same, from the forked child, which has no return value to carry one.
+    private static func childRefusal(_ reason: String) {
+        FileHandle.standardError.write(Data("bloom-runner: sandbox-exec refused: \(reason)\n".utf8))
+    }
+
+    private static func refuse(_ reason: String) -> Int32 {
+        FileHandle.standardError.write(Data("bloom-runner: sandbox-exec refused: \(reason)\n".utf8))
+
+        return 1
+    }
+
     private enum ProtectedOperation {
         case git
         case gh
@@ -123,35 +139,51 @@ enum PersonBoundSandboxExec {
               let gate = environment["BLOOM_PERSON_BOUND_GATE"], gate == MachineSandbox.launchGateSocketPath,
               let nonce = environment["BLOOM_PERSON_BOUND_NONCE"], nonce.count >= 32,
               let group = environment["BLOOM_PERSON_BOUND_GROUP"], let groupEntry = group.withCString({ getgrnam($0) })
-        else { return 1 }
-        guard uidIsAvailable(uid) else { return 1 }
+        else {
+            return refuse(
+                "it must run as root, with `--` and a command, and with BLOOM_PERSON_BOUND_UID (200000 or above), "
+                    + "_CGROUP, _HOME, _PROVENANCE, _WORKTREE, _GATE, _NONCE and _GROUP all set and within their roots"
+            )
+        }
+        guard uidIsAvailable(uid) else { return refuse("uid \(uid) is already taken on this host") }
 
-        guard FileManager.default.fileExists(atPath: "/.sprite/api.sock"),
-              rootCommand("/usr/bin/mount", ["--bind", "/dev/null", "/.sprite/api.sock"]) == 0 else { return 1 }
+        guard FileManager.default.fileExists(atPath: "/.sprite/api.sock") else {
+            return refuse("there is no /.sprite/api.sock to mask, so this is not a machine a sandbox may run on")
+        }
+        guard rootCommand("/usr/bin/mount", ["--bind", "/dev/null", "/.sprite/api.sock"]) == 0 else {
+            return refuse("/dev/null could not be bind mounted over /.sprite/api.sock, which must be masked first")
+        }
         do {
             try FileManager.default.createDirectory(atPath: cgroup, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(atPath: provenance, withIntermediateDirectories: true)
-        } catch { return 1 }
+        } catch {
+            return refuse("the cgroup, home or provenance directory could not be made: \(error)")
+        }
         guard chown(home, uid, groupEntry.pointee.gr_gid) == 0, chmod(home, 0o700) == 0,
-              chown(provenance, 0, 0) == 0, chmod(provenance, 0o700) == 0 else { return 1 }
+              chown(provenance, 0, 0) == 0, chmod(provenance, 0o700) == 0 else {
+            return refuse("the home or provenance directory could not be given its owner and mode")
+        }
 
         let child = fork()
-        guard child >= 0 else { return 1 }
+        guard child >= 0 else { return refuse("this host would not fork") }
         if child == 0 {
             _ = setpgid(0, 0)
             let pid = String(getpid()) + "\n"
-            guard writeText(pid, to: cgroup + "/cgroup.procs") else { _exit(125) }
-            guard linuxPtrace(0, 0, nil, nil) == 0 else { _exit(125) } // PTRACE_TRACEME
+            guard writeText(pid, to: cgroup + "/cgroup.procs") else { childRefusal("the child could not join its cgroup"); _exit(125) }
+            guard linuxPtrace(0, 0, nil, nil) == 0 else { childRefusal("PTRACE_TRACEME was refused, so the supervisor could not watch the exec"); _exit(125) } // PTRACE_TRACEME
             _ = raise(SIGSTOP)
             var groups = [groupEntry.pointee.gr_gid]
             guard groups.withUnsafeMutableBufferPointer({ setgroups($0.count, $0.baseAddress) }) == 0,
                   setgid(groupEntry.pointee.gr_gid) == 0,
-                  setuid(uid) == 0 else { _exit(125) }
+                  setuid(uid) == 0 else {
+                childRefusal("the child could not drop to uid \(uid) in group \(group)")
+                _exit(125)
+            }
 
             let request = PersonBoundLaunchRequest(nonce: nonce)
             let answer: PersonBoundLaunchAnswer? = LocalCredentialClient.exchange(request, over: gate)
-            guard answer?.execute == true else { _exit(126) }
+            guard answer?.execute == true else { childRefusal("the launch gate did not answer execute for this nonce"); _exit(126) }
 
             var childEnvironment = environment
             let foundationSelfTest = childEnvironment["BLOOM_PERSON_BOUND_FOUNDATION_SELF_TEST"] == "1"
@@ -171,7 +203,8 @@ enum PersonBoundSandboxExec {
               let supervisorStart = environment["BLOOM_PERSON_BOUND_SUPERVISOR_START"].flatMap(UInt64.init)
         else {
             _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-            return 1
+
+            return refuse("BLOOM_PERSON_BOUND_SUPERVISOR_PID and _START name the Runner that must outlive this, and were not both set")
         }
         return supervise(
             leader: child, runnerPID: supervisorPID, runnerStart: supervisorStart,
