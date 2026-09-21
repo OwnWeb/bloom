@@ -24,6 +24,7 @@ final class SupervisedProcess: Sendable {
     enum Event: Sendable {
         case launched
         case exited(status: Int32, restartingIn: Duration)
+        case launchFailed(restartingIn: Duration)
     }
 
     struct Command: Sendable, Hashable {
@@ -31,6 +32,7 @@ final class SupervisedProcess: Sendable {
         var arguments: [String]
         var workingDirectory: String?
         var environment: [String: String]
+        var redactions: [String] = []
     }
 
     private struct State {
@@ -39,7 +41,7 @@ final class SupervisedProcess: Sendable {
         var loop: Task<Void, Never>?
     }
 
-    private let command: Command
+    private let commandProvider: @Sendable () async throws -> Command
     private let logPath: String
     private let logLimit: Int
     private let backoff: RestartBackoff
@@ -51,7 +53,20 @@ final class SupervisedProcess: Sendable {
         command: Command, logPath: String, logLimit: Int, backoff: RestartBackoff, stopGrace: Duration,
         onEvent: @escaping @Sendable (Event) async -> Void
     ) {
-        self.command = command
+        commandProvider = { command }
+        self.logPath = logPath
+        self.logLimit = logLimit
+        self.backoff = backoff
+        self.stopGrace = stopGrace
+        self.onEvent = onEvent
+    }
+
+    init(
+        command: @escaping @Sendable () async throws -> Command,
+        logPath: String, logLimit: Int, backoff: RestartBackoff, stopGrace: Duration,
+        onEvent: @escaping @Sendable (Event) async -> Void
+    ) {
+        commandProvider = command
         self.logPath = logPath
         self.logLimit = logLimit
         self.backoff = backoff
@@ -94,49 +109,66 @@ final class SupervisedProcess: Sendable {
         let log = CappedLogFile(path: logPath, limit: logLimit)
         defer { log.close() }
         while !isStopping, !Task.isCancelled {
-            let process = StreamingProcess(
-                executable: command.executable, arguments: command.arguments,
-                cwd: command.workingDirectory, environment: command.environment
-            )
-            let lines = process.lines
             let began = ContinuousClock.now
-            let pid = process.processIdentifier
-            let group: pid_t = pid > 0 && getpgid(pid) == pid && pid != getpgrp() ? pid : 0
-            // A stop that landed between the launch and this line found no group to signal, so the
-            // loop signals it itself rather than leaving a process nobody will ever stop.
-            let stoppedMeanwhile = state.withLock { state -> Bool in
-                state.group = group
-                return state.stopping
-            }
-            if stoppedMeanwhile {
-                if group > 0 { Self.signal(group: group, SIGKILL) } else { process.kill() }
-            } else if pid > 0 {
-                await onEvent(.launched)
-            }
+            let status: Int32
             do {
-                for try await line in lines { log.append(line) }
+                status = try await runOnce(log: log)
             } catch {
-                log.append("[bloom] \(error)")
+                let delay = backoff.delay(afterRunningFor: .zero)
+                log.append("[bloom] The service's scoped environment was unavailable. Starting again in \(Self.describe(delay)).")
+                await onEvent(.launchFailed(restartingIn: delay))
+                try? await Task.sleep(for: delay)
+                continue
             }
-            let status = await process.exitStatus
-            // The shell is gone but a child it started (a dev server forked into the background)
-            // can still hold the port, and would make every restart fail on it. The group stays
-            // recorded until that is dealt with, so a stop arriving meanwhile signals it too.
-            if group > 0, Self.isAlive(group: group) {
-                Self.signal(group: group, SIGTERM)
-                let deadline = ContinuousClock.now + stopGrace
-                while Self.isAlive(group: group), ContinuousClock.now < deadline {
-                    try? await Task.sleep(for: .milliseconds(50))
-                }
-                if Self.isAlive(group: group) { Self.signal(group: group, SIGKILL) }
-            }
-            state.withLock { $0.group = 0 }
             guard !isStopping else { break }
             let delay = backoff.delay(afterRunningFor: ContinuousClock.now - began)
             log.append("[bloom] Exited with status \(status). Starting again in \(Self.describe(delay)).")
             await onEvent(.exited(status: status, restartingIn: delay))
             try? await Task.sleep(for: delay)
         }
+    }
+
+    /// One launch in its own scope. The command, its secret-bearing environment and the process
+    /// are all released before the supervisor enters restart backoff.
+    private func runOnce(log: CappedLogFile) async throws -> Int32 {
+        let command = try await commandProvider()
+        let process = StreamingProcess(
+            executable: command.executable, arguments: command.arguments,
+            cwd: command.workingDirectory, environment: command.environment
+        )
+        let lines = process.lines
+        let pid = process.processIdentifier
+        let group: pid_t = pid > 0 && getpgid(pid) == pid && pid != getpgrp() ? pid : 0
+        // A stop that landed between the launch and this line found no group to signal, so the
+        // loop signals it itself rather than leaving a process nobody will ever stop.
+        let stoppedMeanwhile = state.withLock { state -> Bool in
+            state.group = group
+            return state.stopping
+        }
+        if stoppedMeanwhile {
+            if group > 0 { Self.signal(group: group, SIGKILL) } else { process.kill() }
+        } else if pid > 0 {
+            await onEvent(.launched)
+        }
+        do {
+            for try await line in lines { log.append(line, hiding: command.redactions) }
+        } catch {
+            log.append("[bloom] The service process could not be read.", hiding: command.redactions)
+        }
+        let status = await process.exitStatus
+        // The shell is gone but a child it started (a dev server forked into the background)
+        // can still hold the port, and would make every restart fail on it. The group stays
+        // recorded until that is dealt with, so a stop arriving meanwhile signals it too.
+        if group > 0, Self.isAlive(group: group) {
+            Self.signal(group: group, SIGTERM)
+            let deadline = ContinuousClock.now + stopGrace
+            while Self.isAlive(group: group), ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            if Self.isAlive(group: group) { Self.signal(group: group, SIGKILL) }
+        }
+        state.withLock { $0.group = 0 }
+        return status
     }
 
     static func describe(_ duration: Duration) -> String {

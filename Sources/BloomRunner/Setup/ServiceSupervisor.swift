@@ -15,6 +15,8 @@ import Foundation
 /// which one, because starting Horizon against a database that never came up only moves the error
 /// somewhere harder to read.
 public actor ServiceSupervisor {
+    public typealias ScopedEnvironment = @Sendable (_ service: String, _ base: [String: String]) async throws
+        -> ScopedProcessEnvironment
     public enum State: String, Sendable, Hashable {
         /// Waiting for a dependency to be up.
         case waiting
@@ -79,6 +81,7 @@ public actor ServiceSupervisor {
     private let observer: (@Sendable ([Status]) async -> Void)?
     private var announced: [Status]?
     private let tuning: Tuning
+    private let scopedEnvironment: ScopedEnvironment
     private var services: [RemoteProjectSettings.Service] = []
     private var environment: [String: String] = [:]
     private var entries: [String: Entry] = [:]
@@ -93,10 +96,14 @@ public actor ServiceSupervisor {
     private let sandbox: MachineSandbox?
 
     public init(layout: MachineLayout, tuning: Tuning = .standard, sandbox: MachineSandbox? = nil,
+                scopedEnvironment: @escaping ScopedEnvironment = { _, base in
+                    ScopedProcessEnvironment(values: base, redactions: [])
+                },
                 observer: (@Sendable ([Status]) async -> Void)? = nil) {
         self.layout = layout
         self.sandbox = sandbox
         self.tuning = tuning
+        self.scopedEnvironment = scopedEnvironment
         self.observer = observer
     }
 
@@ -161,8 +168,8 @@ public actor ServiceSupervisor {
         }
     }
 
-    /// Starts these services, stopping whatever was running first. A service with no name, or a
-    /// second one under a name already taken, is left out; `RemoteProjectSettings.problems` has
+    /// Starts these services, stopping whatever was running first. A service with no valid id, or
+    /// a second one under an id already taken, is left out; `RemoteProjectSettings.problems` has
     /// already said so.
     public func start(_ services: [RemoteProjectSettings.Service], environment: [String: String]) async {
         await serially { await self.startNow(services, environment: environment) }
@@ -200,9 +207,9 @@ public actor ServiceSupervisor {
         self.environment = environment
         entries = [:]
         order = []
-        for service in services where !service.name.isEmpty && entries[service.name] == nil {
-            entries[service.name] = Entry(service: service)
-            order.append(service.name)
+        for service in services where RemoteProjectSettings.validServiceID(service.id) && entries[service.id] == nil {
+            entries[service.id] = Entry(service: service)
+            order.append(service.id)
         }
         launchWhatIsReady()
     }
@@ -210,8 +217,8 @@ public actor ServiceSupervisor {
     private func stopNow() async {
         generation += 1
         var stopping: [SupervisedProcess] = []
-        for name in order {
-            guard var entry = entries[name] else { continue }
+        for id in order {
+            guard var entry = entries[id] else { continue }
             entry.readiness?.cancel()
             entry.readiness = nil
             if let process = entry.process { stopping.append(process) }
@@ -219,7 +226,7 @@ public actor ServiceSupervisor {
             entry.up = false
             entry.state = .stopped
             entry.message = nil
-            entries[name] = entry
+            entries[id] = entry
         }
         // All at once, because each can take the whole grace period and ten services one after the
         // other would hold a machine that runbloom.app asked to stop for over a minute.
@@ -232,29 +239,41 @@ public actor ServiceSupervisor {
     }
 
     private func launchWhatIsReady() {
-        for name in order {
-            guard var entry = entries[name], entry.state == .waiting, entry.process == nil else { continue }
+        for id in order {
+            guard var entry = entries[id], entry.state == .waiting, entry.process == nil else { continue }
             let missing = entry.service.dependsOn.filter { entries[$0]?.up != true }
             guard missing.isEmpty else {
                 entry.message = "Waiting for \(missing.joined(separator: ", "))."
-                entries[name] = entry
+                entries[id] = entry
                 continue
             }
             let generation = generation
-            let command = sandbox.map { $0.wrap(executable: "/bin/sh", arguments: ["-c", entry.service.command]) }
-                ?? (executable: "/bin/sh", arguments: ["-c", entry.service.command])
+            let service = entry.service
+            let baseEnvironment = environment
+            let scopedEnvironment = scopedEnvironment
+            let sandbox = sandbox
+            let workingDirectory = layout.worktree
             let process = SupervisedProcess(
-                command: .init(executable: command.executable, arguments: command.arguments,
-                               workingDirectory: layout.worktree,
-                               environment: sandbox.map { $0.environment(environment) } ?? environment),
-                logPath: logPath(for: name), logLimit: tuning.logLimit, backoff: tuning.backoff, stopGrace: tuning.stopGrace
+                command: {
+                    let scoped = try await scopedEnvironment(id, baseEnvironment)
+                    let command = sandbox.map { $0.wrap(executable: "/bin/sh", arguments: ["-c", service.command]) }
+                        ?? (executable: "/bin/sh", arguments: ["-c", service.command])
+                    return .init(
+                        executable: command.executable,
+                        arguments: command.arguments,
+                        workingDirectory: workingDirectory,
+                        environment: sandbox.map { $0.environment(scoped.values) } ?? scoped.values,
+                        redactions: scoped.redactions
+                    )
+                },
+                logPath: logPath(for: id), logLimit: tuning.logLimit, backoff: tuning.backoff, stopGrace: tuning.stopGrace
             ) { [weak self] event in
-                await self?.handle(event, service: name, generation: generation)
+                await self?.handle(event, service: id, generation: generation)
             }
             entry.process = process
             entry.state = .starting
             entry.message = nil
-            entries[name] = entry
+            entries[id] = entry
             process.start()
         }
         announce()
@@ -294,6 +313,10 @@ public actor ServiceSupervisor {
                     FileHandle.standardError.write(Data("bloom-runner: \(name): \(advice)\n".utf8))
                 }
             }
+        case .launchFailed(let delay):
+            entry.state = .crashed
+            entry.restarts += 1
+            entry.message = "Its scoped environment was unavailable. Starting again in \(SupervisedProcess.describe(delay))."
         }
         entries[name] = entry
         announce()

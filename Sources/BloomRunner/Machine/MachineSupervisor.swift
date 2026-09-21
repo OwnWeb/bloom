@@ -71,33 +71,3 @@ public actor MachineSupervisor: MachineControl {
         await environment.refresh()
     }
 }
-
-/// The team and project environment runbloom.app holds for this workspace, fetched at start, at
-/// every wake that restarts the server, and when runbloom.app says it changed.
-///
-/// **In memory only.** It reaches scripts and services through their process environment and
-/// nothing else; a script that writes it into `.env` has made that choice itself.
-public actor MachineEnvironment {
-    private let fetch: @Sendable () async throws -> [String: String]
-    private(set) public var values: [String: String] = [:]
-    private var onChange: (@Sendable ([String: String]) async -> Void)?
-
-    public init(fetch: @escaping @Sendable () async throws -> [String: String]) {
-        self.fetch = fetch
-    }
-
-    public func observe(_ onChange: @escaping @Sendable ([String: String]) async -> Void) {
-        self.onChange = onChange
-    }
-
-    /// Fetches again, keeping what it had when runbloom.app cannot be reached.
-    @discardableResult
-    public func refresh() async -> [String: String] {
-        guard let fetched = try? await fetch() else { return values }
-        let fresh = ProviderCredentialEnvironment.untrustedProcess(fetched)
-        let changed = fresh != values
-        values = fresh
-        if changed { await onChange?(fresh) }
-        return fresh
-    }
-}

@@ -56,7 +56,9 @@ struct MachineSetupTests {
 
         func setup(timeouts: MachineSetup.Timeouts = .standard, origin: String? = nil,
                    stallAfter: TimeInterval = MachineSetup.stallAfter, runSetup: Bool? = nil,
+                   machineEnvironment: MachineEnvironment? = nil,
                    sandbox: MachineSandbox? = nil,
+                   syncServiceManifest: @escaping @Sendable ([RemoteProjectSettings.Service]) async throws -> Void = { _ in },
                    isolateNetworkGit: @escaping MachineSetup.IsolateNetworkGit = {
                        .init(launch: $0, cleanup: {})
                    }) throws -> MachineSetup {
@@ -72,11 +74,14 @@ struct MachineSetupTests {
             let origin = origin ?? self.origin
             return MachineSetup(
                 runtime: runtime, store: store, configuration: configuration, layout: layout,
-                environment: MachineEnvironment { ["ORDER_FILE": orderFile, "TEAM_VALUE": "from the team"] },
+                environment: machineEnvironment ?? MachineEnvironment(fetchVariables: {
+                    try MachineEnvironmentResponse(variables: ["ORDER_FILE": orderFile, "TEAM_VALUE": "from the team"])
+                }),
                 services: services, serverExecutable: root + "/fake-bloom-runner",
                 cloneURL: { _ in origin }, gitGlobalConfig: gitConfig,
                 personBoundSharedDirectory: root + "/person-bound-shared",
                 isolateNetworkGit: isolateNetworkGit,
+                syncServiceManifest: syncServiceManifest,
                 timeouts: timeouts, stallAfter: stallAfter,
                 sandbox: sandbox
             )
@@ -149,6 +154,73 @@ struct MachineSetupTests {
     echo "url=$BLOOM_PUBLIC_URL host=$BLOOM_PUBLIC_HOST port=$BLOOM_APP_PORT id=$BLOOM_WORKSPACE_ID branch=$BLOOM_BRANCH repo=$BLOOM_REPOSITORY team=$TEAM_VALUE" > "$ORDER_FILE.env"
     command -v gh >> "$ORDER_FILE.env"
     """
+
+    @Test("setup-only secrets reach setup and its child, and no other phase, log or persisted file")
+    func setupSecretScope() async throws {
+        let settings = """
+        [scripts]
+        prepare = "test -z \\"${SETUP_SECRET:-}\\" && echo prepare-clean >> \\"$ORDER_FILE.scope\\""
+        setup_file = ".bloom/setup.sh"
+        resume = "test -z \\"${SETUP_SECRET:-}\\" && echo resume-clean >> \\"$ORDER_FILE.scope\\""
+        """
+        let script = """
+        #!/bin/bash
+        test -n "$SETUP_SECRET"
+        sh -c 'test -n "$SETUP_SECRET"'
+        echo setup-child-ok >> "$ORDER_FILE.scope"
+        echo "$SETUP_SECRET"
+        """
+        let fixture = try await fixture(
+            files: [".bloom/settings.toml": settings, ".bloom/setup.sh": script],
+            executables: [".bloom/setup.sh"]
+        )
+        let sentinel = "setup-secret-sentinel"
+        let handoffs = Mutex(0)
+        let environment = MachineEnvironment(
+            fetchVariables: { try MachineEnvironmentResponse(variables: ["ORDER_FILE": fixture.orderFile]) },
+            fetchSecrets: { scope in
+                guard case .setup = scope else { return [:] }
+                handoffs.withLock { $0 += 1 }
+                return ["SETUP_SECRET": sentinel]
+            }
+        )
+        let setup = try fixture.setup(machineEnvironment: environment)
+
+        #expect(await setup.runWholeSequence())
+        #expect(handoffs.withLock { $0 } == 1)
+        #expect(SetupTestSupport.read(fixture.orderFile + ".scope") == "prepare-clean\nsetup-child-ok\nresume-clean\n")
+        let workspace = try await fixture.workspace()
+        #expect(!workspace.setupLog.contains(sentinel))
+        #expect(workspace.setupLog.contains(SecretRedaction.mask))
+        #expect(!SetupTestSupport.read(fixture.layout.dataDirectory + "/setup/setup.log").contains(sentinel))
+        #expect(!(await setup.scriptEnvironment()).values.contains(sentinel))
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("setup fails closed when its scoped secret handoff fails")
+    func setupSecretFailure() async throws {
+        struct SecretFailure: Error, CustomStringConvertible {
+            var description: String { "must-not-leak-setup-sentinel" }
+        }
+        let settings = """
+        [scripts]
+        setup = "touch setup-must-not-run"
+        """
+        let fixture = try await fixture(files: [".bloom/settings.toml": settings])
+        let calls = Mutex(0)
+        let environment = MachineEnvironment(
+            fetchVariables: { try MachineEnvironmentResponse(variables: [:]) },
+            fetchSecrets: { _ in calls.withLock { $0 += 1 }; throw SecretFailure() }
+        )
+        let setup = try fixture.setup(machineEnvironment: environment)
+
+        #expect(await setup.runWholeSequence() == false)
+        #expect(!FileManager.default.fileExists(atPath: fixture.worktree + "/setup-must-not-run"))
+        let log = try await fixture.workspace().setupLog
+        #expect(log.contains("could not obtain the setup-only secrets"))
+        #expect(!log.contains("must-not-leak-setup-sentinel"))
+        await fixture.runtime.shutdown()
+    }
 
     @Test("the initial clone crosses the isolated bootstrap gate exactly once")
     func cloneUsesBootstrapIsolation() async throws {
@@ -381,6 +453,7 @@ struct MachineSetupTests {
 
 
         [[services]]
+        id = "web"
         name = "web"
         command = 'echo started > "$ORDER_FILE.service"; sleep 30'
         """
@@ -463,6 +536,7 @@ struct MachineSetupTests {
         resume = "echo resume >> \\"$ORDER_FILE\\""
 
         [[services]]
+        id = "web"
         name = "web"
         command = "echo started > \\"$ORDER_FILE.service\\"; sleep 30"
         """
@@ -671,6 +745,7 @@ struct MachineSetupTests {
 
 
         [[services]]
+        id = "web"
         name = "web"
         command = "echo \\"$TEAM_VALUE\\" > \\"$ORDER_FILE.service\\"; exec sleep 30"
         """

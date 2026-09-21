@@ -132,10 +132,52 @@ public struct RunbloomClient: Sendable {
         _ = try await send(.POST, "/addressed", body: body, expecting: [200, 202, 204])
     }
 
-    public func environment() async throws -> [String: String] {
-        struct Answer: Decodable { var environment: [String: String]? }
+    public func environment() async throws -> MachineEnvironmentResponse {
         let data = try await send(.GET, "/environment", expecting: [200])
-        return try decode(Answer.self, data, status: 200).environment ?? [:]
+        return try decode(MachineEnvironmentResponse.self, data, status: 200)
+    }
+
+    /// Issues and consumes one scope-bound handoff. Neither request is replayed by this client.
+    /// If consumption has an ambiguous result, the caller starts a new setup attempt or service
+    /// launch with a new UUID instead of risking reuse of the consumed authority.
+    public func secrets(for scope: SecretHandoffScope, now: Date = Date()) async throws -> [String: String] {
+        let issued = try await sendOnce(
+            .POST, "/secret-handoffs", body: try scope.issueBody, headers: [:], expecting: [200, 201]
+        )
+        let handoff = try decode(SecretHandoff.self, issued.body, status: issued.status)
+        guard handoff.expiresAt > now else {
+            await cancelSecretHandoff(handoff.id)
+            throw RunbloomError.unexpected(status: issued.status)
+        }
+        do {
+            let body = try JSONSerialization.data(withJSONObject: ["version": 1])
+            let data = try await sendOnce(
+                .POST, "/secret-handoffs/\(handoff.id)/consume", body: body, headers: [:], expecting: [200]
+            ).body
+            return try decode(SecretHandoffConsumption.self, data, status: 200).secrets
+        } catch {
+            await cancelSecretHandoff(handoff.id)
+            throw error
+        }
+    }
+
+    public func syncServiceManifest(_ services: [RemoteProjectSettings.Service]) async throws {
+        let listed = services.map { ["id": $0.id, "name": $0.name] }
+        let body = try JSONSerialization.data(withJSONObject: ["version": 1, "services": listed])
+        let response = try await send(.PUT, "/service-manifest", body: body, expecting: [204])
+        guard response.isEmpty else { throw RunbloomError.unexpected(status: 204) }
+    }
+
+    private func cancelSecretHandoff(_ id: String) async {
+        let body = try? JSONSerialization.data(withJSONObject: ["version": 1])
+        guard let body else { return }
+        // A fresh unstructured task can still make the best-effort cancellation when the calling
+        // task itself was cancelled. It is awaited, so its lifetime remains bounded here.
+        await Task {
+            _ = try? await sendOnce(
+                .DELETE, "/secret-handoffs/\(id)", body: body, headers: [:], expecting: [204]
+            )
+        }.value
     }
 
     /// Registers a turn or a terminal session while the prompter's token is fresh, and answers

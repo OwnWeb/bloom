@@ -23,9 +23,10 @@ final class CappedLogFile {
         handle = FileHandle(forWritingAtPath: path)
     }
 
-    func append(_ line: String) {
+    func append(_ line: String, hiding secrets: [String] = []) {
         guard let handle else { return }
-        let data = Data((line + "\n").utf8)
+        let safe = SecretRedaction.mask(line, hiding: secrets)
+        let data = Data((safe + "\n").utf8)
         if written + data.count > limit {
             let megabytes = limit / 1_048_576
             let note = Data("[bloom] This log reached \(megabytes > 0 ? "\(megabytes) MB" : "\(limit) bytes") and was started again.\n".utf8)

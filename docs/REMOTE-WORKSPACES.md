@@ -537,12 +537,14 @@ setup = ".bloom/setup.sh"       # this workspace: env file, migrate and seed, bu
 resume = ".bloom/resume.sh"     # after every wake, with fresh environment
 
 [[services]]
+id = "app"
 name = "app"
 command = "php artisan octane:start --port=$BLOOM_APP_PORT"
 http = true                     # the one the preview routes to
 ready = "http:/up"
 
 [[services]]
+id = "vite"
 name = "vite"
 command = "npm run dev"
 depends_on = ["app"]
@@ -551,15 +553,57 @@ depends_on = ["app"]
 size = "default"                # a hint; runbloom.app decides
 ```
 
-Bloom injects into every script and service: `BLOOM_PUBLIC_URL` (the Sprite URL, Amp's
-`PUBLIC_URL`), `BLOOM_PUBLIC_HOST`, `BLOOM_APP_PORT`, `BLOOM_WORKSPACE_ID`, `BLOOM_BRANCH`, plus
-the team and project environment runbloom.app holds. The repository maps them itself
-(`APP_URL=$BLOOM_PUBLIC_URL`, Vite's allowed hosts from `BLOOM_PUBLIC_HOST`). Team and project
-values arrive at setup and at every resume; personal values arrive only with a turn or a terminal
-session, apply only to its processes, and are delivered only in a workspace that is not shared.
-Provider credential names are removed before setup, resume, services, terminals or run scripts
-start. All remaining values live only in process environments; a script
-that writes it into `.env` has made that choice itself.
+Bloom injects ordinary team and project variables into the repository scripts and services,
+beside `BLOOM_PUBLIC_URL` (the Sprite URL, Amp's `PUBLIC_URL`), `BLOOM_PUBLIC_HOST`,
+`BLOOM_APP_PORT`, `BLOOM_WORKSPACE_ID` and `BLOOM_BRANCH`. Secrets are separate and require one
+explicit scope. `setup` reaches only the setup script and its children. `service` also names one
+`[[services]]` entry and reaches only that service process and its descendants. Prepare, resume,
+clone, provisioning, other services, agents, terminal-kind turns, interactive terminals and tmux
+receive none. Provider credential names are also removed before setup, resume, services, terminals
+or run scripts start. Personal non-provider values arrive only with their turn or terminal and only
+in an unshared workspace. A service fetches its scope again for every launch and crash restart.
+Setup fetches its scope immediately before its process starts and releases it when that process
+ends.
+
+The broad environment endpoint returns ordinary values only:
+
+```json
+{
+  "version": 1,
+  "variables": {"APP_ENV": "production"}
+}
+```
+
+Before starting setup or one service launch, Runner issues a version 1 handoff with a lowercase
+UUID attempt id or launch id. Service handoffs carry the stable `id`, never the display `name`.
+Issuance returns only an opaque handoff id and an expiry. Runner immediately consumes that id in a
+second authenticated request, which atomically returns only that scope's secrets once. It never
+replays a consume after an ambiguous result and cancels an unused handoff after failure where
+possible. Every payload has an exact closed shape. Unknown fields, versions, phases and service ids
+fail closed. Runner syncs the current `id` and `name` manifest before repository code runs, including
+an empty manifest so removed services lose authority.
+
+Every `[[services]]` entry requires an `id` matching `[a-z0-9][a-z0-9._-]{0,63}` and a unique display
+`name` of at most 100 characters. `depends_on` contains ids. Renaming a service preserves its secret
+scope; changing its id creates a distinct authority. Secret values are never written to workspace
+settings, generated launch files, arguments, transcripts or persisted state. Active setup and
+service logs redact them before writing. Ordinary variables keep their existing broad
+repository-process semantics. Agent and turn authority remains a separate, per-turn contract.
+
+| Process path | Ordinary variables | Setup secrets | Service secrets | Turn authority |
+| --- | --- | --- | --- | --- |
+| clone, provisioning, prepare, resume | yes | no | no | no |
+| setup script and its children | yes | its setup scope | no | no |
+| named service and its descendants | yes | no | that stable service id only | no |
+| agent turn and publishing command | its turn response only | no | no | that turn only |
+| terminal-kind turn, interactive shell and tmux | its terminal response only | no | no | that terminal only |
+| snapshots, reporting, logs and persisted workspace files | no secret values | no | no | no |
+
+Wake and resume validate the complete scoped response before running repository code. An
+environment-change notification retires running services when the new response cannot be fetched
+or decoded. A crash restart fetches the named service scope again. Stop, cancellation and teardown
+kill the process tree and release the launch-local environment and redaction values before any
+retry wait.
 
 ### Provider credential environment boundary
 
@@ -877,7 +921,11 @@ No provider name in any path. All take the workspace secret except where noted.
 | --- | --- |
 | `POST /api/machine/workspaces/{id}/summary` | summaries |
 | `POST /api/machine/workspaces/{id}/usage` | usage reports |
-| `GET /api/machine/workspaces/{id}/environment` | team and project environment, at setup and resume |
+| `GET /api/machine/workspaces/{id}/environment` | versioned ordinary variables only, never secret plaintext |
+| `PUT /api/machine/workspaces/{id}/service-manifest` | stable service ids and display names, including an empty list to revoke removed services |
+| `POST /api/machine/workspaces/{id}/secret-handoffs` | issue an opaque setup-attempt or service-launch handoff |
+| `POST /api/machine/workspaces/{id}/secret-handoffs/{handoff}/consume` | atomically consume one handoff and return only its scoped secrets |
+| `DELETE /api/machine/workspaces/{id}/secret-handoffs/{handoff}` | cancel an unused handoff |
 | `POST /api/machine/workspaces/{id}/turns` | registering a turn or terminal session, with the user's workspace token as well |
 | `POST /api/machine/workspaces/{id}/turns/{turn}/start` | the key and personal environment, or a limit refusal |
 | `DELETE /api/machine/workspaces/{id}/turns/{turn}` | ending a turn or terminal session |

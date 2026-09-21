@@ -85,7 +85,7 @@ final class FakeControlServer: Sendable {
     private struct State {
         var requests: [RecordedRequest] = []
         var jwks: Data?
-        var environment: [String: String] = [:]
+        var environmentBody = #"{"version":1,"variables":{}}"#
         var membersBody = #"{"members": []}"#
         var starts: [String: Scripted] = [:]
         var defaultStart = Scripted.grant()
@@ -164,9 +164,9 @@ final class FakeControlServer: Sendable {
         set { state.withLock { $0.jwks = newValue } }
     }
 
-    var environment: [String: String] {
-        get { state.withLock { $0.environment } }
-        set { state.withLock { $0.environment = newValue } }
+    var environmentBody: String {
+        get { state.withLock { $0.environmentBody } }
+        set { state.withLock { $0.environmentBody = newValue } }
     }
 
     /// The members answer as runbloom.app writes it, set by a test as raw JSON so the shape is the
@@ -256,7 +256,7 @@ final class FakeControlServer: Sendable {
         case ("POST", ["summary"]), ("POST", ["usage"]):
             return .noContent
         case ("GET", ["environment"]):
-            return .json(200, ["environment": environment])
+            return .raw(200, environmentBody)
         case ("GET", ["members"]):
             return .raw(200, membersBody)
         case ("POST", ["addressed"]):

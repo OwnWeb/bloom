@@ -246,7 +246,10 @@ public enum ServeCommand {
             capabilitiesProvider: { personBound.capabilities + [MachineIdentitySigner.capability] }
         )
         let awake = AwakeController(host: host, runtime: runtime, reporter: reporter)
-        let machineEnvironment = MachineEnvironment { try await client.environment() }
+        let machineEnvironment = MachineEnvironment(
+            fetchVariables: { try await client.environment() },
+            fetchSecrets: { try await client.secrets(for: $0) }
+        )
         let keys = KeySet.live(url: configuration.jwksURL, client: http)
         let verifier = TokenVerifier(issuer: configuration.issuer, workspaceID: configuration.workspaceID, keys: keys,
                                      revocations: Revocations(store: store))
@@ -302,7 +305,13 @@ public enum ServeCommand {
         // The supervisor's own states, on the workspace record, because a service that never
         // started is otherwise a sentence held in this process's memory and reachable only through
         // a preview page that a project's own proxy can make unreachable. See `ServiceRecord`.
-        let services = ServiceSupervisor(layout: layout, sandbox: sandbox, observer: { [weak runtime] statuses in
+        let services = ServiceSupervisor(
+            layout: layout,
+            sandbox: sandbox,
+            scopedEnvironment: { serviceID, base in
+                try await machineEnvironment.scoped(.service(id: serviceID, launchID: UUID()), base: base)
+            },
+            observer: { [weak runtime] statuses in
             await runtime?.servicesChanged(statuses.map {
                 ServiceRecord(name: $0.name, state: $0.state.rawValue, restarts: $0.restarts,
                               message: $0.message, isHTTP: $0.isHTTP)
@@ -350,10 +359,10 @@ public enum ServeCommand {
                     personBoundBroker.forget(reservation)
                     prepared.cleanup()
                 }
-            },
+            }, syncServiceManifest: { try await client.syncServiceManifest($0) },
             sandbox: sandbox
         )
-        await machineEnvironment.observe { _ in await setup.restartServices() }
+        await machineEnvironment.observe { await setup.restartServices() }
         // `stop_setup` reaches the machine's own setup through here; one run by hand is the
         // runtime's own to stop. See `MachineSetup.stop(by:)`.
         await runtime.setSetupStopper { name in await setup.stop(by: name) }

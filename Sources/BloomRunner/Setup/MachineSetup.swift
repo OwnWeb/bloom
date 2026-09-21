@@ -19,9 +19,8 @@ import Synchronization
 /// script; the services wait for a setup that succeeded, because a dev server started against a
 /// half-migrated database only adds a second error to read.
 ///
-/// **The environment lives only in processes.** Team and project values from runbloom.app, and the
-/// `BLOOM_*` variables, are handed to each script and service as it starts and never written to
-/// disk. A script that writes them into `.env` has made that choice itself.
+/// Ordinary variables are shared by repository scripts and services. Secrets are fetched for one
+/// launch only: setup receives setup scope, and each service asks for its stable id at launch.
 public actor MachineSetup {
     public typealias IsolateNetworkGit = @Sendable (AgentLaunch) async -> RemoteRunnerFactory.IsolatedLaunch?
     public static let completedSetting = "remote.setup.completed"
@@ -71,6 +70,7 @@ public actor MachineSetup {
     /// The user scripts and services run as, or nil where there is none. See `MachineSandbox`.
     private let sandbox: MachineSandbox?
     private let isolateNetworkGit: IsolateNetworkGit
+    private let syncServiceManifest: @Sendable ([RemoteProjectSettings.Service]) async throws -> Void
     private let gitGlobalConfig: String?
     private let timeouts: Timeouts
     /// How long this instance waits; a test cannot sit through five minutes to prove a sentence.
@@ -103,12 +103,14 @@ public actor MachineSetup {
         gitGlobalConfig: String? = nil,
         personBoundSharedDirectory: String = MachineSandbox.personBoundSharedDirectory,
         isolateNetworkGit: @escaping IsolateNetworkGit,
+        syncServiceManifest: @escaping @Sendable ([RemoteProjectSettings.Service]) async throws -> Void = { _ in },
         timeouts: Timeouts = .standard,
         stallAfter: TimeInterval = MachineSetup.stallAfter,
         sandbox: MachineSandbox? = nil
     ) {
         self.sandbox = sandbox
         self.isolateNetworkGit = isolateNetworkGit
+        self.syncServiceManifest = syncServiceManifest
         self.runtime = runtime
         self.store = store
         self.configuration = configuration
@@ -295,7 +297,6 @@ public actor MachineSetup {
         currentLog = log
         defer { currentLog = nil; activity = nil }
         let environment = await scriptEnvironment()
-        await log.hide(await machineEnvironment.values.values)
         let scripts = MachineScripts.load(repo: layout.worktree)
         var succeeded = await runScript("setup", scripts.setup, timeout: timeouts.setup, environment: environment,
                                         log: log, continuing: false)
@@ -329,9 +330,16 @@ public actor MachineSetup {
         // phase with no name is a phase nobody can be told about.
         await begin("environment", log: log, continuing: interrupted)
         if interrupted { await log.note(Self.startingAgainNote) }
-        await machineEnvironment.refresh()
+        do {
+            try await machineEnvironment.requiredRefresh()
+        } catch {
+            await log.note("Bloom could not read a valid scoped environment, so no repository code ran.")
+            await log.endStep()
+            didWork = true
+            await settle(log: log, succeeded: false)
+            return false
+        }
         let environment = await scriptEnvironment()
-        await log.hide(await machineEnvironment.values.values)
         await log.endStep()
         await begin("git", log: log, continuing: interrupted)
         await configureGit(log: log)
@@ -347,6 +355,13 @@ public actor MachineSetup {
                                  environment: environment, log: log)
         }
         let scripts = MachineScripts.load(repo: layout.worktree)
+        if succeeded {
+            do { try await syncServiceManifest(scripts.services) }
+            catch {
+                await log.note("Bloom could not register the repository's service identities, so no repository code ran.")
+                succeeded = false
+            }
+        }
         if succeeded, configuration.runsSetup {
             for problem in scripts.problems { await log.note(problem) }
             if !scripts.hasCloudSetup { await log.note(Self.noCloudSetupNote(hasSetupScript: scripts.setup != nil)) }
@@ -419,15 +434,31 @@ public actor MachineSetup {
         defer { isRunning = false }
 
         moved(to: "reading the team's environment")
-        await machineEnvironment.refresh()
+        do {
+            try await machineEnvironment.requiredRefresh()
+        } catch {
+            let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
+            await log.begin(continuing: true)
+            await log.startStep("environment")
+            await log.note("Bloom could not read a valid scoped environment, so resume and services did not run.")
+            await log.endStep()
+            didWork = true
+            await settle(log: log, succeeded: false)
+            return false
+        }
         let environment = await scriptEnvironment()
         let log = SetupLog(store: store, workspaceID: runtime.workspaceID, directory: setupDirectory)
-        await log.hide(await machineEnvironment.values.values)
         currentLog = log
         defer { currentLog = nil; activity = nil }
         moved(to: "configuring git")
         await configureGit(log: log)
         let scripts = MachineScripts.load(repo: layout.worktree)
+        do { try await syncServiceManifest(scripts.services) }
+        catch {
+            await log.note("Bloom could not register the repository's service identities, so resume and services did not run.")
+            await settle(log: log, succeeded: false)
+            return false
+        }
         // A workspace that asked for no setup asks for none at every start, not only the first.
         // `resume` is one of the three scripts, and a service is declared in the same settings file
         // they are, so starting one here would run half of what was refused.
@@ -473,10 +504,10 @@ public actor MachineSetup {
         await services.restartAll(environment: await scriptEnvironment())
     }
 
-    /// The machine's own environment with Bloom's on top, for every script and service.
+    /// The machine's own non-secret environment with Bloom's variables on top.
     public func scriptEnvironment() async -> [String: String] {
         var environment = Shell.environment()
-        for (key, value) in await machineEnvironment.values { environment[key] = value }
+        for (key, value) in await machineEnvironment.variables { environment[key] = value }
         // The same names the Mac hands a setup script, because repositories in the wild already
         // read them: a script that starts with `set -u` and `cd "$BLOOM_ROOT_PATH"` fails on an
         // unbound variable before it reaches anything a machine could not do. On a machine the
@@ -701,8 +732,23 @@ public actor MachineSetup {
         }
         await begin(step, log: log, continuing: continuing)
         didWork = true
+        let processEnvironment: [String: String]
+        if step == "setup" {
+            do {
+                let scoped = try await machineEnvironment.scoped(.setup(attemptID: UUID()), base: environment)
+                processEnvironment = scoped.values
+                await log.redact(scoped.redactions)
+            } catch {
+                await log.note("Bloom could not obtain the setup-only secrets, so the setup script did not run.")
+                await log.endStep()
+                return false
+            }
+        } else {
+            processEnvironment = environment
+        }
         let succeeded = await runProcess(command.executable, command.arguments, directory: layout.worktree, timeout: timeout,
-                                         environment: environment, log: log, step: step, privileged: privileged)
+                                         environment: processEnvironment, log: log, step: step, privileged: privileged)
+        if step == "setup" { await log.redact([]) }
         await log.endStep()
         return succeeded
     }

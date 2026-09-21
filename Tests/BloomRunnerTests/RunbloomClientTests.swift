@@ -41,12 +41,75 @@ struct RunbloomClientTests {
 
     @Test func environmentIsRead() async throws {
         try await Self.withFake { fake, client in
-            fake.environment = ["APP_ENV": "local", "EMPTY": ""]
-            #expect(try await client.environment() == ["APP_ENV": "local", "EMPTY": ""])
+            fake.environmentBody = #"{"version":1,"variables":{"APP_ENV":"local","EMPTY":""}}"#
+            let environment = try await client.environment()
+            #expect(environment.variables == ["APP_ENV": "local", "EMPTY": ""])
             let request = try #require(fake.requests.first)
             #expect(request.method == "GET")
             #expect(request.path == "/environment")
             #expect(request.body.isEmpty)
+        }
+    }
+
+    @Test("setup secrets use exact issue and one-use consume requests")
+    func setupSecretHandoff() async throws {
+        try await Self.withFake { fake, client in
+            let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+            fake.script("POST", "/secret-handoffs", .raw(201,
+                #"{"version":1,"handoff_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","expires_at":"2099-01-01T00:00:00Z"}"#))
+            fake.script("POST", "/secret-handoffs/\(id)/consume", .raw(200,
+                #"{"version":1,"secrets":{"SETUP_TOKEN":"sentinel"}}"#))
+            let attempt = try #require(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+            let secrets = try await client.secrets(for: .setup(attemptID: attempt))
+            #expect(secrets == ["SETUP_TOKEN": "sentinel"])
+            let issue = try #require(fake.requests("POST", "/secret-handoffs").first?.json)
+            #expect(Set(issue.keys) == ["version", "kind", "attempt_id"])
+            #expect(issue["version"] as? Int == 1)
+            #expect(issue["kind"] as? String == "setup")
+            #expect(issue["attempt_id"] as? String == attempt.uuidString.lowercased())
+            let consume = try #require(fake.requests("POST", "/secret-handoffs/\(id)/consume").first?.json)
+            #expect(Set(consume.keys) == ["version"])
+        }
+    }
+
+    @Test("service handoff uses stable id and cancels an unconsumed handoff")
+    func serviceSecretFailureCancels() async throws {
+        try await Self.withFake { fake, client in
+            let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+            fake.script("POST", "/secret-handoffs", .raw(201,
+                #"{"version":1,"handoff_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","expires_at":"2099-01-01T00:00:00Z"}"#))
+            fake.script("POST", "/secret-handoffs/\(id)/consume", .refusal(
+                status: 409, code: "secret_handoff_unavailable", message: "That secret handoff is no longer available."))
+            fake.script("DELETE", "/secret-handoffs/\(id)", .noContent)
+            let launch = try #require(UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
+            await #expect(throws: (any Error).self) {
+                _ = try await client.secrets(for: .service(id: "web", launchID: launch))
+            }
+            let issue = try #require(fake.requests("POST", "/secret-handoffs").first?.json)
+            #expect(Set(issue.keys) == ["version", "kind", "service_id", "launch_id"])
+            #expect(issue["service_id"] as? String == "web")
+            #expect(fake.requests("DELETE", "/secret-handoffs/\(id)").count == 1)
+        }
+    }
+
+    @Test("service manifest uses stable ids and mutable display names")
+    func serviceManifest() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("PUT", "/service-manifest", .noContent)
+            try await client.syncServiceManifest([.init(id: "web", name: "Web display", command: "serve")])
+            let json = try #require(fake.requests("PUT", "/service-manifest").first?.json)
+            #expect(json["version"] as? Int == 1)
+            let services = try #require(json["services"] as? [[String: String]])
+            #expect(services == [["id": "web", "name": "Web display"]])
+        }
+    }
+
+    @Test func legacyBroadEnvironmentIsRefused() async throws {
+        try await Self.withFake { fake, client in
+            fake.environmentBody = #"{"environment":{"TOKEN":"must-not-be-broad"}}"#
+            await #expect(throws: RunbloomError.unexpected(status: 200)) {
+                _ = try await client.environment()
+            }
         }
     }
 
