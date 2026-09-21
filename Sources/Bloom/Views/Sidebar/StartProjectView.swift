@@ -698,16 +698,14 @@ struct StartProjectView: View {
             // the time anything is raised in front of it. It is one store write.
             let repo = await app.addStartedProject(at: path)
             dismiss()
-            // The window this one is not attached to. What the button just did shows up in the
-            // main window's sidebar, and this window can be in front of it, beside it, or open
-            // with the main window closed altogether, in which case nothing at all would show it.
-            // `openWindow` on the main scene brings it forward when it is open and opens it when
-            // it is not. It was free while this was a sheet, because a sheet cannot exist without
-            // the window it is attached to. `CreateWorkspaceView.create` makes the same call for
-            // the same reason.
+            // New Workspace is a sheet on the main window, so bring that window forward before
+            // asking its root view to present it.
             openWindow(id: BloomApp.mainWindowID)
             guard let repo else { return }
-            openWindow(id: CreateWorkspaceWindow.id, value: repo.id)
+            Task { @MainActor in
+                await Task.yield()
+                NotificationCenter.default.post(name: .bloomNewWorkspace, object: repo)
+            }
         }
     }
 

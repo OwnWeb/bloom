@@ -30,6 +30,10 @@ struct RootView: View {
     /// Whether the Cloud workspace's share popover is open. Held by the window rather than by the
     /// toolbar item, because `ToolbarContent` is a value the window rebuilds under the popover.
     @State private var isSharingCloudWorkspace = false
+    /// One request for the one sheet attached to this window. Repeated entry points update it in
+    /// place, preserving the draft and avoiding a second modal presentation.
+    @State private var createWorkspacePresentation = CreateWorkspacePresentation()
+    @State private var createWorkspaceResolution: Task<Void, Never>?
 
     private var sidebarTintOpacity: Double {
         let preference = ColourThemePreference.shared
@@ -187,6 +191,12 @@ struct RootView: View {
             // The same, for the search panel, which is otherwise reachable only by a key
             // equivalent and a glyph. See `SearchPanelModel.presentIfRequested`.
             .task { presentSearchPanelIfRequested() }
+            .sheet(item: createWorkspaceRequest) { request in
+                CreateWorkspaceView(
+                    initialRepo: app.repos.first { $0.id == request.repoID },
+                    pullRequestRevision: request.pullRequestRevision
+                )
+            }
             // Send Feedback and Submit a Prompt, raised from the Help menu. Here rather than at the
             // menu item, because a `Commands` body is not a view and cannot present anything, and
             // because what was typed into either of them belongs to the app rather than to the sheet:
@@ -399,19 +409,15 @@ struct RootView: View {
         // window into the state the two busy signals are for. See `Snapshot`.
         .acceptsCaptureRunningState(app)
         .acceptsCaptureNotice(app)
-        // A window now rather than a sheet on this one, so this is the same translation the create
-        // window's post gets in the handler below. The four controls that ask still post, because
+        // The four controls that ask still post, because
         // a `Commands` body cannot reach `openWindow` and the other three have always gone through
-        // one door. What that window does once its button is pressed is its own, which is why
+        // one door. What that flow does once its button is pressed is its own, which is why
         // nothing is parked here waiting for it to come down: see `StartProjectView.finish`.
         .onReceive(NotificationCenter.default.publisher(for: .bloomNewProject)) { _ in
             openWindow(id: StartProjectWindow.id)
         }
-        // The post is still the one door every control goes through, and what it opens is a
-        // window now rather than a sheet on this one. The translation is here because this is
-        // where the post was already being received and because `openWindow` needs a view: the
-        // window itself is `CreateWorkspaceWindow`, and it is keyed by project, so asking twice
-        // for the same project brings the first one forward with its draft still in it.
+        // The post is still the one door every control goes through. Presentation stays here so
+        // every entry point updates the same sheet and repeated asks preserve its draft.
         // File, New Ask Bloom Conversation adds a conversation and keeps the existing ones, and
         // opens the panel to show it.
         .onReceive(NotificationCenter.default.publisher(for: .bloomNewAskConversation)) { _ in
@@ -419,12 +425,12 @@ struct RootView: View {
             Task { await app.ask.newConversation() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .bloomNewWorkspace)) { note in
-            if note.userInfo?[Notification.bloomPullRequestKey] as? Bool == true {
-                CreateWorkspaceOpening.shared.askForPullRequest()
-            }
-            openCreateWindow(in: note.object as? Repo)
+            presentCreateWorkspace(
+                in: note.object as? Repo,
+                asksForPullRequest: note.userInfo?[Notification.bloomPullRequestKey] as? Bool == true
+            )
         }
-        // Makes the workspace the create window's terminal mode makes, for a capture run, which
+        // Makes the workspace the create sheet's terminal mode makes, for a capture run, which
         // cannot choose a mode or press a button. It goes through `createWorkspace` exactly as that
         // window does, sea and all, so what is photographed is the real workspace rather than a
         // hand-built row that looks like one. Debug builds only, through the same flag family as
@@ -482,25 +488,43 @@ struct RootView: View {
 
     // MARK: - Actions
 
-    /// Opens the create window, on the project that was asked for, or else on the project a
-    /// workspace was last started in, or else on the one the window is already looking at.
-    ///
-    /// The project is resolved here rather than inside the window, because a window keyed by
-    /// project has to be given one before it exists. A machine with no projects at all opens it
-    /// with none, which is the empty state that offers to add one; every control that could ask
-    /// is disabled or diverted in that state anyway.
-    ///
-    /// The last project started in wins over the selection, which is what the owner asked for.
-    /// The sidebar's `+` still names its project outright, and that is never second-guessed.
-    private func openCreateWindow(in repo: Repo?) {
-        if let repo { return openWindow(id: CreateWorkspaceWindow.id, value: repo.id) }
-        Task {
+    /// Presents the sheet on the named project, or on the project most recently started in.
+    /// An ask made while the sheet is already up updates that one request and keeps its draft.
+    private func presentCreateWorkspace(in repo: Repo?, asksForPullRequest: Bool) {
+        if createWorkspacePresentation.request != nil {
+            createWorkspacePresentation.present(
+                repoID: repo?.id, asksForPullRequest: asksForPullRequest
+            )
+            return
+        }
+
+        createWorkspaceResolution?.cancel()
+        if let repo {
+            createWorkspacePresentation.present(
+                repoID: repo.id, asksForPullRequest: asksForPullRequest
+            )
+            return
+        }
+
+        createWorkspaceResolution = Task {
             let target = await app.recentProjects().first
                 ?? app.selectedWorkspace.flatMap(app.repo(for:))
                 ?? app.repos.first
-            guard let target else { return openWindow(id: CreateWorkspaceWindow.id) }
-            openWindow(id: CreateWorkspaceWindow.id, value: target.id)
+            guard !Task.isCancelled else { return }
+            createWorkspacePresentation.present(
+                repoID: target?.id, asksForPullRequest: asksForPullRequest
+            )
         }
+    }
+
+    private var createWorkspaceRequest: Binding<CreateWorkspacePresentation.Request?> {
+        Binding(
+            get: { createWorkspacePresentation.request },
+            set: { request in
+                guard request == nil else { return }
+                createWorkspacePresentation.dismiss()
+            }
+        )
     }
 
     private func confirmArchive(_ request: ArchiveRequest) {
@@ -520,10 +544,10 @@ extension Notification.Name {
     /// what it used to open was a field in the toolbar. It no longer puts a keyboard anywhere in
     /// the window, which is the defect the panel exists to fix.
     static let bloomFocusSearch = Notification.Name("bloom.focusSearch")
-    /// Asks for the create window. Still a notification rather than an `openWindow` at each of
+    /// Asks for the create sheet. Still a notification rather than direct presentation at each of
     /// the four controls that can ask, because which project is meant depends on what this window
     /// has selected, and because the four have always behaved identically by going through one
-    /// door. See `openCreateWindow`.
+    /// door. See `presentCreateWorkspace`.
     static let bloomNewWorkspace = Notification.Name("bloom.newWorkspace")
     /// File, New Ask Bloom Conversation. The same act the toolbar's glyph performs, posted rather
     /// than called, because `RootView` owns the flag that raises it and starting fresh archives
@@ -540,7 +564,7 @@ extension Notification.Name {
     static let bloomStartTerminalWorkspace = Notification.Name("bloom.startTerminalWorkspace")
     /// The Workspace menu's Rename, aimed at whichever list is drawing that row.
     ///
-    /// A notification rather than a flag on `AppModel`, for the same reason the create window is
+    /// A notification rather than a flag on `AppModel`, for the same reason the create sheet is
     /// one: the field belongs to a row inside a list, the list owns the one field that can be open
     /// at a time, and a menu item cannot reach into either. Both lists listen, and each ignores a
     /// workspace it is not drawing, so the post can be made without knowing which is on screen.

@@ -61,6 +61,9 @@ struct ComposerPrompt<Footer: View>: View {
     var onOpenReviewComment: @MainActor (ReviewComment) -> Void = { _ in }
 
     var placeholder: String = ComposerEditor.chatPlaceholder
+    /// What the text view announces. The New Workspace sheet uses the question that was removed
+    /// from sight as its accessible name, while conversation composers keep the existing default.
+    var accessibilityLabel: String = "Message"
     /// What to draw the editor at, already clamped by the caller, which is the one place that can
     /// reconcile the text's own height with a divider the user may have dragged.
     var editorHeight: CGFloat
@@ -314,7 +317,8 @@ struct ComposerPrompt<Footer: View>: View {
             onHoverAttachment: { hoveredPath = $0 },
             attachmentRoot: attachmentRoot,
             handle: editor,
-            placeholder: placeholder
+            placeholder: placeholder,
+            accessibilityLabel: accessibilityLabel
         )
     }
 

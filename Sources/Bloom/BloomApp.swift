@@ -139,8 +139,8 @@ struct BloomApp: App {
         divider: 1
     )
 
-    /// The main window's scene id. Named rather than repeated, because the create window brings
-    /// it forward after a workspace is made and a second literal is how those two stop matching.
+    /// The main window's scene id. Named rather than repeated, because the project window brings
+    /// it forward before asking this window to present New Workspace.
     static let mainWindowID = "main"
 
     /// What the sidebar column may be dragged out to. Shared with `RootView`, which declares it on
@@ -226,12 +226,7 @@ struct BloomApp: App {
         // One window per project, opened from the gear on its sidebar header. See the scene.
         RepoSettingsWindow(model: model)
 
-        // Where a workspace is started. A window rather than a sheet on the main window, so the
-        // code being described can be read while the task is written. See the scene.
-        CreateWorkspaceWindow(model: model)
-
-        // Where a Cloud workspace is started. The same window as the one above, with the same
-        // parts in the same places: see the scene, and `CreateCloudWorkspaceView`.
+        // Where a Cloud workspace is started. See the scene and `CreateCloudWorkspaceView`.
         CreateCloudWorkspaceWindow(model: model)
 
         // Where a project is started, a window for the same reason and at the owner's asking. One

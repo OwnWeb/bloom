@@ -79,16 +79,16 @@ struct BloomCommands: Commands {
 
         CommandGroup(replacing: .newItem) {
             MenuCommand(.newWorkspace) {
-                // `RootView` opens the window, and the sidebar and Home already ask for it this
+                // `RootView` presents the sheet, and the sidebar and Home already ask for it this
                 // way. It is not `openWindow` from here because which project is meant depends on
-                // what the main window has selected. See `RootView.openCreateWindow`.
+                // what the main window has selected. See `RootView.presentCreateWorkspace`.
                 NotificationCenter.default.post(name: .bloomNewWorkspace, object: nil)
             }
             .disabled(model.repos.isEmpty)
 
             // Directly under New Workspace, because it starts one, and at the top level of File
             // rather than nowhere. Opening a workspace on somebody else's pull request was a whole
-            // feature that could only be found by opening the create window, opening its "Start
+            // feature that could only be found by opening the create sheet, opening its "Start
             // from" control and reading down past a list of branches: two levels in, behind a
             // control most people never press, which is the same as not shipping it.
             //

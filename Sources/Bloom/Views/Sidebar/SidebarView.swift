@@ -1030,10 +1030,10 @@ struct SidebarView: View {
         await model.closeCrewMember(member)
     }
 
-    /// The create window is opened by `RootView`, so every entry point (the toolbar, the repo
+    /// The create sheet is presented by `RootView`, so every entry point (the toolbar, the repo
     /// header's `+`, the menu bar command) goes through one notification and behaves identically:
     /// which project is meant depends on what the main window has selected, and only that window
-    /// knows. See `RootView.openCreateWindow`.
+    /// knows. See `RootView.presentCreateWorkspace`.
     private func presentCreate(in repo: Repo?) {
         renaming = nil
         NotificationCenter.default.post(name: .bloomNewWorkspace, object: repo)

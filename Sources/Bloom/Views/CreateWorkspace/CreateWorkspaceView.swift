@@ -2,8 +2,7 @@ import SwiftUI
 import AppKit
 import BloomCore
 
-/// What is inside the window that starts a workspace. The window itself, and why it is one, is
-/// `CreateWorkspaceWindow`.
+/// The sheet that starts a workspace, attached to Bloom's main window.
 ///
 /// It is the composer, not a form that happens to contain a text box.
 ///
@@ -20,18 +19,16 @@ import BloomCore
 /// its commands, and the model, effort, permission mode and fast mode are chosen with the controls
 /// you already know, then carried onto the session that gets made so the first turn runs with them.
 ///
-/// Still a plain `View` with a `dismiss` in it, which is the whole reason moving it out of a sheet
-/// cost this file so little: `DismissAction` closes the window it is in exactly as it dismissed
-/// the sheet it was in, so every route that ended the sheet ends the window.
 struct CreateWorkspaceView: View {
     /// Which project to start in. The sidebar passes the repo whose `+` was clicked, otherwise
     /// the project a workspace was last started in, or the repo of whatever is selected. Either way the project arrives decided, so the control
     /// for it never asks a question: it reports, and opens only if you want to change your mind.
     var initialRepo: Repo?
+    /// Incremented for every File ▸ New Workspace from Pull Request request while this sheet is up.
+    var pullRequestRevision: UInt64 = 0
 
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openWindow) private var openWindow
 
     @State private var repoID: RepoID?
     /// The picker's Recent section, newest first. See `RecentProjects`.
@@ -99,6 +96,7 @@ struct CreateWorkspaceView: View {
     /// while the box is. See `WorkspaceStartPlan.carriedName`.
     @State private var typedName = ""
     @FocusState private var isNameFocused: Bool
+    @State private var handledPullRequestRevision: UInt64 = 0
 
     /// Wider than the form was. The composer's footer carries four pickers, a paperclip and the
     /// create button, and this is the width at which that row draws in full rather than dropping
@@ -210,8 +208,6 @@ struct CreateWorkspaceView: View {
             .font(Typo.caption)
             .foregroundStyle(Palette.textTertiary)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, Metrics.gutter)
-            .padding(.bottom, Metrics.gutter)
     }
 
     private var offersName: Bool { checkout == nil }
@@ -232,7 +228,6 @@ struct CreateWorkspaceView: View {
                         .padding(.horizontal, Metrics.gutter)
                         .padding(.bottom, Metrics.spacingWide)
                 }
-                consequence
             }
         }
         .frame(width: Self.width)
@@ -255,24 +250,14 @@ struct CreateWorkspaceView: View {
         .task(id: [app.workspaces.count, app.archivedRevision]) {
             recentRepoIDs = await app.recentProjects().map(\.id)
         }
-        // The keyboard goes to the pull request box rather than to the task, when the window was
-        // opened to open a pull request. `load` puts it in the task unconditionally, so this has
-        // to come after it rather than beside it.
-        //
-        // One flag, read at the only two moments there are: here, for a window that has just been
-        // built, and below, for one that was already open when the menu item was pressed. It is
-        // consumed by whichever gets there, so the box is raised once. See
-        // `CreateWorkspaceOpening`.
-        .task {
-            guard CreateWorkspaceOpening.shared.consumePullRequestAsk() else { return }
-            raisePullRequestBox()
+        .onChange(of: initialRepo?.id) { _, repoID in
+            guard let repoID else { return }
+            self.repoID = repoID
         }
-        // The already-open case. No `initial`, deliberately: a window built with the flag already
-        // set sees no change and is served by the task above, which runs after `load` and so keeps
-        // the keyboard the task would otherwise have taken back.
-        .onChange(of: CreateWorkspaceOpening.shared.wantsPullRequest) { _, _ in
-            guard CreateWorkspaceOpening.shared.consumePullRequestAsk() else { return }
-            raisePullRequestBox()
+        // A request made while this sheet is already up keeps the sheet and its draft, and moves
+        // the keyboard to the pull-request reference field once for that request.
+        .onChange(of: pullRequestRevision) { _, revision in
+            handlePullRequestAsk(revision)
         }
         // A second task, and a second trip, because listing pull requests is a network call and
         // the composer has to be typeable before it lands. The window opens on the branch route
@@ -294,15 +279,10 @@ struct CreateWorkspaceView: View {
     /// about the workspace, and the footer is about the turn.
     private var header: some View {
         HStack(spacing: Metrics.spacingSmall) {
-            // **"New workspace" used to be the first thing in this row, and the title bar says it
-            // now.** It was put here because a sheet that opened on a segmented control read as a
-            // fragment of a window rather than as a window, and every other sheet in the app opens
-            // with a `Typo.heading` title at the top left. This is a window, with the title in the
-            // bar where a window's title goes, so the same words in bold thirty points underneath
-            // are the stutter the argument was made against.
-            //
-            // What the band is now is the sentence that was already after the title: "in bloom,
-            // from main", the two choices that are about the workspace rather than about the turn.
+            Text("New Workspace")
+                .font(Typo.heading)
+                .foregroundStyle(Palette.textPrimary)
+
             projectControl
 
             if repo != nil {
@@ -503,15 +483,11 @@ struct CreateWorkspaceView: View {
                 }
             }
 
-            // A rung below the title in the band, which is what makes the band the anchor. Both
-            // were `Typo.heading` for one build and the sheet had two things the same size
-            // competing to be read first, which is most of what "janky" was: "New workspace" and
-            // "What do you want to work on?" at fifteen bold, forty points apart. This is the
-            // system's own heading style at reading size, which is what a section inside a titled
-            // window is.
-            Text(heading)
-                .font(Typo.title)
-                .foregroundStyle(Palette.textPrimary)
+            if let heading {
+                Text(heading)
+                    .font(Typo.title)
+                    .foregroundStyle(Palette.textPrimary)
+            }
 
             switch mode {
             case .chat, .claudeCLI, .codexCLI: chatBox
@@ -521,6 +497,7 @@ struct CreateWorkspaceView: View {
             case .terminal, .browser: nameBox
             }
 
+            consequence
             statusRow
         }
         .padding(Metrics.gutter)
@@ -533,8 +510,10 @@ struct CreateWorkspaceView: View {
             Text("Browser").tag(WorkspaceStartMode.browser)
         }
         .pickerStyle(.segmented)
+        .labelsHidden()
         .fixedSize()
         .tint(Palette.controlAccent)
+        .accessibilityLabel("Start with")
         .help(defaultCLIMode == nil
               ? "CLI chat supports Claude and Codex. Choose either as your default agent to use it."
               : "Chat and CLI chat use your default agent configuration")
@@ -583,6 +562,7 @@ struct CreateWorkspaceView: View {
             attachmentRoot: stagingDirectory,
             attachmentKey: draftID,
             placeholder: "Describe the task, @mention files, run /commands",
+            accessibilityLabel: "What do you want to work on?",
             editorHeight: editorHeight,
             onContentHeightChange: { contentHeight = $0 },
             onKey: handle(key:),
@@ -715,7 +695,7 @@ struct CreateWorkspaceView: View {
     /// What the box is asking for. A review workspace is opened to read something, so the task is
     /// genuinely optional there and the question says so rather than demanding a sentence the
     /// button no longer requires.
-    private var heading: String {
+    private var heading: String? {
         guard mode.runsAnAgent else {
             // The noun the segmented control was clicked with, in lower case. Stated again here it
             // would be a second list of the same words, and the heading would go on saying
@@ -734,7 +714,7 @@ struct CreateWorkspaceView: View {
         switch checkout {
         case .pullRequest(let request): return "What should happen to #\(request.number)?"
         case .branch(let branch): return "What should happen on \(branch.name)?"
-        case .none: return "What do you want to work on?"
+        case .none: return nil
         }
     }
 
@@ -947,7 +927,11 @@ struct CreateWorkspaceView: View {
         // Whichever box the remembered mode has put on screen. The window no longer always opens
         // on the writing box, so focusing it unconditionally would put the caret in a view that
         // is not there.
-        focusTheBox()
+        // A pull-request opening owns the keyboard. If its revision has not been handled yet,
+        // leave focus alone until the context has loaded and the reference field can take it.
+        if pullRequestRevision <= handledPullRequestRevision {
+            focusTheBox()
+        }
         isLoading = true
 
         let path = repo.path
@@ -996,6 +980,7 @@ struct CreateWorkspaceView: View {
             branches: branchOptions,
             defaultBranch: repo.defaultBranch
         )
+        handlePullRequestAsk(pullRequestRevision)
     }
 
     /// Brings the chosen base up to date ahead of Create. The answer is not used here: the cut
@@ -1088,6 +1073,12 @@ struct CreateWorkspaceView: View {
     private func raisePullRequestBox() {
         isEnteringReference = true
         isReferenceFocused = true
+    }
+
+    private func handlePullRequestAsk(_ revision: UInt64) {
+        guard revision > handledPullRequestRevision else { return }
+        handledPullRequestRevision = revision
+        raisePullRequestBox()
     }
 
     /// Puts the keyboard in whichever box this mode is showing.
@@ -1204,14 +1195,6 @@ struct CreateWorkspaceView: View {
         draftID = PromptAttachments.newShortID()
 
         dismiss()
-
-        // The window this one is not attached to. Creating selects the new workspace in the main
-        // window, and this window can be sitting in front of it, beside it, or open with the main
-        // window closed altogether, in which case nothing at all would show what pressing Create
-        // just did. `openWindow` on the main scene brings it forward when it is open and opens it
-        // when it is not. It was free while this was a sheet, because a sheet cannot exist without
-        // the window it is attached to.
-        openWindow(id: BloomApp.mainWindowID)
 
         Task {
             await app.createWorkspace(

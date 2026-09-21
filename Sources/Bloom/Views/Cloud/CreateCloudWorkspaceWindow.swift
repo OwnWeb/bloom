@@ -3,7 +3,7 @@ import BloomCore
 
 /// The window a Cloud workspace is started in.
 ///
-/// **The same window as `CreateWorkspaceWindow`, deliberately and at the owner's asking.** He put
+/// A dedicated window for creating a Cloud workspace.
 /// the two side by side and said the Cloud one looked like a different application: his was a modal
 /// sheet with a four row form in it, Project, Name, Branch, From, and a First message box under
 /// them, while a local workspace is started by writing a sentence into a composer. A form asks you
@@ -25,7 +25,7 @@ struct CreateCloudWorkspaceWindow: Scene {
         Window("New Bloom Cloud Workspace", id: Self.id) {
             CreateCloudWorkspaceView()
                 .environment(model)
-                // Cmd+W, and not Escape, for the reason `CreateWorkspaceWindow` gives: the
+                // Cmd+W, and not Escape: the
                 // composer's own completion menus take Escape first. See `WindowRoles`.
                 .windowRole(.utility)
         }
