@@ -1,39 +1,22 @@
 import SwiftUI
 import BloomCore
 
-/// The card that opens beside a workspace row while the pointer rests on it, and under the pull
-/// request band in the title bar.
+/// The card that opens below the pull request band in the title bar.
 ///
 /// What it says is `WorkspaceHoverCard`'s, in the core, where the suite holds it. This is the
 /// drawing and nothing else, which is why it takes one value rather than a workspace and a pull
 /// request: a card assembled here would be a card assembled in a target the tests cannot import.
 ///
-/// **One view for both, and that is what the value being in the core buys.** The band's card is a
-/// second maker rather than a second view (`WorkspaceHoverCard.pullRequestBand`), so the two
-/// surfaces cannot drift into two card designs, and the width below arrived for the band and the
-/// row got it for nothing.
-///
 /// **It takes no clicks, and that is the design rather than a limitation of it.** The popover it is
-/// drawn in closes as the pointer leaves the row (see `hoverPopover`), so nothing here is a
+/// drawn in closes as the pointer leaves the band (see `hoverPopover`), so nothing here is a
 /// button, the pull request number is a fact rather than a link, and the pointer never has to
-/// travel off the row and across a gap to reach anything. `AttachmentCard` over the composer made
-/// the same call for the same reason, and it is the reason the sidebar row keeps its own hover
-/// controls: what you can DO to a workspace is on the row, under the pointer already, and what is
-/// TRUE of it is here.
+/// travel off the band and across a gap to reach anything. `AttachmentCard` over the composer made
+/// the same call for the same reason.
 ///
 /// Four lines, in the order the question is asked. The branch and its counts, because that is
-/// what the pane has no room for at all; the name in full, because the pane truncates it; the
+/// what the band has no room for at all; the name in full, because the band truncates it; the
 /// state in words beside the pull request, because the mark alone cannot say "1 of 12 checks
 /// failed"; and the age, which is what says whether any of the rest is still true.
-/// Which surface a workspace's card hangs off. The pull request band opens the same card about the
-/// same workspace as its sidebar row, and with the workspace id alone, crossing from one to the
-/// other would read as the pointer never having moved. See `hoverPopover`.
-enum WorkspaceHoverSource: Hashable {
-    case workspaceRow(WorkspaceID)
-    /// The pull request band at the trailing end of the title bar. See `TitleBarStrip`.
-    case pullRequestBand(WorkspaceID)
-}
-
 struct WorkspaceHoverCardView: View {
     var card: WorkspaceHoverCard
     /// In a popover, which brings its own material, rim and arrow, so the card draws none of its
@@ -71,9 +54,8 @@ struct WorkspaceHoverCardView: View {
         .fixedSize()
         .background { if !isInPopover { cardBackground } }
         // The card is drawn in a popover that opens on hover and closes when the pointer leaves,
-        // which VoiceOver cannot reach in any useful way. Everything on it is on the row as well, in the row's own accessibility value
-        // and its tooltip, so there is nothing here for a screen reader to lose. See the
-        // presenter for what a keyboard user gets instead.
+        // which VoiceOver cannot reach in any useful way. Everything on it is also on the pull
+        // request band, so there is nothing here for a screen reader to lose.
         .accessibilityHidden(true)
     }
 

@@ -1,7 +1,7 @@
 import SwiftUI
 import BloomCore
 
-/// The card that opens beside a hovered workspace row, in every state that has an edge on it.
+/// The card that opens under the pull request band, in representative states.
 ///
 /// The card is drawn in a popover (see `hoverPopover`), which no probe in this folder can
 /// photograph and which no pointer a capture run has can raise. What CAN be photographed is the
@@ -9,15 +9,8 @@ import BloomCore
 /// so a page of them side by side answers every question except where the popover lands, and that
 /// is AppKit's.
 ///
-/// Each pane is the card at the width it comes out at, over the sidebar's own ground, so a card
-/// and the pane it opens out of can be judged against each other. The width is the second thing
-/// this page is for: it is the content's now, between `HoverCardWidth.minimum` and
-/// `.ceiling`, so the row of panes should be ragged and the long branch in row two should be the
-/// widest thing here without reaching the ceiling.
-///
-/// The last row is the same view filled in for the pull request band in the title bar rather than
-/// for a sidebar row. See `WorkspaceHoverCard.pullRequestBand`: same four slots, different
-/// subject.
+/// Each pane is the card at the width its content asks for. The long branch should be the widest
+/// thing here without reaching `HoverCardWidth.ceiling`.
 ///
 ///     Bloom --snapshot-gallery <dir> --gallery hover-card
 struct WorkspaceHoverCardGallery: View {
@@ -70,121 +63,16 @@ struct WorkspaceHoverCardGallery: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.pane) {
             HStack(alignment: .top, spacing: Metrics.pane) {
-                pane("Changes, no pull request", card(
-                    workspace(
-                        name: "Add a hover card to the sidebar",
-                        branch: "freek/hover-card",
-                        additions: 1_418,
-                        deletions: 556,
-                        daysAgo: 6
-                    )
-                ))
-                pane("Checks failing", card(
-                    workspace(
-                        name: "Fix the flaky diff parser test",
-                        branch: "agent/2026-08/fix-the-flaky-diff-parser-test",
-                        additions: 42,
-                        deletions: 9,
-                        daysAgo: 1
-                    ),
-                    pullRequest: pullRequest(
-                        checks: .failing, summary: "1 of 12 required checks failed"
-                    )
-                ))
-                pane("Checks passed", card(
-                    workspace(
-                        name: "Quieten the running mark",
-                        branch: "freek/quiet-running-mark",
-                        additions: 88,
-                        deletions: 210,
-                        daysAgo: 0.4
-                    ),
-                    pullRequest: pullRequest(
-                        number: 2_631, checks: .passing, summary: "12 checks passed"
-                    )
-                ))
-            }
-
-            HStack(alignment: .top, spacing: Metrics.pane) {
-                pane("Nothing changed, never touched", card(
-                    workspace(name: "Look at the release notes", branch: "freek/release-notes")
-                ))
-                pane("A name nobody meant to be a name", card(
-                    workspace(
-                        name: "Show me every place the technologies used in this project are "
-                            + "configured, and say which of them are pinned to a version",
-                        branch: "agent/show-me-every-place-the-technologies-used-in-this-project",
-                        additions: 7,
-                        deletions: 7,
-                        daysAgo: 240
-                    )
-                ))
-                pane("Merged, and long since", card(
-                    workspace(
-                        name: "Draw a file path in a sent turn as a file",
-                        branch: "chat/file-pill-and-merge-scroll",
-                        additions: 2_793,
-                        deletions: 1_044,
-                        daysAgo: 400
-                    ),
-                    pullRequest: pullRequest(
-                        number: 23, state: "MERGED", checks: .passing, summary: "12 checks passed"
-                    )
-                ))
-            }
-
-            HStack(alignment: .top, spacing: Metrics.pane) {
-                pane("Waiting on you", card(
-                    workspace(
-                        name: "Rename the old app everywhere",
-                        branch: "freek/rename",
-                        additions: 12,
-                        deletions: 4,
-                        unread: true,
-                        daysAgo: 0.001
-                    ),
-                    isRunning: true,
-                    isAwaitingPermission: true
-                ))
-                pane("Agent running, pull request open", card(
-                    workspace(
-                        name: "Split AppModel by subject",
-                        branch: "agent/split-app-model",
-                        additions: 903,
-                        deletions: 12,
-                        daysAgo: 0.02
-                    ),
-                    isRunning: true,
-                    pullRequest: pullRequest(checks: .none, summary: "")
-                ))
-                pane("Draft", card(
-                    workspace(
-                        name: "Sketch the ocean chart",
-                        branch: "freek/ocean",
-                        additions: 300,
-                        deletions: 12,
-                        daysAgo: 21
-                    ),
-                    pullRequest: pullRequest(
-                        number: 7, checks: .pending, summary: "3 of 12 checks running",
-                        isDraft: true
-                    )
-                ))
-            }
-
-            // The band's card. The branch here is the one the owner photographed truncated, so
-            // this row is where to check that it is not truncated any more.
-            HStack(alignment: .top, spacing: Metrics.pane) {
-                pane("Band: no pull request yet", bandCard(
+                pane("No pull request yet", bandCard(
                     workspace(
                         name: "Answer a review support question",
                         branch: "freekmurze/review-support-question",
-                        additions: 118,
-                        deletions: 6,
+                        additions: 1_418,
+                        deletions: 556,
                         daysAgo: 0.2
                     )
                 ))
-                pane("Band: checks failing", bandCard(
+                pane("Checks failing", bandCard(
                     workspace(
                         name: "Fix the flaky diff parser test",
                         branch: "agent/2026-08/fix-the-flaky-diff-parser-test",
@@ -196,7 +84,7 @@ struct WorkspaceHoverCardGallery: View {
                         checks: .failing, summary: "1 of 12 required checks failed"
                     )
                 ))
-                pane("Band: merged", bandCard(
+                pane("Merged", bandCard(
                     workspace(
                         name: "Draw a file path in a sent turn as a file",
                         branch: "chat/file-pill-and-merge-scroll",
@@ -217,23 +105,6 @@ struct WorkspaceHoverCardGallery: View {
         .background(Palette.windowBackground)
     }
 
-    private func card(
-        _ workspace: Workspace,
-        isRunning: Bool = false,
-        isAwaitingPermission: Bool = false,
-        pullRequest: PullRequest? = nil
-    ) -> WorkspaceHoverCard {
-        WorkspaceHoverCard.make(
-            workspace: workspace,
-            isRunning: isRunning,
-            isAwaitingPermission: isAwaitingPermission,
-            pullRequest: pullRequest,
-            now: Self.now
-        )
-    }
-
-    /// The same card said about the pull request band. Built through the band's own maker rather
-    /// than by hand, so this page cannot show a card the window does not draw.
     private func bandCard(
         _ workspace: Workspace,
         pullRequest: PullRequest? = nil
@@ -263,13 +134,11 @@ struct WorkspaceHoverCardGallery: View {
 extension Gallery {
     /// The registry entry for this page. See `Gallery`.
     ///
-    /// Twelve cards in four rows, each at the width its own content comes out at. The page is
-    /// wider and taller than it was because the cards are: the ceiling is 520 and the tallest row
-    /// now has a three line name in it.
+    /// Three cards, each at the width its own content asks for.
     static let hoverCard = Gallery(
         name: "hover-card",
-        title: "Workspace hover card",
-        size: CGSize(width: 1_440, height: 860),
+        title: "Pull request hover card",
+        size: CGSize(width: 1_440, height: 320),
         needsFocus: false,
         view: { _ in AnyView(WorkspaceHoverCardGallery()) }
     )

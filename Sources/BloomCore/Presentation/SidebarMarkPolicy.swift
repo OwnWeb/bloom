@@ -10,8 +10,7 @@ import Foundation
 ///
 /// So the column now says one thing: **something is happening here, or something is wanted from
 /// you.** Everything else rests. The states that lose their mark lose nothing else: the name, the
-/// diff stat under the pointer, the hover card and the legend all still carry them, and the card
-/// is where a pull request's state was always said in words.
+/// optional diff stat, accessibility value and legend still carry the relevant information.
 ///
 /// It is its own file rather than a property on `WorkspaceStatus` because it is a decision about
 /// this pane rather than a fact about the state: Home draws the same verdicts and wants them all.
@@ -32,7 +31,7 @@ public enum SidebarMarkPolicy {
         case .checksFailing, .conflicted:
             true
         // A state of the branch or its pull request, which is true whether or not anybody is
-        // looking. The hover card says all of it, in words.
+        // looking. VoiceOver still says the state in words.
         case .merged, .closed, .checksRunning, .checksPassed, .draft, .pullRequestOpen, .changed,
              .clean:
             false

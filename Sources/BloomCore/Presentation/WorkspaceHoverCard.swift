@@ -1,19 +1,6 @@
 import Foundation
 
-/// Everything the card that opens beside a hovered sidebar row says, decided once.
-///
-/// The pane is 260 points wide and a workspace row gets one line of it, so a name is truncated, a
-/// branch is not drawn at all and the counts yield to the hover controls. That is the right trade
-/// for a column of thirty rows and it leaves a question the pane cannot answer: what IS this one,
-/// and is it worth switching to. Answering it by switching costs a transcript load and the place
-/// you were reading, which is exactly the cost worth avoiding when a dozen agents are running.
-///
-/// So this is the row's own facts, unabbreviated, in the order they are asked for: what branch,
-/// how much changed, what it is called, what state it is in, whether there is a pull request, and
-/// how long since anything happened. **Nothing here is fetched.** Every field comes from a
-/// `Workspace` the sidebar already holds and a `PullRequest` `WorkspacePullRequests` already
-/// polls, because a network call started by moving the pointer is a network call nobody asked
-/// for.
+/// Everything the card below the pull request band says, decided once.
 ///
 /// It is a value in the core rather than a `body` in the view for the reason the three targets
 /// exist: the states worth getting right are a workspace with no pull request, one whose checks
@@ -94,45 +81,9 @@ public struct WorkspaceHoverCard: Sendable, Hashable {
         self.age = age
     }
 
-    /// The card for one sidebar row.
-    ///
-    /// The three things the workspace row cannot know are passed in, exactly as
-    /// `WorkspaceStatus.resolve` takes them: whether an agent has a turn open, whether it is
-    /// blocked on a question, and what GitHub last said. All three are already on hand where this
-    /// is called, and none of them is asked for here.
-    ///
-    /// - Parameter now: the clock, injectable so the age can be asserted on. See `HomeAge`.
-    public static func make(
-        workspace: Workspace,
-        isRunning: Bool = false,
-        isAwaitingPermission: Bool = false,
-        pullRequest: PullRequest? = nil,
-        now: Date = Date()
-    ) -> WorkspaceHoverCard {
-        let status = WorkspaceStatus.resolve(
-            workspace: workspace,
-            isRunning: isRunning,
-            pullRequest: pullRequest,
-            isAwaitingPermission: isAwaitingPermission
-        )
-
-        return WorkspaceHoverCard(
-            title: workspace.name,
-            branch: workspace.branch,
-            diff: counts(for: workspace),
-            status: status,
-            state: status.label,
-            detail: status.detail(pullRequest: pullRequest),
-            pullRequest: reference(to: pullRequest),
-            age: HomeAge.phrase(for: workspace.lastActivityAt, now: now)
-        )
-    }
-
     /// The counts, from `hasDiff` rather than from a rule of its own, so the card holds the same
     /// opinion about an empty worktree that the row's own counts and `WorkspaceStatus` hold.
     ///
-    /// Shared by both makers below the same reasoning: two cards drawn by one view must not be
-    /// able to disagree about whether a worktree has anything in it.
     static func counts(for workspace: Workspace) -> Diff? {
         workspace.hasDiff
             ? Diff(additions: workspace.additions, deletions: workspace.deletions)

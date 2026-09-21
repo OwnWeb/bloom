@@ -13,6 +13,7 @@ import SwiftUI
 struct CloudWorkspaceRow: View {
     var item: CloudWorkspaceItem
     var isSelected: Bool
+    var showsDiffStats = false
     /// Raises the Cloud archive popover, which asks the machine what is about to be lost and says
     /// the conversation goes with it. See `CloudArchivePopover`.
     var onArchive: () -> Void = {}
@@ -49,7 +50,7 @@ struct CloudWorkspaceRow: View {
                 WorkspaceColourDot(hex: item.colour, accessibilityName: colourName)
                 sharingMark
                 Spacer(minLength: Metrics.spacingSmall)
-                if let diff = item.summary?.diff, diff.files > 0 {
+                if showsDiffStats, let diff = item.summary?.diff, diff.files > 0 {
                     DiffStatLabel(additions: diff.additions, deletions: diff.deletions, compact: true, quiet: true)
                         .opacity(isHovered && item.canArchive ? 0 : 1)
                 }

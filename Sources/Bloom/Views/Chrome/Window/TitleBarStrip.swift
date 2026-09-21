@@ -114,8 +114,7 @@ final class InspectorGeometry {
 /// **What the band cannot say, it says on hover.** 380 points with a Create pull request button
 /// in them leaves the branch and the state a couple of dozen characters each, so the band reads
 /// `…t-question` over `No pull reque…` on a name nobody would call long. Resting on it opens the
-/// card the sidebar row opens, filled in for a pull request rather than for a workspace: see
-/// `WorkspaceHoverCard.pullRequestBand`. Nothing new is fetched for it. Everything on it is what
+/// pull request card. Nothing new is fetched for it. Everything on it is what
 /// `PullRequestBar` is already polling for the band itself.
 struct TitleBarStrip: View {
     let app: AppModel
@@ -160,7 +159,7 @@ struct TitleBarStrip: View {
                     // that. A card that opened over the left two thirds and not the right third
                     // would be an affordance you have to find. What keeps it from firing on a
                     // pointer crossing the band on its way to that button is the wait, which is
-                    // `Motion.hoverCardDelay` and is the same 350ms the sidebar rests for.
+                    // `Motion.hoverCardDelay`.
                     //
                     // The card hangs BELOW, so it never covers the thing it was opened from, and
                     // it closes when the pointer leaves the band. See `hoverPopover`.
@@ -177,9 +176,9 @@ struct TitleBarStrip: View {
                     // and an `NSTrackingArea` on the hosting view is the way out.
                     // A band that leaves under a stationary pointer, when the inspector collapses
                     // or the selection moves to Home, closes its card: `hoverPopover` does that
-                    // on disappear, for the reason the sidebar row needs it too.
+                    // on disappear.
                     .hoverPopover(
-                        id: WorkspaceHoverSource.pullRequestBand(model.workspace.id),
+                        id: model.workspace.id,
                         arrowEdge: .bottom
                     ) {
                         WorkspaceHoverCardView(card: bandCard(for: model), isInPopover: true)

@@ -50,6 +50,7 @@ struct WorkspaceRow: View {
     var subagentCount: Int = 0
     var isShowingSubagents: Bool = false
     var onToggleSubagents: (() -> Void)?
+    var showsDiffStats = false
     /// The id of the row being renamed in place, shared across the whole list so only one field
     /// can ever be open.
     @Binding var renaming: WorkspaceID?
@@ -87,10 +88,9 @@ struct WorkspaceRow: View {
     private var isEmphasized: Bool { backgroundProminence == .increased }
 
     var body: some View {
-        // Bound once. `status` was resolved three times a pass and the pull request dictionary read
-        // five, because the sentence reaches both and is asked for twice, by the tooltip and by
-        // VoiceOver, which get the same words on purpose. GitHub's answer is read straight from the
-        // shared store rather than passed in, because the sidebar's row builder cannot reach it.
+        // Bound once because both the mark and VoiceOver need the same verdict. GitHub's answer is
+        // read straight from the shared store rather than passed in, because the sidebar's row
+        // builder cannot reach it.
         let pullRequest = WorkspacePullRequests.shared.pullRequest(for: workspace.id)
         let status = WorkspaceStatus.resolve(
             workspace: workspace,
@@ -192,8 +192,8 @@ struct WorkspaceRow: View {
                     // **Quiet, where it used to be green and red.** Two coloured numbers on every
                     // row of a dozen made the diff the loudest thing in a pane whose job is to say
                     // which agent wants something, and it is the number people read last. The same
-                    // figures in full colour are in the hover card, on Home and in the inspector.
-                    if workspace.hasDiff {
+                    // figures in full colour are on Home and in the inspector.
+                    if showsDiffStats && workspace.hasDiff {
                         DiffStatLabel(
                             additions: workspace.additions,
                             deletions: workspace.deletions,
@@ -235,12 +235,8 @@ struct WorkspaceRow: View {
         // means rather than being handed an unlabelled image. It sits on the row: the icon of a
         // `Label` is not a hit target of its own.
         //
-        // **No `.help` here, and that is a removal rather than an omission.** It carried the same
-        // sentence as `accessibilityValue`, and the hover card says all of it and more: the
-        // branch, the diff, the pull request, the checks and the age. So resting on a row raised
-        // a system tooltip and our own card at once, a few points apart, one repeating a line of
-        // the other. The card is the better of the two and it is the one that stays; a reader who
-        // cannot see it still has the accessibility value, which is what that line was really for.
+        // No tooltip or hover card here. Resting on a row should not cover neighbouring rows with
+        // facts already available after selection. VoiceOver still receives the status below.
         .accessibilityValue(statusDescription)
         .contentShape(Rectangle())
         // Command-Backspace is delete-to-start-of-line in a text box, and the menu bar had it

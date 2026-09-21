@@ -54,13 +54,18 @@ struct AppearanceSettingsView: View {
                     }
                 }
                 typographyControls(terminal: true)
-                Text(verbatim: "~/dev/bloom $ swift build")
-                    .font(Font(TerminalGhostty.font(family: terminalFamily, size: CGFloat(terminalSize))))
-                    .foregroundStyle(terminalPalette.foreground.map { Color(nsColor: NSColor($0)) } ?? Palette.codeForeground)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Metrics.inset)
-                    .background(terminalPalette.background.map { Color(nsColor: NSColor($0)) } ?? Palette.codeBackground)
+                TerminalSettingsPreview(
+                    family: terminalFamily,
+                    size: CGFloat(terminalSize),
+                    lineHeight: colourTheme.terminalTypography.lineHeight ?? 1
+                )
+                    .frame(height: terminalPreviewHeight)
+                    .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: Metrics.corner))
+                    .allowsHitTesting(false)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Terminal preview in this font, text size and line height")
+                    .accessibilityValue("Swift build, building for debugging, build complete")
             }
 
             FileIconsSettingsSection()
@@ -180,17 +185,38 @@ struct AppearanceSettingsView: View {
         else { return nil }
         return TerminalGhostty.theme(for: appearance)
     }
-    private var terminalPalette: GhosttyTheme {
-        NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua).map { TerminalGhostty.colours(for: $0) }
-            ?? (colorScheme == .dark ? colourTheme.terminalScheme.dark : colourTheme.terminalScheme.light)
-    }
     private var terminalFamily: String? { colourTheme.terminalTypography.fontFamily ?? ghostty?.fontFamily }
     private var terminalSize: Double {
         colourTheme.terminalTypography.fontSize ?? ghostty?.fontSize ?? Double(TerminalTextSize.systemDefault)
     }
+    private var terminalPreviewHeight: CGFloat {
+        let font = TerminalGhostty.font(family: terminalFamily, size: CGFloat(terminalSize))
+        let lineHeight = CGFloat(colourTheme.terminalTypography.lineHeight ?? 1)
+        return ceil(font.boundingRectForFont.height * lineHeight * 3 + Metrics.inset * 2)
+    }
     private static let monospaceFamilies = Set(NSFontManager.shared.availableFontFamilies.filter {
         NSFont(name: $0, size: 13)?.isFixedPitch == true
     })
+}
+
+/// A real terminal view rather than a typographic approximation, so the preview and a terminal
+/// apply the same font, spacing and colour paths. It has no process and accepts no input.
+private struct TerminalSettingsPreview: NSViewRepresentable {
+    private static let sample = "~/dev/bloom $ swift build\r\nBuilding for debugging...\r\nBuild complete!"
+
+    var family: String?
+    var size: CGFloat
+    var lineHeight: Double
+
+    func makeNSView(context: Context) -> CloudTerminalView {
+        CloudTerminalView(frame: .zero)
+    }
+
+    func updateNSView(_ terminal: CloudTerminalView, context: Context) {
+        terminal.applyBloomFont(family: family, size: size, lineHeight: lineHeight)
+        terminal.applyBloomColours()
+        terminal.feed(text: "\u{1B}[2J\u{1B}[H\u{1B}[?25l" + Self.sample)
+    }
 }
 
 /// A few rungs of the conversation at once, because one line of body text cannot show what a scale

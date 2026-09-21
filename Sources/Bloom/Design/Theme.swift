@@ -1014,27 +1014,15 @@ enum Motion {
     /// crossfading text that is already laid out reads as a wipe. See `TranscriptHoldView`.
     static let revealSeconds: TimeInterval = 0.18
 
-    /// How long the pointer has to rest before a card opens under it: the composer's file chip,
-    /// and the sidebar row's.
+    /// How long the pointer has to rest before a card opens under it.
     ///
     /// Not an animation, which is why it stands slightly apart from the rest of this file, and
     /// here anyway because it is the same kind of decision: how the window responds to a pointer.
-    /// It was a private constant inside `ComposerTextView` and a second one would have been the
-    /// first thing the workspace hover card wrote, which is how two surfaces end up
-    /// answering one question differently.
+    /// Shared by the remaining hover surfaces so they answer the same interaction consistently.
     ///
-    /// The question is whether the pointer is RESTING on something or crossing it. A sidebar row
-    /// is 32 points tall and thirty of them are stacked, so a hand sweeping the pane at a
-    /// comfortable thousand points a second crosses one in about thirty milliseconds: anything
-    /// above a couple of hundred already tells the two apart, and what the rest buys is that a
-    /// deliberate pause somewhere in the middle of a sweep does not open a card either. Longer
-    /// than this and resting on a row starts to feel like nothing is going to happen.
+    /// The question is whether the pointer is resting on something or crossing it. Anything above
+    /// a couple of hundred milliseconds tells the two apart without making the response feel lost.
     static let hoverCardDelay: Duration = .milliseconds(350)
-
-    /// The sidebar's workspace card waits 300ms longer than that. The owner found it opening while
-    /// moving down the list to pick a row, where it is in the way of the rows below, so the pane
-    /// asks for a longer rest there than the composer's chips and the pull request band do.
-    static let sidebarHoverCardDelay: Duration = hoverCardDelay + .milliseconds(300)
 }
 
 // MARK: - Materials

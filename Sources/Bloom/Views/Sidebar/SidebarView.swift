@@ -52,6 +52,8 @@ struct SidebarView: View {
     /// back on from Settings, under Bloom Cloud, or by signing in. See `CloudSidebarPresence`.
     @AppStorage(CloudSidebarPresence.settingKey) private var showsBloomCloud = true
     @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.status.rawValue
+    @AppStorage(SidebarPreferences.showsDiffStatsKey)
+    private var showsDiffStats = SidebarPreferences.showsDiffStatsByDefault
 
     /// The sections the owner has folded away. Only Idle can be one. Window state rather than a
     /// preference: folding the long tail away to read the short one is a thing you do while
@@ -844,7 +846,6 @@ struct SidebarView: View {
     }
 
     private func archiveFromKeyboard(_ workspace: Workspace) {
-        HoverPopoverPresenter.shared.pointerExited(WorkspaceHoverSource.workspaceRow(workspace.id))
         let generation = archivePresentation.begin(workspaceID: workspace.id, source: .row)
         Task {
             defer { archivePresentation.finish(generation: generation) }
@@ -867,6 +868,7 @@ struct SidebarView: View {
                 : nil,
             isShowingSubagents: expandedSubagents.contains(workspace.id),
             onToggleSubagents: { toggleSubagents(workspace.id) },
+            showsDiffStats: showsDiffStats,
             renaming: $renaming,
             archivePresentation: $archivePresentation
         )
@@ -912,7 +914,11 @@ struct SidebarView: View {
         Section {
             ForEach(app.cloud.items) { item in
                 let target = SidebarSelection.cloud(CloudWorkspaceID(item.id))
-                CloudWorkspaceRow(item: item, isSelected: listSelection == target) {
+                CloudWorkspaceRow(
+                    item: item,
+                    isSelected: listSelection == target,
+                    showsDiffStats: showsDiffStats
+                ) {
                     app.selection = target
                     app.cloud.askToArchive(CloudWorkspaceID(item.id), from: .row)
                 }

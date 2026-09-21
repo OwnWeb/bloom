@@ -2,16 +2,14 @@ import Foundation
 import Testing
 @testable import BloomCore
 
-/// What the card that opens under the pull request band says, which is the same card the sidebar
-/// draws with four different facts in it.
+/// What the card that opens under the pull request band says.
 ///
 /// The four states worth getting right are the four the band already tints itself for: no pull
 /// request yet, one open, one whose checks have failed, and one that has landed. A fifth is here
 /// because it is the only one where the card could contradict itself, which is a green pull
 /// request whose branch is holding work GitHub has not got.
 ///
-/// Dates are built rather than read off the clock, for the reason `WorkspaceHoverCardTests` writes
-/// down.
+/// Dates are built rather than read off the clock so the suite does not change at midnight.
 @Suite("Pull request hover card")
 struct PullRequestHoverCardTests {
     static let now = Date(timeIntervalSince1970: 1_750_000_000)
@@ -258,9 +256,8 @@ struct PullRequestHoverCardTests {
 
     // MARK: - What the band is not about
 
-    /// The sidebar's card would call this workspace unread, and its row does. This card is hanging
-    /// off a band about a pull request, and "Unread" over it would be a mark answering a question
-    /// nobody asked there.
+    /// The sidebar row calls this workspace unread. This card is hanging off a band about a pull
+    /// request, and "Unread" over it would be a mark answering a question nobody asked there.
     @Test("An unread turn does not take the mark from the pull request")
     func unreadDoesNotTakeTheMark() {
         let card = WorkspaceHoverCard.pullRequestBand(

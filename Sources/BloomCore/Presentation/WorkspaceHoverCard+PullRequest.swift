@@ -1,16 +1,10 @@
 import Foundation
 
-/// The same card, said about the pull request band in the title bar instead of about a sidebar
-/// row.
+/// The card shown under the pull request band in the title bar.
 ///
 /// The band is 380 points with a Create pull request button in it, so both its lines are cut:
 /// `…t-question` over `No pull reque…`. The card is what those two lines say when they have room,
 /// and the floor rather than the ceiling of what belongs on it.
-///
-/// **A second maker rather than a second card, and the same view draws both.** What changes is
-/// which four facts land in the four slots, and every one of the changes is because the subject
-/// changed: the row's card answers "what is this workspace", and this one answers "what is
-/// happening to this branch on GitHub".
 ///
 ///   - The bold line is the pull request's own title where there is one, and the workspace's name
 ///     where there is not. It is the same question either way, which is what this change is
@@ -18,7 +12,7 @@ import Foundation
 ///   - The state is `PullRequestStatus` rather than `WorkspaceStatus.label`, with local work
 ///     weighed in, so the card and the band it hangs off cannot give two answers. That is also
 ///     what puts "Local changes" on a card whose checks are green, which is the one state the band
-///     tints amber and the sidebar's card has no vocabulary for.
+///     tints amber.
 ///   - The mark is `WorkspaceStatus.ofBranch`, which is `resolve` with the agent left out. A
 ///     running agent and an unread turn are true of the workspace and are said on its row a few
 ///     inches to the left; over a band about a pull request they would be a mark answering a

@@ -126,12 +126,18 @@ struct SettingsView: View {
 
 struct GeneralSettingsView: View {
     @AppStorage("confirmBeforeArchiving") private var confirmBeforeArchiving = true
+    @AppStorage(SidebarPreferences.showsDiffStatsKey)
+    private var showsSidebarDiffStats = SidebarPreferences.showsDiffStatsByDefault
     @State private var namesWorkspaces = WorkspaceNamingPreferences().isEnabled
 
     var body: some View {
         Form {
             Section("Everyday behaviour") {
                 Toggle("Confirm before archiving", isOn: $confirmBeforeArchiving)
+            }
+
+            Section("Sidebar") {
+                Toggle("Show addition and deletion counts", isOn: $showsSidebarDiffStats)
             }
 
             DirectorySettingsSection()

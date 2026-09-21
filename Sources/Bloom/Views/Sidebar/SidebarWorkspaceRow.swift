@@ -28,6 +28,7 @@ struct SidebarWorkspaceRow: View {
     /// rows it controls are built there.
     var isShowingSubagents: Bool = false
     var onToggleSubagents: (() -> Void)?
+    var showsDiffStats = false
     @Binding var renaming: WorkspaceID?
     @Binding var archivePresentation: SidebarArchivePresentation
 
@@ -51,6 +52,7 @@ struct SidebarWorkspaceRow: View {
             subagentCount: app.subagents(of: workspace.id).count,
             isShowingSubagents: isShowingSubagents,
             onToggleSubagents: onToggleSubagents,
+            showsDiffStats: showsDiffStats,
             renaming: $renaming,
             onArchive: confirmRowArchive,
             isArchiveActive: isArchiveActive,
@@ -75,30 +77,6 @@ struct SidebarWorkspaceRow: View {
         // nesting left in it is unreadable without knowing which project each row belongs to, and
         // content that has to be asked for is content most people never hear.
         .accessibilityCustomContent(Text("Project"), Text(projectName), importance: .high)
-        // The card that opens beside the row.
-        //
-        // Here rather than in `WorkspaceRow`, and this is the same line the type's own note draws:
-        // `WorkspaceRow` is the drawing and stays a pure function of what it is handed, while what
-        // the LIST is told about a row lives here. A card that opens over the whole window on a
-        // hover is squarely the second kind, and it needs the two things only this side has
-        // anyway, which are the model that knows whether an agent is running and the poll that
-        // knows what GitHub said.
-        //
-        // Its own `.onHover`, not the one inside `WorkspaceRow`. Two hover trackers on nested
-        // views both fire, and joining them would mean handing the drawing a callback it has no
-        // use for. Nothing is drawn from this one, so nothing redraws when it changes.
-        .hoverPopover(
-            id: WorkspaceHoverSource.workspaceRow(workspace.id),
-            arrowEdge: .trailing,
-            delay: Motion.sidebarHoverCardDelay,
-            isEnabled: { hoverCard() != nil }
-        ) {
-            if let card = hoverCard() {
-                WorkspaceHoverCardView(card: card, isInPopover: true)
-            }
-        }
-        // A row that leaves the pane while its card is up: archived from the menu bar, filtered
-        // out, or its project folded. The pointer never leaves, so no exit ever arrives.
         .onAppear { archivePresentation.rowAppeared(workspace.id) }
         .onDisappear {
             archivePresentation.rowDisappeared(workspace.id, isArchiving: app.isArchiving(workspace.id))
@@ -171,28 +149,7 @@ struct SidebarWorkspaceRow: View {
     }
 
     private func beginArchive(from source: ArchiveSource) -> UUID {
-        HoverPopoverPresenter.shared.pointerExited(WorkspaceHoverSource.workspaceRow(workspace.id))
         return archivePresentation.begin(workspaceID: workspace.id, source: source)
-    }
-
-    /// What the card says, built at the moment it opens rather than on every redraw.
-    ///
-    /// **Nothing in here fetches.** `isRunning` is the model's own answer about a turn already in
-    /// progress and the pull request is whatever `WorkspacePullRequests` last polled, which is the
-    /// same two facts the row's status mark is already drawn from. A hover that started a `gh`
-    /// call would put a subprocess behind moving the pointer down a list of thirty rows.
-    ///
-    /// It returns nil for a row being renamed. The field owns the row while it is open, and a
-    /// card over the window showing the name being replaced is a card about a fact that is in the
-    /// middle of changing.
-    private func hoverCard() -> WorkspaceHoverCard? {
-        guard renaming != workspace.id, !isArchiveActive else { return nil }
-        return WorkspaceHoverCard.make(
-            workspace: workspace,
-            isRunning: app.isRunning(workspace),
-            isAwaitingPermission: app.isAwaitingPermission(workspace),
-            pullRequest: WorkspacePullRequests.shared.pullRequest(for: workspace.id)
-        )
     }
 }
 

@@ -29,8 +29,8 @@ import SwiftUI
 /// read the wrong way round: `arrow.triangle.branch` came out 13.5 points across with it and 10.5
 /// without, and the larger was taken for the right one. What it did was push every mark past the
 /// 13 point box this column is aligned on, and only in the sidebar, since Home, the legend and the
-/// hover card draw the same marks with no scale at all. One state, two sizes, depending which pane
-/// it was read in. The marks carry their own scale now, in `WorkspaceStatusGlyph` and
+/// title bar hover card draw the same marks with no scale at all. One state, two sizes, depending
+/// which pane it was read in. The marks carry their own scale now, in `WorkspaceStatusGlyph` and
 /// `SubagentMarkGlyph`, which is where a decision about how large a mark is belongs.
 struct SidebarRowLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
