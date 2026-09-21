@@ -440,6 +440,8 @@ def main():
     parser.add_argument("--capture", type=pathlib.Path, metavar="DIR",
                         help="save the raw replies a client reads, as the machine sent them, into DIR: composer for a "
                              "chat that does not exist yet, and download of a picture where media_show copies one")
+    parser.add_argument("--metrics", type=pathlib.Path, metavar="FILE",
+                        help="write credential-free timing measurements as JSON, including partial results on failure")
     arguments = parser.parse_args()
     if not arguments.package and not arguments.from_release:
         raise SystemExit("--package or --from-release is needed.")
@@ -454,6 +456,18 @@ def main():
     secret = secrets.token_hex(32)
     processes = []
     created = False
+    metrics = {
+        "schema": 1,
+        "captured_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "runner_version": version,
+        "measurements": {},
+    }
+
+    def measured(name, began):
+        value = round((time.perf_counter() - began) * 1_000, 1)
+        metrics["measurements"][name] = {"milliseconds": value}
+        step(f"metric {name}: {value:.1f} ms")
+
     with tempfile.TemporaryDirectory(prefix="bloom-machine-test-") as scratch:
         scratch = pathlib.Path(scratch)
         try:
@@ -530,8 +544,10 @@ def main():
                 assert status == 204, status
 
             step("creating the bloom service")
+            service_began = time.perf_counter()
             run_on(name, "sprite-env services create bloom --cmd /opt/bloom/current/bin/bloom-runner --args serve --http-port 8080 --no-stream")
             wait_for("health answers through the machine's URL", lambda: https(url, path="/_bloom/health")[0] == 200, 120)
+            measured("runner_service_start_to_health", service_began)
             status, _, body = https(url, path="/_bloom/health")
             assert json.loads(body)["version"] == version, body
             step(f"health answers with {version}")
@@ -575,6 +591,7 @@ def main():
 
             setup = wait_for("setup finishes", lambda: (lambda s: s if s["state"] in ("succeeded", "failed", "skipped") else None)(
                 rpc(url, session(), {"kind": "workspace"})["workspace"]["workspace"]["setup"]), 600, interval=5)
+            measured("cold_service_start_to_setup_finished", service_began)
             # The machine always writes this, so its absence is a runner that has stopped saying
             # whether the workspace runs setup at all, and a client reading absence as "enabled"
             # would then be right by luck. A machine created by this test always has it on.
@@ -715,7 +732,9 @@ def main():
                 # A shell that takes its time starting, which is what a cold machine looks like and
                 # what a keystroke sent too early falls into.
                 run_on(name, "printf 'sleep 3\\n' >> ~/.bashrc", timeout=60)
+                terminal_began = time.perf_counter()
                 terminal = rpc(url, session(), {"kind": "run_script", "id": "probe"})["terminal"]["name"]
+                measured("remote_terminal_request_to_accept", terminal_began)
                 # The shell itself, by its pid, rather than by anything it printed: a release without
                 # the run-script fix never runs the command, and what is measured here is whether the
                 # shell survives the restart.
@@ -726,9 +745,12 @@ def main():
                          "echo '--- sockets:'; ls ${TMUX_TMPDIR:-/tmp}/tmux-$(id -u) 2>&1 || true")
                 shell_before = wait_for("the terminal's shell exists",
                                         lambda: (run_on(name, panes, timeout=60).strip() or None), 120, interval=5)
+                measured("remote_terminal_request_to_shell", terminal_began)
                 step(f"restarting the service under it, as an update does ({terminal}; {shell_before.splitlines()})")
+                recovery_began = time.perf_counter()
                 run_on(name, "sprite-env services restart bloom", timeout=120)
                 wait_for("health answers again", lambda: https(url, path="/_bloom/health")[0] == 200, 180, interval=3)
+                measured("service_restart_to_health", recovery_began)
 
                 after = rpc(url, session(), {"kind": "transcript", "chat_id": chat["id"], "after_seq": -1})["transcript"]
                 kept = [p for p in after["queue"]["prompts"] if p["id"] == prompt_id]
@@ -836,7 +858,12 @@ def main():
                 # The first read a client makes afterwards, which is the number the web client wants.
                 woke = time.time()
                 status, _, body = https(url, path="/_bloom/health", timeout=180)
-                step(f"the first read after the wait: {status} {body[:60]!r} in {time.time() - woke:.1f}s")
+                wake_elapsed = time.time() - woke
+                step(f"the first read after the wait: {status} {body[:60]!r} in {wake_elapsed:.1f}s")
+                metrics["measurements"]["cold_wake_first_health"] = {
+                    "milliseconds": round(wake_elapsed * 1_000, 1),
+                    "provider_paused": paused_at is not None,
+                }
 
                 boot_after = run_on(name, "cat /proc/sys/kernel/random/boot_id 2>/dev/null || true", timeout=120).strip()
                 step(f"the machine came back on {'the same boot' if boot_after == boot_before else 'a new boot'}")
@@ -963,9 +990,21 @@ def main():
                 controls = {"agent": "claude", "model": "sonnet", "effort": "low", "permission_mode": "bypassPermissions",
                             "interaction_mode": "build", "fast_mode": False, "output_style": "default", "codex_context_window": 0}
                 chat = rpc(url, session(), {"kind": "new_chat", "controls": controls})["chat"]
+                starts_before = len([request for request in requests() if request["path"].endswith("/start")])
+                turn_began = time.perf_counter()
                 rpc(url, session(), {"kind": "send", "chat_id": chat["id"],
                                      "text": "Reply with exactly the single word pineapple, and nothing else."})
+                measured("remote_turn_request_to_accept", turn_began)
                 try:
+                    wait_for("the turn starts with runbloom.app", lambda: len([
+                        request for request in requests() if request["path"].endswith("/start")
+                    ]) > starts_before, 120, interval=0.1)
+                    measured("remote_turn_request_to_provider_start", turn_began)
+                    wait_for("the first assistant text event", lambda: reader.find(
+                        lambda event: event["kind"] == "message"
+                        and event["message"]["chat_id"] == chat["id"]
+                        and event["message"]["kind"] == "assistantText"), 300, interval=0.1)
+                    measured("remote_turn_request_to_first_assistant_text", turn_began)
                     answer = wait_for("the agent answers", lambda: reader.find(
                         lambda e: e["kind"] == "message" and e["message"]["kind"] == "assistantText"
                         and "pineapple" in json.dumps(e["message"]["payload"]).lower()), 300, interval=3)
@@ -1077,12 +1116,17 @@ def main():
                     pass
             raise
         finally:
-            for process in processes:
-                process.terminate()
-            if created and not arguments.keep:
-                step(f"deleting {name}")
-                subprocess.run([SPRITE, "api", "-o", ORGANISATION, f"/v1/sprites/{name}", "--", "-X", "DELETE"],
-                               capture_output=True, timeout=120)
+            try:
+                for process in processes:
+                    process.terminate()
+                if created and not arguments.keep:
+                    step(f"deleting {name}")
+                    subprocess.run([SPRITE, "api", "-o", ORGANISATION, f"/v1/sprites/{name}", "--", "-X", "DELETE"],
+                                   capture_output=True, timeout=120)
+            finally:
+                if arguments.metrics:
+                    arguments.metrics.parent.mkdir(parents=True, exist_ok=True)
+                    arguments.metrics.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":
