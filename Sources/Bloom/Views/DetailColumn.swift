@@ -16,22 +16,60 @@ struct DetailColumn: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Palette.windowBackground)
         } else {
-            switch app.selection {
-            case .home:
-                HomeView()
-            case .workspace(let id):
-                workspace(id)
-            case .crew(let workspaceID, let sessionID):
-                crew(sessionID, in: workspaceID)
-            case .subagent(let workspaceID, let subagentID):
-                subagent(.live(subagentID), in: workspaceID)
-            case .subagentCall(let workspaceID, let toolUseID):
-                subagent(.recorded(toolUseID: toolUseID), in: workspaceID)
-            case .archived(let id):
-                archived(id)
-            case .cloud(let id):
-                CloudWorkspaceColumn(id: id)
+            ZStack {
+                retainedWorkspaces
+                otherSelection
             }
+        }
+    }
+
+    /// The current workspace and the one just left have separate view trees.
+    ///
+    /// Both fill the same rectangle. The selected one sits in front and is the only one that takes
+    /// input. Keeping the other rendered behind it is what makes the usual back-and-forth
+    /// comparison an immediate stacking swap: its transcript table, terminal or browser is still
+    /// exactly where the reader left it, with pixels ready for the compositor. The sidebar delays
+    /// activation by one display frame so its native selection is visible first, and the column
+    /// itself adds no motion or intermediate state.
+    @ViewBuilder
+    private var retainedWorkspaces: some View {
+        ForEach(app.retainedWorkspaceIDs, id: \.self) { id in
+            if let model = app.existingModel(for: id),
+               let activity = app.existingWorkspaceColumnActivity(for: id) {
+                let isActive = app.selection == .workspace(id)
+                let _ = isActive ? SwitchTrace.mark("column.body", workspace: id) : ()
+                CenterColumnView(model: model)
+                    .environment(\.workspaceColumnActivity, activity)
+                    .allowsHitTesting(isActive)
+                    .accessibilityHidden(!isActive)
+                    .zIndex(isActive ? 1 : 0)
+                    .overlay {
+                        if isActive, app.isArchiving(id) { ArchiveInteractionShield() }
+                    }
+            }
+        }
+    }
+
+    /// Every destination that is not an ordinary workspace. Workspace columns stay underneath
+    /// these destinations, dormant, so returning from Home or a subagent does not discard the
+    /// cache either.
+    @ViewBuilder
+    private var otherSelection: some View {
+        switch app.selection {
+        case .home:
+            HomeView()
+        case .workspace:
+            EmptyView()
+        case .crew(let workspaceID, let sessionID):
+            crew(sessionID, in: workspaceID)
+        case .subagent(let workspaceID, let subagentID):
+            subagent(.live(subagentID), in: workspaceID)
+        case .subagentCall(let workspaceID, let toolUseID):
+            subagent(.recorded(toolUseID: toolUseID), in: workspaceID)
+        case .archived(let id):
+            archived(id)
+        case .cloud(let id):
+            CloudWorkspaceColumn(id: id)
         }
     }
 

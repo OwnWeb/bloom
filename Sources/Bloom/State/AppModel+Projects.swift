@@ -164,6 +164,7 @@ extension AppModel {
             await model.shutdown()
             model.teardown()
             workspaceModels[id] = nil
+            forgetRetainedWorkspace(id)
         }
 
         do {

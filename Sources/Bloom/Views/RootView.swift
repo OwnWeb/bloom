@@ -35,139 +35,24 @@ struct RootView: View {
     @State private var createWorkspacePresentation = CreateWorkspacePresentation()
     @State private var createWorkspaceResolution: Task<Void, Never>?
 
-    private var sidebarTintOpacity: Double {
-        let preference = ColourThemePreference.shared
-        return preference.glass.tintOpacity(maximum: preference.choice.surfaces.glassTintOpacity ?? 0.4)
-    }
-
     var body: some View {
         @Bindable var app = app
 
         return windowWiring(
             NavigationSplitView(columnVisibility: $columnVisibility) {
-                SidebarView()
-                // Replaced by `SidebarToggleButton`, so it can share glass with New.
-                .toolbar(removing: .sidebarToggle)
-                .environment(\.isSidebarFolded, columnVisibility == .detailOnly)
-                .scrollContentBackground(.hidden)
-                .background {
-                    Group {
-                        if ColourThemePreference.shared.glass == .off {
-                            Palette.surfaceSunken
-                        } else {
-                            SidebarMaterial(tint: Palette.sidebarGlassTint, opacity: sidebarTintOpacity)
-                        }
-                    }
-                    .ignoresSafeArea()
-                }
-                // The rule down the sidebar's trailing edge.
-                //
-                // `NavigationSplitView` draws none: measured across the boundary, the sidebar's last
-                // pixel is followed directly by the centre column's first, in both appearances. That
-                // is survivable while both columns are the system's own white, and it is not once
-                // they are two steps of a ramp, because then the two panes simply run into each other.
-                .overlay(alignment: .trailing) {
-                    Hairline(axis: .vertical).ignoresSafeArea(edges: .top)
-                }
-                // The ceiling is not always the reserve. On a display too narrow to hold all
-                // three panes at their minimums, the sidebar is the one that gives, because it is
-                // a list of rows that truncate where the other two hold a transcript and a diff
-                // that do not. `WindowWidths.sidebarMaximum` is that decision, and it answers with
-                // the plain 420 reserve on every display that can afford it, which is every Mac
-                // one. A nil is a screen with no room for a sidebar at all, and the column folds.
-                .navigationSplitViewColumnWidth(
-                    min: BloomApp.sidebarMinimumWidth,
-                    ideal: Metrics.sidebarWidth,
-                    max: sidebarCeiling ?? BloomApp.sidebarMinimumWidth
-                )
+                RootSidebarColumn(columnVisibility: $columnVisibility)
             } detail: {
-                // An `NSSplitViewController`, not `.inspector()` and not `HSplitView`.
-                //
-                // `.inspector` cannot be used in this window. Presented, it throws "more Update
-                // Constraints in Window passes than there are views in the window" out of the display
-                // cycle, from a loop that runs through SwiftUI's own `SplitViewChildController`
-                // reacting to its hosting view's min and max size. Verified again on this branch:
-                // swapping the split below for `.inspector()` kills the window during a resize.
-                //
-                // `HSplitView` was the next attempt and it did not crash, but its divider is drawn
-                // down the whole bounds of the split view while the SwiftUI content inside each pane
-                // respects the safe area, so under a unified toolbar a hard rule crossed the title.
-                // An `NSSplitViewController` is a view controller container rather than a view, so its
-                // panes and its divider share one safe area and the rule starts under the toolbar.
-                DetailSplitView(
-                    app: app,
-                    isInspectorPresented: isInspectorPresented,
-                    animated: !reduceMotion
+                RootDetailColumn(
+                    columnVisibility: columnVisibility,
+                    isSharingCloudWorkspace: $isSharingCloudWorkspace
                 )
-                    .background { Palette.sidebar.ignoresSafeArea() }
-                    .toolbar {
-                        BloomWindowToolbar(
-                            app: app,
-                            isSidebarFolded: columnVisibility == .detailOnly,
-                            isSharingCloudWorkspace: $isSharingCloudWorkspace
-                        )
-                    }
-                    // Said here as well as under `navigationTitle` below, and deliberately.
-                    //
-                    // The title is declared on the split view and the toolbar is declared on this
-                    // column, so the two are not the same view, and which of them resolves the default
-                    // title item is not a thing reading the interface settles. The window came up
-                    // wearing its name twice once already. Both, until a picture says which one did it.
-                    .toolbar(removing: .title)
-                    // **There is no `.searchable` here any more, and the reason is a defect rather
-                    // than a matter of taste.** The window carried an `NSSearchToolbarItem`, 206
-                    // points of the system's glass with the system's drop shadow, packed against
-                    // the toolbar's trailing end by a flexible spacer and sharing an edge with
-                    // nothing. That was survivable. What was not is that typing one character into
-                    // it set the selection to Home: a search that takes the page away from you is
-                    // a search people stop using, and getting back meant clearing the field and
-                    // clicking the workspace again.
-                    //
-                    // The same search is a panel now, opened on Cmd+K and from the magnifying
-                    // glass in the title bar, and it moves nothing: no selection, no scroll, no
-                    // column. Nothing it could reach was taken away with the field, which is the
-                    // whole point of relocating it rather than replacing it. See `SearchPanelView`
-                    // for the card and `BloomWindowToolbar` for its button.
             }
-            // As well as heading the toolbar (see BloomApp), the title names the window in the
-            // Window menu and in Mission Control, so it is worth setting.
-            //
-            // It takes an automatic rename straight, with no reveal. A window title is also its entry
-            // in the Window menu and its label in Mission Control, and neither of those can be
-            // animated: what they would show is one arbitrary frame of a scramble, which is a window
-            // called `xqbn hgue` in a menu the user is reading to find it by name.
-            // `menuWorkspace` rather than `selectedWorkspace`, so an archived workspace being read
-            // names the window as well. It is still not what the inspector keys on, below: naming a
-            // window costs nothing, and showing a diff for a worktree that is gone does not.
             .containerBackground(.clear, for: .window)
-            .navigationTitle(app.menuWorkspace?.name ?? "Bloom")
-
-            // And then removed from the toolbar again, because `WindowTitleControl` draws the name
-            // itself and the window came up wearing it twice.
-            //
-            // The two titles are not one title drawn twice, they are two different mechanisms, which
-            // is why hiding one did not hide the other. `NSWindow.titleVisibility`, which `WindowChrome`
-            // sets, governs the title AppKit draws. The line above contributes a title item of
-            // SwiftUI's own to the window toolbar, and SwiftUI owns that one: it re-resolves it with
-            // the toolbar, so nothing set on the window from the side can take it away.
-            // `ToolbarDefaultItemKind.title` is the switch for it, and it is the only one.
-            //
-            // The title itself stays. It is what the Window menu, Mission Control and the Dock read,
-            // and the comment above is the reason it is set at all.
             .toolbar(removing: .title)
 
             // Marks this scene as the main window, so the menu items that act on a workspace grey out
             // while Settings or a project settings window is key. See `MainWindowFocus`.
             .focusedSceneValue(\.isMainWindowFocused, true)
-
-            // A display with no room for a sidebar folds it rather than clipping it. The other two
-            // panes cannot fold and cannot truncate, so this is the only pane there is a decision
-            // to take about. It stays folded when the room comes back: unfolding a column the user
-            // has not asked for is a window rearranging itself behind them, and the toggle and its
-            // Command key are both a keystroke away. See `WindowWidths.sidebarMaximum`.
-            .onChange(of: sidebarCeiling == nil, initial: true) { _, folds in
-                if folds { columnVisibility = .detailOnly }
-            }
 
             // Bottom trailing, out of the way of the sidebar and of the composer's send button.
             .overlay(alignment: .bottomTrailing) {
@@ -449,17 +334,6 @@ struct RootView: View {
         }
     }
 
-    /// The inspector answers one question, what this workspace's agent changed, so on Home it has
-    /// nothing to say. It used to sit there as a 380pt column holding a single "No workspace
-    /// selected" glyph, and because its divider hairline is almost invisible on white that glyph
-    /// read as a stray mark floating in the middle of the window. Hiding it also hands those
-    /// points back to Home's list, which is what keeps a workspace name, its diff counts and its
-    /// age on one line without truncating any of them.
-    ///
-    /// It is the model's, because the window's own minimum width depends on the same answer and
-    /// `BloomApp` cannot read a private computed property on a view. See `AppModel`.
-    private var isInspectorPresented: Bool { app.isInspectorPresented }
-
     /// See the popover above: only ever the `.window` anchor, never the row's or the strip's.
     private var cloudArchiveOnWindow: Binding<Bool> {
         Binding(
@@ -468,21 +342,6 @@ struct RootView: View {
                 return app.cloud.isAskingToArchive(id, at: .window)
             },
             set: { if !$0 { app.cloud.archiving = nil } }
-        )
-    }
-
-    /// What the first column may be dragged out to on the display this window is on, or nil when
-    /// there is no room for one at all. See `WindowWidths.sidebarMaximum`.
-    ///
-    /// `NSScreen.main` is the screen holding the key window, which is this one whenever anybody is
-    /// dragging anything. It is read rather than observed, so moving the window to a narrower
-    /// display leaves this a redraw behind; the consequence of being late is a sidebar that could
-    /// have been dragged 98 points wider than it was, on a display Bloom is unlikely to meet, and
-    /// the consequence of not reading it at all is a clipped window on that display.
-    private var sidebarCeiling: CGFloat? {
-        BloomApp.widths.sidebarMaximum(
-            sharing: NSScreen.main?.visibleFrame.width ?? .greatestFiniteMagnitude,
-            withInspector: isInspectorPresented
         )
     }
 
@@ -529,6 +388,88 @@ struct RootView: View {
 
     private func confirmArchive(_ request: ArchiveRequest) {
         Task { await app.confirmArchive(request) }
+    }
+}
+
+/// Keeps selection observation below the window's split root. A workspace change should update
+/// the row highlight, not rebuild every sidebar row as collateral work for the detail column.
+private struct RootSidebarColumn: View {
+    @Environment(AppModel.self) private var app
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+
+    private var sidebarTintOpacity: Double {
+        let preference = ColourThemePreference.shared
+        return preference.glass.tintOpacity(maximum: preference.choice.surfaces.glassTintOpacity ?? 0.4)
+    }
+
+    /// What the first column may be dragged out to on the display this window is on, or nil when
+    /// there is no room for one at all. See `WindowWidths.sidebarMaximum`.
+    private var sidebarCeiling: CGFloat? {
+        BloomApp.widths.sidebarMaximum(
+            sharing: NSScreen.main?.visibleFrame.width ?? .greatestFiniteMagnitude,
+            withInspector: app.isInspectorPresented
+        )
+    }
+
+    var body: some View {
+        SidebarView()
+            // Replaced by `SidebarToggleButton`, so it can share glass with New.
+            .toolbar(removing: .sidebarToggle)
+            .environment(\.isSidebarFolded, columnVisibility == .detailOnly)
+            .scrollContentBackground(.hidden)
+            .background {
+                Group {
+                    if ColourThemePreference.shared.glass == .off {
+                        Palette.surfaceSunken
+                    } else {
+                        SidebarMaterial(tint: Palette.sidebarGlassTint, opacity: sidebarTintOpacity)
+                    }
+                }
+                .ignoresSafeArea()
+            }
+            .overlay(alignment: .trailing) {
+                Hairline(axis: .vertical).ignoresSafeArea(edges: .top)
+            }
+            .navigationSplitViewColumnWidth(
+                min: BloomApp.sidebarMinimumWidth,
+                ideal: Metrics.sidebarWidth,
+                max: sidebarCeiling ?? BloomApp.sidebarMinimumWidth
+            )
+            // A display with no room for a sidebar folds it rather than clipping it. It stays
+            // folded when room returns, because unfolding it without being asked rearranges the
+            // window behind the user.
+            .onChange(of: sidebarCeiling == nil, initial: true) { _, folds in
+                if folds { columnVisibility = .detailOnly }
+            }
+    }
+}
+
+/// The selection-sensitive half of the window. Keeping it below `NavigationSplitView` means the
+/// sidebar and the window wiring are not reevaluated when this retained pane changes identity.
+private struct RootDetailColumn: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let columnVisibility: NavigationSplitViewVisibility
+    @Binding var isSharingCloudWorkspace: Bool
+
+    var body: some View {
+        DetailSplitView(
+            app: app,
+            isInspectorPresented: app.isInspectorPresented,
+            animated: !reduceMotion
+        )
+        .background { Palette.sidebar.ignoresSafeArea() }
+        .toolbar {
+            BloomWindowToolbar(
+                app: app,
+                isSidebarFolded: columnVisibility == .detailOnly,
+                isSharingCloudWorkspace: $isSharingCloudWorkspace
+            )
+        }
+        // `WindowTitleControl` owns the visible title item. `WindowTitle` sets the NSWindow title
+        // used by the Window menu, Mission Control and saved window state.
+        .toolbar(removing: .title)
     }
 }
 

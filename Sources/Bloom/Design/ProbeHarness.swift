@@ -288,7 +288,11 @@ struct ProbeHarness {
             for subview in view.subviews { walk(subview) }
         }
         walk(root)
-        return found.max { $0.endOffset < $1.endOffset }
+        let presented = found.filter {
+            guard let hold = $0.superview as? TranscriptHoldView else { return true }
+            return hold.isColumnActive
+        }
+        return presented.max { $0.endOffset < $1.endOffset }
     }
 
     /// Where a transcript is standing, as a report says it.

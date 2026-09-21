@@ -83,6 +83,7 @@ extension AppModel {
         for id in ids {
             workspaceModels[id]?.teardown()
             workspaceModels[id] = nil
+            forgetRetainedWorkspace(id)
         }
         invalidateArchived()
         return .deleted(removed)

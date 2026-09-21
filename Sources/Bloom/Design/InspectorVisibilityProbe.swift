@@ -31,8 +31,7 @@ enum InspectorVisibilityProbe {
 
         func update(_ visible: Bool) {
             controller.update(
-                detail: detail, inspector: inspector, isInspectorPresented: visible,
-                animated: false, content: .home
+                isInspectorPresented: visible, animated: false, content: .home
             )
             window.contentView?.layoutSubtreeIfNeeded()
         }

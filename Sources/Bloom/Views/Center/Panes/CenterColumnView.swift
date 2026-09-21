@@ -122,22 +122,8 @@ struct CenterColumnView<Model: WorkspaceSurface>: View {
             // that is already on disk. Its own task, so it does not hold up the one below.
             await BrowserFaviconStore.shared.warm()
         }
-        .task(id: model.surfaceID) {
-            openStartingPane()
-            await model.onColumnAppear()
-            // Last, and that ordering is the whole of it. `onAppear` does not return until the
-            // first visit of a launch has the workspace's sessions in hand, and the tool tabs were
-            // read back synchronously above, so this is the one place in the column where both
-            // lists are answers rather than silence. Reconciling forgets every pane pointer
-            // nothing accounts for, so it ran from the strip's own task and deleted the chat pane
-            // of every terminal or browser tab somebody had split, on the first open after each
-            // relaunch. `TabReconciliation` refuses an unread list as well, because an ordering
-            // that is only correct by inspection is one edit away from being incorrect.
-            WorkspaceTabsStore.shared.reconcile(in: model)
-            // After the reconcile, because starting a run script may add a tab, and a tab added
-            // before the strip has been squared with what is stored is one the reconcile judges.
-            // Once per workspace per launch; see `RunScriptLauncher.considerAutostart`.
-            model.considerRunScriptAutostart()
+        .background {
+            WorkspaceColumnArrival(model: model, openStartingPane: openStartingPane)
         }
         // A settings file that changes while the workspace is open is settled again. Without
         // this, a file added to an open workspace never asked and never started anything until
@@ -223,5 +209,30 @@ struct CenterColumnView<Model: WorkspaceSurface>: View {
         // the first thing a new workspace shows. The address field is where somebody says.
         guard opening.cliAgentKind == nil else { return }
         NewPane.open(opening.pane, in: model) { WorkspaceTabsStore.shared.select($0, in: model) }
+    }
+}
+
+/// Runs arrival work when a retained column becomes current without making that activity a
+/// dependency of the centre column and every transcript row under it.
+private struct WorkspaceColumnArrival<Model: WorkspaceSurface>: View {
+    let model: Model
+    var openStartingPane: @MainActor () -> Void
+
+    @Environment(\.workspaceColumnActivity) private var activity
+
+    var body: some View {
+        Color.clear
+            .task(id: activity?.isActive ?? true) {
+                guard activity?.isActive ?? true else { return }
+                openStartingPane()
+                await model.onColumnAppear()
+                // Last, and that ordering is the whole of it. `onAppear` does not return until the
+                // first visit of a launch has the workspace's sessions in hand, and the tool tabs
+                // were read back synchronously above, so this is where both lists are answers.
+                WorkspaceTabsStore.shared.reconcile(in: model)
+                // After the reconcile, because starting a run script may add a tab, and a tab added
+                // before the stored list is squared is one the reconcile would judge incorrectly.
+                model.considerRunScriptAutostart()
+            }
     }
 }
