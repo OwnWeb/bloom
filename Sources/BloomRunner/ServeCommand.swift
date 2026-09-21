@@ -21,8 +21,24 @@ public enum ServeCommand {
                                                 attributes: [.posixPermissions: 0o700])
         let store = try Store(path: layout.databasePath)
         let runnerExecutable = MachineSetup.currentExecutable
-        let gitExecutable = "/usr/bin/git"
-        let ghExecutable = "/usr/bin/gh"
+        // Found rather than assumed. `/usr/bin/gh` is where CI puts the one it compiles and is not
+        // where a Sprite keeps it, which stopped every Cloud workspace created on 21 September 2026
+        // at `static host checks` with `gh` sitting in `/.sprite/bin`, root owned and usable. What
+        // matters is that root owns it and nobody else can write it, and that is what is checked.
+        guard let gitExecutable = PersonBoundTrustedExecutable.find("git") else {
+            throw MachineConfigurationError(
+                "No Git this machine can be trusted with was found. Looked on PATH and in "
+                    + PersonBoundTrustedExecutable.searchDirectories.joined(separator: ", ")
+                    + ". It must be owned by root, with no group or other write, every directory above it too."
+            )
+        }
+        guard let ghExecutable = PersonBoundTrustedExecutable.find("gh") else {
+            throw MachineConfigurationError(
+                "No gh this machine can be trusted with was found. Looked on PATH and in "
+                    + PersonBoundTrustedExecutable.searchDirectories.joined(separator: ", ")
+                    + ". It must be owned by root, with no group or other write, every directory above it too."
+            )
+        }
         guard let gitRemoteHTTPSExecutable = PersonBoundGitCommand.gitRemoteHTTPSExecutable(
             gitExecutable: gitExecutable
         ) else {
