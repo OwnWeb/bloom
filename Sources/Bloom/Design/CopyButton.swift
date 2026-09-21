@@ -32,6 +32,9 @@ struct CopyButton: View {
     /// line up with. Left alone the button is as big as the glyph in it, which is what a control
     /// revealed by the pointer inside a block of text wants.
     var size: CGFloat?
+    /// A caller beside quiet metadata can step the symbol down without shrinking its hit target
+    /// or its accessibility element.
+    var imageScale: Image.Scale = .medium
 
     @State private var flash = CopyFlash()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -49,7 +52,7 @@ struct CopyButton: View {
                     .opacity(copied ? 1 : 0)
             }
                 .font(Typo.caption)
-                .imageScale(.medium)
+                .imageScale(imageScale)
                 // Both symbols occupy this exact box. Their different intrinsic bounds cannot
                 // move the footer or the button beside it when the copied state changes.
                 .frame(width: 16, height: 16)

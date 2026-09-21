@@ -55,8 +55,8 @@ struct TurnFooterView: View {
         // Every one of these is derived from the turn's result payload, which is one of the larger
         // ones in the file, and the decode in front of it went through `TranscriptEventCache`
         // precisely because the footer asks for it more than once. It asked about ten times: the
-        // glyph, its tint, the accessible label, the duration, the copy button's text, the menu's
-        // three items, the note under the row and the failure block under that. Cached or not, a
+        // glyph, its tint, the accessible label, the duration, the menu's three items, the note
+        // under the row and the failure block under that. Cached or not, a
         // decode is a dictionary lookup and an enum match per ask, and `outcome` and `appearance`
         // were rebuilt on top of each one.
         let result = result
@@ -65,35 +65,7 @@ struct TurnFooterView: View {
             succeeded: result?.succeeded != false,
             denials: result?.permissionDenials ?? 0
         )
-        let answerText = TurnAnswer.text(
-            summary: result?.summary ?? "",
-            rows: rows.lazy.map {
-                TurnAnswer.Row(
-                    seq: $0.seq, kind: $0.kind, payload: $0.payload,
-                    isNested: $0.parentToolUseID != nil
-                )
-            },
-            endingAt: row.seq
-        )
-
         return VStack(alignment: .leading, spacing: 0) {
-            // Inset to the column the footer's own contents start on, rather than to the pane.
-            // A rule that stops six points short of the text under it looks like a mistake, and
-            // this one closes a turn, so it has to read as drawn on purpose.
-            //
-            // Nearer the line under it than the answer above it, and that is the whole point.
-            // The rule and the facts beneath it are one object, the thing that ends a turn, and
-            // drawn with equal air on both sides it read as a divider parked between two turns
-            // with a time floating next to it. Six of its own above and two below: the answer
-            // carries its own eight point rung, so fourteen points sit over the rule and eight
-            // under it, where before it was fourteen and twelve.
-            Rectangle()
-                .fill(Palette.border)
-                .frame(height: Metrics.outline)
-                .padding(.horizontal, TranscriptLayout.inset)
-                .padding(.top, TranscriptLayout.inset)
-                .padding(.bottom, TranscriptLayout.tight)
-
             // A turn's duration is the number a user goes looking for, so it sits a rung above
             // the counts and timings that decorate a single row.
             HStack(spacing: TranscriptLayout.block) {
@@ -149,12 +121,13 @@ struct TurnFooterView: View {
                     Color.clear.frame(width: 0, height: 0)
                 }
 
-                CopyButton(text: answerText, title: "Copy this answer")
-                    .disabled(answerText.isEmpty)
             }
             .foregroundStyle(Palette.textSecondary)
             .padding(.horizontal, TranscriptLayout.inset)
-            .padding(.vertical, Metrics.spacingSmall)
+            // Air now carries the boundary the old horizontal rule drew. A little more than the
+            // ordinary block gap keeps the completion metadata attached to the response above it.
+            .padding(.top, Metrics.gutter)
+            .padding(.bottom, Metrics.spacingSmall)
 
             // Under the row rather than in it, and only when there is something to say. This is
             // the one place in a turn that can name what went undone and what would undo it, and

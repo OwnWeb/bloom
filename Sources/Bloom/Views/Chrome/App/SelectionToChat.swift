@@ -1,4 +1,5 @@
 import AppKit
+import BloomCore
 
 /// Add to Chat, resolved against whatever holds the keyboard when it is pressed.
 ///
@@ -15,6 +16,23 @@ import AppKit
 /// the `TranscriptTableView` the text view is drawn inside.
 @MainActor
 enum SelectionToChat {
+    private static var replyMonitor: Any?
+
+    /// A plain R belongs to the selected passage only while a transcript text view owns the
+    /// keyboard. The responder and its table are resolved for every press, so a stale selection
+    /// in another conversation or window cannot receive the quote.
+    static func attachReplyShortcut() {
+        guard replyMonitor == nil else { return }
+        replyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let character = event.charactersIgnoringModifiers
+            let modifiers = modifiers(of: event)
+            let handled = MainActor.assumeIsolated {
+                quoteReplyShortcut(character: character, modifiers: modifiers)
+            }
+            return handled ? nil : event
+        }
+    }
+
     /// False when nothing in front had a selection to hand over.
     static func perform() -> Bool {
         guard let responder = NSApp.keyWindow?.firstResponder else { return false }
@@ -44,6 +62,35 @@ enum SelectionToChat {
     static func canQuote(from textView: NSTextView) -> Bool {
         textView.selectedRanges.contains { $0.rangeValue.length > 0 }
             && transcript(containing: textView)?.quoteSelection != nil
+    }
+
+    private static func quoteReplyShortcut(
+        character: String?, modifiers: MenuShortcut.Modifiers
+    ) -> Bool {
+        guard let window = NSApp.keyWindow,
+              let textView = window.firstResponder as? NSTextView else { return false }
+        let table = transcript(containing: textView)
+        guard ReplySelectionShortcut.isArmed(
+            character: character,
+            modifiers: modifiers,
+            hasSelection: textView.selectedRanges.contains { $0.rangeValue.length > 0 },
+            isEditable: textView.isEditable,
+            isComposing: textView.hasMarkedText(),
+            isInCurrentThread: table?.window === window
+                && table?.isHiddenOrHasHiddenAncestor == false
+                && table?.quoteSelection != nil
+        ) else { return false }
+        return quote(from: textView)
+    }
+
+    private static func modifiers(of event: NSEvent) -> MenuShortcut.Modifiers {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        var modifiers: MenuShortcut.Modifiers = []
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        return modifiers
     }
 
     /// The selection as the text view would copy it. Through a private pasteboard rather than off

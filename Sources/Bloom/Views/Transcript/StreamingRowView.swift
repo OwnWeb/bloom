@@ -72,7 +72,7 @@ struct StreamingRowView: View {
             }
 
             if !transcript.streamingText.isEmpty {
-                ProseRowView(text: transcript.streamingText, isStreaming: true)
+                ProseRowView(text: transcript.streamingText, isStreaming: true, copyText: nil)
                     // Streamed text arrives many times a second, and every one of those deltas
                     // runs through here. Nothing inside this block may carry an animation: see
                     // the note under `body`.
