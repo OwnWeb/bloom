@@ -25,13 +25,15 @@ struct SettingsView: View {
     @State private var isLoaded = false
     @State private var saveTask: Task<Void, Never>?
     @State private var saveError: String?
+    @State private var cloudDiscovery = CloudSettingsDiscovery()
+    @AppStorage(CloudSettingsDiscovery.unlockedKey) private var cloudSettingsUnlocked = false
 
     var body: some View {
         // A fixed sidebar avoids the split view's collapsible toolbar and its reserved top inset.
         HStack(spacing: 0) {
             List(selection: $tab) {
                 Section("Bloom") {
-                    navigationRows([.general, .account, .appearance, .menuBar, .notifications])
+                    navigationRows(bloomTabs)
                 }
                 Section("Agents") {
                     navigationRows([.agents, .sessions, .presets, .permissions, .prompts])
@@ -46,13 +48,14 @@ struct SettingsView: View {
             // opens on whichever pane it was left on, which is not what that row promises.
             .onReceive(NotificationCenter.default.publisher(for: SettingsTabRequest.name)) { notification in
                 if let requested = SettingsTabRequest.tab(in: notification) {
-                    tab = requested
+                    tab = available(requested)
                     _ = SettingsTabRequest.takePending()
                 }
             }
             // A request made while the window was closed, which the notification above never saw.
             .onAppear {
-                if let requested = SettingsTabRequest.takePending() { tab = requested }
+                if let requested = SettingsTabRequest.takePending() { tab = available(requested) }
+                tab = available(tab ?? .general)
             }
 
             Divider()
@@ -77,6 +80,27 @@ struct SettingsView: View {
             defaults = await AppDefaults.load(from: store)
             isLoaded = true
         }
+        .onChange(of: showsCloudSettings) { _, visible in
+            if !visible, tab == .account { tab = .general }
+        }
+    }
+
+    private var showsCloudSettings: Bool {
+        CloudSettingsDiscovery.isVisible(
+            isSignedIn: app.cloud.isSignedIn,
+            isUnlocked: cloudSettingsUnlocked
+        )
+    }
+
+    private var bloomTabs: [SettingsTab] {
+        var tabs: [SettingsTab] = [.general]
+        if showsCloudSettings { tabs.append(.account) }
+        tabs.append(contentsOf: [.appearance, .menuBar, .notifications])
+        return tabs
+    }
+
+    private func available(_ requested: SettingsTab) -> SettingsTab {
+        requested == .account && !showsCloudSettings ? .general : requested
     }
 
     private var defaultsBinding: Binding<AppDefaults> {
@@ -102,6 +126,11 @@ struct SettingsView: View {
         ForEach(tabs, id: \.self) { item in
             Label(item.title, systemImage: item.systemImage)
                 .tag(item)
+                .simultaneousGesture(TapGesture().onEnded {
+                    if cloudDiscovery.record(isGeneral: item == .general, at: Date()) {
+                        cloudSettingsUnlocked = true
+                    }
+                })
         }
     }
 
