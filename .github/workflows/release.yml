@@ -36,11 +36,10 @@ permissions:
   # Only to attach the zip to the release that triggered this.
   contents: write
 
-# The appcast is read, changed and written back. Two releases doing that at the
-# same time would leave whichever finished second having quietly dropped the
-# other one's item.
+# Mac releases share one lock because each reads and rewrites the appcast. Runner releases touch
+# neither the appcast nor Mac artefacts, so they use a separate lock and cannot delay one.
 concurrency:
-  group: bloom-release
+  group: ${{ (startsWith(github.event.release.tag_name, 'runner-v') || startsWith(inputs.tag, 'runner-v')) && 'bloom-runner-release' || 'bloom-mac-release' }}
   cancel-in-progress: false
 
 jobs:
