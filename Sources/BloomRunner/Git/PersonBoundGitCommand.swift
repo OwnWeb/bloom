@@ -27,10 +27,18 @@ enum PersonBoundGitCommand {
             forced = networkArguments(
                 for: invocation, repository: repository,
                 runnerExecutable: runnerExecutable(environment),
-                gitRemoteHTTPSExecutable: remoteHTTPS
+                gitRemoteHTTPSExecutable: remoteHTTPS,
+                worktree: environment["BLOOM_WORKTREE"] ?? environment["BLOOM_PERSON_BOUND_WORKTREE"]
             )
             applyCleanConfiguration(to: &clean)
-            guard makeCredentialProcessPrivate() else { return 1 }
+            /*
+             * **git-credential-v2 is spawned by git, so it cannot classify anything itself**: all
+             * it is ever told is `get`. The wrapper has already classified the command, so it says
+             * so here and git passes it down by inheritance, the same way the rest of the clean
+             * environment travels. The supervisor used to work this out by reading the process
+             * tree instead, which is the thing that refused every Cloud workspace for a day.
+             */
+            clean[PersonBoundGithubOperation.environmentKey] = invocation.operation?.rawValue
         }
         return await run(executable, forced, environment: clean)
     }
@@ -55,12 +63,15 @@ enum PersonBoundGitCommand {
         }
         clean["LD_PRELOAD"] = MachineSandbox.personBoundCredentialShield
         #endif
-        guard makeCredentialProcessPrivate() else { return ghRefused("process privacy", status: 1) }
         let foundationSelfTest = environment["BLOOM_PERSON_BOUND_FOUNDATION_SELF_TEST"] == "1"
-        let request = PersonBoundCredentialRequest(repository: repository)
+        guard let classified = invocation.operation else {
+            return ghRefused("command classification", status: 64)
+        }
+        let request = PersonBoundCredentialRequest(repository: repository, operation: classified)
         guard let answer = LocalCredentialClient.askV2(
             request, over: MachineSandbox.credentialV2SocketPath
         ) else { return ghRefused("credential exchange", status: 1) }
+        guard makeCredentialProcessPrivate() else { return ghRefused("process privacy", status: 1) }
         clean["GH_TOKEN"] = answer.token
         clean["GH_HOST"] = "github.com"
         clean["GH_REPO"] = "github.com/\(repository)"
@@ -82,10 +93,13 @@ enum PersonBoundGitCommand {
               fields["host"]?.lowercased() == "github.com",
               let path = fields["path"],
               credentialRepository(fromPath: path)?.lowercased() == repository.lowercased() else { return 1 }
-        guard makeCredentialProcessPrivate() else { return 1 }
+        guard let declared = environment[PersonBoundGithubOperation.environmentKey]
+            .flatMap(PersonBoundGithubOperation.init(rawValue:)) else { return 1 }
         guard let answer = LocalCredentialClient.askV2(
-            PersonBoundCredentialRequest(repository: repository), over: MachineSandbox.credentialV2SocketPath
+            PersonBoundCredentialRequest(repository: repository, operation: declared),
+            over: MachineSandbox.credentialV2SocketPath
         ) else { return 1 }
+        guard makeCredentialProcessPrivate() else { return 1 }
         print("username=\(answer.username)")
         print("password=\(answer.token)")
         return 0
@@ -102,7 +116,11 @@ enum PersonBoundGitCommand {
         guard lstat("/.sprite/api.sock", &socket) == 0,
               socket.st_mode & mode_t(S_IFMT) != mode_t(S_IFSOCK),
               answer.username == "x-access-token", answer.token == "bloom-person-bound-self-test" else { return 1 }
-        let request = PersonBoundCredentialRequest(repository: repository)
+        // Asked again, with the same operation, from the same process. That is what a replay is,
+        // and the broker must refuse it on the operation identity it has already spent, without
+        // going near the network. Asking with a different operation would be a different question
+        // and would prove nothing about replay.
+        let request = PersonBoundCredentialRequest(repository: repository, operation: .ghRead)
         guard LocalCredentialClient.askV2(
                   request, over: MachineSandbox.credentialV2SocketPath
               ) == nil else { return 1 }
@@ -357,7 +375,8 @@ enum PersonBoundGitCommand {
         for invocation: Invocation,
         repository: String,
         runnerExecutable: String,
-        gitRemoteHTTPSExecutable: String
+        gitRemoteHTTPSExecutable: String,
+        worktree: String? = nil
     ) -> [String] {
         let helper = "!\(MachineGitTools.shellQuoted(runnerExecutable)) git-credential-v2"
         let execPath = URL(fileURLWithPath: gitRemoteHTTPSExecutable).deletingLastPathComponent().path
@@ -387,7 +406,19 @@ enum PersonBoundGitCommand {
                 "-c", "http.\(endpoint).followRedirects=false",
             ]
         }
-        return [
+        /*
+         * **A network operation cannot read the system-wide `safe.directory`, so it has to be
+         * given one.** These run with `GIT_CONFIG_NOSYSTEM=1` and `GIT_CONFIG_SYSTEM=/dev/null`,
+         * deliberately, so that nothing a caller has written into a config file can reach the
+         * transport. What that also discards is the `safe.directory` entry provision-sandbox.sh
+         * writes for the worktree, and a worktree is cloned under one person's uid and pushed
+         * under another's, so every fetch and push by anyone who did not perform the clone died
+         * with "detected dubious ownership" while `git commit` beside it worked, because a local
+         * command still reads the system config. The value is the worktree from machine
+         * configuration, never anything a caller passes.
+         */
+        let safeDirectory = worktree.map { ["-c", "safe.directory=\($0)"] } ?? []
+        return safeDirectory + [
             "--exec-path=\(execPath)",
             "-c", "credential.helper=",
             "-c", "credential.helper=\(helper)",
@@ -570,6 +601,21 @@ enum PersonBoundGitCommand {
         }.joined(separator: ":")
     }
 
+    /// Hides this process from anything that would read its memory, and **is called only once a
+    /// token is already in hand**.
+    ///
+    /// The order is the whole of it. A non-dumpable process has its `/proc/<pid>` handed to root,
+    /// and `exe`, `cwd` and `environ` then need CAP_SYS_PTRACE, which a Cloud workspace's machine
+    /// does not grant to anyone. So a process that hides itself before asking for a credential
+    /// cannot be identified by the supervisor that decides whether to give it one, and the whole
+    /// exchange refuses itself: every private clone failed for a day as `process ancestry`, and it
+    /// passed in CI because CI ran `--privileged` and had the capability.
+    ///
+    /// Hiding afterwards costs nothing. The reply only arrives once the supervisor has finished
+    /// reading this process, so nothing holding a token is ever readable, and in the window before
+    /// that there is no token to read. What the flag defends against is a reader of the same uid,
+    /// since a different uid cannot read a dumpable process either, and the same uid is the same
+    /// person, who is the one the credential belongs to.
     private static func makeCredentialProcessPrivate() -> Bool {
         #if os(Linux)
         return linuxPrctl(4, 0, 0, 0, 0) == 0 // PR_SET_DUMPABLE

@@ -83,81 +83,68 @@ struct PersonBoundGitCommandTests {
         }
     }
 
-    @Test("credential operations come from verified wrapper ancestry, not caller input")
-    func kernelCommandClassification() throws {
+    @Test("an operation is attested from the launch gate's binding and the caller's own word")
+    func attestationComesFromTheLaunchGate() {
+        // **This replaces a walk up the caller's process tree.** That walk read /proc/<pid>/exe of
+        // processes that are not dumpable, which needs CAP_SYS_PTRACE and no Cloud workspace
+        // machine grants it, and it hardcoded how git spawns its helpers, which git changes. It
+        // refused every private clone for a day. The gate below is what decides now: the kernel's
+        // own uid for the socket peer, and a binding the one-time launch nonce opened.
+        let identity = processIdentity(40)
         let leader = processIdentity(1, start: 1)
-        let gitInvocation = try #require(PersonBoundGitCommand.gitInvocation(
-            ["push", "origin", "main"], repository: "spatie/bloom"
-        ))
-        let gitArguments = PersonBoundGitCommand.networkArguments(
-            for: gitInvocation, repository: "spatie/bloom", runnerExecutable: "/opt/bloom-runner",
-            gitRemoteHTTPSExecutable: "/usr/lib/git-core/git-remote-https"
+        let reservation = PersonBoundProcessRegistry.Reservation(
+            id: UUID(), nonce: String(repeating: "n", count: 32), uid: identity.uid,
+            cgroup: identity.cgroup, purpose: .bootstrap
         )
-        let commands: [Int32: PersonBoundPeerOperation.Command] = [
-            1: command(leader, parent: 0, executable: "/usr/local/bin/claude", arguments: ["claude"]),
-            30: command(30, parent: 20, executable: "/opt/bloom-runner",
-                        arguments: ["/opt/bloom-runner", "git-credential-v2", "get"]),
-            20: command(20, parent: 15, executable: "/bin/sh", arguments: ["/bin/sh", "-c", "helper"]),
-            15: command(15, parent: 10, executable: "/usr/lib/git-core/git-remote-https",
-                        arguments: ["/usr/lib/git-core/git-remote-https", "origin", "https://github.com/spatie/bloom.git"]),
-            10: command(10, parent: 9, executable: "/usr/bin/git",
-                        arguments: ["/usr/bin/git"] + gitArguments, environment: cleanGitEnvironment()),
-            9: command(9, parent: 1, executable: "/opt/bloom-runner",
-                       arguments: ["/opt/bloom-runner", "git-v2", "push", "origin", "main"]),
-            40: command(40, parent: 1, executable: "/opt/bloom-runner",
-                        arguments: ["/opt/bloom-runner", "gh-v2", "pr", "view", "123"]),
-            41: command(41, parent: 1, executable: "/opt/bloom-runner",
-                        arguments: ["gh-v2", "pr", "view", "123"]),
-            50: command(50, parent: 1, executable: "/opt/bloom-runner",
-                        arguments: ["/opt/bloom-runner", "git-credential-v2", "get"]),
-            70: command(70, parent: 71, executable: "/opt/bloom-runner",
-                        arguments: ["/opt/bloom-runner", "git-credential-v2", "get"]),
-            71: command(71, parent: 10, executable: "/tmp/git-remote-https",
-                        arguments: ["/tmp/git-remote-https", "origin", "https://github.com/spatie/bloom.git"]),
-            80: command(80, parent: 81, executable: "/opt/bloom-runner",
-                        arguments: ["/opt/bloom-runner", "git-credential-v2", "get"]),
-            81: command(81, parent: 10, executable: "/usr/lib/git-core/git-remote-https",
-                        arguments: ["/usr/lib/git-core/git-remote-https", "origin", "https://attacker.invalid/repo.git"]),
-            90: command(90, parent: 91, executable: "/opt/bloom-runner",
-                        arguments: ["/opt/bloom-runner", "gh-v2", "pr", "view", "123"]),
-            91: command(91, parent: 1, executable: "/workspace/scripts/release.sh",
-                        arguments: ["/workspace/scripts/release.sh"]),
-            92: command(92, parent: 93, executable: "/opt/bloom-runner",
-                        arguments: ["/opt/bloom-runner", "gh-v2", "pr", "view", "123"]),
-            93: command(93, parent: 1, executable: "/usr/bin/make", arguments: ["make", "publish"]),
-        ]
-        let read: PersonBoundPeerOperation.Read = { commands[$0] }
-        #expect(resolve(pid: 30, commands: commands, leader: leader, read: read)?.operation == .gitWrite)
-        #expect(resolve(pid: 40, commands: commands, leader: leader, read: read)?.operation == .ghRead)
-        #expect(resolve(pid: 41, commands: commands, leader: leader, read: read)?.operation == .ghRead)
-        for pid in [50, 70, 80, 90, 92] {
-            #expect(resolve(pid: Int32(pid), commands: commands, leader: leader, read: read) == nil)
+        let binding = PersonBoundProcessRegistry.Binding(
+            reservation: reservation, peerIdentity: identity, leaderIdentity: leader
+        )
+        // A binding for somebody else is refused however well it is dressed: these two are what
+        // the kernel reported for this socket, and they have to be the process being attested.
+        let otherPID = LocalSocket.Peer(pid: identity.pid + 1, uid: identity.uid)
+        let otherUID = LocalSocket.Peer(pid: identity.pid, uid: identity.uid + 1)
+        for stranger in [otherPID, otherUID] {
+            #expect(PersonBoundPeerOperation.attest(
+                peer: stranger, binding: binding, declared: .gitRead,
+                runnerExecutable: "/opt/bloom-runner"
+            ) == nil)
         }
-        #expect(resolve(pid: 40, commands: commands, leader: leader, read: read, provenance: { _ in false }) == nil,
-                "root execution history must survive a repository script execing the protected wrapper")
+
+        // **That the repository's own code is refused is proven live, not here.** It rests on the
+        // provenance record the ptrace supervisor writes when it sees an exec, which is owned by
+        // root and named by pid and start time, so there is nothing an unprivileged test can put
+        // in place to stand for it. `liveLinuxFoundation` runs a fixture that is a repository
+        // script and asserts it never reaches the credential exchange.
     }
 
-    @Test("PID reuse in any ancestor refuses an otherwise valid chain")
-    func ancestorPIDReuseIsRefused() {
-        let leader = processIdentity(1, start: 1)
-        let wrapper = command(40, parent: 1, executable: "/opt/bloom-runner",
-                              arguments: ["/opt/bloom-runner", "gh-v2", "pr", "view", "123"])
-        let calls = Mutex<[Int32: Int]>([:])
-        let read: PersonBoundPeerOperation.Read = { pid in
-            let call = calls.withLock { counts -> Int in
-                counts[pid, default: 0] += 1
-                return counts[pid]!
-            }
-            if pid == 1, call > 1 {
-                return command(processIdentity(1, start: 2), parent: 0,
-                               executable: "/usr/local/bin/claude", arguments: ["claude"])
-            }
-            return pid == 40 ? wrapper : command(
-                leader, parent: 0, executable: "/usr/local/bin/claude", arguments: ["claude"]
-            )
-        }
-        let commands = [Int32(40): wrapper]
-        #expect(resolve(pid: 40, commands: commands, leader: leader, read: read) == nil)
+    @Test("a network command names its worktree safe and sets no empty client certificate")
+    func networkArgumentsCarryTheWorktreeAndNoEmptyCertificate() throws {
+        let invocation = try #require(PersonBoundGitCommand.gitInvocation(
+            ["push", "origin", "main"], repository: "spatie/bloom"
+        ))
+        let arguments = PersonBoundGitCommand.networkArguments(
+            for: invocation, repository: "spatie/bloom", runnerExecutable: "/opt/bloom-runner",
+            gitRemoteHTTPSExecutable: "/usr/lib/git-core/git-remote-https",
+            worktree: "/home/sprite/workspace"
+        )
+
+        // **Both of these were a Cloud workspace that would not work.** A network command runs
+        // with GIT_CONFIG_NOSYSTEM=1, which throws away the safe.directory that provisioning
+        // writes, so a worktree cloned under one person's uid refused every push by another's
+        // with "detected dubious ownership". And an empty `http.sslCert` is not "no client
+        // certificate": curl takes the empty string as a filename and every clone died reading a
+        // file called nothing.
+        #expect(arguments.starts(with: ["-c", "safe.directory=/home/sprite/workspace"]))
+        #expect(!arguments.contains { $0.contains("sslCert") })
+        #expect(!arguments.contains { $0.contains("sslKey") })
+        #expect(arguments.contains("http.sslCAInfo=/etc/ssl/certs/ca-certificates.crt"))
+
+        // Without a worktree it simply says nothing, rather than naming one it was not given.
+        let unnamed = PersonBoundGitCommand.networkArguments(
+            for: invocation, repository: "spatie/bloom", runnerExecutable: "/opt/bloom-runner",
+            gitRemoteHTTPSExecutable: "/usr/lib/git-core/git-remote-https"
+        )
+        #expect(!unnamed.contains { $0.hasPrefix("safe.directory=") })
     }
 
     @Test("wrapper environments remove proxy, TLS bypass and trace controls")
@@ -312,19 +299,4 @@ private func cleanGitEnvironment() -> [String: String] {
         "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
         "HTTP_PROXY": "", "HTTPS_PROXY": "", "ALL_PROXY": "", "NO_PROXY": "github.com",
     ]
-}
-
-private func resolve(
-    pid: Int32, commands: [Int32: PersonBoundPeerOperation.Command],
-    leader: PersonBoundProcessIdentity, read: @escaping PersonBoundPeerOperation.Read,
-    provenance: @escaping PersonBoundPeerOperation.Provenance = { _ in true }
-) -> PersonBoundOperationAttestation? {
-    guard let peer = commands[pid]?.identity else { return nil }
-    return PersonBoundPeerOperation.resolve(
-        peer: .init(pid: pid, uid: peer.uid), peerIdentity: peer, leaderIdentity: leader,
-        repository: "spatie/bloom", worktree: "/workspace", cleanConfigDirectory: "/empty",
-        runnerExecutable: "/opt/bloom-runner", gitExecutable: "/usr/bin/git",
-        gitRemoteHTTPSExecutable: "/usr/lib/git-core/git-remote-https",
-        provenance: provenance, read: read
-    )
 }

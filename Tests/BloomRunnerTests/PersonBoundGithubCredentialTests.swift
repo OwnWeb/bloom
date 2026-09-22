@@ -113,7 +113,7 @@ struct PersonBoundGithubCredentialTests {
         _ = registry.register(nonce: second.nonce, peer: secondPeer)
         let broker = PersonBoundCredentialBroker(
             repository: "spatie/bloom", registry: registry,
-            operation: { _, binding in attestation(binding, operation: .gitRead) }
+            operation: { _, binding, declared in attestation(binding, operation: declared) }
         ) { current, _, _ in
             let marker = String(current.prefix(1))
             return credentials(token: "raw-for-\(marker)", next: marker == "a" ? "c" : "d")
@@ -134,7 +134,7 @@ struct PersonBoundGithubCredentialTests {
         let gate = CredentialFetchGate()
         let broker = PersonBoundCredentialBroker(
             repository: "spatie/bloom", registry: fixture.registry,
-            operation: { _, binding in attestation(binding, operation: .gitRead) },
+            operation: { _, binding, declared in attestation(binding, operation: declared) },
             requestID: { UUID(uuidString: "11111111-1111-1111-1111-111111111111")! }
         ) { grant, operation, requestID in
             await gate.hold(grant: grant, operation: operation, requestID: requestID)
@@ -163,7 +163,7 @@ struct PersonBoundGithubCredentialTests {
         let calls = Mutex(0)
         let broker = PersonBoundCredentialBroker(
             repository: "spatie/bloom", registry: fixture.registry,
-            operation: { _, binding in attestation(binding, operation: .gitRead) }
+            operation: { _, binding, declared in attestation(binding, operation: declared) }
         ) { _, _, _ in
             calls.withLock { $0 += 1 }
             return credentials(token: "raw-once", next: "b")
@@ -204,7 +204,7 @@ struct PersonBoundGithubCredentialTests {
         let gate = CredentialFetchGate()
         let broker = PersonBoundCredentialBroker(
             repository: "spatie/bloom", registry: fixture.registry,
-            operation: { _, binding in attestation(binding, operation: .gitRead) }
+            operation: { _, binding, declared in attestation(binding, operation: declared) }
         ) { grant, operation, requestID in
             await gate.hold(grant: grant, operation: operation, requestID: requestID)
             return credentials(token: "must-not-cross-teardown", next: "b")
@@ -225,7 +225,7 @@ struct PersonBoundGithubCredentialTests {
         let calls = Mutex(0)
         let broker = PersonBoundCredentialBroker(
             repository: "spatie/bloom", registry: fixture.registry,
-            operation: { _, binding in attestation(binding, operation: .gitRead) }
+            operation: { _, binding, declared in attestation(binding, operation: declared) }
         ) { _, _, _ in
             calls.withLock { $0 += 1 }
             return credentials(token: "raw", next: "b")
@@ -243,10 +243,20 @@ struct PersonBoundGithubCredentialTests {
         let encoded = String(decoding: try JSONEncoder().encode(
             PersonBoundCredentialRequest(repository: "spatie/bloom")
         ), as: UTF8.self)
+        // Who is asking is still never in the request: it comes from the kernel, through the
+        // socket peer and the launch gate's binding, and a caller naming a chat, a turn or a user
+        // would be a caller choosing whose credential to spend.
         #expect(!encoded.contains("chat"))
         #expect(!encoded.contains("turn"))
         #expect(!encoded.contains("user"))
-        #expect(!encoded.contains("operation"))
+        // **What it is for is in the request now, and this line used to assert the opposite.**
+        // The supervisor used to work the operation out by walking the caller's process tree,
+        // which needed a capability no Cloud workspace machine grants and a fixed idea of how git
+        // spawns its helpers; it refused every private clone for a day. The caller's word is worth
+        // what the sandbox is worth, which is what the uid, cgroup and one-time nonce already
+        // rest on, and what the credential is ultimately good for is decided by runbloom.app
+        // rather than here.
+        #expect(encoded.contains("\"operation\":\"git_read\""))
         #expect(calls.withLock { $0 } == 0)
     }
 
@@ -306,11 +316,10 @@ struct PersonBoundGithubCredentialTests {
         let fetches = Mutex(0)
         let broker = PersonBoundCredentialBroker(
             repository: "spatie/bloom", registry: foundation.registry,
-            operation: { peer, binding in
+            operation: { peer, binding, declared in
                 PersonBoundPeerOperation.attest(
-                    peer: peer, binding: binding, repository: "spatie/bloom", worktree: worktree,
-                    runnerExecutable: executable, gitExecutable: git,
-                    gitRemoteHTTPSExecutable: remoteHTTPS
+                    peer: peer, binding: binding, declared: declared,
+                    runnerExecutable: executable
                 )
             }
         ) { _, requested, _ in

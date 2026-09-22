@@ -45,170 +45,167 @@ enum PersonBoundPeerOperation {
     typealias Read = @Sendable (Int32) -> Command?
     typealias Provenance = @Sendable (PersonBoundProcessIdentity) -> Bool
 
-    static func resolve(
-        peer: LocalSocket.Peer,
-        peerIdentity: PersonBoundProcessIdentity,
-        leaderIdentity: PersonBoundProcessIdentity,
-        repository: String,
-        worktree: String,
-        cleanConfigDirectory: String,
-        runnerExecutable: String,
-        gitExecutable: String,
-        gitRemoteHTTPSExecutable: String,
-        provenance: Provenance = { _ in true },
-        read: Read = { liveCommandAsOwner($0) }
-    ) -> PersonBoundOperationAttestation? {
-        let runner = canonical(runnerExecutable)
-        let git = canonical(gitExecutable)
-        let remoteHTTPS = canonical(gitRemoteHTTPSExecutable)
-        var observed: [Int32: Command] = [:]
-
-        func stable(_ pid: Int32) -> Command? {
-            guard let first = read(pid), first.identity.pid == pid,
-                  let second = read(pid), second == first else { return nil }
-            observed[pid] = first
-            return first
-        }
-
-        guard peerIdentity.pid == peer.pid, peerIdentity.uid == peer.uid,
-              let caller = stable(peer.pid), caller.identity == peerIdentity,
-              sameReservation(caller.identity, leaderIdentity),
-              canonical(caller.executable) == runner else { return nil }
-        let callerArguments = argumentsAfterExecutable(caller, executable: runner)
-        guard let callerCommand = callerArguments.first else { return nil }
-
-        let operation: PersonBoundGithubOperation
-        let wrapper: Command
-        switch callerCommand {
-        case "gh-v2":
-            guard let invocation = PersonBoundGitCommand.ghInvocation(
-                Array(callerArguments.dropFirst()), repository: repository
-            ), let classified = invocation.operation else { return nil }
-            operation = classified
-            wrapper = caller
-        case "git-credential-v2":
-            guard Array(callerArguments.dropFirst()) == ["get"],
-                  let immediateParent = stable(caller.parentPID),
-                  sameReservation(immediateParent.identity, leaderIdentity),
-                  let transport = credentialTransport(
-                      parent: immediateParent, remoteHTTPS: remoteHTTPS, stable: stable
-                  ),
-                  transport.arguments.count == 3,
-                  exactURL(transport.arguments[2], repository: repository),
-                  sameReservation(transport.identity, leaderIdentity),
-                  let gitProcess = stable(transport.parentPID),
-                  canonical(gitProcess.executable) == git,
-                  sameReservation(gitProcess.identity, leaderIdentity),
-                  let candidate = stable(gitProcess.parentPID),
-                  canonical(candidate.executable) == runner,
-                  sameReservation(candidate.identity, leaderIdentity),
-                  argumentsAfterExecutable(candidate, executable: runner).first == "git-v2",
-                  let invocation = PersonBoundGitCommand.gitInvocation(
-                      Array(argumentsAfterExecutable(candidate, executable: runner).dropFirst()),
-                      repository: repository
-                  ), let classified = invocation.operation,
-                  argumentsAfterExecutable(gitProcess, executable: git) == PersonBoundGitCommand.networkArguments(
-                      for: invocation, repository: repository, runnerExecutable: runnerExecutable,
-                      gitRemoteHTTPSExecutable: gitRemoteHTTPSExecutable
-                  ),
-                  PersonBoundGitCommand.networkEnvironmentIsClean(
-                      gitProcess.environment, cleanConfigDirectory: cleanConfigDirectory
-                  )
-            else { return nil }
-            operation = classified
-            wrapper = candidate
-        default:
-            return nil
-        }
-
-        guard provenance(wrapper.identity), validateAncestors(
-            from: wrapper, through: leaderIdentity, worktree: worktree,
-            stable: stable
-        ) else { return nil }
-
-        for (pid, command) in observed {
-            guard read(pid) == command else { return nil }
-        }
-        guard provenance(wrapper.identity) else { return nil }
-        let identity = PersonBoundOperationIdentity(wrapper: wrapper.identity, operation: operation)
-        return PersonBoundOperationAttestation(operation: operation, identity: identity)
-    }
-
+    /// Who is asking, and for what.
+    ///
+    /// **This used to walk the caller's process tree** from the credential helper up through
+    /// git-remote-https, git and the runner's own wrapper, reading `/proc/<pid>/exe`, `cwd` and
+    /// `environ` of each, through a root helper spawned under sudo. It refused every Cloud
+    /// workspace for a day. It needed CAP_SYS_PTRACE, which a machine does not grant; it could not
+    /// read a process that had hidden itself to protect a token; and it encoded a shape for git's
+    /// helpers that git does not promise and does not keep. Four different links broke, one at a
+    /// time, each behind the last, and the whole of it was re-deriving something the launch gate
+    /// already knew.
+    ///
+    /// What is left is two questions, and neither is about the shape of a process tree.
+    ///
+    /// **Who is asking** is the launch gate's answer: `registry.binding(for:)` has already checked
+    /// the uid the kernel reports for the socket peer, the uid and cgroup of the reservation the
+    /// one-time launch nonce opened, the process group, and that the sandbox leader is still alive
+    /// and unchanged. What it is for comes from the caller, for the reasons on
+    /// `PersonBoundCredentialRequest.operation`.
+    ///
+    /// **Whether it may ask at all** is one file: the provenance record the sandbox supervisor
+    /// wrote when it watched this process exec. That supervisor already traces every exec in the
+    /// reservation, already marks anything running the repository's own code as tainted, and
+    /// already inherits that taint to children, defaulting to tainted. So the question "is this a
+    /// checkout's setup script trying to take the person's GitHub credential" is answered by
+    /// reading what was recorded, rather than by re-deriving it from `/proc` at the moment of the
+    /// request, which is what could not be done without a capability no machine grants.
     static func attest(
         peer: LocalSocket.Peer,
         binding: PersonBoundProcessRegistry.Binding,
-        repository: String,
-        worktree: String,
-        runnerExecutable: String,
-        gitExecutable: String,
-        gitRemoteHTTPSExecutable: String
+        declared: PersonBoundGithubOperation,
+        runnerExecutable: String
     ) -> PersonBoundOperationAttestation? {
-        #if !os(Linux)
-        return nil
-        #else
+        guard binding.peerIdentity.pid == peer.pid, binding.peerIdentity.uid == peer.uid else {
+            return nil
+        }
+        #if os(Linux)
+        /*
+         * **Asked as root, because the Runner is not root and this cannot be read from here.**
+         * The Runner serves as the machine's own user and every sandboxed process belongs to a
+         * person's uid, so it may read their `/proc/<pid>/stat` and nothing else: `exe` and `cwd`
+         * go through `ptrace_may_access`, which admits a reader on a uid match and the Runner
+         * never matches. `liveCommandAsOwner` becomes that uid to read, and only root may.
+         */
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
         process.arguments = ["-n", "-E", runnerExecutable, "sandbox-peer-operation"]
-        process.environment = attestationEnvironment(
-            peer: peer, binding: binding, repository: repository, worktree: worktree,
-            runnerExecutable: runnerExecutable, gitExecutable: gitExecutable,
-            gitRemoteHTTPSExecutable: gitRemoteHTTPSExecutable
-        )
+        process.environment = attestationEnvironment(peer: peer, binding: binding)
         process.standardInput = FileHandle.nullDevice
-        let output = Pipe()
-        process.standardOutput = output
+        process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.standardError
         do {
             try process.run()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }
-            return try JSONDecoder().decode(
-                PersonBoundOperationAttestation.self,
-                from: output.fileHandleForReading.readDataToEndOfFile()
-            )
         } catch {
             return nil
         }
         #endif
+        let identity = PersonBoundOperationIdentity(wrapper: binding.peerIdentity, operation: declared)
+
+        return PersonBoundOperationAttestation(operation: declared, identity: identity)
     }
 
+    /// The root half of `attest`, and the whole of what it does is read one file.
+    ///
+    /// **It is a separate process only because of a file mode.** The record below is written by
+    /// the sandbox supervisor as root and left `0400 root`, so the sandbox user cannot forge one
+    /// and the Runner, which serves as the machine's own unprivileged user, cannot read one. That
+    /// is the entire reason for the `sudo` hop; nothing here needs a capability, traces a process,
+    /// or looks at anything a machine refuses to show.
+    ///
+    /// **And one file is enough.** The supervisor already watches every `exec` in the reservation,
+    /// already marks a process running the repository's own code as tainted, and already inherits
+    /// that taint to its children with tainted as the default. So a `.bloom` setup script is
+    /// refused whether it runs the wrapper as a child or `exec`s into it, and neither case needs
+    /// the process tree to be walked or git's helpers to be recognised.
     static func runAttestor(environment: [String: String] = ProcessInfo.processInfo.environment) -> Int32 {
         #if !os(Linux)
         return 1
         #else
         guard getuid() == 0 else { return attestorRefused("not root") }
         guard let peer = identity(prefix: "BLOOM_PERSON_BOUND_PEER", environment: environment),
-              let leader = identity(prefix: "BLOOM_PERSON_BOUND_LEADER", environment: environment),
-              let repository = environment["BLOOM_PERSON_BOUND_REPOSITORY"],
-              let worktree = environment["BLOOM_PERSON_BOUND_WORKTREE"],
-              let runner = environment["BLOOM_PERSON_BOUND_RUNNER"],
-              let git = environment["BLOOM_PERSON_BOUND_GIT"],
-              let remoteHTTPS = environment["BLOOM_PERSON_BOUND_GIT_REMOTE_HTTPS"],
-              let cleanConfig = environment["BLOOM_PERSON_BOUND_CLEAN_CONFIG"],
-              let provenanceDirectory = provenanceDirectory(environment)
-        else { return attestorRefused("missing identity or machine configuration") }
-        guard rootOwnedExecutablePath(runner), rootOwnedExecutablePath(git),
-              rootOwnedExecutablePath(remoteHTTPS) else {
-            return attestorRefused("untrusted executable path")
+              let provenance = environment["BLOOM_PERSON_BOUND_PROVENANCE"], provenance.hasPrefix("/")
+        else { return attestorRefused("missing identity or provenance directory") }
+        // Read again now: a pid that has exited and been reused since the request would otherwise
+        // be judged on the record of whoever held it before.
+        guard let current = PersonBoundProcIdentity.read(peer.pid), current == peer else {
+            return attestorRefused("the caller is no longer the process that asked")
         }
-        guard rootOwnedEmptyDirectory(cleanConfig) else {
-            return attestorRefused("untrusted network configuration")
+        guard let record = recordFor(peer, directory: provenance) else {
+            return attestorRefused("missing protected provenance")
         }
-        let attestation = resolve(
-            peer: .init(pid: peer.pid, uid: peer.uid), peerIdentity: peer,
-            leaderIdentity: leader, repository: repository, worktree: worktree,
-            cleanConfigDirectory: cleanConfig, runnerExecutable: runner,
-            gitExecutable: git, gitRemoteHTTPSExecutable: remoteHTTPS,
-            provenance: { provenanceIsTrusted($0, directory: provenanceDirectory) },
-            read: { recordedCommand($0, directory: provenanceDirectory) }
-        )
-        guard let attestation else { return attestorRefused("process ancestry") }
-        guard let encoded = try? JSONEncoder().encode(attestation) else {
-            return attestorRefused("answer encoding")
+        guard record.status == "trusted" else {
+            return attestorRefused("\(record.status) provenance")
         }
-        FileHandle.standardOutput.write(encoded)
+
         return 0
         #endif
+    }
+
+    private static func attestationEnvironment(
+        peer: LocalSocket.Peer, binding: PersonBoundProcessRegistry.Binding
+    ) -> [String: String] {
+        var environment = [
+            "PATH": "/usr/bin:/bin",
+            "BLOOM_PERSON_BOUND_PROVENANCE": MachineSandbox.personBoundProvenanceRoot + "/"
+                + binding.reservation.id.uuidString.lowercased(),
+        ]
+        put(binding.peerIdentity, prefix: "BLOOM_PERSON_BOUND_PEER", into: &environment)
+        put(binding.leaderIdentity, prefix: "BLOOM_PERSON_BOUND_LEADER", into: &environment)
+        environment["BLOOM_PERSON_BOUND_PEER_PID"] = String(peer.pid)
+        environment["BLOOM_PERSON_BOUND_PEER_UID"] = String(peer.uid)
+
+        return environment
+    }
+
+    private static func put(
+        _ identity: PersonBoundProcessIdentity, prefix: String,
+        into environment: inout [String: String]
+    ) {
+        environment[prefix + "_PID"] = String(identity.pid)
+        environment[prefix + "_UID"] = String(identity.uid)
+        environment[prefix + "_START"] = String(identity.startTime)
+        environment[prefix + "_CGROUP"] = identity.cgroup
+        environment[prefix + "_PROCESS_GROUP"] = String(identity.processGroup)
+    }
+
+    private static func identity(
+        prefix: String, environment: [String: String]
+    ) -> PersonBoundProcessIdentity? {
+        guard let pid = environment[prefix + "_PID"].flatMap(Int32.init),
+              let uid = environment[prefix + "_UID"].flatMap(UInt32.init),
+              let start = environment[prefix + "_START"].flatMap(UInt64.init),
+              let cgroup = environment[prefix + "_CGROUP"],
+              let processGroup = environment[prefix + "_PROCESS_GROUP"].flatMap(Int32.init)
+        else { return nil }
+
+        return PersonBoundProcessIdentity(
+            pid: pid, uid: uid, startTime: start, cgroup: cgroup, processGroup: processGroup
+        )
+    }
+
+    static func recordFor(
+        _ identity: PersonBoundProcessIdentity, directory: String
+    ) -> ProvenanceRecord? {
+        let path = directory + "/\(identity.pid)-\(identity.startTime)"
+
+        guard rootOwnsPath(path), let data = try? Data(contentsOf: URL(fileURLWithPath: path))
+        else { return nil }
+
+        return try? JSONDecoder().decode(ProvenanceRecord.self, from: data)
+    }
+
+    private static func rootOwnsPath(_ path: String) -> Bool {
+        PersonBoundTrustedExecutable.rootOwnsPath(path)
+    }
+
+    private static func attestorRefused(_ reason: String) -> Int32 {
+        FileHandle.standardError.write(Data("bloom-runner: person-bound attestation refused: \(reason)\n".utf8))
+
+        return 1
     }
 
     /// `liveCommand`, read as the process's own uid and gid rather than as root.
@@ -302,34 +299,6 @@ enum PersonBoundPeerOperation {
         )
     }
 
-    private static func credentialTransport(
-        parent: Command, remoteHTTPS: String, stable: (Int32) -> Command?
-    ) -> Command? {
-        if canonical(parent.executable) == remoteHTTPS { return parent }
-        let shells = ["/bin/sh", "/usr/bin/sh", "/bin/dash", "/usr/bin/dash"].map(canonical)
-        guard shells.contains(canonical(parent.executable)),
-              let transport = stable(parent.parentPID), canonical(transport.executable) == remoteHTTPS
-        else { return nil }
-        return transport
-    }
-
-    private static func validateAncestors(
-        from wrapper: Command, through leader: PersonBoundProcessIdentity,
-        worktree: String, stable: (Int32) -> Command?
-    ) -> Bool {
-        var command = wrapper
-        var visited: Set<Int32> = []
-        for _ in 0..<64 {
-            guard visited.insert(command.identity.pid).inserted,
-                  sameReservation(command.identity, leader),
-                  !repositoryControlled(command, worktree: worktree) else { return false }
-            if command.identity == leader { return true }
-            guard let parent = stable(command.parentPID) else { return false }
-            command = parent
-        }
-        return false
-    }
-
     static func repositoryControlled(_ command: Command, worktree: String) -> Bool {
         let root = canonical(worktree)
         if isInside(canonical(command.executable), root: root) { return true }
@@ -358,154 +327,8 @@ enum PersonBoundPeerOperation {
         path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
     }
 
-    private static func argumentsAfterExecutable(_ command: Command, executable: String) -> [String] {
-        guard let first = command.arguments.first else { return [] }
-        let expectedName = URL(fileURLWithPath: executable).lastPathComponent
-        let firstName = URL(fileURLWithPath: first).lastPathComponent
-        if firstName == expectedName { return Array(command.arguments.dropFirst()) }
-        return command.arguments
-    }
-
-    private static func sameReservation(
-        _ identity: PersonBoundProcessIdentity, _ leader: PersonBoundProcessIdentity
-    ) -> Bool {
-        identity.uid == leader.uid && identity.cgroup == leader.cgroup
-            && identity.processGroup == leader.processGroup
-    }
-
-    private static func attestationEnvironment(
-        peer: LocalSocket.Peer,
-        binding: PersonBoundProcessRegistry.Binding,
-        repository: String,
-        worktree: String,
-        runnerExecutable: String,
-        gitExecutable: String,
-        gitRemoteHTTPSExecutable: String
-    ) -> [String: String] {
-        var environment = [
-            "PATH": "/usr/bin:/bin",
-            "BLOOM_PERSON_BOUND_REPOSITORY": repository,
-            "BLOOM_PERSON_BOUND_WORKTREE": worktree,
-            "BLOOM_PERSON_BOUND_RUNNER": runnerExecutable,
-            "BLOOM_PERSON_BOUND_GIT": gitExecutable,
-            "BLOOM_PERSON_BOUND_GIT_REMOTE_HTTPS": gitRemoteHTTPSExecutable,
-            "BLOOM_PERSON_BOUND_CLEAN_CONFIG": MachineSandbox.personBoundCleanConfigDirectory,
-            "BLOOM_PERSON_BOUND_PROVENANCE_ROOT": MachineSandbox.personBoundProvenanceRoot,
-            "BLOOM_PERSON_BOUND_RESERVATION": binding.reservation.id.uuidString.lowercased(),
-        ]
-        put(binding.peerIdentity, prefix: "BLOOM_PERSON_BOUND_PEER", into: &environment)
-        put(binding.leaderIdentity, prefix: "BLOOM_PERSON_BOUND_LEADER", into: &environment)
-        environment["BLOOM_PERSON_BOUND_PEER_PID"] = String(peer.pid)
-        environment["BLOOM_PERSON_BOUND_PEER_UID"] = String(peer.uid)
-        return environment
-    }
-
-    private static func put(
-        _ identity: PersonBoundProcessIdentity, prefix: String,
-        into environment: inout [String: String]
-    ) {
-        environment[prefix + "_PID"] = String(identity.pid)
-        environment[prefix + "_UID"] = String(identity.uid)
-        environment[prefix + "_START"] = String(identity.startTime)
-        environment[prefix + "_CGROUP"] = identity.cgroup
-        environment[prefix + "_PROCESS_GROUP"] = String(identity.processGroup)
-    }
-
-    private static func identity(prefix: String, environment: [String: String]) -> PersonBoundProcessIdentity? {
-        guard let pid = environment[prefix + "_PID"].flatMap(Int32.init),
-              let uid = environment[prefix + "_UID"].flatMap(UInt32.init),
-              let start = environment[prefix + "_START"].flatMap(UInt64.init),
-              let cgroup = environment[prefix + "_CGROUP"],
-              let processGroup = environment[prefix + "_PROCESS_GROUP"].flatMap(Int32.init)
-        else { return nil }
-        return PersonBoundProcessIdentity(
-            pid: pid, uid: uid, startTime: start, cgroup: cgroup, processGroup: processGroup
-        )
-    }
-
-    private static func exactURL(_ value: String, repository: String) -> Bool {
-        let lower = value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let repo = repository.lowercased()
-        return lower == "https://github.com/\(repo)" || lower == "https://github.com/\(repo).git"
-    }
-
     private static func canonical(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    private static func attestorRefused(_ reason: String) -> Int32 {
-        FileHandle.standardError.write(Data("bloom-runner: person-bound root attestation refused: \(reason)\n".utf8))
-        return 1
-    }
-
-    #if os(Linux)
-    private static func provenanceDirectory(_ environment: [String: String]) -> String? {
-        guard environment["BLOOM_PERSON_BOUND_PROVENANCE_ROOT"] == MachineSandbox.personBoundProvenanceRoot,
-              let reservation = environment["BLOOM_PERSON_BOUND_RESERVATION"],
-              UUID(uuidString: reservation) != nil else { return nil }
-        let path = MachineSandbox.personBoundProvenanceRoot + "/" + reservation.lowercased()
-        var directory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &directory), directory.boolValue,
-              rootOwnsPath(path) else { return nil }
-        return path
-    }
-
-    /// The command the supervisor recorded for a live process, found by the name it filed it
-    /// under. `/proc/<pid>/stat` carries the start time and is readable by root without any
-    /// capability, so the record for exactly this run of this pid can be named with certainty: a
-    /// pid that has been reused since has a different start time and therefore a different file.
-    static func recordedCommand(_ pid: Int32, directory: String, root: String = "/proc") -> Command? {
-        guard let identity = PersonBoundProcIdentity.read(pid, root: root) else { return nil }
-
-        return recordFor(identity, directory: directory)?.command
-    }
-
-    static func recordFor(
-        _ identity: PersonBoundProcessIdentity, directory: String
-    ) -> ProvenanceRecord? {
-        let path = directory + "/\(identity.pid)-\(identity.startTime)"
-
-        guard rootOwnsPath(path), let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
-
-        return try? JSONDecoder().decode(ProvenanceRecord.self, from: data)
-    }
-
-    private static func provenanceIsTrusted(
-        _ identity: PersonBoundProcessIdentity, directory: String
-    ) -> Bool {
-        guard let record = recordFor(identity, directory: directory) else {
-            FileHandle.standardError.write(Data(
-                "bloom-runner: person-bound root attestation refused: missing protected provenance\n".utf8
-            ))
-
-            return false
-        }
-
-        if record.status != "trusted" {
-            FileHandle.standardError.write(Data(
-                "bloom-runner: person-bound root attestation refused: \(record.status) provenance\n".utf8
-            ))
-        }
-
-        return record.status == "trusted"
-    }
-
-    /// `PersonBoundTrustedExecutable` holds this rule now, so the attestor and the host checks
-    /// that decide whether the Runner starts cannot drift apart.
-    private static func rootOwnedExecutablePath(_ path: String) -> Bool {
-        PersonBoundTrustedExecutable.isTrusted(path)
-    }
-
-    private static func rootOwnedEmptyDirectory(_ path: String) -> Bool {
-        var directory: ObjCBool = false
-        guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path, isDirectory: &directory),
-              directory.boolValue, rootOwnsPath(path),
-              (try? FileManager.default.contentsOfDirectory(atPath: path))?.isEmpty == true else { return false }
-        return true
-    }
-
-    private static func rootOwnsPath(_ path: String) -> Bool {
-        PersonBoundTrustedExecutable.rootOwnsPath(path)
-    }
-    #endif
 }

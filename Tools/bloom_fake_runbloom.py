@@ -484,7 +484,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             answer = {
                 "credential": {
                     "username": "x-access-token",
-                    "token": "bloom-person-bound-self-test",
+                    # A real token when a rig supplies one, so a clone of a private repository
+                    # actually happens rather than being answered by a stand-in that GitHub
+                    # refuses. The self-test's own checks still expect the placeholder, so the
+                    # default is unchanged.
+                    "token": os.environ.get("BLOOM_SMOKE_GITHUB_TOKEN") or "bloom-person-bound-self-test",
                     "expires_at": expires,
                 },
                 "next_grant": server.github_grant(),
@@ -658,6 +662,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self.handle_any("DELETE")
+
+    # **PUT had no handler, so every PUT was answered 501 by http.server itself**, and the
+    # `/service-manifest` branch above could never be reached. Setup registers a repository's
+    # service identities with a PUT, treats a failure there as fatal and runs none of the
+    # project's own scripts, so a smoke without this reported a machine that set itself up when
+    # in fact it stopped straight after the clone.
+    def do_PUT(self):
+        self.handle_any("PUT")
 
 
 def main():

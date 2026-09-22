@@ -194,6 +194,13 @@ enum PersonBoundSandboxExec {
             if foundationSelfTest {
                 childEnvironment["BLOOM_PERSON_BOUND_FOUNDATION_SELF_TEST"] = "1"
             }
+            // Everything BLOOM_PERSON_BOUND_ is stripped above because it carries the launch
+            // nonce and the machine's internals, and none of that belongs in an agent's
+            // environment. The worktree is not one of those: it is the directory the agent is
+            // working in and can see for itself. It is put back under a plain name because a
+            // network git command has to name it as a safe directory, having had the system-wide
+            // config turned off, and without it every push refused as "dubious ownership".
+            childEnvironment["BLOOM_WORKTREE"] = worktree
             childEnvironment["HOME"] = home
             childEnvironment["USER"] = String(uid)
             childEnvironment["LOGNAME"] = String(uid)

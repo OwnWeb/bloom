@@ -88,13 +88,16 @@ final class PersonBoundRuntimeFoundation: @unchecked Sendable {
         let exchanges = Mutex(0)
         let broker = PersonBoundCredentialBroker(
             repository: repository, registry: registry,
-            operation: { peer, binding in
+            operation: { peer, binding, declared in
                 let answer = PersonBoundPeerOperation.attest(
-                    peer: peer, binding: binding, repository: repository, worktree: worktree,
-                    runnerExecutable: executable, gitExecutable: gitExecutable,
-                    gitRemoteHTTPSExecutable: gitRemoteHTTPSExecutable
+                    peer: peer, binding: binding, declared: declared,
+                    runnerExecutable: executable
                 )
-                attested.withLock { $0 = answer }
+                // The first attestation, not the last. The self-test asks a second time on
+                // purpose and that ask must be refused, so keeping the last answer threw away the
+                // proof the test exists to collect and reported `attested=false` on a host where
+                // the exchange had in fact worked.
+                attested.withLock { $0 = $0 ?? answer }
                 return answer
             }
         ) { _, operation, _ in

@@ -112,12 +112,10 @@ public enum ServeCommand {
         let personBoundBroker = PersonBoundCredentialBroker(
             repository: configuration.repository,
             registry: personBound.registry,
-            operation: { peer, binding in
+            operation: { peer, binding, declared in
                 PersonBoundPeerOperation.attest(
-                    peer: peer, binding: binding, repository: configuration.repository,
-                    worktree: layout.worktree,
-                    runnerExecutable: runnerExecutable, gitExecutable: gitExecutable,
-                    gitRemoteHTTPSExecutable: gitRemoteHTTPSExecutable
+                    peer: peer, binding: binding, declared: declared,
+                    runnerExecutable: runnerExecutable
                 )
             }
         ) {

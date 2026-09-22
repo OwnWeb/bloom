@@ -7,6 +7,11 @@ public enum PersonBoundGithubOperation: String, Codable, Sendable, Hashable {
     case gitWrite = "git_write"
     case ghRead = "gh_read"
     case ghWrite = "gh_write"
+
+    /// How the git wrapper tells the credential helper below it what the command was. The helper
+    /// is spawned by git and is only ever told `get`, so without this it knows nothing about the
+    /// operation it is fetching a credential for.
+    static let environmentKey = "BLOOM_PERSON_BOUND_OPERATION"
 }
 
 /// An opaque, rotating bearer from runbloom.app. It exists only in the in-memory broker.

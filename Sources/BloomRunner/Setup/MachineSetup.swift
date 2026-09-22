@@ -359,7 +359,12 @@ public actor MachineSetup {
             do {
                 try await syncServiceManifest(scripts.services)
             } catch {
-                await log.note("Bloom could not register the repository's service identities, so no repository code ran.")
+                // Naming the error, because without it this sentence is the whole of what a person
+                // gets: a setup that failed, a clone that plainly worked, and nothing to act on.
+                await log.note(
+                    "Bloom could not register the repository's service identities, so no repository "
+                        + "code ran. The reason was: \(error)"
+                )
                 succeeded = false
             }
         }

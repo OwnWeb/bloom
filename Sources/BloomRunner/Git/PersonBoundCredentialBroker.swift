@@ -13,7 +13,7 @@ final class PersonBoundCredentialBroker: @unchecked Sendable {
     private let repository: String
     private let registry: PersonBoundProcessRegistry
     private let operation: @Sendable (
-        LocalSocket.Peer, PersonBoundProcessRegistry.Binding
+        LocalSocket.Peer, PersonBoundProcessRegistry.Binding, PersonBoundGithubOperation
     ) -> PersonBoundOperationAttestation?
     private let fetch: Fetch
     private let requestID: @Sendable () -> UUID
@@ -29,7 +29,7 @@ final class PersonBoundCredentialBroker: @unchecked Sendable {
 
     init(repository: String, registry: PersonBoundProcessRegistry,
          operation: @escaping @Sendable (
-             LocalSocket.Peer, PersonBoundProcessRegistry.Binding
+             LocalSocket.Peer, PersonBoundProcessRegistry.Binding, PersonBoundGithubOperation
          ) -> PersonBoundOperationAttestation?,
          requestID: @escaping @Sendable () -> UUID = UUID.init, fetch: @escaping Fetch) {
         self.repository = repository.lowercased()
@@ -63,7 +63,7 @@ final class PersonBoundCredentialBroker: @unchecked Sendable {
               request.repository.lowercased() == repository,
               let peer,
               let binding = registry.binding(for: peer),
-              let attestation = operation(peer, binding),
+              let attestation = operation(peer, binding, request.operation),
               registry.binding(for: peer) == binding else { return nil }
         let reservation = binding.reservation
         let exchangeID = requestID()
@@ -87,7 +87,7 @@ final class PersonBoundCredentialBroker: @unchecked Sendable {
                 return nil
             }
             guard registry.binding(for: peer) == binding,
-                  operation(peer, binding) == attestation else {
+                  operation(peer, binding, request.operation) == attestation else {
                 closeExchange(reservation.id, exchangeID: exchangeID)
                 return nil
             }
@@ -129,6 +129,22 @@ final class PersonBoundCredentialBroker: @unchecked Sendable {
 struct PersonBoundCredentialRequest: Codable, Sendable, Hashable {
     var version: Int = 2
     var repository: String
+    /// What the caller is about to do, stated by the caller.
+    ///
+    /// **The supervisor used to work this out by reading the caller's process tree**, and that is
+    /// why no Cloud workspace started for a day: it meant reading `/proc/<pid>/exe` of processes
+    /// that are not dumpable, which needs CAP_SYS_PTRACE and no machine grants it, and it meant
+    /// hardcoding how git spawns its helpers, which is not a thing git promises and which it does
+    /// differently from one version to the next. Four separate refusals came out of that shape
+    /// being wrong, each hidden behind the last.
+    ///
+    /// Taking the caller's word is worth what the sandbox is worth, which is the same thing every
+    /// other decision here already rests on: the launch gate's one-time nonce, the uid the kernel
+    /// reports through SO_PEERCRED, the cgroup and the process group. A process that could lie
+    /// about this is a process already running as that person, inside that person's sandbox, with
+    /// that person's access. What it cannot do is widen what the credential is good for: runbloom
+    /// issues a token scoped to what that person may do, and that is decided on the server.
+    var operation: PersonBoundGithubOperation = .gitRead
 }
 
 struct PersonBoundCredentialAnswer: Codable, Sendable, Hashable, CustomStringConvertible,

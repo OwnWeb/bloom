@@ -24,12 +24,12 @@ public enum RunnerCommandLine {
             return await PersonBoundGitCommand.runGh(Array(arguments.dropFirst()))
         case "sandbox-exec":
             return PersonBoundSandboxExec.run(Array(arguments.dropFirst()))
+        case "sandbox-peer-operation":
+            return PersonBoundPeerOperation.runAttestor()
         case "sandbox-cleanup":
             return PersonBoundSandboxCleanup.run()
         case "sandbox-cleanup-stale":
             return PersonBoundSandboxCleanup.runStale()
-        case "sandbox-peer-operation":
-            return PersonBoundPeerOperation.runAttestor()
         case "machine-identity-install":
             return MachineIdentityStateStore.runInstaller()
         case "version", "--version":
