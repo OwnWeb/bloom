@@ -79,7 +79,7 @@ actor ModelGateway {
         return installed[agent] ?? [:]
     }
 
-    func open(token: String, path: String, body: Data) async throws -> Stream {
+    func open(token: String, path: String, body: Data, betas: [String] = []) async throws -> Stream {
         while authorities[token]?.renewing == true {
             do { try await Task.sleep(for: .milliseconds(50)) } catch { throw CancellationError() }
         }
@@ -91,6 +91,7 @@ actor ModelGateway {
             throw Refusal(status: 404, message: "This model operation is not available.")
         }
         let modelRequest = try sanitised(body, grant: authority.grant)
+        let betas = try Self.anthropicBetas(betas, provider: authority.grant.provider)
         let requestID = identifier()
         authority.active.insert(requestID)
         authority.startsInFlight += 1
@@ -98,7 +99,8 @@ actor ModelGateway {
 
         do {
             let response = try await client.startModelStream(
-                grant: authority.grant, requestID: requestID, modelRequest: modelRequest
+                grant: authority.grant, requestID: requestID, modelRequest: modelRequest,
+                anthropicBeta: betas
             )
             guard var current = authorities[token], current.active.contains(requestID) else {
                 try? await client.cancelModelStream(requestID: requestID, grant: authority.grant.token)
@@ -274,8 +276,8 @@ actor ModelGateway {
         for key in ["grant", "operation", "provider", "request_id", "version"] where object[key] != nil {
             throw Refusal(status: 422, message: "The model request contains a reserved field.")
         }
-        if let value = object.removeValue(forKey: "model") {
-            guard let model = value as? String, model == grant.model else {
+        if let value = object["model"] {
+            guard let model = value as? String, Self.allows(requested: model, granted: grant.model) else {
                 throw Refusal(status: 403, message: "The model request does not match its grant.")
             }
         }
@@ -292,6 +294,42 @@ actor ModelGateway {
             }
         }
         return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    /// A grant names the model as it was picked, and Claude resolves that before it sends:
+    /// `claude-opus-5[1m]` goes out as `claude-opus-5` with the window named as a beta, and the
+    /// alias `opus[1m]` as whichever `claude-opus-…` it currently means. Comparing them exactly
+    /// refused every turn on either. runbloom.app applies the same rule before it sends the
+    /// resolved model upstream, so this is the early answer rather than the only one.
+    static func allows(requested: String, granted: String) -> Bool {
+        guard !requested.isEmpty, !requested.contains("[") else { return false }
+        let base = granted.firstIndex(of: "[").map { String(granted[..<$0]) } ?? granted
+        if requested == base { return true }
+        guard !base.contains("-") else { return false }
+        return requested.hasPrefix("claude-\(base)-")
+    }
+
+    /// Claude Code names the request fields it sends in `anthropic-beta`, and Anthropic refuses a
+    /// field whose beta is not named: without this every turn came back 400 with
+    /// "context_management: Extra inputs are not permitted", so no model request through the
+    /// gateway had ever succeeded. Passed on as names only, never as a header, so runbloom.app
+    /// decides what reaches the provider. The header may repeat and each value is a list.
+    static func anthropicBetas(
+        _ values: [String], provider: OpaqueModelGrant.Provider
+    ) throws -> [String] {
+        let names = values.flatMap { $0.split(separator: ",") }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !names.isEmpty else { return [] }
+        guard provider == .anthropic else {
+            throw Refusal(status: 422, message: "Beta features are only forwarded to Anthropic.")
+        }
+        let allowed = Set("abcdefghijklmnopqrstuvwxyz0123456789-")
+        guard names.count <= 32, names.allSatisfy({ $0.count <= 64 && $0.allSatisfy(allowed.contains) }) else {
+            throw Refusal(status: 422, message: "The model request names an invalid beta feature.")
+        }
+        var seen = Set<String>()
+        return names.filter { seen.insert($0).inserted }
     }
 
     private func paths(for provider: OpaqueModelGrant.Provider) -> Set<String> {
