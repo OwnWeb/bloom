@@ -35,11 +35,45 @@ name: Test
 # The runner image and the toolchain check are copied from release.yml on
 # purpose. If the two ever disagree about which Xcode builds Bloom, the release
 # is the one that finds out, and it finds out at the worst moment.
+#
+# **Two gates stand in front of the macOS pair, and the reason is the bill.**
+# Measured over the six days to 22 September 2026, this repository spent 8,584
+# minutes of macOS runner across 654 runs, which is around 3,400 US dollars a
+# month, and every Linux job in all three workflows together came to about 34.
+# So macOS is the whole of the bill, and `build` and `test` are 78 per cent of
+# it. Two numbers out of that week decided what is gated here:
+#
+#   Two long-lived branches, cloud-workspaces-server and its second pull
+#   request, took 309 of the 491 pull request runs between them, and 51 per
+#   cent of all macOS minutes. Eighty-four of the other branches ran once.
+#
+#   Twenty per cent of macOS minutes went to runs that `cancel-in-progress`
+#   killed part-way, which is the concurrency rule doing its job and still
+#   money, because a run that is cancelled at minute six billed for six.
+#
+# Both of those are the same shape: a branch that is not ready to merge,
+# compiling the app and running the suite on every intermediate commit. So the
+# macOS pair is skipped while a pull request is a draft, and `ready_for_review`
+# is on the trigger so that the full run arrives the moment it stops being one.
+# `lint`, `changes`, `linux` and `packaged-runner` keep running on every push of
+# a draft, so the house rules, the protocol schema, the archive modes and
+# BloomCore compiling for Linux still answer for every commit. What a draft
+# gives up is the app target compiling and the core suite running, which is the
+# thing about to be rewritten anyway.
+#
+# The second gate is `changes`, below, and it is much the smaller of the two.
 
 on:
   # Proposed changes run once through their pull request. A push to main does
   # not repeat the same work after merge.
+  #
+  # The types are listed because one of them is not a default. `opened`,
+  # `synchronize` and `reopened` are what a `pull_request:` with no types means;
+  # `ready_for_review` is the one added, and it is what makes the draft rule
+  # above safe. Leaving draft changes no commit, so without it a branch could be
+  # marked ready and merged having never once compiled the app.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   # The manual build. Run this workflow from the Actions tab, on any branch, to
   # get a Bloom.app out of it without cutting a release.
   workflow_dispatch:
@@ -58,6 +92,100 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Whether this change can have altered what the two macOS jobs answer.
+  #
+  # A commit that edits only Markdown cannot change what Swift compiles, and
+  # paying fourteen minutes of macOS runner to be told so is money for nothing.
+  # Of 120 commits sampled from that week, 13 per cent touched no Swift at all.
+  # That is the whole size of this gate, so it is written to be boring: it is
+  # worth a few per cent, the draft rule above is worth ten times as much, and
+  # the failure mode of getting it wrong is a change that nothing compiled.
+  #
+  # **So it fails open.** A new branch, a force push, a rewritten base or an API
+  # that will not answer all mean "build it". The cost of this job being wrong
+  # has to be fourteen wasted minutes and never a merged commit that no compiler
+  # read. It asks the API rather than cloning, because a full-history checkout
+  # to read a file list costs more than the gate saves.
+  #
+  # `paths-ignore` on the trigger would have been simpler and is wrong twice
+  # over. `Tools/house-rules.sh` greps every `*.md` for em dashes and American
+  # spellings, so the docs-only push is exactly the one whose lint matters most,
+  # and a filter on the trigger would skip the job that checks it. And a job
+  # filtered out at the trigger reports nothing rather than success, which is a
+  # required check that never goes green the day this repository grows one.
+  #
+  # Only `build` and `test` are gated. `linux` is deliberately left alone: every
+  # Linux job in this file together is a rounding error next to one macOS
+  # minute, and `Tools/runner-smoke.py`, `Tools/bloom_fake_runbloom.py` and
+  # `Tools/package-linux-runner.py` are all driven by it, so gating it on the
+  # same list would be both worthless and wrong.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      mac: ${{ steps.decide.outputs.mac }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          NUMBER: ${{ github.event.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          build_everything() {
+            echo "mac=true" >> "$GITHUB_OUTPUT"
+            echo "Building everything: $1"
+            exit 0
+          }
+
+          if [ "$EVENT" != "pull_request" ]; then
+            build_everything "a $EVENT run is asked for by a person and always builds"
+          fi
+
+          files="$(gh api "repos/$REPOSITORY/pulls/$NUMBER/files" --paginate --jq '.[].filename')" \
+            || build_everything "the pull request's files could not be listed"
+          if [ -z "$files" ]; then
+            build_everything "nothing was reported as changed, which is not a thing to trust"
+          fi
+
+          # That endpoint stops at 3,000 files however many times it is paged, and says so
+          # nowhere in the body. A list that long is therefore a list that may be missing the
+          # one Swift file that matters, so it is not a list to decide anything on.
+          count="$(printf '%s\n' "$files" | wc -l | tr -d ' ')"
+          if [ "$count" -ge 3000 ]; then
+            build_everything "$count files is the API's own ceiling, so the list may be short"
+          fi
+          printf '%s\n' "$files"
+
+          # What cannot reach a macOS runner. Everything not matched here builds, so the
+          # question to ask of a new entry is not "is this code" but "is there any path by
+          # which `swift build`, `Tools/test-core.sh` or a probe reads this file".
+          #
+          #   *.md, docs/, .claude/   prose and agent instructions. `lint` still reads them.
+          #   Tools/**.py            no Swift test shells out to Python and no macOS step runs
+          #                          one. The Python here is the Linux server's smoke test, its
+          #                          fake runbloom.app and the release packager, and `linux`,
+          #                          `lint` and `packaged-runner` all still run on these.
+          #
+          # Three near misses, all of them deliberately absent. `Tools/**.sh` is not here and
+          # must not be: `Tools/build.sh`, `Tools/test-core.sh`, `Tools/welcome-layout-probe.sh`
+          # and `Tools/review-run-probe.sh` are executed by the jobs this gate skips. `Protocol/`
+          # is not here because `StoredPayloadVectorTests` reads it and would compare generated
+          # vectors against a file nothing checked. `.github/` is not here because a change to
+          # this workflow is the one change that most wants to be run.
+          if printf '%s\n' "$files" | grep -qvE '(^|/)[^/]+\.md$|^docs/|^\.claude/|^Tools/[^/]*\.py$|^\.gitignore$'; then
+            echo "mac=true" >> "$GITHUB_OUTPUT"
+            echo "Something a macOS runner reads has changed."
+          else
+            echo "mac=false" >> "$GITHUB_OUTPUT"
+            echo "Prose and Python tooling only, so the macOS jobs are skipped."
+            echo "lint, linux and packaged-runner still read all of it."
+          fi
+
   # Everything that does not need a Mac, on a runner that bills at a tenth of
   # the rate of one. It runs beside the build rather than in front of it, so a
   # spelling mistake and a failing test are reported by the same run.
@@ -208,6 +336,11 @@ jobs:
   # spent, on two runners instead of one, and only the few seconds of checkout
   # and toolchain check are paid twice.
   build:
+    # See the two gates at the head of this file. `draft != true` rather than
+    # `== false`, because a workflow_dispatch run has no pull request under it at
+    # all and its `draft` is null, which must not be read as a draft.
+    needs: changes
+    if: ${{ needs.changes.outputs.mac == 'true' && github.event.pull_request.draft != true }}
     runs-on: macos-26
     # A cold run is about three and a half minutes. Anything past thirty is
     # hung, and a hung job that is left alone bills for the full six hour
@@ -416,6 +549,11 @@ jobs:
   # thousand lines of test source, which a fresh checkout's mtimes force to be
   # recompiled whatever is on disk.
   test:
+    # See the two gates at the head of this file. `draft != true` rather than
+    # `== false`, because a workflow_dispatch run has no pull request under it at
+    # all and its `draft` is null, which must not be read as a draft.
+    needs: changes
+    if: ${{ needs.changes.outputs.mac == 'true' && github.event.pull_request.draft != true }}
     runs-on: macos-26
     # A cold run is about three and a half minutes.
     timeout-minutes: 30
@@ -497,6 +635,39 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # The dependency half of the build, kept between runs. This is not the cache the build job
+      # measured and rejected, and the difference is what is being cached rather than where.
+      #
+      # That decision, written above the build job, found four seconds in caching the *fetch* of
+      # three packages and refused to pay a hundred and fifty six megabytes for it, and separately
+      # refused to cache compiled objects because `actions/checkout` restamps every source file
+      # and llbuild rebuilds what looks newer. Both halves still hold. Neither covers this job.
+      # The Linux graph is twenty seven packages now, nio and hummingbird and BoringSSL among
+      # them, and it is their *compilation* rather than their download that costs: measured on
+      # run 35630567863, 317 of the 648 seconds elapse before the first Bloom module starts.
+      #
+      # Their sources live in `.build/checkouts`, which checkout never touches, so they arrive
+      # from the cache with the mtimes they were compiled under and llbuild leaves them alone.
+      # Our own objects come back too and are rebuilt exactly as that comment says they will be,
+      # which is correct and is the point: the cache returns the half that cannot have changed,
+      # because `Package.resolved` pins it, and the key is that file.
+      #
+      # This buys wall clock rather than money. A Linux minute is a tenth of a macOS one and this
+      # whole job is a rounding error on the bill, so it is here because waiting eleven minutes
+      # for a spelling fix is miserable, not because it saves anything worth counting.
+      #
+      # Before the chown below, so the restored tree ends up belonging to the user that builds.
+      # `runner-package` is this job's own output and is excluded; it is 122 MB of what we just
+      # made.
+      - name: Restore the compiled dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build
+            !.build/runner-package
+          key: linux-swiftpm-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: linux-swiftpm-
 
       - name: Install system dependencies
         run: |
