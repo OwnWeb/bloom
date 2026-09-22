@@ -120,8 +120,9 @@ public struct RemoteProjectSettings: Sendable, Hashable {
                 problems.append("\(label) is not a table.")
                 continue
             }
-            let id = table["id"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
             let name = table["name"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
+            let written = table["id"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
+            let id = written.isEmpty ? Self.serviceID(fromName: name) : written
             guard let command = table["command"]?.stringValue,
                   !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 problems.append("\(label) has no command, so it was left out.")
@@ -185,6 +186,31 @@ public struct RemoteProjectSettings: Sendable, Hashable {
             problems.append("Only one service can set http = true, and \(http.count) do: \(http.joined(separator: ", ")).")
         }
         return problems
+    }
+
+    /// The id a service gets when it does not write one.
+    ///
+    /// **A service without an id stopped a workspace setting up at all.** Every `[[services]]`
+    /// entry is sent to runbloom.app as an identity before any of the project's own scripts run,
+    /// that call requires an id, and an empty one was refused with "The secret handoff request is
+    /// not valid". A repository whose settings name their services and nothing more, which is what
+    /// they looked like before ids existed, could clone and then do nothing else.
+    ///
+    /// Asking for an id and a name separately buys nothing when the name is already unique, so the
+    /// name becomes the id: lowercased, with anything outside the allowed set turned into a
+    /// hyphen, and cut to the length the wire accepts. A service that writes its own id keeps it.
+    public static func serviceID(fromName name: String) -> String {
+        var derived = ""
+        for character in name.lowercased().unicodeScalars where derived.utf8.count < 64 {
+            switch character {
+            case "a"..."z", "0"..."9", ".", "_", "-": derived.unicodeScalars.append(character)
+            default: derived += "-"
+            }
+        }
+        // The wire wants a letter or a digit first, and "-api" would be refused.
+        while let first = derived.first, !first.isLetter && !first.isNumber { derived.removeFirst() }
+
+        return derived
     }
 
     public static func validServiceID(_ id: String) -> Bool {

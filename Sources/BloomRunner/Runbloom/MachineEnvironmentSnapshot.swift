@@ -78,8 +78,16 @@ public struct SecretHandoff: Sendable, Equatable, Decodable, CustomStringConvert
     public let expiresAt: Date
 
     public init(id: String, expiresAt: Date) throws {
+        /*
+         * **Crockford's base32 is case insensitive, and this accepted only upper case.**
+         * runbloom.app writes its ULIDs in lower case, so every secret handoff it issued was
+         * rejected here as "not a ULID" before it could be consumed: a workspace cloned, installed
+         * its packages, and then refused to run the repository's own setup script because the id
+         * it had just been handed had small letters in it. The handoff was left pending as well,
+         * because this throws before the path that cancels one.
+         */
         let alphabet = Set("0123456789ABCDEFGHJKMNPQRSTVWXYZ".utf8)
-        guard id.count == 26, id.utf8.allSatisfy(alphabet.contains) else {
+        guard id.count == 26, id.uppercased().utf8.allSatisfy(alphabet.contains) else {
             throw MachineEnvironmentContractError("The handoff id is not a ULID.")
         }
         self.id = id

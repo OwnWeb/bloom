@@ -95,6 +95,44 @@ struct RemoteProjectSettingsTests {
         #expect(settings.services.map(\.name) == ["new"])
     }
 
+    @Test func aServiceWithoutAnIdTakesOneFromItsName() throws {
+        // **This is what stopped a Cloud workspace setting up.** Every service is registered with
+        // runbloom.app as an identity before any of the repository's own scripts run, an empty id
+        // is refused there, and the whole setup stopped after the clone having run nothing. These
+        // settings are what a repository looked like before ids existed.
+        let root = try repo([".bloom/settings.toml": """
+        [[services]]
+        name = "app"
+        command = ".bloom/cloud/service app"
+
+        [[services]]
+        name = "Vite Dev Server"
+        command = ".bloom/cloud/service vite"
+
+        [[services]]
+        id = "chosen"
+        name = "proxy"
+        command = ".bloom/cloud/service proxy"
+        """])
+        let settings = RemoteProjectSettings.load(repo: root)
+
+        #expect(settings.services.map(\.id) == ["app", "vite-dev-server", "chosen"])
+        #expect(settings.services.allSatisfy { RemoteProjectSettings.validServiceID($0.id) })
+        #expect(RemoteProjectSettings.validate(settings.services).isEmpty, "\(RemoteProjectSettings.validate(settings.services))")
+    }
+
+    @Test func aDerivedIdIsAlwaysOneTheWireAccepts() {
+        // Leading punctuation is trimmed because an id has to start with a letter or a digit, and
+        // the length is cut because the wire refuses more than sixty-four bytes.
+        #expect(RemoteProjectSettings.serviceID(fromName: "  Web/App (staging) ") == "web-app--staging--")
+        #expect(RemoteProjectSettings.serviceID(fromName: "-leading") == "leading")
+        #expect(RemoteProjectSettings.serviceID(fromName: String(repeating: "a", count: 200)).utf8.count == 64)
+        for name in ["app", "Vite Dev Server", "queue_worker", "api.v2", "-leading", "Web/App (staging)"] {
+            #expect(RemoteProjectSettings.validServiceID(RemoteProjectSettings.serviceID(fromName: name)),
+                    "\(name) derived an id the wire would refuse")
+        }
+    }
+
     @Test func servicesAreValidatedIntoSentences() {
         let services: [RemoteProjectSettings.Service] = [
             .init(id: "", name: "", command: "a"),

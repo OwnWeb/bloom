@@ -37,6 +37,33 @@ struct MachineEnvironmentSnapshotTests {
         }
     }
 
+    @Test("a handoff id in lower case is a ULID too")
+    func lowerCaseHandoffIdentifiers() throws {
+        // **This is the id runbloom.app actually sends**, and requiring upper case refused every
+        // one of them: a workspace cloned, installed its packages, and then would not run the
+        // repository's own setup script, saying only that it could not obtain the setup secrets.
+        // Crockford's base32 is case insensitive and the server writes its ULIDs in lower case.
+        let issued = try JSONDecoder().decode(
+            SecretHandoff.self,
+            from: Data(#"{"version":1,"handoff_id":"01m34ynxf6rq110ga3fhaq9sj0","expires_at":"2099-01-01T00:00:00Z"}"#.utf8)
+        )
+        #expect(issued.id == "01m34ynxf6rq110ga3fhaq9sj0", "the id is passed on as it was sent")
+
+        // Mixed case is still a ULID, and something that is not base32 still is not.
+        #expect(throws: Never.self) {
+            try JSONDecoder().decode(
+                SecretHandoff.self,
+                from: Data(#"{"version":1,"handoff_id":"01M34ynxF6rq110GA3fhaq9SJ0","expires_at":"2099-01-01T00:00:00Z"}"#.utf8)
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(
+                SecretHandoff.self,
+                from: Data(#"{"version":1,"handoff_id":"01m34ynxf6rq110ga3fhaq9si0","expires_at":"2099-01-01T00:00:00Z"}"#.utf8)
+            )
+        }
+    }
+
     @Test("handoff responses are closed and hide values from descriptions")
     func handoffResponses() throws {
         let issue = try JSONDecoder().decode(
