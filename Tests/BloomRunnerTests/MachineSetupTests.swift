@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Glibc)
+import Glibc
+#endif
 import Synchronization
 import Testing
 @testable import BloomCore
@@ -7,6 +10,47 @@ import Testing
 /// Setup against a bare repository on disk standing in for GitHub, with real git and real scripts.
 @Suite("Setting a machine's workspace up")
 struct MachineSetupTests {
+    @Test("a privileged script is launched with the groups its user is really in")
+    func privilegedScriptsResolveTheirGroups() {
+        // A supplementary group is fixed when a process starts and the Runner starts without any,
+        // so a setup script inherited an empty set and could not write to a worktree the clone had
+        // left owned by a person's uid and shared through a group. sudo calls initgroups, so the
+        // fix is to ask it for the user we already are. Where there is no sudo there is nothing to
+        // ask, and the command is left exactly as it was rather than being made unrunnable.
+        let wrapped = MachineSetup.asThisUserWithItsGroups("/bin/sh", ["-c", "composer install"])
+        // Only a host that has the shared group and is not in it needs the hop; anywhere else the
+        // command has to come back exactly as it went in, tests included.
+        let shared = MachineSandbox.sharedGroup.withCString { getgrnam($0) }?.pointee.gr_gid
+        let holds: Bool = {
+            let count = getgroups(0, nil)
+            guard count > 0, let shared else { return shared == nil }
+            var groups = [gid_t](repeating: 0, count: Int(count))
+            guard getgroups(count, &groups) == count else { return false }
+            return groups.contains(shared)
+        }()
+        let sudoAnswers: Bool = {
+            guard FileManager.default.isExecutableFile(atPath: "/usr/bin/sudo") else { return false }
+            let probe = Process()
+            probe.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+            probe.arguments = ["-n", "true"]
+            probe.standardOutput = FileHandle.nullDevice
+            probe.standardError = FileHandle.nullDevice
+            guard (try? probe.run()) != nil else { return false }
+            probe.waitUntilExit()
+            return probe.terminationStatus == 0
+        }()
+        if shared != nil, !holds, sudoAnswers {
+            #expect(wrapped.executable == "/usr/bin/sudo")
+            #expect(wrapped.arguments.contains("-n"), "it must never wait for a password")
+            #expect(wrapped.arguments.contains("-E"), "the scoped setup secrets travel in the environment")
+            #expect(wrapped.arguments.suffix(3) == ["/bin/sh", "-c", "composer install"])
+            #expect(wrapped.arguments.contains("--"), "a script's own arguments are not options to sudo")
+        } else {
+            #expect(wrapped.executable == "/bin/sh")
+            #expect(wrapped.arguments == ["-c", "composer install"])
+        }
+    }
+
     @Test("machine environment drops provider credentials on initial fetch and refresh")
     func machineEnvironmentScrubsProviderCredentials() async {
         let source = Mutex([

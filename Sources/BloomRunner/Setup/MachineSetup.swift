@@ -775,12 +775,90 @@ public actor MachineSetup {
         } else {
             processEnvironment = environment
         }
-        let succeeded = await runProcess(command.executable, command.arguments, directory: layout.worktree, timeout: timeout,
+        let launched = privileged
+            ? Self.asThisUserWithItsGroups(command.executable, command.arguments)
+            : (executable: command.executable, arguments: command.arguments)
+        let succeeded = await runProcess(launched.executable, launched.arguments, directory: layout.worktree, timeout: timeout,
                                          environment: processEnvironment, log: log, step: step, privileged: privileged)
         if step == "setup" { await log.redact([]) }
         await log.endStep()
         return succeeded
     }
+
+    /// The same user this process runs as, but with the groups that user is actually in.
+    ///
+    /// **A supplementary group is fixed when a process starts, and this one starts without any.**
+    /// The provider launches the Runner with an empty group set, `provision-sandbox.sh` adds the
+    /// machine's user to the shared group afterwards, and nothing re-reads it: `/etc/group` says
+    /// the user is a member and the running process disagrees. That did not matter while the
+    /// worktree belonged to that same user. It matters now that the clone is performed under a
+    /// person's own uid, which leaves the checkout owned by that uid and shared through the group
+    /// this process has not got, so a privileged setup script could read the repository and not
+    /// write to it. Laravel's `composer install` reported it as "The bootstrap/cache directory
+    /// must be present and writable", on a directory that is present and is group writable.
+    ///
+    /// `sudo` calls `initgroups` for the target user, so asking it for the user we already are is
+    /// the whole fix. Measured on a machine: the same PHP one line apart answers NO without this
+    /// and YES with it. This is only for the privileged path, which already requires sudo to be
+    /// there and usable; the sandboxed path gets its groups from the launcher.
+    static func asThisUserWithItsGroups(
+        _ executable: String, _ arguments: [String]
+    ) -> (executable: String, arguments: [String]) {
+        #if canImport(Glibc)
+        // Only when it is actually missing. A machine with the group already in hand gains nothing
+        // from a sudo hop, and a host that has no shared group at all is not one this applies to.
+        guard let shared = MachineSandbox.sharedGroup.withCString({ getgrnam($0) })?.pointee.gr_gid,
+              !currentGroups().contains(shared),
+              let entry = getpwuid(getuid()), let name = entry.pointee.pw_name.map({ String(cString: $0) }),
+              sudoAnswers()
+        else { return (executable, arguments) }
+
+        return ("/usr/bin/sudo", ["-n", "-E", "-u", name, "--", executable] + arguments)
+        #else
+        return (executable, arguments)
+        #endif
+    }
+
+    #if canImport(Glibc)
+    /// Whether sudo is here **and will answer without a password**, asked once.
+    ///
+    /// Its presence is not enough: the Linux CI job runs the test suite before it writes any
+    /// sudoers rule, so a wrapped command there would not run at all and the setup output it was
+    /// meant to stream never appeared. A machine has the rule from `provision-sandbox.sh`, which
+    /// has to have succeeded for the Runner to start at all.
+    private static let sudoAnswered = Mutex<Bool?>(nil)
+
+    private static func sudoAnswers() -> Bool {
+        if let known = sudoAnswered.withLock({ $0 }) { return known }
+        var works = false
+        if FileManager.default.isExecutableFile(atPath: "/usr/bin/sudo") {
+            let probe = Process()
+            probe.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+            probe.arguments = ["-n", "true"]
+            probe.standardOutput = FileHandle.nullDevice
+            probe.standardError = FileHandle.nullDevice
+            probe.standardInput = FileHandle.nullDevice
+            works = (try? probe.run()) != nil
+            if works {
+                probe.waitUntilExit()
+                works = probe.terminationStatus == 0
+            }
+        }
+        sudoAnswered.withLock { $0 = works }
+
+        return works
+    }
+
+    /// The supplementary groups this process holds, which is not what `/etc/group` says it should.
+    private static func currentGroups() -> [gid_t] {
+        let count = getgroups(0, nil)
+        guard count > 0 else { return [] }
+        var groups = [gid_t](repeating: 0, count: Int(count))
+        guard getgroups(count, &groups) == count else { return [] }
+
+        return groups
+    }
+    #endif
 
     private func runProcess(
         _ executable: String, _ arguments: [String], directory: String?, timeout: Duration, environment: [String: String],
