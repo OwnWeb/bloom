@@ -101,6 +101,29 @@ struct TranscriptTurnFoldTests {
         #expect(TranscriptTurnFold.label(milliseconds: turn.durationMS ?? 0) == "Worked for 14s")
     }
 
+    @Test("a background task finishing starts a segment without closing one behind a rule")
+    func backgroundWake() throws {
+        let facts = [
+            fact(0, .user, createdAt: 100),
+            fact(1, .assistantText, createdAt: 102),
+            fact(2, .toolUse, createdAt: 104),
+            TranscriptTurnFold.Fact(
+                seq: 3, kind: .system, opensTurn: true,
+                createdAt: Date(timeIntervalSince1970: 110)
+            ),
+            fact(4, .toolUse, createdAt: 111),
+            fact(5, .assistantText, createdAt: 113),
+            fact(6, .result, durationMS: 14_000, createdAt: 114),
+        ]
+        let turns = TranscriptTurnFold.folds(in: facts).all
+
+        // One rule, for the segment the result closes. A person interrupting would have left two.
+        #expect(turns.count == 1)
+        #expect(turns[0].hidden == [4])
+        #expect(turns[0].displayIndex == 5)
+        #expect(turns[0].durationMS == 4_000)
+    }
+
     @Test("a steering message closes the work before its bubble and starts a new timer")
     func steeringMessage() throws {
         let facts = [

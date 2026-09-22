@@ -243,13 +243,22 @@ public enum TranscriptTurnFold {
 
             if fact.kind == .user || fact.kind == .crew || fact.opensTurn {
                 if turnStart != nil {
-                    appendTurn(
-                        endingAt: offset,
-                        displayAt: offset,
-                        isComplete: true,
-                        durationMS: elapsed(until: fact.createdAt),
-                        hidesEntireSpan: true
-                    )
+                    // **A background task finishing closes nothing a person was waiting on.**
+                    // The work before it is folded behind a rule only when a PERSON interrupted
+                    // it, because the rule is a turn's answer to "how long did that take me". A
+                    // run of background agents reporting in drew one rule between every pair of
+                    // notices, each standing for a span with nothing in it worth hiding, which is
+                    // furniture rather than information. See `BackgroundWake`, which is what these
+                    // rows are and why they open a turn at all.
+                    if !fact.opensTurn {
+                        appendTurn(
+                            endingAt: offset,
+                            displayAt: offset,
+                            isComplete: true,
+                            durationMS: elapsed(until: fact.createdAt),
+                            hidesEntireSpan: true
+                        )
+                    }
                     acceptsResultDuration = false
                 } else {
                     acceptsResultDuration = true
