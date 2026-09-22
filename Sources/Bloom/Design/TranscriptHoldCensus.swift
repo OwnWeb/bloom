@@ -2,12 +2,14 @@ import BloomCore
 import Foundation
 import QuartzCore
 
-/// What a transcript's arrivals and reflows did, for a probe to read. See `TranscriptHoldView`.
+/// What a transcript's holds did, for a probe to read. See `TranscriptHoldView`.
 ///
-/// Two questions a report has to answer and an impression cannot. **Did an arrival hold and
-/// reveal the pane**, which a count left behind says it did not. And **how many rows were
-/// measured**, which is the cost of an arrival and of every frame of a resize, and the one number
-/// to compare two builds on.
+/// Three questions a report has to answer and an impression cannot. **Did the hold engage at
+/// all**, which is what tells a run whose frame times improved that they improved for the reason
+/// claimed. **How many rows were measured**, which is the cost both holds exist to remove and the
+/// one number to compare two builds on. And **which gestures AppKit calls a live resize**: a window
+/// edge does, a SwiftUI `DragGesture` on a pane divider cannot, and whether an `NSSplitView`
+/// divider does is a thing to measure on this system rather than to remember from a document.
 ///
 /// Counters, written where the holds are and read by nothing but a report.
 ///
@@ -23,6 +25,10 @@ import QuartzCore
 /// watch what the profile named. The argument is at the head of `ProbeHarness`.
 @MainActor
 enum TranscriptHoldCensus {
+    private(set) static var holds = 0
+    private(set) static var underAHand = 0
+    private(set) static var underLiveResize = 0
+    private(set) static var liveResizes = 0
     /// Panes blanked because they were pointed at another conversation, and panes faded back in.
     /// A count that stays behind is a pane left waiting for rows that never came.
     private(set) static var arrivals = 0
@@ -32,7 +38,7 @@ enum TranscriptHoldCensus {
     /// the workspace changing counted as the environment changing; a resize used to build one per
     /// row per drag.
     private(set) static var measurements = 0
-    /// Rows the last reflow left holding an estimate rather than measuring.
+    /// Rows a reflow left holding an estimate rather than measuring. What the hold buys.
     private(set) static var estimatedRows = 0
     /// **Rows expected to draw something that measured nothing.** See `silenced(_:)`, which
     /// carries why one of these is a row the reader never sees again. `silences` is the log, up to
@@ -133,7 +139,18 @@ enum TranscriptHoldCensus {
     private(set) static var noteSeconds = 0.0
     private(set) static var noteWorstMs = 0.0
 
-    static func arrived() { arrivals += 1 }
+    static func held(_ what: TranscriptPaneHold.PaneHeld, underAHand hand: Bool, liveResize: Bool) {
+        switch what {
+        case .whatIsDrawn:
+            holds += 1
+            if hand { underAHand += 1 }
+            if liveResize { underLiveResize += 1 }
+        case .nothing:
+            arrivals += 1
+        }
+    }
+
+    static func liveResizeBegan() { liveResizes += 1 }
 
     static func revealed() { reveals += 1 }
 
@@ -324,6 +341,10 @@ enum TranscriptHoldCensus {
     }
 
     static func reset() {
+        holds = 0
+        underAHand = 0
+        underLiveResize = 0
+        liveResizes = 0
         arrivals = 0
         reveals = 0
         measurements = 0
@@ -355,6 +376,10 @@ enum TranscriptHoldCensus {
 
     static func summary() -> [String: Double] {
         [
+            "holds": Double(holds),
+            "underAHand": Double(underAHand),
+            "underLiveResize": Double(underLiveResize),
+            "liveResizes": Double(liveResizes),
             "arrivals": Double(arrivals),
             "reveals": Double(reveals),
             "measurements": Double(measurements),
