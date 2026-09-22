@@ -71,6 +71,13 @@ final class LocalJSONSocket<Request: Decodable & Sendable, Answer: Encodable & S
             let connection = accept(descriptor, nil, nil)
             guard connection >= 0 else {
                 if errno == EINTR { continue }
+                // **This used to stop serving for good without a word.** Connections still get
+                // through to the kernel's listen queue afterwards, so a caller sees a socket that
+                // accepts and then answers nothing, which is indistinguishable from a refusal.
+                FileHandle.standardError.write(Data(
+                    "bloom-runner: \(path): stopped accepting, accept failed with errno \(errno)\n".utf8
+                ))
+
                 return
             }
             handle(connection)
@@ -82,8 +89,25 @@ final class LocalJSONSocket<Request: Decodable & Sendable, Answer: Encodable & S
         var timeout = timeval(tv_sec: 5, tv_usec: 0)
         setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         let peer = LocalSocket.peer(of: connection)
-        guard let body = LocalSocket.read(connection),
-              let request = try? JSONDecoder().decode(Request.self, from: body) else { return }
+        // **A dropped connection and a refusal look identical to the caller**, because a refusal
+        // is answered by closing without writing. So the two reasons a request never reaches the
+        // handler at all say so, rather than leaving the caller to report "the supervisor answered
+        // nothing" for four different causes.
+        guard let body = LocalSocket.read(connection) else {
+            FileHandle.standardError.write(Data(
+                "bloom-runner: \(path): a caller connected and sent nothing readable\n".utf8
+            ))
+
+            return
+        }
+        guard let request = try? JSONDecoder().decode(Request.self, from: body) else {
+            let shown = String(decoding: body.prefix(200), as: UTF8.self)
+            FileHandle.standardError.write(Data(
+                "bloom-runner: \(path): \(body.count) bytes that are not a \(Request.self): \(shown)\n".utf8
+            ))
+
+            return
+        }
         let done = DispatchSemaphore(value: 0)
         let result = Mutex<Answer?>(nil)
         Task {

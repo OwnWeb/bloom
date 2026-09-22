@@ -147,6 +147,18 @@ struct PersonBoundGitCommandTests {
         #expect(!unnamed.contains { $0.hasPrefix("safe.directory=") })
     }
 
+    @Test("the credential helper answers git's store and erase without complaint")
+    func storeAndEraseAreNotRefusals() {
+        // git calls `store` after a successful authentication and `erase` after a failed one.
+        // This helper keeps no store, so both are a silent success; refusing them put a line that
+        // reads like a fault into the clone log of a clone that had just worked.
+        for verb in ["store", "erase"] {
+            #expect(PersonBoundGitCommand.runCredentialHelper(
+                [verb], environment: ["BLOOM_REPOSITORY": "spatie/bloom"]
+            ) == 0)
+        }
+    }
+
     @Test("wrapper environments remove proxy, TLS bypass and trace controls")
     func environmentScrubbing() {
         let unsafe = [

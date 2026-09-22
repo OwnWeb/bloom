@@ -260,6 +260,42 @@ struct PersonBoundGithubCredentialTests {
         #expect(calls.withLock { $0 } == 0)
     }
 
+    @Test("a credential with no expiry is held for a bounded time, not thrown away")
+    func aCredentialWithoutAnExpiryIsUsable() throws {
+        // **This is the answer runbloom.app actually sends**, and requiring `expires_at` made the
+        // Runner discard it. GitHub returns an expiry only when the OAuth app has expiring user
+        // tokens switched on; with that off there is nothing to send, and every Cloud workspace
+        // failed to clone with "fatal: unable to get password from user" and no reason logged
+        // anywhere on either side.
+        let answered = Data("""
+        {
+          "credential": {"username": "x-access-token", "token": "a-token-that-does-not-expire"},
+          "next_grant": {"token": "\(String(repeating: "n", count: 64))",
+                         "expires_at": "2099-01-01T00:00:00Z", "revision": 2}
+        }
+        """.utf8)
+        let body = try JSONDecoder().decode(PersonBoundGithubCredentialsBody.self, from: answered)
+        let issued = try #require(body.issued, "a credential with no expiry must still be usable")
+        #expect(issued.token == "a-token-that-does-not-expire")
+        #expect(issued.expiresAt > Date())
+        #expect(issued.expiresAt <= Date().addingTimeInterval(
+            PersonBoundGithubCredentialsBody.lifetimeWithoutAnExpiry + 5
+        ))
+
+        // An expiry that is sent is still the one used.
+        let dated = Data("""
+        {
+          "credential": {"username": "x-access-token", "token": "t", "expires_at": "2099-01-01T00:00:00Z"},
+          "next_grant": {"token": "\(String(repeating: "n", count: 64))",
+                         "expires_at": "2099-01-01T00:00:00Z", "revision": 2}
+        }
+        """.utf8)
+        let withDate = try #require(
+            try JSONDecoder().decode(PersonBoundGithubCredentialsBody.self, from: dated).issued
+        )
+        #expect(withDate.expiresAt > Date().addingTimeInterval(365 * 24 * 3_600))
+    }
+
     @Test("grant and token-bearing values redact descriptions and reflection")
     func secretsAreRedacted() {
         let secret = "raw-secret-that-must-not-appear"

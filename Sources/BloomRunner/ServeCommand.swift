@@ -374,10 +374,33 @@ public enum ServeCommand {
             runtime: runtime, store: store, configuration: configuration, layout: layout,
             environment: machineEnvironment, services: services,
             isolateNetworkGit: { launch in
-                guard launch.executable == "git",
-                      await delivery.flush(timeout: .seconds(15)),
-                      let grant = try? await client.bootstrapGithubCredentialGrant(),
-                      let reservation = personBound.registry.reserve(.bootstrap) else { return nil }
+                /*
+                 * **Every refusal here used to be silent, and the fallback is a clone that cannot
+                 * work.** When this returns nil, setup runs plain `git clone` with no credential
+                 * helper at all, which dies as "fatal: unable to get password from user" with
+                 * nothing in any log to say why the isolated path was not taken. A day was spent
+                 * on the Runner's own credential machinery over a message that meant this.
+                 */
+                func refuse(_ reason: String) -> RemoteRunnerFactory.IsolatedLaunch? {
+                    FileHandle.standardError.write(Data(
+                        "bloom-runner: the isolated git could not be prepared: \(reason)\n".utf8
+                    ))
+
+                    return nil
+                }
+                guard launch.executable == "git" else { return nil }
+                guard await delivery.flush(timeout: .seconds(15)) else {
+                    return refuse("the report queue did not drain in fifteen seconds")
+                }
+                let grant: PersonBoundGithubGrant
+                do {
+                    grant = try await client.bootstrapGithubCredentialGrant()
+                } catch {
+                    return refuse("runbloom.app refused a bootstrap credential grant: \(error)")
+                }
+                guard let reservation = personBound.registry.reserve(.bootstrap) else {
+                    return refuse("the launch gate would not reserve a sandbox")
+                }
                 personBoundBroker.install(grant, for: reservation)
                 var environment = launch.environment
                 environment["BLOOM_REPOSITORY"] = configuration.repository

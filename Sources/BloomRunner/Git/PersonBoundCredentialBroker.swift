@@ -59,12 +59,33 @@ final class PersonBoundCredentialBroker: @unchecked Sendable {
     func credential(
         for request: PersonBoundCredentialRequest, peer: LocalSocket.Peer?
     ) async -> PersonBoundCredentialAnswer? {
-        guard request.version == 2,
-              request.repository.lowercased() == repository,
-              let peer,
-              let binding = registry.binding(for: peer),
-              let attestation = operation(peer, binding, request.operation),
-              registry.binding(for: peer) == binding else { return nil }
+        /*
+         * **Every refusal below used to be a bare nil.** git reports all of them as one sentence,
+         * "unable to get password from user", the Runner printed nothing beside it, and a whole
+         * day went into the wrong half of the system as a result. The reasons cost nothing: this
+         * path runs once per network git command, and a refusal is already the unusual case.
+         */
+        func refuse(_ reason: String) -> PersonBoundCredentialAnswer? {
+            FileHandle.standardError.write(Data(
+                "bloom-runner: the credential exchange was refused: \(reason)\n".utf8
+            ))
+
+            return nil
+        }
+        guard request.version == 2 else { return refuse("a version \(request.version) request") }
+        guard request.repository.lowercased() == repository else {
+            return refuse("it asked for \(request.repository), and this machine holds \(repository)")
+        }
+        guard let peer else { return refuse("the socket reported no peer credentials") }
+        guard let binding = registry.binding(for: peer) else {
+            return refuse("pid \(peer.pid) uid \(peer.uid) matches no live launch-gate reservation")
+        }
+        guard let attestation = operation(peer, binding, request.operation) else {
+            return refuse("the root attestor would not vouch for pid \(peer.pid)")
+        }
+        guard registry.binding(for: peer) == binding else {
+            return refuse("the reservation changed while pid \(peer.pid) was being checked")
+        }
         let reservation = binding.reservation
         let exchangeID = requestID()
         guard let grant = leases.withLock({ leases -> PersonBoundGithubGrant? in
@@ -78,7 +99,9 @@ final class PersonBoundCredentialBroker: @unchecked Sendable {
             lease.usedOperationIdentities.insert(attestation.identity)
             leases[reservation.id] = lease
             return grant
-        }) else { return nil }
+        }) else {
+            return refuse("no grant is available for this reservation, or one is already in flight")
+        }
         do {
             let issued = try await fetch(grant.token, attestation.operation, exchangeID)
             guard issued.username == "x-access-token", !issued.token.isEmpty,
@@ -106,6 +129,12 @@ final class PersonBoundCredentialBroker: @unchecked Sendable {
             guard installed else { return nil }
             return PersonBoundCredentialAnswer(username: issued.username, token: issued.token, expiresAt: issued.expiresAt)
         } catch {
+            // **Say what went wrong before closing the lease.** This is the one refusal that costs
+            // a person their clone with no sentence anywhere: runbloom.app said no, or could not
+            // be reached, and the machine answered its own caller by closing the socket.
+            FileHandle.standardError.write(Data(
+                "bloom-runner: the credential exchange with runbloom.app failed: \(error)\n".utf8
+            ))
             // The server may have rotated a grant before a connection was lost. Reusing it would
             // turn an uncertain operation into a replay, so this lease is closed permanently.
             leases.withLock { leases in

@@ -16,14 +16,27 @@ enum PersonBoundGitCommand {
     }
 
     static func runGit(_ arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) async -> Int32 {
-        guard let repository = exactRepository(environment),
-              let invocation = gitInvocation(arguments, repository: repository) else { return 64 }
-        guard let executable = realTool("git", environment: environment) else { return 127 }
+        func refuse(_ reason: String, status: Int32) -> Int32 {
+            FileHandle.standardError.write(Data("bloom-runner: git-v2 refused: \(reason)\n".utf8))
+
+            return status
+        }
+        guard let repository = exactRepository(environment) else {
+            return refuse("BLOOM_REPOSITORY names no owner/name repository", status: 64)
+        }
+        guard let invocation = gitInvocation(arguments, repository: repository) else {
+            return refuse("these arguments classify to nothing git-v2 will run", status: 64)
+        }
+        guard let executable = realTool("git", environment: environment) else {
+            return refuse("BLOOM_REAL_GIT names no root-owned git", status: 127)
+        }
         var clean = scrubbed(environment)
         clean["PATH"] = trustedPath(environment)
         var forced = invocation.arguments
         if invocation.operation != nil {
-            guard let remoteHTTPS = realRemoteHTTPS(environment) else { return 127 }
+            guard let remoteHTTPS = realRemoteHTTPS(environment) else {
+                return refuse("BLOOM_REAL_GIT_REMOTE_HTTPS names no root-owned transport", status: 127)
+            }
             forced = networkArguments(
                 for: invocation, repository: repository,
                 runnerExecutable: runnerExecutable(environment),
@@ -81,24 +94,44 @@ enum PersonBoundGitCommand {
         return await run(executable, invocation.arguments, environment: clean)
     }
 
+    /// **Every refusal here says which one it was.** git reports all of them as the same sentence,
+    /// "unable to get password from user", and a machine that printed nothing beside it cost a day
+    /// of looking in the wrong place.
     static func runCredentialHelper(
         _ arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Int32 {
-        guard arguments.first == "get",
-              let repository = exactRepository(environment),
-              arguments.count == 1 else { return 1 }
+        func refuse(_ reason: String) -> Int32 {
+            FileHandle.standardError.write(Data("bloom-runner: git-credential-v2 refused: \(reason)\n".utf8))
+
+            return 1
+        }
+        // **git calls `store` after a successful authentication and `erase` after a failed one.**
+        // Neither has anything to do with this helper, which holds no store to write to, so both
+        // are answered with silence and success. Refusing them changed nothing for git and put a
+        // line that reads like a fault into the one log a person looks at after a clone.
+        if arguments.first == "store" || arguments.first == "erase" { return 0 }
+        guard arguments.first == "get", arguments.count == 1 else {
+            return refuse("asked for something other than a single `get`")
+        }
+        guard let repository = exactRepository(environment) else {
+            return refuse("BLOOM_REPOSITORY names no owner/name repository")
+        }
         let input = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
         let fields = credentialFields(input)
         guard fields["protocol"]?.lowercased() == "https",
               fields["host"]?.lowercased() == "github.com",
               let path = fields["path"],
-              credentialRepository(fromPath: path)?.lowercased() == repository.lowercased() else { return 1 }
+              credentialRepository(fromPath: path)?.lowercased() == repository.lowercased() else {
+            return refuse("git asked about \(fields["host"] ?? "nothing")/\(fields["path"] ?? ""), not \(repository)")
+        }
         guard let declared = environment[PersonBoundGithubOperation.environmentKey]
-            .flatMap(PersonBoundGithubOperation.init(rawValue:)) else { return 1 }
+            .flatMap(PersonBoundGithubOperation.init(rawValue:)) else {
+            return refuse("\(PersonBoundGithubOperation.environmentKey) was not set by the git wrapper")
+        }
         guard let answer = LocalCredentialClient.askV2(
             PersonBoundCredentialRequest(repository: repository, operation: declared),
             over: MachineSandbox.credentialV2SocketPath
-        ) else { return 1 }
+        ) else { return refuse("the credential exchange was refused") }
         guard makeCredentialProcessPrivate() else { return 1 }
         print("username=\(answer.username)")
         print("password=\(answer.token)")

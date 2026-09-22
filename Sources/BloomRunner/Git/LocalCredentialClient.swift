@@ -39,7 +39,22 @@ enum LocalCredentialClient {
         let joined = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(descriptor, $0, size) }
         }
-        guard joined == 0, var body = try? JSONEncoder().encode(request) else { return nil }
+        // **The last unlit path.** A failure to reach the supervisor looked exactly like a refusal
+        // by it, so a clone that could not open the socket and a clone that was refused a
+        // credential produced the same single sentence from git and nothing else anywhere.
+        func note(_ reason: String) {
+            FileHandle.standardError.write(Data("bloom-runner: \(path): \(reason)\n".utf8))
+        }
+        guard joined == 0 else {
+            note("connect failed with errno \(errno)")
+
+            return nil
+        }
+        guard var body = try? JSONEncoder().encode(request) else {
+            note("the request could not be encoded")
+
+            return nil
+        }
         body.append(0x0A)
         let sent = body.withUnsafeBytes { raw -> Bool in
             var written = 0
@@ -50,7 +65,22 @@ enum LocalCredentialClient {
             }
             return true
         }
-        guard sent, let answered = LocalSocket.read(descriptor), !answered.isEmpty else { return nil }
-        return try? JSONDecoder().decode(Answer.self, from: answered)
+        guard sent else {
+            note("the request could not be written, errno \(errno)")
+
+            return nil
+        }
+        guard let answered = LocalSocket.read(descriptor), !answered.isEmpty else {
+            note("the supervisor answered nothing, errno \(errno)")
+
+            return nil
+        }
+        guard let decoded = try? JSONDecoder().decode(Answer.self, from: answered) else {
+            note("the supervisor's answer could not be decoded (\(answered.count) bytes)")
+
+            return nil
+        }
+
+        return decoded
     }
 }

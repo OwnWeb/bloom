@@ -84,7 +84,8 @@ struct PersonBoundGithubCredentialsBody: Decodable {
     struct Credential: Decodable {
         var username: String
         var token: String
-        var expiresAt: String
+        /// Absent when the credential does not expire. See `issued`.
+        var expiresAt: String?
 
         enum CodingKeys: String, CodingKey {
             case username, token
@@ -100,10 +101,25 @@ struct PersonBoundGithubCredentialsBody: Decodable {
         case nextGrant = "next_grant"
     }
 
+    /// How long this credential may be held, which is not the same question as when the token
+    /// stops working.
+    ///
+    /// **A GitHub token does not always have an expiry, and refusing one that has none broke every
+    /// Cloud workspace.** GitHub returns `expires_at` only when the OAuth app has expiring user
+    /// tokens switched on; with that off, the token is valid indefinitely and the server has
+    /// nothing to send. This required the field, threw the whole answer away when it was null, and
+    /// said so to nobody: the clone died as "fatal: unable to get password from user", the Runner
+    /// logged nothing, and the machine looked broken in a way that had nothing to do with git.
+    ///
+    /// So an absent expiry means "hold it for an hour", which is what the field is for here. The
+    /// credential is fetched again for the next operation anyway, and a bound that the supervisor
+    /// chooses is safer than one the upstream declined to give.
+    static let lifetimeWithoutAnExpiry: TimeInterval = 3_600
+
     var issued: PersonBoundGithubCredentials? {
-        guard !credential.token.isEmpty,
-              let expiry = PersonBoundGithubGrantBody.date(credential.expiresAt),
-              let next = nextGrant.grant else { return nil }
+        let expiry = credential.expiresAt.flatMap(PersonBoundGithubGrantBody.date)
+            ?? Date().addingTimeInterval(Self.lifetimeWithoutAnExpiry)
+        guard !credential.token.isEmpty, let next = nextGrant.grant else { return nil }
         return PersonBoundGithubCredentials(
             token: credential.token, expiresAt: expiry, username: credential.username, nextGrant: next
         )
