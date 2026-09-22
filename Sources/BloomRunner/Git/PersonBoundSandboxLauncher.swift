@@ -8,6 +8,12 @@ import Glibc
 private func linuxPtrace(
     _ request: Int32, _ pid: Int32, _ address: UnsafeMutableRawPointer?, _ data: UnsafeMutableRawPointer?
 ) -> Int
+
+/// Variadic in C, so it is declared with the one shape this calls it with, the way `ptrace` above is.
+@_silgen_name("prctl")
+private func linuxPrctl(_ option: Int32, _ argument: UInt) -> Int32
+
+private let prSetDumpable: Int32 = 4
 #endif
 
 struct PersonBoundLaunchRequest: Codable, Sendable, Hashable {
@@ -178,6 +184,30 @@ enum PersonBoundSandboxExec {
                   setgid(groupEntry.pointee.gr_gid) == 0,
                   setuid(uid) == 0 else {
                 childRefusal("the child could not drop to uid \(uid) in group \(group)")
+                _exit(125)
+            }
+
+            /*
+             * `setuid` clears this process's dumpable flag, and reading `/proc/<pid>/exe` or
+             * `environ` of a process that is not dumpable needs CAP_SYS_PTRACE. **A Cloud
+             * workspace's machine does not have it.** Root on a Sprite holds cap_dac_override,
+             * cap_net_admin and cap_sys_admin among others, and not that one, so the supervisor
+             * above could not identify a single exec and refused every sandbox, which stopped every
+             * workspace created after person-bound credentials became the Runner's only path. CI
+             * never saw it because its containers run `--privileged`, where the capability is
+             * present and the flag never matters.
+             *
+             * Put back here rather than asked for from the platform, because the platform is not
+             * ours to ask. What it costs is the window between this line and the credential
+             * shield's own `PR_SET_DUMPABLE, 0`, during which a process of this same uid could
+             * attach to this one. The only processes with this uid are this reservation's own, the
+             * uid is fresh per reservation, and no credential has been handed over yet: the token
+             * arrives through the broker after the exec the supervisor is about to identify. The
+             * shield still makes the credential-bearing process undumpable, and it still does so
+             * after the exec stop, so the supervisor reads the exec and the token stays hidden.
+             */
+            guard linuxPrctl(prSetDumpable, 1) == 0 else {
+                childRefusal("the child could not make itself readable to its supervisor again")
                 _exit(125)
             }
 
