@@ -9,9 +9,12 @@ private func linuxPtrace(
     _ request: Int32, _ pid: Int32, _ address: UnsafeMutableRawPointer?, _ data: UnsafeMutableRawPointer?
 ) -> Int
 
-/// Variadic in C, so it is declared with the one shape this calls it with, the way `ptrace` above is.
+/// Declared the way `ptrace` above is, and with the five argument shape something else in this
+/// build already gives it: a two argument one compiles on a Mac, where there is no `prctl` to
+/// disagree with, and fails the Linux build with "function type mismatch", which is the only build
+/// this code ever runs in.
 @_silgen_name("prctl")
-private func linuxPrctl(_ option: Int32, _ argument: UInt) -> Int32
+private func linuxPrctl(_ option: Int32, _ first: UInt, _ second: UInt, _ third: UInt, _ fourth: UInt) -> Int32
 
 private let prSetDumpable: Int32 = 4
 #endif
@@ -206,7 +209,7 @@ enum PersonBoundSandboxExec {
              * shield still makes the credential-bearing process undumpable, and it still does so
              * after the exec stop, so the supervisor reads the exec and the token stays hidden.
              */
-            guard linuxPrctl(prSetDumpable, 1) == 0 else {
+            guard linuxPrctl(prSetDumpable, 1, 0, 0, 0) == 0 else {
                 childRefusal("the child could not make itself readable to its supervisor again")
                 _exit(125)
             }
