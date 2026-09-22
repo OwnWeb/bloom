@@ -62,6 +62,11 @@ public struct TranscriptPaneState: Equatable, Sendable {
     public var unfolded: Set<Int>
     /// The completed turns whose streamed process the reader opened.
     public var unfoldedTurns: Set<Int>
+    /// The completed turns the reader closed again, which is not the same as the ones they never
+    /// opened. A segment holding the unread mark or a restored place opens itself, so without
+    /// this there is nothing a click can say that outranks it. See
+    /// `TranscriptTurnFold.Folds.isOpen`.
+    public var refoldedTurns: Set<Int>
     /// Where the view was, in points from the top of the content.
     ///
     /// The fallback, not the answer. See `anchorSeq`.
@@ -113,6 +118,7 @@ public struct TranscriptPaneState: Equatable, Sendable {
         expanded: Set<Int>,
         unfolded: Set<Int> = [],
         unfoldedTurns: Set<Int> = [],
+        refoldedTurns: Set<Int> = [],
         offset: Double,
         anchorSeq: Int? = nil,
         anchorDelta: Double = 0,
@@ -124,6 +130,7 @@ public struct TranscriptPaneState: Equatable, Sendable {
         self.expanded = expanded
         self.unfolded = unfolded
         self.unfoldedTurns = unfoldedTurns
+        self.refoldedTurns = refoldedTurns
         self.offset = offset
         self.anchorSeq = anchorSeq
         self.anchorDelta = anchorDelta

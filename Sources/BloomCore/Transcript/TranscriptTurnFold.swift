@@ -122,22 +122,57 @@ public enum TranscriptTurnFold {
             return nil
         }
 
+        /// What collapsing this segment would actually take off the table, which is nothing at
+        /// all when the drawn window stops inside it.
+        ///
+        /// **The line and the rows it claims to stand for are one answer, asked here.** They used
+        /// to be two: the disclosure was drawn whenever the segment had hidden rows, and the rows
+        /// were removed only when the whole span was inside the window, so a segment the window
+        /// cut in half got a rule saying "Worked for 9m 24s" above work that was still there, and
+        /// pressing it did nothing that could be seen. `TranscriptFold.hiddenIndices` refuses the
+        /// same case for the same reason, and `foldEntry` draws no line when it comes back empty:
+        /// a control that answers nothing when it is pressed is worse than no control.
+        public func wouldHide(_ turn: Turn, drawn: Range<Int> = 0..<Int.max) -> Set<Int> {
+            guard turn.hasHiddenRows,
+                  turn.span.lowerBound >= drawn.lowerBound,
+                  turn.span.upperBound <= drawn.upperBound else { return [] }
+            return turn.hidden
+        }
+
         public func hiddenIndices(
-            unfolded: Set<Int>,
+            opened: Set<Int>,
+            closed: Set<Int>,
             revealed: Set<Int>,
             drawn: Range<Int> = 0..<Int.max
         ) -> Set<Int> {
             var hidden: Set<Int> = []
-            for turn in all where turn.span.lowerBound >= drawn.lowerBound
-                && turn.span.upperBound <= drawn.upperBound
-                && !isOpen(turn, unfolded: unfolded, revealed: revealed) {
-                hidden.formUnion(turn.hidden)
+            for turn in all
+            where !isOpen(turn, opened: opened, closed: closed, revealed: revealed) {
+                hidden.formUnion(wouldHide(turn, drawn: drawn))
             }
             return hidden
         }
 
-        public func isOpen(_ turn: Turn, unfolded: Set<Int>, revealed: Set<Int>) -> Bool {
-            unfolded.contains(turn.firstSeq) || !turn.hiddenSeqs.isDisjoint(with: revealed)
+        /// Whether this segment's working is on the table, and **the reader's own answer outranks
+        /// every reason this file has for opening one.**
+        ///
+        /// `revealed` is the rows something has asked to be on screen, which for a segment is the
+        /// row a search, an unread mark or a restored place is about to scroll to: folding that
+        /// row away leaves `put(at:)` with no index and the reader at the top of a conversation
+        /// they were meant to be put back into. See `TranscriptListView.revealedSeqs`.
+        ///
+        /// **It was the only answer, and that is the bug this pair of sets exists for.** A segment
+        /// holding a revealed row was open, and stayed open, whatever the reader pressed: the
+        /// click flipped a set the question then ignored, the disclosure never moved, and the
+        /// line read as a dead control. A turn that ran while somebody was away holds the unread
+        /// mark by definition, so this was most of them. `closed` is the reader saying no to it,
+        /// and it is asked before `revealed` is.
+        public func isOpen(
+            _ turn: Turn, opened: Set<Int>, closed: Set<Int>, revealed: Set<Int>
+        ) -> Bool {
+            if opened.contains(turn.firstSeq) { return true }
+            if closed.contains(turn.firstSeq) { return false }
+            return !turn.hiddenSeqs.isDisjoint(with: revealed)
         }
     }
 

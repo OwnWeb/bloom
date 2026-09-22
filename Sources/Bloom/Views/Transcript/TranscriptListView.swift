@@ -59,6 +59,7 @@ struct TranscriptListView: View {
         _expanded = State(initialValue: remembered?.expanded ?? [])
         _unfolded = State(initialValue: remembered?.unfolded ?? [])
         _unfoldedTurns = State(initialValue: remembered?.unfoldedTurns ?? [])
+        _refoldedTurns = State(initialValue: remembered?.refoldedTurns ?? [])
         _liveEndRequest = State(initialValue: TranscriptLiveEndRequest(
             handled: remembered?.liveEndRequest ?? 0
         ))
@@ -92,6 +93,9 @@ struct TranscriptListView: View {
     @State private var unfolded: Set<Int> = []
     /// Completed turns whose streamed process the reader has opened.
     @State private var unfoldedTurns: Set<Int> = []
+    /// Completed turns the reader has closed again, which a segment that opens itself has to be
+    /// told about. See `TranscriptTurnFold.Folds.isOpen`.
+    @State private var refoldedTurns: Set<Int> = []
     /// Every turn's working in this session. See `TranscriptFold`.
     ///
     /// **State rather than a computed property, and the lag is the point.** It is refreshed from
@@ -367,6 +371,24 @@ struct TranscriptListView: View {
     /// the run whose context they are most likely to want.
     private var revealedSeqs: Set<Int> {
         var out = expanded
+        out.formUnion(turnRevealedSeqs)
+        return out
+    }
+
+    /// The same question asked of a whole completed segment, which is the one above WITHOUT
+    /// `expanded`.
+    ///
+    /// **The granularity is why they are two.** A run holds a handful of rows, so keeping it open
+    /// around a tool result somebody had opened costs a handful of rows. A segment is the whole of
+    /// a turn's working, seventy rows of it in the report this was written for, and one expanded
+    /// tool call anywhere inside pinned all seventy on screen for the rest of the visit. What a
+    /// collapsed segment does to an expanded row inside it is hide it, which is what collapsing
+    /// means and what the reader asked for.
+    ///
+    /// The three that are left are the navigation targets, and they are here for the reason
+    /// `revealedSeqs` gives above: a scroll can only find a row the table is drawing.
+    private var turnRevealedSeqs: Set<Int> {
+        var out: Set<Int> = []
         if let seq = opening?.seq { out.insert(seq) }
         if let target = app.pendingTranscriptTarget,
            target.workspaceID == transcript.workspace?.id {
@@ -473,7 +495,9 @@ struct TranscriptListView: View {
         // per-row closure records an observation edge per row.
         let unfolded = self.unfolded
         let unfoldedTurns = self.unfoldedTurns
+        let refoldedTurns = self.refoldedTurns
         let revealed = revealedSeqs
+        let turnRevealed = turnRevealedSeqs
         let sessionID = transcript.session.id
         // Read once, and the range taken off the slice itself rather than off `drawnWindow` a
         // second time, so the range a fold is measured against cannot disagree with the rows being
@@ -487,8 +511,9 @@ struct TranscriptListView: View {
         let folds = foldsForThisPass(drawn: drawnRange)
         let turnFolds = turnFoldsForThisPass()
         let turnHiddenIndices = turnFolds.hiddenIndices(
-            unfolded: unfoldedTurns,
-            revealed: revealed,
+            opened: unfoldedTurns,
+            closed: refoldedTurns,
+            revealed: turnRevealed,
             drawn: drawnRange
         )
         let lastVisibleRow = drawnRows.last(where: { !TranscriptNoise.isHidden($0) })
@@ -619,12 +644,17 @@ struct TranscriptListView: View {
             // The completed turn's outer disclosure stands before the same process it replaces.
             // Opened, the existing commentary and action folds below it draw unchanged.
             if let turn = turnFolds.turn(startingAt: index) {
-                let isOpen = turnFolds.isOpen(turn, unfolded: unfoldedTurns, revealed: revealed)
+                let isOpen = turnFolds.isOpen(
+                    turn, opened: unfoldedTurns, closed: refoldedTurns, revealed: turnRevealed
+                )
                 out.append(turnFoldEntry(
                     firstSeq: turn.firstSeq,
                     milliseconds: turn.durationMS ?? 0,
                     isExpanded: isOpen,
-                    shows: turn.hasHiddenRows,
+                    // What collapsing it would take off the table, rather than what it holds: a
+                    // line drawn over work the window stops inside hides nothing when it is
+                    // pressed. See `TranscriptTurnFold.Folds.wouldHide`.
+                    shows: !turnFolds.wouldHide(turn, drawn: drawnRange).isEmpty,
                     session: sessionID
                 ))
             }
@@ -1260,6 +1290,7 @@ struct TranscriptListView: View {
             expanded = remembered?.expanded ?? []
             unfolded = remembered?.unfolded ?? []
             unfoldedTurns = remembered?.unfoldedTurns ?? []
+            refoldedTurns = remembered?.refoldedTurns ?? []
             folds = transcript.presentationFolds()
             foldSession = transcript.session.id
             foldRevision = transcript.presentationRevision
@@ -1843,6 +1874,7 @@ struct TranscriptListView: View {
                 expanded: expanded,
                 unfolded: unfolded,
                 unfoldedTurns: unfoldedTurns,
+                refoldedTurns: refoldedTurns,
                 offset: contentOffset.value,
                 // The row at the top of the pane and how far into it the reader was, which is the
                 // place; the offset above is what answers when there is no row to name.
@@ -1991,14 +2023,32 @@ struct TranscriptListView: View {
         remember()
     }
 
+    /// Whether the segment starting at this row is open right now, asked the way the entries pass
+    /// asks it, so a click cannot disagree with the chevron it was aimed at.
+    private func isTurnFoldOpen(_ firstSeq: Int) -> Bool {
+        let folds = turnFoldsForThisPass()
+        guard let turn = folds.all.first(where: { $0.firstSeq == firstSeq })
+        else { return unfoldedTurns.contains(firstSeq) }
+        return folds.isOpen(
+            turn, opened: unfoldedTurns, closed: refoldedTurns, revealed: turnRevealedSeqs
+        )
+    }
+
     private func toggleTurnFold(_ firstSeq: Int) {
         scroller.stop()
         follower.stop()
         controller.willChangeFoldRows(.turnFold(firstSeq))
-        if unfoldedTurns.contains(firstSeq) {
+        // Both sets are written, because the question this answers has three states and a single
+        // set holds two. A segment holding the unread mark or a restored place opens itself, so
+        // "not in `unfoldedTurns`" was never the same as "the reader closed it", and a click on
+        // one of those flipped a set that was then ignored. See
+        // `TranscriptTurnFold.Folds.isOpen`.
+        if isTurnFoldOpen(firstSeq) {
             unfoldedTurns.remove(firstSeq)
+            refoldedTurns.insert(firstSeq)
         } else {
             unfoldedTurns.insert(firstSeq)
+            refoldedTurns.remove(firstSeq)
         }
         remember()
     }

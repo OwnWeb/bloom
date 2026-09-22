@@ -84,7 +84,7 @@ struct TranscriptTurnFoldTests {
         let turn = try #require(folds.all.first)
 
         #expect(turn.hidden == [1, 2, 3])
-        #expect(folds.hiddenIndices(unfolded: [], revealed: []) == [1, 2, 3])
+        #expect(folds.hiddenIndices(opened: [], closed: [], revealed: []) == [1, 2, 3])
     }
 
     @Test("a missing backend duration is measured from the turn timestamps")
@@ -135,9 +135,62 @@ struct TranscriptTurnFoldTests {
         let folds = TranscriptTurnFold.folds(in: facts)
         let turn = try #require(folds.all.first)
 
-        #expect(folds.hiddenIndices(unfolded: [], revealed: []) == [1, 2])
-        #expect(folds.hiddenIndices(unfolded: [], revealed: [2]).isEmpty)
-        #expect(folds.isOpen(turn, unfolded: [1], revealed: []))
+        #expect(folds.hiddenIndices(opened: [], closed: [], revealed: []) == [1, 2])
+        #expect(folds.hiddenIndices(opened: [], closed: [], revealed: [2]).isEmpty)
+        #expect(folds.isOpen(turn, opened: [1], closed: [], revealed: []))
+    }
+
+    @Test("closing a turn that a revealed row opened is what the reader said")
+    func closingOverridesRevealed() throws {
+        let facts = [
+            fact(0, .user),
+            fact(1, .assistantText),
+            fact(2, .toolUse),
+            fact(3, .assistantText),
+            fact(4, .result, durationMS: 2_000),
+        ]
+        let folds = TranscriptTurnFold.folds(in: facts)
+        let turn = try #require(folds.all.first)
+
+        // A turn that ran while the reader was away holds the unread mark, so it opens itself.
+        #expect(folds.isOpen(turn, opened: [], closed: [], revealed: [2]))
+        // The click has to be able to answer that, and it used to be ignored.
+        #expect(!folds.isOpen(turn, opened: [], closed: [1], revealed: [2]))
+        #expect(folds.hiddenIndices(opened: [], closed: [1], revealed: [2]) == [1, 2])
+        // And open again afterwards, whatever the revealed rows say.
+        #expect(folds.isOpen(turn, opened: [1], closed: [], revealed: []))
+    }
+
+    @Test("a window that stops inside a turn gets no disclosure, because it would hide nothing")
+    func windowStopsInsideTurn() throws {
+        let facts = [
+            fact(0, .user),
+            fact(1, .assistantText),
+            fact(2, .toolUse),
+            fact(3, .assistantText),
+            fact(4, .result, durationMS: 2_000),
+        ]
+        let folds = TranscriptTurnFold.folds(in: facts)
+        let turn = try #require(folds.all.first)
+
+        #expect(folds.wouldHide(turn, drawn: 0..<5) == [1, 2])
+        #expect(folds.wouldHide(turn, drawn: 2..<5).isEmpty)
+        #expect(folds.hiddenIndices(opened: [], closed: [], revealed: [], drawn: 2..<5).isEmpty)
+    }
+
+    @Test("a turn whose hidden rows all draw nothing gets no disclosure")
+    func nothingWorthHiding() throws {
+        let facts = [
+            fact(0, .user),
+            fact(1, .system, drawsNothing: true),
+            fact(2, .assistantText),
+            fact(3, .result, durationMS: 2_000),
+        ]
+        let folds = TranscriptTurnFold.folds(in: facts)
+        let turn = try #require(folds.all.first)
+
+        #expect(!turn.hasHiddenRows)
+        #expect(folds.wouldHide(turn).isEmpty)
     }
 
     @Test("a rescan keeps completed history and rebuilds only the live tail")
