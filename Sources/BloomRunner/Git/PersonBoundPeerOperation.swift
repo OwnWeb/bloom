@@ -41,7 +41,7 @@ enum PersonBoundPeerOperation {
         gitExecutable: String,
         gitRemoteHTTPSExecutable: String,
         provenance: Provenance = { _ in true },
-        read: Read = { liveCommand($0) }
+        read: Read = { liveCommandAsOwner($0) }
     ) -> PersonBoundOperationAttestation? {
         let runner = canonical(runnerExecutable)
         let git = canonical(gitExecutable)
@@ -193,6 +193,71 @@ enum PersonBoundPeerOperation {
         FileHandle.standardOutput.write(encoded)
         return 0
         #endif
+    }
+
+    /// `liveCommand`, read as the process's own uid and gid rather than as root.
+    ///
+    /// **A Cloud workspace's machine grants root everything except CAP_SYS_PTRACE**, and
+    /// `/proc/<pid>/exe` and `cwd` go through `ptrace_may_access`, which admits a reader on a uid
+    /// and gid match or on that capability and nothing else. Both the sandbox supervisor and this
+    /// attestor are root and a different uid from what they are looking at, so both read nothing
+    /// and refused everything: no workspace started for a day, first as an exec that could not be
+    /// identified and then as `process ancestry`.
+    ///
+    /// The uid and gid come from `/proc/<pid>/status`, which root may read, so nothing has to be
+    /// passed in and a process running as root is read as root, unchanged.
+    static func liveCommandAsOwner(_ pid: Int32, root: String = "/proc") -> Command? {
+        #if !os(Linux)
+        return liveCommand(pid, root: root)
+        #else
+        guard let status = try? String(contentsOfFile: root + "/\(pid)/status", encoding: .utf8),
+              let uid = identifier("Uid:", in: status), let gid = identifier("Gid:", in: status)
+        else { return nil }
+
+        var descriptors: [Int32] = [0, 0]
+        guard pipe(&descriptors) == 0 else { return nil }
+
+        let child = fork()
+
+        guard child >= 0 else {
+            close(descriptors[0])
+            close(descriptors[1])
+
+            return nil
+        }
+
+        if child == 0 {
+            close(descriptors[0])
+            if setgid(gid) == 0, setuid(uid) == 0,
+               let command = liveCommand(pid, root: root),
+               let encoded = try? JSONEncoder().encode(command) {
+                encoded.withUnsafeBytes { _ = write(descriptors[1], $0.baseAddress, $0.count) }
+            }
+            close(descriptors[1])
+            _exit(0)
+        }
+
+        close(descriptors[1])
+        var answer = Data()
+        var buffer = [UInt8](repeating: 0, count: 4_096)
+        while true {
+            let count = read(descriptors[0], &buffer, buffer.count)
+            guard count > 0 else { break }
+            answer.append(contentsOf: buffer[0..<count])
+        }
+        close(descriptors[0])
+        var status2: Int32 = 0
+        _ = waitpid(child, &status2, 0)
+
+        return try? JSONDecoder().decode(Command.self, from: answer)
+        #endif
+    }
+
+    /// The effective id on a `Uid:` or `Gid:` line, which is its second field.
+    private static func identifier(_ label: String, in status: String) -> UInt32? {
+        guard let line = status.split(separator: "\n").first(where: { $0.hasPrefix(label) }) else { return nil }
+
+        return line.split(whereSeparator: { $0 == " " || $0 == "\t" }).dropFirst(2).first.flatMap { UInt32($0) }
     }
 
     static func liveCommand(_ pid: Int32, root: String = "/proc") -> Command? {
