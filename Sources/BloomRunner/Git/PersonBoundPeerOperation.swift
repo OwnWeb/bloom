@@ -27,6 +27,21 @@ enum PersonBoundPeerOperation {
         var environment: [String: String]
     }
 
+    /// What the root supervisor saw a process exec, written down at the exec stop and read back
+    /// when a credential is asked for.
+    ///
+    /// **Recorded rather than re-read, because re-reading is not allowed here.** `/proc/<pid>/exe`
+    /// and `environ` need CAP_SYS_PTRACE to read across uids, and a Cloud workspace's machine
+    /// grants root every other capability and not that one, so the attestor could inspect nothing
+    /// and refused every request. It is also the better of the two: the supervisor traces every
+    /// exec, so it writes this at the one instant the fact is true, and rewrites it if the process
+    /// execs again, where inspecting a live process has to be done twice and compared in the hope
+    /// that nothing moved in between.
+    struct ProvenanceRecord: Codable, Sendable {
+        var status: String
+        var command: Command
+    }
+
     typealias Read = @Sendable (Int32) -> Command?
     typealias Provenance = @Sendable (PersonBoundProcessIdentity) -> Bool
 
@@ -184,7 +199,8 @@ enum PersonBoundPeerOperation {
             leaderIdentity: leader, repository: repository, worktree: worktree,
             cleanConfigDirectory: cleanConfig, runnerExecutable: runner,
             gitExecutable: git, gitRemoteHTTPSExecutable: remoteHTTPS,
-            provenance: { provenanceIsTrusted($0, directory: provenanceDirectory) }
+            provenance: { provenanceIsTrusted($0, directory: provenanceDirectory) },
+            read: { recordedCommand($0, directory: provenanceDirectory) }
         )
         guard let attestation else { return attestorRefused("process ancestry") }
         guard let encoded = try? JSONEncoder().encode(attestation) else {
@@ -434,22 +450,44 @@ enum PersonBoundPeerOperation {
         return path
     }
 
+    /// The command the supervisor recorded for a live process, found by the name it filed it
+    /// under. `/proc/<pid>/stat` carries the start time and is readable by root without any
+    /// capability, so the record for exactly this run of this pid can be named with certainty: a
+    /// pid that has been reused since has a different start time and therefore a different file.
+    static func recordedCommand(_ pid: Int32, directory: String, root: String = "/proc") -> Command? {
+        guard let identity = PersonBoundProcIdentity.read(pid, root: root) else { return nil }
+
+        return recordFor(identity, directory: directory)?.command
+    }
+
+    static func recordFor(
+        _ identity: PersonBoundProcessIdentity, directory: String
+    ) -> ProvenanceRecord? {
+        let path = directory + "/\(identity.pid)-\(identity.startTime)"
+
+        guard rootOwnsPath(path), let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+
+        return try? JSONDecoder().decode(ProvenanceRecord.self, from: data)
+    }
+
     private static func provenanceIsTrusted(
         _ identity: PersonBoundProcessIdentity, directory: String
     ) -> Bool {
-        let path = directory + "/\(identity.pid)-\(identity.startTime)"
-        guard rootOwnsPath(path), let value = try? String(contentsOfFile: path, encoding: .utf8) else {
+        guard let record = recordFor(identity, directory: directory) else {
             FileHandle.standardError.write(Data(
                 "bloom-runner: person-bound root attestation refused: missing protected provenance\n".utf8
             ))
+
             return false
         }
-        if value != "trusted\n" {
+
+        if record.status != "trusted" {
             FileHandle.standardError.write(Data(
-                "bloom-runner: person-bound root attestation refused: \(value.trimmingCharacters(in: .whitespacesAndNewlines)) provenance\n".utf8
+                "bloom-runner: person-bound root attestation refused: \(record.status) provenance\n".utf8
             ))
         }
-        return value == "trusted\n"
+
+        return record.status == "trusted"
     }
 
     /// `PersonBoundTrustedExecutable` holds this rule now, so the attestor and the host checks

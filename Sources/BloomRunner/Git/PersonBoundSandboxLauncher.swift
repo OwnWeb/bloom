@@ -438,8 +438,8 @@ enum PersonBoundSandboxExec {
                 tainted[waited] = untrusted
                 let status = command == nil ? "tainted-unreadable" : inherited ? "tainted-inherited"
                     : controlled ? "tainted-controlled" : "trusted"
-                guard let identity = command?.identity,
-                      writeProvenance(identity, status: status, directory: provenance) else {
+                guard let observed = command,
+                      writeProvenance(observed, status: status, directory: provenance) else {
                     _ = writeText("1\n", to: cgroup + "/cgroup.kill")
 
                     return refuse("an exec could not be identified or its provenance could not be written to \(provenance)")
@@ -488,12 +488,25 @@ enum PersonBoundSandboxExec {
         return leaderStatus ?? 1
     }
 
+    /// What was exec'd, written where only root can read it, under a name carrying the pid and its
+    /// start time so a reused pid cannot inherit another run's record.
+    ///
+    /// The command goes in beside the status now. The attestor used to re-read it from `/proc`
+    /// when a credential was asked for, which needs CAP_SYS_PTRACE across uids and is therefore
+    /// impossible on the machines this runs on. It is written here instead, by the tracer that saw
+    /// the exec happen, and rewritten whenever the process execs again.
     private static func writeProvenance(
-        _ identity: PersonBoundProcessIdentity, status: String, directory: String
+        _ command: PersonBoundPeerOperation.Command, status: String, directory: String
     ) -> Bool {
-        let path = directory + "/\(identity.pid)-\(identity.startTime)"
+        let path = directory + "/\(command.identity.pid)-\(command.identity.startTime)"
+
+        guard let encoded = try? JSONEncoder().encode(
+            PersonBoundPeerOperation.ProvenanceRecord(status: status, command: command)
+        ) else { return false }
+
         do {
-            try Data((status + "\n").utf8).write(to: URL(fileURLWithPath: path), options: .atomic)
+            try encoded.write(to: URL(fileURLWithPath: path), options: .atomic)
+
             return chown(path, 0, 0) == 0 && chmod(path, 0o400) == 0
         } catch { return false }
     }
