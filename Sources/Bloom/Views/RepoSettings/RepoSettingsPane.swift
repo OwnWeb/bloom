@@ -1,21 +1,22 @@
-import AppKit
 import Foundation
 
 /// Which part of a project's settings is showing.
 ///
-/// A type of its own rather than an enum nested inside the view, because three things outside
-/// that view now answer to it: the toolbar that draws the choice, the window that has to say
-/// which item is selected, and a capture run that names the pane it wants photographed.
+/// A type of its own rather than an enum nested inside the view, because things outside that view
+/// answer to it: the sidebar that draws the choice, and a capture run that names the pane it wants
+/// photographed.
 ///
 /// Named `Pane` rather than `Tab` because `Tab` is SwiftUI's own type, and because these are not
-/// tabs any more: they are toolbar items. See `RepoSettingsToolbar` for why.
-enum RepoSettingsPane: String, CaseIterable, Hashable {
+/// tabs: they are rows in a sidebar, the way the app's own Settings window lists its panes.
+enum RepoSettingsPane: String, CaseIterable, Hashable, Identifiable {
     case project
     case workspaces
     case scripts
     case instructions
 
-    /// The word under the icon.
+    var id: String { rawValue }
+
+    /// The word in the sidebar row.
     var title: String {
         switch self {
         case .project: "Project"
@@ -25,8 +26,7 @@ enum RepoSettingsPane: String, CaseIterable, Hashable {
         }
     }
 
-    /// The symbol above that word. A preference toolbar is icons with their words underneath, so
-    /// every pane has to have one, which is why this is not optional.
+    /// The symbol beside that word.
     var systemImage: String {
         switch self {
         case .project: "folder"
@@ -34,15 +34,6 @@ enum RepoSettingsPane: String, CaseIterable, Hashable {
         case .scripts: "terminal"
         case .instructions: "text.book.closed"
         }
-    }
-
-    /// What this pane is called inside the toolbar.
-    ///
-    /// Derived from the case rather than written out a second time in a table beside it. An
-    /// identifier that disagrees with its case is a toolbar item that draws and cannot be
-    /// selected, which is a fault with nothing on screen to say what went wrong.
-    var itemIdentifier: NSToolbarItem.Identifier {
-        NSToolbarItem.Identifier("repo-settings.\(rawValue)")
     }
 
     /// Which pane a window opens on, from `BLOOM_PANE=workspaces|scripts|instructions`.

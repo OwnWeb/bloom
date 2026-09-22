@@ -2,14 +2,12 @@ import AppKit
 import SwiftUI
 import BloomCore
 
-/// Gives the project settings window an ordinary Mac title bar, above the row that chooses a pane.
+/// Gives the project settings window an ordinary Mac title bar.
 ///
-/// The title and that row are not in competition for one place, which is the belief this modifier
-/// exists to correct. A title lives on its own line and `.preference` puts the toolbar under it,
-/// so the window can have both and the app's own Settings window is the proof. The title itself
-/// is never lost, only undrawn: `navigationTitle` sets `NSWindow.title` whatever else is on the
-/// window, so making it visible again is all this has to do about it. The toolbar under it, and
-/// the style that puts it there, are `RepoSettingsToolbar`.
+/// The title is never lost, only undrawn: `navigationTitle` sets `NSWindow.title` whatever else
+/// is on the window, so making it visible again is all this has to do about it. That matters
+/// because the window has to say which project it belongs to, and the sidebar inside it says only
+/// which part of that project is showing.
 ///
 /// The folder comes along as the window's `representedURL`, so the title bar behaves like every
 /// document window on the Mac: the proxy icon beside the title drags into a terminal or an editor,
@@ -19,10 +17,10 @@ import BloomCore
 /// It also refuses the system's window tabbing, which is the one thing on this window that nobody
 /// asked for. macOS groups windows of the same class into one tabbed window by default, so opening
 /// settings for a second project merged it into the first as a tab, and a `+` beside it offered a
-/// third. This window is one project's, and it already has a row of its own directly above saying
-/// which part of it is showing: two rows, one meaning "which part of this project" and the other
-/// "which project", read as one row meaning neither. There is nothing to gain here from the
-/// system's row either, since the window's own three panes are what a settings window is for.
+/// third. This window is one project's, and it already has a list of its own saying which part of
+/// that project is showing: a row across the top meaning "which project" above a list meaning
+/// "which part of this project" reads as neither. There is nothing to gain here from the system's
+/// row either, since the window's own four panes are what a settings window is for.
 /// `.disallowed` is per window rather than `NSWindow.allowsAutomaticWindowTabbing = false`, which
 /// would be the app speaking for windows this file knows nothing about.
 ///

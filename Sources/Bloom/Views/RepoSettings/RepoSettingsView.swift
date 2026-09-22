@@ -9,9 +9,9 @@ import BloomCore
 /// Panes rather than one long scroll, because they are different kinds of thing and nobody
 /// arrives here wanting all of them: what the project IS, what a new workspace STARTS with, what
 /// Bloom RUNS in it, and what it SAYS on the project's behalf. Which one is showing is chosen in
-/// the title bar, from the same toolbar the app's own Settings window is chosen from, so the two
-/// windows read as one app. It is an `NSToolbar` rather than the `TabView` that used to be here,
-/// and `RepoSettingsToolbar` says what the difference between those two turned out to be.
+/// a sidebar down the left, which is where the app's own Settings window puts the same choice, so
+/// the two windows read as one app. It was a row of tabs across the top before, then a preference
+/// toolbar in the title bar, and both of those put the choice somewhere Settings does not put it.
 ///
 /// Two kinds of setting live here and they are stored in two different places, which the screen is
 /// explicit about. The name, mark and colour are Bloom's own record of a folder and live in its
@@ -59,67 +59,88 @@ struct RepoSettingsView: View {
         _model = State(initialValue: RepoSettingsModel(repo: repo))
     }
 
-    /// Long enough that the scripts are readable, and no wider than the longest sentence in the
-    /// window wants: the rows themselves no longer care how wide it is, since `SettingsRow` keeps
-    /// a field beside its label at any width, but a footer set across a very wide pane does not
-    /// read.
-    static let idealSize = CGSize(width: 640, height: 700)
-    static let minimumSize = CGSize(width: 560, height: 460)
+    /// Wide enough for the sidebar and a pane that still reads: the pane itself wants about the
+    /// 640 points it had when it was the whole window, since the rows no longer care how wide it
+    /// is but a footer set across a very wide pane does not read, and the list beside it adds its
+    /// own fixed width on top.
+    static let idealSize = CGSize(width: 840, height: 700)
+    static let minimumSize = CGSize(width: 760, height: 460)
+
+    /// The same fixed width the app's own Settings window gives its list, so the two windows line
+    /// up when they are open beside each other.
+    private static let sidebarWidth: CGFloat = 185
 
     var body: some View {
-        VStack(spacing: 0) {
-            // One pane at a time, switched on rather than laid out by a `TabView`. The row that
-            // chooses is the window's toolbar now, and a `TabView` under it would draw a second
-            // row of its own; see `RepoSettingsToolbar`. What that costs is a pane rebuilt on
-            // every return to it, and it costs nothing that can be typed away: every field here
-            // is bound to `RepoSettingsModel`, which outlives all three.
-            Group {
-                switch pane {
-                case .project:
-                    Form {
-                        projectSection
-                        Section {
-                            DisclosureGroup("Settings files") {
-                                filesSection
-                            }
-                        }
-                        removeSection
-                    }
-                    .settingsForm()
-                case .workspaces:
-                    Form {
-                        branchSection
-                        browserSection
-                        RepoFilesToCopySection(model: model)
-                    }
-                    .settingsForm()
-                case .scripts:
-                    Form {
-                        RepoScriptsSection(model: model)
-                    }
-                    .settingsForm()
-                case .instructions:
-                    Form {
-                        RepoInstructionsSection(model: model)
-                    }
-                    .settingsForm()
+        // A list down the side rather than a row of tabs across the top, which is what the app's
+        // own Settings window does, so the two read as one app. A fixed-width `List` rather than a
+        // `NavigationSplitView` for the reason `SettingsView` gives: the split view brings a
+        // collapsible sidebar toolbar and a reserved top inset that neither window wants.
+        HStack(spacing: 0) {
+            List(selection: selection) {
+                ForEach(RepoSettingsPane.allCases) { item in
+                    Label(item.title, systemImage: item.systemImage)
+                        .tag(item)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .listStyle(.sidebar)
+            .frame(width: Self.sidebarWidth)
 
-            if pane != .project || model.isDirty || model.hasExternalChange || model.saveError != nil {
-                Hairline()
-                RepoSettingsSaveBar(model: model)
+            Divider()
+
+            VStack(spacing: 0) {
+                // One pane at a time, switched on rather than laid out by a `TabView`. What that
+                // costs is a pane rebuilt on every return to it, and it costs nothing that can be
+                // typed away: every field here is bound to `RepoSettingsModel`, which outlives
+                // all four.
+                Group {
+                    switch pane {
+                    case .project:
+                        Form {
+                            projectSection
+                            Section {
+                                DisclosureGroup("Settings files") {
+                                    filesSection
+                                }
+                            }
+                            removeSection
+                        }
+                        .settingsForm()
+                    case .workspaces:
+                        Form {
+                            branchSection
+                            browserSection
+                            RepoFilesToCopySection(model: model)
+                        }
+                        .settingsForm()
+                    case .scripts:
+                        Form {
+                            RepoScriptsSection(model: model)
+                        }
+                        .settingsForm()
+                    case .instructions:
+                        Form {
+                            RepoInstructionsSection(model: model)
+                        }
+                        .settingsForm()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                // Beside the pane rather than across the whole window, because what it saves is
+                // the pane's files and not the list's selection.
+                if pane != .project || model.isDirty || model.hasExternalChange || model.saveError != nil {
+                    Hairline()
+                    RepoSettingsSaveBar(model: model)
+                }
             }
+            .background(Palette.windowBackground)
         }
-        .background(Palette.windowBackground)
         .frame(minWidth: Self.minimumSize.width, minHeight: Self.minimumSize.height)
         // There is one of these windows per project, so the window has to say which project it
-        // belongs to. It says it the way every other Mac window does, in its own title, above the
-        // row that chooses a pane rather than instead of it. See `RepoSettingsTitleBar`.
+        // belongs to. It says it the way every other Mac window does, in its own title. See
+        // `RepoSettingsTitleBar`.
         .navigationTitle("\(repo.name) Settings")
         .showsProjectInTitleBar(repo)
-        .choosesPaneInTheTitleBar($pane)
         .task {
             // The stored name verbatim. Nothing is written back on load, so a project whose name
             // begins with an emoji keeps it whether or not this window is ever opened.
@@ -131,6 +152,18 @@ struct RepoSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.refresh() }
         }
+    }
+
+    /// The list's selection, over a pane that is never nil.
+    ///
+    /// `List` hands its selection back as an optional, because a list in general can have nothing
+    /// selected. This one cannot: there is always a pane on screen, and a click on the empty space
+    /// under the rows, which is what sends nil, must not blank it. So nil is dropped rather than
+    /// stored, and the window keeps showing what it was showing.
+    private var selection: Binding<RepoSettingsPane?> {
+        Binding(get: { pane }, set: { chosen in
+            if let chosen { pane = chosen }
+        })
     }
 
     // MARK: - Project
