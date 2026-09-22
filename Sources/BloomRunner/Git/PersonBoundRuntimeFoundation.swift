@@ -75,7 +75,7 @@ final class PersonBoundRuntimeFoundation: @unchecked Sendable {
             return refused("startup cleanup")
         }
 
-        let registry = PersonBoundProcessRegistry(teardown: { identity, reservation in
+        let registry = PersonBoundProcessRegistry(agentUID: MachineSandbox.agentUID(), teardown: { identity, reservation in
             PersonBoundSandboxCleanup.invoke(
                 executable: executable, identity: identity, reservation: reservation
             )

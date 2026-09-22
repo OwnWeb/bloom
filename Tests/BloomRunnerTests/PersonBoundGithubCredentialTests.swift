@@ -93,6 +93,18 @@ struct PersonBoundGithubCredentialTests {
         #expect(first.purpose != second.purpose)
     }
 
+    @Test("with one agent user, every reservation shares its uid and keeps its own cgroup and nonce")
+    func oneAgentUserStillSeparatesReservations() throws {
+        let registry = PersonBoundProcessRegistry(agentUID: 1_002)
+        let first = try #require(registry.reserve(.turn(id: "a", userID: "one")))
+        let second = try #require(registry.reserve(.turn(id: "b", userID: "two")))
+        #expect(first.uid == 1_002)
+        #expect(second.uid == 1_002)
+        #expect(first.cgroup != second.cgroup)
+        #expect(first.nonce != second.nonce)
+        #expect(first.id != second.id)
+    }
+
     @Test("simultaneous members cannot receive each other's rotating credential")
     func simultaneousMemberCredentialsStayBound() async throws {
         let identities = Mutex<[Int32: PersonBoundProcessIdentity]>([:])

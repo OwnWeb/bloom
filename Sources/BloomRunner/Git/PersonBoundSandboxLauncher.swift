@@ -130,7 +130,8 @@ enum PersonBoundSandboxExec {
         return 1
         #else
         guard getuid() == 0, arguments.first == "--", arguments.count >= 2,
-              let uid = environment["BLOOM_PERSON_BOUND_UID"].flatMap(UInt32.init), uid >= 200_000,
+              let uid = environment["BLOOM_PERSON_BOUND_UID"].flatMap(UInt32.init),
+              uid == MachineSandbox.agentUID() || uid >= 200_000,
               let cgroup = safePath(environment["BLOOM_PERSON_BOUND_CGROUP"], under: "/sys/fs/cgroup/bloom-person-bound/"),
               let home = safePath(environment["BLOOM_PERSON_BOUND_HOME"], under: MachineSandbox.personBoundHomeRoot + "/"),
               let provenance = safePath(
@@ -142,11 +143,16 @@ enum PersonBoundSandboxExec {
               let group = environment["BLOOM_PERSON_BOUND_GROUP"], let groupEntry = group.withCString({ getgrnam($0) })
         else {
             return refuse(
-                "it must run as root, with `--` and a command, and with BLOOM_PERSON_BOUND_UID (200000 or above), "
+                "it must run as root, with `--` and a command, and with BLOOM_PERSON_BOUND_UID the agent user's "
+                    + "or 200000 or above, "
                     + "_CGROUP, _HOME, _PROVENANCE, _WORKTREE, _GATE, _NONCE and _GROUP all set and within their roots"
             )
         }
-        guard uidIsAvailable(uid) else { return refuse("uid \(uid) is already taken on this host") }
+        // A fresh uid has to be unused, or it is somebody else's. The agent user is shared on
+        // purpose, by every reservation and by the services, so it is always in use.
+        if uid != MachineSandbox.agentUID() {
+            guard uidIsAvailable(uid) else { return refuse("uid \(uid) is already taken on this host") }
+        }
 
         guard FileManager.default.fileExists(atPath: "/.sprite/api.sock") else {
             return refuse("there is no /.sprite/api.sock to mask, so this is not a machine a sandbox may run on")
@@ -653,8 +659,27 @@ enum PersonBoundSandboxExec {
         exited(status) ? (status >> 8) & 0xff : 128 + (status & 0x7f)
     }
 
+    /// A command named without a directory, found the way a shell would find it: on the `PATH`
+    /// the child is about to run with, checked as the uid it now is.
+    ///
+    /// **`execve` does not search `PATH`, and the sandbox this replaced used `setpriv`, which
+    /// does.** Agents are launched by name, `claude`, and found through the root-owned links in
+    /// `/usr/local/bin` that provisioning makes. So every agent turn on a Cloud workspace exited
+    /// 127 with "person-bound exec failed with errno 2" while the binary sat where it always had,
+    /// because every test launched an absolute path and no agent turn had run through this.
+    static func resolved(_ executable: String, path: String?) -> String {
+        guard !executable.contains("/") else { return executable }
+        for directory in (path ?? "/usr/local/bin:/usr/bin:/bin").split(separator: ":") where !directory.isEmpty {
+            let candidate = "\(directory)/\(executable)"
+            if access(candidate, X_OK) == 0 { return candidate }
+        }
+
+        return executable
+    }
+
     private static func execute(arguments: [String], environment: [String: String]) -> Never {
-        guard let executable = arguments.first else { _exit(127) }
+        guard let named = arguments.first else { _exit(127) }
+        let executable = resolved(named, path: environment["PATH"])
         let argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
         let envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
         defer {
@@ -668,7 +693,7 @@ enum PersonBoundSandboxExec {
                 }
             }
         }
-        let failure = "bloom-runner: person-bound exec failed with errno \(errno)\n"
+        let failure = "bloom-runner: person-bound exec of \(executable) failed with errno \(errno)\n"
         FileHandle.standardError.write(Data(failure.utf8))
         _exit(127)
     }

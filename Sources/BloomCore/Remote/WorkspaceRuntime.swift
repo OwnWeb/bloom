@@ -114,6 +114,10 @@ public actor WorkspaceRuntime {
     /// Where the agent bridge listens, or nil for no bridge tools at all, which is what tests and
     /// anything but a machine want. See `WorkspaceRuntime+Bridge`.
     let bridgeSocketPath: String?
+    /// Who may open the bridge's socket and read the config beside it. Left unset it follows
+    /// `sandbox`, which is how the Mac and the older sandbox chose; a machine whose agents run
+    /// under a person's own uid says so explicitly, because it passes no `sandbox` at all.
+    let bridgeAccess: BridgeServer.Access?
     /// The `bloom-bridge` binary each agent's MCP configuration names. Nil also means no bridge.
     let bridgeShimPath: String?
     /// Whether this workspace runs setup scripts at all, which a client is told so it can offer to
@@ -134,6 +138,7 @@ public actor WorkspaceRuntime {
         runnerExitGrace: Duration = .seconds(6),
         retiresRunnerAfterTurn: Bool = false,
         bridgeSocketPath: String? = nil,
+        bridgeAccess: BridgeServer.Access? = nil,
         bridgeShimPath: String? = BridgeRegistration.shimPath(),
         runsSetup: Bool = true,
         briefing: String? = nil,
@@ -155,6 +160,7 @@ public actor WorkspaceRuntime {
         self.briefing = briefing
         self.runsSetup = runsSetup
         self.bridgeSocketPath = bridgeSocketPath
+        self.bridgeAccess = bridgeAccess
         self.bridgeShimPath = bridgeShimPath
         self.publishing = publishing
         self.store = store

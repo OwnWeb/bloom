@@ -61,8 +61,20 @@ final class PersonBoundProcessRegistry: @unchecked Sendable {
     private let identifier: @Sendable () -> UUID
     private let cgroupRoot: String
     private let teardown: @Sendable (PersonBoundProcessIdentity?, Reservation) -> Bool
+    private let agentUID: UInt32?
 
+    /// `agentUID` runs every reservation as that one user, which is how a machine runs them.
+    ///
+    /// **A fresh uid per reservation cost more than it protected.** Every launch got the next
+    /// number from 200000, so a workspace's clone, its setup and each agent turn ran as different
+    /// users, even for one person, and every file one of them wrote was a permission boundary for
+    /// the next: git refused its own checkout, pushes refused it again, setup scripts could not
+    /// write, and the agent could not read its own MCP config. The people sharing a workspace
+    /// already share its checkout, its database and its services, so separating their Unix users
+    /// separated almost nothing. What keeps a reservation's credential its own is the launch
+    /// gate: the cgroup and process group it binds, which one uid does not change.
     init(
+        agentUID: UInt32? = nil,
         firstUID: UInt32 = 200_000,
         cgroupRoot: String = "/sys/fs/cgroup/bloom-person-bound",
         identity: @escaping @Sendable (Int32) -> PersonBoundProcessIdentity? = { PersonBoundProcIdentity.read($0) },
@@ -76,6 +88,7 @@ final class PersonBoundProcessRegistry: @unchecked Sendable {
         self.nonce = nonce
         self.identifier = identifier
         self.teardown = teardown
+        self.agentUID = agentUID
     }
 
     func reserve(_ purpose: PersonBoundProcessPurpose) -> Reservation? {
@@ -83,8 +96,10 @@ final class PersonBoundProcessRegistry: @unchecked Sendable {
             guard !state.cleanupFailed else { return nil }
             let id = identifier()
             let token = nonce()
-            let uid = state.nextUID
-            state.nextUID = state.nextUID == 299_999 ? 200_000 : state.nextUID + 1
+            let uid = agentUID ?? state.nextUID
+            if agentUID == nil {
+                state.nextUID = state.nextUID == 299_999 ? 200_000 : state.nextUID + 1
+            }
             let reservation = Reservation(
                 id: id, nonce: token, uid: uid,
                 cgroup: cgroupRoot + "/" + id.uuidString.lowercased(), purpose: purpose

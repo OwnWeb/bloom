@@ -83,6 +83,15 @@ public struct MachineSandbox: Sendable, Hashable {
     /// The sandbox this machine can actually use, or nil where it cannot: no such user, or one of
     /// the three tools missing. **Nil is not a failure to report; it is a Mac, or a machine built
     /// before the sandbox existed**, and the caller runs the command as it always did.
+    /// The uid every sandboxed process on this machine runs as, or nil on a host that has no
+    /// agent user, which is a Mac or a test host. Looked up rather than assumed, because the image
+    /// and provisioning decide the number and nothing here should.
+    public static func agentUID(user: String = "bloom-agent") -> UInt32? {
+        guard let entry = getpwnam(user) else { return nil }
+
+        return UInt32(entry.pointee.pw_uid)
+    }
+
     public static func available(user: String = "bloom-agent", home: String? = nil,
                                  maskedPaths: [String] = ["/.sprite/api.sock"],
                                  hasUser: (String) -> Bool = MachineSandbox.userExists,

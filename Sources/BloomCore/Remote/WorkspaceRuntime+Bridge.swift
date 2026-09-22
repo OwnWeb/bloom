@@ -20,7 +20,10 @@ extension WorkspaceRuntime {
     /// the queue restores is launched with its tools.
     func startBridge() throws {
         guard bridge == nil, let bridgeSocketPath else { return }
-        let access: BridgeServer.Access = sandbox == nil ? .ownerOnly : .sharedGroup
+        // **The person-bound machine passes no `sandbox`, so this used to pick owner only**, and
+        // an agent running under a person's uid could neither read its own MCP config nor reach
+        // the socket: claude exited 1 with "Invalid MCP configuration: ... EACCES".
+        let access: BridgeServer.Access = bridgeAccess ?? (sandbox == nil ? .ownerOnly : .sharedGroup)
         let server = BridgeServer(
             store: store,
             socketPath: bridgeSocketPath,

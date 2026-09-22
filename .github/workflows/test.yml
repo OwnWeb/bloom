@@ -763,6 +763,10 @@ jobs:
           RUN: ${{ github.run_number }}
         run: |
           set -euo pipefail
+          # Emptied first, because a cache saved before `runner-package` was excluded from it is
+          # still restored by the `restore-keys` prefix, and a stale tarball beside this run's made
+          # `tar -xzf package/*.tar.gz` below expand to two files and fail on the second.
+          rm -rf .build/runner-package
           # As the user that built it, because SwiftPM's lock on the build directory is that user's.
           runuser -u bloom-ci -- python3 Tools/package-linux-runner.py "$(runuser -u bloom-ci -- swift build --show-bin-path)" \
             .build/runner-package --version "0.0.0-ci.$RUN"

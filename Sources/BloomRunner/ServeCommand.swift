@@ -236,6 +236,7 @@ public enum ServeCommand {
             // Short and group-shared when the sandboxed agent has to reach it. A machine without
             // that second user keeps the socket beside its private data, as it did before.
             bridgeSocketPath: bridgeDirectory + "/bridge.sock",
+            bridgeAccess: .sharedGroup,
             runsSetup: configuration.runsSetup,
             briefing: BridgeBriefing.machine(
                 publicURL: configuration.publicURL, appPort: layout.appPort, reservedPorts: layout.reservedPorts

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import BloomRunner
 
@@ -36,3 +37,25 @@ struct SandboxRefusalTests {
         #expect(SandboxRefusal.advice(lines: [], user: "bloom-agent") == nil)
     }
 }
+
+#if os(Linux)
+@Suite("Person-bound exec")
+struct PersonBoundExecPathTests {
+    @Test("a command named without a directory is found on the child's PATH")
+    func bareCommandsAreFoundOnPath() throws {
+        // Agents are launched by name, and execve does not search PATH; the sandbox this
+        // replaced used setpriv, which does. Every agent turn exited 127 without this.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bloom-exec-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let tool = directory + "/some-agent"
+        _ = FileManager.default.createFile(atPath: tool, contents: Data("#!/bin/sh\n".utf8),
+                                       attributes: [.posixPermissions: 0o755])
+
+        #expect(PersonBoundSandboxExec.resolved("some-agent", path: "/nonexistent:" + directory) == tool)
+        #expect(PersonBoundSandboxExec.resolved("/bin/sh", path: directory) == "/bin/sh")
+        #expect(PersonBoundSandboxExec.resolved("not-anywhere", path: directory) == "not-anywhere")
+    }
+}
+#endif
