@@ -153,6 +153,17 @@ fi
 
 # 6. Both users in one checkout, and the Runner's own directory still private.
 $sudo_cmd chmod 0751 "$home"
+
+# Made here when it is missing, because nothing else can any more. The Runner's home is 0751 so
+# that `bloom-agent` may pass through it and not write in it, and since person-bound credentials
+# became the only path, the clone runs as `bloom-agent` rather than as the Runner. So git was
+# asked to create `$HOME/workspace` inside a directory it is deliberately not allowed to write to,
+# and every clone died with "could not create work tree dir: Permission denied". Owned by the
+# Runner, shared with the group, setgid so whatever either of them writes stays shared.
+if [[ ! -d "$worktree" ]]; then
+  $sudo_cmd install -d -o "$(id -un)" -g "$group" -m 2770 "$worktree"
+fi
+
 if [[ -d "$worktree" ]]; then
   $sudo_cmd chgrp -R "$group" "$worktree"
   $sudo_cmd chmod -R g+rwX "$worktree"
