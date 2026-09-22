@@ -15,6 +15,17 @@ import Synchronization
 /// the process still leaves runbloom.app knowing where things stood.
 public enum ServeCommand {
     public static func run(environment: [String: String] = ProcessInfo.processInfo.environment) async throws {
+        /*
+         * The worktree is shared between the Runner and `bloom-agent` through the `bloom-work`
+         * group, and setgid keeps new files in that group. It does not make them writable by it:
+         * with the default 022 a file lands 0644, so each of them could read the other's work and
+         * not change it. A checkout, a merge, the Runner writing into the repository, the agent
+         * editing a file the Runner made: all refused, while deleting the same file worked, because
+         * that needs the directory rather than the file. 002 is the umask a shared group directory
+         * wants, and the group has exactly these two members.
+         */
+        umask(0o002)
+
         var bootConfiguration = try MachineConfiguration.load(environment: environment)
         let layout = MachineLayout.from(environment: environment)
         try FileManager.default.createDirectory(atPath: layout.dataDirectory, withIntermediateDirectories: true,

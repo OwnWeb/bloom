@@ -197,6 +197,9 @@ enum PersonBoundSandboxExec {
             childEnvironment["HOME"] = home
             childEnvironment["USER"] = String(uid)
             childEnvironment["LOGNAME"] = String(uid)
+            // The same shared group umask the Runner uses, so whatever the agent writes in the
+            // worktree the Runner can still change, and the other way round.
+            umask(0o002)
             execute(arguments: Array(arguments.dropFirst()), environment: childEnvironment)
         }
 

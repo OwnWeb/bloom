@@ -164,6 +164,14 @@ if [[ ! -d "$worktree" ]]; then
   $sudo_cmd install -d -o "$(id -un)" -g "$group" -m 2770 "$worktree"
 fi
 
+# Both of them run git in this checkout, and only one of them owns it. Git refuses a repository
+# owned by somebody else with "detected dubious ownership", which is right on a laptop and wrong
+# here: this directory is shared between two accounts on purpose, both of them ours. Named
+# explicitly rather than by a wildcard, and system wide because whichever of them runs git needs it.
+if command -v git >/dev/null; then
+  $sudo_cmd git config --system --replace-all safe.directory "$worktree"
+fi
+
 if [[ -d "$worktree" ]]; then
   $sudo_cmd chgrp -R "$group" "$worktree"
   $sudo_cmd chmod -R g+rwX "$worktree"
