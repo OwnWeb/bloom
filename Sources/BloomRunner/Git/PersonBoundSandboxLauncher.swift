@@ -8,6 +8,15 @@ import Glibc
 private func linuxPtrace(
     _ request: Int32, _ pid: Int32, _ address: UnsafeMutableRawPointer?, _ data: UnsafeMutableRawPointer?
 ) -> Int
+
+/// Declared the way `ptrace` above is, and with the five argument shape something else in this
+/// build already gives it: a two argument one compiles on a Mac, where there is no `prctl` to
+/// disagree with, and fails the Linux build with "function type mismatch", which is the only build
+/// this code ever runs in.
+@_silgen_name("prctl")
+private func linuxPrctl(_ option: Int32, _ first: UInt, _ second: UInt, _ third: UInt, _ fourth: UInt) -> Int32
+
+private let prSetDumpable: Int32 = 4
 #endif
 
 struct PersonBoundLaunchRequest: Codable, Sendable, Hashable {
@@ -103,6 +112,22 @@ final class PersonBoundSandboxLauncher: @unchecked Sendable {
 /// private mount namespace. Its child drops to a fresh numeric uid, joins a fresh cgroup and blocks
 /// at the launch gate before `execve` replaces it with untrusted code.
 enum PersonBoundSandboxExec {
+    /// Every refusal below used to be a bare `return 1`, which is how a Cloud workspace spent a
+    /// night saying `live exchange (... output=[])` and nothing else: the most guarded path in the
+    /// Runner had no way to say which guard stopped it, and running it by hand printed nothing at
+    /// all. The reason is not a secret. Only root reaches this, through passwordless sudo, and a
+    /// machine that cannot launch a sandbox is broken rather than under attack.
+    /// The same, from the forked child, which has no return value to carry one.
+    private static func childRefusal(_ reason: String) {
+        FileHandle.standardError.write(Data("bloom-runner: sandbox-exec refused: \(reason)\n".utf8))
+    }
+
+    private static func refuse(_ reason: String) -> Int32 {
+        FileHandle.standardError.write(Data("bloom-runner: sandbox-exec refused: \(reason)\n".utf8))
+
+        return 1
+    }
+
     private enum ProtectedOperation {
         case git
         case gh
@@ -123,35 +148,75 @@ enum PersonBoundSandboxExec {
               let gate = environment["BLOOM_PERSON_BOUND_GATE"], gate == MachineSandbox.launchGateSocketPath,
               let nonce = environment["BLOOM_PERSON_BOUND_NONCE"], nonce.count >= 32,
               let group = environment["BLOOM_PERSON_BOUND_GROUP"], let groupEntry = group.withCString({ getgrnam($0) })
-        else { return 1 }
-        guard uidIsAvailable(uid) else { return 1 }
+        else {
+            return refuse(
+                "it must run as root, with `--` and a command, and with BLOOM_PERSON_BOUND_UID (200000 or above), "
+                    + "_CGROUP, _HOME, _PROVENANCE, _WORKTREE, _GATE, _NONCE and _GROUP all set and within their roots"
+            )
+        }
+        guard uidIsAvailable(uid) else { return refuse("uid \(uid) is already taken on this host") }
 
-        guard FileManager.default.fileExists(atPath: "/.sprite/api.sock"),
-              rootCommand("/usr/bin/mount", ["--bind", "/dev/null", "/.sprite/api.sock"]) == 0 else { return 1 }
+        guard FileManager.default.fileExists(atPath: "/.sprite/api.sock") else {
+            return refuse("there is no /.sprite/api.sock to mask, so this is not a machine a sandbox may run on")
+        }
+        guard rootCommand("/usr/bin/mount", ["--bind", "/dev/null", "/.sprite/api.sock"]) == 0 else {
+            return refuse("/dev/null could not be bind mounted over /.sprite/api.sock, which must be masked first")
+        }
         do {
             try FileManager.default.createDirectory(atPath: cgroup, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(atPath: provenance, withIntermediateDirectories: true)
-        } catch { return 1 }
+        } catch {
+            return refuse("the cgroup, home or provenance directory could not be made: \(error)")
+        }
         guard chown(home, uid, groupEntry.pointee.gr_gid) == 0, chmod(home, 0o700) == 0,
-              chown(provenance, 0, 0) == 0, chmod(provenance, 0o700) == 0 else { return 1 }
+              chown(provenance, 0, 0) == 0, chmod(provenance, 0o700) == 0 else {
+            return refuse("the home or provenance directory could not be given its owner and mode")
+        }
 
         let child = fork()
-        guard child >= 0 else { return 1 }
+        guard child >= 0 else { return refuse("this host would not fork") }
         if child == 0 {
             _ = setpgid(0, 0)
             let pid = String(getpid()) + "\n"
-            guard writeText(pid, to: cgroup + "/cgroup.procs") else { _exit(125) }
-            guard linuxPtrace(0, 0, nil, nil) == 0 else { _exit(125) } // PTRACE_TRACEME
+            guard writeText(pid, to: cgroup + "/cgroup.procs") else { childRefusal("the child could not join its cgroup"); _exit(125) }
+            guard linuxPtrace(0, 0, nil, nil) == 0 else { childRefusal("PTRACE_TRACEME was refused, so the supervisor could not watch the exec"); _exit(125) } // PTRACE_TRACEME
             _ = raise(SIGSTOP)
             var groups = [groupEntry.pointee.gr_gid]
             guard groups.withUnsafeMutableBufferPointer({ setgroups($0.count, $0.baseAddress) }) == 0,
                   setgid(groupEntry.pointee.gr_gid) == 0,
-                  setuid(uid) == 0 else { _exit(125) }
+                  setuid(uid) == 0 else {
+                childRefusal("the child could not drop to uid \(uid) in group \(group)")
+                _exit(125)
+            }
+
+            /*
+             * `setuid` clears this process's dumpable flag, and reading `/proc/<pid>/exe` or
+             * `environ` of a process that is not dumpable needs CAP_SYS_PTRACE. **A Cloud
+             * workspace's machine does not have it.** Root on a Sprite holds cap_dac_override,
+             * cap_net_admin and cap_sys_admin among others, and not that one, so the supervisor
+             * above could not identify a single exec and refused every sandbox, which stopped every
+             * workspace created after person-bound credentials became the Runner's only path. CI
+             * never saw it because its containers run `--privileged`, where the capability is
+             * present and the flag never matters.
+             *
+             * Put back here rather than asked for from the platform, because the platform is not
+             * ours to ask. What it costs is the window between this line and the credential
+             * shield's own `PR_SET_DUMPABLE, 0`, during which a process of this same uid could
+             * attach to this one. The only processes with this uid are this reservation's own, the
+             * uid is fresh per reservation, and no credential has been handed over yet: the token
+             * arrives through the broker after the exec the supervisor is about to identify. The
+             * shield still makes the credential-bearing process undumpable, and it still does so
+             * after the exec stop, so the supervisor reads the exec and the token stays hidden.
+             */
+            guard linuxPrctl(prSetDumpable, 1, 0, 0, 0) == 0 else {
+                childRefusal("the child could not make itself readable to its supervisor again")
+                _exit(125)
+            }
 
             let request = PersonBoundLaunchRequest(nonce: nonce)
             let answer: PersonBoundLaunchAnswer? = LocalCredentialClient.exchange(request, over: gate)
-            guard answer?.execute == true else { _exit(126) }
+            guard answer?.execute == true else { childRefusal("the launch gate did not answer execute for this nonce"); _exit(126) }
 
             var childEnvironment = environment
             let foundationSelfTest = childEnvironment["BLOOM_PERSON_BOUND_FOUNDATION_SELF_TEST"] == "1"
@@ -171,7 +236,8 @@ enum PersonBoundSandboxExec {
               let supervisorStart = environment["BLOOM_PERSON_BOUND_SUPERVISOR_START"].flatMap(UInt64.init)
         else {
             _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-            return 1
+
+            return refuse("BLOOM_PERSON_BOUND_SUPERVISOR_PID and _START name the Runner that must outlive this, and were not both set")
         }
         return supervise(
             leader: child, runnerPID: supervisorPID, runnerStart: supervisorStart,
@@ -240,7 +306,8 @@ enum PersonBoundSandboxExec {
               linuxPtrace(0x4200, leader, nil, UnsafeMutableRawPointer(bitPattern: options)) == 0
         else {
             _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-            return 1
+
+            return refuse("the sandbox leader did not stop for PTRACE_SETOPTIONS, so its execs cannot be watched")
         }
         var traced: Set<Int32> = [leader]
         var tainted: [Int32: Bool] = [leader: false]
@@ -264,18 +331,23 @@ enum PersonBoundSandboxExec {
             )
             guard cleanupProof != nil else {
                 _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-                return 1
+
+                return refuse("the cleanup proof process could not be started, which the self test requires")
             }
         }
         defer { _ = terminateAndReapCleanupProof(&cleanupProof) }
-        guard linuxPtrace(7, leader, nil, nil) == 0 else { return 1 } // PTRACE_CONT
+        guard linuxPtrace(7, leader, nil, nil) == 0 else {
+            return refuse("PTRACE_CONT was refused for the sandbox leader")
+        } // PTRACE_CONT
 
         while !traced.isEmpty {
             var status: Int32 = 0
             let waited = waitpid(-1, &status, 0x40000000 | WNOHANG) // __WALL
             if waited == 0 {
                 if leaderStatus != nil || PersonBoundProcIdentity.read(runnerPID)?.startTime != runnerStart {
-                    guard writeText("1\n", to: cgroup + "/cgroup.kill") else { return 1 }
+                    guard writeText("1\n", to: cgroup + "/cgroup.kill") else {
+                        return refuse("the Runner that reserved this sandbox is gone and its cgroup would not take a kill")
+                    }
                 }
                 usleep(10_000)
                 continue
@@ -283,18 +355,24 @@ enum PersonBoundSandboxExec {
             if waited < 0 {
                 if errno == EINTR { continue }
                 if errno == ECHILD, let leaderStatus {
+                    // Reached only with a leader status in hand; the refusal below is the other way out.
                     try? FileManager.default.removeItem(atPath: provenance)
-                    guard terminateAndReapCleanupProof(&cleanupProof) else { return 1 }
+                    guard terminateAndReapCleanupProof(&cleanupProof) else {
+                        return refuse("the cleanup proof process outlived the sandbox it was proving")
+                    }
+
                     return leaderStatus
                 }
-                return 1
+
+                return refuse("waiting on the sandbox failed with errno \(errno) before the leader reported a status")
             }
             if exited(status) || signalled(status) {
                 if let proof = cleanupProof, waited == proof {
                     cleanupProof = nil
                     guard leaderStatus != nil else {
                         _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-                        return 1
+
+                        return refuse("the cleanup proof process died while the sandbox it was proving was still running")
                     }
                     continue
                 }
@@ -395,7 +473,8 @@ enum PersonBoundSandboxExec {
                 guard let identity = command?.identity,
                       writeProvenance(identity, status: status, directory: provenance) else {
                     _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-                    return 1
+
+                    return refuse("an exec could not be identified or its provenance could not be written to \(provenance)")
                 }
                 let isGh = command?.environment["LD_PRELOAD"] == MachineSandbox.personBoundCredentialShield
                     && URL(fileURLWithPath: command?.executable ?? "").lastPathComponent == "gh"

@@ -36,7 +36,7 @@ struct TurnFooterView: View {
     /// backgrounded command is still going is not the agent being finished, and "Completed" on its
     /// own, under a tab that is still breathing, is what made that look like a stuck turn. See
     /// `BackgroundWork`.
-    var stillRunning: String?
+    var stillRunning: BackgroundWork.Note?
     var transcript: TranscriptModel?
     /// False when the completed turn disclosure above the response already carries the duration.
     var showsDuration = true
@@ -156,15 +156,40 @@ struct TurnFooterView: View {
                     .padding(.bottom, TranscriptLayout.inset)
             }
 
-            // Secondary rather than tertiary: unlike the retry note below, this is news now, and it
-            // is the answer to why the tab is still busy.
+            // A plate of its own because this is live state after the answer has ended. The extra
+            // air above it keeps it out of the answer's paragraph rhythm, and the quieter detail
+            // leaves the count as the line somebody can scan for.
             if let stillRunning {
-                Text(stillRunning)
-                    .font(Typo.caption)
-                    .foregroundStyle(Palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, TranscriptLayout.inset)
-                    .padding(.bottom, TranscriptLayout.inset)
+                HStack(alignment: .top, spacing: TranscriptLayout.glyphGap) {
+                    ActivityDot(isActive: true, tint: Palette.warning)
+                        .frame(width: TranscriptLayout.glyphWidth, height: TranscriptLayout.glyphWidth)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: Metrics.spacingHair) {
+                        Text(stillRunning.title)
+                            .font(Typo.captionEmphasis)
+                            .foregroundStyle(Palette.textSecondary)
+
+                        Text(stillRunning.detail)
+                            .font(Typo.caption)
+                            .foregroundStyle(Palette.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: TranscriptLayout.proseMeasure, alignment: .leading)
+                .padding(Metrics.inset)
+                .background(
+                    RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)
+                        .fill(Palette.surfaceSunken)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)
+                        .strokeBorder(Palette.border, lineWidth: Metrics.outline)
+                )
+                .padding(.horizontal, TranscriptLayout.inset)
+                .padding(.top, Metrics.gutter + TranscriptLayout.block)
+                .padding(.bottom, TranscriptLayout.inset)
+                .accessibilityElement(children: .combine)
             }
 
             // Tertiary rather than secondary, and under everything else: it explains a duration

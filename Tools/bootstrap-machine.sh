@@ -149,14 +149,27 @@ point_current_at() {
 
 point_current_at "$target"
 
-# The sandbox user, made or checked at every install and update, beside the version just unpacked.
-# **A failure here is not a failure of the update**: a machine whose provider will not make a user
-# runs everything as the Runner's user, as it did before the sandbox existed, and the Runner asks
-# `MachineSandbox.available` rather than assuming. The log says what happened either way.
+# The sandbox, made or checked at every install and update, beside the version just unpacked.
+#
+# **A failure here is a failure of the install, and used to be tolerated.** This ran with `|| echo`
+# and a comment saying a machine without the sandbox runs as the Runner's user, as it did before the
+# sandbox existed. That stopped being true when person-bound credentials became the only path the
+# Runner has: it now refuses to start at all without `/var/lib/bloom/person-bound*` and the
+# credential shield. On 21 September 2026 this failed quietly on a fresh machine, the install said
+# it had succeeded, and the Runner then crash-looped on `static host checks` with nothing anywhere
+# saying which of ten things was missing. A machine that cannot run the Runner must not be handed
+# over as one that can.
+#
+# The output is kept and printed on failure, because the reason is the whole value of finding out
+# here rather than from a service that exits 1 sixty seconds at a time.
 provision="$target/bin/provision-sandbox.sh"
 if [[ -x "$provision" ]]; then
-  BLOOM_WORKTREE="${BLOOM_WORKTREE:-$HOME/workspace}" BLOOM_DATA_DIR="${BLOOM_DATA_DIR:-$HOME/.bloom}" \
-    bash "$provision" || echo "bootstrap-machine: the sandbox user could not be made; running as $(id -un)" >&2
+  if ! provision_output="$(BLOOM_WORKTREE="${BLOOM_WORKTREE:-$HOME/workspace}" BLOOM_DATA_DIR="${BLOOM_DATA_DIR:-$HOME/.bloom}" bash "$provision" 2>&1)"; then
+    echo "bootstrap-machine: the person-bound sandbox could not be provisioned, so bloom-runner cannot start here." >&2
+    echo "$provision_output" >&2
+    exit 1
+  fi
+  echo "$provision_output"
 fi
 
 if [[ "$action" == "install" ]]; then

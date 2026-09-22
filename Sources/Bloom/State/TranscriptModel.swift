@@ -322,8 +322,8 @@ final class TranscriptModel {
     ///
     /// Stored rather than read off `subagents` by the transcript, because the roster moves on every
     /// `tool_progress` tick, about once a second per subagent, and the transcript's table reading
-    /// it would rebuild on each one. This moves only when the sentence does. See `BackgroundWork`.
-    private(set) var backgroundWork: String?
+    /// it would rebuild on each one. This moves only when the note does. See `BackgroundWork`.
+    private(set) var backgroundWork: BackgroundWork.Note?
 
     var draft = ""
 

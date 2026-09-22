@@ -387,9 +387,10 @@ enum PersonBoundPeerOperation {
         return value == "trusted\n"
     }
 
+    /// `PersonBoundTrustedExecutable` holds this rule now, so the attestor and the host checks
+    /// that decide whether the Runner starts cannot drift apart.
     private static func rootOwnedExecutablePath(_ path: String) -> Bool {
-        guard path.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: path) else { return false }
-        return rootOwnsPath(path)
+        PersonBoundTrustedExecutable.isTrusted(path)
     }
 
     private static func rootOwnedEmptyDirectory(_ path: String) -> Bool {
@@ -401,15 +402,7 @@ enum PersonBoundPeerOperation {
     }
 
     private static func rootOwnsPath(_ path: String) -> Bool {
-        var current = canonical(path)
-        while current != "/" {
-            guard let attributes = try? FileManager.default.attributesOfItem(atPath: current),
-                  (attributes[.ownerAccountID] as? NSNumber)?.uint32Value == 0,
-                  let mode = (attributes[.posixPermissions] as? NSNumber)?.uint16Value,
-                  mode & 0o022 == 0 else { return false }
-            current = URL(fileURLWithPath: current).deletingLastPathComponent().path
-        }
-        return true
+        PersonBoundTrustedExecutable.rootOwnsPath(path)
     }
     #endif
 }
