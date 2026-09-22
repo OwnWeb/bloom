@@ -182,6 +182,13 @@ struct WorkspaceRow: View {
                     if subagentCount > 0 {
                         subagentCountButton
                             .opacity(isHovered ? 0 : 1)
+                            // The one yielding thing here that is a control, and an invisible
+                            // control still takes clicks: hovering a row put a "Show subagents"
+                            // hit target nobody could see just inboard of the archive box, so
+                            // reaching for the archive occasionally folded a fan-out instead. The
+                            // counts and the tile beside it need no such line, because a label
+                            // takes nothing either way.
+                            .allowsHitTesting(!isHovered)
                     }
 
                     // In the layout, not overlaid, so a name shares the row with real counts
@@ -264,12 +271,18 @@ struct WorkspaceRow: View {
 
     // MARK: - Subagents
 
-    /// How many subagents this turn has, as the control that opens their rows.
+    /// How many subagents this turn has, as the control that folds their rows away.
     ///
-    /// A count rather than the rows themselves, because the rows are the loudest thing a turn does
-    /// to this pane: they arrive several at a time in the middle of the list, push everything below
-    /// them down, and leave a minute later. The one thing a reader needs at a glance is that a
-    /// fan-out is happening and how wide it is, which is this.
+    /// **It opened them, once, and the default was the other way round.** The argument for a count
+    /// standing in for the rows was that the rows are the loudest thing a turn does to this pane:
+    /// they arrive several at a time in the middle of the list, push everything below them down,
+    /// and leave a minute later. What that missed is that a reader who has to click to find out
+    /// what a fan-out is doing is a reader who does not know there is anything to click. The rows
+    /// are already bounded from the other end, which is what makes open affordable: a success is
+    /// gone 2.5 seconds after it lands, crosses stop at three, and a backgrounded command never
+    /// had a row at all. See `SubagentRetention`. So the count stays as the fold, for the
+    /// workspace that spawns a dozen, and the rows are drawn until somebody says otherwise. See
+    /// `SubagentDisclosure`.
     ///
     /// Set in the pane's smallest figure, in the accent, so it reads as a live count rather than as
     /// a badge. It yields to the hover controls like the diff stat beside it.

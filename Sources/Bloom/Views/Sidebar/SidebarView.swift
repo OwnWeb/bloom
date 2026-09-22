@@ -57,9 +57,9 @@ struct SidebarView: View {
     /// working, not a decision about how the app looks.
     @State private var foldedStatusGroups: Set<SidebarStatusGroup> = []
 
-    /// Which workspaces have their subagent rows open. Held here because the rows it controls are
-    /// built here, and emptied when a workspace's turn ends: see `reflow`.
-    @State private var expandedSubagents: Set<WorkspaceID> = []
+    /// Which workspaces have their subagent rows folded away. Held here because the rows it
+    /// controls are built here, and open by default: see `SubagentDisclosure`.
+    @State private var subagentDisclosure = SubagentDisclosure()
 
     /// What the list itself thinks is selected. See the `onChange` pair below for why this is not
     /// bound straight to the model.
@@ -248,7 +248,7 @@ struct SidebarView: View {
         // Opening or folding a workspace's subagent count. The identities above do not move when
         // this does: the same rows are in the pane either way, and this is the only thing that says
         // whether they are drawn.
-        .animation(subagentMotion, value: expandedSubagents)
+        .animation(subagentMotion, value: subagentDisclosure)
         .settlesArrivals($arrival)
         .settlesArrivals($childArrival)
         // The note takes itself back, and each one is on its own clock.
@@ -523,12 +523,8 @@ struct SidebarView: View {
     }
 
     /// Opens or folds one workspace's subagent rows.
-    ///
-    /// The set is not tidied when a turn ends. A workspace whose subagents have gone contributes no
-    /// rows either way, and forgetting that somebody had opened them would refold the next fan-out
-    /// in the same workspace under the pointer that opened the last one.
     private func toggleSubagents(_ id: WorkspaceID) {
-        if expandedSubagents.remove(id) == nil { expandedSubagents.insert(id) }
+        subagentDisclosure.toggle(id)
         reflow()
     }
 
@@ -675,7 +671,7 @@ struct SidebarView: View {
                 crew: app.crew(of:),
                 subagents: app.subagents(of:),
                 pending: pending(in:),
-                showsSubagents: expandedSubagents.contains
+                showsSubagents: subagentDisclosure.shows
             )
         case .status:
             let names = Dictionary(
@@ -698,7 +694,7 @@ struct SidebarView: View {
                 crew: app.crew(of:),
                 subagents: app.subagents(of:),
                 pending: app.pendingWorkspaces,
-                showsSubagents: expandedSubagents.contains
+                showsSubagents: subagentDisclosure.shows
             )
         }
     }
@@ -858,7 +854,7 @@ struct SidebarView: View {
             trailingRepo: grouping == .status
                 ? app.repos.first { $0.id == workspace.repoID }
                 : nil,
-            isShowingSubagents: expandedSubagents.contains(workspace.id),
+            isShowingSubagents: subagentDisclosure.shows(workspace.id),
             onToggleSubagents: { toggleSubagents(workspace.id) },
             showsDiffStats: showsDiffStats,
             renaming: $renaming,
