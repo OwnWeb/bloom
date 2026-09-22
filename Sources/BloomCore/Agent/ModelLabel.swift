@@ -49,7 +49,7 @@ public enum ModelLabel {
 
         for (index, part) in parts.enumerated() {
             if index > 0 {
-                result += isNumeric(part) && isNumeric(parts[index - 1]) ? "." : " "
+                result += isNumeric(versionPart(of: part)) && isNumeric(parts[index - 1]) ? "." : " "
             }
             result += part
         }
@@ -61,5 +61,12 @@ public enum ModelLabel {
     /// as a version this model does not have.
     private static func isNumeric(_ part: String) -> Bool {
         !part.isEmpty && part.allSatisfy(\.isNumber)
+    }
+
+    /// The part without the window `tidy` turned its brackets into. The CLI writes the window onto
+    /// the last version part, so `claude-opus-5-5[1m]` arrives as `5` and `5 (1m)`, and without
+    /// this the second never counted as a number and the chip read "Opus 5 5 (1m)".
+    private static func versionPart(of part: String) -> String {
+        part.components(separatedBy: " (").first ?? part
     }
 }

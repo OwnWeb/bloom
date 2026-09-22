@@ -1,7 +1,7 @@
 import BloomCore
 
 /// One entry in a footer picker. The id is what gets written to `Session`, the label is what the
-/// user reads, and the two are different on purpose: the CLI wants `opus`, the user wants Opus 5.
+/// user reads, and the two are different on purpose: the CLI wants `opus`, the user wants Opus 5.5.
 struct ComposerOption: Identifiable, Hashable {
     var id: String
     var label: String
@@ -25,7 +25,7 @@ struct ComposerOption: Identifiable, Hashable {
     /// under them.
     static let models = [
         ComposerOption(id: "fable", label: "Fable 5.1"),
-        ComposerOption(id: "opus", label: "Opus 5"),
+        ComposerOption(id: "opus", label: "Opus 5.5"),
         ComposerOption(id: "sonnet", label: "Sonnet 5"),
         ComposerOption(id: "haiku", label: "Haiku 4.5"),
     ]
@@ -64,7 +64,7 @@ struct ComposerOption: Identifiable, Hashable {
     ///
     /// - Parameter names: more rows to take a label from, for an id that is not on `options`. The
     ///   model menu passes the written Claude list here once the CLI's has replaced it, so a chat
-    ///   still set to `opus`, which the CLI now lists as `opus[1m]`, reads "Opus 5" rather than
+    ///   still set to `opus`, which the CLI now lists as `opus[1m]`, reads "Opus 5.5" rather than
     ///   a tidied "Opus".
     static func adding(_ extras: [String], to options: [ComposerOption], names: [ComposerOption] = []) -> [ComposerOption] {
         var known = Set(options.map(\.id))

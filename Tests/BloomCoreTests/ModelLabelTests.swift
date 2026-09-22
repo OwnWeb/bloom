@@ -28,6 +28,13 @@ struct ModelLabelTests {
         #expect(ModelLabel.readable("claude-opus-5[1m]") == "Opus 5 (1m)")
     }
 
+    /// What the CLI resolves `opus[1m]` to since Opus 5.5: the window rides on the minor version.
+    @Test("a window on the minor version still leaves the version whole")
+    func contextWindowOnMinorVersion() {
+        #expect(ModelLabel.readable("claude-opus-5-5[1m]") == "Opus 5.5 (1m)")
+        #expect(ModelLabel.readable("claude-fable-5-1[1m]") == "Fable 5.1 (1m)")
+    }
+
     @Test("the vendor prefix goes, because inside Bloom every model is a Claude model")
     func vendorIsDropped() {
         #expect(ModelLabel.readable("claude-haiku-4-5") == "Haiku 4.5")

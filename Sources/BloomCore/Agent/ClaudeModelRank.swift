@@ -10,7 +10,7 @@ import Foundation
 ///
 /// **Price is what decides it**, because it is the only published number that ranks these four
 /// against each other, and because it is what the owner asked to sort by. Per million tokens, in
-/// and out: Fable 5 at $10 and $50, Opus 5 at $5 and $25, Sonnet 5 at $2 and $10, Haiku 4.5 at $1
+/// and out: Fable 5.1 at $10 and $50, Opus 5.5 at $4 and $20, Sonnet 5 at $2 and $10, Haiku 4.5 at $1
 /// and $5. That order is a fact about the vendor's price list rather than a taste of ours, which
 /// is the point: it can be checked, and it is why Fable leads a list that used to open with Opus.
 ///

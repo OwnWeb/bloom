@@ -22,6 +22,7 @@ struct ModelAliasTests {
         ("haiku-4-5", "claude-haiku-4-5"),
         ("sonnet-5-1m", "claude-sonnet-5[1m]"),
         ("fable-5-1", "claude-fable-5-1"),
+        ("opus-5-5-1m", "claude-opus-5-5[1m]"),
     ])
     func translatesTheFamily(conductorID: String, cliID: String) {
         #expect(ModelAlias.cliValue(for: conductorID) == cliID)
