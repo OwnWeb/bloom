@@ -669,6 +669,28 @@ public actor MachineSetup {
     /// start would otherwise run the scripts on the default branch of a half-made repository.
     static let clonedSetting = "remote.setup.cloned"
 
+    /// The checkout both accounts work in, remade before every clone.
+    ///
+    /// **Provisioning makes this directory and the line above deletes it**, which is correct, since
+    /// a clone starts from nothing. What was missing is putting it back with the sharing it was
+    /// given: the clone runs as `bloom-agent`, the Runner's home is 0751 so that account cannot
+    /// create anything in it, and git answered "could not create work tree dir: Permission denied"
+    /// on every workspace. Owned by the Runner, group `bloom-work`, setgid so that whatever either
+    /// account writes stays shared, and group-writable so the other one can change it.
+    private func makeSharedWorktree(_ worktree: String) {
+        let parent = (worktree as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(atPath: worktree, withIntermediateDirectories: true)
+
+        #if canImport(Glibc)
+        if let entry = MachineSandbox.sharedGroup.withCString({ getgrnam($0) }) {
+            // uid_t(bitPattern:) of -1 leaves the owner alone, which is what chown wants here.
+            _ = chown(worktree, uid_t(bitPattern: -1), entry.pointee.gr_gid)
+        }
+        _ = chmod(worktree, 0o2770)
+        #endif
+    }
+
     private func cloneIfNeeded(environment: [String: String], log: SetupLog, continuing: Bool = false) async -> Bool {
         let worktree = layout.worktree
         let cloned = (try? await store.setting(Self.clonedSetting)) == "1"
@@ -680,7 +702,7 @@ public actor MachineSetup {
         // Only an earlier attempt of this step has written here. Prompts wait for setup, so before
         // the clone is marked finished there is no work of anybody's in it to lose.
         try? FileManager.default.removeItem(atPath: worktree)
-        try? FileManager.default.createDirectory(atPath: (worktree as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        makeSharedWorktree(worktree)
         var succeeded = await runProcess(
             "git", ["clone", cloneURL(configuration.repository), worktree],
             directory: nil, timeout: timeouts.clone, environment: environment, log: log,
