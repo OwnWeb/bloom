@@ -157,8 +157,8 @@ struct TurnFooterView: View {
             }
 
             // A plate of its own because this is live state after the answer has ended. The extra
-            // air above it keeps it out of the answer's paragraph rhythm, and the quieter detail
-            // leaves the count as the line somebody can scan for.
+            // air above it keeps it out of the answer's paragraph rhythm, and the loud line is the
+            // task's own name, which is the one thing somebody reads this plate for.
             if let stillRunning {
                 HStack(alignment: .top, spacing: TranscriptLayout.glyphGap) {
                     ActivityDot(isActive: true, tint: Palette.warning)
@@ -170,10 +170,20 @@ struct TurnFooterView: View {
                             .font(Typo.captionEmphasis)
                             .foregroundStyle(Palette.textSecondary)
 
-                        Text(stillRunning.detail)
-                            .font(Typo.caption)
-                            .foregroundStyle(Palette.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        // The note owns when the work began; this clock only redraws the readout,
+                        // and it is drawn here rather than carried in the note so that a
+                        // `tool_progress` tick a second does not rebuild the table. See
+                        // `BackgroundWork.Note.since`.
+                        if stillRunning.isTimed {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                detailLine(stillRunning.detail(at: context.date))
+                            }
+                            .transaction { $0.animation = nil }
+                        } else {
+                            // Several tasks, whose clocks differ, so there is nothing ticking to
+                            // draw and nothing for a timeline to redraw.
+                            detailLine(stillRunning.detail(at: .now))
+                        }
                     }
                 }
                 .frame(maxWidth: TranscriptLayout.proseMeasure, alignment: .leading)
@@ -204,6 +214,15 @@ struct TurnFooterView: View {
             }
         }
         .task(id: "\(row.seq):\(checkpoint?.after?.id.rawValue ?? "legacy")") { await scanFiles() }
+    }
+
+    /// The quiet second line of the running plate, whether or not a clock is redrawing it.
+    private func detailLine(_ text: String) -> some View {
+        Text(text)
+            .font(Typo.caption)
+            .foregroundStyle(Palette.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private static func durationLabel(outcome: TurnEnding, milliseconds: Int) -> String {

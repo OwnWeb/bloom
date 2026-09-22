@@ -4,15 +4,26 @@ import Foundation
 
 /// The sentence under a finished turn naming what the agent left running. See `BackgroundWork`.
 @Suite struct BackgroundWorkTests {
+    /// A fixed start, so the clock in the quiet line is a fact of the test rather than of when it ran.
+    private let started = Date(timeIntervalSince1970: 1_000_000)
+
     private func command(_ description: String, state: SubagentState = .running) -> Subagent {
         Subagent(
             id: SubagentID(UUID().uuidString), description: description,
-            taskType: "local_bash", state: state
+            taskType: "local_bash", state: state, startedAt: started
         )
     }
 
     private func agent(_ description: String) -> Subagent {
-        Subagent(id: SubagentID(UUID().uuidString), description: description, taskType: "local_agent")
+        Subagent(
+            id: SubagentID(UUID().uuidString), description: description,
+            taskType: "local_agent", startedAt: started
+        )
+    }
+
+    /// The quiet line a given number of seconds into the wait.
+    private func detail(_ note: BackgroundWork.Note?, after seconds: Int) -> String? {
+        note?.detail(at: started.addingTimeInterval(TimeInterval(seconds)))
     }
 
     @Test func nothingRunningSaysNothing() {
@@ -20,11 +31,21 @@ import Foundation
         #expect(BackgroundWork.note(for: [command("Done already", state: .completed)]) == nil)
     }
 
-    /// The case the screenshot was of.
-    @Test func oneCommandIsNamed() {
+    /// The case the screenshot was of. The name leads, because it is the only line anybody
+    /// reads this plate for.
+    @Test func oneCommandLeadsWithItsName() {
         let note = BackgroundWork.note(for: [command("Wait for the PR's Test run to finish")])
-        #expect(note?.title == "A background command running")
-        #expect(note?.detail == "Wait for the PR's Test run to finish.")
+        #expect(note?.title == "Wait for the PR's Test run to finish")
+        #expect(detail(note, after: 252) == "Background command, running 4m 12s")
+    }
+
+    /// The second question after "something is still running" is "how long".
+    @Test func theClockStartsOnceThereIsOneToRead() {
+        let note = BackgroundWork.note(for: [command("Serve the app")])
+        #expect(note?.isTimed == true)
+        #expect(detail(note, after: 0) == "Background command, running")
+        #expect(detail(note, after: 9) == "Background command, running 9s")
+        #expect(detail(note, after: 7_260) == "Background command, running 2h 1m")
     }
 
     @Test func finishedOnesAreLeftOut() {
@@ -32,32 +53,39 @@ import Foundation
             command("Wait for main head's Test run to finish", state: .completed),
             command("Wait for the PR's Test run to finish"),
         ])
-        #expect(note?.title == "A background command running")
-        #expect(note?.detail == "Wait for the PR's Test run to finish.")
+        #expect(note?.title == "Wait for the PR's Test run to finish")
+        #expect(detail(note, after: 30) == "Background command, running 30s")
     }
 
+    /// More than one and the count takes the lead back, because three names do not fit in it.
     @Test func severalOfOneKindAreCountedAndNamed() {
         let note = BackgroundWork.note(for: [command("Build"), command("Test")])
-        #expect(note?.title == "2 background commands running")
-        #expect(note?.detail == "Build and Test.")
+        #expect(note?.title == "2 background commands still running")
+        #expect(detail(note, after: 30) == "Build and Test")
     }
 
-    @Test func aSubagentTakesAnArticleThatReads() {
+    /// Two clocks cannot be read from one line, so several tasks draw none and nothing ticks.
+    @Test func severalTasksCarryNoClock() {
+        let note = BackgroundWork.note(for: [command("Build"), command("Test")])
+        #expect(note?.isTimed == false)
+    }
+
+    @Test func aSubagentIsNamedTheSameWay() {
         let note = BackgroundWork.note(for: [agent("Audit the parser")])
-        #expect(note?.title == "A subagent running")
-        #expect(note?.detail == "Audit the parser.")
+        #expect(note?.title == "Audit the parser")
+        #expect(detail(note, after: 30) == "Subagent, running 30s")
     }
 
     @Test func mixedKindsShareOneNoun() {
         let note = BackgroundWork.note(for: [command("Build"), agent("Audit the parser")])
-        #expect(note?.title == "2 background tasks running")
-        #expect(note?.detail == "Build and Audit the parser.")
+        #expect(note?.title == "2 background tasks still running")
+        #expect(detail(note, after: 30) == "Build and Audit the parser")
     }
 
     @Test func aLongListIsCut() {
         let note = BackgroundWork.note(for: ["A", "B", "C", "D", "E"].map { command($0) })
-        #expect(note?.title == "5 background commands running")
-        #expect(note?.detail == "A, B, C and 2 more.")
+        #expect(note?.title == "5 background commands still running")
+        #expect(detail(note, after: 30) == "A, B, C and 2 more")
     }
 
     @Test func anArchiveThatStoppedNothingSaysNothing() {
