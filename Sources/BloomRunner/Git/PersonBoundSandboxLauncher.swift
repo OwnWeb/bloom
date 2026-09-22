@@ -9,14 +9,6 @@ private func linuxPtrace(
     _ request: Int32, _ pid: Int32, _ address: UnsafeMutableRawPointer?, _ data: UnsafeMutableRawPointer?
 ) -> Int
 
-/// Declared the way `ptrace` above is, and with the five argument shape something else in this
-/// build already gives it: a two argument one compiles on a Mac, where there is no `prctl` to
-/// disagree with, and fails the Linux build with "function type mismatch", which is the only build
-/// this code ever runs in.
-@_silgen_name("prctl")
-private func linuxPrctl(_ option: Int32, _ first: UInt, _ second: UInt, _ third: UInt, _ fourth: UInt) -> Int32
-
-private let prSetDumpable: Int32 = 4
 #endif
 
 struct PersonBoundLaunchRequest: Codable, Sendable, Hashable {
@@ -187,30 +179,6 @@ enum PersonBoundSandboxExec {
                   setgid(groupEntry.pointee.gr_gid) == 0,
                   setuid(uid) == 0 else {
                 childRefusal("the child could not drop to uid \(uid) in group \(group)")
-                _exit(125)
-            }
-
-            /*
-             * `setuid` clears this process's dumpable flag, and reading `/proc/<pid>/exe` or
-             * `environ` of a process that is not dumpable needs CAP_SYS_PTRACE. **A Cloud
-             * workspace's machine does not have it.** Root on a Sprite holds cap_dac_override,
-             * cap_net_admin and cap_sys_admin among others, and not that one, so the supervisor
-             * above could not identify a single exec and refused every sandbox, which stopped every
-             * workspace created after person-bound credentials became the Runner's only path. CI
-             * never saw it because its containers run `--privileged`, where the capability is
-             * present and the flag never matters.
-             *
-             * Put back here rather than asked for from the platform, because the platform is not
-             * ours to ask. What it costs is the window between this line and the credential
-             * shield's own `PR_SET_DUMPABLE, 0`, during which a process of this same uid could
-             * attach to this one. The only processes with this uid are this reservation's own, the
-             * uid is fresh per reservation, and no credential has been handed over yet: the token
-             * arrives through the broker after the exec the supervisor is about to identify. The
-             * shield still makes the credential-bearing process undumpable, and it still does so
-             * after the exec stop, so the supervisor reads the exec and the token stays hidden.
-             */
-            guard linuxPrctl(prSetDumpable, 1, 0, 0, 0) == 0 else {
-                childRefusal("the child could not make itself readable to its supervisor again")
                 _exit(125)
             }
 
@@ -462,7 +430,7 @@ enum PersonBoundSandboxExec {
                 }
                 traced.insert(waited)
                 threadGroups[waited] = waited
-                let command = tracedCommand(waited)
+                let command = tracedCommand(waited, uid: proofUID, group: proofGroup)
                 let controlled = command.map {
                     PersonBoundPeerOperation.repositoryControlled($0, worktree: worktree)
                 } ?? true
@@ -635,12 +603,68 @@ enum PersonBoundSandboxExec {
         return succeeded
     }
 
-    private static func tracedCommand(_ pid: Int32) -> PersonBoundPeerOperation.Command? {
+    /// What just exec'd, read as the uid it runs as rather than as root.
+    ///
+    /// **A Cloud workspace's machine grants root everything except CAP_SYS_PTRACE.** Its effective
+    /// set is `00000000a82435fb`, sys_admin and net_admin included and sys_ptrace not, and
+    /// `/proc/<pid>/exe` and `cwd` go through `ptrace_may_access`, which admits a reader on a uid
+    /// and gid match or on that capability and nothing else. So the supervisor, root and a
+    /// different uid from everything it supervises, could read neither, identified no exec, and
+    /// refused every sandbox it was asked to run. No workspace started for a day.
+    ///
+    /// Measured on a machine and again in a container given the same sixteen capabilities: as root
+    /// both links are "Permission denied", as the process's own uid and group both read, and with
+    /// the uid matching but the gid not they are denied again, which is why the group is passed.
+    ///
+    /// The child is reaped here rather than by the loop above. `supervise` is synchronous, so
+    /// while it is inside this nothing else is calling `waitpid`, and its tracee bookkeeping cannot
+    /// see a pid that was never a tracee.
+    private static func tracedCommand(_ pid: Int32, uid: UInt32, group: UInt32) -> PersonBoundPeerOperation.Command? {
         for _ in 0..<10 {
-            if let command = PersonBoundPeerOperation.liveCommand(pid) { return command }
+            if let command = commandAsOwner(pid, uid: uid, group: group) { return command }
             usleep(1_000)
         }
+
         return nil
+    }
+
+    private static func commandAsOwner(_ pid: Int32, uid: UInt32, group: UInt32) -> PersonBoundPeerOperation.Command? {
+        var descriptors: [Int32] = [0, 0]
+        guard pipe(&descriptors) == 0 else { return nil }
+
+        let child = fork()
+
+        guard child >= 0 else {
+            close(descriptors[0])
+            close(descriptors[1])
+
+            return nil
+        }
+
+        if child == 0 {
+            close(descriptors[0])
+            if setgid(group) == 0, setuid(uid) == 0,
+               let command = PersonBoundPeerOperation.liveCommand(pid),
+               let encoded = try? JSONEncoder().encode(command) {
+                encoded.withUnsafeBytes { _ = write(descriptors[1], $0.baseAddress, $0.count) }
+            }
+            close(descriptors[1])
+            _exit(0)
+        }
+
+        close(descriptors[1])
+        var answer = Data()
+        var buffer = [UInt8](repeating: 0, count: 4_096)
+        while true {
+            let count = read(descriptors[0], &buffer, buffer.count)
+            guard count > 0 else { break }
+            answer.append(contentsOf: buffer[0..<count])
+        }
+        close(descriptors[0])
+        var status: Int32 = 0
+        _ = waitpid(child, &status, 0)
+
+        return try? JSONDecoder().decode(PersonBoundPeerOperation.Command.self, from: answer)
     }
 
     private static func processThreadGroup(_ pid: Int32) -> Int32? {

@@ -18,7 +18,7 @@ struct PersonBoundOperationAttestation: Codable, Sendable, Hashable {
 /// in the chain is read twice and then re-read after classification, including PID, UID, start
 /// time, cgroup and process group. No request or sandbox environment chooses the operation.
 enum PersonBoundPeerOperation {
-    struct Command: Sendable, Equatable {
+    struct Command: Codable, Sendable, Equatable {
         var identity: PersonBoundProcessIdentity
         var parentPID: Int32
         var executable: String
