@@ -28,6 +28,9 @@ final class CloudWorkspaceSession {
     private(set) var composerChange: (chatID: String, name: String)?
     /// A new chat being opened.
     private(set) var isOpeningChat = false
+    /// When this window saw each step of the workspace's build begin and end. See
+    /// `CloudWorkspaceSession+Setup.swift`.
+    var setupClock = CloudSetupClock()
     /// Closed chats the machine currently offers back through the shared new-tab menu.
     private(set) var closedChats: [ClosedChat] = []
 

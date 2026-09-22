@@ -76,6 +76,10 @@ extension WorkspaceModel {
     /// The pane's own sentences say everything a local workspace has to say.
     var emptyPaneNotice: PaneEmptyNotice? { nil }
 
+    /// A worktree's setup is a row in its transcript, and the pane says so in its own words.
+    var showsSetupCard: Bool { false }
+    func setupCard() -> EmptyView { EmptyView() }
+
     func isRunningChat(_ id: SessionID) -> Bool {
         sessions.first { $0.id == id }.map(isRunning) ?? false
     }

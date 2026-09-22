@@ -89,6 +89,19 @@ enum ReviewRunProbe {
             exit(failures.isEmpty ? 0 : 1)
         }
 
+        if CommandLine.arguments.contains("--cloud-setup-only"),
+           let directory = ProbeHarness.value(for: "--review-run-probe") {
+            progress("Drawing a new Cloud workspace's setup card at each stage")
+            let written = CloudSetupGallery.render(into: directory)
+            check(written.count == 8, "the gallery drew \(written.count) of the eight images")
+            let result: JSONValue = .object([
+                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
+                "images": .strings(written),
+            ])
+            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         if CommandLine.arguments.contains("--cloud-archive-only"),
            let directory = ProbeHarness.value(for: "--review-run-probe") {
             progress("Checking the Bloom Cloud delete confirmation")

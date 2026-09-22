@@ -583,6 +583,7 @@ struct TranscriptListView: View {
                     $0.combine(surfaceID.storageKey)
                     $0.combine(isRunningSetup)
                     $0.combine(transcript.hasNothingToShow)
+                    $0.combine(transcript.rows.isEmpty)
                     $0.combine(Int(paneHeight))
                 },
                 content: {
@@ -606,6 +607,7 @@ struct TranscriptListView: View {
                                 // bubble on screen, "You can ask for something now" is answered by
                                 // the bubble.
                                 isFirstThing: transcript.hasNothingToShow,
+                                isBeforeFirstTurn: transcript.rows.isEmpty,
                                 paneHeight: paneHeight,
                                 onVisibilityChange: { showsSetup = $0 },
                                 onShowLogEnd: { wasAsked in showSetupLogEnd(wasAsked: wasAsked) }

@@ -129,6 +129,12 @@ protocol WorkspaceSurface: AnyObject, Observable {
     /// `PaneEmptyNotice`.
     var emptyPaneNotice: PaneEmptyNotice? { get }
 
+    /// Whether this workspace is being built and draws its build in an empty pane, ahead of any
+    /// notice. Only a Cloud workspace is ever built in front of somebody: see `CloudSetupCard`.
+    var showsSetupCard: Bool { get }
+    associatedtype SetupCard: View
+    @MainActor func setupCard() -> SetupCard
+
     /// Whether an agent is mid turn in this one chat, which is what lights its tab.
     func isRunningChat(_ id: SessionID) -> Bool
 

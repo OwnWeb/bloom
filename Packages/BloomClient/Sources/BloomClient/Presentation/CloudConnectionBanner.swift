@@ -76,7 +76,11 @@ public struct CloudConnectionBanner: Sendable, Hashable {
         self.dismissalKey = dismissalKey
     }
 
-    public static func of(_ phase: WorkspaceConnection.Phase) -> CloudConnectionBanner? {
+    /// - Parameter isBuilding: whether the setup card is on screen. **A machine that is not ready
+    ///   yet is the card's first step**, "Creating the machine", so a banner saying the same over
+    ///   it is the one sentence drawn twice that the recording of a first workspace opened on.
+    public static func of(_ phase: WorkspaceConnection.Phase, isBuilding: Bool = false) -> CloudConnectionBanner? {
+        if isBuilding, case .notReady = phase { return nil }
         switch phase {
         case .closed, .live, .connecting(waking: false):
             return nil

@@ -79,7 +79,9 @@ struct CenterPaneView<Model: WorkspaceSurface>: View {
             // notice: that is the workspace saying something about this exact moment, and both
             // are centred in this pane, so drawing the two printed one through the other. A
             // notice that wants a spinner carries it itself. See `PaneEmptyNotice.progress`.
-            guard !model.isRunningSetup, !model.hasReadChats, model.emptyPaneNotice == nil else { return nil }
+            guard !model.isRunningSetup, !model.hasReadChats, model.emptyPaneNotice == nil, !model.showsSetupCard else {
+                return nil
+            }
             return .sessions(model.surfaceID)
         }
     }
@@ -139,7 +141,11 @@ struct CenterPaneView<Model: WorkspaceSurface>: View {
                 // gap between a session being known and its transcript being built, which is one
                 // turn of the run loop on almost every switch: a spinner drawn for it flickered.
                 // The wait is `waiting` above, and it is only drawn if it lasts.
-                waitingSurface
+                //
+                // **Except for a workspace being built**, where this gap is the moment its first
+                // chat arrives, and a blank pane there is what the recording of a new Cloud
+                // workspace showed between the two halves of its setup. The card stays put.
+                if model.showsSetupCard { model.setupCard() } else { waitingSurface }
             } else if !model.hasReadChats {
                 // Same rule as the `nil` case below: a session this pane was restored pointing at
                 // is not missing until the store has been asked.
@@ -160,7 +166,9 @@ struct CenterPaneView<Model: WorkspaceSurface>: View {
             }
 
         case nil:
-            if let notice = model.emptyPaneNotice {
+            if model.showsSetupCard {
+                model.setupCard()
+            } else if let notice = model.emptyPaneNotice {
                 EmptyStateView(
                     glyph: notice.glyph, title: notice.title, message: notice.message,
                     actionTitle: notice.actionTitle, action: notice.action, progress: notice.progress

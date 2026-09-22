@@ -196,8 +196,12 @@ public enum CloudQueueCaption {
         first: Delivery?, isRunning: Bool, isAwaitingAnswer: Bool, queueError: String?, isSettingUp: Bool = false
     ) -> String? {
         guard let first else { return nil }
+        // **Six words, where there were nineteen.** The long sentence ran the full width of the
+        // conversation beside a message two words long, and the setup card above it already says
+        // the workspace is being set up. What is left to say here is only what happens to this
+        // message, which is runbloom.app's wording for the same moment.
         if isSettingUp, first.block == nil, first.state != .uncertain {
-            return "This Cloud workspace is still setting up. Your message goes to the agent as soon as it is ready."
+            return "Sends when the workspace is ready."
         }
         if let block = first.block {
             let tail = block.clearsByItself

@@ -31,6 +31,17 @@ public enum CloudSetupStep {
         return names[step]?.short ?? step
     }
 
+    /// The step a heading in the log announces, read back from the machine's own sentence:
+    /// "Running the prepare script." is `prepare`. Nil for any other line, which is what lets a
+    /// reader of the log tell where one step ends and the next begins. The long forms are the
+    /// machine's headings word for word, so this is the same table read the other way.
+    public static func step(forHeading heading: String?) -> String? {
+        guard let heading else { return nil }
+        var plain = heading.trimmingCharacters(in: .whitespaces).lowercased()
+        while plain.hasSuffix(".") { plain.removeLast() }
+        return names.first { $0.value.long == plain }?.key
+    }
+
     private static func named(_ step: String?) -> String? {
         guard let step, !step.isEmpty else { return nil }
         return step

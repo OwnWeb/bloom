@@ -72,6 +72,9 @@ import Testing
         #expect(CloudQueueCaption.sentence(first: plain, isRunning: true, isAwaitingAnswer: false, queueError: nil) == "Goes when this turn ends.")
         #expect(CloudQueueCaption.sentence(first: plain, isRunning: false, isAwaitingAnswer: false, queueError: nil) == nil)
         #expect(CloudQueueCaption.sentence(first: nil, isRunning: true, isAwaitingAnswer: false, queueError: nil) == nil)
+        // Setting up says only what happens to the message: the card above says the rest.
+        #expect(CloudQueueCaption.sentence(first: plain, isRunning: false, isAwaitingAnswer: false, queueError: nil, isSettingUp: true)
+            == "Sends when the workspace is ready.")
     }
 }
 

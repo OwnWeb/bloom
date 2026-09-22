@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import BloomClient
 import BloomCore
 
 /// What Bloom did to this workspace, at the top of its transcript.
@@ -35,6 +36,7 @@ struct WorkspaceEventsView: View, Equatable {
         lhs.surfaceID == rhs.surfaceID
             && lhs.isRunning == rhs.isRunning
             && lhs.isFirstThing == rhs.isFirstThing
+            && lhs.isBeforeFirstTurn == rhs.isBeforeFirstTurn
             && lhs.paneHeight == rhs.paneHeight
     }
 
@@ -49,6 +51,10 @@ struct WorkspaceEventsView: View, Equatable {
     /// True while the session has no messages, which is the only time it is worth saying that a
     /// prompt typed now will go as soon as setup finishes.
     var isFirstThing: Bool
+    /// True while the conversation has no turn in it yet, a queued message aside. A Cloud
+    /// workspace being built draws its whole setup card here until then, and its one line after,
+    /// because a card at the head of a conversation that has started is in the way.
+    var isBeforeFirstTurn = false
     /// How tall the transcript is, so a running setup can take a share of it rather than a fixed
     /// number of lines. Already quantised by `TranscriptGeometry.height`; nought means the pane has
     /// not been measured. See `SetupTailWindow`.
@@ -113,13 +119,24 @@ struct WorkspaceEventsView: View, Equatable {
         return { @MainActor in Task { await session.run(.stopSetup) } }
     }
 
+    /// The setup card, for a Cloud workspace being built whose conversation has not begun.
+    private var setupCard: CloudSetupProgress? {
+        guard isBeforeFirstTurn, let session else { return nil }
+        return session.setupProgress
+    }
+
     var body: some View {
-        let events = events
+        let card = setupCard
+        let events = card == nil ? events : []
 
         // A `Group` rather than a bare `if`, so the visibility report has a view to hang on in
         // both cases. On the empty branch there would otherwise be nothing to run an `onChange`
         // on, and the pane would never be told it may draw its empty state again.
         Group {
+            if let card, let session {
+                // The message waiting for it is the conversation's own bubble, just below.
+                session.setupCard(card, heldPrompt: nil)
+            }
             ForEach(events) { event in
                 WorkspaceEventRow(
                     event: event,
@@ -132,7 +149,7 @@ struct WorkspaceEventsView: View, Equatable {
                 )
             }
         }
-        .onChange(of: events.isEmpty, initial: true) { _, isEmpty in
+        .onChange(of: events.isEmpty && card == nil, initial: true) { _, isEmpty in
             onVisibilityChange?(!isEmpty)
         }
     }

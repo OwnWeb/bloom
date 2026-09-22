@@ -35,7 +35,7 @@ struct CloudWorkspaceColumn: View {
     @ViewBuilder
     private func workspace(_ session: CloudWorkspaceSession, item: CloudWorkspaceItem?) -> some View {
         VStack(spacing: 0) {
-            if let banner = shown(CloudConnectionBanner.of(session.phase), on: session) {
+            if let banner = shown(CloudConnectionBanner.of(session.phase, isBuilding: session.setupProgress != nil), on: session) {
                 CloudBannerView(banner: banner, onDismiss: { app.cloud.dismiss(banner, for: session.id) }) {
                     take($0, on: session)
                 }
