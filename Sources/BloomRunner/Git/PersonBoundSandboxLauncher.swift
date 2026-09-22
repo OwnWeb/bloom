@@ -273,7 +273,8 @@ enum PersonBoundSandboxExec {
               linuxPtrace(0x4200, leader, nil, UnsafeMutableRawPointer(bitPattern: options)) == 0
         else {
             _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-            return 1
+
+            return refuse("the sandbox leader did not stop for PTRACE_SETOPTIONS, so its execs cannot be watched")
         }
         var traced: Set<Int32> = [leader]
         var tainted: [Int32: Bool] = [leader: false]
@@ -297,18 +298,23 @@ enum PersonBoundSandboxExec {
             )
             guard cleanupProof != nil else {
                 _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-                return 1
+
+                return refuse("the cleanup proof process could not be started, which the self test requires")
             }
         }
         defer { _ = terminateAndReapCleanupProof(&cleanupProof) }
-        guard linuxPtrace(7, leader, nil, nil) == 0 else { return 1 } // PTRACE_CONT
+        guard linuxPtrace(7, leader, nil, nil) == 0 else {
+            return refuse("PTRACE_CONT was refused for the sandbox leader")
+        } // PTRACE_CONT
 
         while !traced.isEmpty {
             var status: Int32 = 0
             let waited = waitpid(-1, &status, 0x40000000 | WNOHANG) // __WALL
             if waited == 0 {
                 if leaderStatus != nil || PersonBoundProcIdentity.read(runnerPID)?.startTime != runnerStart {
-                    guard writeText("1\n", to: cgroup + "/cgroup.kill") else { return 1 }
+                    guard writeText("1\n", to: cgroup + "/cgroup.kill") else {
+                        return refuse("the Runner that reserved this sandbox is gone and its cgroup would not take a kill")
+                    }
                 }
                 usleep(10_000)
                 continue
@@ -316,18 +322,24 @@ enum PersonBoundSandboxExec {
             if waited < 0 {
                 if errno == EINTR { continue }
                 if errno == ECHILD, let leaderStatus {
+                    // Reached only with a leader status in hand; the refusal below is the other way out.
                     try? FileManager.default.removeItem(atPath: provenance)
-                    guard terminateAndReapCleanupProof(&cleanupProof) else { return 1 }
+                    guard terminateAndReapCleanupProof(&cleanupProof) else {
+                        return refuse("the cleanup proof process outlived the sandbox it was proving")
+                    }
+
                     return leaderStatus
                 }
-                return 1
+
+                return refuse("waiting on the sandbox failed with errno \(errno) before the leader reported a status")
             }
             if exited(status) || signalled(status) {
                 if let proof = cleanupProof, waited == proof {
                     cleanupProof = nil
                     guard leaderStatus != nil else {
                         _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-                        return 1
+
+                        return refuse("the cleanup proof process died while the sandbox it was proving was still running")
                     }
                     continue
                 }
@@ -428,7 +440,8 @@ enum PersonBoundSandboxExec {
                 guard let identity = command?.identity,
                       writeProvenance(identity, status: status, directory: provenance) else {
                     _ = writeText("1\n", to: cgroup + "/cgroup.kill")
-                    return 1
+
+                    return refuse("an exec could not be identified or its provenance could not be written to \(provenance)")
                 }
                 let isGh = command?.environment["LD_PRELOAD"] == MachineSandbox.personBoundCredentialShield
                     && URL(fileURLWithPath: command?.executable ?? "").lastPathComponent == "gh"
