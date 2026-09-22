@@ -362,6 +362,15 @@ enum PersonBoundGitCommand {
         let helper = "!\(MachineGitTools.shellQuoted(runnerExecutable)) git-credential-v2"
         let execPath = URL(fileURLWithPath: gitRemoteHTTPSExecutable).deletingLastPathComponent().path
         let canonical = "https://github.com/\(repository).git"
+        /*
+         * **No empty `sslCert`.** Setting it to nothing reads like "use no client certificate" and
+         * is not: curl takes the empty string as a filename, tries to open it, and every clone dies
+         * with "error reading X.509 key file: Error while reading file". Measured one setting at a
+         * time: empty `sslCAPath` and empty `sslKey` are both harmless, and empty `sslCert` alone
+         * breaks it. So it is left alone, and what actually stops a client certificate being
+         * inherited is the clean configuration directory this runs with, which is root owned and
+         * holds nothing for anybody to set it in.
+         */
         let certificate = "/etc/ssl/certs/ca-certificates.crt"
         let endpoints = [canonical, canonical + "/info/refs", canonical + "/git-upload-pack",
                          canonical + "/git-receive-pack"]
@@ -371,8 +380,6 @@ enum PersonBoundGitCommand {
                 "-c", "http.\(endpoint).sslVerify=true",
                 "-c", "http.\(endpoint).sslCAInfo=\(certificate)",
                 "-c", "http.\(endpoint).sslCAPath=",
-                "-c", "http.\(endpoint).sslCert=",
-                "-c", "http.\(endpoint).sslKey=",
                 "-c", "http.\(endpoint).extraHeader=",
                 "-c", "http.\(endpoint).curloptResolve=",
                 "-c", "http.\(endpoint).cookieFile=",
@@ -396,8 +403,6 @@ enum PersonBoundGitCommand {
             "-c", "http.sslVerify=true",
             "-c", "http.sslCAInfo=\(certificate)",
             "-c", "http.sslCAPath=",
-            "-c", "http.sslCert=",
-            "-c", "http.sslKey=",
             "-c", "http.extraHeader=",
             "-c", "http.curloptResolve=",
             "-c", "http.cookieFile=",
