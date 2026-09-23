@@ -94,8 +94,7 @@ anything that adds a case to an enum.
 
 **And a green `swift build` here is not the build that gates a release.** `.github/workflows/test.yml`
 compiles the app target with `-warnings-as-errors`, which `Package.swift` deliberately does not
-carry, so a warning that is a line of yellow on this Mac is a red nightly run and a release that
-will not build, found after the merge by whoever comes next. Run `swift build -Xswiftc -warnings-as-errors` before pushing; the last one
+carry, so a warning that is a line of yellow on this Mac is a release that will not build, found after the merge by whoever comes next. Run `swift build -Xswiftc -warnings-as-errors` before pushing; the last one
 to catch somebody was a `var` that is never mutated, which the local build says nothing about.
 
 Zero warnings, and `make lint` green, before anything is committed.
@@ -173,7 +172,7 @@ Xcode, open `Package.swift`.
 **Do not run tests on this Mac unless the owner asks you to. Rely on CI by default.** That means
 no `make test`, no `swift test` and no `./Tools/test-core.sh`, not even with a filter. Build with
 `swift build -Xswiftc -warnings-as-errors`, run `make lint` and `make swiftlint`, push, and let CI
-run the tests, which for the core suite means the nightly run or a dispatched one. The owner is working at this Mac while you run and several agents build at once: a
+run the tests, which for the core suite means a release or a dispatched run. The owner is working at this Mac while you run and several agents build at once: a
 day of local test runs took the load average to 205, and running Swift processes get killed to win
 the machine back, so a local run is both a stall for him and an answer you may never get. When the
 owner does ask for a local run, run only the filter that covers what you touched, for example
@@ -183,7 +182,7 @@ owner does ask for a local run, run only the filter that covers what you touched
 rules, SwiftLint, the secrets scan and the Linux server build on every pull request push. The macOS
 pair, the app target with `-warnings-as-errors` and the whole core suite, does not run there,
 because it was nearly all of the Actions bill and pull requests here are merged without waiting
-for it. It runs every night on `main`, in front of every Mac release (`release.yml` calls it and
+for it. It runs in front of every Mac release (`release.yml` calls it and
 will not build if it fails), and by hand with `gh workflow run test.yml --ref <branch>`. So
 `swift build -Xswiftc -warnings-as-errors` on this Mac is the only compile a change gets before it
 merges, and it is not optional. When a change needs the suite run before it lands, dispatch the
@@ -193,9 +192,9 @@ you wait without polling the browser.
 A branch pushed with no pull request open is not built at all, and merging does not repeat the run
 on `main`.
 
-The nightly workflow is separate and gates nothing: Thread Sanitizer, coverage and dead code, on a
-schedule, because they are too slow to put in front of a push. Read it when you want those
-questions answered, and do not wait on it.
+`.github/workflows/slow-checks.yml` is separate, gates nothing and runs only by hand: Thread
+Sanitizer, coverage and dead code, too slow to put in front of a push. Dispatch it when you want
+those questions answered, and do not wait on it.
 
 ## Persistence goes through `Store`
 

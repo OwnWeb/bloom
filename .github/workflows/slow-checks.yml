@@ -1,32 +1,31 @@
-name: Nightly
+name: Slow checks
 
-# The checks worth running, but not worth running fifty times a day.
+# The checks worth running now and then, and only by hand.
 #
-# test.yml is what a change has to survive, and it runs its own macOS pair on a
-# schedule of its own, half an hour ahead of this. These three are slower and
-# ask something else. They answer questions
-# that change slowly: is there a data race, how much of the core is covered, and
-# how much of the code is not used by anything. A night is a fine resolution for
-# all three.
+# test.yml is what a change has to survive. These three are slower and ask
+# something else: is there a data race, how much of the core is covered, and how
+# much of the code is not used by anything. They answer questions that change
+# slowly, so run them from the Actions tab or with `gh workflow run
+# slow-checks.yml` when you want the answer.
+#
+# This was the nightly workflow, on a schedule at 03:00 UTC, and the schedule
+# was removed on 24 September 2026 to save the bill: three macOS runners, about
+# forty minutes a night, reported in a summary that nothing gated on.
 #
 # Nothing here gates anything. No push is blocked by this workflow and no branch
 # is protected by it. It reports, in the run summary, and a red mark in the
 # Actions tab is how you find out.
 
 on:
-  schedule:
-    # 03:00 UTC, which is the small hours in Brussels and the cheapest time to
-    # be holding three macOS runners.
-    - cron: "0 3 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # Never two of these at once, and if one is somehow still running when the
-  # next night comes round, the older one is the one to keep: it is nearly done.
-  group: bloom-nightly
+  # Never two of these at once, and if one is still running when the next is
+  # asked for, the older one is the one to keep: it is nearly done.
+  group: bloom-slow-checks
   cancel-in-progress: false
 
 jobs:

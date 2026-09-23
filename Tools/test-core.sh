@@ -22,7 +22,7 @@
 #                       answer and there is nothing to default to
 #   BLOOM_LIVE          =1 drives the real `claude` binary. Costs money.
 #   BLOOM_TEST_SWIFT_ARGS  extra flags for `swift test`, split on spaces. For the runs that are
-#                       not the ordinary one: the nightly workflow passes --sanitize=thread and
+#                       not the ordinary one: slow-checks.yml passes --sanitize=thread and
 #                       --enable-code-coverage through here rather than reimplementing the
 #                       mirrored package it needs to avoid building the app target.
 #

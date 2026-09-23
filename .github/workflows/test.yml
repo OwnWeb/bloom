@@ -1,7 +1,7 @@
 name: Test
 
 # What a change has to survive. Every pull request gets the Linux half of it;
-# the macOS half runs at night, before every release, and by hand. The note
+# the macOS half runs before every release, and by hand. The note
 # above `on:` says why the two halves are treated so differently.
 #
 # Three jobs, all three side by side, because they fail for different reasons
@@ -53,8 +53,6 @@ name: Test
 #
 # So it runs where the answer is read:
 #
-#   schedule           every night, on main, so a broken main is found within a
-#                      day rather than at the next release.
 #   workflow_call      from release.yml, in front of the Mac release, which
 #                      waits for all of this workflow to pass. A release is the
 #                      moment a broken app would reach people, so it is the one
@@ -74,10 +72,6 @@ on:
   # Proposed changes run once through their pull request. A push to main does
   # not repeat the same work after merge.
   pull_request:
-  # 02:30 UTC, half an hour ahead of nightly.yml, so the two do not queue for
-  # macOS runners at the same moment.
-  schedule:
-    - cron: "30 2 * * *"
   # release.yml runs this before building a Mac release. `ref` is the tag being
   # released, because a release dispatched by hand runs on main while naming an
   # older tag, and it is the tag that has to pass.
