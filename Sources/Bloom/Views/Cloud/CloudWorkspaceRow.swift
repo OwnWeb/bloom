@@ -72,13 +72,8 @@ struct CloudWorkspaceRow: View {
             .modifier(SidebarRowTrailingControl(isShown: (isHovered || isArchiveActive) && item.canArchive) { archiveButton })
             .animation(reduceMotion ? nil : Motion.hover, value: isHovered)
         } icon: {
-            // The local row's policy, asked of the same status, so a resting Cloud workspace has no
-            // mark exactly where a resting local one has none.
-            if SidebarMarkPolicy.drawsMark(mark) {
-                WorkspaceStatusGlyph(status: mark, isOnSelection: isEmphasized)
-            } else {
-                Color.clear.frame(width: Metrics.glyph, height: Metrics.glyph)
-            }
+            // Every state, as the local row draws it, so the two sections of the column agree.
+            WorkspaceStatusGlyph(status: mark, isOnSelection: isEmphasized)
         }
         .labelStyle(SidebarRowLabelStyle())
         .contentShape(Rectangle())

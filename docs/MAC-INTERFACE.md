@@ -502,23 +502,23 @@ The glyph and colour for each state are the one thing that is a view: `symbol(fo
 `WorkspaceStatus`, most urgent first. Two can be true at once (an agent running on a branch whose
 checks are red) and the row has room for one, so **the first that is true wins**: **[checked]**
 
-| State | Label | Mark | Colour | Mark in the sidebar |
-| --- | --- | --- | --- | --- |
-| `settingUp` | Setting up | small spinner | | yes |
-| `awaitingPermission` | Waiting on you | `questionmark.circle.fill` | waiting | yes |
-| `running` | Agent running | **the pulsing dot** | running (blue) | yes |
-| `setupFailed` | Setup failed | `exclamationmark.triangle.fill` | warning | yes |
-| `unread` | Unread | `circle.fill`, a size smaller | accent | yes |
-| `merged` | Merged | `arrow.triangle.merge` | merged (violet) | no |
-| `closed` | Pull request closed | `slash.circle` | tertiary | no |
-| `conflicted` | Merge conflicts | `exclamationmark.octagon.fill` | negative | yes |
-| `checksFailing` | Checks failing | `xmark.circle.fill` | negative | yes |
-| `checksRunning` | Checks running | `clock` | warning | no |
-| `checksPassed` | Checks passed | `checkmark.circle.fill` | positive | no |
-| `draft` | Draft pull request | `pencil` | tertiary | no |
-| `pullRequestOpen` | Pull request open | `arrow.triangle.pull` | accent | no |
-| `changed` | Has changes | `arrow.triangle.branch` | secondary | no |
-| `clean` | No changes | `circle.dotted` | tertiary | no |
+| State | Label | Mark | Colour |
+| --- | --- | --- | --- |
+| `settingUp` | Setting up | small spinner | |
+| `awaitingPermission` | Waiting on you | `questionmark.circle.fill` | waiting |
+| `running` | Agent running | **the pulsing dot** | running (blue) |
+| `setupFailed` | Setup failed | `exclamationmark.triangle.fill` | warning |
+| `unread` | Unread | `circle.fill`, a size smaller | accent |
+| `merged` | Merged | `arrow.triangle.merge` | merged (violet) |
+| `closed` | Pull request closed | `slash.circle` | tertiary |
+| `conflicted` | Merge conflicts | `exclamationmark.octagon.fill` | negative |
+| `checksFailing` | Checks failing | `xmark.circle.fill` | negative |
+| `checksRunning` | Checks running | `clock` | warning |
+| `checksPassed` | Checks passed | `checkmark.circle.fill` | positive |
+| `draft` | Draft pull request | `pencil` | tertiary |
+| `pullRequestOpen` | Pull request open | `arrow.triangle.pull` | accent |
+| `changed` | Has changes | `arrow.triangle.branch` | secondary |
+| `clean` | No changes | `circle.dotted` | tertiary |
 
 Two rules in the precedence are worth porting exactly:
 
@@ -528,9 +528,10 @@ Two rules in the precedence are worth porting exactly:
   unread, and the row must say "merged", not show a dot. The name still goes to medium weight
   when a workspace is unread, so unread is never lost from the row.
 
-**The sidebar draws a mark only when something is happening or something is wanted**
-(`SidebarMarkPolicy`, the last column above). A resting row keeps an empty box of the same size so
-the names line up. **Home draws the mark for every state.**
+**The sidebar and Home draw the mark for every state.** The sidebar once drew only the states where
+something was happening or wanted, leaving the branch and pull request states to the row's hover
+card; when the card came off, CI and pull request status were nowhere in the pane, so the marks came
+back.
 
 **A Cloud workspace uses the same states**, mapped from runbloom.app's list item by
 `CloudSidebarMark` so one column says one thing:

@@ -225,14 +225,10 @@ struct WorkspaceRow: View {
             .modifier(SidebarRowTrailingControl(isShown: controlsShown) { archiveButton })
             .animation(reduceMotion ? nil : Motion.hover, value: isHovered)
         } icon: {
-            // **A mark only when something is happening or something is wanted.** Which states
-            // those are is `SidebarMarkPolicy`, in the core, with the argument for the ones that
-            // lost theirs. The box is kept either way, so the names still line up in one column.
-            if SidebarMarkPolicy.drawsMark(status) {
-                WorkspaceStatusGlyph(status: status, isOnSelection: isEmphasized)
-            } else {
-                Color.clear.frame(width: Metrics.glyph, height: Metrics.glyph)
-            }
+            // Every state draws its mark. For a while only work and answers did, and the branch and
+            // pull request states were left to the hover card; when the card came off the row they
+            // were left to nothing, and "I can't see the CI status in the sidebar" was the report.
+            WorkspaceStatusGlyph(status: status, isOnSelection: isEmphasized)
         }
         // See `SidebarRowLabelStyle`. The mark has to be laid out by this row rather than by the
         // list, or it does not travel with the row when a project folds.

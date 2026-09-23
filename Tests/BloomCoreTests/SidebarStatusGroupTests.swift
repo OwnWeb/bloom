@@ -164,32 +164,6 @@ struct SidebarStatusGroupTests {
     }
 }
 
-/// Which states keep a mark at rest, and which lost one.
-@Suite("Sidebar mark policy")
-struct SidebarMarkPolicyTests {
-    @Test func aRestingRowOnlyMarksWorkAndAnswers() {
-        for status in [WorkspaceStatus.settingUp, .awaitingPermission, .running, .setupFailed, .unread] {
-            #expect(SidebarMarkPolicy.drawsMark(status), "\(status) should keep its mark")
-        }
-    }
-
-    /// The two branch states a person has to clear by hand, which nothing else in the pane says.
-    @Test func brokenBranchesKeepTheirMark() {
-        #expect(SidebarMarkPolicy.drawsMark(.checksFailing))
-        #expect(SidebarMarkPolicy.drawsMark(.conflicted))
-    }
-
-    @Test func aStateThatWantsNothingDrawsNothing() {
-        let quiet: [WorkspaceStatus] = [
-            .merged, .closed, .checksRunning, .checksPassed, .draft, .pullRequestOpen, .changed,
-            .clean,
-        ]
-        for status in quiet {
-            #expect(!SidebarMarkPolicy.drawsMark(status), "\(status) should rest")
-        }
-    }
-}
-
 /// The row the owner clicked in Ready to read stays there until they leave it.
 @Suite("Sidebar reading hold")
 struct SidebarReadingHoldTests {
