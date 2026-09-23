@@ -124,6 +124,61 @@ struct WorkspacePortsTests {
         #expect(WorkspacePorts.opening(WorkspacePorts.port(8080, reserved: true), localPort: 41_000) == nil)
     }
 
+    // MARK: - What is copied
+
+    @Test("A database copies a connection URL at 127.0.0.1, a web server an http address")
+    func copiedAddresses() {
+        #expect(WorkspacePorts.address(WorkspacePorts.port(5432), localPort: 41_499) == "postgresql://127.0.0.1:41499")
+        #expect(WorkspacePorts.address(WorkspacePorts.port(3306), localPort: 41_306) == "mysql://127.0.0.1:41306")
+        #expect(WorkspacePorts.address(WorkspacePorts.port(5173), localPort: 41_173) == "http://localhost:41173")
+        #expect(WorkspacePorts.address(WorkspacePorts.port(11211), localPort: 41_211) == "127.0.0.1:41211")
+        #expect(WorkspacePorts.address(WorkspacePorts.port(44_321), localPort: 41_321) == "127.0.0.1:41321")
+    }
+
+    @Test("Only a database with a scheme can be asked about before it is forwarded")
+    func clientProbe() {
+        #expect(WorkspacePorts.clientProbe(WorkspacePorts.port(5432)) == URL(string: "postgresql://127.0.0.1"))
+        #expect(WorkspacePorts.clientProbe(WorkspacePorts.port(11211)) == nil)
+        #expect(WorkspacePorts.clientProbe(WorkspacePorts.port(5173)) == nil)
+        #expect(WorkspacePorts.clientProbe(WorkspacePorts.port(5432, reserved: true)) == nil)
+    }
+
+    // MARK: - How the popover lays them out
+
+    @Test("Databases lead, the relational one before the cache; web and unnamed ports fold away; Bloom's own are hidden")
+    func arrangesTheRealWorkspace() {
+        // The list a there-there.app workspace answered with on 24 September 2026.
+        let ports = WorkspacePorts.describe([
+            (3000, false), (5173, false), (5432, false), (6379, false),
+            (8080, true), (8081, true), (8082, false), (8090, false), (41_029, true),
+        ])
+        let arranged = WorkspacePorts.arrange(ports, forwarded: [])
+        #expect(arranged.leading.map(\.number) == [5432, 6379])
+        #expect(arranged.more.map(\.number) == [3000, 5173, 8082, 8090])
+    }
+
+    @Test("A forwarded port leads whatever it is, so a live address always has a visible row")
+    func forwardedPortLeads() {
+        let ports = WorkspacePorts.describe([(5173, false), (5432, false), (8082, false)])
+        let arranged = WorkspacePorts.arrange(ports, forwarded: [5173, 8082])
+        #expect(arranged.leading.map(\.number) == [5432, 5173, 8082])
+        #expect(arranged.more.isEmpty)
+    }
+
+    @Test("With no database and nothing forwarded, nothing is folded away")
+    func nothingFoldedWithoutALead() {
+        let ports = WorkspacePorts.describe([(5173, false), (3000, false), (8081, true)])
+        let arranged = WorkspacePorts.arrange(ports, forwarded: [])
+        #expect(arranged.leading.map(\.number) == [3000, 5173])
+        #expect(arranged.more.isEmpty)
+    }
+
+    @Test("A reserved port somebody forwarded anyway keeps its row, to show the refusal")
+    func forwardedReservedPortShows() {
+        let arranged = WorkspacePorts.arrange([WorkspacePorts.port(8081, reserved: true)], forwarded: [8081])
+        #expect(arranged.leading.map(\.number) == [8081])
+    }
+
     @Test("describe and port agree, so a manually forwarded port is named like a listed one")
     func manualPortIsNamed() {
         #expect(WorkspacePorts.describe([(5432, false)]) == [WorkspacePorts.port(5432)])

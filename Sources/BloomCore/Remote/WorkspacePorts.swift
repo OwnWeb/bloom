@@ -178,6 +178,80 @@ public enum WorkspacePorts {
         }
     }
 
+    /// What the copy button puts on the clipboard for a live forward.
+    ///
+    /// **A database's is a connection URL**, because every client takes one (TablePlus, DataGrip,
+    /// DBeaver, Postico, `psql`, `redis-cli -u`) and a bare `host:port` is two fields to fill in.
+    /// It is `127.0.0.1` for the reason `opening` gives. The first version copied
+    /// `localhost:<port>` for every row, so the address it handed a MySQL client was the one the
+    /// client reads as "use the Unix socket".
+    public static func address(_ port: Port, localPort: Int) -> String {
+        switch port.kind {
+        case .http:
+            "http://localhost:\(localPort)"
+        case .database:
+            port.scheme.map { "\($0)://127.0.0.1:\(localPort)" } ?? "127.0.0.1:\(localPort)"
+        case .other:
+            "127.0.0.1:\(localPort)"
+        }
+    }
+
+    /// A URL with the database's scheme and no port, for asking which applications take it before
+    /// a forward exists. LaunchServices answers by scheme alone, so the port it would have is
+    /// irrelevant, and without this the Open button could only appear after a separate Forward.
+    public static func clientProbe(_ port: Port) -> URL? {
+        guard !port.reserved, port.kind == .database, let scheme = port.scheme else { return nil }
+        return URL(string: "\(scheme)://127.0.0.1")
+    }
+
+    // MARK: - How the popover lays them out
+
+    /// The rows always on view, and the ones behind "more ports".
+    public struct Arrangement: Sendable, Hashable {
+        public var leading: [Port]
+        public var more: [Port]
+    }
+
+    /// Databases in the order somebody reaches for them: the store the app keeps its data in, then
+    /// the cache beside it. The popover is opened for a database far more often than for anything
+    /// else, which is why this list rather than the port number decides the top of it.
+    static let databaseOrder = [5432, 3306, 27017, 6379, 11211]
+
+    /// Splits the ports into what the popover leads with and what it keeps folded away.
+    ///
+    /// **Bloom's own ports are not shown.** They made up four of nine rows on a real workspace,
+    /// each saying it could not be forwarded, and nobody can act on one. `describe` still returns
+    /// them, because `CloudPorts` refuses a forward of one by looking it up there. A reserved port
+    /// that is forwarded anyway keeps its row, since it holds a local port and has a refusal to
+    /// show.
+    ///
+    /// **Databases and anything forwarded lead**; web servers and unnamed ports fold away. A live
+    /// forward is never folded, so a `localhost` address that answers always has a visible row.
+    /// When nothing would lead, nothing is folded either, because a popover whose only content is
+    /// "3 more ports" makes somebody click to see the whole of it.
+    public static func arrange(_ ports: [Port], forwarded: Set<Int>) -> Arrangement {
+        let shown = ports.filter { !$0.reserved || forwarded.contains($0.number) }.sorted(by: precedes)
+        let leads = { (port: Port) in port.kind == .database || forwarded.contains(port.number) }
+        let leading = shown.filter(leads)
+        guard !leading.isEmpty else { return Arrangement(leading: shown, more: []) }
+        return Arrangement(leading: leading, more: shown.filter { !leads($0) })
+    }
+
+    /// Databases first in `databaseOrder`, then web servers, then everything else, and by number
+    /// within each.
+    static func precedes(_ lhs: Port, _ rhs: Port) -> Bool {
+        let left = rank(lhs), right = rank(rhs)
+        return left != right ? left < right : lhs.number < rhs.number
+    }
+
+    private static func rank(_ port: Port) -> Int {
+        switch port.kind {
+        case .database: databaseOrder.firstIndex(of: port.number) ?? databaseOrder.count
+        case .http: databaseOrder.count + 1
+        case .other: databaseOrder.count + 2
+        }
+    }
+
     /// The local port a forwarded page's address is on, or nil for any other address.
     ///
     /// **How a Cloud workspace tells its two kinds of browser tab apart.** Both are browser tabs,

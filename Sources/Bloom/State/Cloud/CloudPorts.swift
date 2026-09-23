@@ -45,6 +45,8 @@ final class CloudPorts {
     private let workspaceID: CloudWorkspaceID
     private var forwards: [Int: PortForward] = [:]
     private var watchers: [Int: Task<Void, Never>] = [:]
+    /// What to do with a forward once it is live, for the Open that forwards and opens in one click.
+    private var whenLive: [Int: @MainActor (Row) -> Void] = [:]
 
     init(workspaceID: CloudWorkspaceID, session: CloudWorkspaceSession?) {
         self.workspaceID = workspaceID
@@ -95,12 +97,17 @@ final class CloudPorts {
     private var discovered: [WorkspacePorts.Port] = []
     private var states: [Int: PortForward.State] = [:]
 
-    /// Opens a forward of one port to this Mac.
+    /// Opens a forward of one port to this Mac, and runs `whenLive` with its row the first time it
+    /// is live.
+    ///
+    /// **`whenLive` is dropped rather than kept when the forward fails.** A forward retries, and an
+    /// application that opened itself a minute after somebody had given up on the click and moved on
+    /// would be a window nobody asked for.
     ///
     /// A port the machine has said is Bloom's own is not even tried: the machine would refuse it on
     /// the first connection, and a row that turned red only once somebody pointed a client at it
     /// would be a refusal nobody was watching for.
-    func forward(_ port: Int) {
+    func forward(_ port: Int, whenLive: (@MainActor (Row) -> Void)? = nil) {
         guard forwards[port] == nil, let session else { return }
         guard !discovered.contains(where: { $0.number == port && $0.reserved }) else { return }
         let forward = PortForward(
@@ -111,6 +118,7 @@ final class CloudPorts {
             return (machine: token.machineURL, token: token.token)
         }
         forwards[port] = forward
+        self.whenLive[port] = whenLive
         states[port] = .opening
         rebuild()
         watchers[port] = Task { [weak self] in
@@ -118,9 +126,24 @@ final class CloudPorts {
                 guard let self else { return }
                 self.states[port] = state
                 self.rebuild()
+                self.settle(port, state)
             }
         }
         Task { await forward.start() }
+    }
+
+    /// Hands a forward that has just gone live to whatever was waiting for it, once.
+    private func settle(_ port: Int, _ state: PortForward.State) {
+        switch state {
+        case .opening:
+            return
+        case .live:
+            guard let action = whenLive.removeValue(forKey: port),
+                  let row = rows.first(where: { $0.id == port }) else { return }
+            action(row)
+        case .refused, .failed:
+            whenLive.removeValue(forKey: port)
+        }
     }
 
     /// Closes a forward. The machine is not told: a forward is a thing on this Mac, and the socket
@@ -128,6 +151,7 @@ final class CloudPorts {
     func stop(_ port: Int) {
         watchers.removeValue(forKey: port)?.cancel()
         states.removeValue(forKey: port)
+        whenLive.removeValue(forKey: port)
         guard let forward = forwards.removeValue(forKey: port) else { return }
         Task { await forward.stop() }
         rebuild()

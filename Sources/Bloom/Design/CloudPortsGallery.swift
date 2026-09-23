@@ -26,50 +26,60 @@ enum CloudPortsGallery {
         WorkspacePorts.localCandidates(workspace: "01k5a7d3v1x0m8n2q4r6s9t0wy", port: number)[0]
     }
 
-    /// The popover as the mockup draws it: one forward open, two to open, and Bloom's own port.
+    /// The popover as a real workspace answered it on 24 September 2026: two databases, two web
+    /// servers, two unnamed ports and three of Bloom's own, which the popover hides.
     private static var listing: [CloudPorts.Row] {
         [
-            row(5173),
-            row(5432, .live(localPort: local(5432))),
-            row(6379),
-            row(8080, reserved: true),
+            row(3000), row(5173), row(5432), row(6379),
+            row(8080, reserved: true), row(8081, reserved: true), row(8082), row(8090), row(41_029, reserved: true),
         ]
     }
 
-    /// Each state a row passes through, in the order a person meets them.
-    private static var states: [(String, [CloudPorts.Row], String?)] {
+    /// The same, with PostgreSQL forwarded.
+    private static var connected: [CloudPorts.Row] {
+        listing.map { $0.id == 5432 ? row(5432, .live(localPort: local(5432))) : $0 }
+    }
+
+    /// Each state the popover passes through, in the order a person meets them, and whether "more
+    /// ports" and the port field are open.
+    private static var states: [(name: String, rows: [CloudPorts.Row], problem: String?, more: Bool, manual: Bool)] {
         [
-            ("listing", listing, nil),
-            ("opening", [row(5432, .opening)], nil),
-            ("live", [row(5173, .live(localPort: local(5173))), row(5432, .live(localPort: local(5432)))], nil),
-            ("no-local-port", [row(9000, .failed("No local port was free for this forward."))], nil),
-            ("refused", [row(8081, .refused("Bloom uses port 8081 on this machine, so it cannot be forwarded."))], nil),
-            ("empty", [], nil),
-            ("unreadable", [], "This Bloom Cloud workspace is running a version of Bloom Runner that cannot list its ports yet."),
+            ("listing", listing, nil, false, false),
+            ("opening", listing.map { $0.id == 5432 ? row(5432, .opening) : $0 }, nil, false, false),
+            ("live", connected, nil, false, false),
+            ("expanded", connected, nil, true, true),
+            ("web-only", [row(3000), row(5173, .live(localPort: local(5173))), row(8081, reserved: true)], nil, false, false),
+            ("no-local-port", [row(9000, .failed("No local port was free for this forward."))], nil, false, false),
+            ("refused", [row(8081, .refused("Bloom uses port 8081 on this machine, so it cannot be forwarded."))], nil, false, false),
+            ("empty", [], nil, false, false),
+            ("unreadable", [], "This Bloom Cloud workspace is running a version of Bloom Runner that cannot list its ports yet.", false, false),
         ]
     }
 
     private static func choices(for row: CloudPorts.Row) -> [CloudPortRow.OpenChoice] {
         switch row.opening {
-        case .browser: [CloudPortRow.OpenChoice(title: "Open") {}]
-        case .application: [
+        case .browser: return [CloudPortRow.OpenChoice(title: "Open") {}]
+        case .application: return [
             CloudPortRow.OpenChoice(title: "Open in TablePlus") {},
             CloudPortRow.OpenChoice(title: "Open in Postico 2") {},
         ]
-        case nil: []
+        case nil: break
         }
+        guard row.forward == nil, WorkspacePorts.clientProbe(row.port) != nil else { return [] }
+        return [CloudPortRow.OpenChoice(title: "Open in TablePlus") {}]
     }
 
     static func render(into directory: String) -> [String] {
         var written: [String] = []
-        for (name, rows, problem) in states {
+        for state in states {
             for dark in [false, true] {
                 let list = CloudPortsList(
-                    rows: rows, problem: problem, isLoading: false, copied: nil,
-                    actions: CloudPortsList.Actions(choices: choices)
+                    rows: state.rows, problem: state.problem, isLoading: false, copied: nil,
+                    actions: CloudPortsList.Actions(choices: choices),
+                    showsMore: state.more, showsManual: state.manual
                 )
                 .background(Palette.surface)
-                if let path = draw(list, dark: dark, to: "\(directory)/cloud-ports-\(name)-\(dark ? "dark" : "light").png") {
+                if let path = draw(list, dark: dark, to: "\(directory)/cloud-ports-\(state.name)-\(dark ? "dark" : "light").png") {
                     written.append(path)
                 }
             }

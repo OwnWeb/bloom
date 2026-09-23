@@ -106,7 +106,7 @@ enum ReviewRunProbe {
            let directory = ProbeHarness.value(for: "--review-run-probe") {
             progress("Drawing a Cloud workspace's Ports popover in each state a row passes through")
             let written = CloudPortsGallery.render(into: directory)
-            check(written.count == 16, "the gallery drew \(written.count) of the sixteen images")
+            check(written.count == 20, "the gallery drew \(written.count) of the twenty images")
             let result: JSONValue = .object([
                 "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
                 "images": .strings(written),
