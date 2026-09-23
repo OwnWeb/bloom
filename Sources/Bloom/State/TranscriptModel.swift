@@ -208,6 +208,10 @@ final class TranscriptModel {
     private(set) var rows: [TranscriptRow] = []
     /// Changes to presentation facts include edits to existing tool and permission rows.
     private(set) var presentationRevision = 0
+    /// Plan artefacts are written for approval questions and completed tool items. Keep their
+    /// refresh signal separate from `rows`, so ordinary prose and tool starts do not make the
+    /// composer read and decode saved plans after every message in an active turn.
+    private(set) var planRefreshRevision = 0
     @ObservationIgnored private var foldCache = TranscriptFoldCache()
     @ObservationIgnored private var questionIndex = PinnedQuestionIndex()
     /// Tool calls that arrived moments ago, by call id, which fold before their result is back.
@@ -2255,6 +2259,7 @@ final class TranscriptModel {
         guard !fresh.isEmpty else { return }
         let appendedFrom = rows.count
         var calls: [String] = []
+        var mayHaveSavedPlan = false
         // **Filtered against the cursor again, having already been queried against it.** The read
         // above is a suspension point, so two calls can both ask for everything after `n` and both
         // come back with the same rows: the cursor only moves in the loop below, which neither of
@@ -2269,8 +2274,12 @@ final class TranscriptModel {
             // The cursor belongs to stored messages, not to their presentation.
             highestSeenMessageSeq = max(highestSeenMessageSeq, message.seq)
             if message.kind == .toolUse, let id = message.refID { calls.append(id) }
+            if message.kind == .permissionAsk || message.kind == .toolResult {
+                mayHaveSavedPlan = true
+            }
             absorb(message)
         }
+        if mayHaveSavedPlan { planRefreshRevision += 1 }
         // A question stops the turn on a person, and a running call drawn in above it a moment
         // later would move the buttons they are reaching for. So it is drawn now, with the question.
         if fresh.contains(where: { $0.kind == .permissionAsk }) {
