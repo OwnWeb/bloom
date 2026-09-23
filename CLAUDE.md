@@ -170,11 +170,14 @@ Xcode, open `Package.swift`.
 
 ## Where a green answer comes from
 
-Run tests locally, and run the ones that cover what you touched:
-`./Tools/test-core.sh DiffParser` rather than `make test`, most of the time. **The full suite is
-not a thing to sit and repeat.** The owner is working at this Mac while you run, several agents
-build at once, and a day of that took the load average to 205. A sweep of everything on every edit
-is how his machine stalls, and the machine stalling costs more than the answer is worth.
+**Do not run tests on this Mac unless the owner asks you to. Rely on CI by default.** That means
+no `make test`, no `swift test` and no `./Tools/test-core.sh`, not even with a filter. Build with
+`swift build -Xswiftc -warnings-as-errors`, run `make lint` and `make swiftlint`, push, and let CI
+run the tests. The owner is working at this Mac while you run and several agents build at once: a
+day of local test runs took the load average to 205, and running Swift processes get killed to win
+the machine back, so a local run is both a stall for him and an answer you may never get. When the
+owner does ask for a local run, run only the filter that covers what you touched, for example
+`./Tools/test-core.sh DiffParser`, never the full suite.
 
 **The green that counts is CI on a pull request.** `.github/workflows/test.yml` builds the app
 target with `-warnings-as-errors`, runs the house rules, parses every script and runs the whole
