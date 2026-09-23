@@ -110,6 +110,13 @@ public actor AgentRunner {
     private let grants: SessionGrants
     private var alive = false
     private var cancelled = false
+    /// Whether the stop that cancelled this run found a turn open, and the CLI has not closed it
+    /// with a result of its own since. `finish` says the result for it when it is still true. See
+    /// `UnreportedStop`.
+    private var stopLeftTurnOpen = false
+    /// Whether `finish` is part way through filing the run that just exited. Its process has
+    /// already been let go of at that point, so `mayStillEndTurn` has to read this as well.
+    private var isFinishing = false
     /// What the store has refused, and whether the transcript has gone. One type for both
     /// runners: see `PersistenceTrouble`, which they held a copy of each.
     private var trouble = PersistenceTrouble()
@@ -322,6 +329,15 @@ public actor AgentRunner {
 
     public var isRunning: Bool { alive }
 
+    /// Whether the event stream can still carry the end of the last turn.
+    ///
+    /// Not `isRunning`, which goes false the moment Stop reaches the actor, while the process it
+    /// stopped can go on writing for up to three seconds and the result it writes is still on its
+    /// way to the window. A transcript that closed the turn on `isRunning` alone, and then sent the
+    /// next message, would take that late result as the end of the turn it had just started. So
+    /// this stays true until the process is gone and `finish` has said everything it is going to.
+    public var mayStillEndTurn: Bool { handle.current != nil || isFinishing }
+
     public var currentSession: Session { session }
 
     /// The last thing that could not be written to disk, kept for as long as the runner lives.
@@ -492,6 +508,7 @@ public actor AgentRunner {
         guard handle.current == nil else { return }
 
         cancelled = false
+        stopLeftTurnOpen = false
         stderrTail = []
         let spec = launch()
         launchedCommand = Shell.which(spec.executable) ?? spec.executable
@@ -635,6 +652,8 @@ public actor AgentRunner {
             lastContextUsed = block.usage.contextUsedTokens
 
         case .result(let result):
+            // The CLI closed the turn itself, so a stop that found it open owes nothing more.
+            stopLeftTurnOpen = false
             // A cancelled turn also comes back as an error result, because SIGTERM makes the CLI
             // report error_during_execution on its way out. That is the user pressing stop, not a
             // failure. This used to be a `cancelled ? .cancelled : ...` ternary here and another
@@ -938,6 +957,8 @@ public actor AgentRunner {
     private func finish(status: Int32, sawResult: Bool, generation: Int) async {
         // A run that is no longer the current one has nothing left to say about the session.
         guard generation == handle.generation else { return }
+        isFinishing = true
+        defer { isFinishing = false }
         sink.noteProcessEnded()
 
         alive = false
@@ -961,6 +982,13 @@ public actor AgentRunner {
 
         guard !cancelled, !handle.isCancelled(generation) else {
             markCancelled()
+            // The process is gone, so nothing else can close the turn it was stopped in. See
+            // `UnreportedStop` for the chat that queued every message after this used to return.
+            if UnreportedStop.owesResult(stoppedMidTurn: stopLeftTurnOpen, reportedSince: false) {
+                stopLeftTurnOpen = false
+                Self.log.info("the stopped agent printed no result, so Bloom closed the turn for it")
+                await ingest(UnreportedStop.event(sessionID: session.agentSessionID))
+            }
             return
         }
 
@@ -1035,6 +1063,9 @@ public actor AgentRunner {
         guard !cancelled else { return }
         cancelled = true
         alive = false
+        // Read before the state moves, because the move is what closes it: `cancelled` only goes
+        // anywhere from a turn in flight, so after this line the question can no longer be asked.
+        stopLeftTurnOpen = session.state.isMidTurn
 
         // Refused on a session with no turn open, and left alone rather than written. Stop is fire
         // and forget from a button that cannot await, so the request reaches this actor whenever

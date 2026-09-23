@@ -877,6 +877,9 @@ final class TranscriptModel {
             Task { await app.ask.nameFromFirstMessage(id, prompt: body) }
         }
         messageArrivals.sent(delivery.id)
+        // Before the queue is asked, so a turn nothing will ever close does not decide that this
+        // message waits behind it. Free unless a turn is open on a chat that is not running.
+        await closeOrphanedTurn()
         if queuesNextMessage || (isRunning && delivery.interactionMode != activeInteractionMode) {
             pendingDeliveries.append(delivery)
         } else {
@@ -1070,6 +1073,25 @@ final class TranscriptModel {
         }
     }
 
+    /// Closes a turn that is open with nothing left to close it. See `OrphanedTurn`.
+    ///
+    /// The flags are read again after the awaits rather than once, because the ending this stands
+    /// in for can arrive during either of them, and then closing the turn is that ending's job.
+    private func closeOrphanedTurn() async {
+        guard OrphanedTurn.mightBe(
+            hasActiveTurn: history.hasActiveTurn, isRunning: isRunning,
+            isSettling: history.isCapturing || history.isFinalisingTurn
+        ), let store, let stored = try? await store.session(id: session.id) else { return }
+        let endingMayArrive = await runner?.mayStillEndTurn ?? false
+        guard OrphanedTurn.shouldClose(
+            hasActiveTurn: history.hasActiveTurn, isRunning: isRunning,
+            isSettling: history.isCapturing || history.isFinalisingTurn,
+            storedState: stored.state, endingMayArrive: endingMayArrive
+        ) else { return }
+        Log.composer.error("closed a turn whose end was never reported, so the queue could move")
+        await history.finish(store: store, cwd: cwd, endSeq: highestSeenMessageSeq)
+    }
+
     private func finishDrain(allowRepeat: Bool) {
         let again = drainState.finish(allowRepeat: allowRepeat)
         if again, !wasStoppedByHand, !isWorkspaceArchiving {
@@ -1122,6 +1144,9 @@ final class TranscriptModel {
     /// Attempts the front of the queue again without changing its order or duplicating its text.
     func retryPending() async {
         guard let candidate = pendingDeliveries.first, canRetry(candidate) else { return }
+        // `canRetry` does not read the open turn and `drain` does, so without this the button was
+        // drawn and then did nothing, which is how the owner met `OrphanedTurn`.
+        await closeOrphanedTurn()
         if let first = pendingDeliveries.first, first.state == .uncertain {
             do { try await store?.restoreDelivery(id: first.id) } catch { return }
             await refreshQueue()
@@ -1581,6 +1606,9 @@ final class TranscriptModel {
     /// The UI stops looking busy right away, but the pump is deliberately left running: a cancelled
     /// turn still emits its own result, and that event is what writes the final state back into the
     /// session row. Tearing the pump down here used to strand the session until the next launch.
+    /// The CLI does not always print that result, and when it does not the runner says it instead,
+    /// because the open turn it would otherwise leave holds the queue for good. See
+    /// `UnreportedStop`, and `OrphanedTurn` for the guard behind it.
     func stop() {
         if let cloud {
             // The machine's queue pauses and its turn stops; what the chat shows next comes back

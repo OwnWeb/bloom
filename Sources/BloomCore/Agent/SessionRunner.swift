@@ -37,6 +37,14 @@ public protocol SessionRunner: Actor {
     /// is open", so quit interrupted the turn, watched it close and concluded the process was gone
     /// while it was still running. One name, two facts, and the wrong one was being polled.
     var isProcessAlive: Bool { get }
+
+    /// Whether the end of the last turn can still arrive on `events`.
+    ///
+    /// What the transcript asks before it closes a turn nobody reported the end of: while this is
+    /// true the ending may simply not have arrived yet, and closing the turn early would let the
+    /// late one close the next turn instead. Defaults to `isProcessAlive`; Claude Code's runner
+    /// answers it separately, because there Stop makes the process count as gone before it is.
+    var mayStillEndTurn: Bool { get }
     func evictIfIdle(for duration: Duration) async -> Bool
 
     /// Write one turn. Starts whatever has to be started, on first use.
@@ -77,6 +85,7 @@ public protocol SessionRunner: Actor {
 }
 
 extension SessionRunner {
+    public var mayStillEndTurn: Bool { isProcessAlive }
     public func evictIfIdle(for duration: Duration) async -> Bool { false }
     public nonisolated var presentationFeed: AgentPresentationFeed? { nil }
     public func sendDelivery(_ delivery: Delivery) async throws {

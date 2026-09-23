@@ -26,6 +26,9 @@ private final class FakeProcess: AgentProcessing, @unchecked Sendable {
     private var killed = false
     private var running = true
     private let status: Int32
+    /// Whether SIGTERM closes stdout at once. False is the CLI that prints its own stopped result
+    /// on the way out, which the test then writes and ends by hand.
+    private let endsOnTerminate: Bool
 
     private let stdoutContinuation: AsyncThrowingStream<String, Error>.Continuation
     private let stderrContinuation: AsyncStream<String>.Continuation
@@ -33,9 +36,10 @@ private final class FakeProcess: AgentProcessing, @unchecked Sendable {
     let lines: AsyncThrowingStream<String, Error>
     let errorLines: AsyncStream<String>
 
-    init(launch: AgentLaunch, status: Int32 = 0) {
+    init(launch: AgentLaunch, status: Int32 = 0, endsOnTerminate: Bool = true) {
         self.launch = launch
         self.status = status
+        self.endsOnTerminate = endsOnTerminate
 
         var out: AsyncThrowingStream<String, Error>.Continuation!
         lines = AsyncThrowingStream(bufferingPolicy: .unbounded) { out = $0 }
@@ -62,7 +66,9 @@ private final class FakeProcess: AgentProcessing, @unchecked Sendable {
     func closeStdin() {}
 
     func terminate() {
-        lock.lock(); terminated = true; running = false; lock.unlock()
+        lock.lock(); terminated = true; lock.unlock()
+        guard endsOnTerminate else { return }
+        lock.lock(); running = false; lock.unlock()
         stdoutContinuation.finish()
         stderrContinuation.finish()
     }
@@ -103,14 +109,16 @@ private final class ProcessRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var made: [FakeProcess] = []
     private let status: Int32
+    private let endsOnTerminate: Bool
 
-    init(status: Int32 = 0) {
+    init(status: Int32 = 0, endsOnTerminate: Bool = true) {
         self.status = status
+        self.endsOnTerminate = endsOnTerminate
     }
 
     var factory: @Sendable (AgentLaunch) -> any AgentProcessing {
         { launch in
-            let process = FakeProcess(launch: launch, status: self.status)
+            let process = FakeProcess(launch: launch, status: self.status, endsOnTerminate: self.endsOnTerminate)
             self.append(process)
             return process
         }
@@ -949,6 +957,104 @@ struct AgentRunnerProcessTests {
         #expect(process.wasTerminated)
         await waitUntil("the session was marked cancelled") { (try? await store.session(id: session.id)?.state) == .cancelled }
         #expect(try await store.session(id: session.id)?.state == .cancelled)
+    }
+
+    /// **The chat that queued everything.** A turn stopped while it waited on the model, and the
+    /// child went away without printing the result SIGTERM normally makes it print. The runner
+    /// filed the session as cancelled and told the window nothing, so the transcript's turn stayed
+    /// open and every message after it was queued behind a turn that could never end. The result
+    /// event is what the window closes the turn on, which is what lets the next message go. See
+    /// `UnreportedStop`.
+    @Test("a stop the CLI never answered still ends the turn")
+    func silentStopEndsTheTurn() async throws {
+        let store = try makeTestStore("agent")
+        let session = try await makeSession(store)
+        let recorder = ProcessRecorder()
+        let runner = AgentRunner(
+            workspacePath: "/tmp/w", session: session, store: store, makeProcess: recorder.factory
+        )
+
+        let stream = runner.events
+        let sawResult = Task<Bool, Never> {
+            for await event in stream {
+                if case .result = event { return true }
+            }
+            return false
+        }
+
+        try await runner.send("long job")
+        let process = try #require(recorder.last)
+        process.emit(#"{"type":"system","subtype":"init","session_id":"s","cwd":"/tmp/w"}"#)
+        process.emit(#"{"type":"system","subtype":"status","status":"requesting","session_id":"s"}"#)
+        await waitUntil("the init was read") { (try? await store.session(id: session.id)?.agentSessionID) == "s" }
+
+        // Stop, and the fake closes its output with nothing more said, which is the whole bug.
+        await runner.cancel()
+        await waitUntil("the run was filed") { await runner.mayStillEndTurn == false }
+
+        let results = try await store.messages(sessionID: session.id).filter { $0.kind == .result }
+        #expect(results.count == 1)
+        guard results.count == 1 else {
+            sawResult.cancel()
+            return
+        }
+        #expect(JSONValue.parse(results[0].payload)?[UnreportedStop.marker]?.boolValue == true)
+        #expect(await sawResult.value)
+        // Still a stop rather than a failure: the stand-in result moves nothing on a session the
+        // stop already filed.
+        #expect(try await store.session(id: session.id)?.state == .cancelled)
+    }
+
+    /// The ordinary stop, and the reason the stand-in is conditional: the CLI usually does print
+    /// its own result on the way out, and a second one would draw a second footer.
+    @Test("a stop the CLI answered is not answered twice")
+    func answeredStopIsNotDoubled() async throws {
+        let store = try makeTestStore("agent")
+        let session = try await makeSession(store)
+        let recorder = ProcessRecorder(endsOnTerminate: false)
+        let runner = AgentRunner(
+            workspacePath: "/tmp/w", session: session, store: store, makeProcess: recorder.factory
+        )
+
+        try await runner.send("long job")
+        let process = try #require(recorder.last)
+        await runner.cancel()
+        // The dying process is still being waited on, so the window must not close the turn yet.
+        #expect(await runner.mayStillEndTurn)
+
+        process.emit(#"""
+        {"type":"result","subtype":"error_during_execution","is_error":true,"duration_ms":10,"session_id":"s"}
+        """#)
+        process.endOutput()
+        await waitUntil("the run was filed") { await runner.mayStillEndTurn == false }
+
+        let results = try await store.messages(sessionID: session.id).filter { $0.kind == .result }
+        #expect(results.count == 1)
+        #expect(JSONValue.parse(results.first?.payload ?? Data())?[UnreportedStop.marker] == nil)
+    }
+
+    @Test("a stop that lands after the turn finished adds nothing")
+    func lateStopAddsNothing() async throws {
+        let store = try makeTestStore("agent")
+        let session = try await makeSession(store)
+        let recorder = ProcessRecorder()
+        let runner = AgentRunner(
+            workspacePath: "/tmp/w", session: session, store: store, makeProcess: recorder.factory
+        )
+
+        try await runner.send("hello")
+        let process = try #require(recorder.last)
+        process.emit(#"""
+        {"type":"result","subtype":"success","is_error":false,"duration_ms":10,"session_id":"s"}
+        """#)
+        await waitUntil("the turn landed idle") { (try? await store.session(id: session.id)?.state) == .idle }
+
+        await runner.cancel()
+        await waitUntil("the run was filed") { await runner.mayStillEndTurn == false }
+
+        let results = try await store.messages(sessionID: session.id).filter { $0.kind == .result }
+        #expect(results.count == 1)
+        #expect(try await store.session(id: session.id)?.state == .idle)
     }
 
     @Test("a second turn reuses the running process")
