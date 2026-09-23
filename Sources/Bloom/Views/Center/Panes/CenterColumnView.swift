@@ -220,9 +220,21 @@ private struct WorkspaceColumnArrival<Model: WorkspaceSurface>: View {
 
     @Environment(\.workspaceColumnActivity) private var activity
 
+    private struct ArrivalKey: Hashable {
+        var surface: WorkspaceSurfaceID
+        var isActive: Bool
+    }
+
     var body: some View {
+        // Keyed on the workspace as well as on whether it is current. A retained local column
+        // never changes workspace, so the activity alone was enough for those, but a Cloud column
+        // is one view that `CloudWorkspaceColumn` hands a different session: with no activity
+        // behind it the key was `true` for ever, so choosing one Cloud workspace from another
+        // suspended the old stream and never opened the new one. A workspace left that way sat
+        // with no event stream while its sends still went through, and a turn that ended in it
+        // was never heard of.
         Color.clear
-            .task(id: activity?.isActive ?? true) {
+            .task(id: ArrivalKey(surface: model.surfaceID, isActive: activity?.isActive ?? true)) {
                 guard activity?.isActive ?? true else { return }
                 openStartingPane()
                 await model.onColumnAppear()

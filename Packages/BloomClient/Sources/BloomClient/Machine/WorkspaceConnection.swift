@@ -221,14 +221,22 @@ public actor WorkspaceConnection {
     /// Announcing is `connecting(waking: true)`, which is a banner that already exists, draws a
     /// spinner and carries no button, so the control that was pressed goes away while the attempt
     /// runs and comes back if it fails. No new state, no timer, and nothing to keep in step.
+    ///
+    /// **A phase that says a stream is running is believed only while one is.** This returned for
+    /// `live`, `connecting`, `retrying` and `notReady` on the label alone, and a label can outlive
+    /// the loop that wrote it: see `set(_:)` for the one that did. A connection whose phase said
+    /// `live` with nothing behind it was deaf for good, because this and `perform` were the only
+    /// two ways back and both believed the label.
     public func resume(announcing: Bool = false) {
-        switch phase {
-        case .live, .connecting, .retrying, .notReady: return
-        default: break
+        if streamTask != nil {
+            switch phase {
+            case .live, .connecting, .retrying, .notReady: return
+            default: break
+            }
         }
         streamTask?.cancel()
         streamTask = nil
-        if announcing { set(.connecting(waking: true)) }
+        if announcing { force(.connecting(waking: true)) }
         open()
     }
 
@@ -240,7 +248,7 @@ public actor WorkspaceConnection {
         streamTask = nil
         wakeNotice?.cancel()
         wakeNotice = nil
-        set(.closed)
+        force(.closed)
     }
 
     public func close() {
@@ -250,8 +258,23 @@ public actor WorkspaceConnection {
         tokenTask = nil
         wakeNotice?.cancel()
         wakeNotice = nil
-        set(.closed)
+        force(.closed)
         continuation.finish()
+    }
+
+    /// Puts the phase somewhere without a loop to have put it there, which is the state a lost
+    /// loop used to leave behind. Internal, for the suite: see `aSendWhileNoStreamIsRunningOpensOne`.
+    func setPhaseForTesting(_ new: Phase) { force(new) }
+
+    /// Whether the phase tells a reader that events are arriving or about to, which is what makes
+    /// a missing stream a fault rather than a choice. `closed` is somebody leaving the workspace,
+    /// and the refusals and the limit are ends the loop reached on purpose, so none of those is
+    /// reopened by a command going past.
+    private var phaseExpectsStream: Bool {
+        switch phase {
+        case .live, .connecting, .retrying, .notReady, .notWaking: true
+        default: false
+        }
     }
 
     // MARK: Commands
@@ -265,7 +288,16 @@ public actor WorkspaceConnection {
     public func perform(_ operation: WorkspaceOperation, commandID: String = UUID().uuidString.lowercased()) async throws(CommandFailure) -> OperationResult {
         guard !Task.isCancelled else { throw .cancelled }
         let command = CommandRequest(operation, commandID: commandID)
-        if case .asleep = phase { resume() }
+        // A sleeping machine is woken by somebody doing something, and so is a stream that is not
+        // there although the phase says it is. The second is the bug this was widened for: a Cloud
+        // workspace sat on "Starting" under a message for minutes after its turn had ended, with
+        // every send answered and no stream open since three quarters of an hour earlier, so the
+        // turn's end was never heard. A person still sending is the plainest sign one is wanted.
+        if case .asleep = phase {
+            resume()
+        } else if streamTask == nil, phaseExpectsStream {
+            resume()
+        }
         var lastProblem = "It did not answer."
         var refreshed = false
         var attempt = 0
@@ -531,6 +563,9 @@ public actor WorkspaceConnection {
     /// that mends inside `retryingNotice` says nothing at all: see the note there for the restart
     /// this exists for.
     private func noticeRetrying(_ message: String) {
+        // A cancelled loop's failure is the cancellation, and replacing the current notice with it
+        // would hand the loop that replaced this one a banner about a request it never made.
+        guard !Task.isCancelled else { return }
         retryNotice?.cancel()
         retryNotice = Task { [sleep] in
             try? await sleep(Self.retryingNotice)
@@ -633,7 +668,21 @@ public actor WorkspaceConnection {
         if cursor.map({ value > $0 }) ?? true { cursor = value }
     }
 
+    /// A phase written by the stream loop, or by a notice the loop scheduled.
+    ///
+    /// **Not from a cancelled task, because that task no longer speaks for the connection.**
+    /// `suspend()` cancels the loop and says `closed`, but the loop is usually parked in an await
+    /// (the token, the `workspace` read, the stream's response head) and carries on from there when
+    /// it is answered. It used to say `live` on the next line, over the `closed` it had been
+    /// cancelled for, and then leave: a phase of `live` with no stream behind it, which `resume`
+    /// and `perform` both took at its word. The lifecycle methods write through `force`, because
+    /// they are the ones deciding.
     private func set(_ new: Phase) {
+        guard !Task.isCancelled else { return }
+        force(new)
+    }
+
+    private func force(_ new: Phase) {
         guard new != phase else { return }
         phase = new
         continuation.yield(.phase(new))

@@ -199,13 +199,17 @@ import Testing
 struct EchoTransport: HTTPTransport {
     let inner: FakeTransport
     let result: OperationResult
+    /// The answer to the `workspace` read every first connection starts with, when `result` is
+    /// meant for a command sent beside it.
+    var snapshot: OperationResult?
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         guard request.url?.path().hasSuffix("/_bloom/v1/rpc") == true, let body = request.httpBody,
               let command = try? WireJSON.decode(CommandRequest.self, from: body) else {
             return try await inner.data(for: request)
         }
-        let data = try WireJSON.encode(CommandReply(commandID: command.commandID, result: result))
+        let answer = if case .workspace = command.operation, let snapshot { snapshot } else { result }
+        let data = try WireJSON.encode(CommandReply(commandID: command.commandID, result: answer))
         return (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
     }
 
@@ -469,6 +473,175 @@ struct EchoTransport: HTTPTransport {
         let slept = await waits.durations
         #expect(slept.count == 4)
         #expect(slept.reduce(Duration.zero, +) > .seconds(6))
+    }
+}
+
+/// **A Cloud workspace sat on "Starting" under a message for minutes after its turn had ended.**
+/// Every send was answered, and the machine's own log showed no event stream open for three
+/// quarters of an hour: the last one had been closed from this side and nothing had asked again,
+/// so the turn's end was never heard. These are the connection's half of that: a stream that ends
+/// is asked for again, and a label that says one is open is not taken on trust.
+@Suite struct WorkspaceConnectionReopeningTests {
+    private func stream(_ events: [WorkspaceEvent]) -> FakeTransport.Answer {
+        var lines: [String] = []
+        for event in events {
+            lines.append("event: \(event.kind)")
+            if let cursor = event.cursor { lines.append("id: \(cursor)") }
+            lines += ["data: " + Records.json(event), ""]
+        }
+        return .init(status: 200, body: Data(), headers: ["Bloom-Stream-ID": "s1"], lines: lines)
+    }
+
+    private func connection(_ transport: some HTTPTransport, api: FakeTransport) -> WorkspaceConnection {
+        WorkspaceConnection(
+            workspaceID: "01k5ws", api: Fixtures.api(api), machine: MachineClient(transport: transport),
+            sleep: { _ in await Task.yield() }
+        )
+    }
+
+    /// A stream the machine ends with neither `sleeping` nor `closing` is a drop, and is reopened
+    /// from where it got to with nobody calling anything.
+    @Test func aStreamThatEndsWithoutSayingWhyIsOpenedAgainFromItsCursor() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on("GET", "/_bloom/v1/events", stream([.message(Records.message(3, cursor: 90))]), stream([.sleeping]))
+        let echo = EchoTransport(inner: transport, result: .workspace(Records.workspace(cursor: 77)))
+        let live = connection(echo, api: transport)
+        await live.open()
+        for await update in live.updates where update == .phase(.asleep) { break }
+        let events = transport.requests(to: "/_bloom/v1/events")
+        #expect(events.map { $0.value(forHTTPHeaderField: "Last-Event-ID") } == ["77", "90"])
+    }
+
+    /// **The loop was cancelled, and then said `live` anyway.** `suspend()` cancels the stream
+    /// loop, but a loop parked on the stream's response head carries on when the answer lands, and
+    /// it wrote `live` over the `closed` it had been cancelled for before leaving. What was left
+    /// said `live` with no stream behind it, and `resume` returned on that word, so the workspace
+    /// stayed deaf however often it was opened.
+    @Test func aLoopCancelledWhileOpeningLeavesNothingThatStopsTheNextOpen() async {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on("GET", "/_bloom/v1/events", stream([.sleeping]))
+        let held = HeldStreamTransport(inner: EchoTransport(inner: transport, result: .workspace(Records.workspace(cursor: 77))))
+        let live = connection(held, api: transport)
+
+        await live.open()
+        await held.waitUntilAsked()
+        await live.suspend()
+        held.answer()
+        // The cancelled loop has read the answer and let go of it, which is after the line that
+        // used to say `live`.
+        await held.waitUntilReleased()
+
+        await live.resume()
+        let reopened = await transport.waitForRequests(to: "/_bloom/v1/events", count: 1)
+        #expect(reopened, "resume believed a phase no stream was behind")
+        await live.close()
+    }
+
+    /// And the same state met by a send rather than by opening the workspace: somebody still
+    /// sending is the plainest sign a stream is wanted, so a command that finds the phase saying
+    /// `live` with no stream behind it asks for one.
+    ///
+    /// The phase is put there by hand because the fix above leaves no public route to it any
+    /// more, and this is the half that has to hold for the next route nobody has found yet.
+    @Test func aSendWhileNoStreamIsRunningOpensOne() async throws {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on("GET", "/_bloom/v1/events", stream([.sleeping]))
+        let echo = EchoTransport(inner: transport, result: .queued(promptID: "p1"), snapshot: .workspace(Records.workspace(cursor: 77)))
+        let live = connection(echo, api: transport)
+        await live.setPhaseForTesting(.live)
+
+        let result = try await live.perform(.send(chatID: "c1", text: "Run the tests"), commandID: "cmd-1")
+        #expect(result == .queued(promptID: "p1"))
+        let reopened = await transport.waitForRequests(to: "/_bloom/v1/events", count: 1)
+        #expect(reopened, "a send went through with no stream open and did not ask for one")
+        await live.close()
+    }
+
+    /// A workspace somebody left is not reopened by a command going past it, which is what keeps
+    /// `suspend` meaning anything: a held read in flight as the window moves on would otherwise
+    /// open a stream for a workspace nobody is looking at, and keep it open.
+    @Test func aSendToASuspendedWorkspaceDoesNotOpenItsStream() async throws {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(Fixtures.sessionToken()))
+        transport.on("GET", "/_bloom/v1/events", stream([.sleeping]))
+        let live = connection(EchoTransport(inner: transport, result: .queued(promptID: "p1")), api: transport)
+        await live.suspend()
+
+        _ = try await live.perform(.send(chatID: "c1", text: "Run the tests"), commandID: "cmd-1")
+        #expect(transport.requests(to: "/_bloom/v1/events").isEmpty)
+        #expect(await live.currentPhase == .closed)
+    }
+}
+
+/// Holds the first event stream request until the test says so, answers it with a stream that
+/// stays open, and reports when that stream is let go of. Everything after the first goes to the
+/// transport underneath.
+///
+/// The hold is what a response already on its way looks like to a loop that has just been
+/// cancelled: the request does not notice, and the answer arrives anyway.
+final class HeldStreamTransport: HTTPTransport, @unchecked Sendable {
+    let inner: any HTTPTransport
+    private let lock = NSLock()
+    private var held = false
+    private let asked: AsyncStream<Void>
+    private let askedContinuation: AsyncStream<Void>.Continuation
+    private var isAnswered = false
+    private var waiter: CheckedContinuation<Void, Never>?
+    private let released: AsyncStream<Void>
+    private let releasedContinuation: AsyncStream<Void>.Continuation
+
+    init(inner: any HTTPTransport) {
+        self.inner = inner
+        (asked, askedContinuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .unbounded)
+        (released, releasedContinuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .unbounded)
+    }
+
+    func waitUntilAsked() async {
+        for await _ in asked { return }
+    }
+
+    func answer() {
+        let waiting = lock.withLock {
+            isAnswered = true
+            defer { waiter = nil }
+            return waiter
+        }
+        waiting?.resume()
+    }
+
+    func waitUntilReleased() async {
+        for await _ in released { return }
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try await inner.data(for: request)
+    }
+
+    func lines(for request: URLRequest) async throws -> (HTTPURLResponse, AsyncThrowingStream<String, any Error>) {
+        let first = lock.withLock {
+            defer { held = true }
+            return !held
+        }
+        guard first else { return try await inner.lines(for: request) }
+        askedContinuation.yield()
+        // A checked continuation rather than a stream, because iterating a stream returns at once
+        // in a cancelled task and this hold has to outlast the cancellation: see the type's note.
+        await withCheckedContinuation { (waiting: CheckedContinuation<Void, Never>) in
+            let now = lock.withLock {
+                if isAnswered { return true }
+                waiter = waiting
+                return false
+            }
+            if now { waiting.resume() }
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Bloom-Stream-ID": "held"])!
+        let stream = AsyncThrowingStream<String, any Error> { [releasedContinuation] continuation in
+            continuation.onTermination = { _ in releasedContinuation.yield() }
+        }
+        return (response, stream)
     }
 }
 
