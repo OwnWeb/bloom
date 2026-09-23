@@ -46,8 +46,6 @@ public enum TranscriptTurnFold {
         /// The sequence numbers corresponding to `hidden`, for a search or restored position.
         public var hiddenSeqs: Set<Int>
         public var firstSeq: Int
-        /// The row immediately after the folded work, where its disclosure is drawn.
-        public var displayIndex: Int
         public var isComplete: Bool
         /// Whether at least one hidden stored row draws content of its own.
         public var hasHiddenRows: Bool
@@ -58,7 +56,6 @@ public enum TranscriptTurnFold {
             hidden: Set<Int>,
             hiddenSeqs: Set<Int>,
             firstSeq: Int,
-            displayIndex: Int,
             isComplete: Bool,
             hasHiddenRows: Bool,
             durationMS: Int? = nil
@@ -67,7 +64,6 @@ public enum TranscriptTurnFold {
             self.hidden = hidden
             self.hiddenSeqs = hiddenSeqs
             self.firstSeq = firstSeq
-            self.displayIndex = displayIndex
             self.isComplete = isComplete
             self.hasHiddenRows = hasHiddenRows
             self.durationMS = durationMS
@@ -88,21 +84,15 @@ public enum TranscriptTurnFold {
             self.resumeIndex = resumeIndex
         }
 
+        /// The segment whose disclosure is drawn at this row, which is the first row of its work.
+        ///
+        /// **Above the work, not above the response.** Folded, the two places look the same,
+        /// because every row between them is hidden. Opened, a line drawn over the response put
+        /// the work it had just revealed above itself, and the reader pressed a line and watched
+        /// the rows appear behind them rather than under it.
         public func turn(startingAt index: Int) -> Turn? {
-            var low = 0
-            var high = all.count
-            while low < high {
-                let middle = low + (high - low) / 2
-                let displayIndex = all[middle].displayIndex
-                if displayIndex < index {
-                    low = middle + 1
-                } else if index < displayIndex {
-                    high = middle
-                } else {
-                    return all[middle]
-                }
-            }
-            return nil
+            guard let turn = turn(containing: index), turn.span.lowerBound == index else { return nil }
+            return turn
         }
 
         public func turn(containing index: Int) -> Turn? {
@@ -204,7 +194,6 @@ public enum TranscriptTurnFold {
 
         func appendTurn(
             endingAt end: Int,
-            displayAt displayIndex: Int? = nil,
             isComplete: Bool,
             durationMS: Int?,
             hidesEntireSpan: Bool = false
@@ -230,7 +219,6 @@ public enum TranscriptTurnFold {
                 hidden: hidden,
                 hiddenSeqs: hiddenSeqs,
                 firstSeq: first.seq,
-                displayIndex: displayIndex ?? finalResponse ?? turnStart,
                 isComplete: isComplete,
                 hasHiddenRows: hasHiddenRows,
                 durationMS: durationMS
@@ -253,7 +241,6 @@ public enum TranscriptTurnFold {
                     if !fact.opensTurn {
                         appendTurn(
                             endingAt: offset,
-                            displayAt: offset,
                             isComplete: true,
                             durationMS: elapsed(until: fact.createdAt),
                             hidesEntireSpan: true

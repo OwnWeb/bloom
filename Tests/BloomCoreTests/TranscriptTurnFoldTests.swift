@@ -41,7 +41,8 @@ struct TranscriptTurnFoldTests {
         #expect(turn.hiddenSeqs == [1, 2, 3])
         #expect(turn.hasHiddenRows)
         #expect(turn.span == 1..<6)
-        #expect(turn.displayIndex == 4)
+        #expect(folds.turn(startingAt: 1) == turn)
+        #expect(folds.turn(startingAt: 4) == nil)
         #expect(TranscriptTurnFold.label(milliseconds: turn.durationMS ?? 0) == "Worked for 1m 5s")
     }
 
@@ -115,12 +116,13 @@ struct TranscriptTurnFoldTests {
             fact(5, .assistantText, createdAt: 113),
             fact(6, .result, durationMS: 14_000, createdAt: 114),
         ]
-        let turns = TranscriptTurnFold.folds(in: facts).all
+        let folds = TranscriptTurnFold.folds(in: facts)
+        let turns = folds.all
 
         // One rule, for the segment the result closes. A person interrupting would have left two.
         #expect(turns.count == 1)
         #expect(turns[0].hidden == [4])
-        #expect(turns[0].displayIndex == 5)
+        #expect(folds.turn(startingAt: 4) == turns[0])
         #expect(turns[0].durationMS == 4_000)
     }
 
@@ -135,14 +137,15 @@ struct TranscriptTurnFoldTests {
             fact(5, .assistantText, createdAt: 113),
             fact(6, .result, durationMS: 14_000, createdAt: 114),
         ]
-        let turns = TranscriptTurnFold.folds(in: facts).all
+        let folds = TranscriptTurnFold.folds(in: facts)
+        let turns = folds.all
 
         #expect(turns.count == 2)
         #expect(turns[0].hidden == [1, 2])
-        #expect(turns[0].displayIndex == 3)
+        #expect(folds.turn(startingAt: 1) == turns[0])
         #expect(turns[0].durationMS == 10_000)
         #expect(turns[1].hidden == [4])
-        #expect(turns[1].displayIndex == 5)
+        #expect(folds.turn(startingAt: 4) == turns[1])
         #expect(turns[1].durationMS == 4_000)
     }
 
