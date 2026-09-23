@@ -55,7 +55,9 @@ struct CloudPortsPopover: View {
             [CloudPortRow.OpenChoice(title: "Open") { ports.openPage(row) }]
         case .application(let url):
             InstalledApps.handlers(for: url).map { app in
-                CloudPortRow.OpenChoice(title: "Open in \(app.app.name)") { OpenIn.open(url, with: app) }
+                CloudPortRow.OpenChoice(title: "Open in \(app.app.name)") {
+                    Task { OpenIn.open(await ports.applicationURL(row) ?? url, with: app) }
+                }
             }
         case nil:
             []

@@ -94,6 +94,21 @@ struct WorkspacePortsTests {
         #expect(WorkspacePorts.opening(WorkspacePorts.port(27017), localPort: 43_017) == .application(URL(string: "mongodb://127.0.0.1:43017")!))
     }
 
+    @Test("A database's login goes into its URL, so the client does not connect as this Mac's user")
+    func databaseOpensWithLogin() {
+        let login = DatabaseLogin(user: "sprite", password: "p@ss:word", database: "there_there")
+        let opening = WorkspacePorts.opening(WorkspacePorts.port(5432), localPort: 41_499, login: login)
+        guard case .application(let url) = opening else {
+            Issue.record("Postgres had no application opening")
+            return
+        }
+        #expect(url.user(percentEncoded: false) == "sprite")
+        #expect(url.password(percentEncoded: false) == "p@ss:word")
+        #expect(url.host() == "127.0.0.1")
+        #expect(url.port == 41_499)
+        #expect(url.path() == "/there_there")
+    }
+
     @Test("A database no application registers a scheme for has nothing to open")
     func memcachedHasNoOpening() {
         #expect(WorkspacePorts.opening(WorkspacePorts.port(11211), localPort: 43_211) == nil)

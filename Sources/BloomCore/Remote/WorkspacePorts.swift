@@ -155,14 +155,24 @@ public enum WorkspacePorts {
     ///
     /// An unnamed port gets nothing. It may well speak HTTP, but a guess that opens a debugger's
     /// port in a browser is worse than a row that only copies its address.
-    public static func opening(_ port: Port, localPort: Int) -> Opening? {
+    ///
+    /// A database's `login` goes into the URL, because without one the client connects as this
+    /// Mac's user. See `DatabaseLogin`.
+    public static func opening(_ port: Port, localPort: Int, login: DatabaseLogin? = nil) -> Opening? {
         guard !port.reserved, (1...65_535).contains(localPort) else { return nil }
         switch port.kind {
         case .http:
             return URL(string: "http://localhost:\(localPort)").map(Opening.browser)
         case .database:
             guard let scheme = port.scheme else { return nil }
-            return URL(string: "\(scheme)://127.0.0.1:\(localPort)").map(Opening.application)
+            var address = URLComponents()
+            address.scheme = scheme
+            address.host = "127.0.0.1"
+            address.port = localPort
+            address.user = login?.user
+            address.password = login?.password
+            address.path = login?.database.map { "/" + $0 } ?? ""
+            return address.url.map(Opening.application)
         case .other:
             return nil
         }
