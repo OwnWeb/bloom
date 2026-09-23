@@ -342,8 +342,14 @@ enum PersonBoundGitCommand {
                 upstreamRefspecs: forced.setsUpstream ? forced.refspecs : nil
             )
         default:
-            guard !tail.contains(where: forbiddenNetworkArgument),
-                  let source = firstPositional(in: tail), exactURL(source, repository: repository) else { return nil }
+            guard !tail.contains(where: forbiddenNetworkArgument) else { return nil }
+            // `git ls-remote` and `git ls-remote origin` mean this repository too. It is given the
+            // URL, never `origin`, for the reason on `networkArguments`.
+            if command == "ls-remote", firstPositional(in: tail) == nil {
+                return Invocation(operation: .gitRead, arguments: leading + [command] + tail + [canonical])
+            }
+            guard let source = firstPositional(in: tail),
+                  exactURL(source, repository: repository) || command == "ls-remote" && source == "origin" else { return nil }
             return Invocation(operation: .gitRead, arguments: leading + [command] + replacingFirst(source, in: tail, with: canonical))
         }
     }
@@ -761,15 +767,25 @@ enum PersonBoundGitCommand {
          * configuration, never anything a caller passes.
          */
         let safeDirectory = worktree.map { ["-c", "safe.directory=\($0)"] } ?? []
-        // `origin` is defined here, because the repository's own definition of it is hidden with
-        // the rest of `.git/config` for the length of the command. See `forcedRemoteTail`.
-        let origin = [
+        /*
+         * `origin` is defined here, because the repository's own definition of it is hidden with
+         * the rest of `.git/config` for the length of the command. See `forcedRemoteTail`.
+         *
+         * **Only for a fetch, pull or push, which run inside a repository.** A clone defines its
+         * own origin, and one defined twice failed every clone with "multiple updates for ref
+         * refs/remotes/origin/...". And with no repository at all, git 2.53's git-remote-https
+         * died of signal 11 reading a command-line `remote.origin.fetch`, which made every
+         * `git ls-remote <url>` outside a checkout a segfault. Both measured on a Cloud machine.
+         */
+        let command = gitCommandIndex(invocation.arguments).map { invocation.arguments[$0] }
+        let namesOrigin = command.map { ["fetch", "pull", "push"].contains($0) } ?? false
+        let origin = namesOrigin ? [
             "-c", "remote.origin.url=\(canonical)",
             "-c", "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
             "-c", "remote.origin.proxy=",
         ] + upstream.flatMap { upstream in
             ["-c", "branch.\(upstream.branch).remote=origin", "-c", "branch.\(upstream.branch).merge=\(upstream.merge)"]
-        }
+        } : []
         return safeDirectory + origin + [
             "--exec-path=\(execPath)",
             "-c", "credential.helper=",

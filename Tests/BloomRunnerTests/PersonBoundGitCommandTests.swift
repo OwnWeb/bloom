@@ -133,6 +133,126 @@ struct PersonBoundGitCommandTests {
         #expect(try routed([]) == "git")
     }
 
+    @Test("an agent's shell command is the agent's, unless it sources a file from the checkout")
+    func inlineShellCodeIsTheCallers() throws {
+        let worktree = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bloom-provenance-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: worktree + "/bin", withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: worktree) }
+        try "export A=1\n".write(toFile: worktree + "/.envrc", atomically: true, encoding: .utf8)
+        try "#!/bin/sh\n".write(toFile: worktree + "/bin/setup.sh", atomically: true, encoding: .utf8)
+
+        func controlled(_ executable: String, _ arguments: [String]) -> Bool {
+            PersonBoundPeerOperation.repositoryControlled(
+                PersonBoundPeerOperation.Command(
+                    identity: processIdentity(70), parentPID: 1, executable: executable,
+                    arguments: arguments, cwd: worktree, environment: [:]
+                ),
+                worktree: worktree
+            )
+        }
+
+        // What the opening prompt of a Cloud workspace ran, word for word but the path. Naming a
+        // file in the worktree made the whole shell the repository's code, so the gh after it was
+        // refused a credential as "tainted-inherited".
+        #expect(!controlled("/usr/bin/bash", [
+            "/bin/bash", "-c", "printf 'check\\n' > \(worktree)/bloom-check.md && gh repo view spatie/bloom",
+        ]))
+        #expect(!controlled("/usr/bin/bash", [
+            "/bin/bash", "-c", "-l",
+            "source /home/bloom-agent/.claude/shell-snapshots/snapshot-bash-1.sh && eval 'git push -u origin HEAD'",
+        ]))
+        #expect(!controlled("/usr/bin/dash", ["/bin/sh", "-c", "cd . && ./bin/setup.sh"]))
+
+        // Reading a file from the checkout into the shell that goes on to run gh is still its code.
+        #expect(controlled("/usr/bin/bash", ["/bin/bash", "-c", "source .envrc && gh pr create"]))
+        #expect(controlled("/usr/bin/bash", ["/bin/bash", "-lc", "cd \(worktree); . \(worktree)/.envrc; gh pr list"]))
+        // And a script from the checkout, handed to a shell as a file, is what it always was.
+        #expect(controlled("/usr/bin/dash", ["/bin/sh", worktree + "/bin/setup.sh"]))
+        #expect(controlled("/usr/bin/dash", ["/bin/sh", "bin/setup.sh"]))
+
+        // Bloom's own git and gh wrappers are shell scripts too, and what they are handed is data:
+        // a pull request body that said `./bloom-check.md`, or named a file in the worktree, made
+        // the wrapper the repository's code and its gh was refused the credential.
+        let wrappers = MachineSandbox.personBoundSharedDirectory + "/bin/"
+        #expect(!controlled("/usr/bin/dash", [
+            "/bin/sh", wrappers + "gh", "pr", "create", "--title", "Add it", "--body", "Adds ./bin/setup.sh",
+        ]))
+        #expect(!controlled("/usr/bin/dash", ["/bin/sh", wrappers + "git", "add", "bin/setup.sh"]))
+    }
+
+    @Test("a child of a thread the tracer has not met takes its process's taint")
+    func unknownThreadsInheritTheirProcess() {
+        // Claude spawns commands from its own threads, and a thread whose clone event had not been
+        // read yet was unknown, so what it spawned started tainted: an agent's `git ls-files` was
+        // recorded as "tainted-inherited" beside a trusted sibling.
+        let tainted: [Int32: Bool] = [823: false, 900: true]
+        let groups: [Int32: Int32] = [823: 823, 900: 900]
+        func taint(_ creator: Int32, group: Int32?) -> Bool {
+            PersonBoundSandboxExec.inheritedTaint(
+                creator: creator, tainted: tainted, threadGroups: groups, threadGroupOf: { _ in group }
+            )
+        }
+        #expect(taint(823, group: nil) == false)
+        #expect(taint(838, group: 823) == false)
+        #expect(taint(901, group: 900) == true)
+        // Unknown altogether is still tainted.
+        #expect(taint(999, group: nil) == true)
+        #expect(taint(999, group: 998) == true)
+    }
+
+    @Test("a clone or ls-remote is given the URL and never a second origin")
+    func cloneAndLsRemoteDefineNoOrigin() throws {
+        // A clone defines its own origin, and one defined twice failed every Cloud clone with
+        // "multiple updates for ref". With no repository at all, git 2.53's git-remote-https died
+        // of signal 11 on a command-line `remote.origin.fetch`, so `git ls-remote <url>` outside a
+        // checkout was a segfault.
+        for arguments in [
+            ["clone", "https://github.com/spatie/bloom.git", "/tmp/checkout"],
+            ["ls-remote", "https://github.com/spatie/bloom", "HEAD"],
+            ["ls-remote", "origin", "HEAD"],
+            ["ls-remote", "--heads"],
+        ] {
+            let invocation = try #require(
+                PersonBoundGitCommand.gitInvocation(arguments, repository: "spatie/bloom"), "refused \(arguments)"
+            )
+            #expect(invocation.arguments.contains("https://github.com/spatie/bloom.git"))
+            let network = PersonBoundGitCommand.networkArguments(
+                for: invocation, repository: "spatie/bloom", runnerExecutable: "/opt/bloom-runner",
+                gitRemoteHTTPSExecutable: "/usr/lib/git-core/git-remote-https"
+            )
+            #expect(!network.contains { $0.hasPrefix("remote.origin.") }, "\(arguments) defines origin")
+        }
+    }
+
+    @Test("a clone made with the network arguments succeeds", .timeLimit(.minutes(1)))
+    func aCloneWithTheNetworkArgumentsSucceeds() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bloom-git-clone-\(UUID().uuidString)").path
+        let source = root + "/source"
+        try FileManager.default.createDirectory(atPath: source, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        #expect(try await Shell.run("git", ["init", "-q", "-b", "main"], cwd: source).status == 0)
+        let identity = ["-c", "user.name=Bloom", "-c", "user.email=bloom@example.invalid"]
+        #expect(try await Shell.run("git", identity + ["commit", "-q", "--allow-empty", "-m", "one"], cwd: source).status == 0)
+        #expect(try await Shell.run("git", ["branch", "feature"], cwd: source).status == 0)
+
+        let invocation = try #require(PersonBoundGitCommand.gitInvocation(
+            ["clone", "https://github.com/spatie/bloom.git", root + "/checkout"], repository: "spatie/bloom"
+        ))
+        let network = PersonBoundGitCommand.networkArguments(
+            for: invocation, repository: "spatie/bloom", runnerExecutable: "/opt/bloom-runner",
+            gitRemoteHTTPSExecutable: "/usr/lib/git-core/git-remote-https"
+        )
+        // Pointed at the local repository, so that nothing leaves this machine.
+        let local = network.map { $0 == "https://github.com/spatie/bloom.git" ? source : $0 }
+            .filter { !$0.hasPrefix("--exec-path=") }
+        let cloned = try await Shell.run(
+            "git", ["-c", "protocol.file.allow=always"] + local, cwd: root, env: ["GIT_TERMINAL_PROMPT": "0"]
+        )
+        #expect(cloned.status == 0, "\(cloned.stderr)")
+    }
+
     @Test("push -u is recorded for the wrapper to write, as git would have")
     func pushUpstreamIsRecorded() throws {
         let named = try #require(PersonBoundGitCommand.gitInvocation(

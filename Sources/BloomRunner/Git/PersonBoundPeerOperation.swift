@@ -310,6 +310,17 @@ enum PersonBoundPeerOperation {
         let interpreters = ["sh", "bash", "dash", "zsh", "python", "python3", "ruby", "perl", "node"]
         let isInterpreter = interpreters.contains(name)
         guard isInterpreter else { return false }
+        // Bloom's own `git` and `gh` wrappers are shell scripts in a directory only root can write,
+        // and what they are handed is data: a pull request body that said `./bloom-check.md` made
+        // the wrapper the repository's code, and its gh was refused the credential.
+        let wrappers = ["git", "gh"].map { canonical(MachineSandbox.personBoundSharedDirectory + "/bin/" + $0) }
+        if let script = command.arguments.dropFirst().first(where: { !$0.hasPrefix("-") }),
+           wrappers.contains(canonical(script)) {
+            return false
+        }
+        if ["sh", "bash", "dash", "zsh"].contains(name), let script = inlineShellScript(command.arguments) {
+            return sourcesRepositoryFile(script, root: root, cwd: command.cwd)
+        }
         for argument in command.arguments.dropFirst() where !argument.hasPrefix("-") {
             if argument.contains(root + "/") || argument.contains("./") || argument.contains(".bloom/") {
                 return true
@@ -318,6 +329,50 @@ enum PersonBoundPeerOperation {
                 ? canonical(argument)
                 : canonical(URL(fileURLWithPath: command.cwd).appendingPathComponent(argument).path)
             if isInside(candidate, root: root), FileManager.default.fileExists(atPath: candidate) { return true }
+        }
+        return false
+    }
+
+    /// The code of `sh -c '<code>'`, or nil when the shell was given a script file instead.
+    ///
+    /// **The code a shell is handed with `-c` is the caller's, not a file from the checkout.** It
+    /// was read as if every word were a script path, so an agent's command that so much as
+    /// mentioned a file in the worktree, `printf check > /home/sprite/workspace/bloom-check.md &&
+    /// gh repo view`, was the repository's own code, and everything it started was refused a
+    /// credential as "tainted-inherited". What the inline code runs is judged when it runs: a script
+    /// from the checkout, `npm` or `make` there, or an interpreter handed a file there, is each an
+    /// exec of its own and is caught at that exec. The one thing that never execs is `source`, or
+    /// `.`, which reads a file into the very shell that goes on to run `gh`, so that is what counts.
+    static func inlineShellScript(_ arguments: [String]) -> String? {
+        var sawInline = false
+        for argument in arguments.dropFirst() {
+            if argument.hasPrefix("-"), !argument.hasPrefix("--") {
+                if argument.dropFirst().contains("c") { sawInline = true }
+                continue
+            }
+            if argument.hasPrefix("--") { continue }
+            return sawInline ? argument : nil
+        }
+        return nil
+    }
+
+    /// Whether shell code reads a file from the checkout into itself, with `source` or `.`.
+    static func sourcesRepositoryFile(_ script: String, root: String, cwd: String) -> Bool {
+        // Only a word in command position is a `source` or a `.`: `cd . && git push` sources
+        // nothing, and taking the `.` for one would have tainted the push behind it.
+        let commands = script.components(separatedBy: CharacterSet(charactersIn: ";&|(){}\n"))
+        for command in commands {
+            let words = command.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            guard words.count >= 2, words[0] == "source" || words[0] == "." else { continue }
+            let path = words[1].trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+            // `$HOME/...` and `~/...` are the user's own files, and the shell snapshot an agent
+            // sources before every command lives there. Anything else is resolved as the shell
+            // would, against its working directory.
+            if path.isEmpty || path.hasPrefix("$") || path.hasPrefix("~") { continue }
+            let resolved = path.hasPrefix("/")
+                ? canonical(path)
+                : canonical(URL(fileURLWithPath: cwd).appendingPathComponent(path).path)
+            if isInside(resolved, root: root), FileManager.default.fileExists(atPath: resolved) { return true }
         }
         return false
     }

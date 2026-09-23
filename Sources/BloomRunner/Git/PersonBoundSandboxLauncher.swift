@@ -151,6 +151,25 @@ enum PersonBoundSandboxExec {
         return childEnvironment
     }
 
+    /// The taint a new process or thread starts with, which is its creator's.
+    ///
+    /// **A creator the tracer has not met yet is judged by the process it is a thread of.** The
+    /// kernel reports a new thread's first stop and its parent's clone event in either order, and
+    /// a thread that forks in between was unknown here, so its child started tainted. Claude's
+    /// own threads spawn every command it runs, so an agent's `git ls-files` was recorded as
+    /// "tainted-inherited" beside a sibling that was trusted, and a push from a shell started the
+    /// same way would have been refused its credential. Every thread of a process shares its
+    /// memory and was made by it, so the process's taint is the thread's. Unknown altogether is
+    /// still tainted.
+    static func inheritedTaint(
+        creator: Int32, tainted: [Int32: Bool], threadGroups: [Int32: Int32],
+        threadGroupOf: (Int32) -> Int32?
+    ) -> Bool {
+        if let known = tainted[creator] { return known }
+        guard let group = threadGroups[creator] ?? threadGroupOf(creator), let known = tainted[group] else { return true }
+        return known
+    }
+
     static func run(_ arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) -> Int32 {
         #if !os(Linux)
         return 1
@@ -456,8 +475,17 @@ enum PersonBoundSandboxExec {
                 }
                 if read == 0, let pid = Int32(exactly: born) {
                     traced.insert(pid)
-                    tainted[pid] = tainted[waited] ?? true
-                    threadGroups[pid] = event == 3 ? processThreadGroup(pid) ?? pid : pid
+                    // Already known only when the child exec'd before this event was read, and then
+                    // what its exec decided stands: it may be running the repository's own code.
+                    if tainted[pid] == nil {
+                        tainted[pid] = inheritedTaint(
+                            creator: waited, tainted: tainted, threadGroups: threadGroups,
+                            threadGroupOf: processThreadGroup
+                        )
+                    }
+                    if threadGroups[pid] == nil {
+                        threadGroups[pid] = event == 3 ? processThreadGroup(pid) ?? pid : pid
+                    }
                 }
             } else if event == 4 { // PTRACE_EVENT_EXEC, stopped before user code runs
                 var former: UInt = 0
@@ -467,7 +495,12 @@ enum PersonBoundSandboxExec {
                 let formerPID = Int32(exactly: former) ?? waited
                 let group = threadGroups[formerPID] ?? threadGroups[waited] ?? waited
                 let members = threadGroups.compactMap { $0.value == group ? $0.key : nil }
-                let inherited = members.contains { tainted[$0] ?? true }
+                let command = tracedCommand(waited)
+                // A process whose fork has not been read yet is in no group here, and was taken
+                // for trusted because an empty list contains nothing tainted. Its parent says.
+                let inherited = members.isEmpty
+                    ? command.map { tainted[$0.parentPID] ?? true } ?? true
+                    : members.contains { tainted[$0] ?? true }
                 for member in members {
                     traced.remove(member)
                     tainted[member] = nil
@@ -475,7 +508,6 @@ enum PersonBoundSandboxExec {
                 }
                 traced.insert(waited)
                 threadGroups[waited] = waited
-                let command = tracedCommand(waited)
                 let controlled = command.map {
                     PersonBoundPeerOperation.repositoryControlled($0, worktree: worktree)
                 } ?? true
@@ -510,12 +542,28 @@ enum PersonBoundSandboxExec {
                     && (command?.arguments.contains("gh-v2") == true || command?.arguments.contains("git-v2") == true)
                     && URL(fileURLWithPath: command?.executable ?? "").lastPathComponent.hasPrefix("bloom-runner")
                 if isProtectedWrapper {
-                    let groups = Set(threadGroups.values).subtracting([waited])
+                    /*
+                     * **Only a group that is still this launch's is waited for.** The table can
+                     * hold a thread the kernel has already let go: one that exited before the
+                     * clone that made it was read here, so it is entered after its own exit and
+                     * never leaves. Stopping it failed with ESRCH, which was ignored, and it was
+                     * waited for anyway, for a stop that could never come: `gh auth status` hung
+                     * the whole turn with every process in the sandbox stopped. A pid that has been
+                     * reused outside the launch is not stopped either.
+                     */
+                    var groups: Set<Int32> = []
+                    for group in Set(threadGroups.values).subtracting([waited])
+                    where PersonBoundProcIdentity.read(group)?.cgroup == cgroup {
+                        if kill(group, SIGSTOP) == 0 {
+                            groups.insert(group)
+                        } else if errno != ESRCH {
+                            return 1
+                        }
+                    }
                     shieldingPID = waited
                     protectedOperation = command?.arguments.contains("gh-v2") == true ? .gh : .git
                     pendingShieldGroups = groups
                     allShieldGroups = groups
-                    for group in groups where kill(group, SIGSTOP) != 0 && errno != ESRCH { return 1 }
                     if groups.isEmpty {
                         guard linuxPtrace(7, waited, nil, nil) == 0 else { return 1 }
                         shieldStarted = true
