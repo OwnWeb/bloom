@@ -2551,6 +2551,7 @@ final class TranscriptModel {
     @ObservationIgnored private var cloudRowCount = 0
     @ObservationIgnored private var cloudChatRecord: ChatRecord?
     @ObservationIgnored private var cloudPendingQuestions: Set<String>?
+    @ObservationIgnored private var cloudQuestions = CloudQuestionSettlement()
 
     /// Folds what the machine says about this chat into the model the transcript and the composer
     /// draw: its rows, its streaming text, whether a turn is running, its questions and its queue.
@@ -2619,13 +2620,19 @@ final class TranscriptModel {
         }
         cloudRowCount = messages.count
 
-        // A question nobody is waiting on any more was answered, by this reader or somebody else.
-        // The reader's own answer is already on the row in their words; anybody else's reads as
-        // answered.
+        // A question that has been answered, by this reader or somebody else. The reader's own
+        // answer is already on the row in their words; anybody else's reads as answered. Which
+        // ones those are is `CloudQuestionSettlement`, and "not in the waiting list" alone is not
+        // it: that drew "Answered." over a question whose row arrived ahead of its entry.
         if appended || pending != cloudPendingQuestions {
             cloudPendingQuestions = pending
+            var open: [(position: Int, ask: CloudQuestionSettlement.OpenAsk)] = []
             for position in rows.indices where rows[position].kind == .permissionAsk && rows[position].permissionDecision == nil {
-                guard let ask = PermissionAsk.decode(payload: rows[position].payload), !pending.contains(ask.requestID) else { continue }
+                guard let ask = PermissionAsk.decode(payload: rows[position].payload) else { continue }
+                open.append((position, .init(requestID: ask.requestID, toolUseID: ask.toolUseID, seq: rows[position].seq)))
+            }
+            let answered = cloudQuestions.answered(open.map(\.ask), waiting: pending, messages: messages)
+            for (position, ask) in open where answered.contains(ask.requestID) {
                 foldCache.invalidate(row: position)
                 rows[position].permissionDecision = PermissionDecision.answer(input: .null).storedName
                 presentationRevision += 1

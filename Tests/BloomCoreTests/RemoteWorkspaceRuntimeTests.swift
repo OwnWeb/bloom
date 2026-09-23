@@ -26,7 +26,8 @@ struct RemoteWorkspaceRuntimeTests {
         lookUpMember: @escaping @Sendable (String) async -> MemberLookup = { _ in .unknown },
         addressed: (@Sendable (AddressedReport) async -> Void)? = nil,
         publishing: RemotePublishing? = nil,
-        retiresRunnerAfterTurn: Bool = false
+        retiresRunnerAfterTurn: Bool = false,
+        start: Bool = true
     ) async throws -> Fixture {
         let store = try makeTestStore("remote-runtime")
         let repo = try await store.upsert(Repo(name: "bloom", path: TestScratch.unique("repo")))
@@ -49,7 +50,7 @@ struct RemoteWorkspaceRuntimeTests {
             lookUpMember: lookUpMember, addressed: addressed,
             createCloudWorkspace: createCloudWorkspace, peers: peers
         )
-        try await runtime.start()
+        if start { try await runtime.start() }
         return Fixture(store: store, workspace: workspace, session: session, runtime: runtime, runners: runners)
     }
 
@@ -1136,6 +1137,46 @@ struct RemoteWorkspaceRuntimeTests {
                 break
             }
         }
+        await fixture.runtime.shutdown()
+    }
+
+    /// A client reads a question row whose request id is not in `questions` as answered, and the
+    /// runtime published new rows before new state, so an AskUserQuestion reached the Mac as
+    /// "Answered." while it was still waiting on the machine. Not started, so the one call below is
+    /// the only thing publishing: the store's observation takes these two writes as one batch or
+    /// two depending on scheduling, and only the one batch went wrong.
+    @Test("a question goes out before the row that asks it")
+    func questionBeforeItsRow() async throws {
+        let fixture = try await fixture(start: false)
+        let stream = try await fixture.runtime.openEvents(for: Self.caller(Self.freek), after: nil)
+        let seen = Mutex<[WorkspaceEvent]>([])
+        let reader = Task {
+            for await event in stream { seen.withLock { $0.append(event) } }
+        }
+        let ask = try #require(PermissionAsk.decode(payload: Data(PermissionAskTests.realAsk.utf8)))
+        // In the order `AgentRunner.ingest` writes them: the question, then its row.
+        try await fixture.store.appendPermissionAsk(sessionID: fixture.session.id, ask: ask)
+        _ = try await fixture.store.appendNext(
+            sessionID: fixture.session.id, kind: .permissionAsk, payload: ask.raw, refID: ask.toolUseID
+        )
+        await fixture.runtime.storeChanged([.messages, .permissionAsks])
+
+        let requestID = ask.requestID
+        let isRow: @Sendable (WorkspaceEvent) -> Bool = { event in
+            if case .message(let message) = event { return message.kind == MessageKind.permissionAsk.rawValue }
+            return false
+        }
+        let asks: @Sendable (WorkspaceEvent) -> Bool = { event in
+            if case .questions(_, let questions) = event { return questions.contains { $0.requestID == requestID } }
+            return false
+        }
+        // A cap on "never" rather than a measurement.
+        await waitUntil("the question's row was published", within: .seconds(30)) { seen.withLock { $0 }.contains(where: isRow) }
+        let events = seen.withLock { $0 }
+        let row = try #require(events.firstIndex(where: isRow))
+        let question = events.firstIndex(where: asks)
+        #expect(question.map { $0 < row } == true, "the row went out at \(row), its question at \(String(describing: question))")
+        reader.cancel()
         await fixture.runtime.shutdown()
     }
 

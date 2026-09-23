@@ -605,6 +605,21 @@ public actor AgentRunner {
             await persist(kind: .system, payload: report.raw)
         }
 
+        // **The question is filed before the row that draws it**, which is the order `CodexRunner`
+        // and `GrokRunner` already wrote them in. This one wrote the row first and filed the question
+        // in `handle` after the yield, so a Cloud workspace published the ask's row while
+        // `permission_asks` did not hold it yet, and the Mac, reading "a question that is not
+        // waiting", drew "Answered." over an AskUserQuestion nobody had answered while the agent sat
+        // blocked on it. Onto `pending` in the same breath as the store, because a question a client
+        // can see is one it can answer, and `answer` drops a request id `pending` does not hold.
+        //
+        // Nothing changes for a view on this Mac: the event still reaches the sink before `handle`
+        // can decide it. A remote answer landing inside the two writes below would be yielded
+        // before the ask, but it has a network round trip to make against one row of SQLite.
+        if case .permissionAsk(let ask) = event, !BridgeToolApproval.isSelfApproved(toolName: ask.toolName) {
+            await file(ask)
+        }
+
         var storedMessage: Message?
         if event.isTranscriptRow || persistsStreamDeltas {
             var durationMS: Int?
@@ -810,12 +825,8 @@ public actor AgentRunner {
             return
         }
 
-        pending.add(ask)
-        do {
-            try await store.appendPermissionAsk(sessionID: session.id, ask: ask)
-        } catch {
-            await report("could not store a permission question", error)
-        }
+        // Already on `pending` and in `permission_asks`: `ingest` filed it before its row. See
+        // `file(_:)`.
 
         // Both awaits below are suspension points on this actor, and the question is already on
         // screen by the time they run, so a person can answer it while the grant lookup is still
@@ -838,6 +849,16 @@ public actor AgentRunner {
         // outside the workspace: a process that is alive, costing nothing, and doing nothing.
         session.apply(.blocked)
         await save(session)
+    }
+
+    /// Put a question on the pile and in `permission_asks`, before anything draws it.
+    private func file(_ ask: PermissionAsk) async {
+        pending.add(ask)
+        do {
+            try await store.appendPermissionAsk(sessionID: session.id, ask: ask)
+        } catch {
+            await report("could not store a permission question", error)
+        }
     }
 
     /// Answer without troubling anybody, and say in the transcript that that is what happened.

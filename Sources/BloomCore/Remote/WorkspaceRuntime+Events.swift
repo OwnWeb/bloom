@@ -26,6 +26,13 @@ extension WorkspaceRuntime {
     }
 
     private func openEvents(_ subscription: RemoteEventHub.Subscription, after cursor: Int64?) async throws -> AsyncStream<WorkspaceEvent> {
+        // Where the replay stops and the live stream takes over, read before either starts so a row
+        // written in between is sent once by the live stream rather than twice or not at all. And
+        // before the questions below, not after them: a question is filed before the row that asks
+        // it, so the question behind any row at or under this mark is already in the read that
+        // follows. Reading the mark last let a row asked in between replay ahead of its question
+        // and reach the client as one already answered. See `storeChanged`.
+        let highWater = try await store.latestMessageID(workspaceID: workspaceID)
         var opening: [WorkspaceEvent] = []
         let workspace = try await workspace()
         opening.append(.workspace(workspace.record(setup: setupRecord(workspace), reporting: reporting, services: services)))
@@ -40,9 +47,6 @@ extension WorkspaceRuntime {
             }
         }
         opening.append(.presence(presence.records(knownAs: await memberLabels())))
-        // Where the replay stops and the live stream takes over, read before either starts so a row
-        // written in between is sent once by the live stream rather than twice or not at all.
-        let highWater = try await store.latestMessageID(workspaceID: workspaceID)
         let from = cursor ?? highWater
         let initial = opening
         let live = subscription.events
@@ -113,11 +117,22 @@ extension WorkspaceRuntime {
     ///
     /// Only reads, never writes, for the reason `StoreChangeHub` gives: a handler that writes back
     /// into the store it listens to wakes itself for ever.
+    ///
+    /// **Questions go out before the rows that ask them.** A client reads a question row whose
+    /// request id is not in the chat's `questions` as one that has been answered, and this used to
+    /// publish every new row first and the state after it, so an AskUserQuestion reached the Mac as
+    /// "Answered." while it was still waiting on the machine. The runner files the question before
+    /// it writes the row, so questions read after a page cannot miss one the page asks, which is
+    /// why they are read after it and published before it rather than read up front: a question
+    /// filed between an early read and the page would have been missed again.
     func storeChanged(_ domains: Set<StoreDomain>) async {
         do {
             if domains.contains(.messages) {
                 while true {
                     let page = try await store.messages(workspaceID: workspaceID, afterID: publishedCursor, limit: 500)
+                    if domains.contains(.permissionAsks) || page.contains(where: { $0.kind == .permissionAsk }) {
+                        try await refreshPublishedQuestions()
+                    }
                     for message in page { await events.publish(.message(message.record)) }
                     guard let last = page.last else { break }
                     publishedCursor = last.id
@@ -143,11 +158,7 @@ extension WorkspaceRuntime {
                 publishedChats[session.id] = chat
                 if publishing { await events.publish(.chat(chat)) }
             }
-            let questions = try await store.pendingPermissionAsks(sessionID: session.id).map(\.record)
-            if publishedQuestions[session.id] ?? [] != questions {
-                publishedQuestions[session.id] = questions
-                if publishing { await events.publish(.questions(chatID: session.id.rawValue, questions: questions)) }
-            }
+            try await refreshPublishedQuestions(session.id, publishing: publishing)
         }
         for id in publishedChats.keys where !seen.contains(id) {
             // Claim the removal before the first suspension. Two refreshes can overlap while one
@@ -193,6 +204,22 @@ extension WorkspaceRuntime {
             if publishing, start < bytes.count {
                 await events.publish(.setupOutput(text: String(decoding: bytes[start...], as: UTF8.self)))
             }
+        }
+    }
+
+    /// Publishes the questions of every open chat that changed since they were last published.
+    /// See `storeChanged` for why this runs ahead of the rest of the state.
+    func refreshPublishedQuestions() async throws {
+        for session in try await store.sessions(workspaceID: workspaceID) where session.archivedAt == nil {
+            try await refreshPublishedQuestions(session.id, publishing: true)
+        }
+    }
+
+    private func refreshPublishedQuestions(_ id: SessionID, publishing: Bool) async throws {
+        let questions = try await store.pendingPermissionAsks(sessionID: id).map(\.record)
+        if publishedQuestions[id] ?? [] != questions {
+            publishedQuestions[id] = questions
+            if publishing { await events.publish(.questions(chatID: id.rawValue, questions: questions)) }
         }
     }
 

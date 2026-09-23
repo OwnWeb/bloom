@@ -1165,6 +1165,33 @@ struct AgentRunnerPermissionTests {
         #expect(row.refID == "toolu_01")
     }
 
+    /// A Cloud client reads a question row whose request id is not waiting as one already
+    /// answered, and the runner used to write the row first and file the question after the
+    /// yield, so an AskUserQuestion reached the Mac as "Answered." while the agent sat blocked on
+    /// it. The database itself holds the order here: a second connection adds a rule refusing the
+    /// question's row while `permission_asks` does not hold the question yet, so filing it second
+    /// leaves no row at all rather than a race a test might or might not lose.
+    @Test("the question is filed before the row that draws it")
+    func filedBeforeItsRow() async throws {
+        let store = try makeTestStore("perm")
+        let session = try await makeSession(store)
+        let (runner, _) = try await running(store, session: session)
+        let rule = try SQLiteDatabase(path: store.path)
+        try rule.execute("""
+            CREATE TRIGGER question_first BEFORE INSERT ON messages
+            WHEN NEW.kind = 'permissionAsk' AND NOT EXISTS (SELECT 1 FROM permission_asks WHERE id = 'req-1')
+            BEGIN SELECT RAISE(ABORT, 'the row went out before its question'); END;
+            """)
+        defer { try? rule.execute("DROP TRIGGER question_first") }
+
+        await runner.ingest(.permissionAsk(ask()))
+
+        let rows = try await store.messages(sessionID: session.id)
+        #expect(rows.contains { $0.kind == .permissionAsk && $0.refID == "toolu_01" })
+        #expect(try await store.pendingPermissionAsks(sessionID: session.id).map(\.requestID) == ["req-1"])
+        #expect(await runner.pendingAsks.map(\.requestID) == ["req-1"])
+    }
+
     // MARK: Answering
 
     @Test("plan approval changes the running and persisted mode and survives a new runner", arguments: PlanApproval.modes)
