@@ -160,15 +160,43 @@ check "and says so where a person will find it afterwards" "3" \
 provision_script="$PWD/Tools/provision-sandbox.sh"
 sandbox_root="$root/sandbox"
 mkdir -p "$sandbox_root/home/.claude" "$sandbox_root/home/.local/share/sprite-agents/claude" "$sandbox_root/worktree" "$sandbox_root/home/.bloom"
-print -r -- '{}' > "$sandbox_root/home/.claude/settings.json"
 print -r -- 'binary' > "$sandbox_root/home/.local/share/sprite-agents/claude/claude"
 chmod +x "$sandbox_root/home/.local/share/sprite-agents/claude/claude"
 print -r -- 'shield' > "$sandbox_root/credential-shield.so"
-printf '#!/bin/sh
-printf "%%s\n" "$*" >> "%s/sudo.log"
-' "$sandbox_root" > "$root/fake-bin/fake-sudo"
+
+# The image's Claude home as a Sprite ships it: permission settings Bloom wants, and hooks and a
+# skill written for a person using the Sprite directly, which Bloom's agent must not be given.
+mkdir -p "$sandbox_root/home/.claude/skills/sprite-api-gateway"
+print -r -- 'the only supported way to access external APIs' > "$sandbox_root/home/.claude/skills/sprite-api-gateway/SKILL.md"
+print -r -- '{"permissions": {"defaultMode": "bypassPermissions", "allow": ["Bash"]}, "hooks": {"SessionStart": []}}' \
+  > "$sandbox_root/home/.claude/settings.json"
+# And an agent home the old whole-directory copy left behind, with a conversation Claude wrote itself.
+mkdir -p "$sandbox_root/agent/.claude/skills/sprite-api-gateway" "$sandbox_root/agent/.claude/projects/workspace"
+print -r -- 'stale' > "$sandbox_root/agent/.claude/skills/sprite-api-gateway/SKILL.md"
+print -r -- '{"type":"user"}' > "$sandbox_root/agent/.claude/projects/workspace/session.jsonl"
+
+# The recorder carries out an `rm` only inside this probe's own directory, so a stale skill can be
+# seen to go, and keeps a copy of the settings file it is asked to install, so its content can be read.
+cat > "$root/fake-bin/fake-sudo" <<'SUDO'
+#!/bin/bash
+root="$PROBE_SANDBOX_ROOT"
+printf '%s\n' "$*" >> "$root/sudo.log"
+case "$1" in
+  rm)
+    for path in "${@:2}"; do
+      [[ "$path" == -* || "$path" == "$root"/* ]] || exit 0
+    done
+    exec "$@"
+    ;;
+  install)
+    if [[ "${!#}" == */.claude/settings.json ]]; then
+      cp "${@:$#-1:1}" "$root/agent-settings.json"
+    fi
+    ;;
+esac
+SUDO
 chmod +x "$root/fake-bin/fake-sudo"
-HOME="$sandbox_root/home" SUDO="$root/fake-bin/fake-sudo" BLOOM_SANDBOX_HOME="$sandbox_root/agent"   BLOOM_WORKTREE="$sandbox_root/worktree" BLOOM_DATA_DIR="$sandbox_root/home/.bloom"   BLOOM_AGENT_SOURCE="$sandbox_root/home/.local/share/sprite-agents"   BLOOM_AGENT_LINKS="$sandbox_root/bin" BLOOM_SHARED_DIR="$sandbox_root/shared"   BLOOM_CREDENTIAL_SHIELD_SOURCE="$sandbox_root/credential-shield.so" BLOOM_CREDENTIAL_SHIELD_LIBRARY="$sandbox_root/installed-shield.so"   bash "$provision_script" >"$sandbox_root/out.log" 2>&1 || print -r -- "provision exited $?" >> "$sandbox_root/out.log"
+PROBE_SANDBOX_ROOT="$sandbox_root" HOME="$sandbox_root/home" SUDO="$root/fake-bin/fake-sudo" BLOOM_SANDBOX_HOME="$sandbox_root/agent"   BLOOM_WORKTREE="$sandbox_root/worktree" BLOOM_DATA_DIR="$sandbox_root/home/.bloom"   BLOOM_AGENT_SOURCE="$sandbox_root/home/.local/share/sprite-agents"   BLOOM_AGENT_LINKS="$sandbox_root/bin" BLOOM_SHARED_DIR="$sandbox_root/shared"   BLOOM_CREDENTIAL_SHIELD_SOURCE="$sandbox_root/credential-shield.so" BLOOM_CREDENTIAL_SHIELD_LIBRARY="$sandbox_root/installed-shield.so"   bash "$provision_script" >"$sandbox_root/out.log" 2>&1 || print -r -- "provision exited $?" >> "$sandbox_root/out.log"
 sudo_log="$(<"$sandbox_root/sudo.log")"
 check "the sandbox user is made with no sudo group" "yes" "$([[ "$sudo_log" == *"useradd --create-home --home-dir $sandbox_root/agent --shell /bin/bash --groups bloom-work bloom-agent"* ]] && echo yes || echo no)"
 check "the shared group is made" "yes" "$([[ "$sudo_log" == *"groupadd bloom-work"* ]] && echo yes || echo no)"
@@ -187,6 +215,17 @@ check "v2 execution provenance is root-only" "yes" \
   "$([[ "$sudo_log" == *"chown root:root /var/lib/bloom/person-bound-provenance"* && "$sudo_log" == *"chmod 0700 /var/lib/bloom/person-bound-provenance"* ]] && echo yes || echo no)"
 check "the gh credential shield is installed root-owned and read-only" "yes" \
   "$([[ "$sudo_log" == *"install -o root -g root -m 0555 $sandbox_root/credential-shield.so $sandbox_root/installed-shield.so"* ]] && echo yes || echo no)"
+check "the image's Claude home is no longer copied whole" "no" \
+  "$([[ "$sudo_log" == *"cp -rL $sandbox_root/home/.claude"* ]] && echo yes || echo no)"
+check "the agent's settings are installed as the agent's own, mode 0600" "yes" \
+  "$([[ "$sudo_log" == *"install -o bloom-agent -g bloom-agent -m 0600 "*" $sandbox_root/agent/.claude/settings.json"* ]] && echo yes || echo no)"
+check "the agent's settings keep the image's permissions and lose its hooks" \
+  '{"permissions": {"allow": ["Bash"], "defaultMode": "bypassPermissions"}}' \
+  "$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1])), sort_keys=True))' "$sandbox_root/agent-settings.json" 2>&1)"
+check "a skill an earlier copy left in the agent's home is removed" "no" \
+  "$([[ -e "$sandbox_root/agent/.claude/skills" ]] && echo yes || echo no)"
+check "and the conversations Claude wrote there are left alone" "yes" \
+  "$([[ -f "$sandbox_root/agent/.claude/projects/workspace/session.jsonl" ]] && echo yes || echo no)"
 check "the worktree is shared with the group" "yes" "$([[ "$sudo_log" == *"chgrp -R bloom-work $sandbox_root/worktree"* ]] && echo yes || echo no)"
 check "running it twice asks for nothing twice" "" "$(HOME="$sandbox_root/home" SUDO=/usr/bin/true BLOOM_SANDBOX_HOME="$sandbox_root/agent" BLOOM_WORKTREE="$sandbox_root/worktree" BLOOM_DATA_DIR="$sandbox_root/home/.bloom" BLOOM_AGENT_SOURCE="$sandbox_root/home/.local/share/sprite-agents" BLOOM_AGENT_LINKS="$sandbox_root/bin" BLOOM_SHARED_DIR="$sandbox_root/shared" bash "$provision_script" >/dev/null 2>&1; echo -n "")"
 

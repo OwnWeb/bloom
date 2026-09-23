@@ -17,8 +17,9 @@
 #    copy only cost time at every install, hundreds of megabytes of it, for five agents of which
 #    two are ever launched from here. The sandbox user can run them in place and cannot change
 #    them, since they belong to the Runner's user.
-# 4. The sandbox user's own HOME, with the image's Claude settings copied into it, because a CLI
-#    writes its state there and cannot read the Runner's home.
+# 4. The sandbox user's own HOME, because a CLI writes its state there and cannot read the
+#    Runner's home, with only the permission settings from the image's Claude settings. Not the
+#    image's hooks, skills or instructions: those are written for a person using the Sprite.
 # 5. The Runner's home made traversable (0751) and the worktree group-shared with setgid, so both
 #    users can work in the same checkout. **The Runner's data directory stays 0700**: the workspace
 #    secret and the database are in it and the sandbox user must never read them.
@@ -92,15 +93,52 @@ if [[ -d "$source_dir" ]]; then
   done
 fi
 
-# 4. The sandbox user's home, with the image's Claude settings, which carry the Sprite hooks and
-# skills and the permission mode a machine runs in.
+# 4. The sandbox user's home, and the one thing it takes from the image's Claude home: the
+# permission settings in settings.json.
+#
+# **The whole of `$HOME/.claude` used to be copied**, with `cp -rL`, and the image's hooks and
+# skills came with it. They are written for a person working on a Sprite directly, and while the
+# agent had a throwaway home per launch nothing read them. From Runner test.53 the agent keeps this
+# home, so they took effect: the `sprite-api-gateway` skill told Bloom's agent that the Sprites API
+# gateway "is the only supported way to access external APIs from a Sprite", and the agent went
+# looking there for a GitHub connection instead of using Bloom's credentialled git and gh.
+#
+# So settings.json is written from a list of the keys Bloom wants, and what the image adds for its
+# own use is removed on every run, which is also what cleans a machine the old copy provisioned.
+# What Claude writes for itself (projects/, shell-snapshots/, sessions, credentials) is never
+# named, so it is never touched.
+#
 # Named rather than looked up, so this is the same path before and after the user is made, and a
 # test can point it somewhere harmless.
 sandbox_home="${BLOOM_SANDBOX_HOME:-/home/$user}"
-if [[ -d "$home/.claude" && ! -e "$sandbox_home/.claude" ]]; then
-  $sudo_cmd cp -rL "$home/.claude" "$sandbox_home/.claude"
-  $sudo_cmd chown -R "$user:$user" "$sandbox_home/.claude"
+agent_claude="$sandbox_home/.claude"
+$sudo_cmd install -d -o "$user" -g "$user" -m 0700 "$agent_claude"
+$sudo_cmd rm -rf "$agent_claude/skills" "$agent_claude/hooks" "$agent_claude/agents" \
+  "$agent_claude/commands" "$agent_claude/plugins" "$agent_claude/output-styles" "$agent_claude/CLAUDE.md"
+# python3 because the machine already has it (bootstrap-machine.sh leans on it for its rename) and
+# jq is not promised. Read as the Runner, whose file it is, and installed as the agent's. A file
+# that is missing or does not parse gives `{}`, so a machine still loses the hooks it had.
+agent_settings="$(mktemp)"
+if command -v python3 >/dev/null; then
+  python3 - "$home/.claude/settings.json" > "$agent_settings" <<'PY'
+import json, sys
+keep = ("permissions", "defaultMode", "skipDangerousModePermissionPrompt")
+try:
+    with open(sys.argv[1]) as handle:
+        image = json.load(handle)
+except (OSError, ValueError):
+    image = {}
+if not isinstance(image, dict):
+    image = {}
+json.dump({key: image[key] for key in keep if key in image}, sys.stdout, indent=2)
+print()
+PY
+else
+  say "python3 is missing, so the agent gets no permission settings from the image"
+  printf '{}\n' > "$agent_settings"
 fi
+$sudo_cmd install -o "$user" -g "$user" -m 0600 "$agent_settings" "$agent_claude/settings.json"
+rm -f "$agent_settings"
 
 # 5. The one directory both users read, for the tmux configuration and anything like it. The
 # Runner's own data directory cannot be it: the workspace secret and the database are in there.
