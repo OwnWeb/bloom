@@ -785,6 +785,12 @@ struct TranscriptTable: NSViewRepresentable {
         /// what measuring against the wrong one clipped.
         private func measure(_ entry: TranscriptTableEntry, at width: CGFloat) -> CGFloat {
             guard let rowEnvironment else { return 0 }
+            let started = PaneLayoutTiming.isEnabled ? CACurrentMediaTime() : 0
+            defer {
+                if PaneLayoutTiming.isEnabled {
+                    PaneLayoutTiming.record("row.measure", CACurrentMediaTime() - started)
+                }
+            }
             // The one place a row is hosted to measure it, so the one place worth counting. See
             // `TranscriptHoldCensus`.
             TranscriptHoldCensus.measured()
@@ -1275,6 +1281,12 @@ struct TranscriptTable: NSViewRepresentable {
 
         private func putEnd() {
             guard let scrollView else { return }
+            let started = PaneLayoutTiming.isEnabled ? CACurrentMediaTime() : 0
+            defer {
+                if PaneLayoutTiming.isEnabled {
+                    PaneLayoutTiming.record("transcript.putEnd", CACurrentMediaTime() - started)
+                }
+            }
             // The last screen, measured before the end is claimed to be anywhere. Read again
             // afterwards, because measuring it is what moves the end: an estimate for a row nobody
             // has drawn is what the sum said, and the sum is where the scroller stops.
@@ -1865,6 +1877,12 @@ struct TranscriptTable: NSViewRepresentable {
         @discardableResult
         private func rewidth(keeping place: PlaceBeforeResize?, withMargin: Bool) -> Bool {
             guard heights.rewidth(to: Double(columnWidth)) else { return false }
+            let started = PaneLayoutTiming.isEnabled ? CACurrentMediaTime() : 0
+            defer {
+                if PaneLayoutTiming.isEnabled {
+                    PaneLayoutTiming.record("transcript.rewidth", CACurrentMediaTime() - started)
+                }
+            }
             // Both read before anything moves under the reader, which for a resize was before
             // AppKit moved the clip view. See `keepPlace` and `viewportWillResize`.
             let wasAtEnd: Bool

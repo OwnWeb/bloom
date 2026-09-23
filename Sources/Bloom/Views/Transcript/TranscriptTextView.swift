@@ -135,7 +135,10 @@ struct TranscriptTextView: NSViewRepresentable {
         let storage = NSTextStorage()
         let layout = TranscriptLayoutManager()
         let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-        container.widthTracksTextView = true
+        // The representable owns the container width in `sizeThatFits`. Allowing AppKit to
+        // track the view's frame would relayout every linked paragraph at every point of a
+        // divider drag, even when its measured line breaks have not changed.
+        container.widthTracksTextView = false
         container.lineFragmentPadding = 0
         storage.addLayoutManager(layout)
         layout.addTextContainer(container)
@@ -204,6 +207,7 @@ struct TranscriptTextView: NSViewRepresentable {
         if view.textStorage?.isEqual(to: text) != true {
             view.textStorage?.setAttributedString(text)
             view.bubbleAlignmentWidth = nil
+            view.lastMeasurement = nil
         }
         view.linkColor = linkColor
         // No underline at rest. The pointing hand is asked for here and set for real in
@@ -237,13 +241,26 @@ struct TranscriptTextView: NSViewRepresentable {
             return nil
         }
         let proposed = proposal.width.map(Double.init)
-        let width = TranscriptTextMeasure.layoutWidth(proposed: proposed)
+        let offeredWidth = TranscriptTextMeasure.layoutWidth(proposed: proposed)
+        // A divider advances by a point or two per event. Most of those widths leave line
+        // breaks unchanged, but TextKit still lays every glyph out again. Round down so the
+        // container never exceeds the space offered and reuse one layout for nearby frames.
+        let width = proposed?.isFinite == true && offeredWidth >= 16
+            ? floor(offeredWidth / 16) * 16
+            : offeredWidth
         // Only when it has actually moved. Whether TextKit throws its layout away on being handed
         // the size it already has is not documented either way, and this is the resize path: every
         // frame of a divider drag asks every realised row for its size, several times, and the
         // proposals a `.textSelection(.enabled)` block generates repeat the same widths. Not
         // depending on the answer costs one comparison.
         let wanted = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        if let last = nsView.lastMeasurement,
+           last.proposedWidth == proposed,
+           last.layoutWidth == width,
+           last.alignsBubbleInk == alignsBubbleInk,
+           container.containerSize == wanted {
+            return last.size
+        }
         if container.containerSize != wanted { container.containerSize = wanted }
         layout.ensureLayout(for: container)
         if alignsBubbleInk {
@@ -263,7 +280,12 @@ struct TranscriptTextView: NSViewRepresentable {
             lineHeight: Double(lineHeight(nsView, layout)),
             hasGlyphs: (nsView.textStorage?.length ?? 0) > 0
         )
-        return CGSize(width: size.width, height: size.height)
+        let result = CGSize(width: size.width, height: size.height)
+        nsView.lastMeasurement = LinkTextView.Measurement(
+            proposedWidth: proposed, layoutWidth: width,
+            alignsBubbleInk: alignsBubbleInk, size: result
+        )
+        return result
     }
 
     /// How far below the top the first line's baseline sits, for a caller aligning something
@@ -453,6 +475,16 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
         return actions.previewSource(url)
     }
 
+    struct Measurement {
+        var proposedWidth: Double?
+        var layoutWidth: CGFloat
+        var alignsBubbleInk: Bool
+        var size: CGSize
+    }
+
+    /// SwiftUI asks a representable for the same proposal several times in one layout pass.
+    /// TextKit's layout and widest-line scan only need to run again when its text or width moves.
+    var lastMeasurement: Measurement?
     var bubbleAlignmentWidth: CGFloat?
     var bubbleInkOffset: CGFloat = 0 {
         didSet {

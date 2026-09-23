@@ -45,8 +45,8 @@ enum InspectorVisibilityProbe {
         update(false)
         check(geometry.width == 0, "an unchanged closed state did not clear stale title-bar geometry")
 
-        // A delayed layout may still report an expanded frame after the requested state is closed.
-        item.isCollapsed = false
+        // A delayed frame notification must not reopen the header after a requested close.
+        // Changing the item's collapsed state would be a real native reopen observed above.
         item.viewController.view.setFrameSize(NSSize(width: 380, height: 600))
         NotificationCenter.default.post(name: NSView.frameDidChangeNotification, object: item.viewController.view)
         check(geometry.width == 0, "a late frame notification reopened the hidden inspector header")
@@ -58,6 +58,22 @@ enum InspectorVisibilityProbe {
             check(!item.isCollapsed && geometry.width > 0, "opening did not publish the visible pane width")
             update(false)
             check(item.isCollapsed && geometry.width == 0, "closing left title-bar geometry behind")
+        }
+        update(true)
+        for position: CGFloat in [500, 600, 550] {
+            controller.splitView.setPosition(position, ofDividerAt: 0)
+            window.contentView?.layoutSubtreeIfNeeded()
+            for pane in controller.splitViewItems.map(\.viewController.view) {
+                let host = pane.subviews.first
+                check(
+                    pane.clipsToBounds && host?.frame.height == pane.bounds.height,
+                    "resizing pane did not clip a full-height host"
+                )
+            }
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        for pane in controller.splitViewItems.map(\.viewController.view) {
+            check(pane.subviews.first?.frame == pane.bounds, "host did not fill its pane after resize settled")
         }
         check(!window.isVisible, "the probe displayed a window")
 

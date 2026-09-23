@@ -46,8 +46,7 @@ enum FrameProbe {
     private static var sweeps: Int { ProbeHarness.count("--probe-sweeps", or: 6) }
     private static var selection: String? { ProbeHarness.value(for: "--probe-select") }
 
-    /// What the run drags. The sidebar divider, which is what this probe was written for, or the
-    /// window's own bottom right corner, which is the gesture the owner called janky.
+    /// What the run drags: the sidebar divider, inspector divider, or window edge.
     ///
     /// A separate flag rather than a fourth driver, because the two gestures cross with the same
     /// three drivers: a window can be resized by a synthetic hand, at a hand's pace from code, or
@@ -90,21 +89,25 @@ enum FrameProbe {
 
         var split: NSSplitView?
         if gesture != "window" {
-            guard let found = sidebarSplitView(in: contentView) else {
-                harness.fail("no sidebar NSSplitView found")
+            let found = gesture == "inspector"
+                ? inspectorSplitView(in: contentView)
+                : sidebarSplitView(in: contentView)
+            guard let found else {
+                harness.fail("no \(gesture) NSSplitView found")
             }
             guard found.arrangedSubviews.count >= 2 else {
-                harness.fail("sidebar split view has \(found.arrangedSubviews.count) panes")
+                harness.fail("\(gesture) split view has \(found.arrangedSubviews.count) panes")
             }
             split = found
         }
 
-        // What the run is supposed to be moving, sampled once a frame: the sidebar's width, or
-        // the window's. A run whose min and max agree measured a window standing still.
+        // A run whose min and max agree measured a divider standing still.
         let recorder = FrameRecorder(view: contentView) { [weak split, weak window] in
             gesture == "window"
                 ? (window?.frame.width ?? 0)
-                : (split?.arrangedSubviews.first?.frame.width ?? 0)
+                : (gesture == "inspector"
+                    ? (split?.arrangedSubviews.last?.frame.width ?? 0)
+                    : (split?.arrangedSubviews.first?.frame.width ?? 0))
         }
 
         // A warm pass that is thrown away. The first drag of a launch pays for lazily built
@@ -150,6 +153,15 @@ enum FrameProbe {
         return found.first { candidate in
             !found.contains { other in other !== candidate && candidate.isDescendant(of: other) }
         } ?? found.first
+    }
+
+    private static func inspectorSplitView(in root: NSView) -> NSSplitView? {
+        if let split = root as? NSSplitView,
+           split.identifier?.rawValue == "bloom.detail.inspector.split" { return split }
+        for subview in root.subviews {
+            if let found = inspectorSplitView(in: subview) { return found }
+        }
+        return nil
     }
 
     /// Where the divider sits, in the split view's own coordinates.
@@ -380,6 +392,7 @@ enum FrameProbe {
             "restoredWorkspace": .string(
                 UserDefaults.standard.string(forKey: "sidebar.lastWorkspaceID") ?? "none"
             ),
+            "retainedWorkspaces": .integer(AppModel.probeInstance?.retainedWorkspaceIDs.count ?? 0),
             "frames": .integer(intervals.count),
             "durationMs": .number(total),
             "meanMs": .number(mean),
@@ -392,6 +405,9 @@ enum FrameProbe {
             "framesOver16ms": .integer(intervals.filter { $0 > 16.7 }.count),
             "framesOver33ms": .integer(intervals.filter { $0 > 33.4 }.count),
             "sidebarWidth": .number(Double(split?.arrangedSubviews[0].frame.width ?? 0)),
+            "inspectorWidth": .number(Double(
+                gesture == "inspector" ? split?.arrangedSubviews.last?.frame.width ?? 0 : 0
+            )),
             // Proof the drag landed. A run whose min and max are the same measured nothing.
             "widthMin": .number(Double(recorder.widths.min() ?? 0)),
             "widthMax": .number(Double(recorder.widths.max() ?? 0)),

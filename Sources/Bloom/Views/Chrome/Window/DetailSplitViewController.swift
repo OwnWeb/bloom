@@ -64,6 +64,67 @@ private final class MeasuredHostingView: NSHostingView<AnyView> {
     }
 }
 
+/// Fills the pane with its host without an Auto Layout solve for every divider position.
+private final class PaneContainerView: NSView {
+    private let host: NSView
+    private let minimumWidth: CGFloat
+    private let pinsTrailingEdge: Bool
+    private var settledWidth: CGFloat = 0
+    private var isSettled = true
+    private var settleWork: Task<Void, Never>?
+
+    init(host: NSView, minimumWidth: CGFloat, pinsTrailingEdge: Bool) {
+        self.host = host
+        self.minimumWidth = minimumWidth
+        self.pinsTrailingEdge = pinsTrailingEdge
+        super.init(frame: .zero)
+        clipsToBounds = true
+        host.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(host)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not decoded from a nib") }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthMoved = abs(newSize.width - frame.width) > 0.5
+        super.setFrameSize(newSize)
+        if widthMoved, newSize.width > 0 {
+            isSettled = settledWidth == 0
+            if isSettled { settledWidth = newSize.width }
+            if !isSettled { settleAfterResize() }
+        }
+        fitHost()
+    }
+
+    override func layout() {
+        super.layout()
+        fitHost()
+    }
+
+    private func fitHost() {
+        // A divider can move the container and its clipped contents without asking SwiftUI to
+        // reflow every visible row. Keep the last settled width for the duration of the drag,
+        // then give the host the exact new width once the movement stops.
+        let width = isSettled || bounds.width < minimumWidth ? bounds.width : settledWidth
+        let x = pinsTrailingEdge ? bounds.maxX - width : bounds.minX
+        let wanted = NSRect(x: x, y: bounds.minY, width: width, height: bounds.height)
+        if host.frame != wanted { host.frame = wanted }
+    }
+
+    private func settleAfterResize() {
+        settleWork?.cancel()
+        settleWork = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, let self else { return }
+            settleWork = nil
+            isSettled = true
+            settledWidth = bounds.width
+            fitHost()
+        }
+    }
+}
+
 /// A pane: an `NSHostingView` wrapped in a view controller so a split item can hold it.
 ///
 /// Deliberately not an `NSHostingController`. That type exists to carry SwiftUI's measured size out
@@ -89,8 +150,8 @@ final class PaneViewController: NSViewController {
     required init?(coder: NSCoder) { fatalError("not decoded from a nib") }
 
     override func loadView() {
-        view = NSView()
-        host.translatesAutoresizingMaskIntoConstraints = false
+        // The host has no intrinsic sizing options below, so it cannot push a measured SwiftUI
+        // size back out. The container sets its frame directly during layout.
         // No size travels out of SwiftUI. An `NSHostingView` publishes its content's ideal size as
         // an intrinsic content size, and the split view's autolayout then refuses to make the pane
         // any narrower than that. Measured on this branch: the inspector pane published 622 and the
@@ -100,13 +161,13 @@ final class PaneViewController: NSViewController {
         // items is the real floor and it is a required constraint, so nothing is lost by silencing
         // this one.
         host.sizingOptions = []
-        view.addSubview(host)
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            host.topAnchor.constraint(equalTo: view.topAnchor),
-            host.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
+        let inspector = host.paneName == "inspector"
+        view = PaneContainerView(
+            host: host,
+            minimumWidth: inspector
+                ? DetailSplitViewController.inspectorMinimum : DetailSplitViewController.detailMinimum,
+            pinsTrailingEdge: inspector
+        )
     }
 }
 
@@ -222,6 +283,7 @@ final class DetailSplitViewController: NSSplitViewController {
         // `Metrics.spacingWide` strip. `.thick` and `.paneSplitter` are the old heavy dividers with
         // a dimple; nothing that puts a source list beside content on this system uses them.
         splitView.dividerStyle = .thin
+        splitView.identifier = NSUserInterfaceItemIdentifier("bloom.detail.inspector.split")
 
         // Replaces the `@AppStorage("inspector.width")` the SwiftUI version kept by hand.
         splitView.autosaveName = Self.autosaveName

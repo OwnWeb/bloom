@@ -78,8 +78,13 @@ final class InspectorGeometry {
     func setInspectorWidth(_ value: CGFloat, sliding: Bool = false) {
         guard abs(width - value) > 0.5 else { return }
         width = value
-        if value > 1 { bandWidth = value }
+        if sliding, value > 1 { bandWidth = value }
         onChange?(sliding)
+    }
+
+    func setBandWidth(_ value: CGFloat) {
+        guard value > 1, abs(bandWidth - value) > 0.5 else { return }
+        bandWidth = value
     }
 
     /// Said by the accessory as it starts to open and again once it has finished closing. See
@@ -307,6 +312,8 @@ final class TitleBarStripController: NSTitlebarAccessoryViewController {
     /// as a backstop rather than as the mechanism: it lands the width the frames were heading for,
     /// and anything that finishes first cancels it.
     private var landing: Task<Void, Never>?
+    /// A divider can move many times before its next exact title-bar layout is needed.
+    private var dragLanding: Task<Void, Never>?
 
     /// How long after the slide should have ended the backstop gives up waiting for it.
     ///
@@ -372,15 +379,41 @@ final class TitleBarStripController: NSTitlebarAccessoryViewController {
     private func resize(sliding: Bool) {
         let geometry = InspectorGeometry.shared
         let target = max(geometry.width, 1)
+        // A pane frame notification can arrive during the controller's own collapse animation.
+        // The display link already owns the accessory until that slide finishes.
+        if !sliding, slide != nil { return }
         // A view with no window has no display to take a link from, and a slide whose clock never
         // ticks is an accessory stuck at the width it set off from. Nothing can be watching such a
         // window anyway, so it lands rather than travels. This is also the first call, from `init`.
         guard sliding, view.window != nil else {
             endSlide()
             InspectorGeometry.shared.setBandVisible(geometry.width > 1)
-            apply(target)
+            guard view.window != nil, target > 1 else {
+                dragLanding?.cancel()
+                dragLanding = nil
+                geometry.setBandWidth(target)
+                apply(target)
+                return
+            }
+            // Resizing the accessory asks AppKit to lay out the whole toolbar. Keep its frame
+            // and the SwiftUI band at one width for nearby divider positions, then land on the
+            // exact pane width when the drag has been still for 150 ms.
+            let stepped = max(DetailSplitViewController.inspectorMinimum, floor(target / 16) * 16)
+            geometry.setBandWidth(stepped)
+            apply(stepped)
+            dragLanding?.cancel()
+            dragLanding = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled, let self else { return }
+                dragLanding = nil
+                let exact = max(InspectorGeometry.shared.width, 1)
+                InspectorGeometry.shared.setBandWidth(exact)
+                apply(exact)
+            }
             return
         }
+        dragLanding?.cancel()
+        dragLanding = nil
         startSlide(to: target)
     }
 

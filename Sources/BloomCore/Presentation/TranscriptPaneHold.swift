@@ -29,10 +29,11 @@ public enum TranscriptPaneHold {
     /// A slow drag moves the pane a point or two a frame, and a reflow for each of those rewraps
     /// almost nothing while paying for every row on screen. Below this the rows keep the heights
     /// of the last reflow for a few frames, so a paragraph that gained a line draws into the row
-    /// under it until the next step or the settle. Eight points is a character or so of body text:
-    /// a fast drag passes it every frame and still follows the hand, and a drag at a point a frame
-    /// reflows every eighth.
-    public static let reflowStep: Double = 8
+    /// under it until the next step or the settle. The previous eight-point step remeasured the
+    /// visible screen and repositioned the end on nearly every frame of a divider drag. Sixteen
+    /// points still catches a wrap within about two body characters, while giving adjacent width
+    /// changes the same cached row heights.
+    public static let reflowStep: Double = 16
 
     /// Whether a width this far from the last reflow is reflowed now rather than at the settle.
     public static func reflowsNow(from reflowed: Double, to width: Double) -> Bool {
