@@ -136,6 +136,7 @@ struct PullRequestBar<Model: WorkspaceSurface>: View {
                 github: model.gitHubReadiness,
                 hasChanges: hasChanges,
                 isPreparing: model.isPreparingChanges,
+                hasReadChanges: model.hasReadChanges,
                 continued: model.continued,
                 action: createPullRequest
             )

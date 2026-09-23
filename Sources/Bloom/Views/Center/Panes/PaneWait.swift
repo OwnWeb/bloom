@@ -22,9 +22,13 @@ enum PaneWait: Equatable, Sendable {
     case conversation(SessionID)
 
     /// In the register the file loader already uses: what is being read.
+    ///
+    /// A Cloud workspace has read nothing until its machine has answered, so what it is waiting
+    /// for is the machine. "Opening the workspace" sat beside the inspector's "Reading the
+    /// worktree" as two unrelated waits, when both were the same connection.
     var label: String {
         switch self {
-        case .sessions: "Opening the workspace"
+        case .sessions(let surface): surface.cloudID == nil ? "Opening the workspace" : "Connecting to the machine"
         case .conversation: "Reading the conversation"
         }
     }

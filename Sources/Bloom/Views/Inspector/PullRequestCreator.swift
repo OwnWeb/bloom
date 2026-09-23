@@ -54,6 +54,10 @@ struct PullRequestCreator: View {
     /// on this branch yet" is a claim about a branch that does not exist on the machine yet, and
     /// it sat above a list saying the same worktree could not be read.
     var isPreparing = false
+    /// Whether the changes have been read at all. Before they have, an empty list is nobody having
+    /// looked, and "Nothing has changed on this branch yet" sat above "Reading the worktree" on
+    /// every Cloud workspace while its machine was being reached.
+    var hasReadChanges = true
     /// Set for the branch this workspace was carried on to when its pull request merged, and only
     /// while nothing has been committed to it. It is the difference between an empty branch that
     /// has just been cut from a landed pull request and an empty branch nobody has done anything
@@ -163,6 +167,7 @@ struct PullRequestCreator: View {
         // hover is a button most people never get an explanation from.
         if let note = branchActions.note { return note }
         if isPreparing { return "Setting up. Nothing to compare yet." }
+        if !hasChanges, !hasReadChanges { return "Comparing with \(baseBranch)…" }
         guard hasChanges else { return ContinuedBranch.line(on: branch, continued: continued) }
         return "No pull request yet. Target \(baseBranch)."
     }
