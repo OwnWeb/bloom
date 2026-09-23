@@ -899,6 +899,9 @@ struct RemoteWorkspaceRuntimeTests {
         await waitUntil("the v2 runner was retired") {
             fixture.runners.current.withLock { $0 }?.terminated.withLock { $0 } == true
         }
+        // The end is reported after retiring, in a task of its own (see `RemoteSession.closeTurn`),
+        // so the runner being terminated says nothing yet about whether the end has been reported.
+        await waitUntil("the turn was ended with runbloom.app") { gate.ended.withLock { $0 }.count == 1 }
         #expect(gate.endObservedRetiredAuthority.withLock { $0 } == [true])
 
         _ = await fixture.runtime.respond(

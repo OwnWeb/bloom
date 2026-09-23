@@ -715,7 +715,14 @@ struct MachineSetupTests {
         // which platform the suite runs on, and the Linux job said so within the hour.
         #if os(Linux)
         #expect(sentence.contains("still working") || sentence.contains("waiting on something"))
-        #expect(!sentence.contains("restarting this machine's server"), "nothing needs restarting while it runs")
+        // Only the lines about prepare: what runs after it is a phase with its own name and its own
+        // verdict, and on a loaded runner it can be slow enough for the watchdog to speak about it.
+        let aboutPrepare = sentence.split(separator: "\n").filter { $0.contains("Setup has been in prepare for") }
+        #expect(!aboutPrepare.isEmpty)
+        #expect(
+            aboutPrepare.allSatisfy { !$0.contains("restarting this machine's server") },
+            "nothing needs restarting while it runs: \(aboutPrepare)"
+        )
         #else
         #expect(sentence.contains("restarting this machine's server clears it"))
         #endif

@@ -244,7 +244,9 @@ struct AgentRunnerEventFanOutTests {
         runner.cancelNow()
         pump.cancel()
         _ = await pump.value
-        await waitUntil("the runner stopped") { await runner.isRunning == false }
+        // Not `isRunning`, which goes false the moment Stop lands: the run is only over once
+        // `finish` has filed it, including the result it says for a CLI that printed none.
+        await waitUntil("the stopped run was filed") { await runner.mayStillEndTurn == false }
 
         // Turn two, with a fresh subscriber, exactly as the UI would do it.
         let secondStream = runner.events
@@ -255,16 +257,20 @@ struct AgentRunnerEventFanOutTests {
         let received = await take(1, from: secondStream)
         #expect(received.count == 1)
 
-        // Two user turns Bloom wrote itself plus the two assistant lines. Persisting happens
-        // just off the delivery path, so wait for the count rather than reading it once and
-        // settling for "more than nothing".
+        // Two user turns Bloom wrote itself, the two assistant lines, and between them the result
+        // Bloom says for the first turn: this fake closes its output on SIGTERM without printing
+        // one, which is exactly the stop `UnreportedStop` exists for. Persisting happens just off
+        // the delivery path, so wait for the count rather than reading it once and settling for
+        // "more than nothing".
         await waitUntil("both turns were persisted") {
-            (try? await store.messageCount(sessionID: session.id)) == 4
+            (try? await store.messageCount(sessionID: session.id)) == 5
         }
         let stored = try await store.messages(sessionID: session.id)
-        #expect(stored.count == 4)
-        #expect(stored.map(\.kind) == [.user, .assistantText, .user, .assistantText])
-        #expect(stored.map(\.seq) == [0, 1, 2, 3])
+        #expect(stored.count == 5)
+        #expect(stored.map(\.kind) == [.user, .assistantText, .result, .user, .assistantText])
+        #expect(stored.map(\.seq) == [0, 1, 2, 3, 4])
+        let closing = stored.first { $0.kind == .result }
+        #expect(closing.flatMap { JSONValue.parse($0.payload)?[UnreportedStop.marker]?.boolValue } == true)
     }
 }
 

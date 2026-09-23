@@ -798,8 +798,15 @@ public actor MachineSetup {
     /// the machine user's own 0700 directory, so 53,624 files under `node_modules` kept the group
     /// `sprite` whatever directory they were linked into. Made group writable, they were writable
     /// by the wrong group, and Vite died with "node_modules/.bin/vite: Permission denied".
+    ///
+    /// **A phase of its own for the watchdog.** It runs after the last script, with no child the
+    /// watchdog can read, so under the name of the step before it the watchdog judged a `prepare`
+    /// that had already finished as a step it could not see into, and advised a restart for it.
+    /// A recursive `chgrp` over a large `node_modules` is real work that can be slow, and a launch
+    /// here can hang the way the measured one did, so it is named rather than hidden.
     private func shareWorktreeWithTheGroup() async {
         #if canImport(Glibc)
+        moved(to: "handing the worktree to the shared group")
         await Self.runQuietly("/bin/chgrp", ["-R", MachineSandbox.sharedGroup, layout.worktree])
         await Self.runQuietly("/bin/chmod", ["-R", "g+rwX", layout.worktree])
         #endif
