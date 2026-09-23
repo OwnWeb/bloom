@@ -148,7 +148,7 @@ struct ComposerSettingsPicker: View {
 
     /// The permission mode, which is the one field a preset's name most often leaves unsaid.
     private func presetSummary(_ preset: ModelPreset) -> String {
-        preset.permissionMode.label(on: preset.backend)
+        preset.modeLabels.joined(separator: " · ")
     }
 
     private func savePreset(_ name: String) {

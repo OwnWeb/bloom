@@ -174,12 +174,10 @@ struct PermissionAskRowView: View {
     /// see `TranscriptLayout.codeLeading`. It costs nothing here, because nothing is capped.
     @ViewBuilder
     private var command: some View {
-        if ask.isPlanApproval, isOpen, let plan = ask.input["plan"]?.stringValue, !plan.isEmpty {
-            Text(plan)
-                .font(Typo.label)
-                .foregroundStyle(Palette.textPrimary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+        if ask.isPlanApproval {
+            // Nothing. The call that proposed the plan draws it just above, formatted and whole,
+            // and it stays there after this is answered. Here it was plain text while open and a
+            // shell command's monospace block once settled. See `PlanRowView`.
         } else if !ask.subject.isEmpty {
             HStack(alignment: .top, spacing: TranscriptLayout.glyphGap) {
                 Text(ask.subject)

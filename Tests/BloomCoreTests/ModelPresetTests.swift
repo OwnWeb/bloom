@@ -49,6 +49,42 @@ struct ModelPresetTests {
         #expect(preset.permissionMode != .plan)
     }
 
+    // MARK: - Work mode
+
+    /// "A preset that starts with plan mode first", from feedback. Claude Code's plan mode is a
+    /// permission mode and a preset always held it; Codex's is a work mode and a preset did not.
+    @Test func aCodexPresetCarriesItsWorkMode() {
+        let planning = ModelPreset(
+            name: "Sol Plan", model: "gpt-5.6-sol", effort: "low", backend: .codex,
+            permissionMode: .autoReview, interactionMode: .plan
+        )
+        let controls = ComposerControls(agentKind: .codex).applying(planning)
+        #expect(controls.interactionMode == .plan)
+        #expect(controls.matches(planning))
+        #expect(!controls.matches(Self.solLow))
+        #expect(controls.applying(Self.solLow).interactionMode == .build)
+        #expect(planning.modeLabels.first == "Plan")
+        #expect(Self.solLow.modeLabels.count == 1)
+    }
+
+    @Test func aBackendWithNoWorkModeStoresBuild() {
+        let preset = ModelPreset(
+            name: "Opus", model: "opus", effort: "high", backend: .claudeCode,
+            permissionMode: .plan, interactionMode: .plan
+        )
+        #expect(preset.interactionMode == .build)
+        #expect(preset.modeLabels == ["Plan"])
+    }
+
+    @Test func aPresetSavedBeforeTheWorkModeDecodesAsBuild() {
+        let raw = #"{"presets":[{"id":"sol","name":"Sol Low","model":"gpt-5.6-sol","effort":"low","#
+            + #""backend":"codex","outputStyle":"default","permissionMode":"autoReview"}]}"#
+        let list = ModelPresetList.decode(raw)
+        #expect(list.presets.count == 1)
+        #expect(list.presets.first?.interactionMode == .build)
+        #expect(list.presets.first?.permissionMode == .autoReview)
+    }
+
     // MARK: - Matching
 
     @Test func anyDifferingFieldIsAOneOff() {
@@ -168,6 +204,21 @@ struct ModelPresetTests {
         #expect(resolved.backend == .codex)
         #expect(resolved.effort == "low")
         #expect(resolved.permissionMode == .autoReview)
+    }
+
+    @Test func aDefaultCodexPresetInPlanStartsNewSessionsInPlan() async throws {
+        let store = try makeTestStore("model-presets-default-plan")
+        await AppDefaults(model: "sonnet", effort: "low", permissionMode: .acceptEdits).save(to: store)
+        var planning = Self.solLow
+        planning.interactionMode = .plan
+        var list = ModelPresetList(presets: [planning])
+        list.setDefault(planning.id)
+        try await list.save(to: store)
+
+        let defaults = await AppDefaults.loadForNewSessions(from: store)
+        let resolved = ComposerDefaults.resolve(repo: RepoSettings(), app: defaults)
+        #expect(resolved.backend == .codex)
+        #expect(resolved.interactionMode == .plan)
     }
 
     @Test func withNoDefaultPresetNewSessionsUseSettings() async throws {

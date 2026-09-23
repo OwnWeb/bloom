@@ -6,7 +6,7 @@ import Foundation
 /// **It holds every field it names, and applying it writes every one of them.** Picking a model on
 /// its own moves the backend and settles the effort, and leaves the output style and the
 /// permission mode wherever the last model left them, which is how a chat came to be on a model it
-/// was never meant to run with a mode somebody picked for another one. A preset says all five at
+/// was never meant to run with a mode somebody picked for another one. A preset says all of them at
 /// once, so nothing is left behind from the choice before.
 ///
 /// Fast mode is deliberately not in here. It is a toggle beside the model button that combines
@@ -22,6 +22,14 @@ public struct ModelPreset: Identifiable, Codable, Equatable, Sendable {
     public var backend: AgentKind
     public var outputStyle: String
     public var permissionMode: PermissionMode
+    /// Build or Plan, on a backend where that is a choice of its own rather than a permission
+    /// mode, which today is Codex. Claude Code's plan mode is `permissionMode`, so a Claude preset
+    /// holds `.build` here and says Plan there.
+    ///
+    /// Added after presets shipped, because "a preset that starts in plan mode" was a thing a
+    /// Claude preset could be and a Codex one could not. A preset saved before it decodes as
+    /// Build.
+    public var interactionMode: InteractionMode
 
     public init(
         id: ModelPresetID = .new(),
@@ -30,7 +38,8 @@ public struct ModelPreset: Identifiable, Codable, Equatable, Sendable {
         effort: String,
         backend: AgentKind,
         outputStyle: String = OutputStyle.defaultName,
-        permissionMode: PermissionMode
+        permissionMode: PermissionMode,
+        interactionMode: InteractionMode = .build
     ) {
         self.id = id
         self.name = name
@@ -41,6 +50,25 @@ public struct ModelPreset: Identifiable, Codable, Equatable, Sendable {
         // Through the same rule `ComposerControls` holds, so a preset can never store a mode its
         // backend has no row for.
         self.permissionMode = permissionMode.nearest(on: backend)
+        self.interactionMode = interactionMode.nearest(on: backend)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, model, effort, backend, outputStyle, permissionMode, interactionMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(ModelPresetID.self, forKey: .id),
+            name: try container.decode(String.self, forKey: .name),
+            model: try container.decode(String.self, forKey: .model),
+            effort: try container.decode(String.self, forKey: .effort),
+            backend: try container.decode(AgentKind.self, forKey: .backend),
+            outputStyle: try container.decode(String.self, forKey: .outputStyle),
+            permissionMode: try container.decode(PermissionMode.self, forKey: .permissionMode),
+            interactionMode: try container.decodeIfPresent(InteractionMode.self, forKey: .interactionMode) ?? .build
+        )
     }
 
     /// A preset of exactly what the composer is set to now, which is what "Save as preset…" saves.
@@ -51,8 +79,17 @@ public struct ModelPreset: Identifiable, Codable, Equatable, Sendable {
             effort: controls.effort,
             backend: controls.agentKind,
             outputStyle: controls.outputStyle,
-            permissionMode: controls.permissionMode
+            permissionMode: controls.permissionMode,
+            interactionMode: controls.interactionMode
         )
+    }
+
+    /// The modes a menu row names under the preset: the permission mode, with Plan in front of it
+    /// for a backend whose plan mode is a work mode of its own. Build is never named, because it
+    /// is what a chat is unless somebody says otherwise.
+    public var modeLabels: [String] {
+        let permission = permissionMode.label(on: backend)
+        return interactionMode == .plan ? [interactionMode.label, permission] : [permission]
     }
 
     /// The name with the surrounding space taken off, or nil when nothing is left.
@@ -67,8 +104,8 @@ public extension ComposerControls {
     /// cannot land on a mode the backend lacks: the backend first, whose observer moves the mode,
     /// then the mode itself, which is checked against the backend it now sits on.
     ///
-    /// Fast mode, the work mode, the context window and whether there is a worktree are left
-    /// alone, because a preset does not name them.
+    /// Fast mode, the context window and whether there is a worktree are left alone, because a
+    /// preset does not name them. The work mode is written only where the backend offers one.
     func applying(_ preset: ModelPreset) -> ComposerControls {
         var next = self
         next.agentKind = preset.backend
@@ -76,6 +113,7 @@ public extension ComposerControls {
         next.effort = preset.effort
         next.outputStyle = preset.outputStyle
         next.permissionMode = preset.permissionMode
+        if next.offersInteractionMode { next.interactionMode = preset.interactionMode }
         return next
     }
 
@@ -88,7 +126,8 @@ public extension ComposerControls {
         guard agentKind == preset.backend,
               model == preset.model,
               effort == preset.effort,
-              permissionMode == preset.permissionMode.nearest(on: agentKind)
+              permissionMode == preset.permissionMode.nearest(on: agentKind),
+              !offersInteractionMode || interactionMode == preset.interactionMode
         else { return false }
         guard offersOutputStyle else { return true }
         return OutputStyle.isDefault(outputStyle)
@@ -256,7 +295,9 @@ public extension AppDefaults {
     /// The stored model and effort move too, because those are what `ComposerDefaults.resolve`
     /// asks to decide whether the owner chose anything, and a default preset is a choice. A
     /// repository's own settings file still outranks it, exactly as it outranks the Models screen.
-    /// "Start in plan mode" still wins over the mode, for the reason `resolve` gives.
+    /// "Start in plan mode" still wins over the mode, for the reason `resolve` gives, and a Codex
+    /// preset in Plan turns it on for the new session, because that switch is how `resolve` puts
+    /// a Codex chat in its Plan work mode.
     func applying(_ preset: ModelPreset) -> AppDefaults {
         var next = self
         next.model = preset.model
@@ -266,6 +307,7 @@ public extension AppDefaults {
         next.backend = preset.backend
         next.outputStyle = preset.outputStyle
         next.permissionMode = preset.permissionMode
+        if preset.interactionMode == .plan { next.planMode = true }
         return next
     }
 

@@ -8,7 +8,7 @@ struct ModelPresetDraft: Identifiable {
     var preset: ModelPreset
 }
 
-/// Name, model and reasoning, output style and permissions, for one preset.
+/// Name, model and reasoning, output style, work mode and permissions, for one preset.
 struct ModelPresetEditor: View {
     var onSave: (ModelPreset) -> Void
     var onCancel: () -> Void
@@ -41,6 +41,14 @@ struct ModelPresetEditor: View {
                     Picker("Output style", selection: $preset.outputStyle) {
                         ForEach(outputStyles.options(includingCurrent: preset.outputStyle)) { option in
                             Text(option.label).tag(option.id)
+                        }
+                    }
+                }
+
+                if InteractionMode.supports(preset.backend) {
+                    Picker("Work mode", selection: $preset.interactionMode) {
+                        ForEach(InteractionMode.allCases, id: \.self) { mode in
+                            Text(mode.label).tag(mode)
                         }
                     }
                 }
@@ -80,6 +88,7 @@ struct ModelPresetEditor: View {
             set: { kind in
                 preset.backend = kind
                 preset.permissionMode = preset.permissionMode.nearest(on: kind)
+                preset.interactionMode = preset.interactionMode.nearest(on: kind)
             }
         )
     }

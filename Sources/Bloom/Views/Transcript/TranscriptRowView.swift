@@ -188,6 +188,8 @@ struct TranscriptRowView: View, Equatable {
                         home: home,
                         source: .codexImageView
                     )
+                } else if let plan = proposedPlan(use) {
+                    PlanRowView(markdown: plan)
                 } else {
                     let run = runLink(for: use)
                     ToolRowView(
@@ -325,6 +327,27 @@ struct TranscriptRowView: View, Equatable {
               case .toolResult(let result)? = TranscriptEventCache.event(rowID: row.id, payload: payload)
         else { return nil }
         return WorkspaceSayRecord(toolName: use.name, input: use.input, resultText: result.text)
+    }
+
+    /// A plan the agent proposed, drawn as the document it is. See `PlanRow`.
+    ///
+    /// The name is checked first, so every other tool row pays one string comparison. Codex's plan
+    /// is its result, read from the payload directly for `sentWorkspaceMessage`'s reason: this row
+    /// is never opened, so `toolResult` never decodes it.
+    private func proposedPlan(_ use: AgentToolUse) -> String? {
+        switch use.name {
+        case PlanRow.claudeToolName:
+            return PlanRow.markdown(of: use, resultText: nil)
+        case PlanRow.codexToolName:
+            var resultText: String?
+            if let payload = row.resultPayload,
+               case .toolResult(let result)? = TranscriptEventCache.event(rowID: row.id, payload: payload) {
+                resultText = result.text
+            }
+            return PlanRow.markdown(of: use, resultText: resultText)
+        default:
+            return nil
+        }
     }
 
     /// Codex's native image viewer is also deliberate visible content. Its absolute paths often

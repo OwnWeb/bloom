@@ -101,6 +101,7 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
                 || kind == .media
                 || (picturesFromCalls && (MediaShowRow.isCall(payload) || CodexImageViewRow.isCall(payload)))
                 || (kind == .toolUse && WorkspaceSayRow.isCall(payload))
+                || (kind == .toolUse && PlanRow.isCall(payload))
                 || TranscriptRowInk.isSessionStart(kind: kind, payload: payload),
             drawsNothing: TranscriptNoise.isHidden(self)
                 || TranscriptRowInk.drawsNothing(kind: kind, payload: payload),

@@ -13,8 +13,26 @@ struct PlanApprovalSnapshotGallery: View {
         )
     }
 
+    /// Long enough to have what a real plan has: a heading, a list, code and a table, which is
+    /// the Markdown that used to be read as plain text.
+    private static let plan = """
+        # Rename the store's write path
+
+        Split `upsert` from `update` so a stale row cannot roll a newer one back.
+
+        1. Add `update(workspaceID:)` that reads inside the actor.
+        2. Move the three callers that hand in a row read earlier.
+        3. Cover it in `WorkspaceWriteIsolationTests`.
+
+        | File | Change |
+        | --- | --- |
+        | `Store.swift` | new method |
+        | `WorkspaceModel.swift` | three callers |
+        """
+
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.gutter) {
+            PlanRowView(markdown: Self.plan)
             card(mode: .acceptEdits)
             card(mode: .auto)
             card(mode: .bypassPermissions)

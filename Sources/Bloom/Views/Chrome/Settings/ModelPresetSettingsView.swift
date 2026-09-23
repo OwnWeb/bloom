@@ -149,7 +149,7 @@ struct ModelPresetSettingsView: View {
         Button("Delete", role: .destructive) { library.delete(id: preset.id, in: app.store) }
     }
 
-    /// Model, reasoning and permissions, in the words the composer uses for them.
+    /// Model, reasoning, work mode and permissions, in the words the composer uses for them.
     private func summary(of preset: ModelPreset) -> String {
         let model = ComposerOption.label(
             for: preset.model,
@@ -158,7 +158,7 @@ struct ModelPresetSettingsView: View {
         let effort = ComposerOption.label(
             for: preset.effort, in: catalog.efforts(for: preset.backend, model: preset.model)
         )
-        return "\(model) · \(effort) · \(preset.permissionMode.label(on: preset.backend))"
+        return ([model, effort] + preset.modeLabels).joined(separator: " · ")
     }
 
     /// A new preset starts on the built-in fallbacks, which the editor is there to change.
