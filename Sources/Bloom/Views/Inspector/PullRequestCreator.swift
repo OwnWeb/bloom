@@ -50,6 +50,10 @@ struct PullRequestCreator: View {
     /// It settles both halves of the strip: the line under the branch name, and whether there is a
     /// button at all.
     var hasChanges: Bool
+    /// True while a Cloud workspace's machine is still making the worktree. "Nothing has changed
+    /// on this branch yet" is a claim about a branch that does not exist on the machine yet, and
+    /// it sat above a list saying the same worktree could not be read.
+    var isPreparing = false
     /// Set for the branch this workspace was carried on to when its pull request merged, and only
     /// while nothing has been committed to it. It is the difference between an empty branch that
     /// has just been cut from a landed pull request and an empty branch nobody has done anything
@@ -158,6 +162,7 @@ struct PullRequestCreator: View {
         // `PullRequestSummary.detailLine` gives: a disabled button that explains itself only on
         // hover is a button most people never get an explanation from.
         if let note = branchActions.note { return note }
+        if isPreparing { return "Setting up. Nothing to compare yet." }
         guard hasChanges else { return ContinuedBranch.line(on: branch, continued: continued) }
         return "No pull request yet. Target \(baseBranch)."
     }

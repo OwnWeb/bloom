@@ -107,7 +107,8 @@ final class BusyPulse {
 ///
 /// **Something is running.** Read from `AppModel.runningWorkspaceIDs`, which is the one observable
 /// set the transcript writes when a turn starts or ends. Nothing here keeps a count of its own:
-/// see that property for what happened the last time a reader did.
+/// see that property for what happened the last time a reader did. A Cloud workspace is in no
+/// such set, so runbloom.app's list is asked as well: see `CloudWorkspaces.hasMovingMark`.
 ///
 /// **Reduce Motion is off.** Dropped rather than slowed, matching `RowArrival` and the pane
 /// animations. Every mark keeps its meaning without it, which is the test the mockup applied: the
@@ -149,7 +150,7 @@ struct BusyPulseDriver: ViewModifier {
         // a view body may not. `runningAgentCount` reaches for Ask through the same door and for
         // the same reason, and says so: it is in no workspace, so nothing else here counts it.
         let isAskRunning = app.askStatus == .running
-        let wanted = (!app.runningWorkspaceIDs.isEmpty || isAskRunning) && !reduceMotion
+        let wanted = (!app.runningWorkspaceIDs.isEmpty || isAskRunning || app.cloud.hasMovingMark) && !reduceMotion
 
         return content.onChange(of: wanted, initial: true) { _, on in
             BusyPulse.shared.setTicking(on)

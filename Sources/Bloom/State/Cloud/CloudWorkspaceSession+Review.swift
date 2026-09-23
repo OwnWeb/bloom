@@ -46,7 +46,7 @@ extension CloudWorkspaceSession {
 
     /// Whether the machine may be asked for the changes at all. See `CloudChangesReadiness`.
     var changesReadiness: CloudChangesReadiness {
-        CloudChangesReadiness.of(setupState: state.setup?.state)
+        CloudChangesReadiness.of(setupState: state.setup?.state, workspaceState: cloud.item(id)?.state)
     }
 
     var hasReadChanges: Bool { changes.hasRead }

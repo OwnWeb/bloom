@@ -129,11 +129,14 @@ public struct CloudSetupProgress: Equatable, Sendable {
         }
     }
 
-    /// The card's heading. The workspace's own name while it is being built, because that is what
-    /// somebody asked for and is waiting on; the step that failed once it has, because that is the
-    /// first thing they need to know next.
-    public func title(workspaceName: String) -> String {
-        guard kind == .failed else { return "Setting up \(workspaceName)" }
+    /// The card's heading: what is happening while it is being built, and the step that failed
+    /// once it has, because that is the first thing somebody needs to know next.
+    ///
+    /// Not the workspace's name. It was "Setting up \(name)", directly under a window title that
+    /// already says the name, and a name in the middle of a sentence read as a stray capital
+    /// ("Setting up This is a test").
+    public var title: String {
+        guard kind == .failed else { return "Setting up the workspace" }
         switch activeStep {
         case .clone: return "Cloning failed"
         case .setup: return "The setup script failed"

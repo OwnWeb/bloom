@@ -21,8 +21,13 @@ public enum CloudChangesReadiness: Equatable, Sendable {
     /// Setup has ended, however it ended, or never ran: the worktree is what it is going to be.
     case readable
 
-    public static func of(setupState: String?) -> CloudChangesReadiness {
-        guard let setupState else { return .unknown }
+    /// `workspaceState` is runbloom.app's row, which says `setting_up` from the second the
+    /// workspace is created. Without it, the whole of "Creating the machine" was `.unknown`, and
+    /// the inspector drew "Reading the worktree" with a spinner beside a card saying there was no
+    /// machine yet, for as long as the machine took. The machine's own record still wins once it
+    /// has arrived, because the row is polled and lags it.
+    public static func of(setupState: String?, workspaceState: String? = nil) -> CloudChangesReadiness {
+        guard let setupState else { return workspaceState == "setting_up" ? .settingUp : .unknown }
         return ["pending", "running"].contains(setupState) ? .settingUp : .readable
     }
 

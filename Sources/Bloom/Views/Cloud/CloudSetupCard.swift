@@ -25,7 +25,6 @@ struct CloudSetupCard: View {
     }
 
     var progress: CloudSetupProgress
-    var workspaceName: String
     /// Where the workspace comes from, for the line under the title.
     var item: CloudWorkspaceItem?
     var clock: CloudSetupClock
@@ -70,7 +69,7 @@ struct CloudSetupCard: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: Metrics.spacing) {
             HStack(alignment: .firstTextBaseline, spacing: Metrics.gutter) {
-                Text(progress.title(workspaceName: workspaceName))
+                Text(progress.title)
                     .font(Typo.heading)
                     .foregroundStyle(Palette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -131,8 +130,7 @@ struct CloudSetupCard: View {
                     isLast: index == progress.steps.count - 1,
                     activity: step.state == .current ? progress.activity : nil,
                     lastOutput: step.state == .current ? progress.lastOutput : nil,
-                    duration: clock.duration(of: step.id, anchors: anchors),
-                    startedAt: step.state == .current ? clock.start(of: step.id, anchors: anchors) : nil
+                    duration: clock.duration(of: step.id, anchors: anchors)
                 )
             }
         }
@@ -208,7 +206,6 @@ struct CloudSetupStepRow: View {
     var activity: String?
     var lastOutput: String?
     var duration: TimeInterval?
-    var startedAt: Date?
 
     static let markSize: CGFloat = 18
     static let labelIndent: CGFloat = markSize + Metrics.gutter
@@ -283,17 +280,20 @@ struct CloudSetupStepRow: View {
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(Palette.textInverted, Palette.negative)
         case .todo:
+            // The current step's ring, empty, in the rail's own ink. It was an eight point circle
+            // in the tertiary ink, which left the column of marks heavy at the top and thin at the
+            // bottom, with the rail stopping five points short of each one.
             Circle()
-                .strokeBorder(Palette.textTertiary, lineWidth: 1.5)
-                .frame(width: 8, height: 8)
+                .strokeBorder(Palette.border, lineWidth: 1.5)
         }
     }
 
+    /// How long a finished step took. The step still running has no clock of its own: the one
+    /// beside the title is already counting, and for the first step the two read the same number
+    /// side by side.
     @ViewBuilder
     private var time: some View {
-        if step.state == .current, let startedAt {
-            CloudSetupElapsed(since: startedAt)
-        } else if step.state == .done, let duration {
+        if step.state == .done, let duration {
             Text(TurnDuration.wholeSeconds(Int(duration * 1000)))
                 .font(Typo.caption)
                 .monospacedDigit()

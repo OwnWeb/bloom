@@ -65,7 +65,6 @@ extension CloudWorkspaceSession {
         }
         return CloudSetupCard(
             progress: progress,
-            workspaceName: item?.displayName ?? "this workspace",
             item: item,
             clock: setupClock,
             anchors: setupClockAnchors,

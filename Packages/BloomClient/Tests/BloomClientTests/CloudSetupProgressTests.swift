@@ -28,7 +28,7 @@ struct CloudSetupProgressTests {
         ])
         #expect(states(made) == [.current, .todo, .todo, .todo, .todo])
         #expect(made?.canStop == false)
-        #expect(made?.title(workspaceName: "Tickets CSV export") == "Setting up Tickets CSV export")
+        #expect(made?.title == "Setting up the workspace")
     }
 
     @Test("Connected with no record, or a record still pending, is connecting")
@@ -112,7 +112,7 @@ struct CloudSetupProgressTests {
         #expect(failed?.failureNote == "composer install exited with 1")
         #expect(failed?.canRunAgain == true)
         #expect(failed?.opensLogAtFirst == true)
-        #expect(failed?.title(workspaceName: "x") == "The setup script failed")
+        #expect(failed?.title == "The setup script failed")
     }
 
     @Test("A failure with no step on the record is placed by the log's last step heading")
@@ -123,14 +123,14 @@ struct CloudSetupProgressTests {
         #expect(failed?.failureNote == "fatal: repository not found")
         // A clone that failed left nothing to run setup in.
         #expect(failed?.canRunAgain == false)
-        #expect(failed?.title(workspaceName: "x") == "Cloning failed")
+        #expect(failed?.title == "Cloning failed")
     }
 
     @Test("A failure nothing can place marks nothing as done")
     func unplacedFailure() {
         let failed = progress("failed", log: "something went wrong\n")
         #expect(states(failed) == [.todo, .todo, .todo, .todo, .todo])
-        #expect(failed?.title(workspaceName: "x") == "Setup failed")
+        #expect(failed?.title == "Setup failed")
     }
 
     @Test("A setup that needs a fresh machine cannot be run again, and its code is not shown")

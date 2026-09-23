@@ -58,7 +58,7 @@ enum CloudSetupGallery {
                 if let active = progress.activeStep, active != .clone { clock.observe(active, at: now.addingTimeInterval(-150)) }
             }
             let card = CloudSetupCard(
-                progress: progress, workspaceName: item.displayName, item: item, clock: clock,
+                progress: progress, item: item, clock: clock,
                 anchors: [.machine: now.addingTimeInterval(-200)], startedAt: now.addingTimeInterval(-200),
                 log: text, heldPrompt: held,
                 actions: .init(stop: {}, runAgain: {})

@@ -11,6 +11,15 @@ struct CloudChangesReadinessTests {
         #expect(!CloudChangesReadiness.of(setupState: nil).mayRead)
     }
 
+    /// "Creating the machine" drew "Reading the worktree" in the inspector for as long as the
+    /// machine took, because no record meant not knowing, even with runbloom.app saying why.
+    @Test("no record while runbloom.app says setting up is setting up")
+    func machineBeingMade() {
+        #expect(CloudChangesReadiness.of(setupState: nil, workspaceState: "setting_up") == .settingUp)
+        #expect(CloudChangesReadiness.of(setupState: nil, workspaceState: "ready") == .unknown)
+        #expect(CloudChangesReadiness.of(setupState: "succeeded", workspaceState: "setting_up").mayRead)
+    }
+
     @Test("pending and running are setting up", arguments: ["pending", "running"])
     func settingUp(state: String) {
         #expect(CloudChangesReadiness.of(setupState: state) == .settingUp)

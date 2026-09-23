@@ -355,6 +355,20 @@ final class CloudWorkspaces {
         items.first { $0.id == id.rawValue }
     }
 
+    /// Whether any listed workspace wears a mark that moves: a machine being built, or an agent
+    /// at work. Neither is in `AppModel.runningWorkspaceIDs`, so without this `BusyPulseDriver`
+    /// left the setup card's current step and a working Cloud row drawn at rest whenever no local
+    /// agent happened to be running. Read from the list, which is observable, rather than from
+    /// the sessions, which are not.
+    var hasMovingMark: Bool {
+        items.contains { item in
+            switch CloudWorkspaceStatus(item: item) {
+            case .settingUp, .running: true
+            default: false
+            }
+        }
+    }
+
     /// Whether this team has a key for either agent, which is what a first turn needs. Personal
     /// keys count: runbloom.app uses one in a workspace that is not shared.
     func hasAnyAgentKey(team: String) -> Bool {
