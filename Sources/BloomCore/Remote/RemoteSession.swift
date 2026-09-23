@@ -121,8 +121,7 @@ actor RemoteSession {
                 ? (wasStopped ? RemoteTurnEnd.stopped(stopReason ?? error.localizedDescription)
                     : .failed(error.localizedDescription))
                 : nil
-            if retiresRunnerAfterTurn { await retireRunner() }
-            if let ending { await onTurnEnded(ending) }
+            await closeTurn(ending, retiring: retiresRunnerAfterTurn)
             endTurn()
             throw error
         }
@@ -146,18 +145,40 @@ actor RemoteSession {
             guard claimEnd() else { return }
             streamingText = ""
             await onStream("", true)
-            if retiresRunnerAfterTurn { await retireRunner() }
-            await onTurnEnded(wasStopped ? .stopped(stopReason ?? result.summary) : (result.isError ? .failed(result.summary) : .completed(result.summary)))
+            await closeTurn(
+                wasStopped ? .stopped(stopReason ?? result.summary) : (result.isError ? .failed(result.summary) : .completed(result.summary)),
+                retiring: retiresRunnerAfterTurn
+            )
             endTurn()
         case .error(let error):
             guard claimEnd() else { return }
             streamingText = ""
             await onStream("", true)
-            if retiresRunnerAfterTurn { await retireRunner() }
-            await onTurnEnded(wasStopped ? .stopped(stopReason ?? error.message) : .failed(error.message))
+            await closeTurn(wasStopped ? .stopped(stopReason ?? error.message) : .failed(error.message), retiring: retiresRunnerAfterTurn)
             endTurn()
         default: break
         }
+    }
+
+    /// Retires the runner when asked to, then reports the turn's end, in a task of its own.
+    ///
+    /// **Its own task because the caller may already be cancelled, or about to be.** A result
+    /// arrives on `eventTask`, and `retireRunner` cancels `eventTask`: everything after it here
+    /// used to run in a cancelled task. `onTurnEnded` is where the queue tells runbloom.app the
+    /// turn is over, and AsyncHTTPClient aborts a request made from a cancelled task, so on a
+    /// machine that retires after every turn nearly every turn stayed `running` on runbloom.app
+    /// until the workspace was archived, and the wait for the process to exit spun rather than
+    /// slept because `Task.sleep` returns at once when cancelled. The same holds for the drain
+    /// task that `refreshState` runs in, which a pause cancels. The task is awaited, so the turn
+    /// is still busy until the end has been reported, as before.
+    ///
+    /// Retiring stays ahead of reporting, as `personBoundLaunchContextAndRetirement` holds: the
+    /// process holding the turn's grants is gone before runbloom.app hears the turn is over.
+    private func closeTurn(_ ending: RemoteTurnEnd?, retiring: Bool) async {
+        await Task {
+            if retiring { await retireRunner() }
+            if let ending { await onTurnEnded(ending) }
+        }.value
     }
 
     private func endTurn() {
@@ -199,7 +220,7 @@ actor RemoteSession {
         guard isBusy, wasStopped else { return }
         await retireRunner()
         guard isBusy else { return }
-        if claimEnd() { await onTurnEnded(.stopped(stopReason ?? "")) }
+        if claimEnd() { await closeTurn(.stopped(stopReason ?? ""), retiring: false) }
         endTurn()
     }
 
@@ -216,8 +237,7 @@ actor RemoteSession {
         if let session, session.state == .cancelled, wasStopped {
             streamingText = ""
             let ended = claimEnd()
-            if retiresRunnerAfterTurn { await retireRunner() }
-            if ended { await onTurnEnded(.stopped(stopReason ?? "")) }
+            await closeTurn(ended ? .stopped(stopReason ?? "") : nil, retiring: retiresRunnerAfterTurn)
             endTurn()
         }
     }
@@ -258,7 +278,7 @@ actor RemoteSession {
         await retireRunner()
         // The process is gone whether or not its last event made it here, so the turn is over.
         if isBusy {
-            if claimEnd() { await onTurnEnded(.stopped(reason)) }
+            if claimEnd() { await closeTurn(.stopped(reason), retiring: false) }
             endTurn()
         }
         return wasBusy

@@ -175,7 +175,8 @@ public actor GrokRunner: SessionRunner {
 
     public func shutdown() async {
         await filePendingAsks()
-        if session.apply(.cancelled).moves { await save(session) }
+        // `retired`, not `cancelled`: this is the process going away, which on an idle chat is no stop.
+        if session.apply(.retired).moves { await save(session) }
         await dropConnection()
     }
 

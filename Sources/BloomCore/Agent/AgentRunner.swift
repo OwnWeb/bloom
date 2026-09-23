@@ -1040,7 +1040,12 @@ public actor AgentRunner {
         // and forget from a button that cannot await, so the request reaches this actor whenever
         // the actor gets to it; filing a turn that had already finished normally as one the user
         // abandoned is a claim the transcript then makes for ever.
-        session.apply(.cancelled)
+        //
+        // A process ended for good is `retired` rather than stopped, which files an open turn the
+        // same way and leaves a finished one alone without calling it a refusal. A Cloud machine
+        // ends the process after every turn, once the turn is idle, and each of those logged
+        // "session refused cancelled from idle" for code that was doing exactly what it should.
+        session.apply(handle.wasRetired ? .retired : .cancelled)
         // The write has to be deferred, because this is reached from synchronous paths, but it
         // deliberately does not carry a snapshot: by the time it runs the user may already have
         // started the next turn, and writing a copy taken now would put that turn back to
@@ -1058,9 +1063,13 @@ public actor AgentRunner {
     ///
     /// The run being cancelled is captured here rather than read again later, so the signal and
     /// the bookkeeping both land on the run the user was looking at when they pressed Stop.
-    public nonisolated func cancelNow() {
+    public nonisolated func cancelNow() { stopNow(retiring: false) }
+
+    /// `cancelNow`, and `terminateNow` with `retiring` set, which is the process going away for
+    /// good rather than a person stopping a turn. See `markCancelled` for what that changes.
+    nonisolated func stopNow(retiring: Bool) {
         let generation = handle.generation
-        let request = handle.requestCancel(generation)
+        let request = handle.requestCancel(generation, retiring: retiring)
         // Answer before the signal, not after. `requestCancel` has already marked the run
         // cancelled, so the deny inside `cancel(generation:)` is now unreachable, and `terminate`
         // below closes the stream a blocked turn is waiting on. Doing it in the other order is
@@ -1120,13 +1129,14 @@ public enum AgentRunnerError: Error, Equatable, CustomStringConvertible, Sendabl
 /// The lock is only ever held across the pointer swap, never across an await.
 ///
 /// `Mutex<State>` rather than `NSLock` plus `@unchecked Sendable`, for the reason given on
-/// `EventFanout` in `SessionRunner`: the three fields below have to be read together to describe
+/// `EventFanout` in `SessionRunner`: the fields below have to be read together to describe
 /// a moment, and putting them in one value the compiler will not let anything reach outside the
 /// lock is stronger than a promise that nothing does.
 private final class ProcessHandle: Sendable {
     private struct State {
         var process: (any AgentProcessing)?
         var cancelled = false
+        var retired = false
         var run = 0
     }
 
@@ -1146,6 +1156,7 @@ private final class ProcessHandle: Sendable {
         state.withLock { state in
             state.run += 1
             state.cancelled = false
+            state.retired = false
             state.process = process
             return state.run
         }
@@ -1174,15 +1185,20 @@ private final class ProcessHandle: Sendable {
 
     /// Record the intent and hand back the process to signal, in one lock, so a signal can never
     /// end up going to a process from a later run. `accepted` is false when the generation is
-    /// stale or the run was already cancelled.
-    func requestCancel(_ generation: Int) -> (accepted: Bool, process: (any AgentProcessing)?) {
+    /// stale or the run was already cancelled. `retiring` is kept for the run even when it was
+    /// already cancelled, because the process is going away for good either way.
+    func requestCancel(_ generation: Int, retiring: Bool = false) -> (accepted: Bool, process: (any AgentProcessing)?) {
         state.withLock { state -> (accepted: Bool, process: (any AgentProcessing)?) in
             guard generation == state.run else { return (false, nil) }
             let accepted = !state.cancelled
             state.cancelled = true
+            if retiring { state.retired = true }
             return (accepted, state.process)
         }
     }
+
+    /// Whether the current run was ended by `terminateNow` rather than by a stop.
+    var wasRetired: Bool { state.withLock(\.retired) }
 }
 
 // MARK: - Permission modes

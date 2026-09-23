@@ -12,24 +12,42 @@ import Foundation
 ///
 /// Run after setup on every boot. A workspace a person made has no opening, which costs one `GET`
 /// answered 404; a machine that replaces one whose setup failed fetches the same opening and turn.
+///
+/// **The fetch is asked again until runbloom.app answers it.** It used to be asked once a boot,
+/// and on test.55 that one `GET` ran into `HTTPClientError.deadlineExceeded` at 15 seconds: the
+/// opening turn sat `queued` on runbloom.app for as long as the machine stayed up, because nothing
+/// asked again before the next boot. Asking again is safe on runbloom.app's side:
+/// `FetchCloudWorkspaceOpeningAction` marks the opening fetched on the first read and answers the
+/// same opening to every read after it until it is acknowledged or expires, so an answer lost on
+/// the way here does not lose the prompt.
 public struct OpeningHandoff: Sendable {
     let fetch: @Sendable () async throws -> RemoteOpening?
     let acknowledge: @Sendable () async throws -> Void
     let runtime: WorkspaceRuntime
+    let retryDelay: Duration
+    let longestRetryDelay: Duration
 
+    /// `retryDelay` doubles between attempts up to `longestRetryDelay`. Parameters so a test can
+    /// make them short.
     public init(fetch: @escaping @Sendable () async throws -> RemoteOpening?,
-                acknowledge: @escaping @Sendable () async throws -> Void, runtime: WorkspaceRuntime) {
+                acknowledge: @escaping @Sendable () async throws -> Void, runtime: WorkspaceRuntime,
+                retryDelay: Duration = .seconds(2), longestRetryDelay: Duration = .seconds(60)) {
         self.fetch = fetch
         self.acknowledge = acknowledge
         self.runtime = runtime
+        self.retryDelay = retryDelay
+        self.longestRetryDelay = max(retryDelay, longestRetryDelay)
     }
 
     public init(client: RunbloomClient, runtime: WorkspaceRuntime) {
         self.init(fetch: { try await client.opening() }, acknowledge: { try await client.acknowledgeOpening() }, runtime: runtime)
     }
 
-    /// Whether a prompt was queued. Failures are said once on stderr and left for the next boot,
-    /// because runbloom.app keeps an opening it was not told about until it expires.
+    /// Whether a prompt was queued. A fetch that failed for the network or for runbloom.app itself
+    /// is asked again, with a growing pause, until runbloom.app answers: the opening, or 404 for
+    /// none. Anything else is said once on stderr and left for the next boot, because runbloom.app
+    /// keeps an opening it was not told about until it expires. A cancelled task, which is the
+    /// machine stopping, ends the wait quietly.
     ///
     /// **Acknowledging is not a condition of queueing.** It used to be, so an acknowledgement that
     /// failed held the person's instruction back until the next boot. Once the opening is kept here
@@ -40,7 +58,7 @@ public struct OpeningHandoff: Sendable {
         do {
             // One kept by a boot that stopped before queueing it.
             var queued = try await runtime.deliverStoredOpening() != nil
-            guard let opening = try await fetch() else { return queued }
+            guard let opening = try await fetchUntilAnswered() else { return queued }
             if try await runtime.hasDeliveredOpening(turnID: opening.turnID) {
                 await acknowledgeOrSay()
                 return queued
@@ -49,10 +67,38 @@ public struct OpeningHandoff: Sendable {
             await acknowledgeOrSay()
             queued = try await runtime.deliverStoredOpening() != nil || queued
             return queued
+        } catch is CancellationError {
+            return false
         } catch {
             FileHandle.standardError.write(Data("bloom-runner: the opening prompt was not queued yet: \(error)\n".utf8))
             return false
         }
+    }
+
+    /// The opening, or nil when runbloom.app says there is none, asked for again for as long as the
+    /// failure is one a later attempt could get past. Throws what runbloom.app refused, and
+    /// `CancellationError` when the machine stops while this waits.
+    private func fetchUntilAnswered() async throws -> RemoteOpening? {
+        var delay = retryDelay
+        while true {
+            do {
+                return try await fetch()
+            } catch let error as RunbloomError where Self.isTransient(error) {
+                FileHandle.standardError.write(Data(
+                    "bloom-runner: the opening prompt could not be fetched yet, asking again in \(delay): \(error)\n".utf8
+                ))
+                try await Task.sleep(for: delay)
+                delay = min(delay * 2, longestRetryDelay)
+            }
+        }
+    }
+
+    /// The network, a timeout or a 5xx (all `unreachable`), or runbloom.app asking to be called
+    /// later. Narrower than `isWorthRetrying`, which also counts an answer this machine could not
+    /// decode: that one decodes no better the next time, and asking for ever is not an answer.
+    static func isTransient(_ error: RunbloomError) -> Bool {
+        if case .unreachable = error { return true }
+        return error.isBackpressure
     }
 
     /// Said once on stderr when it fails, and tried again the next time the opening is fetched.

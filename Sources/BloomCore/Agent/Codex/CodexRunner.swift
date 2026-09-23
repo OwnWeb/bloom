@@ -376,7 +376,8 @@ public actor CodexRunner: SessionRunner {
         previous?.terminateNow()
         // Detach before publishing cancellation: that row lets a caller send again, and it must
         // not find the dying client. A new turn begun during bookkeeping owns its own state.
-        if handle.intent == intent, session.apply(.cancelled).moves { await save(session) }
+        // `retired`, not `cancelled`: this is the server going away, which on an idle chat is no stop.
+        if handle.intent == intent, session.apply(.retired).moves { await save(session) }
         await previous?.stop()
     }
 

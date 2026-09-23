@@ -183,6 +183,7 @@ extension AgentRunner: SessionRunner {
     /// questions in words, SIGTERMs the whole process group and SIGKILLs what ignores it, and the
     /// next turn spawns a new process with `--resume`, so there is nothing left for a second path
     /// to do. Calling both is harmless: the run is already marked cancelled and the drained asks
-    /// come back empty.
-    public nonisolated func terminateNow() { cancelNow() }
+    /// come back empty. The one thing it adds is saying the run was retired, so a process ended
+    /// with no turn open is not filed as a stop that was refused. See `AgentRunner.markCancelled`.
+    public nonisolated func terminateNow() { stopNow(retiring: true) }
 }

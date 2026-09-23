@@ -171,6 +171,21 @@ struct RunbloomTurnsTests {
         }
     }
 
+    /// test.55: `RemoteSession` reached `end` from a task that retiring the runner had cancelled,
+    /// AsyncHTTPClient aborted the `DELETE`, the retry gave up on seeing the cancellation, and the
+    /// turn stayed `running` on runbloom.app until the workspace was archived.
+    @Test func endIsDeliveredFromACancelledTask() async throws {
+        try await Self.withTurns { fake, turns in
+            fake.script("DELETE", "/turns/t1", FakeControlServer.Scripted(status: 503, body: nil))
+            let caller = Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                await turns.end(turnID: "t1")
+            }
+            await caller.value
+            #expect(fake.requests("DELETE", "/turns/t1").count == 2, "the failed attempt, then the one that landed")
+        }
+    }
+
     @Test func endDoesNotRetryARefusal() async throws {
         try await Self.withTurns { fake, turns in
             fake.script("DELETE", "/turns/t1", .refusal(status: 404, code: "not_found", message: "No such turn."))

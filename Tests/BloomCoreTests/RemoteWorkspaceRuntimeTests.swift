@@ -916,6 +916,26 @@ struct RemoteWorkspaceRuntimeTests {
         }
     }
 
+    /// test.55: nearly every turn stayed `running` on runbloom.app until its workspace was
+    /// archived. The result arrives on the session's event task, retiring the runner cancelled
+    /// that task, and the turn's end was then reported from inside it, where AsyncHTTPClient
+    /// aborts the `DELETE` and `RunbloomTurns` gives up on seeing the cancellation.
+    @Test("a runner retired after its turn does not cancel the report that the turn ended")
+    func retiringDoesNotCancelTheEnd() async throws {
+        let gate = RemoteTestGate()
+        let fixture = try await fixture(gate: gate, retiresRunnerAfterTurn: true)
+        let chat = fixture.session.id.rawValue
+
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: chat, text: "First")), as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 }.count == 1 }
+        await fixture.runners.finishTurn()
+        await waitUntil("the turn was ended with runbloom.app") { gate.ended.withLock { $0 }.count == 1 }
+
+        #expect(gate.endedFromCancelledTask.withLock { $0 } == [false])
+        #expect(fixture.runners.current.withLock { $0 }?.terminated.withLock { $0 } == true, "and the runner was still retired")
+        await fixture.runtime.shutdown()
+    }
+
     @Test("sharing stops a turn on a personal key with a row saying why, and the queue carries on on the team key")
     func sharingRetiresPersonalKeys() async throws {
         let gate = RemoteTestGate()
@@ -1579,6 +1599,8 @@ final class RemoteTestGate: RemoteTurnGate {
     let githubGrants = Mutex<[String: RemoteGithubCredentialGrant]>([:])
     let authorityWasRetiredAtEnd = Mutex<(@Sendable () -> Bool)?>(nil)
     let endObservedRetiredAuthority = Mutex<[Bool]>([])
+    /// Whether each `end` was reached from a cancelled task, where a real request is aborted.
+    let endedFromCancelledTask = Mutex<[Bool]>([])
 
     func register(
         _ kind: RemoteTurnKind, chat: SessionID?, agent: AgentKind?, model: String?, caller: RemoteCaller
@@ -1601,6 +1623,7 @@ final class RemoteTestGate: RemoteTurnGate {
     }
 
     func end(turnID: String) async {
+        endedFromCancelledTask.withLock { $0.append(Task.isCancelled) }
         if let observe = authorityWasRetiredAtEnd.withLock({ $0 }) {
             endObservedRetiredAuthority.withLock { $0.append(observe()) }
         }

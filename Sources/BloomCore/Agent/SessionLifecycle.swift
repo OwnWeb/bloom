@@ -27,6 +27,10 @@ public enum SessionEvent: Sendable, Hashable {
     case turnFinished(isError: Bool)
     /// The user pressed stop.
     case cancelled
+    /// Bloom ended the process for good rather than a person stopping a turn: a chat closed, the
+    /// app quitting, a worktree archived, or a Cloud machine ending each turn's process once the
+    /// turn is over. A turn still open is filed as stopped, and a finished one is left alone.
+    case retired
     /// The process ended with nothing left to report and nothing wrong.
     case processExited
     /// The process ended without ever reporting a result, and said so with its exit status.
@@ -102,6 +106,12 @@ public extension SessionState {
             case .idle, .failed: return .refused
             }
 
+        // Never refused, unlike `cancelled`. Ending a process with no turn open is the ordinary
+        // case here: a Cloud machine retires the process after every turn, and each of those
+        // logged "session refused cancelled from idle", which is a rule firing on the happy path.
+        case .retired:
+            return isMidTurn ? .moves(to: .cancelled) : .unchanged
+
         case .processExited:
             return isMidTurn ? .moves(to: .idle) : .unchanged
 
@@ -172,6 +182,7 @@ extension SessionEvent {
         case .unblocked: "unblocked"
         case .turnFinished(let isError): isError ? "turnFinished(error)" : "turnFinished"
         case .cancelled: "cancelled"
+        case .retired: "retired"
         case .processExited: "processExited"
         case .processFailed: "processFailed"
         case .appRelaunched: "appRelaunched"

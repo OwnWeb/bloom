@@ -94,22 +94,33 @@ public struct RunbloomTurns: RemoteTurnGate {
     /// once: a turn left running there counts against the team's concurrency and usage until
     /// runbloom.app gives up on it, so one dropped connection should not be enough to leave it.
     /// A refusal (an unknown or already ended turn) is not retried.
+    ///
+    /// **Delivered from a task of its own, whoever is asking.** A caller's cancellation used to
+    /// reach the request: AsyncHTTPClient aborts one sent from a cancelled task, and the retry
+    /// below gave up on seeing it. `RemoteSession` reached here from the event task that retiring
+    /// the runner had just cancelled, so on a machine that retires after every turn nearly every
+    /// turn stayed `running` on runbloom.app until the workspace was archived. The wait is
+    /// bounded by `endAttempts` and the client's timeout, and a turn ending is what this is for.
     public func end(turnID: String) async {
-        await modelGateway?.revoke(turnID: turnID)
-        await registrations.remove(turnID)
-        var delay = endRetryDelay
-        for attempt in 1...endAttempts {
-            do {
-                try await client.endTurn(turnID)
-                return
-            } catch let error as RunbloomError where !error.isWorthRetrying {
-                return
-            } catch {
-                guard attempt < endAttempts, !Task.isCancelled else { return }
-                try? await Task.sleep(for: delay)
-                delay *= 2
+        let client = client, modelGateway = modelGateway, registrations = registrations
+        let attempts = endAttempts, firstDelay = endRetryDelay
+        await Task {
+            await modelGateway?.revoke(turnID: turnID)
+            await registrations.remove(turnID)
+            var delay = firstDelay
+            for attempt in 1...attempts {
+                do {
+                    try await client.endTurn(turnID)
+                    return
+                } catch let error as RunbloomError where !error.isWorthRetrying {
+                    return
+                } catch {
+                    guard attempt < attempts else { return }
+                    try? await Task.sleep(for: delay)
+                    delay *= 2
+                }
             }
-        }
+        }.value
     }
 
     /// A trusted terminal-agent launcher uses this after it has isolated the agent process. The
