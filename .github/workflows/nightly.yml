@@ -2,8 +2,9 @@ name: Nightly
 
 # The checks worth running, but not worth running fifty times a day.
 #
-# test.yml is what a push has to survive, so everything in it has to be fast
-# enough that nobody minds waiting. These three are not. They answer questions
+# test.yml is what a change has to survive, and it runs its own macOS pair on a
+# schedule of its own, half an hour ahead of this. These three are slower and
+# ask something else. They answer questions
 # that change slowly: is there a data race, how much of the core is covered, and
 # how much of the code is not used by anything. A night is a fine resolution for
 # all three.

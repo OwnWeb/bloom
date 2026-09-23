@@ -111,11 +111,24 @@ jobs:
             ".build/runner-release/bloom-runner-linux-x86_64-$VERSION.tar.gz" \
             ".build/runner-release/bloom-runner-linux-x86_64-$VERSION.tar.gz.sha256"
 
+  # The whole of test.yml, macOS pair included, against the tag being released. Pull requests no
+  # longer compile the app or run the core suite, to save the bill (the head of test.yml has the
+  # numbers), so this is the one place a broken app is stopped before it reaches anybody. Read
+  # only, whatever this file grants, because nothing in test.yml writes.
+  checks:
+    if: ${{ !startsWith(github.event.release.tag_name, 'runner-v') && !startsWith(inputs.tag, 'runner-v') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ github.event.release.tag_name || inputs.tag }}
+
   release:
     # A `runner-v` tag publishes only Bloom Runner, the Cloud workspace server, for runbloom.app to
     # install machines from while it is tested. It must never build the app, touch the bucket or
     # write either appcast, and a release event runs this file as it is at the tagged commit, so
     # the guard has to be here before any such tag exists.
+    needs: checks
     if: ${{ !startsWith(github.event.release.tag_name, 'runner-v') && !startsWith(inputs.tag, 'runner-v') }}
     runs-on: macos-26
     timeout-minutes: 90

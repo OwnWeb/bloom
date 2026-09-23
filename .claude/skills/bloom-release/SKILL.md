@@ -31,8 +31,11 @@ and `.github/workflows/release.yml` for current implementation details. Use `gh`
    the bundle version. The build number comes from reachable commit count and must advance
    beyond the previous shipped build. A pushed tag alone does not trigger release packaging.
 4. Watch the **Release** workflow associated with that tag using `gh run list`, `gh run view`
-   and `gh run watch`. It signs, notarises and uploads the ZIP and DMG, attaches them to GitHub,
-   and updates the Sparkle appcast. If it fails, inspect the failed job before retrying; do not
+   and `gh run watch`. It first runs the whole of `test.yml` against the tag (the `checks` job,
+   which is the only place pull request changes get the app compiled and the core suite run), and
+   only then signs, notarises and uploads the ZIP and DMG, attaches them to GitHub, and updates the
+   Sparkle appcast. A failure in `checks` means the tagged commit is broken: fix it on `main` and
+   release a new tag rather than rerunning. If a later job fails, inspect it before retrying; do not
    delete or move a published tag. Prefer `gh run rerun <run-id>` on the original release-event
    run, which preserves its prerelease flag and asset attachment step. A `workflow_dispatch`
    rebuild has no GitHub prerelease flag: a plain tag marked prerelease on GitHub would become
