@@ -197,8 +197,10 @@ struct ComposerView: View {
                 onOpenQuickPrompts: { [model] in model?.refreshSettings() },
                 onSend: send,
                 onStop: transcript.stop,
-                onSideConversation: canOpenSideConversation ? openSideConversation : nil
+                onSideConversation: canOpenSideConversation ? openSideConversation : nil,
+                actionIdentity: ObjectIdentifier(transcript)
             )
+            .equatable()
         }
         .task(id: transcript.session.id) { await prepare() }
         // Codex can change this setting while starting a turn. Its final value is needed when
