@@ -201,6 +201,13 @@ only line saying why that turn began, and its `summary` reads `Background comman
 completed (exit code 0)`. Bloom stores it when it arrives between turns and draws it as the turn's
 opening line. See `BackgroundWake`.
 
+Not every notification between turns is a wake. On `claude 2.1.281` every Bash call a background
+subagent makes ends in one, whose `summary` is the task's description (the command itself) because
+the task has no summary of its own. Its `task_started` carries `owned_by_subagent: true`, and the
+CLI delivers the news to that subagent rather than to the parent. Bloom stores a notification only
+for a task the parent owns, and only when the summary is in the CLI's wake wording:
+`Background command "…"`, `Agent "…"` (or `Agent terminated early…`), `Monitor "…"`, `Remote task "…"`.
+
 ### `rate_limit_event`
 
 One per turn, and it carries **one window**, never a set:

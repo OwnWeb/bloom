@@ -75,6 +75,59 @@ struct BackgroundWakeTests {
         #expect(wake.name == #"grep "todo" src"#)
     }
 
+    /// `claude 2.1.281`, a subagent's foreground Bash call: the summary is the command, because a
+    /// task that ends with no summary of its own reports its description instead.
+    static let subagentCommandLine = #"""
+    {"type":"system","subtype":"task_notification","task_id":"bx7","tool_use_id":"toolu_01E7",\
+    "status":"completed","output_file":"","summary":"curl -s -o /dev/null -w \"%{http_code}\\n\" http://127.0.0.1:8153/login"}
+    """#.replacingOccurrences(of: "\\\n", with: "")
+
+    @Test("a summary in none of the CLI's wording is a task, and names nothing")
+    func commandAsSummary() throws {
+        let wake = BackgroundWake(try report(Self.subagentCommandLine))
+        #expect(wake.source == .task)
+        #expect(wake.title == "Background task finished")
+        #expect(wake.name == nil)
+    }
+
+    /// The rows stored before the summary was asked about are turned away when read back.
+    @Test("a notification in none of the CLI's wording is not a row")
+    func notARow() {
+        let payload = Data(Self.subagentCommandLine.utf8)
+        #expect(!BackgroundWake.isRow(kind: .system, payload: payload))
+        #expect(TranscriptRowInk.drawsNothing(kind: .system, payload: payload))
+    }
+
+    @Test("an agent's summary is a row whether or not it names the agent")
+    func agentRows() {
+        for summary in [#"Agent \"Build it\" finished"#, "Agent terminated early due to an API error"] {
+            let line = #"{"type":"system","subtype":"task_notification","task_id":"a","summary":"\#(summary)"}"#
+            #expect(BackgroundWake.isRow(kind: .system, payload: Data(line.utf8)))
+        }
+    }
+
+    @Test("a task that reports to a subagent opens nothing, in any wording")
+    func subagentsTask() {
+        let command = SubagentReport(id: SubagentID("t"), status: "completed", summary: #"Background command "Serve" completed"#)
+        let bare = SubagentReport(id: SubagentID("t"), status: "completed", summary: "npm test")
+        #expect(BackgroundWake.opensTurn(command, during: .idle, reportsToSubagent: false))
+        #expect(!BackgroundWake.opensTurn(command, during: .idle, reportsToSubagent: true))
+        #expect(!BackgroundWake.opensTurn(bare, during: .idle, reportsToSubagent: false))
+    }
+
+    @Test("a subagent's command and a nested agent both report to a subagent")
+    func reportsToSubagent() throws {
+        let line = #"{"type":"system","subtype":"task_started","task_id":"b1","owned_by_subagent":true,"task_type":"local_bash"}"#
+        guard case .started(let start)? = SubagentSignal.decode(try #require(JSONValue.parse(line))) else {
+            Issue.record("not a start")
+            return
+        }
+        #expect(start.ownedBySubagent)
+        #expect(start.reportsToSubagent)
+        #expect(SubagentStart(id: SubagentID("a"), spawnDepth: 2).reportsToSubagent)
+        #expect(!SubagentStart(id: SubagentID("a"), spawnDepth: 1).reportsToSubagent)
+    }
+
     @Test("only a notification between turns opens one")
     func onlyBetweenTurns() {
         #expect(BackgroundWake.opensTurn(during: .idle))
@@ -161,6 +214,22 @@ struct BackgroundWakeStorageTests {
         #expect(stored.map(\.kind) == [.system])
         let payload = try #require(stored.first?.payload)
         #expect(BackgroundWake.isRow(kind: .system, payload: payload))
+    }
+
+    /// The thirteen rows in the owner's transcript: a background subagent's Bash calls, finishing
+    /// while the parent was idle.
+    @Test("a task a subagent owns is not stored, even between turns")
+    func notStoredForSubagent() async throws {
+        let store = try makeTestStore("wake-subagent")
+        let session = try await makeSession(store)
+        let runner = AgentRunner(workspacePath: "/tmp/w", session: session, store: store)
+        let started = #"{"type":"system","subtype":"task_started","task_id":"b1u04xrxg","owned_by_subagent":true,"task_type":"local_bash"}"#
+
+        await runner.ingest(try #require(AgentEvent.decode(line: started)))
+        await runner.ingest(try line)
+        await runner.ingest(try #require(AgentEvent.decode(line: BackgroundWakeTests.subagentCommandLine)))
+
+        #expect(try await store.messages(sessionID: session.id).isEmpty)
     }
 
     /// Mid turn the model reads it inside the turn and nothing new begins, so there is nothing

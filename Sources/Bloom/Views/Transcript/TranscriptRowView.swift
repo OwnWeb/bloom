@@ -381,9 +381,11 @@ struct TranscriptRowView: View, Equatable {
         return info
     }
 
-    /// Only ever stored when it opened a turn, so any row that decodes to one is drawn.
+    /// Asked of the bytes as well as the event, because rows stored before the summary was
+    /// checked include notifications that opened nothing, and the sniff is what turns those away.
     private var backgroundWake: BackgroundWake? {
-        guard case .subagent(.reported(let report))? = event else { return nil }
+        guard BackgroundWake.isRow(kind: row.kind, payload: row.payload),
+              case .subagent(.reported(let report))? = event else { return nil }
         return BackgroundWake(report)
     }
 

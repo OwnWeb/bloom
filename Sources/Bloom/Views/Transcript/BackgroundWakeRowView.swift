@@ -58,7 +58,11 @@ struct BackgroundWakeRowView: View {
     }
 
     private var glyph: String {
-        wake.source == .command ? "terminal" : "person.2"
+        switch wake.source {
+        case .command: "terminal"
+        case .agent: "person.2"
+        case .task: "bolt.horizontal.circle"
+        }
     }
 
     private var glyphTint: Color {

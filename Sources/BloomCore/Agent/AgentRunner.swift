@@ -139,6 +139,11 @@ public actor AgentRunner {
     /// transcript, so they reach the UI live and are then dropped. Flip this on to keep them.
     private var persistsStreamDeltas = false
 
+    /// Tasks whose `task_started` said they report to a subagent, held until their notification
+    /// arrives, which is the one moment the answer is needed and the only line that lacks it. See
+    /// `BackgroundWake.opensTurn`.
+    private var subagentOwnedTasks: Set<SubagentID> = []
+
     /// stderr only ever surfaces when the process dies without a `result`, so a short tail is all
     /// that is worth holding.
     private static let stderrTailLimit = 40
@@ -612,8 +617,13 @@ public actor AgentRunner {
         // work under it is not drawn straight after a footer as if the footer had been wrong.
         // Read before the `init` that follows it, which is what moves the state on. See
         // `BackgroundWake`.
+        if case .subagent(.started(let start)) = event, start.reportsToSubagent {
+            subagentOwnedTasks.insert(start.id)
+        }
         if case .subagent(.reported(let report)) = event, !report.raw.isEmpty,
-           BackgroundWake.opensTurn(during: session.state) {
+           BackgroundWake.opensTurn(
+               report, during: session.state, reportsToSubagent: subagentOwnedTasks.remove(report.id) != nil
+           ) {
             await persist(kind: .system, payload: report.raw)
         }
 

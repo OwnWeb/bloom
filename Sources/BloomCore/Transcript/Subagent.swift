@@ -60,7 +60,8 @@ public enum SubagentSignal: Sendable, Hashable {
                     isBackgrounded: json["is_backgrounded"]?.boolValue ?? false,
                     spawnDepth: json["spawn_depth"]?.intValue ?? 1,
                     taskType: json["task_type"]?.stringValue ?? "",
-                    prompt: json["prompt"]?.stringValue ?? ""
+                    prompt: json["prompt"]?.stringValue ?? "",
+                    ownedBySubagent: json["owned_by_subagent"]?.boolValue ?? false
                 ))
 
             case "task_updated":
@@ -124,6 +125,14 @@ public struct SubagentStart: Sendable, Hashable {
     public let prompt: String
     /// A confirmed new turn on an existing Codex child thread, not a replayed spawn event.
     public let resumesExisting: Bool
+    /// A shell command a subagent ran, rather than the turn. The CLI sets `owned_by_subagent` on
+    /// `task_started` for a `local_bash` task with an agent id and leaves it off everything else.
+    public let ownedBySubagent: Bool
+
+    /// Whether this task reports to a subagent rather than to the turn: a command a subagent ran,
+    /// or an agent a subagent spawned. Its notification is read by that subagent and never starts
+    /// a turn of the parent's. See `BackgroundWake.opensTurn`.
+    public var reportsToSubagent: Bool { ownedBySubagent || spawnDepth > 1 }
 
     public init(
         id: SubagentID,
@@ -134,7 +143,8 @@ public struct SubagentStart: Sendable, Hashable {
         spawnDepth: Int = 1,
         taskType: String = "",
         prompt: String = "",
-        resumesExisting: Bool = false
+        resumesExisting: Bool = false,
+        ownedBySubagent: Bool = false
     ) {
         self.id = id
         self.toolUseID = toolUseID
@@ -145,6 +155,7 @@ public struct SubagentStart: Sendable, Hashable {
         self.taskType = taskType
         self.prompt = prompt
         self.resumesExisting = resumesExisting
+        self.ownedBySubagent = ownedBySubagent
     }
 }
 

@@ -21,10 +21,24 @@ import Foundation
 /// Only a notification arriving between turns is kept. One that lands while a turn is running is
 /// read by the model inside that turn and starts nothing, so a row for it would be a turn's opening
 /// line drawn in the middle of a turn.
+///
+/// **And only one the CLI would wake the parent for.** On `claude 2.1.281` a background subagent
+/// ran thirteen ordinary Bash calls while the parent sat idle, and every one of them ended in a
+/// `task_notification`. None opened a turn, and all thirteen were drawn as "Background agent
+/// finished" with a chip reading `%{http_code}\n` or `timed out`. Two things were wrong at once.
+/// The task was the subagent's (`task_started` said `owned_by_subagent`), and the CLI hands such a
+/// notification to the subagent, not the parent. And a task ending with no summary of its own
+/// reports its description instead, which for a command is the command, so the summary carried
+/// none of the CLI's wording and the chip was whatever sat between its first and last quote. A
+/// wake always carries that wording: `Background command "…"`, `Agent "…"`, `Monitor "…"`,
+/// `Remote task "…"`, or an agent's `Agent terminated early…`.
 public struct BackgroundWake: Sendable, Equatable {
     public enum Source: Sendable, Equatable {
         case command
         case agent
+        /// A monitor, a remote task, or a summary in no shape this knows, from before the rule
+        /// above. Called a task rather than guessed at.
+        case task
     }
 
     public enum Outcome: Sendable, Equatable {
@@ -52,15 +66,25 @@ public struct BackgroundWake: Sendable, Equatable {
         let exitCode = Self.exitCode(in: summary)
         self.summary = summary
         self.exitCode = exitCode
-        self.name = Self.quotedName(in: summary)
-        self.source = summary.hasPrefix("Background command") ? .command : .agent
+        self.name = Self.isWakeSummary(summary) ? Self.quotedName(in: summary) : nil
+        self.source = if summary.hasPrefix(Self.commandPrefix) {
+            .command
+        } else if summary.hasPrefix(Self.agentPrefix) {
+            .agent
+        } else {
+            .task
+        }
         self.outcome = Self.outcome(status: report.status, exitCode: exitCode)
         self.outputFile = report.outputFile.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// What the row says before the chips.
     public var title: String {
-        let noun = source == .command ? "Background command" : "Background agent"
+        let noun = switch source {
+        case .command: "Background command"
+        case .agent: "Background agent"
+        case .task: "Background task"
+        }
         return switch outcome {
         case .finished: "\(noun) finished"
         case .failed: "\(noun) failed"
@@ -76,10 +100,26 @@ public struct BackgroundWake: Sendable, Equatable {
     private static let probeLength = 256
     private static let marker = Data("\"subtype\":\"task_notification\"".utf8)
 
+    private static let commandPrefix = "Background command "
+    private static let agentPrefix = "Agent "
+    /// How the CLI begins the summary of a task it wakes the parent for. `Agent ` has no quote
+    /// after it because an agent that failed says `Agent terminated early…` and names nothing.
+    private static let wakePrefixes = [commandPrefix, agentPrefix, "Monitor \"", "Remote task \""]
+    /// The same, as they sit in the stored line, where the CLI's JSON has no spaces and a quote
+    /// inside a string is escaped.
+    private static let wakeMarkers = wakePrefixes.map {
+        Data("\"summary\":\"\($0.replacingOccurrences(of: "\"", with: "\\\""))".utf8)
+    }
+
     /// Whether a stored row is one of these, by its first bytes. `TranscriptRowInk` and the fold
-    /// both ask it once per row per pass, which is why it is a sniff rather than a decode.
+    /// both ask it once per row per pass, which is why it is a sniff rather than a decode. The
+    /// summary sits past the output file's path, so it is looked for in the whole line, but only
+    /// on the rare row that already sniffed as a notification. That second look is what hides the
+    /// rows stored before `opensTurn` asked about the summary.
     public static func isRow(kind: MessageKind, payload: Data) -> Bool {
-        kind == .system && payload.prefix(probeLength).range(of: marker) != nil
+        kind == .system
+            && payload.prefix(probeLength).range(of: marker) != nil
+            && wakeMarkers.contains { payload.range(of: $0) != nil }
     }
 
     /// Whether a notification arriving now opens a turn, and so is worth a row.
@@ -92,6 +132,18 @@ public struct BackgroundWake: Sendable, Equatable {
         case .idle, .failed, .cancelled: true
         case .running, .waiting: false
         }
+    }
+
+    /// The whole question: between turns, for a task of the parent's own, in the CLI's wording.
+    /// - Parameter reportsToSubagent: what the task's `task_started` said, false when this process
+    ///   never saw it, which is a task started before a `--resume`. The wording still decides then.
+    public static func opensTurn(_ report: SubagentReport, during state: SessionState, reportsToSubagent: Bool) -> Bool {
+        !reportsToSubagent && isWakeSummary(report.summary) && opensTurn(during: state)
+    }
+
+    static func isWakeSummary(_ summary: String) -> Bool {
+        let summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        return wakePrefixes.contains { summary.hasPrefix($0) }
     }
 
     // MARK: Reading the summary
