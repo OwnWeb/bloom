@@ -30,6 +30,10 @@ import SwiftUI
 /// looks like, and a workspace whose setup has not run will never fill it in on its own.
 struct CloudPreviewPane: View {
     var session: CloudWorkspaceSession
+    /// The pane's own menu, merged under the page's. Without it a right click on the page offers
+    /// only WebKit's Reload and Inspect Element, and a pane whose page has not loaded yet is
+    /// nothing but page, so there was no way to close it. See `BrowserPageWebView`.
+    var paneMenu: (@MainActor () -> NSMenu)?
 
     /// The page itself, made on the first exchange and kept for the life of the pane, so a reload
     /// is a reload rather than a new web view with a new cookie store.
@@ -107,7 +111,7 @@ struct CloudPreviewPane: View {
                 // the bar do something: it holds the sizing, the scroll view around an oversized
                 // page and the border round it. A plain web view in a frame would have left that
                 // button drawn and dead.
-                BrowserViewportView(session: browser)
+                BrowserViewportView(session: browser, paneMenu: paneMenu)
             }
             // Over the web view rather than instead of it, as in `BrowserTabView`: the page keeps
             // its identity, so a workspace that starts serving does not load into a pane that has
