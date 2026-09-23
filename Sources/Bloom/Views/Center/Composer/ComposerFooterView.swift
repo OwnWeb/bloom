@@ -70,6 +70,9 @@ struct ComposerFooterView: View, Equatable {
     /// Identifies the owner of the callbacks when the row is compared across parent updates.
     var actionIdentity: ObjectIdentifier?
 
+    /// The footer's model menus need not be rebuilt for every draft character. Include every
+    /// value the row draws and the owner of its callbacks, so a switch to another transcript
+    /// cannot keep actions captured from the previous one.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.controls == rhs.controls
             && lhs.context == rhs.context
@@ -84,7 +87,7 @@ struct ComposerFooterView: View, Equatable {
             && (lhs.onOpenQuickPrompts != nil) == (rhs.onOpenQuickPrompts != nil)
             && (lhs.onSideConversation != nil) == (rhs.onSideConversation != nil)
             && lhs.showsAgentControls == rhs.showsAgentControls
-            && lhs.usesCLIChat?.wrappedValue == rhs.usesCLIChat?.wrappedValue
+            && (lhs.usesCLIChat != nil) == (rhs.usesCLIChat != nil)
             && lhs.supportsCLIChat == rhs.supportsCLIChat
             && lhs.actionIdentity == rhs.actionIdentity
     }

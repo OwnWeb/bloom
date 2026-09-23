@@ -13,6 +13,7 @@ final class KeepAwakeModel {
 
     private(set) var session: KeepAwakeSession?
     @ObservationIgnored private var expiry: Task<Void, Never>?
+    @ObservationIgnored private var wasHoldingLidClosed = false
 
     private init() {
         session = KeepAwake.load()
@@ -61,10 +62,18 @@ final class KeepAwakeModel {
     private func apply() {
         KeepAwake.save(session)
         AgentActivity.shared.setKeepAwakeSession(session)
-        // The lid is the one part no assertion can hold. See `SleepSwitch`.
-        SleepSwitch.shared.setHoldingLidClosed(KeepAwake.holdsLidClosed(
+        // The lid is the one part no assertion can hold. Checking the helper's service status
+        // blocked the main thread twice at launch even with no Keep Awake session. The helper
+        // watches the requesting process and releases a hold if it exits, so a fresh launch with
+        // no hold has nothing to clear. Once this process has asked for a hold, it must still send
+        // the matching release.
+        let holdsLidClosed = KeepAwake.holdsLidClosed(
             session: session, lidEnabled: keepsLidClosed, at: Date()
-        ))
+        )
+        if holdsLidClosed || wasHoldingLidClosed {
+            SleepSwitch.shared.setHoldingLidClosed(holdsLidClosed)
+        }
+        wasHoldingLidClosed = holdsLidClosed
         expiry?.cancel()
         expiry = nil
         guard let until = session?.until else { return }
