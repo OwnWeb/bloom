@@ -17,12 +17,11 @@ import Foundation
 /// **A split** is an arrival too: `CenterPanesView` deliberately changes a pane's `ForEach`
 /// identity when a tab goes from one pane to two, so the chat is rebuilt rather than resized.
 ///
-/// **A resize is not held.** It used to be: the pane kept the pixels it had while a divider or a
-/// window edge moved, and crossfaded to the reflowed transcript when the hand came off. That was
-/// priced at two milliseconds a row, when every measurement built a fresh `NSHostingView`. At a
-/// tenth of that, measuring the rows on screen fits in a frame, and the fade at the end of every
-/// drag was a distraction nobody needed. So a width change reflows as it happens, measuring what
-/// is visible, and `eager` below is measured once the width has stopped moving.
+/// **A table resize is not held here.** Its visible rows reflow whenever its own width changes,
+/// which still happens during a window resize or an inner chat split drag. The outer window split
+/// now holds the whole centre host at one width while either outer divider moves, then crossfades
+/// the final layout. That avoids repeatedly laying out the whole SwiftUI column during a drag.
+/// `eager` below is measured once the table's width has stopped moving.
 public enum TranscriptPaneHold {
     /// How far the width has to move from the last reflow before a resize reflows on the frame.
     ///

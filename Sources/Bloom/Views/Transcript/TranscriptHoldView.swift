@@ -17,11 +17,10 @@ protocol TranscriptHoldDelegate: AnyObject {
 /// conversation, and a split, whose pane is rebuilt rather than resized (see `CenterPanesView`,
 /// whose `ForEach` identity deliberately changes when a tab goes from one pane to two).
 ///
-/// **A resize is not held here.** This view used to keep the scroll view at its old frame for the
-/// length of a drag and crossfade to the reflowed transcript at the end, when measuring a row cost
-/// two milliseconds. It is a tenth of that now, so `TranscriptTableView` reflows on every width
-/// change instead and the reader watches the text rewrap under the hand. See
-/// `TranscriptPaneHold`.
+/// **A resize is not held here.** `TranscriptTableView` reflows whenever its own width changes.
+/// The outer window split may hold the whole centre host during an outer divider drag, then fade
+/// its final layout, without putting this arrival hold on a live conversation. See
+/// `DetailSplitViewController` and `TranscriptPaneHold`.
 ///
 /// ## What a hold draws
 ///

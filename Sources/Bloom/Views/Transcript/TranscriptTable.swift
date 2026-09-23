@@ -1736,11 +1736,10 @@ struct TranscriptTable: NSViewRepresentable {
 
         /// **The table is a new width, so the rows on screen are rewrapped on this frame.**
         ///
-        /// Called on every frame of a divider drag, a window edge, a zoom or the inspector
-        /// sliding, which is what lets the text follow the hand rather than a fade after it lets
-        /// go. Only the visible rows are measured here: a screen of them fits in a frame, and every
-        /// other row keeps its old height as an estimate until it is drawn. See
-        /// `TranscriptPaneHold`, which carries the history.
+        /// Called when the table's width moves, including a window edge, a zoom or an inner chat
+        /// divider. The outer window split can hold this table's width through a drag and change
+        /// it once at the end. Only the visible rows are measured here; every other row keeps its
+        /// old height as an estimate until it is drawn. See `TranscriptPaneHold`.
         ///
         /// **Not on every frame of a slow drag.** A width less than `reflowStep` from the last
         /// reflow is left to the settle, and the rows keep the heights they had until then. The

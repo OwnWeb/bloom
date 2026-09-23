@@ -49,6 +49,7 @@ enum Palette {
     @MainActor static var windowBackground: Color { surface }
     /// Content areas: the transcript, the inspector, anything holding text.
     @MainActor static var surface: Color { themed(\.surface) }
+    @MainActor static var surfaceNSColor: NSColor { themedNSColor(\.surface) }
     /// A raised control: a segmented control's selected cell, a bordered button, a browser chip.
     @MainActor static var surfaceRaised: Color { themed(\.raised) }
     /// A recessed strip: gutters, hunk headers, tool detail blocks, the composer box, the panel.
