@@ -134,6 +134,8 @@ enum StreamProbe {
         let wall = CACurrentMediaTime() - wallBefore
         let cpu = ProbeHarness.mainThreadCPUSeconds() - cpuBefore
         recorder.stop()
+        let expected = String((0..<typedCharacters).map { sentence[$0 % sentence.count] })
+        let didType = transcript.draft == expected && editor.string == expected
 
         // The draft goes, so the streaming half is measured over the composer the reader would
         // actually be looking at and so the dev database is not left holding a page of foxes.
@@ -145,8 +147,9 @@ enum StreamProbe {
         report["mainThreadCpuMsPerKeystroke"] = .number(
             typedCharacters > 0 ? cpu * 1000 / Double(typedCharacters) : 0
         )
-        // A run whose keystrokes never reached the draft measured an empty composer.
-        report["didType"] = .bool(typedCharacters > 0)
+        // A run whose keystrokes never reached both the model and the native editor measured an
+        // empty composer. The previous check only counted loop iterations and could not catch it.
+        report["didType"] = .bool(didType)
         return report
     }
 
