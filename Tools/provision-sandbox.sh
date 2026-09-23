@@ -11,9 +11,12 @@
 # 2. A sudoers line letting the Runner's user become anybody without a password, and keep the
 #    environment. That is how it starts a sandboxed process: `sudo -E unshare ... setpriv --reuid`.
 #    The sandbox user is given nothing.
-# 3. A copy of the agent CLIs under /usr/local/lib/bloom-agents, root-owned and world-readable,
-#    because the image installs them under the Runner user's home, which is 0750, and a copy is the
-#    only way the sandbox user can run them. Symlinks in /usr/local/bin so PATH finds them.
+# 3. Links in /usr/local/bin to the agent CLIs where the image already installs them, so PATH
+#    finds them. They used to be copied, every one of them with `cp -rL`, because the Runner's
+#    home was 0750 and the sandbox user could not reach them; item 5 makes that home 0751, so the
+#    copy only cost time at every install, hundreds of megabytes of it, for five agents of which
+#    two are ever launched from here. The sandbox user can run them in place and cannot change
+#    them, since they belong to the Runner's user.
 # 4. The sandbox user's own HOME, with the image's Claude settings copied into it, because a CLI
 #    writes its state there and cannot read the Runner's home.
 # 5. The Runner's home made traversable (0751) and the worktree group-shared with setgid, so both
@@ -31,7 +34,7 @@
 #   BLOOM_WORKTREE       the checkout to share (default $HOME/workspace)
 #   BLOOM_DATA_DIR       the Runner's own directory, left private (default $HOME/.bloom)
 #   BLOOM_AGENT_SOURCE   where the image keeps the CLIs (default $HOME/.local/share/sprite-agents)
-#   BLOOM_AGENT_TARGET   where the copy goes (default /usr/local/lib/bloom-agents)
+#   BLOOM_AGENT_LINKS    where the links go (default /usr/local/bin)
 #   SUDO                 how to become root (default sudo), so a test can watch instead
 
 set -euo pipefail
@@ -41,7 +44,7 @@ group="${BLOOM_SANDBOX_GROUP:-bloom-work}"
 worktree="${BLOOM_WORKTREE:-$HOME/workspace}"
 data="${BLOOM_DATA_DIR:-$HOME/.bloom}"
 source_dir="${BLOOM_AGENT_SOURCE:-$HOME/.local/share/sprite-agents}"
-target_dir="${BLOOM_AGENT_TARGET:-/usr/local/lib/bloom-agents}"
+link_dir="${BLOOM_AGENT_LINKS:-/usr/local/bin}"
 sudo_cmd="${SUDO:-sudo}"
 runner="$(id -un)"
 # **$HOME, not the passwd entry.** Looked up by name this reached the home of whoever ran it, which
@@ -72,23 +75,19 @@ if [[ "$($sudo_cmd cat "$sudoers" 2>/dev/null || true)" != "$line" ]]; then
   rm -f "$temporary"
 fi
 
-# 3. The CLIs, where a user who cannot read the Runner's home can run them.
+# 3. The names the CLIs are launched by, pointing at where the image already keeps them. A link
+# only where nothing of that name is there already.
 if [[ -d "$source_dir" ]]; then
-  $sudo_cmd mkdir -p "$target_dir"
-  for agent in "$source_dir"/*; do
-    [[ -d "$agent" ]] || continue
-    name="$(basename "$agent")"
-    [[ -e "$target_dir/$name" ]] && continue
-    $sudo_cmd cp -rL "$agent" "$target_dir/$name"
-    $sudo_cmd chown -R root:root "$target_dir/$name"
-    $sudo_cmd chmod -R a+rX "$target_dir/$name"
-  done
-  # The names the CLIs are launched by. A link only where nothing of that name is there already.
+  $sudo_cmd mkdir -p "$link_dir"
   for pair in "claude:claude/claude" "codex:codex/codex-x86_64-unknown-linux-musl"; do
     name="${pair%%:*}"
-    path="$target_dir/${pair#*:}"
-    if [[ -x "$path" && ! -e "/usr/local/bin/$name" ]]; then
-      $sudo_cmd ln -s "$path" "/usr/local/bin/$name"
+    path="$source_dir/${pair#*:}"
+    [[ -e "$path" ]] || continue
+    # The copy used to be made readable and runnable by everybody; the image's own install is not
+    # promised to be, so the one directory that is linked to is made so instead, in place.
+    $sudo_cmd chmod -R a+rX "$(dirname "$path")"
+    if [[ ! -e "$link_dir/$name" ]]; then
+      $sudo_cmd ln -s "$path" "$link_dir/$name"
     fi
   done
 fi
@@ -182,4 +181,4 @@ if [[ -d "$data" ]]; then
   $sudo_cmd chmod 0700 "$data"
 fi
 
-say "ready: $user in $group, CLIs in $target_dir"
+say "ready: $user in $group, CLIs linked into $link_dir"
