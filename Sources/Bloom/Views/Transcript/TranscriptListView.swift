@@ -798,6 +798,7 @@ struct TranscriptListView: View {
                                 agentKind: agentKind,
                                 wasStopped: wasStopped,
                                 stillRunning: stillRunning,
+                                closesTranscript: closesTranscript,
                                 transcript: transcript,
                                 showsDuration: turnFolds.turn(containing: index)?.hasHiddenRows != true,
                                 durationMS: turnFolds.turn(containing: index)?.durationMS

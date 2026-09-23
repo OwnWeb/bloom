@@ -480,6 +480,8 @@ public struct CodexTurn: Sendable, Hashable {
     public let status: Status
     public let items: [CodexItem]
     public let errorMessage: String?
+    /// Codex's token for why the turn failed, `usageLimitExceeded` among them. See `CodexErrorInfo`.
+    public let errorInfo: String?
     public let durationMS: Int?
     public let raw: Data
 
@@ -489,6 +491,7 @@ public struct CodexTurn: Sendable, Hashable {
         status: Status,
         items: [CodexItem] = [],
         errorMessage: String? = nil,
+        errorInfo: String? = nil,
         durationMS: Int? = nil,
         raw: Data = Data()
     ) {
@@ -497,6 +500,7 @@ public struct CodexTurn: Sendable, Hashable {
         self.status = status
         self.items = items
         self.errorMessage = errorMessage
+        self.errorInfo = errorInfo
         self.durationMS = durationMS
         self.raw = raw
     }
@@ -510,6 +514,7 @@ public struct CodexTurn: Sendable, Hashable {
             status: Status(rawValue: json["status"]?.stringValue ?? "") ?? .unknown,
             items: (json["items"]?.arrayValue ?? []).compactMap(CodexItem.decode),
             errorMessage: json["error"]?["message"]?.stringValue,
+            errorInfo: CodexErrorInfo.token(in: json["error"]),
             durationMS: json["durationMs"]?.intValue,
             raw: raw
         )

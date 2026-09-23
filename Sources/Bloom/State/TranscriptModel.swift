@@ -314,6 +314,9 @@ final class TranscriptModel {
     /// `tool_progress` tick, about once a second per subagent, and the transcript's table reading
     /// it would rebuild on each one. This moves only when the note does. See `BackgroundWork`.
     private(set) var backgroundWork: BackgroundWork.Note?
+    /// A turn that hit the account's allowance, waiting to be continued once it is back. See
+    /// `LimitResume`.
+    let limitResumeWatch = LimitResumeWatch()
 
     var draft = ""
 
@@ -841,6 +844,9 @@ final class TranscriptModel {
     func submit(_ text: String, clearingDraft sourceDraft: String? = nil,
                 interactionMode: InteractionMode? = nil, sourcePlan: PlanArtefact? = nil) async -> Bool {
         guard !isWorkspaceArchiving else { return false }
+        // Anything said to the chat supersedes a continuation waiting on the allowance, including
+        // the continuation itself, which disarms before it gets here.
+        limitResumeWatch.cancel()
         if usesInteractiveTerminal {
             app.alert = BloomAlert(
                 title: "This agent runs in a terminal",
@@ -917,6 +923,27 @@ final class TranscriptModel {
         wasStoppedByHand = false
         await drain()
         return true
+    }
+
+    /// Whether the turn that closes this chat can be continued once the allowance it hit is back.
+    ///
+    /// Only a chat on this Mac: a Cloud chat's agent runs on a machine whose account is not the
+    /// one this Mac polls.
+    func offersLimitResume(after result: AgentResult) -> Bool {
+        cloud == nil && !usesInteractiveTerminal
+            && LimitResume.canWatch(session.agentKind)
+            && LimitResume.isLimitHit(result)
+    }
+
+    /// Waits for the allowance to come back and then sends `LimitResume.prompt`. See `LimitResume`
+    /// for when that is.
+    func continueAfterLimitResets(hitAt: Date) {
+        limitResumeWatch.arm(
+            LimitResume(provider: session.agentKind, hitAt: hitAt),
+            quotas: { [unowned app] in app.quotas },
+            refresh: { [unowned app] in await app.refreshQuotas(after: QuotaPollSchedule.onDemandFloor) },
+            send: { [weak self] in await self?.submit(LimitResume.prompt) }
+        )
     }
 
     /// Why the queue in front of this chat is not moving, which is both the drain's condition and
@@ -1613,6 +1640,7 @@ final class TranscriptModel {
     /// The session itself is going away, so the pump goes with it. The event stream never ends on
     /// its own, and a pump left iterating one holds its runner alive for the rest of the launch.
     func teardown() {
+        limitResumeWatch.cancel()
         idleEvictionTask?.cancel()
         idleEvictionTask = nil
         terminateNow()

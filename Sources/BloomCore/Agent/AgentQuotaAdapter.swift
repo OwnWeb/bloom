@@ -77,7 +77,14 @@ public enum ClaudeCodeQuotaAdapter: AgentQuotaAdapter {
         guard let info = line["rate_limit_info"], let type = info["rateLimitType"]?.stringValue else {
             return []
         }
-        let measure: QuotaMeasure = info["utilization"]?.doubleValue.map { .fraction($0) } ?? .unknown
+        // `rejected` is the wall itself: the event that comes with a turn the account could not
+        // pay for, read out of a real session as `"status":"rejected"` beside a 429. With no
+        // figure beside it, it is still a figure: the window is spent, and `LimitResume` waits on
+        // exactly that.
+        let stated = info["utilization"]?.doubleValue
+        let rejected = info["status"]?.stringValue == "rejected"
+        let measure: QuotaMeasure = stated.map { .fraction(rejected ? max($0, 1) : $0) }
+            ?? (rejected ? .fraction(1) : .unknown)
         return [AgentQuota(
             provider: provider,
             window: .named(type),

@@ -37,10 +37,17 @@ public struct TurnFailure: Sendable, Hashable {
     public static func of(_ result: AgentResult) -> TurnFailure? {
         guard !result.succeeded else { return nil }
         let words = result.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lead = self.lead(terminalReason: result.terminalReason, stopReason: result.stopReason)
+        // Ahead of the terminal reason, which may well say `api_error` for this too and would
+        // then tell somebody to ask again at once, into the same wall.
+        let lead = LimitResume.isLimitHit(result)
+            ? limitLead
+            : self.lead(terminalReason: result.terminalReason, stopReason: result.stopReason)
         guard lead != nil || !words.isEmpty else { return nil }
         return TurnFailure(lead: lead, clisOwnWords: words.isEmpty ? nil : words)
     }
+
+    static let limitLead = "The account's usage limit is spent. Nothing is lost, and the chat can "
+        + "pick up where it stopped once the limit resets."
 
     /// Diagnosed from `terminal_reason`, which is a token rather than a sentence, so there is
     /// nothing here parsing anybody's prose.

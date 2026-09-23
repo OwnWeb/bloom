@@ -28,6 +28,9 @@ struct TurnFooterView: View {
     /// own, under a tab that is still breathing, is what made that look like a stuck turn. See
     /// `BackgroundWork`.
     var stillRunning: BackgroundWork.Note?
+    /// Whether this is the last thing in the transcript. Only that turn can be continued after a
+    /// limit resets: one with anything below it has already been answered.
+    var closesTranscript = false
     var transcript: TranscriptModel?
     /// False when the completed turn disclosure above the response already carries the duration.
     var showsDuration = true
@@ -129,6 +132,12 @@ struct TurnFooterView: View {
                     if let words = failure.clisOwnWords {
                         Text("The agent said: \(words)")
                             .foregroundStyle(Palette.textTertiary)
+                    }
+                    if closesTranscript, let transcript, transcript.offersLimitResume(after: result) {
+                        LimitResumeControl(watch: transcript.limitResumeWatch) {
+                            transcript.continueAfterLimitResets(hitAt: row.createdAt)
+                        }
+                        .padding(.top, TranscriptLayout.tight)
                     }
                 }
                 .font(Typo.caption)

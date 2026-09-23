@@ -345,7 +345,8 @@ public struct CodexTranslation: Sendable {
         durationMS: Int,
         usage: AgentUsage,
         model: String,
-        sessionID: String
+        sessionID: String,
+        errorInfo: String? = nil
     ) -> Data {
         var result: [String: JSONValue] = [
             "type": .string("result"),
@@ -357,6 +358,9 @@ public struct CodexTranslation: Sendable {
             "session_id": .string(sessionID),
             "usage": encode(usage),
         ]
+        // Kept on the stored row, because the row is all a transcript has once the turn is over,
+        // and it is what `LimitResume.isLimitHit` reads to offer continuing after a reset.
+        if let errorInfo { result["codex_error_info"] = .string(errorInfo) }
         // Where the context gauge reads the window from. Codex hands the figure over directly on
         // `thread/tokenUsage/updated`, which is one notification rather than Claude Code's two
         // separate lines, and it is put back in the place the existing reader looks.
@@ -586,7 +590,8 @@ public struct CodexTranslation: Sendable {
                 durationMS: turn.durationMS ?? 0,
                 usage: usage.agentUsage,
                 model: context.model,
-                sessionID: turn.threadID
+                sessionID: turn.threadID,
+                errorInfo: turn.errorInfo
             ),
             sessionID: turn.threadID
         )
