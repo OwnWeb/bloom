@@ -244,7 +244,7 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         // Compared as the draft rather than as the string the view is holding: a chip is one
         // character there and a whole path here, and it is the draft the two have to agree about.
-        if refaced || ComposerChipText.draft(of: textView.attributedString()) != text {
+        if refaced || ComposerChipText.draft(of: Self.committed(in: textView)) != text {
             context.coordinator.write(text, into: textView, font: font)
             place(caretAt: caret, in: textView, coordinator: context.coordinator)
         } else if caret != context.coordinator.lastReportedCaret {
@@ -263,6 +263,26 @@ struct ComposerTextEditor: NSViewRepresentable {
         context.coordinator.applyFocus(to: textView)
 
         context.coordinator.reportHeight(of: textView)
+    }
+
+    /// What the view holds minus whatever an input method is still composing, which is the text
+    /// the binding knows about.
+    ///
+    /// Why a backtick could not be typed on a French keyboard. There it is a dead key: the first
+    /// press puts a marked backtick in the storage and Space commits it. Marking text sends no
+    /// `textDidChange`, so the binding stays one character short, but it does move the caret, and
+    /// the selection report that follows runs this update. Compared against the whole storage the
+    /// two disagreed, the draft was written back over the view, and the marked backtick went with
+    /// it. Every accent typed with a dead key, and every character from a Japanese or Chinese
+    /// input method, went the same way.
+    private static func committed(in textView: NSTextView) -> NSAttributedString {
+        let held = textView.attributedString()
+        let marked = textView.markedRange()
+        guard textView.hasMarkedText(), marked.location != NSNotFound,
+              NSMaxRange(marked) <= held.length else { return held }
+        let committed = NSMutableAttributedString(attributedString: held)
+        committed.deleteCharacters(in: marked)
+        return committed
     }
 
     private func place(caretAt caret: Int, in textView: ComposerTextView, coordinator: Coordinator) {

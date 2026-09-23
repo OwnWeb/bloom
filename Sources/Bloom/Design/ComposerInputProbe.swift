@@ -235,6 +235,21 @@ enum ComposerInputProbe {
             check(!FileManager.default.fileExists(atPath: promisedDirectory.path), "temporary promise files leaked")
             withExtendedLifetime((promise, writer)) {}
 
+            // A French keyboard types a backtick as a dead key: the first press is marked text,
+            // and Space commits it.
+            draft.text = "Code "
+            await settle(window)
+            let notFound = NSRange(location: NSNotFound, length: 0)
+            text.setSelectedRange(NSRange(location: 5, length: 0))
+            text.setMarkedText("`", selectedRange: NSRange(location: 1, length: 0), replacementRange: notFound)
+            await settle(window)
+            check(text.hasMarkedText(), "dead key composition was cancelled before it was committed")
+            check(text.string == "Code `", "dead key marked text was lost: \(text.string.debugDescription)")
+            text.insertText("`", replacementRange: notFound)
+            await settle(window)
+            check(draft.text == "Code `", "dead key backtick did not reach the draft: \(draft.text.debugDescription)")
+            check(text.string == "Code `", "dead key backtick did not stay in the editor: \(text.string.debugDescription)")
+
             board.clearContents()
             board.setString("ordinary text", forType: .string)
             check(surface.draggingEntered(drag).isEmpty, "outer surface intercepted a plain text drag")
