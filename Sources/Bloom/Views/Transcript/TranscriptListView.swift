@@ -96,6 +96,10 @@ struct TranscriptListView: View {
     /// Completed turns the reader has closed again, which a segment that opens itself has to be
     /// told about. See `TranscriptTurnFold.Folds.isOpen`.
     @State private var refoldedTurns: Set<Int> = []
+    /// Whether the reader has unfolded the setup log at the head of this conversation, and nil
+    /// while nobody has. Here rather than in the setup views, because the table measures a copy of
+    /// that row whose own state is always folded. See `WorkspaceEventsView.setupLogOpen`.
+    @State private var setupLogOpen: Bool?
     /// Every turn's working in this session. See `TranscriptFold`.
     ///
     /// **State rather than a computed property, and the lag is the point.** It is refreshed from
@@ -584,6 +588,7 @@ struct TranscriptListView: View {
                     $0.combine(transcript.hasNothingToShow)
                     $0.combine(transcript.rows.isEmpty)
                     $0.combine(Int(paneHeight))
+                    $0.combine(setupLogOpen)
                 },
                 content: {
                     AnyView(
@@ -609,7 +614,9 @@ struct TranscriptListView: View {
                                 isBeforeFirstTurn: transcript.rows.isEmpty,
                                 paneHeight: paneHeight,
                                 onVisibilityChange: { showsSetup = $0 },
-                                onShowLogEnd: { wasAsked in showSetupLogEnd(wasAsked: wasAsked) }
+                                onShowLogEnd: { wasAsked in showSetupLogEnd(wasAsked: wasAsked) },
+                                setupLogOpen: setupLogOpen,
+                                setSetupLogOpen: { setupLogOpen = $0 }
                             )
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1291,6 +1298,7 @@ struct TranscriptListView: View {
             unfolded = remembered?.unfolded ?? []
             unfoldedTurns = remembered?.unfoldedTurns ?? []
             refoldedTurns = remembered?.refoldedTurns ?? []
+            setupLogOpen = nil
             folds = transcript.presentationFolds()
             foldSession = transcript.session.id
             foldRevision = transcript.presentationRevision

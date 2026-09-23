@@ -36,10 +36,26 @@ struct CloudSetupCard: View {
     /// conversation to draw it in. Nil at the head of a conversation, which draws its own.
     var heldPrompt: String?
     var actions = Actions()
+    /// Whether the log is open, when the card sits in the transcript and the list holds that.
+    /// See `WorkspaceEventsView.setupLogOpen` for why the card's own state cannot be trusted there.
+    var heldLogOpen: Bool?
+    /// Writes `heldLogOpen`. Nil in an empty pane, where the card keeps its own.
+    var setLogOpen: (@MainActor (Bool) -> Void)?
 
     @State private var isLogOpen: Bool?
 
-    private var logIsOpen: Bool { isLogOpen ?? progress.opensLogAtFirst }
+    private var logIsOpen: Bool {
+        (setLogOpen == nil ? isLogOpen : heldLogOpen) ?? progress.opensLogAtFirst
+    }
+
+    private func toggleLog() {
+        let open = !logIsOpen
+        if let setLogOpen {
+            setLogOpen(open)
+        } else {
+            withAnimation(Motion.pane) { isLogOpen = open }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -159,14 +175,19 @@ struct CloudSetupCard: View {
                 .controlSize(.small)
                 .padding(.top, Metrics.gutter)
         } else if progress.canStop, let stop = actions.stop {
-            // Quiet, because stopping is the exception and the steps are what is being read.
+            // **A bordered button on the step list's own edge, where it was grey words indented
+            // under the last step.** The owner read it as that step's detail line, as though
+            // stopping belonged to "Starting services", and did not read it as a button at all.
+            // It stops the whole setup, so it sits where Run Setup Again sits once a run has
+            // failed, and it is drawn the way the transcript's setup row draws the same verb.
+            // Bordered rather than prominent: stopping is the exception, not the way forward.
             // No confirmation: stopping costs nothing that Run Setup Again cannot give back.
             Button("Stop setup") { stop() }
-                .linkButton(Palette.textTertiary)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 .font(Typo.caption)
-                .padding(.top, Metrics.spacingWide)
-                .padding(.leading, CloudSetupStepRow.labelIndent)
-                    .help("Stops the setup script. Anything waiting for it goes to the agent.")
+                .padding(.top, Metrics.gutter)
+                .help("Stops the setup script. Anything waiting for it goes to the agent.")
         }
     }
 
@@ -175,7 +196,7 @@ struct CloudSetupCard: View {
     private var logDisclosure: some View {
         VStack(alignment: .leading, spacing: Metrics.spacingWide) {
             Button {
-                withAnimation(Motion.pane) { isLogOpen = !logIsOpen }
+                toggleLog()
             } label: {
                 HStack(spacing: Metrics.spacing) {
                     Image(systemName: "chevron.right")
@@ -363,28 +384,56 @@ struct CloudSetupHeldPrompt: View {
 }
 
 /// The setup log, opened: the end of it, in the script's own type, following new lines while the
-/// build is going. A fixed height, so opening it does not push the rest of the card around as it
-/// grows, and only the tail, because a `composer install` log is thousands of lines.
+/// build is going. Only the tail, because a `composer install` log is thousands of lines.
+///
+/// **As tall as its lines up to a ceiling, and a scroller from there.** It was a fixed 260 points,
+/// which drew a log of three lines in a box mostly empty. The height is worked out by
+/// `LogHeight` from what the scroller holds rather than from anything the view remembers, so the
+/// copy the transcript measures offscreen and the copy it draws agree without being told.
 struct CloudSetupLog: View {
     var log: String
     var isFollowing: Bool
 
     private static let lines = 400
-    private static let height: CGFloat = 260
+    private static let ceiling: CGFloat = 260
 
     var body: some View {
-        ScrollView {
-            Text(LogTail.last(log, lines: Self.lines))
-                .font(Typo.codeSmall)
-                .foregroundStyle(Palette.textSecondary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(Metrics.inset)
+        LogHeight(ceiling: Self.ceiling) {
+            ScrollView {
+                Text(LogTail.last(log, lines: Self.lines))
+                    .font(Typo.codeSmall)
+                    .foregroundStyle(Palette.textSecondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Metrics.inset)
+            }
+            .defaultScrollAnchor(.bottom)
+            .defaultScrollAnchor(isFollowing ? .bottom : .top, for: .sizeChanges)
         }
-        .defaultScrollAnchor(.bottom)
-        .defaultScrollAnchor(isFollowing ? .bottom : .top, for: .sizeChanges)
-        .frame(height: Self.height)
         .background(Palette.surfaceSunken, in: .rect(cornerRadius: Metrics.corner))
+    }
+}
+
+/// A scroller as tall as what it holds, and no taller than `ceiling`.
+///
+/// A `Layout` rather than `.frame(maxHeight:)`, because that frame takes whatever height it is
+/// offered up to the cap, and inside a scrolling card it is offered no height at all. Asking the
+/// scroller for its ideal height, which for a vertical `ScrollView` is its content's, and
+/// clamping that is a question with one answer for every proposal, so a measurement and a
+/// drawing cannot disagree about it.
+private struct LogHeight: Layout {
+    var ceiling: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        let ideal = subview.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: proposal.width ?? ideal.width, height: min(ideal.height, ceiling))
+    }
+
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
     }
 }
 

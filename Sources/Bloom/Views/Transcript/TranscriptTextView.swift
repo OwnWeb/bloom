@@ -241,13 +241,17 @@ struct TranscriptTextView: NSViewRepresentable {
             return nil
         }
         let proposed = proposal.width.map(Double.init)
-        let offeredWidth = TranscriptTextMeasure.layoutWidth(proposed: proposed)
-        // A divider advances by a point or two per event. Most of those widths leave line
-        // breaks unchanged, but TextKit still lays every glyph out again. Round down so the
-        // container never exceeds the space offered and reuse one layout for nearby frames.
-        let width = proposed?.isFinite == true && offeredWidth >= 16
-            ? floor(offeredWidth / 16) * 16
-            : offeredWidth
+        // **Exactly the width offered, never a width rounded down from it.** For a day this laid
+        // out at the proposal rounded down to a multiple of sixteen, so that a divider drag could
+        // reuse one layout across neighbouring frames, and it broke every bubble. `CappedWidth`
+        // measures a bubble at its cap, is told the widest line, and then places the text at
+        // exactly that width. Rounded down, "this is a test" came back 92 points wide, was laid
+        // out again at 80 and wrapped: two lines of ink in a bubble one line tall, the second
+        // drawn over the caption under it, and the bubble narrower than its own words. A width a
+        // run has reported must be a width it fits in when it is handed it back, which only the
+        // exact proposal promises. Repeated proposals are still answered from `lastMeasurement`,
+        // and the pane itself reflows in steps during a drag, which is where the saving is.
+        let width = TranscriptTextMeasure.layoutWidth(proposed: proposed)
         // Only when it has actually moved. Whether TextKit throws its layout away on being handed
         // the size it already has is not documented either way, and this is the resize path: every
         // frame of a divider drag asks every realised row for its size, several times, and the

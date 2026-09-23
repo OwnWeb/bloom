@@ -38,6 +38,7 @@ struct WorkspaceEventsView: View, Equatable {
             && lhs.isFirstThing == rhs.isFirstThing
             && lhs.isBeforeFirstTurn == rhs.isBeforeFirstTurn
             && lhs.paneHeight == rhs.paneHeight
+            && lhs.setupLogOpen == rhs.setupLogOpen
     }
 
     /// The workspace whose setup this is, of either kind. A local one's events come from its
@@ -74,6 +75,22 @@ struct WorkspaceEventsView: View, Equatable {
     /// reader asking to be taken there, and is obeyed wherever they are; a flush is the log moving
     /// under them, and is obeyed only while they are still at the end of it.
     var onShowLogEnd: (@MainActor (Bool) -> Void)?
+    /// Whether the reader has unfolded the setup log, in the setup card or in the setup row, and
+    /// nil while nobody has touched it.
+    ///
+    /// **Held by the list, because a row's own `@State` is not what the table measures.** The
+    /// table sizes a row by hosting a second copy of it offscreen, and that copy starts with
+    /// every `@State` at its initial value. The setup entry is measured again on almost every
+    /// pass, since it redraws itself from the log (see `TranscriptEntryID.redrawsItself`), so the
+    /// copy with the log folded kept telling the table the row was the folded height. The drawn
+    /// row only reports when its own size changes, and an open log of a fixed height, or a
+    /// finished run's log that is not growing, never does. The owner met both: a Cloud setup log
+    /// that opened and then fell to a sliver one clipped line tall, and a "Setup finished" row
+    /// that unfolded onto nothing. Held here and carried in the row's content key, both copies
+    /// draw the same thing.
+    var setupLogOpen: Bool?
+    /// Writes `setupLogOpen`. Nil where nothing outside holds it, and the views keep their own.
+    var setSetupLogOpen: (@MainActor (Bool) -> Void)?
 
     @Environment(AppModel.self) private var app
 
@@ -135,7 +152,7 @@ struct WorkspaceEventsView: View, Equatable {
         Group {
             if let card, let session {
                 // The message waiting for it is the conversation's own bubble, just below.
-                session.setupCard(card, heldPrompt: nil)
+                session.setupCard(card, heldPrompt: nil, logOpen: setupLogOpen, setLogOpen: setSetupLogOpen)
             }
             ForEach(events) { event in
                 WorkspaceEventRow(
@@ -145,7 +162,9 @@ struct WorkspaceEventsView: View, Equatable {
                     model: model,
                     runSetupAgain: runSetupAgain,
                     stopSetup: stopSetup,
-                    onShowLogEnd: onShowLogEnd
+                    onShowLogEnd: onShowLogEnd,
+                    logOpen: event.kind == .setup ? setupLogOpen : nil,
+                    setLogOpen: event.kind == .setup ? setSetupLogOpen : nil
                 )
             }
         }
@@ -193,8 +212,13 @@ struct WorkspaceEventRow: View {
     var stopSetup: (@MainActor () -> Void)?
     /// See `endID`, and `WorkspaceEventsView.onShowLogEnd`.
     var onShowLogEnd: (@MainActor (Bool) -> Void)?
+    /// Whether the log is unfolded, when somebody outside the row holds that. See
+    /// `WorkspaceEventsView.setupLog`, which says why the setup row's cannot be `@State`.
+    var logOpen: Bool?
+    /// Writes `logOpen`. Nil where nobody outside holds it, and the row keeps its own.
+    var setLogOpen: (@MainActor (Bool) -> Void)?
 
-    @State private var isExpanded = false
+    @State private var ownExpansion = false
     @State private var isHovered = false
     /// One line of the running block, as it was actually laid out. See `drawnLineHeight`.
     @State private var measuredLine: CGFloat?
@@ -203,6 +227,18 @@ struct WorkspaceEventRow: View {
     /// What the conversation is set at, which is what a line of the tail is set at, and therefore
     /// what the window's fixed height is measured in. See `lineHeight`.
     @Environment(\.fontScale) private var fontScale
+
+    private var isExpanded: Bool { setLogOpen == nil ? ownExpansion : logOpen ?? false }
+
+    /// Unfolds or folds the log, and takes the reader to its end when it opens.
+    ///
+    /// The end is asked for here rather than from an `onChange` of the state, because the state
+    /// is the list's now: moving it changes the row's content key, and the cell it lands in need
+    /// not be the view that was watching.
+    private func setExpanded(_ open: Bool) {
+        if let setLogOpen { setLogOpen(open) } else { ownExpansion = open }
+        if open, event.kind == .setup { showLogEnd(wasAsked: true) }
+    }
 
     /// The most lines of a running log this row may show, which is half the pane it is drawn in.
     ///
@@ -258,7 +294,7 @@ struct WorkspaceEventRow: View {
 
         VStack(alignment: .leading, spacing: 0) {
             if canExpand {
-                ExpandableRowHeader(isExpanded: isExpanded, onToggle: { isExpanded.toggle() }) {
+                ExpandableRowHeader(isExpanded: isExpanded, onToggle: { setExpanded(!isExpanded) }) {
                     header
                 }
             } else {
@@ -289,10 +325,6 @@ struct WorkspaceEventRow: View {
         }
         .modifier(ExpandableRow(isHovered: isHovered))
         .onHover { isHovered = $0 }
-        .onChange(of: isExpanded) { _, isExpanded in
-            guard isExpanded, event.kind == .setup else { return }
-            showLogEnd(wasAsked: true)
-        }
         // And again on every flush, so an unfolded log stays on its newest line rather than
         // growing off the bottom of the pane. Watched by byte count rather than by comparing the
         // text: the log runs to two hundred thousand characters, this fires several times a
@@ -307,7 +339,7 @@ struct WorkspaceEventRow: View {
         }
         .acceptsCaptureSetupLogExpansion {
             guard event.kind == .setup, canExpand else { return }
-            isExpanded = true
+            setExpanded(true)
         }
     }
 
@@ -565,7 +597,7 @@ struct WorkspaceEventRow: View {
                 // on the gap to be told apart, but the link beside it still wants the air.
                 HStack(spacing: Metrics.gutter) {
                     if showsExpandLink {
-                        Button(isExpanded ? "Show less" : "Show more of the log") { isExpanded.toggle() }
+                        Button(isExpanded ? "Show less" : "Show more of the log") { setExpanded(!isExpanded) }
                             .linkButton()
                             .font(Typo.caption)
                             .help(isExpanded ? "Folds the log back to its last lines" : "Unfolds the log in this row")

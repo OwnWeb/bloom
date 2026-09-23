@@ -55,7 +55,14 @@ extension CloudWorkspaceSession {
 
     /// The card over this workspace's own state. Built here, so the view is handed values and can
     /// be drawn offscreen with none of a live session behind it: see `CloudSetupGallery`.
-    func setupCard(_ progress: CloudSetupProgress, heldPrompt: String?) -> CloudSetupCard {
+    ///
+    /// `logOpen` and `setLogOpen` are for a card drawn in the transcript, whose table measures a
+    /// second copy of it: see `WorkspaceEventsView.setupLogOpen`. The card in an empty pane is
+    /// drawn once and keeps its own.
+    func setupCard(
+        _ progress: CloudSetupProgress, heldPrompt: String?,
+        logOpen: Bool? = nil, setLogOpen: (@MainActor (Bool) -> Void)? = nil
+    ) -> CloudSetupCard {
         let item = cloud.item(id)
         var actions = CloudSetupCard.Actions()
         actions.stepChanged = { [weak self] step in self?.observeSetupStep(step) }
@@ -71,7 +78,9 @@ extension CloudWorkspaceSession {
             startedAt: setupStartedAt,
             log: state.setupLog,
             heldPrompt: heldPrompt,
-            actions: actions
+            actions: actions,
+            heldLogOpen: logOpen,
+            setLogOpen: setLogOpen
         )
     }
 

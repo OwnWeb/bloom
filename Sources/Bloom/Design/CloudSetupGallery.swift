@@ -39,6 +39,9 @@ enum CloudSetupGallery {
         let stages: [(String, SetupRecord?, String, String?, Bool)] = [
             ("machine", nil, "", "Add a CSV export to the tickets overview", false),
             ("setup", SetupRecord(state: "running", step: "setup"), log, nil, true),
+            // The same moment with the log opened, the way the transcript opens it: held outside
+            // the card rather than in its own state. See `WorkspaceEventsView.setupLogOpen`.
+            ("setup-log", SetupRecord(state: "running", step: "setup"), log, nil, true),
             ("resume", SetupRecord(state: "running", step: "resume"),
              log + "[bloom] Running the resume script.\n==> Starting databases\n    Postgres is already running\n", nil, true),
             ("failed", SetupRecord(state: "failed", step: "setup", note: "SQLSTATE[08006] connection to server at \"127.0.0.1\", port 5432 failed"),
@@ -61,7 +64,9 @@ enum CloudSetupGallery {
                 progress: progress, item: item, clock: clock,
                 anchors: [.machine: now.addingTimeInterval(-200)], startedAt: now.addingTimeInterval(-200),
                 log: text, heldPrompt: held,
-                actions: .init(stop: {}, runAgain: {})
+                actions: .init(stop: {}, runAgain: {}),
+                heldLogOpen: name == "setup-log" ? true : nil,
+                setLogOpen: name == "setup-log" ? { @MainActor _ in } : nil
             )
             for dark in [false, true] {
                 let page = VStack(spacing: 0) {

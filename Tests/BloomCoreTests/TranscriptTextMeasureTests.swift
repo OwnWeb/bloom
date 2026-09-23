@@ -46,6 +46,21 @@ struct TranscriptTextMeasureTests {
         #expect(TranscriptTextMeasure.floorWidth > 0)
     }
 
+    /// `CappedWidth` measures a bubble at its cap and then places the text at exactly the width it
+    /// reported. The view once rounded that width down to a multiple of sixteen before laying out,
+    /// so "this is a test", 91.3 points of ink, reported 92, was laid out again at 80 and wrapped
+    /// inside a bubble one line tall. Handed back its own width, a run must be laid out at no less
+    /// than its widest line.
+    @Test("a run handed back the width it reported is laid out wide enough for its widest line")
+    func reportedWidthRoundTrips() {
+        for widest in [91.3, 52.4, 16.0, 17.2, 455.8, 3.1] {
+            let reported = TranscriptTextMeasure.size(
+                widestLine: widest, usedHeight: 16, proposed: 536, lineHeight: 16, hasGlyphs: true
+            )
+            #expect(TranscriptTextMeasure.layoutWidth(proposed: reported.width) >= widest)
+        }
+    }
+
     // MARK: What it reports back
 
     @Test("a short run hugs its own words rather than the room it was offered")
