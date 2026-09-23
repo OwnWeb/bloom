@@ -201,7 +201,9 @@ struct ComposerView: View {
             )
         }
         .task(id: transcript.session.id) { await prepare() }
-        .task(id: "planning:\(transcript.session.id):\(transcript.rows.last?.seq ?? -1)") {
+        // Codex can change this setting while starting a turn. Its final value is needed when
+        // the turn settles, while ordinary transcript rows say nothing about the capability.
+        .task(id: "planning:\(transcript.session.id):\(transcript.isRunning)") {
             if let store = app.store { await ComposerPlanningSupport.shared.refresh(from: store) }
         }
         .onChange(of: transcript.draft) { _, _ in scheduleDraftSave() }

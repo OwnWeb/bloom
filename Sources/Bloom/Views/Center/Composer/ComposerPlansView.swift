@@ -2,7 +2,7 @@ import SwiftUI
 import BloomCore
 
 /// The saved revision is the handoff, so later refinements cannot rewrite an implementation's
-/// source. Loading follows persisted transcript arrivals rather than individual streaming tokens.
+/// source. Loading follows plan-bearing arrivals and turn transitions, not every transcript row.
 struct ComposerPlansView: View {
     @Bindable var transcript: TranscriptModel
     var model: WorkspaceModel?
@@ -61,7 +61,7 @@ struct ComposerPlansView: View {
             }
         }
         .padding(plans.isEmpty && source == nil ? 0 : Metrics.spacingSmall)
-        .task(id: "\(transcript.session.id):\(transcript.rows.last?.seq ?? -1):\(transcript.isRunning):\(transcript.pendingDeliveries.last?.id.rawValue ?? "")") {
+        .task(id: "\(transcript.session.id):\(transcript.planRefreshRevision):\(transcript.isRunning):\(transcript.pendingDeliveries.last?.id.rawValue ?? "")") {
             await load()
         }
         .sheet(item: $preview) { plan in
