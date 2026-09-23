@@ -7,7 +7,7 @@ import BloomCore
 /// It is written against `ComposerControls` rather than against a `Session`, because the create
 /// sheet uses this same row before any session exists. Both callers hand over the choices and take
 /// back the changed set; where they keep them is their own business.
-struct ComposerFooterView: View {
+struct ComposerFooterView: View, Equatable {
     var controls: ComposerControls
     var onChange: @MainActor (ComposerControls) -> Void
     /// Nil until the session has run a turn, because that is the first moment the agent says
@@ -67,6 +67,27 @@ struct ComposerFooterView: View {
     var showsAgentControls: Bool = true
     var usesCLIChat: Binding<Bool>?
     var supportsCLIChat: Bool = true
+    /// Identifies the owner of the callbacks when the row is compared across parent updates.
+    var actionIdentity: ObjectIdentifier?
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.controls == rhs.controls
+            && lhs.context == rhs.context
+            && lhs.isRunning == rhs.isRunning
+            && lhs.queues == rhs.queues
+            && lhs.canSend == rhs.canSend
+            && lhs.intent == rhs.intent
+            && lhs.adaptsToWidth == rhs.adaptsToWidth
+            && lhs.project == rhs.project
+            && (lhs.onQuickPrompt != nil) == (rhs.onQuickPrompt != nil)
+            && lhs.projectQuickPrompts == rhs.projectQuickPrompts
+            && (lhs.onOpenQuickPrompts != nil) == (rhs.onOpenQuickPrompts != nil)
+            && (lhs.onSideConversation != nil) == (rhs.onSideConversation != nil)
+            && lhs.showsAgentControls == rhs.showsAgentControls
+            && lhs.usesCLIChat?.wrappedValue == rhs.usesCLIChat?.wrappedValue
+            && lhs.supportsCLIChat == rhs.supportsCLIChat
+            && lhs.actionIdentity == rhs.actionIdentity
+    }
 
     // Key the fetched value as well as the task, so changing projects cannot briefly show the
     // previous project's speed before SwiftUI starts the replacement task.

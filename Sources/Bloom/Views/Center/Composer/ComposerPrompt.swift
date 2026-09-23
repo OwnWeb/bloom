@@ -289,14 +289,12 @@ struct ComposerPrompt<Footer: View>: View {
             await slashCatalog.refreshIfStale(workspacePath: mentionRoot)
         }
         .task(id: openMenu.mention?.query) { await refreshFileMatches() }
-        .onChange(of: text) { _, _ in
-            if menuIndex != 0 { menuIndex = 0 }
-        }
+        .onChange(of: text) { _, _ in menuIndex = 0 }
         .onChange(of: menu) { old, new in
-            if menuIndex != 0 { menuIndex = 0 }
+            menuIndex = 0
             // Escape only dismisses the menu that was open. Starting a different one, or clearing
             // the token entirely, makes the menu available again.
-            if old.kind != new.kind, isMenuDismissed { isMenuDismissed = false }
+            if old.kind != new.kind { isMenuDismissed = false }
         }
     }
 

@@ -228,16 +228,9 @@ struct ComposerTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        _ = ColourThemePreference.shared.choice
+        scrollView.documentView?.needsDisplay = true
         guard let textView = scrollView.documentView as? ComposerTextView else { return }
-        let theme = ColourThemePreference.shared.choice
-        let overrides = ColourThemePreference.shared.overrides
-        if context.coordinator.lastTheme != theme || context.coordinator.lastThemeOverrides != overrides {
-            context.coordinator.lastTheme = theme
-            context.coordinator.lastThemeOverrides = overrides
-            textView.needsDisplay = true
-        }
-        let limitsChanged = context.coordinator.parent.minLines != minLines
-            || context.coordinator.parent.maxLines != maxLines
         context.coordinator.parent = self
         handle?.textView = textView
 
@@ -251,8 +244,7 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         // Compared as the draft rather than as the string the view is holding: a chip is one
         // character there and a whole path here, and it is the draft the two have to agree about.
-        let changedText = refaced || context.coordinator.lastDraft != text
-        if changedText {
+        if refaced || ComposerChipText.draft(of: textView.attributedString()) != text {
             context.coordinator.write(text, into: textView, font: font)
             place(caretAt: caret, in: textView, coordinator: context.coordinator)
         } else if caret != context.coordinator.lastReportedCaret {
@@ -270,9 +262,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         // the reader had clicked into, so Cmd+C reached a composer with nothing selected.
         context.coordinator.applyFocus(to: textView)
 
-        // AppKit already measured user edits in `textDidChange`; the width callback handles
-        // wrapping on resize. Only edits made from the model or a changed font/limit need this.
-        if changedText || limitsChanged { context.coordinator.reportHeight(of: textView) }
+        context.coordinator.reportHeight(of: textView)
     }
 
     private func place(caretAt caret: Int, in textView: ComposerTextView, coordinator: Coordinator) {
@@ -289,9 +279,6 @@ struct ComposerTextEditor: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ComposerTextEditor
-        var lastTheme: ColourTheme?
-        var lastThemeOverrides: ThemeOverrides?
-        var lastDraft: String?
         /// The caret as the view last spoke it, so `updateNSView` can tell a binding echoing the
         /// view back from a programmatic move it still has to apply.
         var lastReportedCaret: Int?
@@ -329,9 +316,7 @@ struct ComposerTextEditor: NSViewRepresentable {
                 .font: textView.font ?? ComposerTextEditor.font,
                 .foregroundColor: NSColor.labelColor,
             ]
-            let draft = ComposerChipText.draft(of: textView.attributedString())
-            lastDraft = draft
-            parent.text = draft
+            parent.text = ComposerChipText.draft(of: textView.attributedString())
             let caret = draftOffset(textView.selectedRange().location, in: textView)
             parent.caret = caret
             lastReportedCaret = caret
@@ -352,7 +337,6 @@ struct ComposerTextEditor: NSViewRepresentable {
             )
             textView.textStorage?.setAttributedString(storage)
             textView.typingAttributes = [.font: font, .foregroundColor: NSColor.labelColor]
-            lastDraft = text
         }
 
         /// A position in the view, in the units the composer counts the draft in.
