@@ -158,8 +158,9 @@ struct SidebarStatusGroupTests {
     }
 
     /// The menu lists these in declaration order, and the default has to lead it.
-    @Test func statusIsTheFirstShapeOffered() {
-        #expect(SidebarGrouping.allCases.first == .status)
+    @Test func theDefaultIsTheFirstShapeOffered() {
+        #expect(SidebarGrouping.fallback == .projects)
+        #expect(SidebarGrouping.allCases.first == SidebarGrouping.fallback)
     }
 }
 

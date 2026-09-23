@@ -30,7 +30,7 @@ struct SidebarStatusBar: View {
     /// Which shape the pane is in. The same key `SidebarView` binds, rather than a value passed
     /// down, for the reason `showsHiddenProjects` is: two views reading one preference cannot
     /// disagree about it. See `SidebarGrouping`.
-    @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.status.rawValue
+    @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.fallback.rawValue
 
     @State private var isShowingLegend = false
     @State private var isFilterHovered = false

@@ -34,7 +34,7 @@ struct BloomCommands: Commands {
 
     /// Which shape the sidebar is in, read from the preference the pane itself writes. See the
     /// View menu's own group for why the item is up here as well as down there.
-    @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.status.rawValue
+    @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.fallback.rawValue
 
     init(model: AppModel) {
         self.model = model

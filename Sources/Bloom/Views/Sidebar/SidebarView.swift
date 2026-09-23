@@ -48,7 +48,7 @@ struct SidebarView: View {
     /// Which shape the pane is in: projects with their workspaces, or sections by what each
     /// workspace needs. A preference for the same reason hiding a project is one, and the status
     /// bar binds the same key so the two cannot disagree. See `SidebarGrouping`.
-    @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.status.rawValue
+    @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.fallback.rawValue
     @AppStorage(SidebarPreferences.showsDiffStatsKey)
     private var showsDiffStats = SidebarPreferences.showsDiffStatsByDefault
 
@@ -403,7 +403,7 @@ struct SidebarView: View {
 
     /// Which shape the pane is in, as the value rather than the stored string.
     private var grouping: SidebarGrouping {
-        SidebarGrouping(rawValue: storedGrouping) ?? .status
+        SidebarGrouping(rawValue: storedGrouping) ?? .fallback
     }
 
     /// Every row the pane draws, in one `ForEach`, in both shapes.

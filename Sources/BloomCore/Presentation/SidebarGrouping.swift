@@ -11,13 +11,21 @@ import Foundation
 /// In the core rather than beside the view, because the grouping is read by the rows, by the status
 /// bar and by what the drag is allowed to do, and a value three views agree on is a value worth
 /// being able to test. See `SidebarStatusGroup` for what the second one sorts rows into.
-/// The cases are declared in the order the menu lists them, and status leads because it is the
+/// The cases are declared in the order the menu lists them, and projects leads because it is the
 /// default: the first row of a picker that is also the one already ticked is what a reader expects.
 public enum SidebarGrouping: String, CaseIterable, Sendable, Hashable {
-    /// One run of sections, by what each workspace needs from the person reading.
-    case status
     /// Projects, each with its workspaces under it. What the pane has always been.
     case projects
+    /// One run of sections, by what each workspace needs from the person reading.
+    case status
+
+    /// The shape somebody who has never chosen one is shown.
+    ///
+    /// Projects, because a first launch has one project and no agents yet, and a queue of work with
+    /// nothing in it says less about the app than the map of what was just added. One constant
+    /// rather than a literal in each of the three views that bind the preference, so they cannot
+    /// start out disagreeing.
+    public static let fallback: SidebarGrouping = .projects
 
     /// Where the choice is kept.
     ///
