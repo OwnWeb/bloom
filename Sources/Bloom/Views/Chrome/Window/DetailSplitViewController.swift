@@ -69,6 +69,9 @@ private final class PaneContainerView: NSView {
     private let host: NSView
     private let minimumWidth: CGFloat
     private let pinsTrailingEdge: Bool
+    var reflowStep: CGFloat? {
+        didSet { fitHost() }
+    }
     private var settledWidth: CGFloat = 0
     private var isSettled = true
     private var settleWork: Task<Void, Never>?
@@ -103,10 +106,17 @@ private final class PaneContainerView: NSView {
     }
 
     private func fitHost() {
-        // A divider can move the container and its clipped contents without asking SwiftUI to
-        // reflow every visible row. Keep the last settled width for the duration of the drag,
-        // then give the host the exact new width once the movement stops.
-        let width = isSettled || bounds.width < minimumWidth ? bounds.width : settledWidth
+        // The outer sidebar can move clipped contents without reflowing them. During an inspector
+        // drag, reflow in small steps so both panes visibly follow the divider. Round up and clip
+        // the excess: rounding down exposes the container as a gray strip beside the divider.
+        let width: CGFloat
+        if isSettled || bounds.width < minimumWidth {
+            width = bounds.width
+        } else if let reflowStep {
+            width = max(minimumWidth, ceil(bounds.width / reflowStep) * reflowStep)
+        } else {
+            width = settledWidth
+        }
         let x = pinsTrailingEdge ? bounds.maxX - width : bounds.minX
         let wanted = NSRect(x: x, y: bounds.minY, width: width, height: bounds.height)
         if host.frame != wanted { host.frame = wanted }
@@ -162,12 +172,18 @@ final class PaneViewController: NSViewController {
         // this one.
         host.sizingOptions = []
         let inspector = host.paneName == "inspector"
-        view = PaneContainerView(
+        let container = PaneContainerView(
             host: host,
             minimumWidth: inspector
                 ? DetailSplitViewController.inspectorMinimum : DetailSplitViewController.detailMinimum,
             pinsTrailingEdge: inspector
         )
+        container.reflowStep = inspector ? 16 : nil
+        view = container
+    }
+
+    func reflowDuringResize(_ enabled: Bool) {
+        (view as? PaneContainerView)?.reflowStep = enabled ? 16 : nil
     }
 }
 
@@ -193,6 +209,8 @@ final class DetailSplitViewController: NSSplitViewController {
     private var isInspectorPresented = false
     private var isUpdating = false
     private var collapseObservation: NSKeyValueObservation?
+    private var lastInspectorPaneWidth: CGFloat?
+    private var inspectorResizeWork: Task<Void, Never>?
     var onInspectorPresentationChanged: ((Bool) -> Void)?
 
     /// What the centre column refuses to go below. The inspector's ceiling is the other side of the
@@ -335,6 +353,21 @@ final class DetailSplitViewController: NSSplitViewController {
     /// A drag or a resize. Never a slide: the pane is where it is, and the title bar should follow
     /// it this frame rather than a quarter of a second from now.
     @objc private func paneFrameChanged() {
+        let paneWidth = inspectorHost.view.frame.width
+        if let lastInspectorPaneWidth,
+           abs(paneWidth - lastInspectorPaneWidth) > 0.5,
+           isInspectorPresented,
+           !inspectorItem.isCollapsed {
+            detailHost.reflowDuringResize(true)
+            inspectorResizeWork?.cancel()
+            inspectorResizeWork = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled, let self else { return }
+                detailHost.reflowDuringResize(false)
+                inspectorResizeWork = nil
+            }
+        }
+        lastInspectorPaneWidth = paneWidth
         // AppKit can shrink the item's container while its hosted view keeps its minimum width.
         // The header follows the part still visible, including a drag that clips it to zero.
         let visibleWidth = inspectorHost.view.visibleRect.width
