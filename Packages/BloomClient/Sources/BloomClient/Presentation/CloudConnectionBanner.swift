@@ -109,7 +109,7 @@ public struct CloudConnectionBanner: Sendable, Hashable {
                 tone: .caution, title: "This Bloom Cloud workspace is asleep",
                 message: "It went to sleep because nobody was using it. It wakes as soon as you do something in it.", actions: [.wake]
             )
-        case .notReady(let message, _):
+        case .notReady(let message, _, _):
             // No button: what it is doing is the setup row at the head of the conversation, which
             // is already on screen behind this banner.
             //

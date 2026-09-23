@@ -64,6 +64,15 @@ enum Log {
     /// invisible from inside a transcript.
     static let bridge = Logger(subsystem: subsystem, category: "bridge")
 
+    /// A Cloud workspace's connection to its machine: every phase it moves through, with
+    /// runbloom.app's own sentence where it gave one. Notice rather than info, so it is persisted.
+    ///
+    /// Added after a workspace sat on "Creating the machine" for three minutes and the only way to
+    /// tell a provider refusing the create from a Mac that never connected was reading the
+    /// network trace: the app wrote nothing of its own about Cloud at all.
+    /// `log show --last 1h --predicate 'category == "cloud"'`.
+    static let cloud = Logger(subsystem: subsystem, category: "cloud")
+
     /// Run scripts: an autostart approval that could not be written, which is why nothing started.
     static let runScripts = Logger(subsystem: subsystem, category: "runScripts")
 

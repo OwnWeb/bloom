@@ -248,6 +248,7 @@ final class CloudWorkspaceSession {
         }
         switch update {
         case .phase(let next):
+            Log.cloud.notice("\(self.id.rawValue, privacy: .public): \(String(describing: next), privacy: .public)")
             phase = next
             // Read on every phase rather than only on `.live`: the token is fetched to open the
             // stream, so this is answerable while the connection is still connecting, and being

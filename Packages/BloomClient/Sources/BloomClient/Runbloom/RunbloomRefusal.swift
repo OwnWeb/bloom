@@ -11,17 +11,24 @@ public struct RunbloomRefusal: Error, Sendable, Hashable, Codable {
     public var message: String
     public var limit: String?
     public var retryAfter: Int?
+    /// Why a wait is long, where runbloom.app knows: a `machine_not_ready` whose create the
+    /// provider turned away says so here. Drawn under the step being waited on, never in place
+    /// of `message`.
+    public var detail: String?
 
-    public init(status: Int, code: String, message: String, limit: String? = nil, retryAfter: Int? = nil) {
+    public init(
+        status: Int, code: String, message: String, limit: String? = nil, retryAfter: Int? = nil, detail: String? = nil
+    ) {
         self.status = status
         self.code = code
         self.message = message
         self.limit = limit
         self.retryAfter = retryAfter
+        self.detail = detail
     }
 
     enum CodingKeys: String, CodingKey {
-        case status, code, message, limit
+        case status, code, message, limit, detail
         case retryAfter = "retry_after"
     }
 
@@ -33,16 +40,20 @@ public struct RunbloomRefusal: Error, Sendable, Hashable, Codable {
             var message: String?
             var limit: String?
             var retryAfter: Int?
+            var detail: String?
 
             enum CodingKeys: String, CodingKey {
-                case code, message, limit
+                case code, message, limit, detail
                 case retryAfter = "retry_after"
             }
         }
         let decoded = try? JSONDecoder().decode(Body.self, from: body)
         let code = decoded?.code ?? Self.code(forStatus: status)
         let message = decoded?.message.flatMap { $0.isEmpty ? nil : $0 } ?? Self.message(forStatus: status)
-        return RunbloomRefusal(status: status, code: code, message: message, limit: decoded?.limit, retryAfter: decoded?.retryAfter)
+        let detail = decoded?.detail.flatMap { $0.isEmpty ? nil : $0 }
+        return RunbloomRefusal(
+            status: status, code: code, message: message, limit: decoded?.limit, retryAfter: decoded?.retryAfter, detail: detail
+        )
     }
 
     private static func code(forStatus status: Int) -> String {

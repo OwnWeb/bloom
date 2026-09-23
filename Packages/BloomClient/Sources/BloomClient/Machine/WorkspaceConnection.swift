@@ -31,8 +31,10 @@ public actor WorkspaceConnection {
         /// is ready, which is nothing to do with whether it is awake: a machine that is asleep and
         /// ready gets a token and is woken by the first request made with it. So nothing drawn for
         /// this phase may say "waking", and the sentence shown is runbloom.app's own, because it
-        /// knows which of those five it is and this does not.
-        case notReady(message: String, retryAfter: Int)
+        /// knows which of those five it is and this does not. `detail` is why the wait is long,
+        /// when runbloom.app knows, for the setup card to draw under the step. See
+        /// `RunbloomRefusal.detail`.
+        case notReady(message: String, retryAfter: Int, detail: String? = nil)
         /// A team limit refused the wake. Retried by itself only when the limit clears by itself.
         case limited(LimitNotice)
         /// The workspace was archived.
@@ -631,7 +633,7 @@ public actor WorkspaceConnection {
                 noticeRetrying(refusal.message)
                 return .retry(after: Double(wait))
             }
-            set(.notReady(message: refusal.message, retryAfter: wait))
+            set(.notReady(message: refusal.message, retryAfter: wait, detail: refusal.detail))
             return .retry(after: Double(wait))
         }
         if refusal.isArchived {

@@ -300,6 +300,20 @@ import Testing
         }
     }
 
+    @Test func machineNotReadyCarriesWhyTheWaitIsLong() async throws {
+        let transport = FakeTransport()
+        transport.on("POST", "/session-token", .json(
+            #"{"code": "machine_not_ready", "message": "Its machine is not ready yet.", "retry_after": 5, "detail": "The machine provider is busy, so it is being asked again."}"#,
+            status: 409
+        ))
+        await #expect(throws: RunbloomRefusal(
+            status: 409, code: "machine_not_ready", message: "Its machine is not ready yet.", retryAfter: 5,
+            detail: "The machine provider is busy, so it is being asked again."
+        )) {
+            try await Fixtures.api(transport).sessionToken(for: "01k5ws")
+        }
+    }
+
     @Test func aLimitRefusalCarriesItsLimit() async throws {
         let transport = FakeTransport()
         transport.on("POST", "/session-token", .json(

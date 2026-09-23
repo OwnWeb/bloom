@@ -83,13 +83,16 @@ public struct CloudSetupProgress: Equatable, Sendable {
     ///   - isConnected: whether the connection to the machine is up. Before it is, with no setup
     ///     record, the machine is still being made.
     ///   - repository: `owner/name`, for the clone step's label.
+    ///   - machineNote: runbloom.app's reason the machine is taking a while, drawn under "Creating
+    ///     the machine". Three minutes of that step with nothing under it, while the provider
+    ///     refused the create twice, read as a workspace that had stuck.
     public static func of(
-        setup: SetupRecord?, log: String, isConnected: Bool, repository: String?
+        setup: SetupRecord?, log: String, isConnected: Bool, repository: String?, machineNote: String? = nil
     ) -> CloudSetupProgress? {
         guard let setup else {
             return building(
                 current: isConnected ? .connect : .machine, includesScripts: true,
-                repository: repository, activity: nil, lastOutput: nil, canStop: false
+                repository: repository, activity: isConnected ? nil : machineNote, lastOutput: nil, canStop: false
             )
         }
         switch setup.state {

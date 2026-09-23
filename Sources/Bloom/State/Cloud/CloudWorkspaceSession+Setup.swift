@@ -19,8 +19,15 @@ extension CloudWorkspaceSession {
         if state.setup == nil, item?.state != "setting_up" { return nil }
         return CloudSetupProgress.of(
             setup: state.setup, log: state.setupLog,
-            isConnected: phase == .live, repository: item?.project?.repository
+            isConnected: phase == .live, repository: item?.project?.repository,
+            machineNote: machineNote
         )
+    }
+
+    /// Why the machine is taking a while, while runbloom.app is still refusing to hand one out.
+    private var machineNote: String? {
+        guard case .notReady(_, _, let detail) = phase else { return nil }
+        return detail
     }
 
     /// The two starts known without having been watched: the machine was begun when the

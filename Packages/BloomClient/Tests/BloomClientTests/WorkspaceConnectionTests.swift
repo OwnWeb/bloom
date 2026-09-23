@@ -106,7 +106,7 @@ import Testing
         let connection = connection(transport)
         await connection.open()
         for await update in connection.updates {
-            if case .phase(.notReady(let message, let retry)) = update {
+            if case .phase(.notReady(let message, let retry, _)) = update {
                 #expect(message == "Still starting.")
                 #expect(retry == 5)
                 break
@@ -121,7 +121,7 @@ import Testing
         let connection = connection(transport)
         await connection.open()
         for await update in connection.updates {
-            if case .phase(.notReady(let message, let retry)) = update {
+            if case .phase(.notReady(let message, let retry, _)) = update {
                 #expect(message == "Sharing is being set up.")
                 #expect(retry == 5)
                 break
@@ -317,7 +317,7 @@ struct EchoTransport: HTTPTransport {
         )
         await live.open()
         for await update in live.updates {
-            if case .phase(.notReady(let message, let retryAfter)) = update {
+            if case .phase(.notReady(let message, let retryAfter, _)) = update {
                 #expect(message == "Starting.")
                 #expect(retryAfter == 2)
                 break

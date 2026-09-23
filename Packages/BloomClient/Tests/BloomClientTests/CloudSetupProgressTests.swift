@@ -31,6 +31,22 @@ struct CloudSetupProgressTests {
         #expect(made?.title == "Setting up the workspace")
     }
 
+    /// Three minutes of "Creating the machine" with nothing under it, while the provider turned
+    /// the create away twice, read as a workspace that had stuck.
+    @Test("runbloom.app's reason the machine is slow is drawn under its step, and only there")
+    func machineNote() {
+        let note = "The machine provider is busy, so it is being asked again."
+        let waiting = CloudSetupProgress.of(
+            setup: nil, log: "", isConnected: false, repository: nil, machineNote: note
+        )
+        #expect(waiting?.activeStep == .machine)
+        #expect(waiting?.activity == note)
+        let connected = CloudSetupProgress.of(
+            setup: nil, log: "", isConnected: true, repository: nil, machineNote: note
+        )
+        #expect(connected?.activity == nil)
+    }
+
     @Test("Connected with no record, or a record still pending, is connecting")
     func connecting() {
         #expect(states(progress(nil)) == [.done, .current, .todo, .todo, .todo])
