@@ -690,8 +690,7 @@ public enum AgentEvent: Sendable {
         // A decision is not a row. The question is the row, and what was decided about it is
         // read back off the ask itself, so answering one must not append anything.
         // A retry is not a row either. Ten attempts against one request are one fact, nine
-        // tenths of it stale, and the durable record of a run that recovered is the sentence
-        // `RetryRun` leaves under the turn rather than ten stored lines.
+        // tenths of it stale, and once the request gets through none of it is worth keeping.
         case .streamDelta, .status, .thinkingTokens, .permissionDecided, .retrying, .subagent:
             false
         default: true

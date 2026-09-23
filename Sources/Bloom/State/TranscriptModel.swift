@@ -293,16 +293,6 @@ final class TranscriptModel {
     /// waiting row still sitting above it saying it is about to try again.
     private(set) var retryRun: RetryRun?
 
-    /// Turns that waited and then got through, keyed by the `seq` of the result row that closed
-    /// them, so the footer can account for the minutes.
-    ///
-    /// **This is what happens to the waiting row when it succeeds.** It does not simply vanish,
-    /// because then nothing explains why a turn took three minutes; and it does not stay as it
-    /// was, because a warning plate over a turn that is fine is a lie. It collapses to one quiet
-    /// sentence under the turn, in the footer's own ink. In memory only: a transcript reopened
-    /// tomorrow has the duration and no explanation, which is where it was before any of this.
-    private(set) var recoveredRuns: [Int: RetryRun] = [:]
-
     /// The subagents this session has spawned and not yet accounted for, in spawn order.
     ///
     /// One roster per session rather than per workspace, because a workspace with four chats runs
@@ -1974,7 +1964,7 @@ final class TranscriptModel {
             // Anything at all arriving from the model means the request that was being retried got
             // through. That is the only signal there is: the CLI announces a retry and never
             // announces a recovery, so the recovery is the next event of any kind.
-            settleRetryRun()
+            retryRun = nil
             let runningTool: RunningTool? = switch event {
             case .toolUse(let use): RunningTool(use: use)
             default: streamingTool
@@ -1997,15 +1987,13 @@ final class TranscriptModel {
             // credentials, a crash. Nothing else will arrive, so the turn ends here or the composer
             // stays locked for the rest of the launch.
             //
-            // The waiting row goes without leaving a note. The error row about to be drawn is
-            // already the account of this outage, and two surfaces explaining one failure is
-            // exactly the clutter the waiting row was written to avoid.
+            // The waiting row goes. The error row about to be drawn is the account of this outage.
             //
             // A Steer booked against the turn that has just died goes with it, or it waits for a
             // result that is never coming. The message it picked stays queued, where it can be
             // pressed again once there is an agent to interrupt.
             steering = nil
-            abandonRetryRun()
+            retryRun = nil
             clearStreaming()
             await appendLatestMessages()
             if let store { await history.finish(store: store, cwd: cwd, endSeq: presentationMessageSeq ?? highestSeenMessageSeq, captureFiles: !isReplayingPastTurn) }
@@ -2045,14 +2033,9 @@ final class TranscriptModel {
 
         case .result(let result):
             history.isFinalisingTurn = true
-            // A turn that recovered leaves its sentence on the row that closes it; one that failed
-            // leaves nothing, for the same reason as `.error` above.
-            if result.succeeded { settleRetryRun() } else { abandonRetryRun() }
+            retryRun = nil
             clearStreaming()
             await appendLatestMessages()
-            // After the append, deliberately: the row the sentence hangs under is the result row,
-            // and it is not in `rows` until the read above has brought it back from the store.
-            fileRecoveredRun()
             if let store { await history.finish(store: store, cwd: cwd, endSeq: presentationMessageSeq ?? highestSeenMessageSeq, captureFiles: !isReplayingPastTurn) }
             setRunning(false)
             statusLabel = nil
@@ -2174,37 +2157,6 @@ final class TranscriptModel {
         } else {
             retryRun = RetryRun(retry)
         }
-    }
-
-    /// The wait ended and the work carried on. The run stops being live and is held until the turn
-    /// closes, because the row its sentence hangs under is the result row and that does not exist
-    /// yet.
-    ///
-    /// The first run of a turn is the one kept. A turn that hit the outage early, recovered, and
-    /// hit it again later is one story about one evening, and the first attempt count is the one
-    /// that explains the minutes.
-    private func settleRetryRun() {
-        guard let run = retryRun else { return }
-        if settledRun == nil { settledRun = run }
-        retryRun = nil
-    }
-
-    /// Files a settled run under the row that closed the turn, once that row is in `rows`.
-    private func fileRecoveredRun() {
-        guard let run = settledRun, let seq = rows.last?.seq else { return }
-        recoveredRuns[seq] = run
-        settledRun = nil
-    }
-
-    /// A run that has ended in success but whose turn has not closed yet, so the sentence has a
-    /// row to hang under when it does.
-    private var settledRun: RetryRun?
-
-    /// The turn failed. The run is dropped whole: nothing is said about the waiting, because the
-    /// failure is about to say it.
-    private func abandonRetryRun() {
-        retryRun = nil
-        settledRun = nil
     }
 
     // MARK: - Permission asks

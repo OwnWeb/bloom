@@ -395,7 +395,7 @@ while a turn runs and nothing is streaming yet. **[checked]**
   target while drawing its symbol one scale smaller than the ordinary copy control.
 - Under the line, only when there is something to say: what denied calls mean and which setting
   denied them, the CLI's own words for a failure (prefixed "The agent said:"), what the agent left
-  running in the background, and a note that the turn recovered from retries.
+  running in the background.
 - Cost is deliberately not shown.
 
 ### Tool rows by kind

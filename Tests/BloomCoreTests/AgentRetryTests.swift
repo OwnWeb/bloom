@@ -260,7 +260,7 @@ import Testing
         #expect(AgentRetry.coarse(60) == "60 seconds")
     }
 
-    // MARK: A run, and what it leaves behind
+    // MARK: A run
 
     @Test func aRunFoldsItsAttemptsIntoOneFact() throws {
         let ten = Self.subagentRetries(in: try Self.fixture("claude-api-retry.ndjson"))
@@ -281,16 +281,6 @@ import Testing
         var run = RetryRun(AgentRetry(attempt: 7, maxAttempts: 10, delay: 1, status: 529))
         run.absorb(AgentRetry(attempt: 1, maxAttempts: 10, delay: 1, status: 529))
         #expect(run.attempts == 7)
-    }
-
-    /// What is left under a turn that waited and then got through. Past tense, no advice, and no
-    /// count of anything the reader cannot act on.
-    @Test func aRecoveredRunLeavesOneQuietSentence() {
-        var run = RetryRun(AgentRetry(attempt: 1, maxAttempts: 10, delay: 1, status: 529))
-        run.absorb(AgentRetry(attempt: 4, maxAttempts: 10, delay: 5, status: 529))
-
-        #expect(run.recoveredSentence
-            == "Anthropic's API was overloaded. This turn got through on attempt 4 of 10.")
     }
 }
 

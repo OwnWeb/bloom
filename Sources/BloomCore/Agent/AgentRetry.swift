@@ -27,8 +27,8 @@ import Foundation
 /// on it rather than to two types that would each need their own wording.
 ///
 /// **Not a stored transcript row.** Ten attempts would be ten rows, and nine of them are stale the
-/// moment the tenth arrives. A retry is a live signal like `status`, and what survives the turn is
-/// one sentence about the run as a whole. See `RetryRun`.
+/// moment the tenth arrives. A retry is a live signal like `status`, folded into one `RetryRun`
+/// while it lasts, and nothing of it survives the turn.
 public struct AgentRetry: Sendable, Hashable {
     /// Which request is being retried: the turn itself, or one subagent inside it.
     public enum Scope: Sendable, Hashable {
@@ -390,18 +390,16 @@ public enum RetryPatience: Sendable, Hashable, Comparable {
 
 // MARK: - RetryRun
 
-/// One unbroken run of retries against the same request, and what is said about it afterwards.
+/// One unbroken run of retries against the same request.
 ///
 /// The attempts arrive as separate events and are one fact, so they are folded into one value as
 /// they come. That fold is what lets the transcript draw one row that updates rather than ten rows
-/// that accumulate, and it is what makes an answer to the question the row leaves behind: when the
-/// wait finally ends, the run has a past tense.
+/// that accumulate.
 ///
-/// **A settled run does not vanish and does not stay loud.** Vanishing loses the only explanation
-/// for why a turn took three minutes; leaving the live row in place puts a warning tint on a turn
-/// that is fine. So it collapses to one quiet sentence under the turn it happened in. A run that
-/// ended in failure says nothing at all, because the error row above it is already saying it, and
-/// two surfaces explaining one outage is the clutter this is trying to avoid.
+/// **A run that ends leaves nothing behind.** One that got through is news nobody needs once the
+/// answer is on screen: it used to leave "This turn got through after 1 attempt" under the turn,
+/// and a line about trouble that is over read as trouble. One that failed is already accounted
+/// for by the error row.
 public struct RetryRun: Sendable, Hashable {
     public private(set) var latest: AgentRetry
     /// The highest attempt seen. Not `latest.attempt`, because the CLI is free to restart its
@@ -424,22 +422,4 @@ public struct RetryRun: Sendable, Hashable {
 
     public var trouble: RetryTrouble { latest.trouble }
     public var patience: RetryPatience { latest.patience }
-
-    /// The one line left behind once the wait is over and the turn carried on regardless.
-    ///
-    /// Past tense, no count of the attempts that came to nothing beyond the number itself, and no
-    /// advice: it is a note about something that is finished. It exists because a turn whose
-    /// footer says three minutes and whose transcript shows nothing in that time is a turn nobody
-    /// can account for a week later.
-    public var recoveredSentence: String {
-        let count = attempts == 1 ? "1 attempt" : "\(attempts) attempts"
-        switch trouble {
-        case .overloaded:
-            return "Anthropic's API was overloaded. This turn got through on attempt \(attempts) of \(latest.maxAttempts)."
-        case .rateLimited:
-            return "Anthropic's API was rate limiting this account. This turn got through after \(count)."
-        default:
-            return "\(trouble.headline). This turn got through after \(count)."
-        }
-    }
 }

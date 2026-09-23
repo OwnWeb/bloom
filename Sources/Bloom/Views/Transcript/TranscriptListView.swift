@@ -483,7 +483,6 @@ struct TranscriptListView: View {
         let sending = transcript.sending
         let permissionMode = transcript.session.permissionMode
         let agentKind = transcript.session.agentKind
-        let recoveredRuns = transcript.recoveredRuns
         let stoppedTurnSeq = transcript.stoppedTurnSeq
         // Only while nothing is running: a turn the CLI started for itself has its own footer
         // coming, and the sentence belongs under whichever turn ended last.
@@ -738,7 +737,6 @@ struct TranscriptListView: View {
             let isExpanded = expanded.contains(row.seq)
             let responseCopyText = responseCopies[row.seq]
             let wasStopped = row.seq == stoppedTurnSeq
-            let recovered = recoveredRuns[row.seq]
             // The echo already follows this footer. Waiting for its stored row to land added
             // the inter-turn gap halfway through the send and pushed the travelling bubble down.
             let closesTranscript = row.kind == .result && row.seq == lastVisibleSeq && sending == nil
@@ -765,7 +763,6 @@ struct TranscriptListView: View {
                 $0.combine(subagentHasRun)
                 $0.combine(responseCopyText != nil)
                 $0.combine(wasStopped)
-                $0.combine(recovered != nil)
                 $0.combine(closesTranscript)
                 $0.combine(stillRunning)
                 // A row whose label appears or disappears because the message above it changed is
@@ -800,7 +797,6 @@ struct TranscriptListView: View {
                                 permissionMode: permissionMode,
                                 agentKind: agentKind,
                                 wasStopped: wasStopped,
-                                recovered: recovered,
                                 stillRunning: stillRunning,
                                 transcript: transcript,
                                 showsDuration: turnFolds.turn(containing: index)?.hasHiddenRows != true,

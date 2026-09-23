@@ -54,23 +54,10 @@ struct RetrySnapshotGallery: View {
                         isStill: true
                     )
                 }
-
-                group("And what is left under the turn once it got through.") {
-                    Text(recovered.recoveredSentence)
-                        .font(Typo.caption)
-                        .foregroundStyle(Palette.textTertiary)
-                        .padding(.horizontal, TranscriptLayout.inset)
-                }
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Palette.windowBackground)
-    }
-
-    private var recovered: RetryRun {
-        var run = Self.run(1, 0.6)
-        run.absorb(Self.retry(4, 4.7))
-        return run
     }
 
     @ViewBuilder
