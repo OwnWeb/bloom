@@ -1937,6 +1937,17 @@ struct TranscriptTable: NSViewRepresentable {
                 guard heights.needsMeasuring(
                     entry.contentKey, redrawsItself: entry.id.redrawsItself
                 ) else { continue }
+                // A fixed row already supplies its exact answer. Stream deltas are stored as
+                // system rows but can never draw a view, and hosting each of them to rediscover
+                // zero consumed much of the synchronous landing pass in long conversations.
+                if !entry.id.redrawsItself, let fixedHeight = entry.fixedHeight {
+                    let taken = heights.note(
+                        Double(fixedHeight), for: entry.contentKey,
+                        shape: entry.shape, measuredAt: sizing.width
+                    )
+                    if taken { moved.insert(row) }
+                    continue
+                }
                 let height = measure(entry, at: CGFloat(sizing.width))
                 // **A row that was expected to draw something and came out at nothing.** Recorded
                 // rather than refused, because refusing it is a change to what the cache believes

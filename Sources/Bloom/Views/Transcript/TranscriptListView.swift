@@ -816,6 +816,7 @@ struct TranscriptListView: View {
             } else {
                 out.append(TranscriptTableEntry(
                     id: .row(row.seq), contentKey: key, drawsNothing: blank, shape: shape,
+                    fixedHeight: TranscriptRowInk.isStreamEvent(kind: row.kind, payload: row.payload) ? 0 : nil,
                     sentArrival: row.kind == .user ? transcript.messageArrivals.row(row.seq) : nil,
                     content: {
                         AnyView(
