@@ -12,6 +12,15 @@ struct TranscriptRowInkTests {
     func streamEventIsBlank() {
         let row = payload(#"{"type":"stream_event","event":{"type":"content_block_delta"}}"#)
         #expect(TranscriptRowInk.drawsNothing(kind: .system, payload: row))
+        #expect(TranscriptRowInk.isStreamEvent(kind: .system, payload: row))
+    }
+
+    @Test("only a top-level stream event has a fixed empty height")
+    func onlyStreamEventsHaveFixedEmptyHeight() {
+        let nested = payload(#"{"type":"system","detail":{"type":"stream_event"}}"#)
+        let otherKind = payload(#"{"type":"stream_event"}"#)
+        #expect(!TranscriptRowInk.isStreamEvent(kind: .system, payload: nested))
+        #expect(!TranscriptRowInk.isStreamEvent(kind: .assistantText, payload: otherKind))
     }
 
     /// The one system row that does draw: `SessionStartRowView`, the line that says the session
