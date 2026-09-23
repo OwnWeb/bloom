@@ -194,7 +194,7 @@ public enum ServeCommand {
             makeRunner: { session, path, store, environment, bridge, context in
                 // Every agent process finds Bloom's Git and gh wrappers before the system tools.
                 // The credential door trusts only the root-attested launch registration.
-                var extra = environment
+                var extra = AgentGitIdentity.filling(environment)
                 extra["BLOOM_REPOSITORY"] = configuration.repository
                 extra["BLOOM_DATA_DIR"] = layout.dataDirectory
                 extra["BLOOM_RUNNER_PORT"] = String(layout.serverPort)

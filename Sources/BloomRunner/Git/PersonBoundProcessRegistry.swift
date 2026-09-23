@@ -72,7 +72,7 @@ final class PersonBoundProcessRegistry: @unchecked Sendable {
     /// write, and the agent could not read its own MCP config. The people sharing a workspace
     /// already share its checkout, its database and its services, so separating their Unix users
     /// separated almost nothing. What keeps a reservation's credential its own is the launch
-    /// gate: the cgroup and process group it binds, which one uid does not change.
+    /// gate: the cgroup it binds, which one uid does not change.
     init(
         agentUID: UInt32? = nil,
         firstUID: UInt32 = 200_000,
@@ -134,6 +134,16 @@ final class PersonBoundProcessRegistry: @unchecked Sendable {
 
     /// Returns the kernel identity which was validated for this exact peer. The broker passes this
     /// identity to the privileged command attestor and validates it again before claiming a grant.
+    ///
+    /// **A launch is its cgroup, not its process group.** This also required the caller to share
+    /// the sandbox leader's process group, and Claude Code starts every Bash command detached, in a
+    /// process group of its own, so every `git push` an agent ran was refused as "matches no live
+    /// launch-gate reservation" (Runner test.57, uid 1002). The process group never said anything
+    /// the cgroup does not say better: the root launcher makes one cgroup per launch, every
+    /// descendant inherits it whatever process group or session it starts, and `cgroup.procs` is
+    /// root's, so nothing unprivileged moves itself in or out. A process group is the caller's to
+    /// change with one `setpgid`. The uid, the start times and the leader being alive and unchanged
+    /// are all still checked.
     func binding(for peer: LocalSocket.Peer) -> Binding? {
         guard let observed = identity(peer.pid), observed.uid == peer.uid else { return nil }
         return state.withLock { state in
@@ -141,7 +151,6 @@ final class PersonBoundProcessRegistry: @unchecked Sendable {
                   let active = state.active.values.first(where: { active in
                 guard active.reservation.uid == observed.uid,
                       active.reservation.cgroup == observed.cgroup,
-                      observed.processGroup == active.identity.processGroup,
                       identity(active.identity.pid) == active.identity else { return false }
                 return true
             }) else { return nil }

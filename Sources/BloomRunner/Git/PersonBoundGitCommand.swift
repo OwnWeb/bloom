@@ -8,12 +8,45 @@ private func linuxPrctl(_ option: Int32, _ second: UInt, _ third: UInt, _ fourth
 #endif
 
 /// The v2 `git` and `gh` entry points. Classification happens before a credential is requested,
-/// the repository is fixed by machine configuration, and an unknown command is a refusal.
+/// and the repository a credential is lent for is fixed by machine configuration.
+///
+/// **Only what needs the person's GitHub credential is held to a rule here.** This used to refuse
+/// every command it did not recognise, so an agent could not run `git config user.name`, could
+/// not ask `gh auth status`, and gave up on committing at all. None of those refusals protected
+/// anything: the real `git` and `gh` are on the same machine and the agent can run them by path,
+/// and neither holds a credential of its own. A command that needs none is run as it is, with no
+/// credential; a command that would carry one is confined to this repository or refused.
 enum PersonBoundGitCommand {
     struct Invocation: Sendable, Hashable {
         var operation: PersonBoundGithubOperation?
         var arguments: [String]
+        /// The refspecs of a `push -u`, taken out of the command because the push cannot write
+        /// them: see `upstreams(forPushRefspecs:currentBranch:)`. Nil when there was no `-u`.
+        var upstreamRefspecs: [String]?
     }
+
+    /// A branch's upstream, as `branch.<name>.remote=origin` and `branch.<name>.merge`.
+    struct GitUpstream: Sendable, Hashable {
+        var branch: String
+        var merge: String
+
+        init(branch: String, merge: String) {
+            self.branch = branch
+            self.merge = merge
+        }
+
+        /// Nil unless both are plain names, since both end up inside a `-c` argument.
+        init?(branch: String, mergeReference: String) {
+            guard mergeReference.hasPrefix("refs/heads/"),
+                  PersonBoundGitCommand.isPlainBranchName(branch),
+                  PersonBoundGitCommand.isPlainBranchName(String(mergeReference.dropFirst("refs/heads/".count)))
+            else { return nil }
+            self.init(branch: branch, merge: mergeReference)
+        }
+    }
+
+    /// The commands that reach GitHub and so need a credential. Everything else is local.
+    static let networkGitCommands: Set<String> = ["fetch", "pull", "push", "clone", "ls-remote"]
 
     static func runGit(_ arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) async -> Int32 {
         func refuse(_ reason: String, status: Int32) -> Int32 {
@@ -25,41 +58,151 @@ enum PersonBoundGitCommand {
             return refuse("BLOOM_REPOSITORY names no owner/name repository", status: 64)
         }
         guard let invocation = gitInvocation(arguments, repository: repository) else {
-            return refuse("these arguments classify to nothing git-v2 will run", status: 64)
+            return refuse(
+                "a command that talks to GitHub runs only against origin, which is \(repository), from the "
+                    + "current directory, and without -c, -C, --all, --exec-path, --upload-pack, --receive-pack "
+                    + "or submodule recursion",
+                status: 64
+            )
         }
         guard let executable = realTool("git", environment: environment) else {
             return refuse("BLOOM_REAL_GIT names no root-owned git", status: 127)
         }
+        // A local command holds nothing worth guarding, so it runs exactly as asked, with the
+        // caller's own environment: the PATH its hooks need, and a GIT_EDITOR it chose.
+        guard invocation.operation != nil else {
+            return await run(executable, invocation.arguments, environment: environment)
+        }
+        guard let remoteHTTPS = realRemoteHTTPS(environment) else {
+            return refuse("BLOOM_REAL_GIT_REMOTE_HTTPS names no root-owned transport", status: 127)
+        }
+        let upstream = branchUpstreams(for: invocation, git: executable, environment: environment)
         var clean = scrubbed(environment)
         clean["PATH"] = trustedPath(environment)
-        var forced = invocation.arguments
-        if invocation.operation != nil {
-            guard let remoteHTTPS = realRemoteHTTPS(environment) else {
-                return refuse("BLOOM_REAL_GIT_REMOTE_HTTPS names no root-owned transport", status: 127)
-            }
-            forced = networkArguments(
-                for: invocation, repository: repository,
-                runnerExecutable: runnerExecutable(environment),
-                gitRemoteHTTPSExecutable: remoteHTTPS,
-                worktree: environment["BLOOM_WORKTREE"] ?? environment["BLOOM_PERSON_BOUND_WORKTREE"]
-            )
-            applyCleanConfiguration(to: &clean)
-            /*
-             * **git-credential-v2 is spawned by git, so it cannot classify anything itself**: all
-             * it is ever told is `get`. The wrapper has already classified the command, so it says
-             * so here and git passes it down by inheritance, the same way the rest of the clean
-             * environment travels. The supervisor used to work this out by reading the process
-             * tree instead, which is the thing that refused every Cloud workspace for a day.
-             */
-            clean[PersonBoundGithubOperation.environmentKey] = invocation.operation?.rawValue
-        }
+        let forced = networkArguments(
+            for: invocation, repository: repository,
+            runnerExecutable: runnerExecutable(environment),
+            gitRemoteHTTPSExecutable: remoteHTTPS,
+            worktree: environment["BLOOM_WORKTREE"] ?? environment["BLOOM_PERSON_BOUND_WORKTREE"],
+            upstream: upstream
+        )
+        applyCleanConfiguration(to: &clean)
+        /*
+         * **git-credential-v2 is spawned by git, so it cannot classify anything itself**: all
+         * it is ever told is `get`. The wrapper has already classified the command, so it says
+         * so here and git passes it down by inheritance, the same way the rest of the clean
+         * environment travels. The supervisor used to work this out by reading the process
+         * tree instead, which is the thing that refused every Cloud workspace for a day.
+         */
+        clean[PersonBoundGithubOperation.environmentKey] = invocation.operation?.rawValue
         return await run(executable, forced, environment: clean)
     }
 
+    /// The upstreams a network command should see, read and written while the repository's own
+    /// configuration can still be reached.
+    ///
+    /// **The root supervisor hides `.git/config` for the length of a network command**, by
+    /// mounting `/dev/null` over it, so that nothing a checkout wrote there can steer the
+    /// transport. That also hides every branch's upstream, and it makes the file unwritable: a
+    /// `git push -u` pushed, then printed "could not write config file .git/config: Device or
+    /// resource busy" twice and claimed to have set a tracking branch it had not. So the upstream
+    /// is written here first, before the mask, and handed to the network command as `-c` along
+    /// with the current branch's own, which is what lets a bare `git push` or `git pull` find it.
+    /// Only a remote of `origin` is carried, since that is the only remote a credential goes to.
+    private static func branchUpstreams(
+        for invocation: Invocation, git: String, environment: [String: String]
+    ) -> [GitUpstream] {
+        let current = plainGit(git, ["symbolic-ref", "--quiet", "--short", "HEAD"], environment: environment)
+        var found: [GitUpstream] = []
+        let requested = invocation.upstreamRefspecs.map { upstreams(forPushRefspecs: $0, currentBranch: current) } ?? []
+        for upstream in requested {
+            let branch = upstream.branch
+            guard plainGit(git, ["rev-parse", "--verify", "--quiet", "refs/heads/" + branch], environment: environment) != nil,
+                  plainGit(git, ["config", "branch.\(branch).remote", "origin"], environment: environment) != nil,
+                  plainGit(git, ["config", "branch.\(branch).merge", upstream.merge], environment: environment) != nil
+            else { continue }
+            found.append(upstream)
+            let merged = upstream.merge.dropFirst("refs/heads/".count)
+            FileHandle.standardError.write(Data("branch '\(branch)' set up to track 'origin/\(merged)'.\n".utf8))
+        }
+        if let current, !found.contains(where: { $0.branch == current }),
+           plainGit(git, ["config", "--get", "branch.\(current).remote"], environment: environment) == "origin",
+           let merge = plainGit(git, ["config", "--get", "branch.\(current).merge"], environment: environment),
+           let upstream = GitUpstream(branch: current, mergeReference: merge) {
+            found.append(upstream)
+        }
+        return found
+    }
+
+    /// What `git push -u` would record, for each refspec it was given.
+    ///
+    /// Only plain branch names come through, since both halves go into `-c` arguments: a name
+    /// with `=` in it would split there. A refspec pushing to anything but a branch is left alone,
+    /// as git itself does.
+    static func upstreams(forPushRefspecs refspecs: [String], currentBranch: String?) -> [GitUpstream] {
+        (refspecs.isEmpty ? ["HEAD"] : refspecs).compactMap { refspec in
+            let text = refspec.hasPrefix("+") ? String(refspec.dropFirst()) : refspec
+            let halves = text.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            var source = halves[0]
+            var destination = halves.count == 2 ? halves[1] : halves[0]
+            if source == "HEAD" {
+                guard let currentBranch else { return nil }
+                source = currentBranch
+            }
+            if destination == "HEAD" { destination = source }
+            if source.hasPrefix("refs/heads/") { source.removeFirst("refs/heads/".count) }
+            if destination.hasPrefix("refs/heads/") {
+                destination.removeFirst("refs/heads/".count)
+            } else if destination.hasPrefix("refs/") {
+                return nil
+            }
+            guard isPlainBranchName(source), isPlainBranchName(destination) else { return nil }
+            return GitUpstream(branch: source, merge: "refs/heads/" + destination)
+        }
+    }
+
+    static func isPlainBranchName(_ name: String) -> Bool {
+        !name.isEmpty && !name.hasPrefix("-") && !name.hasPrefix("/") && !name.hasSuffix("/")
+            && !name.contains("..") && !name.hasSuffix(".lock")
+            && name.unicodeScalars.allSatisfy { scalar in
+                CharacterSet.alphanumerics.contains(scalar) && scalar.isASCII
+                    || scalar == "." || scalar == "_" || scalar == "-" || scalar == "/"
+            }
+    }
+
+    /// Runs the real git with no credential and answers its trimmed output, or nil if it failed.
+    private static func plainGit(_ git: String, _ arguments: [String], environment: [String: String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: git)
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return nil
+        }
+    }
+
     static func runGh(_ arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) async -> Int32 {
-        guard let repository = exactRepository(environment),
-              let invocation = ghInvocation(arguments, repository: repository) else {
-            return ghRefused("command classification", status: 64)
+        guard let repository = exactRepository(environment) else {
+            return ghRefused("BLOOM_REPOSITORY names no owner/name repository", status: 64)
+        }
+        let invocation: Invocation
+        switch ghClassification(arguments, repository: repository) {
+        case let .refused(reason):
+            return ghRefused(reason, status: 64)
+        case let .plain(plain):
+            invocation = Invocation(operation: nil, arguments: plain)
+        case let .credential(operation, forced):
+            invocation = Invocation(operation: operation, arguments: forced)
         }
         guard let executable = realTool("gh", environment: environment) else {
             return ghRefused("root-owned executable", status: 127)
@@ -67,7 +210,24 @@ enum PersonBoundGitCommand {
         var clean = scrubbed(environment)
         clean["PATH"] = trustedPath(environment)
         applyCleanConfiguration(to: &clean)
+        // gh runs git itself, to find the branch and its remote, and that git reads no system
+        // configuration here, so it would refuse a worktree another uid created as "dubious
+        // ownership". The worktree comes from machine configuration, never from the caller.
+        if let worktree = environment["BLOOM_WORKTREE"] ?? environment["BLOOM_PERSON_BOUND_WORKTREE"],
+           worktree.hasPrefix("/") {
+            clean["GIT_CONFIG_COUNT"] = "1"
+            clean["GIT_CONFIG_KEY_0"] = "safe.directory"
+            clean["GIT_CONFIG_VALUE_0"] = worktree
+        }
         guard invocation.operation != nil else {
+            // Said, because what follows is otherwise gh's own "not logged in", which reads like a
+            // machine with no GitHub at all rather than a command that was lent nothing.
+            if let first = arguments.first, !["version", "--version", "help", "--help"].contains(first) {
+                FileHandle.standardError.write(Data((
+                    "bloom-runner: gh-v2 runs this without a GitHub credential, as it is not a command "
+                        + "Bloom knows to stay inside \(repository)\n"
+                ).utf8))
+            }
             return await run(executable, invocation.arguments, environment: clean)
         }
         #if os(Linux)
@@ -161,85 +321,215 @@ enum PersonBoundGitCommand {
         #endif
     }
 
+    /// Nil is a refusal, and only a command that talks to GitHub is ever refused: anything else
+    /// comes back with no operation and runs as plain git, with no credential.
     static func gitInvocation(_ arguments: [String], repository: String) -> Invocation? {
-        guard let commandIndex = gitCommandIndex(arguments) else { return nil }
+        guard let commandIndex = gitCommandIndex(arguments),
+              networkGitCommands.contains(arguments[commandIndex]) else {
+            return Invocation(operation: nil, arguments: arguments)
+        }
         let command = arguments[commandIndex]
         let leading = Array(arguments[..<commandIndex])
         guard leadingConfigurationIsSafe(leading) else { return nil }
-        if ["credential", "credential-store", "credential-cache", "remote", "submodule"].contains(command) { return nil }
         let canonical = "https://github.com/\(repository).git"
+        let tail = Array(arguments[(commandIndex + 1)...])
         switch command {
         case "fetch", "pull", "push":
             let operation: PersonBoundGithubOperation = command == "push" ? .gitWrite : .gitRead
-            guard let tail = forcedRemoteTail(Array(arguments[(commandIndex + 1)...]), remote: canonical) else { return nil }
-            return Invocation(operation: operation, arguments: leading + [command] + tail)
-        case "clone":
-            let tail = Array(arguments[(commandIndex + 1)...])
-            guard !tail.contains(where: forbiddenNetworkArgument),
-                  let source = firstPositional(in: tail), exactURL(source, repository: repository) else { return nil }
-            return Invocation(operation: .gitRead, arguments: leading + [command] + replacingFirst(source, in: tail, with: canonical))
-        case "ls-remote":
-            let tail = Array(arguments[(commandIndex + 1)...])
-            guard !tail.contains(where: forbiddenNetworkArgument),
-                  let source = firstPositional(in: tail), exactURL(source, repository: repository) else { return nil }
-            return Invocation(operation: .gitRead, arguments: leading + [command] + replacingFirst(source, in: tail, with: canonical))
+            guard let forced = forcedRemoteTail(tail, repository: repository, isPush: command == "push") else { return nil }
+            return Invocation(
+                operation: operation, arguments: leading + [command] + forced.arguments,
+                upstreamRefspecs: forced.setsUpstream ? forced.refspecs : nil
+            )
         default:
-            let local: Set<String> = [
-                "add", "am", "apply", "bisect", "branch", "checkout", "cherry-pick", "clean", "commit",
-                "describe", "diff", "diff-tree", "format-patch", "grep", "help", "log", "merge", "merge-base",
-                "mv", "notes", "rebase", "reset", "restore", "revert", "rev-list", "rev-parse", "rm", "show",
-                "show-ref", "stash", "status", "switch", "tag", "version", "worktree",
-            ]
-            guard local.contains(command), !arguments.contains(where: looksLikeExternalTransport) else { return nil }
-            return Invocation(operation: nil, arguments: arguments)
+            guard !tail.contains(where: forbiddenNetworkArgument),
+                  let source = firstPositional(in: tail), exactURL(source, repository: repository) else { return nil }
+            return Invocation(operation: .gitRead, arguments: leading + [command] + replacingFirst(source, in: tail, with: canonical))
         }
     }
 
+    /// What gh-v2 does with a command: lends it a credential for one operation, runs it with none,
+    /// or refuses it and says why.
+    enum GhClassification: Sendable, Hashable {
+        case credential(PersonBoundGithubOperation, [String])
+        case plain([String])
+        case refused(String)
+    }
+
+    /// The commands gh-v2 lends a credential to, confined to this repository with `--repo`.
+    private static let ghRepositoryActions: [String: (read: Set<String>, write: Set<String>)] = [
+        "pr": (["list", "status", "view", "checks", "diff"],
+               ["create", "comment", "review", "merge", "close", "reopen", "ready", "edit", "update-branch"]),
+        "issue": (["list", "status", "view"], ["create", "comment", "close", "reopen", "edit", "delete"]),
+        "run": (["list", "view", "watch", "download"], ["rerun", "cancel", "delete"]),
+        "workflow": (["list", "view"], ["run", "enable", "disable"]),
+        "release": (["list", "view", "download"], ["edit", "delete"]),
+        "label": (["list"], ["create", "edit"]),
+        "cache": (["list"], ["delete"]),
+    ]
+
     static func ghInvocation(_ arguments: [String], repository: String) -> Invocation? {
-        guard let command = arguments.first else { return nil }
-        if ["--version", "version", "help", "--help"].contains(command) {
-            return Invocation(operation: nil, arguments: arguments)
+        switch ghClassification(arguments, repository: repository) {
+        case let .credential(operation, forced): Invocation(operation: operation, arguments: forced)
+        case let .plain(plain): Invocation(operation: nil, arguments: plain)
+        case .refused: nil
         }
-        guard !["auth", "api", "config", "alias", "extension", "ssh-key", "gpg-key", "codespace"].contains(command) else {
-            return nil
+    }
+
+    /// **A command gh-v2 does not know runs with no credential rather than being refused.** gh has
+    /// no token of its own on a machine, since its configuration directory is an empty one that
+    /// root owns, so a command that was lent nothing can do nothing with anybody's GitHub. What is
+    /// refused is what would take the lent token further than this one repository, or show it:
+    /// `auth token` and `auth status --show-token` print it; `auth login`, `logout`, `refresh`,
+    /// `setup-git` and `switch` exist to store or replace one; `--hostname` points it at another
+    /// host; `--repo` naming another repository, or a GitHub URL for one, aims it elsewhere; and a
+    /// flag that makes gh read a file (`--body-file`, `-F`, `--notes-file`, `api --input`, a
+    /// `-F key=@file` field) could read `/proc/self/environ`, which is where the token is, and
+    /// post it. `gh api` is lent a credential only for this repository's own `repos/` paths.
+    static func ghClassification(_ arguments: [String], repository: String) -> GhClassification {
+        guard let command = arguments.first else { return .plain(arguments) }
+        if arguments.contains(where: { $0 == "--hostname" || $0.hasPrefix("--hostname=") }) {
+            return .refused("--hostname would take this repository's credential to another host")
         }
-        let actions: [String: (read: Set<String>, write: Set<String>)] = [
-            "pr": (["list", "status", "view", "checks", "diff"],
-                   ["create", "comment", "review", "merge", "close", "reopen", "ready", "edit"]),
-            "issue": (["list", "status", "view"], ["create", "comment", "close", "reopen", "edit", "delete"]),
-            "run": (["list", "view", "watch", "download"], ["rerun", "cancel", "delete"]),
-            "workflow": (["list", "view"], ["run", "enable", "disable"]),
-            "release": (["list", "view", "download"], ["edit", "delete"]),
-            "repo": (["view"], []),
-        ]
-        guard let allowed = actions[command], arguments.indices.contains(1) else { return nil }
-        let action = arguments[1]
-        guard allowed.read.contains(action) || allowed.write.contains(action) else { return nil }
-        let operation: PersonBoundGithubOperation = allowed.write.contains(action) ? .ghWrite : .ghRead
-        if command == "repo" {
-            let positional = arguments.dropFirst().filter { !$0.hasPrefix("-") }
-            guard positional == ["view"] else { return nil }
+        switch command {
+        case "auth": return ghAuth(arguments)
+        case "api": return ghAPI(arguments, repository: repository)
+        case "repo": return ghRepoView(arguments, repository: repository)
+        default: break
         }
-        var forced = arguments
-        guard !forced.contains(where: { value in
-            value == "--web" || value == "--editor" || value == "--browser"
-                || value == "--body-file" || value == "-F" || value == "--notes-file"
-                || value == "--recover"
+        guard let allowed = ghRepositoryActions[command], arguments.indices.contains(1),
+              allowed.read.contains(arguments[1]) || allowed.write.contains(arguments[1]) else {
+            return .plain(arguments)
+        }
+        let operation: PersonBoundGithubOperation = allowed.write.contains(arguments[1]) ? .ghWrite : .ghRead
+        if let flag = arguments.first(where: { value in
+            ["--web", "--editor", "--browser", "--body-file", "-F", "--notes-file", "--recover"].contains(value)
                 || value.hasPrefix("--body-file=") || value.hasPrefix("--notes-file=")
                 || value.hasPrefix("--recover=") || value.hasPrefix("-F")
-                || value.hasPrefix("--repo=") || value.hasPrefix("--hostname=")
-                || value.hasPrefix("-R=") || value.hasPrefix("-H=")
-        }) else { return nil }
+        }) {
+            return .refused(
+                "\(flag) opens a browser or an editor, or makes gh read a file while it holds the token; "
+                    + "pass the text itself, with --body or --notes"
+            )
+        }
+        if let other = arguments.first(where: { githubURL($0, namesAnotherRepositoryThan: repository) }) {
+            return .refused("\(other) is another repository, and the credential here is for \(repository) only")
+        }
+        guard !arguments.contains(where: { $0.hasPrefix("--repo=") || $0.hasPrefix("-R=") }) else {
+            return .refused("give the repository as --repo \(repository), or leave it out")
+        }
+        var forced = arguments
         let repositoryFlags = forced.indices.filter { forced[$0] == "--repo" || forced[$0] == "-R" }
-        guard repositoryFlags.count <= 1 else { return nil }
+        guard repositoryFlags.count <= 1 else { return .refused("--repo was given more than once") }
         if let index = repositoryFlags.first {
-            guard forced.indices.contains(index + 1), forced[index + 1].lowercased() == repository.lowercased() else { return nil }
+            guard forced.indices.contains(index + 1), forced[index + 1].lowercased() == repository.lowercased() else {
+                return .refused("the credential here is for \(repository) only")
+            }
         } else {
             forced += ["--repo", repository]
         }
-        guard !forced.contains(where: looksLikeExternalTransport),
-              !forced.contains(where: { $0 == "--hostname" || $0 == "-H" }) else { return nil }
-        return Invocation(operation: operation, arguments: forced)
+        return .credential(operation, forced)
+    }
+
+    private static func ghAuth(_ arguments: [String]) -> GhClassification {
+        let action = arguments.dropFirst().first
+        guard action == "status" else {
+            if action == "token" { return .refused("gh auth token would print the credential") }
+            if let action, ["login", "logout", "refresh", "setup-git", "switch"].contains(action) {
+                return .refused("gh auth \(action) would store or replace a credential; Bloom lends one per command")
+            }
+            return .plain(arguments)
+        }
+        guard !arguments.contains(where: { $0 == "-t" || $0 == "--show-token" || $0.hasPrefix("--show-token=") }) else {
+            return .refused("--show-token would print the credential")
+        }
+        return .credential(.ghRead, arguments)
+    }
+
+    private static func ghRepoView(_ arguments: [String], repository: String) -> GhClassification {
+        guard arguments.dropFirst().first == "view" else { return .plain(arguments) }
+        if let flag = arguments.first(where: { $0 == "--web" || $0 == "-w" }) {
+            return .refused("\(flag) opens a browser")
+        }
+        let takesValue: Set<String> = ["-b", "--branch", "--json", "-q", "--jq", "-t", "--template"]
+        var positional: [String] = []
+        var index = 2
+        while index < arguments.count {
+            let value = arguments[index]
+            if takesValue.contains(value) {
+                index += 2
+                continue
+            }
+            if !value.hasPrefix("-") { positional.append(value) }
+            index += 1
+        }
+        // `gh repo view` takes the repository as its argument and has no --repo flag.
+        guard positional.isEmpty else {
+            guard positional.map({ $0.lowercased() }) == [repository.lowercased()] else {
+                return .refused("the credential here is for \(repository) only")
+            }
+            return .credential(.ghRead, arguments)
+        }
+        return .credential(.ghRead, Array(arguments.prefix(2)) + [repository] + Array(arguments.dropFirst(2)))
+    }
+
+    /// `gh api`, confined to `repos/<this repository>`. A GET is a read and anything else a write,
+    /// which is how gh itself decides: a field without `--method` makes it a POST.
+    private static func ghAPI(_ arguments: [String], repository: String) -> GhClassification {
+        let takesValue: Set<String> = [
+            "-X", "--method", "-H", "--header", "-f", "--raw-field", "-F", "--field", "-q", "--jq",
+            "-t", "--template", "--cache", "-p", "--preview", "--input",
+        ]
+        var endpoint: String?
+        var method: String?
+        var hasFields = false
+        var index = 1
+        while index < arguments.count {
+            let value = arguments[index]
+            let (flag, inline) = value.hasPrefix("--") && value.contains("=")
+                ? (String(value.prefix { $0 != "=" }), String(value.drop { $0 != "=" }.dropFirst()))
+                : (value, nil)
+            if flag == "--input" { return .refused("--input makes gh read a file while it holds the token") }
+            if flag == "--verbose" { return .refused("--verbose prints the request, headers and all") }
+            if takesValue.contains(flag) {
+                guard let argument = inline ?? (arguments.indices.contains(index + 1) ? arguments[index + 1] : nil) else {
+                    return .refused("\(flag) is missing its value")
+                }
+                if flag == "-X" || flag == "--method" { method = argument.uppercased() }
+                if ["-f", "--raw-field", "-F", "--field"].contains(flag) { hasFields = true }
+                if flag == "-F" || flag == "--field", argument.contains("=@") {
+                    return .refused("a -F field of @file makes gh read a file while it holds the token")
+                }
+                index += inline == nil ? 2 : 1
+                continue
+            }
+            if !value.hasPrefix("-"), endpoint == nil { endpoint = value }
+            index += 1
+        }
+        guard let endpoint else { return .plain(arguments) }
+        let path = endpoint.drop { $0 == "/" }.lowercased()
+        let roots = ["repos/" + repository.lowercased(), "repos/{owner}/{repo}"]
+        guard !path.contains(".."), !path.contains("%2e"), !path.contains("://"),
+              roots.contains(where: { path == $0 || path.hasPrefix($0 + "/") || path.hasPrefix($0 + "?") })
+        else {
+            return .refused("gh api is lent a credential only for repos/\(repository)/..., and \(endpoint) is not one")
+        }
+        let effective = method ?? (hasFields ? "POST" : "GET")
+        return .credential(effective == "GET" ? .ghRead : .ghWrite, arguments)
+    }
+
+    /// Whether an argument is a GitHub URL for some other repository. Only one that starts with
+    /// the URL counts, because that is what a positional argument naming a pull request looks
+    /// like; a body or a title that mentions another repository somewhere inside it is text.
+    private static func githubURL(_ value: String, namesAnotherRepositoryThan repository: String) -> Bool {
+        let lower = value.lowercased()
+        let prefixes = ["https://github.com/", "http://github.com/", "github.com/", "https://www.github.com/"]
+        guard let prefix = prefixes.first(where: lower.hasPrefix) else { return false }
+        let path = lower.dropFirst(prefix.count).split(separator: "/", omittingEmptySubsequences: true)
+        guard path.count >= 2 else { return true }
+        var name = String(path[1])
+        if name.hasSuffix(".git") { name.removeLast(4) }
+        return "\(path[0])/\(name)" != repository.lowercased()
     }
 
     static func credentialFields(_ input: String) -> [String: String] {
@@ -282,13 +572,26 @@ enum PersonBoundGitCommand {
         return arguments.allSatisfy(harmless.contains)
     }
 
-    private static func forcedRemoteTail(_ arguments: [String], remote: String) -> [String]? {
+    /// The tail of a fetch, pull or push, always naming `origin`, which `networkArguments` points
+    /// at the one repository. `-u` is taken out of a push and reported instead, for the reason on
+    /// `branchUpstreams`.
+    ///
+    /// **`origin` by name, not the URL in its place.** This used to swap the URL in, and git
+    /// updates remote-tracking refs only for a named remote, so after a push there was no
+    /// `origin/<branch>`: `gh pr create` looks for exactly that to know the branch was pushed, and
+    /// answered "you must first push the current branch". A `git fetch origin` left `origin/main`
+    /// where it was, too, so a rebase onto it rebased onto yesterday.
+    private static func forcedRemoteTail(
+        _ arguments: [String], repository: String, isPush: Bool
+    ) -> (arguments: [String], refspecs: [String], setsUpstream: Bool)? {
         var output: [String] = []
+        var refspecs: [String] = []
         var sawRemote = false
+        var setsUpstream = false
         var index = 0
         let takesValue: Set<String> = [
             "--depth", "--deepen", "--shallow-since", "--shallow-exclude", "--jobs", "-j",
-            "--server-option", "--negotiation-tip", "--filter",
+            "--server-option", "--negotiation-tip", "--filter", "-o", "--push-option",
         ]
         while index < arguments.count {
             let value = arguments[index]
@@ -299,6 +602,11 @@ enum PersonBoundGitCommand {
                 index += 2
                 continue
             }
+            if isPush, value == "-u" || value == "--set-upstream" {
+                setsUpstream = true
+                index += 1
+                continue
+            }
             if value.hasPrefix("-") {
                 let forbidden = ["--all", "--multiple", "--stdin", "--upload-pack", "--receive-pack", "--exec", "--recurse-submodules"]
                 guard !looksLikeExternalTransport(value), !forbidden.contains(where: value.hasPrefix) else { return nil }
@@ -307,17 +615,18 @@ enum PersonBoundGitCommand {
                 continue
             }
             if !sawRemote {
-                guard value == "origin" else { return nil }
+                guard value == "origin" || exactURL(value, repository: repository) else { return nil }
                 sawRemote = true
-                output.append(remote)
+                output.append("origin")
             } else {
                 guard !looksLikeExternalTransport(value) else { return nil }
                 output.append(value)
+                refspecs.append(value)
             }
             index += 1
         }
-        if !sawRemote { output.append(remote) }
-        return output
+        if !sawRemote { output.append("origin") }
+        return (output, refspecs, setsUpstream)
     }
 
     private static func firstPositional(in arguments: [String]) -> String? {
@@ -409,7 +718,8 @@ enum PersonBoundGitCommand {
         repository: String,
         runnerExecutable: String,
         gitRemoteHTTPSExecutable: String,
-        worktree: String? = nil
+        worktree: String? = nil,
+        upstream: [GitUpstream] = []
     ) -> [String] {
         let helper = "!\(MachineGitTools.shellQuoted(runnerExecutable)) git-credential-v2"
         let execPath = URL(fileURLWithPath: gitRemoteHTTPSExecutable).deletingLastPathComponent().path
@@ -451,7 +761,16 @@ enum PersonBoundGitCommand {
          * configuration, never anything a caller passes.
          */
         let safeDirectory = worktree.map { ["-c", "safe.directory=\($0)"] } ?? []
-        return safeDirectory + [
+        // `origin` is defined here, because the repository's own definition of it is hidden with
+        // the rest of `.git/config` for the length of the command. See `forcedRemoteTail`.
+        let origin = [
+            "-c", "remote.origin.url=\(canonical)",
+            "-c", "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+            "-c", "remote.origin.proxy=",
+        ] + upstream.flatMap { upstream in
+            ["-c", "branch.\(upstream.branch).remote=origin", "-c", "branch.\(upstream.branch).merge=\(upstream.merge)"]
+        }
+        return safeDirectory + origin + [
             "--exec-path=\(execPath)",
             "-c", "credential.helper=",
             "-c", "credential.helper=\(helper)",

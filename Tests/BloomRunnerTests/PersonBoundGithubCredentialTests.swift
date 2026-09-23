@@ -66,12 +66,38 @@ struct PersonBoundGithubCredentialTests {
                           cgroup: reservation.cgroup, processGroup: 50)
             $0[52] = .init(pid: 52, uid: reservation.uid, startTime: 903,
                           cgroup: reservation.cgroup + "-other", processGroup: 50)
-            $0[53] = .init(pid: 53, uid: reservation.uid, startTime: 904,
-                          cgroup: reservation.cgroup, processGroup: 53)
         }
         #expect(registry.reservation(for: .init(pid: 51, uid: reservation.uid + 1)) == nil)
+        // Sharing the leader's process group is not enough: another launch's cgroup is another
+        // launch, whatever group its process sits in.
         #expect(registry.reservation(for: .init(pid: 52, uid: reservation.uid)) == nil)
-        #expect(registry.reservation(for: .init(pid: 53, uid: reservation.uid)) == nil)
+    }
+
+    @Test("a descendant in a process group of its own is still its launch's")
+    func aDetachedDescendantKeepsItsLaunch() throws {
+        // **Claude Code runs every Bash command detached, in a new process group**, and this used
+        // to require the leader's group, so every `git push` an agent ran was refused as matching
+        // no live launch-gate reservation. What makes a process part of a launch is the cgroup the
+        // root launcher put it in, which it cannot leave; the group is its own to change.
+        let identities = Mutex<[Int32: PersonBoundProcessIdentity]>([:])
+        let registry = PersonBoundProcessRegistry(
+            agentUID: 1_002,
+            identity: { pid in identities.withLock { $0[pid] } },
+            nonce: { "abcdef0123456789abcdef0123456789" }
+        )
+        let reservation = try #require(registry.reserve(.turn(id: "turn", userID: "user-1")))
+        identities.withLock {
+            $0[60] = .init(pid: 60, uid: 1_002, startTime: 1, cgroup: reservation.cgroup, processGroup: 60)
+        }
+        #expect(registry.register(nonce: reservation.nonce, peer: .init(pid: 60, uid: 1_002)) != nil)
+        identities.withLock {
+            $0[61] = .init(pid: 61, uid: 1_002, startTime: 2, cgroup: reservation.cgroup, processGroup: 61)
+        }
+        #expect(registry.reservation(for: .init(pid: 61, uid: 1_002)) == reservation)
+
+        // And the rest of the binding still holds for it: once the leader is gone, so is the lease.
+        identities.withLock { $0[60] = nil }
+        #expect(registry.reservation(for: .init(pid: 61, uid: 1_002)) == nil)
     }
 
     @Test("simultaneous people receive distinct Unix identities and cgroups")

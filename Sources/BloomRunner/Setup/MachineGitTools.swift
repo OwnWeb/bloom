@@ -40,17 +40,44 @@ struct MachineGitTools {
         """
     }
 
+    /// The `git` wrapper. Only a command that talks to GitHub goes through Bloom Runner; anything
+    /// else is the real git, started directly.
+    ///
+    /// **Because going through Bloom Runner stops the whole sandbox.** The root supervisor pauses
+    /// every other process in the launch while `git-v2` runs, so that nothing can read a token out
+    /// of git's memory, and it holds them until that process exits. That is a few seconds for a
+    /// push. For a `git commit` whose hook runs the test suite against a server in the same
+    /// sandbox it is forever, because the server is one of the paused processes, and the agent
+    /// that would time the command out is another. A local command carries no credential, so
+    /// there is nothing to pause for. The parse only has to find the subcommand: getting it wrong
+    /// sends a local command through `git-v2`, which runs it as plain git anyway, or a network one
+    /// straight to git, which then has no credential and fails.
     var gitWrapper: String {
-        """
+        let runner = Self.shellQuoted(serverExecutable)
+        let git = Self.shellQuoted(gitExecutable)
+        let network = PersonBoundGitCommand.networkGitCommands.sorted().joined(separator: "|")
+        return """
         #!/bin/sh
         # Written by Bloom Runner. There is no legacy or SSH fallback in this v2 entry point.
         export BLOOM_REPOSITORY=\(Self.shellQuoted(repository))
         export BLOOM_BIN_DIR=\(Self.shellQuoted(binDirectory))
-        export BLOOM_RUNNER_EXECUTABLE=\(Self.shellQuoted(serverExecutable))
-        export BLOOM_REAL_GIT=\(Self.shellQuoted(gitExecutable))
+        export BLOOM_RUNNER_EXECUTABLE=\(runner)
+        export BLOOM_REAL_GIT=\(git)
         export BLOOM_REAL_GH=\(Self.shellQuoted(ghExecutable))
         export BLOOM_REAL_GIT_REMOTE_HTTPS=\(Self.shellQuoted(gitRemoteHTTPSExecutable))
-        exec \(Self.shellQuoted(serverExecutable)) git-v2 "$@"
+        # Only a command that reaches GitHub needs Bloom Runner, and going through it pauses the
+        # rest of the sandbox while it runs, so everything else goes straight to git.
+        skip=
+        for argument in "$@"; do
+            if [ -n "$skip" ]; then skip=; continue; fi
+            case "$argument" in
+                -C|-c|--git-dir|--work-tree|--namespace|--config-env|--super-prefix) skip=1 ;;
+                -*) ;;
+                \(network)) exec \(runner) git-v2 "$@" ;;
+                *) exec \(git) "$@" ;;
+            esac
+        done
+        exec \(git) "$@"
 
         """
     }

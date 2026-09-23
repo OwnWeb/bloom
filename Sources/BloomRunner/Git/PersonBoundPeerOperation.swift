@@ -60,8 +60,7 @@ enum PersonBoundPeerOperation {
     ///
     /// **Who is asking** is the launch gate's answer: `registry.binding(for:)` has already checked
     /// the uid the kernel reports for the socket peer, the uid and cgroup of the reservation the
-    /// one-time launch nonce opened, the process group, and that the sandbox leader is still alive
-    /// and unchanged. What it is for comes from the caller, for the reasons on
+    /// one-time launch nonce opened, and that the sandbox leader is still alive and unchanged. What it is for comes from the caller, for the reasons on
     /// `PersonBoundCredentialRequest.operation`.
     ///
     /// **Whether it may ask at all** is one file: the provenance record the sandbox supervisor

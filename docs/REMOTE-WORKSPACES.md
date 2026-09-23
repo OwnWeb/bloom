@@ -703,7 +703,9 @@ of the following: Linux peer credentials, a separate numeric Unix identity, a se
 group and cgroup, a synchronous launch gate, protected local control paths, the Sprite API socket
 masked in a private mount namespace, root-attested wrapper ancestry, a real cross-UID credential
 exchange, startup reclamation and complete descendant cleanup. The gate records PID, UID, `/proc`
-start time, cgroup and process group before the child executes. Credential requests re-read all five
+start time, cgroup and process group before the child executes. A credential request is bound to
+its launch by the cgroup, never the process group, since an agent starts each command in a group of
+its own. Credential requests re-read all five
 fields for the peer, wrapper and every ancestor through the registered leader, both during root
 attestation and again before returning a credential. PID reuse, a moved process, an unknown peer,
 a repository-controlled ancestor and a descendant of another identity are refused. The root launch
@@ -730,21 +732,27 @@ and the next grant is installed only after a successful response. Raw grants and
 memory-only values with redacted descriptions and reflection. They are never Store rows, snapshots,
 configuration, reports, logs or process arguments.
 
-The `git` wrapper permits only explicit local commands plus fetch, pull, push, clone and
-ls-remote. Every network command is rewritten to the exact configured HTTPS GitHub repository.
-SSH, another repository, submodules, external transports, remote helpers and credential overrides
-are refused. Network Git receives a fixed root-controlled configuration home, system CA, empty
+The `git` wrapper sends fetch, pull, push, clone and ls-remote through Bloom Runner and runs
+everything else as plain git with no credential, because a local command has nothing to guard and
+going through the Runner pauses the rest of the sandbox. A network command names `origin`, which
+command configuration defines as the exact configured HTTPS GitHub repository, so remote-tracking
+refs are recorded; `push -u` writes its upstream before the configuration is masked. SSH, another
+remote, external transports, remote helpers and credential overrides are refused. Agent turns get
+`Bloom <bloom@runbloom.app>` as author and committer unless the person's environment says
+otherwise. Network Git receives a fixed root-controlled configuration home, system CA, empty
 proxy, disabled hooks, fixed credential helper and HTTPS-only protocol policy. Root attestation
 checks the exact Git arguments, environment, HTTPS transport executable and canonical repository
 URL before the helper can receive a credential. Before network Git starts, the root supervisor
 stops the repository processes and bind-masks the repository and worktree configuration files in
 the turn's private mount namespace. Command configuration then fixes the exact smart HTTP endpoints
 and remote-specific proxy, so repository URL rewrites and more-specific transport settings cannot
-win. The `gh` wrapper uses a closed command and action
-table, forces `--repo` to the configured repository, and receives a root-owned empty `GH_CONFIG_DIR`
-so user or repository configuration cannot select an alternate Unix socket. It refuses open-ended
-or token-revealing surfaces such as `gh api`, extensions, file-backed bodies, release uploads and
-`gh auth token`. A root-owned preload makes the credential-bearing `gh` process non-dumpable before
+win. The `gh` wrapper lends a credential to a
+table of commands and actions, `gh auth status` and `gh api` under `repos/<repository>`, forces
+`--repo` to the configured repository, and receives a root-owned empty `GH_CONFIG_DIR` so user or
+repository configuration cannot select an alternate Unix socket. It refuses what would print or
+store the token (`gh auth token`, `--show-token`, `auth login`), make gh read a file while holding
+it (`--body-file`, `-F`, `api --input`), or aim it at another host or repository. Any other command
+runs with no credential. A root-owned preload makes the credential-bearing `gh` process non-dumpable before
 its main function. The root supervisor stops the rest of the reservation before the wrapper can
 receive a credential and resumes it only after the preload signals that protection is active, so
 another process under the ephemeral uid cannot race an environment read across exec. Setup

@@ -169,7 +169,7 @@ struct PersonBoundCredentialRequest: Codable, Sendable, Hashable {
     ///
     /// Taking the caller's word is worth what the sandbox is worth, which is the same thing every
     /// other decision here already rests on: the launch gate's one-time nonce, the uid the kernel
-    /// reports through SO_PEERCRED, the cgroup and the process group. A process that could lie
+    /// reports through SO_PEERCRED, and the cgroup the launch was given. A process that could lie
     /// about this is a process already running as that person, inside that person's sandbox, with
     /// that person's access. What it cannot do is widen what the credential is good for: runbloom
     /// issues a token scoped to what that person may do, and that is decided on the server.
