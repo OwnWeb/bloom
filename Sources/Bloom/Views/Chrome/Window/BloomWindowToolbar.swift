@@ -10,6 +10,8 @@ struct BloomWindowToolbar: ToolbarContent {
     /// Whether the share popover is open. Here rather than in the item, because a `ToolbarContent`
     /// is a value the window rebuilds and a popover anchored to state inside it closes itself.
     @Binding var isSharingCloudWorkspace: Bool
+    /// Whether the ports popover is open, here for the same reason sharing's flag is.
+    @Binding var isShowingPorts: Bool
 
     var body: some ToolbarContent {
         if isSidebarFolded {
@@ -52,7 +54,9 @@ struct BloomWindowToolbar: ToolbarContent {
             CloudWorkspaceControls(
                 session: app.cloud.session(for: id),
                 item: app.selectedCloudWorkspace,
-                isSharing: $isSharingCloudWorkspace
+                isSharing: $isSharingCloudWorkspace,
+                isShowingPorts: $isShowingPorts,
+                ports: app.cloud.session(for: id).ports
             )
         }
 

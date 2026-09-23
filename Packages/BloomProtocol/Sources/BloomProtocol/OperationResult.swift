@@ -15,6 +15,8 @@ public enum OperationResult: Codable, Sendable, Hashable {
     case reviewSnapshot(ReviewSnapshotRecord)
     case reviewPatch(PatchSnapshotRecord)
     case runScripts(scripts: [RunScriptRecord])
+    /// What is listening inside the workspace, and which ports Bloom holds for itself.
+    case ports(ports: [ListeningPortRecord])
     case quickPrompts(prompts: [QuickPromptRecord], issues: [SettingsIssueRecord])
     /// `search_code`'s answer. `truncated` says there may be more than were returned.
     case codeMatches(matches: [CodeMatchRecord], truncated: Bool)
@@ -29,7 +31,7 @@ public enum OperationResult: Codable, Sendable, Hashable {
     case archivePreview(ArchivePreviewRecord)
     case terminal(TerminalRecord)
 
-    enum Keys: String, CodingKey { case value, paths, scripts, prompts, issues, matches, truncated, files, chats, promptID = "prompt_id" }
+    enum Keys: String, CodingKey { case value, paths, scripts, prompts, issues, matches, truncated, files, chats, ports, promptID = "prompt_id" }
 
     public init(from decoder: any Decoder) throws {
         let kind = try Tagged.kind(from: decoder)
@@ -46,6 +48,7 @@ public enum OperationResult: Codable, Sendable, Hashable {
         case "review_snapshot": self = .reviewSnapshot(try Tagged.record(ReviewSnapshotRecord.self, kind: kind, from: decoder))
         case "review_patch": self = .reviewPatch(try Tagged.record(PatchSnapshotRecord.self, kind: kind, from: decoder))
         case "run_scripts": self = .runScripts(scripts: try c.decode([RunScriptRecord].self, forKey: .scripts))
+        case "ports": self = .ports(ports: try c.decode([ListeningPortRecord].self, forKey: .ports))
         case "quick_prompts":
             self = .quickPrompts(prompts: try c.decode([QuickPromptRecord].self, forKey: .prompts),
                                  issues: try c.decode([SettingsIssueRecord].self, forKey: .issues))
@@ -78,6 +81,7 @@ public enum OperationResult: Codable, Sendable, Hashable {
         case .reviewSnapshot(let value): try Tagged.encode(kind: "review_snapshot", to: encoder, record: value)
         case .reviewPatch(let value): try Tagged.encode(kind: "review_patch", to: encoder, record: value)
         case .runScripts(let scripts): try Tagged.encode(kind: "run_scripts", to: encoder); try c.encode(scripts, forKey: .scripts)
+        case .ports(let ports): try Tagged.encode(kind: "ports", to: encoder); try c.encode(ports, forKey: .ports)
         case .quickPrompts(let prompts, let issues):
             try Tagged.encode(kind: "quick_prompts", to: encoder)
             try c.encode(prompts, forKey: .prompts); try c.encode(issues, forKey: .issues)

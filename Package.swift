@@ -133,6 +133,9 @@ let package = Package(
             dependencies: [
                 "BloomRunner", "BloomCore", "CZlib", .product(name: "BloomProtocol", package: "BloomProtocol"),
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
+                // A WebSocket client for a live test server, so the proxy route's splice is driven
+                // end to end rather than only its decisions.
+                .product(name: "HummingbirdWSTesting", package: "hummingbird-websocket"),
                 .product(name: "Crypto", package: "swift-crypto"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
@@ -243,6 +246,9 @@ let package = Package(
             dependencies: [
                 "BloomRunner", "BloomCore", "CZlib", .product(name: "BloomProtocol", package: "BloomProtocol"),
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
+                // A WebSocket client for a live test server, so the proxy route's splice is driven
+                // end to end rather than only its decisions.
+                .product(name: "HummingbirdWSTesting", package: "hummingbird-websocket"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

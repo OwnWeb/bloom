@@ -219,6 +219,16 @@ struct BrowserToolbarTests {
         #expect(!BrowserToolbar.Surface.machineApp.hasSystemSharing)
     }
 
+    @Test("A forwarded page has an address to type into, and nothing that needs a worktree or means this Mac to somebody else")
+    func whatAForwardedPageHas() {
+        let surface = BrowserToolbar.Surface.forwardedPage
+        #expect(surface.hasAddressField)
+        #expect(surface.hasPageCapture)
+        #expect(!surface.hasRegionComment)
+        #expect(!surface.hasSystemSharing)
+        #expect(surface.shownAddress("http://localhost:41734/orders?page=2") == "http://localhost:41734/orders?page=2")
+    }
+
     /// The camera crossed over the day a file could: a screenshot is staged on this Mac and
     /// uploaded when the turn goes, so the pane over a machine takes one too.
     @Test("Both panes have the camera")

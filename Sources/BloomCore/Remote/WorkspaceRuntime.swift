@@ -125,6 +125,13 @@ public actor WorkspaceRuntime {
     /// read once at boot, so it cannot change under a running server. See
     /// `MachineConfiguration.runSetup`; true everywhere that is not a machine.
     let runsSetup: Bool
+    /// The ports Bloom itself holds on this machine, from `MachineLayout.reservedPorts`. Passed in
+    /// rather than restated here, because both of them can be moved by the environment and a second
+    /// copy of the numbers would be wrong on a machine where one was. Empty off a machine.
+    let reservedPorts: [Int]
+    /// What is listening inside this workspace. Replaceable so the answer can be tested without a
+    /// `/proc` to read, which is most places, this Mac included.
+    let listeningPorts: @Sendable () -> [Int]
     var bridge: BridgeServer?
 
     public init(
@@ -148,8 +155,12 @@ public actor WorkspaceRuntime {
         createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil,
         peers: WorkspacePeers? = nil,
         sandbox: MachineSandbox? = nil,
-        sharedDirectory: String? = nil
+        sharedDirectory: String? = nil,
+        reservedPorts: [Int] = [],
+        listeningPorts: @escaping @Sendable () -> [Int] = { ListeningPorts.current() }
     ) {
+        self.reservedPorts = reservedPorts
+        self.listeningPorts = listeningPorts
         self.sandbox = sandbox
         self.sharedDirectory = sharedDirectory
         self.peers = peers
@@ -392,6 +403,9 @@ public actor WorkspaceRuntime {
             return .accepted
         case .stop(let chatID): try await stop(try chatID.sessionID); return .accepted
         case .answer(let chatID, let requestID, let answer): try await answerQuestion(chatID, requestID: requestID, answer: answer); return .accepted
+        case .listeningPorts:
+            let reserved = Set(reservedPorts)
+            return .ports(ports: listeningPorts().map { ListeningPortRecord(port: $0, reserved: reserved.contains($0)) })
         case .setupOutput, .files, .searchCode, .file, .download, .reviewSnapshot, .reviewPatch, .runScripts, .quickPrompts, .notes,
              .pullRequest, .archivePreview, .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace,
              .runSetup, .stopSetup, .continueAfterMerge, .runScript, .closeTerminal, .archive, .history, .commitFiles, .commitPatch, .revertFile,

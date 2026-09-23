@@ -414,10 +414,70 @@ starts again as `bloom-workspace` version 1. What changes:
 | `POST /_bloom/v1/rpc` | the envelope, bearer token |
 | `GET /_bloom/v1/events` | SSE read with `fetch`, bearer token |
 | `GET /_bloom/v1/terminal?name=` | WebSocket, `auth` first frame, binary frames, resize and `reauth` text frames |
+| `GET /_bloom/v1/proxy?port=` | WebSocket, `auth` first frame, then bytes to and from that port inside the workspace |
 | `GET /_bloom/preview/enter?token=` | preview cookie exchange |
 | `POST /_bloom/v1/control/revoke`, `update`, `environment`, `limits-cleared`, `stop`, `secret-rotated`, `shared` | runbloom.app only, `admin` token |
 | `GET /_bloom/health` | unauthenticated, version only |
 | everything else | the preview |
+
+## Ports
+
+**A port inside a workspace, reachable from a Mac.** `GET /_bloom/v1/proxy?port=` upgrades to a
+WebSocket, takes the same `auth` first frame the terminal takes, opens `127.0.0.1:<port>` inside
+the workspace and copies bytes in both directions until either end hangs up. Nothing in the path
+parses what goes through it, which is why one route carries PostgreSQL, Redis, a dev server and a
+debugger. The Mac binds a local port and splices the other way, so a database client connects to
+`localhost` and never learns where the database is. See `ProxyRoute` and `PortForward`.
+
+**Why not Fly's Proxy API.** Reaching a Sprite's TCP port from outside goes through
+`WSS /v1/sprites/{name}/proxy` with a Sprites organisation token, and Fly's restricted tokens bound
+a token's *creation* of sprites rather than its access to existing ones. So a token that could
+forward one workspace's port could forward every workspace's in the organisation, which means it
+may never leave runbloom.app, which means a relay on our own servers with every customer's database
+traffic through it. Runner is already inside the workspace behind the machine's own
+authentication, so the forward needs no new authority at all. Proven end to end against a real
+Sprite with PostgreSQL in it on 22 September 2026, before any of this was written.
+
+**A forward needs `terminal`, not `view`.** It reaches any port inside the machine, which is as
+much of the machine as a shell is. `listening_ports`, the operation that lists what to forward,
+is behind the same ability for the same reason.
+
+**Bloom's own ports are refused**, from `MachineLayout.reservedPorts` rather than from a copy of
+the numbers, because both of them can be moved by the environment. They are still listed, marked,
+because a list with a silent hole teaches nobody anything.
+
+**A socket per connection, not one long tunnel.** A Sprite pauses about thirty seconds after its
+last activity and every connection through it dies, so a tunnel held open across a pause is a
+tunnel that is quietly dead. Connecting when the client connects makes the pause invisible to
+anything that reconnects. Measured on a real Sprite: it went warm 36 seconds after the last query
+with a client still attached, and the next query woke it and returned in 1.6 seconds.
+
+**A frame is at most 16 KiB, either way.** `MachineSocket.maximumFrame`, which the Runner's
+WebSocket server is configured with, every client splits its writes by, and the proxy splits what
+it sends by. Hummingbird closes a
+socket on a larger frame, and the first forward sent whatever one read returned, up to 64 KiB, so
+any write over 16 KiB (a large INSERT, a restore, an upload to a dev server) dropped the forward.
+The terminal had the same bug for a large paste.
+
+**A forward does not outlive its token.** The Runner closes it with `token_expired` when the token
+runs out, and a revoke closes it with 4401, as it does a terminal. The Mac renews with `reauth`, but
+only while bytes are moving, and at most every thirty seconds: a frame on a quiet connection is
+activity, and a renewal on a timer would keep awake a Sprite that should pause. A connection that
+goes quiet past its token's life is closed and reopened by the client like any other.
+
+**Open.** A live row copies its `localhost` address, and offers Open where Bloom has something to
+open it with, decided by `WorkspacePorts.opening`. A web server opens in a browser tab of the
+workspace, at `localhost`; a database is handed, at `127.0.0.1` so MySQL does not reach for its
+socket, to whichever installed application registers its scheme with LaunchServices, and no such
+application means no button. A forwarded page's tab is told from the preview's by its address
+(`WorkspacePorts.forwardedLocalPort`), because both are browser tabs and the preview pane ignores
+the tab's address.
+
+**What a forward does not do, by decision (23 September 2026).** It does not come back after Bloom
+restarts: the local port is stable per workspace and port, so a saved connection keeps its address,
+but somebody clicks Forward again. It does not stop on its own after a quiet period; it lasts until
+it is stopped, the workspace session ends or Bloom quits. And the transcript does not record that a
+person opened a port, and no agent can ask for one.
 
 ## Clients other than the Mac
 

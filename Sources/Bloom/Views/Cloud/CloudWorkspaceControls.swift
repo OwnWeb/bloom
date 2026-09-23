@@ -16,6 +16,8 @@ struct CloudWorkspaceControls: ToolbarContent {
     var item: CloudWorkspaceItem?
     @Environment(AppModel.self) private var app
     @Binding var isSharing: Bool
+    @Binding var isShowingPorts: Bool
+    var ports: CloudPorts
 
     /// Everybody with the workspace open but the reader.
     private var others: [PresenceRecord] {
@@ -27,6 +29,19 @@ struct CloudWorkspaceControls: ToolbarContent {
             ToolbarItem(placement: .primaryAction) {
                 CloudPresenceView(people: others)
             }
+        }
+        // Beside Preview, because Preview is this feature with one port hard-coded: it opens the
+        // project's own app and nothing else. A forward is the same reach without that
+        // restriction, so the two belong together rather than in different corners of the window.
+        ToolbarItem(placement: .primaryAction) {
+            Button { isShowingPorts = true } label: {
+                Label { Text("Ports") } icon: { CloudPortsIcon(isForwarding: ports.hasLiveForward) }
+            }
+                .help("Reach a port inside this Bloom Cloud workspace from this Mac")
+                .accessibilityValue(ports.hasLiveForward ? "Forwarding" : "Nothing forwarded")
+                .popover(isPresented: $isShowingPorts, arrowEdge: .bottom) {
+                    CloudPortsPopover(ports: ports)
+                }
         }
         ToolbarItem(placement: .primaryAction) {
             Button("Preview", systemImage: "safari") {
@@ -51,6 +66,26 @@ struct CloudWorkspaceControls: ToolbarContent {
                     CloudSharePopover(workspaceID: session.id, item: item)
                 }
         }
+    }
+}
+
+/// The Ports button's glyph, with a dot while anything is forwarded, so a forward left open is
+/// visible with the popover shut. A dot on the same glyph rather than a filled variant of it: the
+/// filled arrows read as a different control, and a dot is how a toolbar already says "live".
+struct CloudPortsIcon: View {
+    var isForwarding: Bool
+
+    var body: some View {
+        Image(systemName: "arrow.left.arrow.right")
+            .overlay(alignment: .topTrailing) {
+                if isForwarding {
+                    Circle()
+                        .fill(Palette.positive)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 4, y: -3)
+                        .accessibilityHidden(true)
+                }
+            }
     }
 }
 

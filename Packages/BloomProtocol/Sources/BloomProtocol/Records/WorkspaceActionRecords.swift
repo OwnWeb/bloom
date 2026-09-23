@@ -73,6 +73,24 @@ public struct RunScriptRecord: Codable, Sendable, Hashable {
     }
 }
 
+/// One TCP port something inside the workspace is listening on.
+///
+/// **`reserved` is the machine's answer, not the client's guess.** Both of Bloom's own ports can be
+/// moved by the environment (`MachineLayout.reservedPorts`), so a client that carried its own copy
+/// of the numbers would offer to forward Bloom's control port on a machine where one was
+/// overridden. The machine knows; it says. A reserved port is still listed, because a person who
+/// sees 8080 missing from an otherwise complete list learns nothing, and `ProxyRoute` refuses it
+/// again on the way in.
+public struct ListeningPortRecord: Codable, Sendable, Hashable {
+    public var port: Int
+    public var reserved: Bool
+
+    public init(port: Int, reserved: Bool = false) {
+        self.port = port
+        self.reserved = reserved
+    }
+}
+
 /// A terminal the server opened, which a client attaches to over the terminal WebSocket by name.
 public struct TerminalRecord: Codable, Sendable, Hashable {
     public var name: String

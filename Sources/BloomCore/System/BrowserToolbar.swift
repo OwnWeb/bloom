@@ -60,6 +60,10 @@ public struct BrowserToolbar: Equatable, Sendable {
         case tab
         /// A Cloud workspace's own app, over a machine rather than over this Mac.
         case machineApp
+        /// A port of a Cloud workspace forwarded to this Mac, at `localhost`. An ordinary page on
+        /// an ordinary address, so it has an address field; still a Cloud workspace's pane, so it
+        /// has what `machineApp` has and not the rest. See `WorkspacePorts.opening`.
+        case forwardedPage
 
         /// Whether the address is a field to type into.
         ///
@@ -67,7 +71,7 @@ public struct BrowserToolbar: Equatable, Sendable {
         /// lasts a minute, and there is one address it may ever show, so a field would be a
         /// promise the pane cannot keep. The capsule stays, holding the host, because that is
         /// where a reader looks to find out where they are.
-        public var hasAddressField: Bool { self == .tab }
+        public var hasAddressField: Bool { self != .machineApp }
 
         /// Whether the camera is there: a screenshot of this page, on the composer's next turn.
         ///
@@ -91,6 +95,7 @@ public struct BrowserToolbar: Equatable, Sendable {
         ///
         /// It is not, on a machine. What it would hand over is the one-time exchange address,
         /// which stops working the moment it is used, so anybody receiving it gets a dead link.
+        /// Nor on a forwarded page, whose `localhost` means the reader's Mac to whoever opens it.
         /// Sharing a Cloud workspace's app with somebody is a preview link, which is its own
         /// decision in the Share popover, with its own expiry. See `CloudSharePopover`.
         public var hasSystemSharing: Bool { self == .tab }

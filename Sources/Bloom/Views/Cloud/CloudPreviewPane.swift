@@ -166,40 +166,14 @@ struct CloudPreviewPane: View {
 
     // MARK: - A picture of the app, into the conversation beside it
 
-    /// The same screenshot the local browser's camera takes, into the same composer.
-    ///
-    /// **The bytes never touch a worktree on either kind of workspace, which is why this works at
-    /// all.** `ComposerHandoff` writes them where the workspace says attachments go, which for a
-    /// Cloud chat is the staging directory, and the turn uploads them to the machine when it goes.
-    /// So the picture of an app running on a machine is sent to the agent on that machine, and
-    /// nothing about the road it takes is particular to this pane.
+    /// The same screenshot the local browser's camera takes, into the same composer. See
+    /// `CloudWorkspaceSession.attachSnapshot`.
     private func capture() {
         guard !isCapturing, let browser else { return }
         isCapturing = true
         Task {
             defer { isCapturing = false }
-            let data: Data
-            do {
-                data = try await browser.snapshot()
-            } catch {
-                app.alert = BloomAlert(
-                    title: "That page could not be captured", message: error.readableMessage
-                )
-                return
-            }
-            // Named after the page, avoiding what the chat is already carrying, exactly as the
-            // local pane names its own.
-            let taken = Set(
-                PromptAttachmentStore.shared
-                    .attachments(for: (session.activeChat?.id ?? session.chats.first?.id)?.rawValue ?? "")
-                    .map(\.filename)
-            )
-            let name = BrowserSnapshot.filename(for: browser.displayAddress, avoiding: taken)
-            let outcome = await ComposerHandoff.attach(
-                [.image(data, format: .png, named: name)], to: session
-            )
-            guard let failure = outcome.failure else { return }
-            app.alert = BloomAlert(title: "That screenshot was not attached", message: failure)
+            if let alert = await session.attachSnapshot(of: browser) { app.alert = alert }
         }
     }
 

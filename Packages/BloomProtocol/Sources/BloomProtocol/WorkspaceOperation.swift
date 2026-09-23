@@ -76,13 +76,15 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
     case runScript(id: String)
     case closeTerminal(name: String)
     case archive(confirmationID: String)
+    /// What is listening inside the workspace, for the ports a person can forward to their Mac.
+    case listeningPorts
 
     /// Whether the server journals this command so a retry is answered from its record.
     public var mutates: Bool {
         switch self {
         case .workspace, .transcript, .composer, .setupOutput, .files, .file, .download, .reviewSnapshot, .reviewPatch,
              .runScripts, .quickPrompts, .searchCode, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes, .pullRequest,
-             .archivePreview, .recentlyClosed: false
+             .archivePreview, .recentlyClosed, .listeningPorts: false
         default: true
         }
     }
@@ -101,7 +103,10 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .send, .cancelQueued, .stop, .answer, .newChat, .closeChat, .reopenChat, .renameChat, .setComposer: "prompt"
         case .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup, .stopSetup, .continueAfterMerge,
              .revertFile, .discardHunk: "files"
-        case .runScript, .closeTerminal: "terminal"
+        // **A forwarded port is as much reach into the machine as a shell**, so the list that
+        // offers one is behind the same ability rather than behind `view`. Somebody who may look
+        // at a workspace is not thereby allowed to open its database on their own Mac.
+        case .runScript, .closeTerminal, .listeningPorts: "terminal"
         case .archive, .archivePreview: "share"
         }
     }
@@ -129,6 +134,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .reviewSnapshot: "review_snapshot"
         case .reviewPatch: "review_patch"
         case .runScripts: "run_scripts"
+        case .listeningPorts: "listening_ports"
         case .quickPrompts: "quick_prompts"
         case .searchCode: "search_code"
         case .notes: "notes"
@@ -196,6 +202,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
             self = .reviewPatch(path: try c.decode(String.self, forKey: .path), scope: try c.decode(DiffScope.self, forKey: .scope),
                                 knownRevision: try c.decodeIfPresent(String.self, forKey: .knownRevision))
         case "run_scripts": self = .runScripts
+        case "listening_ports": self = .listeningPorts
         case "quick_prompts": self = .quickPrompts
         case "search_code":
             self = .searchCode(query: try c.decode(String.self, forKey: .query), limit: try c.decodeIfPresent(Int.self, forKey: .limit))
@@ -249,7 +256,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         try Tagged.encode(kind: kind, to: encoder)
         var c = encoder.container(keyedBy: Keys.self)
         switch self {
-        case .workspace, .setupOutput, .files, .runScripts, .quickPrompts, .notes, .pullRequest, .archivePreview, .recentlyClosed,
+        case .workspace, .setupOutput, .files, .runScripts, .quickPrompts, .notes, .pullRequest, .archivePreview, .recentlyClosed, .listeningPorts,
              .push, .runSetup, .stopSetup: break
         case .transcript(let chatID, let afterSeq, let limit):
             try c.encode(chatID, forKey: .chatID); try c.encode(afterSeq, forKey: .afterSeq); try c.encodeIfPresent(limit, forKey: .limit)

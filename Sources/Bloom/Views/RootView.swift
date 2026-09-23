@@ -30,6 +30,7 @@ struct RootView: View {
     /// Whether the Cloud workspace's share popover is open. Held by the window rather than by the
     /// toolbar item, because `ToolbarContent` is a value the window rebuilds under the popover.
     @State private var isSharingCloudWorkspace = false
+    @State private var isShowingPorts = false
     /// One request for the one sheet attached to this window. Repeated entry points update it in
     /// place, preserving the draft and avoiding a second modal presentation.
     @State private var createWorkspacePresentation = CreateWorkspacePresentation()
@@ -44,7 +45,8 @@ struct RootView: View {
             } detail: {
                 RootDetailColumn(
                     columnVisibility: columnVisibility,
-                    isSharingCloudWorkspace: $isSharingCloudWorkspace
+                    isSharingCloudWorkspace: $isSharingCloudWorkspace,
+                    isShowingPorts: $isShowingPorts
                 )
             }
             .containerBackground(.clear, for: .window)
@@ -452,6 +454,7 @@ private struct RootDetailColumn: View {
 
     let columnVisibility: NavigationSplitViewVisibility
     @Binding var isSharingCloudWorkspace: Bool
+    @Binding var isShowingPorts: Bool
 
     var body: some View {
         DetailSplitView(
@@ -464,7 +467,8 @@ private struct RootDetailColumn: View {
             BloomWindowToolbar(
                 app: app,
                 isSidebarFolded: columnVisibility == .detailOnly,
-                isSharingCloudWorkspace: $isSharingCloudWorkspace
+                isSharingCloudWorkspace: $isSharingCloudWorkspace,
+                isShowingPorts: $isShowingPorts
             )
         }
         // `WindowTitleControl` owns the visible title item. `WindowTitle` sets the NSWindow title

@@ -25,6 +25,11 @@ extension CloudWorkspaceSession {
             // same diff and the same composer under it. See `ReviewPaneView`.
             ReviewPaneView(model: self, tab: tab, siblings: siblings)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .browser where !isPreviewTab(tab):
+            // A port of the machine forwarded to this Mac, which is an ordinary page at
+            // `localhost`. See `CloudForwardedPagePane`.
+            CloudForwardedPagePane(session: self, tab: tab, paneMenu: paneMenu)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .browser:
             // The machine's own app, in a pane. Not the local browser tab: see `CloudPreviewPane`
             // for why a window onto one machine cannot have an address bar.

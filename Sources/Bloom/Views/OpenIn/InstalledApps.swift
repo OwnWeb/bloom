@@ -173,6 +173,29 @@ enum InstalledApps {
         return found
     }
 
+    /// The applications that say they take this URL, the one macOS would pick first.
+    ///
+    /// **Asked of LaunchServices rather than of the catalogue**, which is the opposite of what
+    /// `all` does and for the opposite reason. The catalogue is curated because the system's list
+    /// of handlers for a source file is Preview, Safari and every text editor ever installed. The
+    /// list for `postgresql://` is the database clients and nothing else, because nothing else
+    /// registers the scheme, and it only ever names what is installed: no TablePlus, no button.
+    /// One entry per application, however many copies of it LaunchServices knows about.
+    static func handlers(for url: URL) -> [DetectedApp] {
+        let workspace = NSWorkspace.shared
+        let found = workspace.urlsForApplications(toOpen: url)
+        let ordered = workspace.urlForApplication(toOpen: url).map { first in [first] + found.filter { $0 != first } } ?? found
+        var seen = Set<String>()
+        return ordered.compactMap { location in
+            guard let bundleID = Bundle(url: location)?.bundleIdentifier, seen.insert(bundleID).inserted else { return nil }
+            return DetectedApp(
+                app: ExternalApp(bundleID: bundleID, name: name(of: location), targets: []),
+                url: location,
+                icon: icon(at: location)
+            )
+        }
+    }
+
     /// Sized here rather than in the menu, because SwiftUI hands an `NSImage` to AppKit at whatever
     /// size the image says it is, and an application icon says 512 points.
     static func icon(at url: URL) -> NSImage {

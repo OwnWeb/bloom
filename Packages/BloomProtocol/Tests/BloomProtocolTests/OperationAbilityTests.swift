@@ -20,7 +20,9 @@ import Testing
         "create_pull_request": "files", "save_notes": "files", "rename_workspace": "files",
         "run_setup": "files", "stop_setup": "files", "continue_after_merge": "files",
         "revert_file": "files", "discard_hunk": "files",
-        "run_script": "terminal", "close_terminal": "terminal",
+        // A forward reaches any port inside the machine, which is as much of it as a shell is,
+        // so the list that offers one sits with the terminal rather than with `view`.
+        "run_script": "terminal", "close_terminal": "terminal", "listening_ports": "terminal",
         "archive": "share", "archive_preview": "share",
     ]
 

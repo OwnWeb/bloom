@@ -21,6 +21,10 @@ final class CloudWorkspaceSession {
     private(set) var state = CloudWorkspaceState()
     private(set) var phase: WorkspaceConnection.Phase = .closed
     private(set) var abilities: [String] = []
+    /// What is listening inside this workspace, and the forwards to this Mac. Held here rather
+    /// than by the popover, because a forward outlives the window it was opened from: somebody
+    /// starts one, shuts the popover and works in a database client for an hour. See `CloudPorts`.
+    @ObservationIgnored lazy var ports: CloudPorts = CloudPorts(workspaceID: id, session: self)
     /// The last command that failed where no dialog belongs, said once in a strip over the column,
     /// in runbloom.app's or the machine's own words and with the way back where there is one.
     var notice: CloudRefusalNotice?
@@ -134,7 +138,8 @@ final class CloudWorkspaceSession {
     @discardableResult
     func open(_ kind: CenterTabKind) -> PaneContent {
         let store = CenterTabStore.shared
-        let existing = store.tabs(for: surfaceID).first { $0.kind == kind }
+        // The browser a kind names is the preview; a forwarded page's tab is found by its address.
+        let existing = store.tabs(for: surfaceID).first { $0.kind == kind && (kind != .browser || isPreviewTab($0)) }
         let tab = existing ?? store.add(kind: kind, workspaceID: surfaceID)
         let content = PaneContent.tool(tab.id)
         WorkspaceTabsStore.shared.reveal(content, in: self)
@@ -703,7 +708,7 @@ final class CloudWorkspaceSession {
     /// with browsers.
     private func splitBrowser(beside chatID: SessionID) -> Bool {
         let store = CenterTabStore.shared
-        let tab = store.tabs(for: surfaceID).first { $0.kind == .browser }
+        let tab = store.tabs(for: surfaceID).first(where: isPreviewTab)
             ?? store.add(kind: .browser, workspaceID: surfaceID)
         return WorkspaceTabsStore.shared.split(
             tab: .chat(chatID), axis: .horizontal, showing: .tool(tab.id)

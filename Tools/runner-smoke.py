@@ -29,6 +29,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from bloom_fake_runbloom import FakeRunbloom, Issuer  # noqa: E402
+from bloom_proxy_smoke import check_port_forwarding  # noqa: E402
 
 WORKSPACE = "01k5a7d3v1x0m8n2q4r6s9t0wy"
 MACHINE = "01k5a7e4w2y1n9m3r5s7t0v1xz"
@@ -302,6 +303,9 @@ def main():
                 reply = json.loads(body)
                 assert status == 200 and reply.get("result", {}).get("kind") == "accepted", (status, body)
                 print(f"PUSH OK: {BRANCH} pushed to {REPOSITORY} through a person-bound sandbox")
+
+            viewer = issuer.token("session", USER, ["view", "prompt"], {"name": "Smoke", "team": "t"})
+            check_port_forwarding(port, request, session, viewer)
 
             connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
             connection.request("GET", "/_bloom/v1/events", headers={"Authorization": f"Bearer {session}"})

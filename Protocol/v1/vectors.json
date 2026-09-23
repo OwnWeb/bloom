@@ -736,6 +736,27 @@
       },
       "version" : 1
     },
+    "ports" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "result" : {
+        "kind" : "ports",
+        "ports" : [
+          {
+            "port" : 5432,
+            "reserved" : false
+          },
+          {
+            "port" : 5173,
+            "reserved" : false
+          },
+          {
+            "port" : 8081,
+            "reserved" : true
+          }
+        ]
+      },
+      "version" : 1
+    },
     "queued" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "result" : {
@@ -1303,6 +1324,14 @@
         "before" : "9f1c0b6a2d3e4f5061728394a5b6c7d8e9f01234",
         "kind" : "history",
         "limit" : 50
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
+    "listening_ports" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "listening_ports"
       },
       "protocol" : "bloom-workspace",
       "version" : 1

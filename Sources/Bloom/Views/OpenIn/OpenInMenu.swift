@@ -55,6 +55,13 @@ enum OpenIn {
         OpenInPreferences().record(app.app.bundleID, repo: repo)
     }
 
+    /// Hands a URL, which is a database connection a forward made, to one application. Not
+    /// remembered as the project's editor: a database client is not one, and the menu that
+    /// offers it asks LaunchServices afresh every time. See `InstalledApps.handlers(for:)`.
+    static func open(_ url: URL, with app: DetectedApp) {
+        NSWorkspace.shared.open([url], withApplicationAt: app.url, configuration: NSWorkspace.OpenConfiguration())
+    }
+
     /// Everywhere this path can be opened, in the order the menu shows them.
     ///
     /// One function for the submenu and for every control that opens a path without going through

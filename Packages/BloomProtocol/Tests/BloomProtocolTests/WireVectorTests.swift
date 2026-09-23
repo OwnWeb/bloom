@@ -137,6 +137,7 @@ enum WireExamples {
         ("review_patch_unstaged", .reviewPatch(path: "app/Queue.php", scope: .unstaged, knownRevision: nil)),
         ("review_patch", .reviewPatch(path: "README.md", scope: .uncommitted, knownRevision: "revision-1")),
         ("run_scripts", .runScripts),
+        ("listening_ports", .listeningPorts),
         ("quick_prompts", .quickPrompts),
         ("search_code", .searchCode(query: "retryAfter", limit: 50)),
         ("notes", .notes),
@@ -246,6 +247,13 @@ enum WireExamples {
         ("review_snapshot_unchanged", .reviewSnapshot(ReviewSnapshotRecord(revision: "revision-2", files: nil))),
         ("review_patch", .reviewPatch(PatchSnapshotRecord(revision: "file-revision", patch: "diff --git a/README.md b/README.md\n"))),
         ("run_scripts", .runScripts(scripts: [RunScriptRecord(id: "tests", name: "Tests", command: "composer test")])),
+        // A workspace with a database, a dev server and one of Bloom's own ports, which is listed
+        // and marked rather than hidden.
+        ("ports", .ports(ports: [
+            ListeningPortRecord(port: 5432),
+            ListeningPortRecord(port: 5173),
+            ListeningPortRecord(port: 8081, reserved: true),
+        ])),
         // Two matching lines, and more that were not returned.
         ("code_matches", .codeMatches(matches: [
             CodeMatchRecord(path: "app/Queue.php", line: 42, column: 17, text: "        $this->retryAfter = 90;"),

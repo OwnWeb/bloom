@@ -14,6 +14,7 @@ import NIOCore
 /// | `GET /_bloom/v1/events` | server-sent events, session token |
 /// | `POST /_bloom/v1/streams/{id}/token` | a fresh token for an open stream |
 /// | `GET /_bloom/v1/terminal?name=` | WebSocket, `auth` first frame |
+/// | `GET /_bloom/v1/proxy?port=` | WebSocket, `auth` first frame, then bytes |
 /// | `GET /_bloom/preview/enter?token=` | the preview cookie exchange, preview token |
 /// | `GET /_bloom/preview/check` | Caddy's forward_auth for the preview |
 /// | `POST /_bloom/v1/control/*` | runbloom.app only, control token |
@@ -96,6 +97,11 @@ public struct WorkspaceHTTPServer: Sendable {
                 gate: dependencies.gate, connections: terminals
             ))
         }
+        // A forward carries no shell and starts no turn, so it does not wait on
+        // `terminalsEnabled`, which is about the person-bound process lifetime a shell needs.
+        ProxyRoute.register(on: router, dependencies: .init(
+            verifier: dependencies.verifier, connections: terminals, reservedPorts: dependencies.reservedPorts
+        ))
         return router
     }
 
@@ -111,7 +117,8 @@ public struct WorkspaceHTTPServer: Sendable {
             // thirty seconds rather than held for ever (L4 in the review of 19 September 2026).
             // An event stream is a request in progress, so its minutes of quiet are not idle.
             server: .http1WebSocketUpgrade(webSocketRouter: webSocketRouter(),
-                                           configuration: .init(http1: .init(idleTimeout: Self.idleTimeout))),
+                                           configuration: .init(http1: .init(idleTimeout: Self.idleTimeout),
+                                                                ws: .init(maxFrameSize: MachineSocket.maximumFrame))),
             configuration: .init(address: .hostname(host, port: port), serverName: "bloom-runner"),
             onServerRunning: { channel in await onServerRunning(channel.localAddress?.port ?? port) }
         )

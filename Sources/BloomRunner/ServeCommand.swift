@@ -187,6 +187,8 @@ public enum ServeCommand {
         // sender rather than a fold into the usage queue, because it causes mail: see
         // `AddressedReporter`.
         let addressedReporter = AddressedReporter(store: store) { try await client.reportAddressed($0) }
+        // Bloom's own ports on this machine: the preview proxy, Runner itself and the model gateway.
+        let reservedPorts = layout.reservedPorts.map(\.port) + [modelGatewayServer.port]
         let runtime = WorkspaceRuntime(
             store: store, workspaceID: workspace.id, gate: gate,
             makeRunner: { session, path, store, environment, bridge, context in
@@ -253,7 +255,11 @@ public enum ServeCommand {
             // terminals came back opened as `sprite`, the Runner's own user, with passwordless sudo
             // and the workspace secret one `sudo cat` away. The sandbox user has neither.
             sandbox: sandbox,
-            sharedDirectory: MachineSandbox.sharedDirectory
+            sharedDirectory: MachineSandbox.sharedDirectory,
+            // The same list the proxy refuses, so `listening_ports` marks what a forward would be
+            // refused. It was only ever handed to the proxy, and every Cloud workspace listed its
+            // own preview, Runner and model gateway ports as forwardable; the packaged smoke found it.
+            reservedPorts: reservedPorts
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()
         // What the machine says about its own reporting goes two ways here, because the two readers
@@ -385,7 +391,7 @@ public enum ServeCommand {
             terminalsEnabled: true,
             services: { await services.status },
             appPort: layout.appPort,
-            reservedPorts: layout.reservedPorts.map(\.port) + [modelGatewayServer.port]
+            reservedPorts: reservedPorts
         ))
 
         let credentialSocket = try PersonBoundCredentialSocket(

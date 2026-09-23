@@ -9,6 +9,7 @@
 # Pass --share-popover-only to draw two Share popover designs, offscreen, into the evidence folder.
 # Pass --cloud-settings-only to draw Settings' Bloom Cloud pane, signed out and in, light and dark.
 # Pass --cloud-setup-only to draw a new Cloud workspace's setup card at each stage, light and dark.
+# Pass --cloud-ports-only to draw a Cloud workspace's Ports popover in each state, light and dark.
 # Pass --cloud-archive-only to check the Cloud delete confirmation's layout and semantics.
 # Add --cloud-archive-keyboard to drive its Return and Escape key equivalents.
 # Pass --terminal-scroller-only to check both terminals' scroll bars follow the system's setting.

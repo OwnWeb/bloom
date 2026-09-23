@@ -1230,6 +1230,22 @@
       ],
       "additionalProperties": false
     },
+    "ListeningPort": {
+      "type": "object",
+      "properties": {
+        "port": {
+          "type": "integer"
+        },
+        "reserved": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "port",
+        "reserved"
+      ],
+      "additionalProperties": false
+    },
     "QuickPrompt": {
       "type": "object",
       "properties": {
@@ -1713,6 +1729,18 @@
           "properties": {
             "kind": {
               "const": "run_scripts"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "listening_ports"
             }
           },
           "required": [
@@ -2617,6 +2645,25 @@
           "required": [
             "kind",
             "scripts"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "ports"
+            },
+            "ports": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ListeningPort"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "ports"
           ],
           "additionalProperties": false
         },

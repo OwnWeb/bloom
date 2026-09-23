@@ -87,9 +87,15 @@ public actor TerminalSocket {
         }
     }
 
+    /// Keystrokes, or a paste, in frames the machine accepts. See `MachineSocket`.
     public func send(_ bytes: Data) async {
         guard await authenticated.value, !isClosed else { return }
-        try? await task.send(.data(bytes))
+        var offset = bytes.startIndex
+        while offset < bytes.endIndex {
+            let end = bytes.index(offset, offsetBy: MachineSocket.maximumFrame, limitedBy: bytes.endIndex) ?? bytes.endIndex
+            guard (try? await task.send(.data(bytes[offset..<end]))) != nil else { return }
+            offset = end
+        }
     }
 
     public func resize(columns: Int, rows: Int) async {
