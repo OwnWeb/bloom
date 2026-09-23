@@ -324,6 +324,12 @@ def main():
             assert status == 0, f"bloom-runner exited with status {status} on SIGTERM"
             summaries = fake.recorded("/summary")
             assert summaries[-1]["awake"] is False, summaries[-1]
+            # Stopping is not losing a capability. The last summary once left out the model
+            # gateway's, because the gateway stops first, and runbloom.app revoked the machine's
+            # model grants on reading it.
+            served = set(summaries[0].get("bloom_runner_capabilities", []))
+            kept = set(summaries[-1].get("bloom_runner_capabilities", []))
+            assert served <= kept, (summaries[0], summaries[-1])
             usage = fake.recorded("/usage")
             events = [event for report in usage for event in report["events"]]
             # Every hold ends in exactly one `released`, the last word about being awake, because

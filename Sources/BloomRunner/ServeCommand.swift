@@ -9,7 +9,9 @@ import Synchronization
 /// `bloom-runner serve`: everything a machine runs, put together once.
 ///
 /// The order matters in three places. The first summary goes before setup starts, because that
-/// summary is what makes runbloom.app hand out tokens, and setup output is worth watching live.
+/// summary is what makes runbloom.app hand out tokens, and setup output is worth watching live; it
+/// goes before the runtime starts too, because its capabilities are what a queued turn's model
+/// grant is issued against.
 /// The HTTP server is listening before setup starts for the same reason. And on the way out the
 /// machine reports and closes streams before anything stops, so a limit or an update that ends
 /// the process still leaves runbloom.app knowing where things stood.
@@ -324,6 +326,19 @@ public enum ServeCommand {
             await awake.nudge()
         }
 
+        /*
+         * The first summary goes, and is waited for, before the runtime starts, because starting it
+         * restores the prompt queue and the queue begins asking runbloom.app for turns at once. A
+         * turn's model grant is issued only to a machine whose last summary named
+         * `opaque_model_grants_v1`, so a restart with a prompt queued asked for its turn before this
+         * process had said so, was refused with 403 `model_grant_invalid`, and paused the chat's
+         * queue. Bounded, because a runbloom.app that cannot be reached must not keep the machine
+         * from serving: the turn would be refused either way, and ten seconds is well inside the
+         * twenty an update waits for the new process to listen. The summary after `start` is
+         * still asked for, in case what `start` recovered from the last run changes the picture,
+         * and it goes only if it does.
+         */
+        _ = await reporter.postSummaryAndWait(timeout: .seconds(10))
         try await runtime.start()
         // Whatever the last run could not deliver, including the case this exists for: a machine
         // that stopped between writing the message and telling runbloom.app about it.
@@ -479,6 +494,8 @@ public enum ServeCommand {
         // never does, so a machine with one client connected never got as far as reporting.
         let windDown = WindDown {
             note("stopping: stopping turns, reporting to runbloom.app and closing streams")
+            // Before anything stops, the model gateway above all: see `MachineReporter.windingDown`.
+            await reporter.windingDown()
             // Setup first, filed as interrupted, so nothing it would start begins now.
             setupRun.cancel()
             await setupRun.value

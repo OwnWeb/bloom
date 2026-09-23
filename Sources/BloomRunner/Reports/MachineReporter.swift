@@ -37,6 +37,9 @@ public actor MachineReporter {
     private var reportedShed = 0
     private(set) var awake = false
     private(set) var leaseUntil: Date?
+    /// What the machine could do while it was serving, taken when it began to stop. See
+    /// `windingDown()`.
+    private var capabilitiesWhileServing: [String]?
 
     static let revisionKey = "remote.summary.revision"
     static let meterKey = "remote.usage.meter"
@@ -105,6 +108,29 @@ public actor MachineReporter {
         await postSummary()
     }
 
+    /// Posts now and waits, for at most `timeout`, for it to reach runbloom.app. Answers whether it
+    /// did. For the first summary after a start, which has to land before the restored queue asks
+    /// for a turn: see `ServeCommand`.
+    public func postSummaryAndWait(timeout: Duration) async -> Bool {
+        await postSummaryNow()
+        return await delivery.flush(timeout: timeout)
+    }
+
+    /// The machine has begun to stop. Every summary from here on carries the capabilities it had
+    /// while it served, rather than what is left of them as the wind down takes things apart.
+    ///
+    /// **runbloom.app reads a capability that goes missing as one that was lost, and acts on it.**
+    /// The model gateway is stopped before the last summary is posted, so that summary used to
+    /// leave `opaque_model_grants_v1` out, and runbloom.app answered by revoking the machine's
+    /// model grants. A restart with a prompt queued then had its turn refused with 403
+    /// `model_grant_invalid` and the chat's queue paused. Stopping is not losing: the next process
+    /// says for itself what it can do. A failure while serving still takes a capability away,
+    /// because this is taken only once the wind down begins.
+    public func windingDown() {
+        guard capabilitiesWhileServing == nil else { return }
+        capabilitiesWhileServing = capabilities()
+    }
+
     /// One at a time, in order. Two overlapping posts each read `awake` before suspending, and the
     /// one that read it first could land last: runbloom.app's last word was a machine awake that
     /// had just been released. Each post reads the state when its turn comes, so the later one
@@ -126,7 +152,7 @@ public actor MachineReporter {
         do {
             let revision = try await nextRevision()
             let summary = try await runtime.summary(revision: revision, observedAt: now(), version: version,
-                                                    capabilities: capabilities(), awake: awake,
+                                                    capabilities: capabilitiesWhileServing ?? capabilities(), awake: awake,
                                                     leaseUntil: leaseUntil, diff: diff, pullRequest: pullRequest, atStake: atStake)
             guard summary.content != lastSent?.content else { return }
             await delivery.submitSummary(try WireJSON.encode(summary))
