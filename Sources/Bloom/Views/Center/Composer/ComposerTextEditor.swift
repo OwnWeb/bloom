@@ -421,9 +421,7 @@ struct ComposerTextEditor: NSViewRepresentable {
             layout.ensureLayout(for: container)
 
             let line = layout.defaultLineHeight(for: textView.font ?? ComposerTextEditor.font)
-            // A trailing newline owns a blank line with a caret. It is outside usedRect, so
-            // ignoring the extra fragment made the composer grow one Return too late.
-            let used = max(layout.usedRect(for: container).height, layout.extraLineFragmentRect.maxY)
+            let used = Self.usedHeight(of: textView, layout: layout, container: container)
             let minimum = CGFloat(parent.minLines) * line
             let maximum = CGFloat(parent.maxLines) * line
             let height = min(max(used, minimum), maximum).rounded(.up)
@@ -432,6 +430,49 @@ struct ComposerTextEditor: NSViewRepresentable {
             lastReportedHeight = height
             let report = parent.onHeightChange
             Task { report(height) }
+        }
+
+        /// The height the text takes at the width it would have with the vertical scroller showing.
+        ///
+        /// Not at the width it has now. A legacy scroller, which is what "Show scroll bars: Always"
+        /// or a plugged in mouse gives, takes its width out of the text, so a last line that just
+        /// fits without it wraps with it. Measured at the current width, that draft flipped for as
+        /// long as it sat there: seven lines reported, the box shrank, the text view still held
+        /// the eighth line's height from filling the taller box, so the scroller came on, the text
+        /// wrapped to eight, eight was reported, the scroller went away, and seven again. A user
+        /// filmed it as a stutter every few milliseconds, and `ComposerInputProbe` counted 26 flips
+        /// in a second. Measured with the scroller's width taken off, the answer is the same
+        /// whether or not it is showing, and the worst case is a spare line under the text.
+        /// An overlay scroller takes no width, so for most people this is the layout already done.
+        private static func usedHeight(
+            of textView: ComposerTextView, layout: NSLayoutManager, container: NSTextContainer
+        ) -> CGFloat {
+            // A trailing newline owns a blank line with a caret. It is outside usedRect, so
+            // ignoring the extra fragment made the composer grow one Return too late.
+            func used(_ layout: NSLayoutManager, _ container: NSTextContainer) -> CGFloat {
+                max(layout.usedRect(for: container).height, layout.extraLineFragmentRect.maxY)
+            }
+            guard let scrollView = textView.enclosingScrollView, let storage = textView.textStorage else {
+                return used(layout, container)
+            }
+            let width = NSScrollView.contentSize(
+                forFrameSize: scrollView.frame.size,
+                horizontalScrollerClass: nil,
+                verticalScrollerClass: NSScroller.self,
+                borderType: scrollView.borderType,
+                controlSize: .regular,
+                scrollerStyle: scrollView.scrollerStyle
+            ).width - 2 * textView.textContainerInset.width
+            guard width > 1, container.size.width - width > 0.5 else { return used(layout, container) }
+
+            let narrow = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+            narrow.lineFragmentPadding = container.lineFragmentPadding
+            let measure = NSLayoutManager()
+            measure.addTextContainer(narrow)
+            let copy = NSTextStorage(attributedString: storage)
+            copy.addLayoutManager(measure)
+            measure.ensureLayout(for: narrow)
+            return used(measure, narrow)
         }
     }
 }

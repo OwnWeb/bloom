@@ -128,6 +128,41 @@ enum ComposerInputProbe {
                     }
                 }
             }
+            // A draft whose last line fits beside no scroller and wraps beside a legacy one. The
+            // editor flipped between the two heights for as long as it was left there.
+            do {
+                scroll.scrollerStyle = .legacy
+                draft.text = ""
+                await settle(window)
+                let font = text.font!
+                let full = scroll.frame.width - 2 * ComposerTextEditor.textInset
+                let narrow = full - NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+                func lines(_ string: String, _ width: CGFloat) -> Int {
+                    let storage = NSTextStorage(string: string, attributes: [.font: font])
+                    let manager = NSLayoutManager()
+                    let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+                    container.lineFragmentPadding = 0
+                    manager.addTextContainer(container)
+                    storage.addLayoutManager(manager)
+                    manager.ensureLayout(for: container)
+                    return Int((manager.usedRect(for: container).height / line).rounded())
+                }
+                var last = "Lorem"
+                while lines(last, full) == lines(last, narrow) { last += " ipsum" }
+                draft.text = "Title\n\nOne\n\nTwo\n\n" + last
+                var heights: [CGFloat] = []
+                for _ in 0..<40 {
+                    window.layoutIfNeeded()
+                    heights.append(scroll.contentSize.height)
+                    try? await Task.sleep(for: .milliseconds(25))
+                }
+                let flips = zip(heights, heights.dropFirst()).filter { $0 != $1 }.count
+                check(flips <= 2, "editor oscillates at a legacy scroller's wrap boundary: \(flips) flips")
+                check(text.frame.height <= scroll.contentSize.height,
+                      "draft at a legacy scroller's wrap boundary is left scrolled: "
+                      + "document \(text.frame.height), viewport \(scroll.contentSize.height)")
+                scroll.scrollerStyle = .overlay
+            }
             for count in [1, 2, 10, 25, 1] {
                 draft.text = Array(repeating: "Line", count: count).joined(separator: "\n")
                 await settle(window)
