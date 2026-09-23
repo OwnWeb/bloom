@@ -47,6 +47,21 @@ actor RemoteSession {
     private let runnerExitGrace: Duration
     private let retiresRunnerAfterTurn: Bool
 
+    /// What the running process was launched with, so a turn whose conversation could not be
+    /// resumed can launch again on the same key. See `restartWithoutResume`.
+    private struct Launch {
+        let identity: String?
+        let environment: [String: String]
+        let personal: Set<String>
+        let context: RemoteLaunchContext?
+    }
+
+    private var launch: Launch?
+    /// The turn in progress, kept for the same reason.
+    private var turnDelivery: Delivery?
+    /// Whether this turn has already been launched again once. Twice would be a loop.
+    private var restartedTurn = false
+
     init(
         runnerExitGrace: Duration = .seconds(6),
         retiresRunnerAfterTurn: Bool = false,
@@ -86,9 +101,14 @@ actor RemoteSession {
             if isClosed { throw RemoteFailure(.unavailable, "This conversation is closed.") }
             throw RemoteFailure(.busy, "Another agent launch replaced this one.")
         }
+        install(fresh, as: Launch(identity: identity, environment: environment, personal: personal, context: context))
+    }
+
+    private func install(_ fresh: any SessionRunner, as launch: Launch) {
         runner = fresh
-        launchIdentity = identity
-        personalMarks = personal
+        launchIdentity = launch.identity
+        personalMarks = launch.personal
+        self.launch = launch
         let events = fresh.events
         eventTask = Task { [weak self] in
             for await event in events {
@@ -108,6 +128,8 @@ actor RemoteSession {
         wasStopped = false
         stopReason = nil
         claimedEnd = false
+        turnDelivery = delivery
+        restartedTurn = false
         generation += 1
         defer { isSending = false }
         if !streamingText.isEmpty {
@@ -142,6 +164,7 @@ actor RemoteSession {
             streamingText = ""
             await onStream("", true)
         case .result(let result):
+            if ConversationNotResumed.matches(result), await restartWithoutResume() { return }
             guard claimEnd() else { return }
             streamingText = ""
             await onStream("", true)
@@ -151,6 +174,7 @@ actor RemoteSession {
             )
             endTurn()
         case .error(let error):
+            if ConversationNotResumed.matches(error.message), await restartWithoutResume() { return }
             guard claimEnd() else { return }
             streamingText = ""
             await onStream("", true)
@@ -181,6 +205,58 @@ actor RemoteSession {
         }.value
     }
 
+    /// Runs the turn again on a fresh process when its `--resume` found no conversation, once, and
+    /// answers whether it did.
+    ///
+    /// **A replaced machine never answered in a chat it had already spoken in.** The row carries
+    /// the conversation id and the machine's disk no longer has the conversation, so the CLI failed
+    /// before its first request and the failure paused the queue. The runner has already let go of
+    /// the id and written the note by the time this event arrives (see `ConversationNotResumed`),
+    /// so a new process from the row starts a new conversation, and the person's message goes to
+    /// it rather than being handed back as an error they have to send again.
+    ///
+    /// A new process rather than a second launch inside the old runner, because a machine's
+    /// launch boundary is deliberately single use: `ServeCommand` binds one person's grant to one
+    /// process, and a second spawn through the same runner gets `/usr/bin/false`. Going through
+    /// `make` again reserves a new boundary the ordinary way.
+    ///
+    /// In a task of its own for the reason `closeTurn` gives: this runs on `eventTask`, which
+    /// retiring the old runner cancels.
+    private func restartWithoutResume() async -> Bool {
+        guard isBusy, !claimedEnd, !wasStopped, !restartedTurn, !isClosed,
+              let delivery = turnDelivery, let launch else { return false }
+        restartedTurn = true
+        return await Task { await self.relaunch(delivery, on: launch) }.value
+    }
+
+    private func relaunch(_ delivery: Delivery, on launch: Launch) async -> Bool {
+        prepareGeneration += 1
+        let relaunching = prepareGeneration
+        await retireRunner()
+        // A stop or a shutdown during the retirement wins, and the turn ends as it would have.
+        guard !isClosed, !wasStopped, relaunching == prepareGeneration else { return false }
+        let fresh: any SessionRunner
+        do {
+            fresh = try await make(launch.environment, launch.context)
+        } catch {
+            return false
+        }
+        // Only Claude Code reports this failure, so only its runner is ever asked to take the
+        // turn again, and it is the one that can do so without recording it twice.
+        guard !isClosed, !wasStopped, relaunching == prepareGeneration, runner == nil,
+              let claude = fresh as? AgentRunner else {
+            await retire(fresh)
+            return false
+        }
+        install(fresh, as: launch)
+        do {
+            try await claude.resendDelivery(delivery)
+        } catch {
+            return false
+        }
+        return true
+    }
+
     private func endTurn() {
         isBusy = false
         busySince = nil
@@ -197,9 +273,12 @@ actor RemoteSession {
 
     func stop() {
         // Keep the turn reserved until its terminal event. A late stop must not cancel a new turn.
-        guard isBusy, let runner else { return }
+        guard isBusy else { return }
+        // Marked even with no runner to signal, which is a turn between its lost conversation's
+        // process and the fresh one: `relaunch` reads this and ends the turn as stopped rather
+        // than starting it again under somebody who asked it to stop.
         wasStopped = true
-        runner.cancelNow()
+        runner?.cancelNow()
     }
 
     /// Waits for a stopped turn to come to rest, and ends it by force if it does not.

@@ -246,7 +246,11 @@ struct TranscriptRowView: View, Equatable {
             )
 
         case .notice:
-            RateLimitRowView(payload: row.payload)
+            if let note = ConversationNotResumed.sentence(fromNote: row.payload) {
+                ConversationNotResumedRowView(sentence: note)
+            } else {
+                RateLimitRowView(payload: row.payload)
+            }
 
         case .system:
             if let info = initInfo {

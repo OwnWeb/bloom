@@ -504,10 +504,18 @@ public actor WorkspaceRuntime {
                 runnerExitGrace: self.runnerExitGrace,
                 retiresRunnerAfterTurn: self.retiresRunnerAfterTurn,
                 make: { environment, context in
+                    // The row as it is now, never the copy read when the chat was first loaded.
+                    // A machine retires its process after every turn, so this runs for every turn,
+                    // and building from that copy launched every turn after the first without the
+                    // conversation id the first had stored: each one began a new conversation with
+                    // no memory of the last. The same copy put back a model, an effort or a
+                    // permission mode changed since. A read that fails keeps the copy, which is no
+                    // worse than before.
+                    let current = await Self.currentRow(of: session, in: store)
                     // Per process rather than per chat, because a relaunch on another key is a new
                     // process and registering is what revokes the token the old one held.
-                    let handle = bridge.flatMap { Self.registerBridge($0, shimPath: shimPath, session: session, workspace: workspace) }
-                    return try await make(session, workspace.path, store, environment, handle, context)
+                    let handle = bridge.flatMap { Self.registerBridge($0, shimPath: shimPath, session: current, workspace: workspace) }
+                    return try await make(current, workspace.path, store, environment, handle, context)
                 },
                 onStream: { [weak self] text, reset in await self?.streamed(id, text: text, reset: reset) },
                 onTurnEnded: { [weak self] ending in await self?.queue().turnEnded(id, ending: ending) },
@@ -523,6 +531,15 @@ public actor WorkspaceRuntime {
         }
         sessions[id] = live
         return live
+    }
+
+    /// The stored row for a chat, or `cached` when it cannot be read or no longer belongs here.
+    /// Static and handed the store so the runner factory holding it does not hold the runtime.
+    static func currentRow(of cached: Session, in store: Store) async -> Session {
+        guard let fresh = try? await store.session(id: cached.id), fresh.workspaceID == cached.workspaceID else {
+            return cached
+        }
+        return fresh
     }
 
     /// Called when a turn comes to rest, after the queue has ended runbloom.app's turn.

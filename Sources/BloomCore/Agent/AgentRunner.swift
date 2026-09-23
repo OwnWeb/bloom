@@ -397,8 +397,20 @@ public actor AgentRunner {
                        deliveryID: delivery.id, interactionMode: delivery.interactionMode)
     }
 
+    /// Hands a fresh process a turn another process already accepted and recorded, without
+    /// accepting or recording it a second time.
+    ///
+    /// For one moment only: a Cloud turn whose `--resume` found no conversation, which
+    /// `RemoteSession` launches again without the id. The delivery is `accepted` by then and its
+    /// row is in the transcript, so `sendDelivery` would refuse it as not claimed, and `send`
+    /// would draw the person's message twice.
+    public func resendDelivery(_ delivery: Delivery) async throws {
+        try await send(delivery.sent, recording: nil, deliveryID: nil,
+                       interactionMode: delivery.interactionMode, recordsTurn: false)
+    }
+
     private func send(_ text: String, recording: Data?, deliveryID: DeliveryID?,
-                      interactionMode: InteractionMode?) async throws {
+                      interactionMode: InteractionMode?, recordsTurn: Bool = true) async throws {
         guard !wasEvicted else { throw ProviderIdleError.retired }
         sendsInFlight += 1
         sink.noteActivity()
@@ -432,7 +444,7 @@ public actor AgentRunner {
         // One row, whichever it is. The crew payload carries what a person reads and what the
         // model was handed, so writing the user row beside it would put the envelope back on
         // screen, which is the whole of what this argument exists to stop.
-        if deliveryID == nil {
+        if deliveryID == nil, recordsTurn {
             if let recording { await persist(kind: .crew, payload: recording) } else { await persist(kind: .user, payload: Data(line.utf8)) }
         }
 
@@ -674,6 +686,9 @@ public actor AgentRunner {
             // failure. This used to be a `cancelled ? .cancelled : ...` ternary here and another
             // one in `CodexRunner`; `SessionLifecycle` says it once instead, by making
             // `turnFinished` change nothing on a session that has already been stopped.
+            if ConversationNotResumed.matches(result), result.sessionID.map({ $0 == session.agentSessionID }) ?? true {
+                await forgetMissingConversation()
+            }
             session.apply(.turnFinished(isError: result.isError))
             session = session.with {
                 $0.inputTokens += result.usage.inputTokens
@@ -701,6 +716,25 @@ public actor AgentRunner {
         if case .permissionAsk(let ask) = event {
             await handle(ask)
         }
+    }
+
+    /// Lets go of a conversation id the CLI says it cannot find, and says so in the transcript.
+    ///
+    /// **Without this a chat whose conversation has gone never answers again.** The id is only
+    /// ever replaced by the next `system/init`, and a `--resume` that finds nothing fails before
+    /// it prints one, so every later launch resumed the same missing id and failed the same way.
+    /// Saved here, before the event that reports the failure is handed on, because a Cloud
+    /// session launches again the moment it sees that event and reads the row to do it. See
+    /// `ConversationNotResumed` for the exact failure, which is the only one allowed here.
+    private func forgetMissingConversation() async {
+        guard session.agentSessionID != nil else { return }
+        Self.log.info("the conversation for \(self.session.id.rawValue, privacy: .public) could not be resumed, so the next launch starts a new one")
+        session = session.with {
+            $0.agentSessionID = nil
+            $0.updatedAt = Date()
+        }
+        await save(session)
+        await persist(kind: .notice, payload: ConversationNotResumed.note)
     }
 
     /// Write one row.
@@ -1029,6 +1063,9 @@ public actor AgentRunner {
                 \(self.session.state.rawValue, privacy: .public)
                 """)
 
+            // Before the error goes out rather than after: a Cloud session relaunches on that event,
+            // and a launch that read the row before the id was cleared would resume it again.
+            if ConversationNotResumed.matches(unfinished.message) { await forgetMissingConversation() }
             await ingest(.error(AgentError(message: unfinished.message, raw: unfinished.payload)))
 
             session.apply(.processFailed)
