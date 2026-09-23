@@ -86,6 +86,10 @@ final class ModelGatewayServer: @unchecked Sendable {
                 betas: request.headers[values: HTTPField.Name("anthropic-beta")!]
             )
             guard stream.response.status == 200 else {
+                if let relayed = await relayedProviderError(stream) {
+                    await gateway.complete(token: token, requestID: stream.requestID)
+                    return relayed
+                }
                 _ = try? await stream.response.body.collect(upTo: 64 * 1_024)
                 await gateway.complete(token: token, requestID: stream.requestID)
                 return failure(
@@ -144,17 +148,71 @@ final class ModelGatewayServer: @unchecked Sendable {
         }
     }
 
-    private static func failure(
-        status: Int, message: String, provider: OpaqueModelGrant.Provider? = nil,
-        retryAfter: String? = nil
-    ) -> Response {
+    /// The provider headers an agent's SDK backs off by, and the ids a provider's support asks
+    /// for. runbloom.app forwards the same list and no other header; it is enforced again here so
+    /// a server answering with anything else cannot set a cookie, a location or a content length
+    /// on the agent's side of the loopback.
+    private static let relayedHeaders: Set<String> = [
+        "retry-after", "retry-after-ms", "x-should-retry", "request-id", "x-request-id",
+    ]
+    private static let relayedHeaderPrefixes = ["anthropic-ratelimit-", "x-ratelimit-"]
+
+    private static func relays(header name: String) -> Bool {
+        let name = name.lowercased()
+        return relayedHeaders.contains(name) || relayedHeaderPrefixes.contains { name.hasPrefix($0) }
+    }
+
+    /// runbloom.app marks an error the provider itself answered with `X-Bloom-Upstream-Status`,
+    /// and that is passed on as the provider sent it. Folding it into `allowed(status:)` was the
+    /// bug: a 400 for a malformed request, a 404 for an unknown model or a 413 for an oversized
+    /// one reached the agent as a retryable 503 and was retried for nothing; a provider 503 or 529
+    /// without Retry-After waited the default 30 seconds; and the rate-limit headers the agent's
+    /// SDK paces itself by were dropped. An unmarked error is runbloom.app's own (its stream limit,
+    /// an unreachable provider) and keeps the old handling. A marked 401 or 403 is not relayed:
+    /// runbloom.app never sends one, because a 403 drops the grant and a 401 tells the agent its
+    /// key is wrong, and a server that did would get neither passed on.
+    private static func relayedProviderError(_ stream: ModelGateway.Stream) async -> Response? {
+        let upstream = stream.response
+        let status = upstream.status
+        guard let marker = upstream.headers.first(name: "X-Bloom-Upstream-Status"),
+              Int(marker) == status, (400...599).contains(status), status != 401, status != 403 else {
+            return nil
+        }
+        var headers = HTTPFields()
+        for (name, value) in upstream.headers where relays(header: name) {
+            guard let field = HTTPField.Name(name) else { continue }
+            headers.append(HTTPField(name: field, value: value))
+        }
+        headers[.contentType] = "application/json"
+        headers[.cacheControl] = "no-store"
+        headers[HTTPField.Name("X-Content-Type-Options")!] = "nosniff"
+        // runbloom.app sends at most 16 KB; the cap is for a server that does not.
+        let body: ByteBuffer
+        do {
+            body = try await upstream.body.collect(upTo: 64 * 1_024)
+        } catch {
+            body = ByteBuffer(bytes: errorBody(
+                message: "The model provider answered \(status).", provider: stream.provider
+            ))
+        }
+        return Response(status: .init(code: status), headers: headers, body: .init(byteBuffer: body))
+    }
+
+    private static func errorBody(message: String, provider: OpaqueModelGrant.Provider?) -> Data {
         let body: [String: Any]
         if provider == .anthropic {
             body = ["type": "error", "error": ["type": "model_gateway_error", "message": message]]
         } else {
             body = ["error": ["type": "model_gateway_error", "message": message]]
         }
-        let data = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
+        return (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
+    }
+
+    private static func failure(
+        status: Int, message: String, provider: OpaqueModelGrant.Provider? = nil,
+        retryAfter: String? = nil
+    ) -> Response {
+        let data = errorBody(message: message, provider: provider)
         var headers = HTTPFields()
         headers[.contentType] = "application/json"
         headers[.cacheControl] = "no-store"

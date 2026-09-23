@@ -24,6 +24,9 @@ public struct RunbloomClient: Sendable {
         var status: Int
         var contentType: String?
         var retryAfter: String?
+        /// Every header as runbloom.app sent it. What reaches the agent is filtered again by
+        /// `ModelGatewayServer`, so nothing here is trusted merely for having been received.
+        var headers: HTTPHeaders = [:]
         var body: HTTPClientResponse.Body
     }
     /// `{base}/api/machine/workspaces/{id}`, built once. Held as the path rather than the id so
@@ -390,6 +393,7 @@ public struct RunbloomClient: Sendable {
                 status: Int(response.status.code),
                 contentType: response.headers.first(name: "Content-Type"),
                 retryAfter: response.headers.first(name: "Retry-After"),
+                headers: response.headers,
                 body: response.body
             )
         } catch {
