@@ -42,7 +42,12 @@ extension CloudWorkspaceSession {
     /// Whether the machine is still making the worktree the changes would be read from. The
     /// inspector says so rather than spinning or, worse, drawing git's complaint about a repository
     /// that is being cloned underneath the question. See `CloudChanges.refresh`.
-    var isPreparingChanges: Bool { isRunningSetup }
+    var isPreparingChanges: Bool { changesReadiness == .settingUp }
+
+    /// Whether the machine may be asked for the changes at all. See `CloudChangesReadiness`.
+    var changesReadiness: CloudChangesReadiness {
+        CloudChangesReadiness.of(setupState: state.setup?.state)
+    }
 
     var hasReadChanges: Bool { changes.hasRead }
 

@@ -235,6 +235,17 @@ final class CloudWorkspaceSession {
     }
 
     private func receive(_ update: WorkspaceConnection.Update) async {
+        let readiness = changesReadiness
+        defer {
+            // **The changes are read when the gate opens, and nothing used to read them then.** The
+            // read on the way up is refused while setup runs or before its state is known, and
+            // setup finishing is only a `setup` event, so a new workspace's list stayed unread
+            // until a turn happened to end. See `CloudChangesReadiness`.
+            if phase == .live, CloudChangesReadiness.opened(from: readiness, to: changesReadiness) {
+                Task { await changes.refresh(quietly: changes.hasRead) }
+                changes.reconsiderWatching()
+            }
+        }
         switch update {
         case .phase(let next):
             phase = next

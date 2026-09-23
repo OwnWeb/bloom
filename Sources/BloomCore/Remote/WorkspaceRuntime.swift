@@ -36,7 +36,7 @@ public actor WorkspaceRuntime {
     let publishing: RemotePublishing?
     public nonisolated let events: RemoteEventHub
     let admissions = RemoteAdmissions()
-    let reviewCache = RemoteReviewCache()
+    let reviewCache: RemoteReviewCache
     var terminalService: RemoteTerminals?
     var lastJournalPrune: Date?
     /// The user a machine runs its untrusted work as, and the directory both users can read, or nil
@@ -157,8 +157,10 @@ public actor WorkspaceRuntime {
         sandbox: MachineSandbox? = nil,
         sharedDirectory: String? = nil,
         reservedPorts: [Int] = [],
-        listeningPorts: @escaping @Sendable () -> [Int] = { ListeningPorts.current() }
+        listeningPorts: @escaping @Sendable () -> [Int] = { ListeningPorts.current() },
+        worktreeCloned: Bool = true
     ) {
+        reviewCache = RemoteReviewCache(worktreeCloned: worktreeCloned)
         self.reservedPorts = reservedPorts
         self.listeningPorts = listeningPorts
         self.sandbox = sandbox

@@ -27,6 +27,7 @@ struct RemoteWorkspaceRuntimeTests {
         addressed: (@Sendable (AddressedReport) async -> Void)? = nil,
         publishing: RemotePublishing? = nil,
         retiresRunnerAfterTurn: Bool = false,
+        worktreeCloned: Bool = true,
         start: Bool = true
     ) async throws -> Fixture {
         let store = try makeTestStore("remote-runtime")
@@ -48,7 +49,7 @@ struct RemoteWorkspaceRuntimeTests {
             installedAgents: { [.claudeCode, .codex] }, models: models, publishing: publishing,
             runnerExitGrace: .milliseconds(50), retiresRunnerAfterTurn: retiresRunnerAfterTurn,
             lookUpMember: lookUpMember, addressed: addressed,
-            createCloudWorkspace: createCloudWorkspace, peers: peers
+            createCloudWorkspace: createCloudWorkspace, peers: peers, worktreeCloned: worktreeCloned
         )
         if start { try await runtime.start() }
         return Fixture(store: store, workspace: workspace, session: session, runtime: runtime, runners: runners)
@@ -152,6 +153,30 @@ struct RemoteWorkspaceRuntimeTests {
         #expect(stored.senderToken == "token-for-u1", "kept, so a retry after a restart can still prove it")
         try await fixture.store.markAddressedReported(id: stored.id)
         #expect(try await fixture.store.unsentAddressedReports().isEmpty)
+        await fixture.runtime.shutdown()
+    }
+
+    /// A Runner answered the branch diff while `git clone` was still writing the checkout, and a
+    /// client drew all 5,107 tracked files as deleted. Until setup says the clone finished, both
+    /// review reads are refused in words a client can show, rather than answered.
+    @Test("review reads are refused, not answered, until the clone has finished")
+    func reviewWaitsForTheClone() async throws {
+        let fixture = try await fixture(worktreeCloned: false)
+        let caller = Self.caller(Self.freek)
+        let snapshot = await fixture.runtime.respond(to: CommandRequest(.reviewSnapshot(scope: .branch, knownRevision: nil, wait: false)), as: caller)
+        #expect(snapshot.result == nil)
+        #expect(snapshot.error?.code == .workspaceChanging)
+        #expect(snapshot.error?.message.contains("still cloning") == true)
+        let patch = await fixture.runtime.respond(to: CommandRequest(.reviewPatch(path: "a.txt", scope: .branch, knownRevision: nil)), as: caller)
+        #expect(patch.error?.code == .workspaceChanging)
+        #expect(await fixture.runtime.isWorktreeCloned == false)
+
+        await fixture.runtime.worktreeChanged(cloned: true)
+        #expect(await fixture.runtime.isWorktreeCloned)
+        let after = await fixture.runtime.respond(to: CommandRequest(.reviewSnapshot(scope: .branch, knownRevision: nil, wait: false)), as: caller)
+        // This fixture's worktree is not a repository, so git has its own complaint now. What
+        // matters is that the refusal has gone.
+        #expect(after.error?.code != .workspaceChanging)
         await fixture.runtime.shutdown()
     }
 

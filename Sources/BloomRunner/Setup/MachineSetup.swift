@@ -697,12 +697,25 @@ public actor MachineSetup {
         #endif
     }
 
+    /// Whether the worktree is a whole clone: `.git` is there and a clone or a whole setup finished.
+    /// Read by the server before its runtime exists, so that a restart of a machine whose clone
+    /// finished long ago answers review reads at once rather than after setup runs again.
+    public static func hasWholeClone(store: Store, worktree: String) async -> Bool {
+        let cloned = (try? await store.setting(clonedSetting)) == "1"
+        // A setup that once completed had a whole clone, whatever the marker says.
+        let completed = (try? await store.setting(completedSetting)) == "1"
+        return FileManager.default.fileExists(atPath: worktree + "/.git") && (cloned || completed)
+    }
+
     private func cloneIfNeeded(environment: [String: String], log: SetupLog, continuing: Bool = false) async -> Bool {
         let worktree = layout.worktree
-        let cloned = (try? await store.setting(Self.clonedSetting)) == "1"
-        // A setup that once completed had a whole clone, whatever the marker says.
-        let completed = (try? await store.setting(Self.completedSetting)) == "1"
-        if FileManager.default.fileExists(atPath: worktree + "/.git") && (cloned || completed) { return true }
+        if await Self.hasWholeClone(store: store, worktree: worktree) {
+            await runtime.worktreeChanged(cloned: true)
+            return true
+        }
+        // Before anything is deleted or written, so no review read is answered from a checkout
+        // that is half made: see `RemoteReviewCache.isWorktreeCloned`.
+        await runtime.worktreeChanged(cloned: false)
         await begin("clone", log: log, continuing: continuing)
         didWork = true
         // Only an earlier attempt of this step has written here. Prompts wait for setup, so before
@@ -730,6 +743,7 @@ public actor MachineSetup {
         }
         if succeeded, !Task.isCancelled {
             try? await store.setSetting(Self.clonedSetting, "1")
+            await runtime.worktreeChanged(cloned: true)
         } else if !Task.isCancelled {
             // git's own message says what went wrong to somebody who knows git; this says what to
             // do about the two that a person can act on.

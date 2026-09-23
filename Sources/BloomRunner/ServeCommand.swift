@@ -259,7 +259,11 @@ public enum ServeCommand {
             // The same list the proxy refuses, so `listening_ports` marks what a forward would be
             // refused. It was only ever handed to the proxy, and every Cloud workspace listed its
             // own preview, Runner and model gateway ports as forwardable; the packaged smoke found it.
-            reservedPorts: reservedPorts
+            reservedPorts: reservedPorts,
+            // Known before the runtime answers anything. A new machine's review is refused until
+            // setup's clone step says otherwise, which is what stopped a checkout being written
+            // from reading as every tracked file deleted.
+            worktreeCloned: await MachineSetup.hasWholeClone(store: store, worktree: layout.worktree)
         )
         let host: any MachineHost = SpriteMachineHost.isAvailable ? SpriteMachineHost(http: http) : LocalMachineHost()
         // What the machine says about its own reporting goes two ways here, because the two readers
@@ -295,6 +299,8 @@ public enum ServeCommand {
             }
         )
         let awake = AwakeController(host: host, runtime: runtime, reporter: reporter)
+        let measurements = WorktreeMeasurements(runtime: runtime, reporter: reporter)
+        await awake.beforeSleeping { await measurements.measureNow() }
         let machineEnvironment = MachineEnvironment(
             fetchVariables: { try await client.environment() },
             fetchSecrets: { try await client.secrets(for: $0) }
@@ -304,6 +310,10 @@ public enum ServeCommand {
                                      revocations: Revocations(store: store))
 
         await runtime.observeActivity { event in
+            // Not awaited: the runtime calls this from inside a turn settling and a setup finishing,
+            // and neither should wait on git. The last summary before sleep waits for it instead,
+            // through `beforeSleeping` above.
+            Task { await measurements.activity(event) }
             switch event {
             case .turnStarted(_, let turnID, let author, let agent):
                 if let turnID { await reporter.record(.turnStarted(turnID: turnID, userID: author?.userID, agent: agent, at: Date())) }
@@ -474,7 +484,6 @@ public enum ServeCommand {
             saveState: { try await store.setSetting(ProjectIconDiscoveryMonitor.stateSetting, $0) },
             isAwake: { await awake.holding }
         )
-        let measurements = WorktreeMeasurements(runtime: runtime, reporter: reporter)
         await awake.whenWaking {
             await machineEnvironment.refresh()
             await projectIcons.woke()

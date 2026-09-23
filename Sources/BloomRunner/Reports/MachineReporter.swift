@@ -28,7 +28,7 @@ public actor MachineReporter {
     private var posting: Task<Void, Never>?
     private var pendingIncludesSlow = false
     private var meter: RemoteUsageMeter?
-    private var diff = RemoteSummary.Diff(files: 0, additions: 0, deletions: 0)
+    private(set) var diff = RemoteSummary.Diff(files: 0, additions: 0, deletions: 0)
     private var pullRequest: RemoteSummary.PullRequest?
     /// Nil until something measures it, and nil again when it cannot be measured: the summary
     /// leaves the fields out rather than sending zeroes.

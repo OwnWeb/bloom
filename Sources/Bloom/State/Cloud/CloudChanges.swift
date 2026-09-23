@@ -200,8 +200,10 @@ final class CloudChanges {
         // answer about the asking, and an error in front of a person is worse than a wait.
         //
         // So the state of setup is the gate. `hasRead` deliberately stays false, which is what the
-        // inspector draws its own sentence from: see `isSettingUp`.
-        guard !session.isRunningSetup else { return }
+        // inspector draws its own sentence from: see `isSettingUp`. A setup state nobody has been
+        // told yet is held back too, which is `CloudChangesReadiness`, and the read happens when
+        // the gate opens: see `CloudWorkspaceSession.receive`.
+        guard session.changesReadiness.mayRead else { return }
         refreshGeneration += 1
         let requestGeneration = refreshGeneration
         if let commit {
@@ -253,7 +255,7 @@ final class CloudChanges {
     /// it would drop a wait that is part way through its fifteen seconds and ask the machine again
     /// for an answer it is already holding.
     func reconsiderWatching() {
-        guard isBeingRead, session?.phase == .live, session?.isRunningSetup == false else {
+        guard isBeingRead, session?.phase == .live, session?.changesReadiness.mayRead == true else {
             watcher?.cancel()
             watcher = nil
             return
@@ -279,7 +281,7 @@ final class CloudChanges {
     /// than something to put in front of a reader. `problem` is left alone and the loop stops.
     private func watch() async {
         while !Task.isCancelled {
-            guard let session, session.phase == .live, !session.isRunningSetup, isBeingRead else { return }
+            guard let session, session.phase == .live, session.changesReadiness.mayRead, isBeingRead else { return }
             if commit != nil { return }
             let scope = wireScope
             var cache = caches[scope] ?? CloudReviewCache()

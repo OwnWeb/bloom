@@ -194,6 +194,17 @@ extension WorkspaceRuntime {
 
     // MARK: - Files, review and terminals
 
+    /// The machine's setup, saying a clone has begun or has finished. Until it has finished, the
+    /// review refuses to read the worktree: see `RemoteReviewCache.isWorktreeCloned`.
+    public func worktreeChanged(cloned: Bool) async {
+        await reviewCache.worktreeChanged(cloned: cloned)
+    }
+
+    /// Whether the worktree is a whole checkout, for anything else that measures it.
+    public var isWorktreeCloned: Bool {
+        get async { await reviewCache.isWorktreeCloned }
+    }
+
     func performOnFiles(_ operation: WorkspaceOperation, as caller: RemoteCaller) async throws -> OperationResult {
         let workspace = try await workspace()
         switch operation {

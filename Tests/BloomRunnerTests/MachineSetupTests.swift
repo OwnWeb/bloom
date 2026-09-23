@@ -337,6 +337,9 @@ struct MachineSetupTests {
         #expect(workspace.setupLog.contains("[bloom] Running the setup script."))
         #expect(SetupTestSupport.read(fixture.layout.dataDirectory + "/setup/setup.log").contains("setup says hello"))
         #expect(try await fixture.store.setting(MachineSetup.completedSetting) == "1")
+        // The review reads the worktree from here on, and not before: see `RemoteReviewCache`.
+        #expect(await fixture.runtime.isWorktreeCloned)
+        #expect(await MachineSetup.hasWholeClone(store: fixture.store, worktree: fixture.worktree), "which a restart reads before it answers")
 
         let environment = SetupTestSupport.read(fixture.orderFile + ".env")
         #expect(environment.contains(
@@ -650,6 +653,8 @@ struct MachineSetupTests {
         #expect(workspace.setupLog.contains("spatie/example could not be cloned"))
         #expect(workspace.setupLog.contains("GitHub App is installed for it"))
         #expect(try await fixture.store.setting(MachineSetup.clonedSetting) == nil, "A half-made clone is not taken for a whole one")
+        #expect(await fixture.runtime.isWorktreeCloned == false, "Nor is it read: a half-made checkout diffs as every file deleted")
+        #expect(await MachineSetup.hasWholeClone(store: fixture.store, worktree: fixture.worktree) == false)
         await fixture.runtime.shutdown()
     }
 

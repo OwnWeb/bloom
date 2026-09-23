@@ -83,6 +83,49 @@ struct RemoteReviewCacheTests {
         await cache.shutdown()
     }
 
+    /// The branch diff of a checkout `git clone` was still writing listed all 5,107 tracked files
+    /// as deleted on a Runner. Before the clone has finished there is nothing true to say, so the
+    /// answer is a refusal that says why, and git is not asked at all.
+    @Test func refusesToReadAWorktreeWhoseCloneHasNotFinished() async throws {
+        let (_, workspace) = try await fixture()
+        let cache = RemoteReviewCache(worktreeCloned: false)
+        do {
+            _ = try await cache.snapshot(workspace: workspace, scope: .branch)
+            Issue.record("A worktree still being cloned was read")
+        } catch let failure as RemoteFailure {
+            #expect(failure.code == .workspaceChanging)
+        }
+        await #expect(throws: RemoteFailure.self) { try await cache.patch(workspace: workspace, path: "a.txt", scope: .branch) }
+        #expect(await cache.metrics.scans == 0)
+
+        await cache.worktreeChanged(cloned: true)
+        let read = try await cache.snapshot(workspace: workspace, scope: .branch)
+        #expect(read.files?.map(\.path) == ["a.txt", "b.txt"])
+        await cache.shutdown()
+    }
+
+    /// The other half of the same bug: the bogus answer was kept until the watcher next moved. An
+    /// answer taken before a clone is never served after it, whatever the watcher says, so this one
+    /// watches a directory nothing writes to and would otherwise hold the first answer for thirty
+    /// seconds.
+    @Test func anAnswerTakenBeforeACloneIsNotServedAfterIt() async throws {
+        let (repo, workspace) = try await fixture()
+        let quiet = TestScratch.unique("review-quiet-root")
+        try FileManager.default.createDirectory(atPath: quiet, withIntermediateDirectories: true)
+        let cache = RemoteReviewCache(backstop: .seconds(30)) { _ in [quiet] }
+        let before = try await cache.snapshot(workspace: workspace, scope: .branch)
+        #expect(before.files?.map(\.path) == ["a.txt", "b.txt"])
+
+        await cache.worktreeChanged(cloned: false)
+        try repo.write("c.txt", "Written by the clone\n")
+        await #expect(throws: RemoteFailure.self) { try await cache.snapshot(workspace: workspace, scope: .branch) }
+        await cache.worktreeChanged(cloned: true)
+
+        let after = try await cache.snapshot(workspace: workspace, scope: .branch, knownRevision: before.revision)
+        #expect(after.files?.map(\.path) == ["a.txt", "b.txt", "c.txt"])
+        await cache.shutdown()
+    }
+
     @Test func scopeChangesAndCommitEventsInvalidateTheCorrectBase() async throws {
         let (repo, workspace) = try await fixture()
         let cache = RemoteReviewCache(backstop: .seconds(1))

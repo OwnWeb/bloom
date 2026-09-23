@@ -51,6 +51,7 @@ public actor AwakeController {
     private var openStreams = 0
     private var loop: Task<Void, Never>?
     private var onWake: @Sendable () async -> Void = {}
+    private var onSleep: @Sendable () async -> Void = {}
 
     public init(host: any MachineHost, runtime: WorkspaceRuntime, reporter: MachineReporter, now: @escaping @Sendable () -> Date = Date.init) {
         self.host = host
@@ -63,6 +64,16 @@ public actor AwakeController {
     /// a machine that slept through a change fetches it again here.
     public func whenWaking(_ action: @escaping @Sendable () async -> Void) {
         onWake = action
+    }
+
+    /// What has to be measured before the last summary goes, run while the hold is still held.
+    ///
+    /// **The summary a machine sleeps on is what runbloom.app shows until it wakes**, and the diff
+    /// in it was whatever the thirty second schedule last read. A new workspace's first reading was
+    /// taken before its clone existed and the machine slept before the second, so its summary said
+    /// no files had changed for as long as it slept, over a branch the agent had written to.
+    public func beforeSleeping(_ action: @escaping @Sendable () async -> Void) {
+        onSleep = action
     }
 
     public func start() {
@@ -168,6 +179,8 @@ public actor AwakeController {
         // `released` once per hold: runbloom.app adds its margin per `released`, and a second one
         // for the same pause would bill it twice. Leaving `.awake` is what records it.
         phase = .releasing
+        // First, and while the hold is still held, so what it measures is in the summary below.
+        await onSleep()
         await reporter.record(.released(at: now()))
         await reporter.setAwake(false, leaseUntil: nil)
         await reporter.postSummaryNow()

@@ -64,17 +64,33 @@ public actor RemoteReviewCache {
     private let backstop: Duration
     private let resolveRoots: @Sendable (Workspace) async throws -> [String]
     private var shutdownTask: Task<Void, Never>?
+    /// Whether the worktree is a whole checkout, and so whether anything read from it is true.
+    ///
+    /// **A diff taken while `git clone` is still writing the checkout is a lie that looks exactly
+    /// like an answer.** Seen on a Runner on 23 September 2026: `HEAD` existed and the index was
+    /// half written, so the branch comparison listed all 5,107 tracked files as deleted, and this
+    /// cache kept that answer until its watcher next moved. So nothing is read until the machine's
+    /// setup says the clone finished, and the refusal says why rather than handing back an empty
+    /// or a bogus list. True everywhere that is not a machine, where nothing is cloned.
+    public private(set) var isWorktreeCloned: Bool
+    /// Moved every time `isWorktreeCloned` is set. A scan, a watch or a patch begun under one
+    /// epoch and finishing under another was read from a worktree that has since been remade, so
+    /// it is neither kept nor returned.
+    private var worktreeEpoch: UInt64 = 0
 
-    public init(backstop: Duration = .seconds(30), patchBudget: Int = 32 * 1_024 * 1_024) {
+    public init(backstop: Duration = .seconds(30), patchBudget: Int = 32 * 1_024 * 1_024, worktreeCloned: Bool = true) {
         self.backstop = backstop
         self.patchBudget = max(0, patchBudget)
         resolveRoots = Self.gitRoots
+        isWorktreeCloned = worktreeCloned
     }
 
-    init(resolveRoots: @escaping @Sendable (Workspace) async throws -> [String]) {
-        backstop = .seconds(30)
+    init(backstop: Duration = .seconds(30), worktreeCloned: Bool = true,
+         resolveRoots: @escaping @Sendable (Workspace) async throws -> [String]) {
+        self.backstop = backstop
         patchBudget = 32 * 1_024 * 1_024
         self.resolveRoots = resolveRoots
+        isWorktreeCloned = worktreeCloned
     }
 
     private static func gitRoots(_ workspace: Workspace) async throws -> [String] {
@@ -87,6 +103,31 @@ public actor RemoteReviewCache {
     private func requireOpen() throws {
         try Task.checkCancellation()
         guard !closed else { throw Self.closedFailure }
+    }
+
+    /// What a client is told while the repository is still being cloned. `workspace_changing` is
+    /// the code the protocol already has for "being set up or archived", so a client that has never
+    /// heard of this refusal still reads it as a wait rather than as git failing.
+    static let cloningFailure = RemoteFailure(
+        .workspaceChanging,
+        "This Bloom Cloud workspace is still cloning its repository, so there are no changes to read yet."
+    )
+
+    private func requireCloned(since epoch: UInt64? = nil) throws {
+        guard isWorktreeCloned, epoch.map({ $0 == worktreeEpoch }) ?? true else { throw Self.cloningFailure }
+    }
+
+    /// The machine's setup saying a clone has begun, or has finished. Everything held is forgotten
+    /// either way, the watch included, because its roots were resolved against a repository that
+    /// is about to be deleted or was not whole yet.
+    public func worktreeChanged(cloned: Bool) {
+        guard !closed else { return }
+        isWorktreeCloned = cloned
+        worktreeEpoch &+= 1
+        watch?.watch.stop()
+        watch = nil
+        snapshots.removeAll()
+        for key in patchOrder { removePatch(key) }
     }
 
     /// The changed files, or nil files when `knownRevision` is still current. With `wait`, a
@@ -109,6 +150,7 @@ public actor RemoteReviewCache {
 
     private func watcher(for workspace: Workspace) async throws -> RemoteReviewWatch {
         if let held = watch, held.path == workspace.path { return held.watch }
+        let epoch = worktreeEpoch
         let task: Task<RemoteReviewWatch, Error>
         var created = false
         if let pending = watchTasks[workspace.path] {
@@ -125,8 +167,11 @@ public actor RemoteReviewCache {
         }
         defer { if created { watchTasks[workspace.path] = nil } }
         let made = try await task.value
-        do { try requireOpen() } catch {
-            if closed { made.stop() }
+        do {
+            try requireOpen()
+            try requireCloned(since: epoch)
+        } catch {
+            if closed || epoch != worktreeEpoch { made.stop() }
             throw error
         }
         if let held = watch {
@@ -141,6 +186,8 @@ public actor RemoteReviewCache {
 
     private func current(workspace: Workspace, scope: BloomProtocol.DiffScope) async throws -> Snapshot {
         try requireOpen()
+        try requireCloned()
+        let epoch = worktreeEpoch
         let key = Key(workspace: workspace, scope: scope)
         // A base branch that changed leaves the old entry for this scope unreachable; drop it.
         snapshots = snapshots.filter { $0.key.scope != key.scope || $0.key == key }
@@ -151,6 +198,7 @@ public actor RemoteReviewCache {
         if let task = scans[key] {
             let value = try await task.value
             try requireOpen()
+            try requireCloned(since: epoch)
             return value
         }
         let generation = watch.generation
@@ -172,6 +220,7 @@ public actor RemoteReviewCache {
         defer { scans[key] = nil }
         let value = try await task.value
         try requireOpen()
+        try requireCloned(since: epoch)
         // An event received while git was reading is consumed by the next scan, never lost.
         if watch.generation == generation { snapshots[key] = value }
         return value
@@ -194,6 +243,7 @@ public actor RemoteReviewCache {
         for _ in 0..<3 {
             let value = try await current(workspace: workspace, scope: scope)
             try requireOpen()
+            let epoch = worktreeEpoch
             guard let file = value.files.first(where: { $0.path == path }), let revision = value.contentRevisions[path] else {
                 throw RemoteFailure.notFound("This file no longer has changes. Refresh the file list.")
             }
@@ -235,6 +285,7 @@ public actor RemoteReviewCache {
             }
             patchTasks[patchKey] = nil
             try requireOpen()
+            try requireCloned(since: epoch)
             guard Self.fileRevision(file, workspace: workspace, base: value.base) == revision else {
                 snapshots[key] = nil
                 continue
