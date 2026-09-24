@@ -415,9 +415,8 @@ final class WorkspaceTabsStore {
     /// value is still a mutation as far as Observation is concerned: `WorkspaceModel.reloadSessions`
     /// is the note about what that costs, an invalidation that reaches every pane of the column.
     private func adoptActiveSession(of tab: PaneContent, in model: some WorkspaceSurface) {
-        guard case .chat(let sessionID) = content(of: focusedPane(of: tab), in: tab),
-              model.activeChatID != sessionID else { return }
-        model.activeChatID = sessionID
+        guard case .chat(let sessionID) = content(of: focusedPane(of: tab), in: tab) else { return }
+        model.adoptActiveChat(sessionID)
     }
 
     // MARK: - Panes

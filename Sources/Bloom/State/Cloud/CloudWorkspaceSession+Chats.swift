@@ -40,15 +40,10 @@ extension CloudWorkspaceSession {
     /// chats have only just arrived from its machine.
     var preferredChatID: SessionID? { nil }
 
-    /// Selecting a tab adopts the chat in it, which for a Cloud workspace is the tab strip's own
-    /// selection: there is no second place that remembers which conversation is in front.
-    var activeChatID: SessionID? {
-        get { selectedChatID }
-        set {
-            guard let newValue else { return }
-            WorkspaceTabsStore.shared.select(.chat(newValue), in: self)
-        }
-    }
+    /// The selected tab and its focused pane already determine the active Cloud chat.
+    /// Calling back into tab selection here would recurse when the pane's chat is claimed by
+    /// a tab rooted on another chat.
+    func adoptActiveChat(_ id: SessionID) {}
 
     /// Opening the connection is what wakes a sleeping machine, so it happens when the column
     /// arrives on the workspace and not before.

@@ -16,9 +16,8 @@ extension WorkspaceModel {
     /// The sidebar's and the inspector's notion of the conversation in front, which is a stored
     /// property of this model and not a question for the tab store. See `preferredChatID`.
     var preferredChatID: SessionID? { activeSession?.id }
-    var activeChatID: SessionID? {
-        get { activeSessionID }
-        set { activeSessionID = newValue }
+    func adoptActiveChat(_ id: SessionID) {
+        if activeSessionID != id { activeSessionID = id }
     }
 
     /// A tool tab over this worktree, or the setup output of a chat whose CLI is still starting:

@@ -82,7 +82,9 @@ protocol WorkspaceSurface: AnyObject, Observable {
     var hasReadChats: Bool { get }
     /// Which chat the rest of the window is talking about, which selecting a tab adopts.
     var activeChat: Session? { get }
-    var activeChatID: SessionID? { get set }
+    /// Adopt the chat in the focused pane. Local workspaces store this separately; Cloud
+    /// workspaces derive it from the selected tab and its focused pane.
+    func adoptActiveChat(_ id: SessionID)
     /// The chat this workspace would have the strip open on when the strip has no selection of its
     /// own, **answered from the workspace's own state and never by asking `WorkspaceTabsStore`**.
     ///

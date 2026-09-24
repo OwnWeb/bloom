@@ -126,8 +126,13 @@ final class CloudWorkspaceSession {
     /// one selects next, were already the local column's rules asked twice.
     var selectedTab: PaneContent? { WorkspaceTabsStore.shared.selectedTab(in: self) }
 
-    /// The chat in front, when the tab in front is one.
+    /// The chat in the focused pane of the tab in front. A tool pane leaves the tab's root chat
+    /// active, as it did before split tabs could hold another chat.
     var selectedChatID: SessionID? {
+        guard let selectedTab else { return nil }
+        if case .chat(let id) = WorkspaceTabsStore.shared.content(
+            of: WorkspaceTabsStore.shared.focusedPane(of: selectedTab), in: selectedTab
+        ) { return id }
         if case .chat(let id) = selectedTab { return id }
         return nil
     }

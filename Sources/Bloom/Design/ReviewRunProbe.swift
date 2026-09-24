@@ -157,7 +157,7 @@ enum ReviewRunProbe {
         }
 
         if CommandLine.arguments.contains("--cloud-selection-only") {
-            progress("Checking that a Cloud workspace with no chats does not ask the strip about itself")
+            progress("Checking Cloud tab selection before chats arrive and in a split tab")
             await CloudSelectionProbe.run(check: check)
             let result: JSONValue = .object([
                 "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),

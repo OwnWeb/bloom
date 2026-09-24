@@ -14,8 +14,8 @@
 # Pass --cloud-archive-only to check the Cloud delete confirmation's layout and semantics.
 # Add --cloud-archive-keyboard to drive its Return and Escape key equivalents.
 # Pass --terminal-scroller-only to check both terminals' scroll bars follow the system's setting.
-# Pass --cloud-selection-only to check that a Cloud workspace with no chats cannot recurse with the
-# tab store. It crashes rather than fails on the code this was written for, which is the failure.
+# Pass --cloud-selection-only to check Cloud selection before chats arrive and in a split tab.
+# It crashes rather than fails on the code these regressions were written for.
 # Set BLOOM_PROBE_VERBOSE=1 to print the probe's own log on a passing run as well as a failing
 # one, which is how a check that only goes wrong on someone else's machine is read.
 set -euo pipefail
