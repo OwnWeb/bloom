@@ -143,7 +143,10 @@ final class TranscriptTableController {
 
     /// Marks the table as the one its retained workspace column is presenting. This changes no
     /// drawing; the probe uses it to choose between the two scroll views kept in the hierarchy.
-    func setColumnActive(_ active: Bool) { coordinator?.holdView?.setColumnActive(active) }
+    func setColumnActive(_ active: Bool) {
+        coordinator?.holdView?.setColumnActive(active)
+        if !active { coordinator?.stopWarming() }
+    }
 
     /// Where the reader is, as the pair that puts them back: the stored row at the top of the
     /// pane, and how far above its own top the pane starts. See `Coordinator.topmostPlace`.
@@ -291,6 +294,10 @@ struct TranscriptTable: NSViewRepresentable {
         coordinator.apply(entries: entries, scale: scale, environment: rowEnvironment)
     }
 
+    static func dismantleNSView(_ nsView: TranscriptHoldView, coordinator: Coordinator) {
+        coordinator.stopWarming()
+    }
+
     // MARK: - The coordinator
 
     @MainActor
@@ -317,8 +324,10 @@ struct TranscriptTable: NSViewRepresentable {
         private var heights = TranscriptRowHeights()
         private let sentMotion = TranscriptSentMotion()
         private var settleWork: Task<Void, Never>?
-        /// Preparing the rows just above the screen while nobody is moving. See `warmAhead`.
+        /// Preparing older rows while nobody is moving. See `warmAhead`.
         private var warmWork: Task<Void, Never>?
+        /// A height correction made by the warm pass is not the reader taking the scroll view.
+        private var isApplyingWarmHeights = false
         /// A reflow saying its placement a second time. See `rewidth`.
         private var placeWork: Task<Void, Never>?
         /// The last layout of a resize, waiting for the width to be still. See `settleWidth`.
@@ -454,6 +463,11 @@ struct TranscriptTable: NSViewRepresentable {
 
         deinit { NotificationCenter.default.removeObserver(self) }
 
+        func stopWarming() {
+            warmWork?.cancel()
+            warmWork = nil
+        }
+
         // MARK: Entries
 
         func apply(
@@ -499,6 +513,7 @@ struct TranscriptTable: NSViewRepresentable {
 
             let newIDs = newEntries.map(\.id)
             let change = TranscriptEntryChange.between(ids, newIDs)
+            if change.movesRows || remeasured || environmentMoved { warmWork?.cancel() }
             let changesFoldRows = pendingFoldRows && change.movesRows
             let foldAnchor = changesFoldRows ? pendingFoldAnchor : nil
             let fadesFoldRows = changesFoldRows
@@ -1500,6 +1515,9 @@ struct TranscriptTable: NSViewRepresentable {
         // MARK: What the scroll view says
 
         @objc private func clipMoved() {
+            // Correcting prepared heights can move the document while the reader's row is held
+            // still. It must not release the live end or restart the idle task that made it.
+            guard !isApplyingWarmHeights else { return }
             // **However the view got away from the end, the standing instruction goes with it.**
             //
             // `willStartLiveScroll` below is the ordinary way a reader takes hold, and it covers a
@@ -1512,8 +1530,7 @@ struct TranscriptTable: NSViewRepresentable {
                !isSettlingResizeAtEnd, !currentGeometry.isAtEnd {
                 releaseEnd()
             }
-            // The reader is moving, so whatever was being prepared for them is now on their frame.
-            // Started again by the settle when they stop. See `warmAhead`.
+            // The reader is moving, so preparation stops until the view settles again.
             warmWork?.cancel()
             warmWork = nil
             reportGeometry()
@@ -1636,32 +1653,28 @@ struct TranscriptTable: NSViewRepresentable {
             }
         }
 
-        /// **Pays a row's first build before the reader arrives at it.**
+        /// **Measures older rows before the reader arrives at them.**
         ///
-        /// The one thing every build of a long night agreed on, and the reader found it himself of
-        /// four of them: "for the items that i've already scrolled over, it's butter smooth". A row
-        /// costs once. Nothing that made a row cheaper moved that, and nothing that changed the
-        /// window moved it either, because the cost is not in the window or in the row, it is in
-        /// the FIRST time a row is asked for. So it is asked for early, while the reader is still.
+        /// On a 2,912 row session, preparing only two screens left a document height of 15,828
+        /// points before the first upward sweep, against 29,623 after it. Preparing farther while
+        /// idle brought that first number to 28,939 and cut the worst scroll-time correction from
+        /// 2,876 points to 36. The 95th percentile frame gap stayed around 16.7ms: this pass does
+        /// not build the SwiftUI drawing graph, so it fixes the jump but not the remaining stutter.
         ///
         /// Started on the settle, which is the only moment there is main thread time nobody is
         /// waiting on. Cancelled by the first movement of the clip view, and given up between rows
         /// rather than between passes, so a hand on the trackpad interrupts it within one row.
         ///
-        /// **A pass that prepares anything schedules the next one, and that is deliberate.**
-        /// Telling the table about rows above the reader moves the document, which moves the clip
-        /// view, which settles again a moment later. So a reader who stops walks the preparation
-        /// further up the conversation, sixty rows at a time, until a band two screens tall is
-        /// entirely known. It stops there rather than running on: a pass that finds every row in
-        /// the band already measured tells the table nothing, and nothing settles again.
+        /// The batches are small and yield between rows; the first movement cancels the rest.
         private func warmAhead() {
+            guard holdView?.isColumnActive == true else { return }
             warmWork?.cancel()
             warmWork = Task { @MainActor [weak self] in
                 await self?.warmTheRowsAbove()
             }
         }
 
-        /// Measures the rows just above the screen, one at a time, until the reader moves.
+        /// Measures older rows, one at a time, until the reader moves.
         ///
         /// **Measured rather than drawn, and that is the safety of it.** `measure` builds a
         /// hosting view of its own, reads a height and throws it away; it does not go through
@@ -1673,62 +1686,60 @@ struct TranscriptTable: NSViewRepresentable {
         private func warmTheRowsAbove() async {
             guard let tableView, let scrollView, heights.isReady,
                   let sizing = heights.measure else { return }
-            let visible = scrollView.contentView.documentVisibleRect
-            let reach = TranscriptWarming.reach(viewport: Double(visible.height))
-            let top = max(0, visible.minY - reach)
-            let band = CGRect(x: 0, y: top, width: 1, height: visible.minY - top)
-            guard band.height > 1 else { return }
-            let found = tableView.rows(in: band)
-            guard found.length > 0 else { return }
-            let rows = TranscriptWarming.worthWarming(
-                found.location..<(found.location + found.length)
-            )
-            var moved = IndexSet()
-            // Nearest first: a reader scrolling up meets the bottom of the band, so a pass that
-            // ran the other way would prepare the rows they reach last.
-            for row in rows.reversed() where entries.indices.contains(row) {
-                guard !Task.isCancelled, !isLiveScrolling else { break }
-                let entry = entries[row]
-                // **The streaming tail must never be measured here.** It draws nothing between
-                // turns, and a nought filed against it is the one number that would silence it:
-                // `viewFor` hands back no view for a row measured at nothing, and a running turn
-                // would have nowhere to appear. The other three that re-render themselves are
-                // excluded for the same reason. See `TranscriptEntryID.redrawsItself`.
-                guard !entry.id.redrawsItself, entry.fixedHeight != 0 else { continue }
-                let key = entry.contentKey
-                guard heights.height(for: key) == nil || heights.isStale(key) else { continue }
-                let taken = heights.note(
-                    measure(entry, at: CGFloat(sizing.width)),
-                    for: key,
-                    shape: entry.shape,
-                    // The sizer is handed the cache's own width, so this always is evidence.
-                    measuredAt: sizing.width
-                )
-                if taken { moved.insert(row) }
-                // Between rows rather than after all of them, so the cost of being interrupted is
-                // one row rather than sixty.
-                await Task.yield()
-            }
-            guard !moved.isEmpty else { return }
-            // `willStartLiveScroll` can arrive after the final yielded measurement and before this
-            // point, while `clipMoved` has not yet had a chance to cancel the warming task. Keep
-            // every height already learned, but hand its table correction to the same queue drawn
-            // rows use so background preparation never moves the document under a hand.
-            if Task.isCancelled || isLiveScrolling {
-                for row in moved where entries.indices.contains(row) {
-                    owedHeights.insert(entries[row].id)
+            while !Task.isCancelled && !isLiveScrolling {
+                let visible = scrollView.contentView.documentVisibleRect
+                guard visible.minY > 1 else { return }
+                let found = tableView.rows(in: CGRect(x: 0, y: 0, width: 1, height: visible.minY))
+                guard found.length > 0 else { return }
+                let upper = found.location + found.length
+                let rows = TranscriptWarming.nextBatch(
+                    in: max(found.location, upper - TranscriptWarming.lookbackRows)..<upper
+                ) { row in
+                    guard entries.indices.contains(row) else { return false }
+                    let entry = entries[row]
+                    // A silent stored row needs no view. The live slots can change without a
+                    // content key change, so their first height cannot be warmed here.
+                    guard !entry.id.redrawsItself, entry.fixedHeight != 0 else { return false }
+                    let key = entry.contentKey
+                    return heights.height(for: key) == nil || heights.isStale(key)
                 }
-                drainOwedHeights()
-                return
+                guard !rows.isEmpty else { return }
+                var moved = IndexSet()
+                var movedIDs: Set<TranscriptEntryID> = []
+                for row in rows {
+                    guard !Task.isCancelled, !isLiveScrolling else { break }
+                    guard entries.indices.contains(row) else { break }
+                    let entry = entries[row]
+                    let taken = heights.note(
+                        measure(entry, at: CGFloat(sizing.width)),
+                        for: entry.contentKey, shape: entry.shape,
+                        measuredAt: sizing.width
+                    )
+                    if taken {
+                        moved.insert(row)
+                        movedIDs.insert(entry.id)
+                    }
+                    await Task.yield()
+                }
+                guard !moved.isEmpty else { return }
+                // A gesture can begin after the final yield. Keep what was measured, but defer
+                // the table correction so preparation never moves the document under a hand.
+                if Task.isCancelled || isLiveScrolling {
+                    owedHeights.formUnion(movedIDs)
+                    drainOwedHeights()
+                    return
+                }
+                let wasAtEnd = isFollowingAlong
+                let anchor = anchorEntry()
+                isApplyingWarmHeights = true
+                noteHeights(moved)
+                keepPlace(wasAtEnd: wasAtEnd, anchor: anchor)
+                isApplyingWarmHeights = false
+                reportGeometry()
+                // The next batch is old history, not part of this frame. Continue until the
+                // reader moves or every row above the viewport has an exact height.
+                try? await Task.sleep(for: .milliseconds(80))
             }
-            // The heights of rows ABOVE the reader, so telling the table moves everything below
-            // them, which is the whole document under the screen. Anchored, exactly as a
-            // correction landing during a scroll is, and cheaper here because nothing is moving.
-            let wasAtEnd = isFollowingAlong
-            let anchor = anchorEntry()
-            noteHeights(moved)
-            keepPlace(wasAtEnd: wasAtEnd, anchor: anchor)
-            reportGeometry()
         }
 
         /// A width change the table's own layout did not report.

@@ -1759,24 +1759,22 @@ final class WorkspaceModel {
             // Quiet refreshes follow refreshDiffStat, which has already read HEAD this tick.
             if wantsCommits { await manager?.refreshBranch(workspace: observedWorkspace) }
             do {
-                // Resolve history first so an amended selection and the replacement file list
-                // arrive together. A history failure is separate from a failed diff read.
+                // A commit comparison needs history first to detect a rebase. For the ordinary
+                // Changes view, history and the diff are independent and can run together: a
+                // slow git log must not add its whole duration to "Reading the worktree".
                 async let localRead = try? Git.localWork(worktree: path)
-                var commits: BranchCommitList?
-                var historyError: String?
-                do {
-                    commits = try await Git.branchCommits(worktree: path, base: base, limit: historyLimit)
-                } catch {
-                    historyError = "Could not read commit history. \(error.localizedDescription)"
-                }
+                async let history = Self.readBranchCommits(worktree: path, base: base, limit: historyLimit)
                 var effectiveScope = scope
-                if let commits, case .commit(let commit) = scope,
-                   !commits.commits.contains(where: { $0.sha == commit.sha }) {
-                    let stillOnBranch = commits.isTruncated
-                        ? try await Git.containsCommit(commit, worktree: path) : false
-                    if !stillOnBranch { effectiveScope = .all }
+                if case .commit(let commit) = scope {
+                    let (commits, _) = await history
+                    if let commits, !commits.commits.contains(where: { $0.sha == commit.sha }) {
+                        let stillOnBranch = commits.isTruncated
+                            ? try await Git.containsCommit(commit, worktree: path) : false
+                        if !stillOnBranch { effectiveScope = .all }
+                    }
                 }
                 let files = try await Git.changedFiles(worktree: path, base: base, scope: effectiveScope)
+                let (commits, historyError) = await history
                 let local = await localRead
                 let revisions = ReviewedFileFingerprint.revisions(
                     for: files, worktree: path, base: base, scope: effectiveScope
@@ -1861,6 +1859,16 @@ final class WorkspaceModel {
         var revisions: [String: String] = [:]
         var scope: DiffScope = .all
         var historyError: String?
+    }
+
+    nonisolated private static func readBranchCommits(
+        worktree: String, base: String, limit: Int
+    ) async -> (BranchCommitList?, String?) {
+        do {
+            return (try await Git.branchCommits(worktree: worktree, base: base, limit: limit), nil)
+        } catch {
+            return (nil, "Could not read commit history. \(error.localizedDescription)")
+        }
     }
 
     /// Narrows or widens what the Changes tab is showing, and sends the pane back to git for it.
@@ -2712,6 +2720,13 @@ final class WorkspaceModel {
             // read does not have to wait for git.
             if !hasReadViewedFiles { await reloadViewedFiles() }
             guard !Task.isCancelled else { return }
+            // Git can spend seconds walking a large worktree. Give the conversation its first
+            // read and fold before that work starts competing for CPU and disk on a cold visit.
+            // The transcript already has its own load in flight; this joins it rather than
+            // starting a second read. Returning to a loaded transcript costs only the guard.
+            await activeTranscript?.load()
+            guard !Task.isCancelled else { return }
+            SwitchTrace.mark("transcript.load.done", workspace: workspace.id)
             // Concurrently, because neither is waiting for anything the other knows. The read
             // mark used to be written after `git` had finished walking the worktree.
             async let changes: Void = refreshChanges()
