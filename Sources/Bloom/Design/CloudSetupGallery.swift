@@ -31,7 +31,7 @@ enum CloudSetupGallery {
     [bloom] Running the setup script.
     ==> Migrating and seeding the database, building assets, installing Playwright's browsers
         started migrate
-        started build
+        ✓ Postgres and Redis 17s
     """
 
     static func render(into directory: String) -> [String] {

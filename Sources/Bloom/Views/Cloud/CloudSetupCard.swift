@@ -16,6 +16,8 @@ import SwiftUI
 /// began losing its first lines. The steps are what somebody waiting wants; the log is for finding
 /// out why, so it is open by itself only when something failed.
 struct CloudSetupCard: View {
+    private static let timingColumnWidth: CGFloat = 520
+
     /// What the card's buttons do, and who it tells when the step changes. Nil where the reader
     /// may not, which draws no button rather than one that is refused.
     struct Actions {
@@ -95,6 +97,7 @@ struct CloudSetupCard: View {
                         .help("How long this workspace has been setting up")
                 }
             }
+            .frame(maxWidth: Self.timingColumnWidth, alignment: .leading)
             if let item {
                 origin(item)
             }
@@ -146,10 +149,13 @@ struct CloudSetupCard: View {
                     isLast: index == progress.steps.count - 1,
                     activity: step.state == .current ? progress.activity : nil,
                     lastOutput: step.state == .current ? progress.lastOutput : nil,
-                    duration: clock.duration(of: step.id, anchors: anchors)
+                    duration: clock.duration(of: step.id, anchors: anchors),
+                    startedAt: step.state == .current && step.id != .machine
+                        ? clock.start(of: step.id, anchors: anchors) : nil
                 )
             }
         }
+        .frame(maxWidth: Self.timingColumnWidth, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("What Bloom is doing")
     }
@@ -227,6 +233,7 @@ struct CloudSetupStepRow: View {
     var activity: String?
     var lastOutput: String?
     var duration: TimeInterval?
+    var startedAt: Date?
 
     static let markSize: CGFloat = 18
     static let labelIndent: CGFloat = markSize + Metrics.gutter
@@ -309,12 +316,13 @@ struct CloudSetupStepRow: View {
         }
     }
 
-    /// How long a finished step took. The step still running has no clock of its own: the one
-    /// beside the title is already counting, and for the first step the two read the same number
-    /// side by side.
+    /// A finished step's duration, or a live clock for the current one when its start was seen.
     @ViewBuilder
     private var time: some View {
-        if step.state == .done, let duration {
+        if step.state == .current, let startedAt {
+            CloudSetupElapsed(since: startedAt)
+                .help("Time on this step")
+        } else if step.state == .done, let duration {
             Text(TurnDuration.wholeSeconds(Int(duration * 1000)))
                 .font(Typo.caption)
                 .monospacedDigit()
