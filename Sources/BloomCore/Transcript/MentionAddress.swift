@@ -109,12 +109,14 @@ public enum MentionAddress {
         return String(rest)
     }
 
-    /// Consume a completed, recognised address. Wait for whitespace so a short handle cannot
-    /// steal the beginning of a longer one while somebody is still typing.
+    /// Consume a completed, recognised address. A local composer has no people, so its `@` keeps
+    /// naming files. Wait for whitespace so a short handle cannot steal the beginning of a longer
+    /// one while somebody is still typing.
     public static func completedAddress(
         in draft: String, people: [ComposerAudience.Person], runningAgent: AgentKind?
     ) -> (audience: ComposerAudience, message: String)? {
-        guard let token = token(in: draft),
+        guard !people.isEmpty,
+              let token = token(in: draft),
               let audience = mentioned(in: draft, people: people, runningAgent: runningAgent)
         else { return nil }
         let leading = draft.prefix { $0 == " " || $0 == "\n" || $0 == "\t" }

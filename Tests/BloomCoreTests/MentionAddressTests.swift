@@ -204,5 +204,8 @@ struct MentionAddressTests {
         #expect(MentionAddress.completedAddress(
             in: "@sebdd.example hello", people: Self.people, runningAgent: .claudeCode
         ) == nil)
+        #expect(MentionAddress.completedAddress(
+            in: "@bloom hello", people: [], runningAgent: nil
+        ) == nil)
     }
 }
