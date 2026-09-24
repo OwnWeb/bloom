@@ -17,13 +17,16 @@ public final class WorkspaceFileAccess {
     /// commits, and a worktree's `.git` file names the repository git writes to (L6 in the review of
     /// 19 September 2026). Reading stays allowed; it is how a client shows what is there.
     public convenience init(workspace: Workspace, path: String, creatingParents: Bool = false,
-                            followingFinalSymlink: Bool = true, allowingMissing: Bool = false, writing: Bool = false) throws {
+                            followingFinalSymlink: Bool = true, allowingMissing: Bool = false, writing: Bool = false,
+                            groupReadableParents: Bool = false) throws {
         try self.init(root: workspace.path, path: path, creatingParents: creatingParents,
-                      followingFinalSymlink: followingFinalSymlink, allowingMissing: allowingMissing, writing: writing)
+                      followingFinalSymlink: followingFinalSymlink, allowingMissing: allowingMissing,
+                      writing: writing, groupReadableParents: groupReadableParents)
     }
 
     public init(root rootPath: String, path: String, creatingParents: Bool = false,
-                followingFinalSymlink: Bool = true, allowingMissing: Bool = false, writing: Bool = false) throws {
+                followingFinalSymlink: Bool = true, allowingMissing: Bool = false, writing: Bool = false,
+                groupReadableParents: Bool = false) throws {
         try RemoteReview.validateRelativePath(path)
         let root = URL(fileURLWithPath: rootPath).standardizedFileURL.resolvingSymlinksInPath()
         var directory: WorkspaceDirectoryHandle? = try WorkspaceDirectoryHandle(path: root.path)
@@ -52,7 +55,8 @@ public final class WorkspaceFileAccess {
             throw Self.gitDirectory
         }
         for component in components.dropLast() {
-            directory = try directory?.child(component, create: creatingParents, allowingMissing: allowingMissing)
+            directory = try directory?.child(component, create: creatingParents, allowingMissing: allowingMissing,
+                                             groupReadable: groupReadableParents)
         }
         self.parent = directory
         self.name = name
@@ -102,13 +106,23 @@ public final class WorkspaceFileAccess {
     /// Creates a new upload or its ignore file without overwriting an existing entry or following
     /// a link. An existing shield is kept, matching `WorktreeScratch` on the Mac.
     @discardableResult
-    public func create(_ data: Data, allowExisting: Bool = false, mode: mode_t = 0o600) throws -> Bool {
+    public func create(_ data: Data, allowExisting: Bool = false, mode: mode_t = 0o600,
+                       groupReadableIfExisting: Bool = false) throws -> Bool {
         guard let parent else { throw Self.changed }
         let descriptor = openat(parent.descriptor, name, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, mode_t(0o600))
         if descriptor < 0 {
             if allowExisting, errno == EEXIST {
                 let existing = try openRegular()
-                close(existing)
+                defer { close(existing) }
+                if groupReadableIfExisting {
+                    var info = stat()
+                    guard fstat(existing, &info) == 0 else {
+                        throw RemoteFailure(.unavailable, "The upload shield could not be inspected.")
+                    }
+                    if info.st_mode & 0o040 == 0, fchmod(existing, (info.st_mode & 0o7777) | 0o040) != 0 {
+                        throw RemoteFailure(.unavailable, "The upload shield could not be made readable by the agent.")
+                    }
+                }
                 return false
             }
             throw RemoteFailure(.conflict, "The upload could not be created safely inside this workspace.")
@@ -226,14 +240,26 @@ private final class WorkspaceDirectoryHandle {
 
     deinit { close(descriptor) }
 
-    func child(_ name: String, create: Bool, allowingMissing: Bool) throws -> WorkspaceDirectoryHandle? {
-        if create, mkdirat(descriptor, name, mode_t(0o700)) != 0, errno != EEXIST {
+    func child(_ name: String, create: Bool, allowingMissing: Bool,
+               groupReadable: Bool = false) throws -> WorkspaceDirectoryHandle? {
+        if create, mkdirat(descriptor, name, mode_t(groupReadable ? 0o750 : 0o700)) != 0, errno != EEXIST {
             throw RemoteFailure(.unavailable, "The upload folder could not be created inside this workspace.")
         }
         let child = openat(descriptor, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard child >= 0 else {
             if allowingMissing, errno == ENOENT { return nil }
             throw RemoteFailure(.conflict, "This path moved or contains a symbolic link folder. Refresh before retrying.")
+        }
+        if groupReadable {
+            var info = stat()
+            guard fstat(child, &info) == 0 else {
+                close(child)
+                throw RemoteFailure(.unavailable, "The upload folder could not be inspected.")
+            }
+            if info.st_mode & 0o050 != 0o050, fchmod(child, (info.st_mode & 0o7777) | 0o050) != 0 {
+                close(child)
+                throw RemoteFailure(.unavailable, "The upload folder could not be made readable by the agent.")
+            }
         }
         return WorkspaceDirectoryHandle(descriptor: child)
     }

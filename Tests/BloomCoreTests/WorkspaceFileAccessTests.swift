@@ -54,6 +54,33 @@ struct WorkspaceFileAccessTests {
         #expect(try Data(contentsOf: URL(fileURLWithPath: outside + "/value.txt")) == Data("outside secret".utf8))
     }
 
+    @Test func uploadedAttachmentsAreReadableByTheAgentGroup() throws {
+        let (workspace, _) = try fixture()
+        let attachments = workspace.path + "/.bloom/attachments"
+        try FileManager.default.createDirectory(atPath: attachments, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: attachments)
+        let shield = attachments + "/.gitignore"
+        try Data("*\n".utf8).write(to: URL(fileURLWithPath: shield))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: shield)
+
+        let relativePath = try RemoteFileOperations.upload(
+            workspace: workspace, name: "screen.jpg", data: Data("image".utf8)
+        )
+        let file = workspace.path + "/" + relativePath
+        let attachmentFolder = (file as NSString).deletingLastPathComponent
+
+        func mode(_ path: String) throws -> Int {
+            let value = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
+            return try #require(value).intValue
+        }
+
+        #expect((try mode(attachments) & 0o050) == 0o050)
+        #expect((try mode(attachmentFolder) & 0o050) == 0o050)
+        #expect((try mode(shield) & 0o040) == 0o040)
+        #expect(try mode(file) == 0o640)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: shield)) == Data("*\n".utf8))
+    }
+
     @Test func concurrentSavesCannotBothReplaceTheSameRevision() async throws {
         let (workspace, _) = try fixture()
         let revision = try RemoteReview.file(workspace: workspace, path: "nested/value.txt").revision

@@ -58,9 +58,11 @@ public enum RemoteFileOperations {
         let path = "\(WorktreeScratch.attachments)/\(UUID().uuidString)/\(name)"
         // The same shield `WorktreeScratch.shield` lays down, written through the descriptor walk
         // so an attachment folder swapped for a symlink cannot put it somewhere else.
-        try WorkspaceFileAccess(workspace: workspace, path: WorktreeScratch.attachments + "/.gitignore", creatingParents: true)
-            .create(Data("*\n".utf8), allowExisting: true)
-        try WorkspaceFileAccess(workspace: workspace, path: path, creatingParents: true).create(data)
+        try WorkspaceFileAccess(workspace: workspace, path: WorktreeScratch.attachments + "/.gitignore",
+                                creatingParents: true, groupReadableParents: true)
+            .create(Data("*\n".utf8), allowExisting: true, mode: 0o640, groupReadableIfExisting: true)
+        try WorkspaceFileAccess(workspace: workspace, path: path, creatingParents: true,
+                                groupReadableParents: true).create(data, mode: 0o640)
         return path
     }
 }
