@@ -317,6 +317,31 @@ private func translated(
         }
     }
 
+    @Test func anMcpElicitationShowsTheServersQuestion() throws {
+        let request = CodexApprovalRequest(
+            id: .number(3), kind: .mcpElicitation, threadID: "t", turnID: "u", itemID: "i",
+            params: .object([
+                "serverName": .string("there-there"),
+                "mode": .string("form"),
+                "message": .string("Which ticket should I open?"),
+                "requestedSchema": .object([:]),
+            ])
+        )
+        let item = CodexItem.mcpToolCall(CodexMcpToolCall(
+            id: "i", server: "there-there", tool: "ticket_open",
+            arguments: .object(["path": .string("/tmp/previous.txt")])
+        ))
+
+        let ask = CodexPermission.ask(for: request, item: item)
+        #expect(ask.reason == "there-there")
+        #expect(ask.subject == "Which ticket should I open?")
+        #expect(ask.rules.isEmpty)
+
+        let reread = try #require(PermissionAsk.decode(payload: ask.raw))
+        #expect(reread.reason == ask.reason)
+        #expect(reread.subject == ask.subject)
+    }
+
     /// The narrowest rule there is. Bloom will not invent a pattern, because Codex offers no
     /// judgement of its own and a guessed rule grants more than was approved.
     @Test func aShellRuleIsTheCommandVerbatim() {
