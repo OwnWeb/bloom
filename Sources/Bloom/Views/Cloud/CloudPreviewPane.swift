@@ -129,6 +129,7 @@ struct CloudPreviewPane: View {
                         Task { await openIfReady() }
                     } : nil
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Palette.surface)
             }
         }

@@ -94,6 +94,7 @@ struct BrowserTabView: View {
                         actionTitle: "Try again",
                         action: { session.reload() }
                     )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Palette.surface)
                 } else if session.currentURL == nil {
                     EmptyStateView(
@@ -101,6 +102,7 @@ struct BrowserTabView: View {
                         title: "No page yet",
                         message: "Type an address above, or ask the agent to open one here."
                     )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Palette.surface)
                 }
             }

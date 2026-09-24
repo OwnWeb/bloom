@@ -71,6 +71,7 @@ struct CloudForwardedPagePane: View {
                         title: "This port is not forwarded now",
                         message: "Forwards end when you stop them or quit Bloom. Forward it again from Ports in the toolbar, then reload."
                     )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Palette.surface)
                 }
             }
