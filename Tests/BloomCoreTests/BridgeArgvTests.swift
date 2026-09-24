@@ -116,6 +116,19 @@ struct BridgeArgvTests {
         #expect(launch.environment["BLOOM_MCP_THERE_THERE_TOKEN"] == "private-grant")
     }
 
+    @Test("an arbitrary Cloud MCP server is accepted without putting its grant in argv")
+    func arbitraryCloudMcpServer() {
+        let connection = CloudMcpConnection(
+            name: "mcp-01m2abc123", url: "https://runbloom.app/api/mcp/01m2abc123", bearer: "private-grant"
+        )
+        let arguments = CloudMcpConfiguration.codexArguments([connection])
+        let environment = CloudMcpConfiguration.codexEnvironment([connection])
+
+        #expect(arguments.contains { $0.contains("mcp_servers.mcp-01m2abc123.url") })
+        #expect(!arguments.contains("private-grant"))
+        #expect(environment["BLOOM_MCP_MCP_01M2ABC123_TOKEN"] == "private-grant")
+    }
+
     @Test("Grok is launched as ACP stdio without attaching to the user's leader")
     func grokArgv() {
         let attachment = BridgeAttachment(

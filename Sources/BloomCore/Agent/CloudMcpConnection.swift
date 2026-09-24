@@ -99,8 +99,9 @@ public enum CloudMcpConfiguration {
     }
 
     private static func valid(_ connection: CloudMcpConnection) -> Bool {
-        ["flare", "there-there"].contains(connection.name)
+        connection.name.range(of: "^[a-z0-9][a-z0-9-]{0,63}$", options: .regularExpression) != nil
             && URL(string: connection.url)?.scheme == "https"
+            && URL(string: connection.url)?.host != nil
             && !connection.bearer.isEmpty
     }
 }
