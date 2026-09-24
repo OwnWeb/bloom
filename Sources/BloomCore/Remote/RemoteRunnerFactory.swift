@@ -58,6 +58,9 @@ public enum RemoteRunnerFactory {
                 configuration.environment = ProviderCredentialEnvironment.agent(
                     session.agentKind, granted: environment, inheriting: configuration.environment
                 )
+                if environment["OPENAI_API_KEY"] != nil {
+                    configuration.modelGatewayBaseURL = environment["OPENAI_BASE_URL"]
+                }
                 if let sandbox { configuration.environment = sandbox.environment(configuration.environment) }
                 return CodexClient(configuration: configuration, makeProcess: launching)
             }

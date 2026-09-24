@@ -43,6 +43,9 @@ public actor CodexClient {
         /// recomputed argv is. See `BridgeRegistration.codexArguments`.
         public var bridge: BridgeAttachment?
         public var cloudMcpConnections: [CloudMcpConnection]
+        /// Bloom Cloud's loopback model gateway. Codex does not use OPENAI_BASE_URL, so its
+        /// provider must be selected explicitly at process launch.
+        public var modelGatewayBaseURL: String?
         /// How large this process should be told the model's context window is, in tokens, or
         /// `CodexContextWindow.modelDefault` for Codex's own catalogue. Per process, which here is
         /// per chat, and unlike the model and the effort it cannot travel with a turn: the two
@@ -58,6 +61,7 @@ public actor CodexClient {
             environment: [String: String] = Shell.environment(),
             bridge: BridgeAttachment? = nil,
             cloudMcpConnections: [CloudMcpConnection] = [],
+            modelGatewayBaseURL: String? = nil,
             contextWindow: Int = CodexContextWindow.modelDefault
         ) {
             self.executable = executable
@@ -68,6 +72,7 @@ public actor CodexClient {
             self.environment = environment
             self.bridge = bridge
             self.cloudMcpConnections = cloudMcpConnections
+            self.modelGatewayBaseURL = modelGatewayBaseURL
             self.contextWindow = contextWindow
         }
     }
@@ -94,6 +99,17 @@ public actor CodexClient {
         }
         arguments += CloudMcpConfiguration.codexArguments(configuration.cloudMcpConnections)
         environment.merge(CloudMcpConfiguration.codexEnvironment(configuration.cloudMcpConnections)) { _, cloud in cloud }
+        if let baseURL = configuration.modelGatewayBaseURL {
+            let provider = "bloom_cloud_gateway"
+            arguments += [
+                "-c", "model_provider=\(BridgeRegistration.tomlString(provider))",
+                "-c", "model_providers.\(provider).name=\(BridgeRegistration.tomlString("Bloom Cloud"))",
+                "-c", "model_providers.\(provider).base_url=\(BridgeRegistration.tomlString(baseURL))",
+                "-c", "model_providers.\(provider).env_key=\(BridgeRegistration.tomlString("OPENAI_API_KEY"))",
+                "-c", "model_providers.\(provider).wire_api=\(BridgeRegistration.tomlString("responses"))",
+                "-c", "model_providers.\(provider).requires_openai_auth=false",
+            ]
+        }
         arguments += CodexContextWindow.overrides(for: configuration.contextWindow)
         return AgentLaunch(
             executable: configuration.executable,

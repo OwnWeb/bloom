@@ -87,6 +87,22 @@ struct BridgeArgvTests {
         #expect(launch.arguments == CodexClient.arguments)
     }
 
+    @Test("Cloud Codex selects an authenticated provider at the local gateway")
+    func codexCloudModelGateway() {
+        let launch = CodexClient.launch(CodexClient.Configuration(
+            cwd: "/tmp/w",
+            environment: ["OPENAI_API_KEY": "local-gateway-token"],
+            modelGatewayBaseURL: "http://127.0.0.1:49152/v1"
+        ))
+        #expect(launch.arguments.contains("model_provider=\"bloom_cloud_gateway\""))
+        #expect(launch.arguments.contains("model_providers.bloom_cloud_gateway.base_url=\"http://127.0.0.1:49152/v1\""))
+        #expect(launch.arguments.contains("model_providers.bloom_cloud_gateway.env_key=\"OPENAI_API_KEY\""))
+        #expect(launch.arguments.contains("model_providers.bloom_cloud_gateway.wire_api=\"responses\""))
+        #expect(launch.arguments.contains("model_providers.bloom_cloud_gateway.requires_openai_auth=false"))
+        #expect(!launch.arguments.contains { $0.contains("local-gateway-token") })
+        #expect(launch.environment["OPENAI_API_KEY"] == "local-gateway-token")
+    }
+
     @Test("Codex keeps the Cloud proxy grant in its environment")
     func codexCloudMcpConfig() {
         let launch = CodexClient.launch(CodexClient.Configuration(
