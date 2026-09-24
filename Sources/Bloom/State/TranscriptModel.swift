@@ -356,6 +356,9 @@ final class TranscriptModel {
     /// the pending bubble, which says why it is waiting. `Delivery.goesImmediately` is the one
     /// place that decision is taken, and the drain asks the same function.
     private(set) var sending: Delivery?
+    /// Cloud can acknowledge a prompt as queued before its user row arrives. The echo leaves the
+    /// screen then, but its arrival clock must survive for the saved row's drawing.
+    @ObservationIgnored private var cloudSentHandoff = SentMessageHandoff()
 
     /// The queue as the transcript draws it: everything still waiting, and never the one already
     /// drawn as a sent bubble. The drain reads `pendingDeliveries`, which is the table, because
@@ -705,16 +708,23 @@ final class TranscriptModel {
 
     /// The same fold, straight onto the model, for the rows that arrive while the session is open.
     private func absorb(_ message: Message, decisions: [String: String] = [:]) {
-        messageArrivals.persisted(seq: message.seq, kind: message.kind, sending: sending?.id)
+        let handoffID = cloud == nil ? nil : cloudSentHandoff.take(for: message, readerID: cloud?.readerID)
+        let matchedSending = handoffID == nil && sending.map {
+            message.kind == .user && (cloud == nil || SentMessageHandoff.matches(
+                message, body: $0.body, readerID: cloud?.readerID
+            ))
+        } == true
+        let sentID = handoffID ?? (matchedSending ? sending?.id : nil)
+        messageArrivals.persisted(seq: message.seq, kind: message.kind, sending: sentID)
         let changedIndex = message.kind == .toolResult
             ? message.refID.flatMap { indexByRefID[$0] } ?? rows.count : rows.count
         foldCache.invalidate(row: changedIndex)
         Self.absorb(message, decisions: decisions, into: &rows, indexByRefID: &indexByRefID)
         presentationRevision += 1
-        // The stored row has arrived, so the bubble drawn from the queue is now the same sentence
-        // drawn twice. Retired here rather than after the send returns, because the pump can read
-        // the row first: only one turn is ever in flight, so a user row landing while something is
-        // sending is that sentence. See `sending`.
+        // The stored row has arrived, so its matching echo would draw the same sentence twice.
+        // Retire it here rather than after the send returns, because the pump can read the row
+        // first. Cloud may receive another person's row while the echo is still up, so match the
+        // author and text there before retiring it. See `sending`.
         //
         // A crew row is the same retirement for a message an agent wrote: the runner records it
         // as `.crew` instead of `.user`. Checking only `.user` left a message from another
@@ -722,7 +732,7 @@ final class TranscriptModel {
         // until something else cleared the slot. Only when what is sending IS a crew message,
         // because Bloom writes some crew rows directly, and one of those landing mid send must not
         // take the owner's own sentence off the screen early.
-        if message.kind == .user || (message.kind == .crew && sending?.crewMessage != nil) {
+        if matchedSending || (message.kind == .crew && sending?.crewMessage != nil) {
             sending = nil
         }
     }
@@ -2656,8 +2666,10 @@ final class TranscriptModel {
         let queue = chat.queue.prompts.map { Delivery(cloudPrompt: $0, chatID: chat.id) }
         if queue != pendingDeliveries { pendingDeliveries = queue }
         if cloudQueueError != chat.queue.error { cloudQueueError = chat.queue.error }
-        if let echo = sending, queue.contains(where: { $0.body == echo.body }) || rows.last?.kind == .user {
-            // The machine has it now, as a queued prompt or as a row, so the echo retires.
+        if let echo = sending, queue.contains(where: { $0.body == echo.body }) {
+            // The machine has it as a queued prompt. Keep the echo's clock for the row that
+            // follows, even though the pending bubble has replaced it on screen.
+            cloudSentHandoff.hold(echo)
             sending = nil
         }
     }
@@ -2724,6 +2736,7 @@ final class TranscriptModel {
         // is exactly what nobody can promise. What the machine really did is in the transcript,
         // which is why the sentence sends the reader there.
         if sending?.id == delivery.id { sending = nil }
+        if case .failed = outcome { cloudSentHandoff.discard(delivery.id) }
         // **A mode entered by a message that did not go does not stick.** A legacy draft with a
         // leading mention gets that draft back, so a retry resolves the same address. A selection
         // already in the pill keeps its previous audience.
