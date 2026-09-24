@@ -95,7 +95,7 @@ final class AppModel {
             updateRetainedWorkspaces(for: newValue)
             let vacated = storedSelection.workspaceID
             storedSelection = newValue
-            updateInspectorPresentation()
+            restoreInspectorVisibility()
             Self.rememberSelection(newValue)
             // Opening or closing a subagent's pane changes which rows are exempt from being
             // removed. See `SubagentRetention`: the row you are reading stays. Both workspaces,
@@ -202,18 +202,36 @@ final class AppModel {
         selection = .workspace(id)
     }
 
-    /// Window chrome, not per-workspace state.
-    ///
-    /// This used to live on `WorkspaceModel`, which meant the only way to bind it was a
-    /// `Binding(get:set:)` reading through an optional selected model. That binding's value
-    /// flipped as the selection resolved, and `.inspector(isPresented:)` reacting to it mid layout
-    /// put the window into an unbounded Update Constraints loop that AppKit eventually turned into
-    /// a crash. Owning it here makes it a plain bindable value. It also matches how a Mac app
-    /// behaves: an inspector is shown or hidden for the window, not remembered per document.
-    /// It defaults to on and can be started off by `FrameProbe`, which is how a resize measurement
-    /// tells the centre column's cost apart from the inspector's.
+    /// The window's stable binding for the inspector. The preference is stored per conversation,
+    /// while the AppKit split controller still observes one value across selection changes.
+    /// `FrameProbe` can start it off for resize measurements.
     var isInspectorVisible = FrameProbe.wantsInspector {
-        didSet { updateInspectorPresentation() }
+        didSet {
+            if !isRestoringInspectorVisibility {
+                WindowPanePreferences.setInspectorVisible(
+                    isInspectorVisible,
+                    for: storedSelection,
+                    sessionID: selectedModel?.activeSessionID
+                )
+            }
+            updateInspectorPresentation()
+        }
+    }
+    @ObservationIgnored private var isRestoringInspectorVisibility = false
+
+    private func restoreInspectorVisibility() {
+        isRestoringInspectorVisibility = true
+        isInspectorVisible = FrameProbe.wantsInspector && WindowPanePreferences.inspectorVisible(
+            for: storedSelection,
+            sessionID: selectedModel?.activeSessionID
+        )
+        isRestoringInspectorVisibility = false
+    }
+
+    /// Called when a local workspace selects a different chat without changing its sidebar row.
+    func activeInspectorConversationChanged(in workspaceID: WorkspaceID) {
+        guard storedSelection.workspaceID == workspaceID else { return }
+        restoreInspectorVisibility()
     }
 
     /// The resolved inspector state is stored separately from the selection. Window-level readers
