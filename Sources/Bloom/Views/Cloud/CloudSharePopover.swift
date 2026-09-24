@@ -21,9 +21,8 @@ import SwiftUI
 ///
 /// **Only the owner may change any of it, and the popover says so rather than being refused.**
 /// Everybody else gets the same two cards with the controls dimmed and one line above them, which
-/// is `CloudShareControls`. A link that exists says how much of its hour is left, from the same
-/// place, because "an hour at a time" in the caption is about links in general and a link in front
-/// of somebody is about to be sent or not.
+/// is `CloudShareControls`. The link row shows its actual expiry before somebody sends it.
+/// "An hour at a time" describes a viewer's session, while the link itself can last a week.
 struct CloudSharePopover: View {
     var workspaceID: CloudWorkspaceID
     var item: CloudWorkspaceItem?
@@ -224,33 +223,55 @@ struct CloudSharePopover: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             ForEach(sharing.shares) { share in
-                HStack(spacing: Metrics.spacingSmall) {
-                    Image(systemName: "link")
-                        .font(Typo.caption)
-                        .foregroundStyle(Palette.textTertiary)
-                    VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
+                    HStack(spacing: Metrics.spacingSmall) {
+                        Image(systemName: "link")
+                            .font(Typo.caption)
+                            .foregroundStyle(Palette.textTertiary)
+                            .accessibilityHidden(true)
                         Text(share.url.absoluteString)
                             .font(Typo.caption)
                             .monospaced()
+                            .foregroundStyle(Palette.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        // The caption above says a link lasts an hour. What a reader wants from
-                        // one that exists is how much of that hour is left, which decides whether
-                        // it is worth sending. See `CloudShareControls.expiry`.
+                        Spacer(minLength: Metrics.spacingSmall)
+                        Button {
+                            copy(share)
+                        } label: {
+                            Label(copiedShareID == share.id ? "Copied link" : "Copy link",
+                                  systemImage: copiedShareID == share.id ? "checkmark" : "doc.on.doc")
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .help(copiedShareID == share.id ? "Copied link" : "Copy link")
+                    }
+                    .padding(Metrics.spacingSmall)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: Metrics.cornerSmall))
+
+                    HStack {
                         if let expiry = CloudShareControls.expiry(of: share) {
                             Text(expiry)
                                 .font(Typo.caption)
                                 .foregroundStyle(Palette.textTertiary)
                         }
+                        Spacer()
+                        if canChange {
+                            Menu {
+                                Button("Revoke link", role: .destructive) {
+                                    Task { await sharing.revoke(share) }
+                                }
+                            } label: {
+                                Label("Link actions", systemImage: "ellipsis")
+                            }
+                            .labelStyle(.iconOnly)
+                            .menuStyle(.borderlessButton)
+                            .controlSize(.small)
+                            .fixedSize()
+                            .disabled(sharing.isBusy)
+                            .help("Link actions")
+                        }
                     }
-                    Spacer(minLength: Metrics.spacingSmall)
-                    Button(copiedShareID == share.id ? "Copied" : "Copy") { copy(share) }
-                        .buttonStyle(.borderless)
-                        .controlSize(.small)
-                    Button("Revoke") { Task { await sharing.revoke(share) } }
-                        .buttonStyle(.borderless)
-                        .controlSize(.small)
-                        .disabled(!canChange || sharing.isBusy)
                 }
             }
         }

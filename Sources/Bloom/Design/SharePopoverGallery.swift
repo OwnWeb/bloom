@@ -234,12 +234,27 @@ enum SharePopoverGallery {
                         .font(Typo.caption)
                         .foregroundStyle(Palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: Metrics.spacingSmall) {
-                        Image(systemName: "link").font(.caption).foregroundStyle(Palette.textTertiary)
-                        Text("runbloom.app/p/8c1f…").font(Typo.caption).monospaced()
-                        Spacer()
-                        linkMark("Copy")
-                        linkMark("Revoke")
+                    VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
+                        HStack(spacing: Metrics.spacingSmall) {
+                            glyphMark("link")
+                            Text("https://runbloom.app/share/8c1f…")
+                                .font(Typo.caption)
+                                .monospaced()
+                                .foregroundStyle(Palette.textPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: Metrics.spacingSmall)
+                            glyphMark("doc.on.doc")
+                        }
+                        .padding(Metrics.spacingSmall)
+                        .background(Palette.surface, in: RoundedRectangle(cornerRadius: Metrics.cornerSmall))
+                        HStack {
+                            Text("Expires in 168 hours")
+                                .font(Typo.caption)
+                                .foregroundStyle(Palette.textTertiary)
+                            Spacer()
+                            glyphMark("ellipsis")
+                        }
                     }
                 }
             }

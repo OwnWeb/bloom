@@ -22,10 +22,9 @@ public enum CloudShareControls {
 
     /// How long a preview link has left, as a phrase to draw beside it.
     ///
-    /// A link lasts an hour, which the caption already says; what a reader wants from a link that
-    /// exists is how much of that hour is left, because the difference between fifty minutes and
-    /// two decides whether it is worth sending. Nil where runbloom.app sent no expiry, so nothing
-    /// is drawn rather than something guessed.
+    /// A viewer's preview session lasts an hour, while a link can last a week by default. Show
+    /// the link's actual remaining lifetime before somebody sends it. Nil where runbloom.app sent
+    /// no expiry, so nothing is drawn rather than something guessed.
     public static func expiry(of share: PreviewShare, now: Date = Date()) -> String? {
         guard let expires = share.expiresAt else { return nil }
         let seconds = expires.timeIntervalSince(now)
