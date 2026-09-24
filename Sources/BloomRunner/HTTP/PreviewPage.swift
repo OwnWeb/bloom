@@ -35,7 +35,6 @@ enum PreviewPage {
 
     static func unavailable(advice: [String], services: [Service]?) -> String {
         var body = """
-        <p class="eyebrow"><span class="pulse"></span>Bloom Cloud preview</p>
         <h1>The app is not answering yet</h1>
         <p class="lede">This workspace is up, but the app it runs has not answered the preview.</p>
         """
@@ -53,13 +52,11 @@ enum PreviewPage {
         case let services?:
             body += "<ul class=\"services\">" + services.map(row).joined() + "</ul>"
         }
-        body += "<p class=\"foot\">Trying again every \(retrySeconds) seconds.</p>"
         return document(title: "Not answering yet", refresh: retrySeconds, body: body)
     }
 
     static func notAllowed() -> String {
         document(title: "Open this preview from Bloom", refresh: nil, body: """
-        <p class="eyebrow">Bloom Cloud preview</p>
         <h1>Open this preview from Bloom</h1>
         <p class="lede">A preview can only be entered through Bloom. If you had it open, it has expired: open it again from Bloom.</p>
         """)
@@ -137,11 +134,6 @@ enum PreviewPage {
     linear-gradient(#123B57,#061420) fixed}
     main{width:100%;max-width:560px}
     .mark{width:48px;height:48px;display:block;margin-bottom:28px;filter:drop-shadow(0 6px 18px rgba(0,0,0,.35))}
-    .eyebrow{font:500 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;
-    color:#8AA0AB;display:flex;align-items:center;gap:10px;margin-bottom:14px}
-    .pulse{width:8px;height:8px;border-radius:50%;background:#9BE9DC;box-shadow:0 0 0 0 rgba(155,233,220,.6);animation:pulse 2.4s ease-out infinite}
-    @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(155,233,220,.55)}70%,100%{box-shadow:0 0 0 10px rgba(155,233,220,0)}}
-    @media (prefers-reduced-motion:reduce){.pulse{animation:none}}
     h1{font-size:30px;line-height:1.2;font-weight:650;letter-spacing:-.015em;margin-bottom:12px}
     .lede{color:#B9CBD1;font-size:16px;margin-bottom:28px}
     .notice{border:1px solid rgba(155,233,220,.22);background:rgba(155,233,220,.06);border-radius:12px;padding:14px 16px;margin-bottom:20px}
@@ -158,6 +150,5 @@ enum PreviewPage {
     .message{margin-top:6px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#B9CBD1;white-space:pre-wrap;overflow-wrap:anywhere}
     .empty{color:#B9CBD1;margin-bottom:20px}
     code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(233,247,244,.08);padding:2px 6px;border-radius:5px}
-    .foot{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#8AA0AB}
     """
 }
