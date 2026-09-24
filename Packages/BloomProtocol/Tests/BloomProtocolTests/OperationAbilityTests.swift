@@ -16,7 +16,7 @@ import Testing
         "notes": "view", "pull_request": "view", "recently_closed": "view", "mark_read": "view",
         "send": "prompt", "cancel_queued": "prompt", "stop": "prompt", "answer": "prompt",
         "new_chat": "prompt", "close_chat": "prompt", "reopen_chat": "prompt", "rename_chat": "prompt", "set_composer": "prompt",
-        "write_file": "files", "upload_file": "files", "commit": "files", "push": "files",
+        "write_file": "files", "delete_file": "files", "upload_file": "files", "commit": "files", "push": "files",
         "create_pull_request": "files", "save_notes": "files", "rename_workspace": "files",
         "run_setup": "files", "stop_setup": "files", "continue_after_merge": "files",
         "revert_file": "files", "discard_hunk": "files",

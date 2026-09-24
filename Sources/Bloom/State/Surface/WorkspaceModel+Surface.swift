@@ -49,6 +49,22 @@ extension WorkspaceModel: WorkspaceSurface {
         (workspace.path as NSString).appendingPathComponent(relativePath)
     }
 
+    func deleteFile(path: String) async -> String? {
+        let file = URL(fileURLWithPath: workspace.path).appendingPathComponent(path)
+        let failure = await Task.detached(priority: .userInitiated) { () -> String? in
+            do {
+                try FileManager.default.trashItem(at: file, resultingItemURL: nil)
+                return nil
+            } catch {
+                return "Could not move \(path) to the Trash: \(error.localizedDescription)"
+            }
+        }.value
+        guard failure == nil else { return failure }
+        await refreshFileTree(force: true)
+        await refreshChanges(.requested)
+        return nil
+    }
+
     func revert(file: ChangedFile) async -> String? {
         await FileRevert.revert(file: file, in: workspace)
     }

@@ -69,8 +69,12 @@ extension CloudWorkspaceSession {
     /// The same as a local workspace: the file opens in the review, which is a tab of this
     /// workspace's own strip.
     func openFile(path: String, focusing: Bool) {
-        changes.selectedPath = path
-        open(.review)
+        if changedFiles.contains(where: { $0.path == path }) { changes.selectedPath = path }
+        let tab = CenterTabStore.shared.showReview(path: path, workspaceID: surfaceID)
+        CenterTabStore.shared.setShowsAllFiles(false, for: tab)
+        WorkspaceTabsStore.shared.reveal(.tool(tab.id), in: self, focusing: focusing)
+        Task { await changes.refresh() }
+        changes.reconsiderWatching()
     }
 
     var selectedFilePath: String? {
@@ -277,6 +281,23 @@ extension CloudWorkspaceSession {
     var hasReadFileTree: Bool { changes.hasReadFileTree }
 
     func refreshFileTree(force: Bool) async { await changes.refreshFileTree(force: force) }
+
+    func deleteFile(path: String) async -> String? {
+        do {
+            guard case .accepted = try await perform(.deleteFile(path: path)) else {
+                return "The Bloom Cloud workspace answered with something else."
+            }
+        } catch {
+            return error.message
+        }
+        changes.forgetContents(of: path)
+        if CenterTabStore.shared.review(for: surfaceID)?.path == path {
+            _ = CenterTabStore.shared.showReview(path: "", workspaceID: surfaceID)
+        }
+        await changes.refreshFileTree(force: true)
+        await refreshChanges(.requested)
+        return nil
+    }
 
     func contents(of relativePath: String) -> String? { changes.contents(of: relativePath) }
 }

@@ -398,6 +398,8 @@ protocol WorkspaceSurface: AnyObject, Observable {
     var fileTree: [String: [FileTreeNode]] { get }
     var hasReadFileTree: Bool { get }
     func refreshFileTree(force: Bool) async
+    /// Deletes one file selected in the tree. Returns a message only when it fails.
+    func deleteFile(path: String) async -> String?
     func contents(of relativePath: String) -> String?
 }
 

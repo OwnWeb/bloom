@@ -172,6 +172,7 @@ enum WireExamples {
         ("answer_plan", .answer(chatID: "chat-1", requestID: "ask-1", answer: .approvePlan(permissionMode: "acceptEdits"))),
         ("answer_question", .answer(chatID: "chat-1", requestID: "ask-1", answer: .question(input: .object(["answers": .object(["Which?": .string("Both")])])))),
         ("write_file", .writeFile(path: "README.md", text: "# Bloom\n", revision: "revision-1")),
+        ("delete_file", .deleteFile(path: "README.md")),
         ("upload_file", .uploadFile(name: "screenshot.png", data: Data([0x89, 0x50, 0x4E, 0x47]))),
         ("commit", .commit(message: "Retry the queue")),
         ("push", .push),

@@ -2210,10 +2210,14 @@ final class WorkspaceModel {
                     cwd: worktree,
                     timeout: .seconds(30)
                 )
+                let deleted = try? await Shell.run(
+                    "git", ["ls-files", "--deleted"], cwd: worktree, timeout: .seconds(30)
+                )
                 // Indexed off the main thread as well as read there. Forty thousand paths turned
                 // into a dictionary is not a subprocess, but it is not free either, and the main
                 // thread is what the switch is waiting on.
-                return FileTreeNode.index(result?.lines ?? [])
+                let missing = Set(deleted?.lines ?? [])
+                return FileTreeNode.index((result?.lines ?? []).filter { !missing.contains($0) })
             }.value
             guard let self, !Task.isCancelled else { return }
             if fileTree != index { fileTree = index }

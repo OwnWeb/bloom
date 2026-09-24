@@ -64,7 +64,7 @@ extension WorkspaceRuntime {
             return .archivePreview(try await prepareArchive())
         case .archive(let confirmationID):
             return try await archive(confirmationID: confirmationID)
-        case .files, .searchCode, .file, .download, .reviewSnapshot, .reviewPatch, .writeFile, .uploadFile, .runScript, .closeTerminal,
+        case .files, .searchCode, .file, .download, .reviewSnapshot, .reviewPatch, .writeFile, .deleteFile, .uploadFile, .runScript, .closeTerminal,
              .history, .commitFiles, .commitPatch, .revertFile, .discardHunk:
             return try await performOnFiles(operation, as: caller)
         default:
@@ -238,6 +238,9 @@ extension WorkspaceRuntime {
             return .reviewPatch(try await reviewCache.patch(workspace: workspace, path: path, scope: scope, knownRevision: knownRevision))
         case .writeFile(let path, let text, let revision):
             return .file(try await blocking { try RemoteFileOperations.write(workspace: workspace, path: path, text: text, revision: revision) })
+        case .deleteFile(let path):
+            try await blocking { try RemoteFileOperations.delete(workspace: workspace, path: path) }
+            return .accepted
         case .uploadFile(let name, let data):
             return .text(try await blocking { try RemoteFileOperations.upload(workspace: workspace, name: name, data: data) })
         case .runScript(let id):
@@ -309,8 +312,12 @@ extension WorkspaceRuntime {
 
     /// Every path git tracks or would track: tracked, and untracked but not ignored.
     private func listedFiles(_ workspace: Workspace) async throws -> [String] {
-        let listed = try await Git.checkRaw(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], in: workspace.path)
-        let paths = String(decoding: listed.stdout, as: UTF8.self).split(separator: "\0").map(String.init)
-        return Array(Set(paths)).sorted()
+        async let listed = Git.checkRaw(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], in: workspace.path)
+        async let deleted = Git.checkRaw(["ls-files", "-z", "--deleted"], in: workspace.path)
+        let listedResult = try await listed
+        let deletedResult = try await deleted
+        let paths = String(decoding: listedResult.stdout, as: UTF8.self).split(separator: "\0").map(String.init)
+        let missing = Set(String(decoding: deletedResult.stdout, as: UTF8.self).split(separator: "\0").map(String.init))
+        return Array(Set(paths).subtracting(missing)).sorted()
     }
 }

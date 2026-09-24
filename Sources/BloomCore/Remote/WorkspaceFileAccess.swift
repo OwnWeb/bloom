@@ -103,6 +103,18 @@ public final class WorkspaceFileAccess {
         }
     }
 
+    /// Removes only the named entry through its held parent directory. A symbolic link is removed
+    /// as a link, and `unlinkat` without `AT_REMOVEDIR` refuses a directory even if it replaced
+    /// the file after the menu was opened.
+    public func delete() throws {
+        guard let parent else { throw Self.changed }
+        guard unlinkat(parent.descriptor, name, 0) == 0 else {
+            if errno == ENOENT { throw RemoteFailure.notFound("This file is no longer in the workspace.") }
+            if errno == EISDIR || errno == EPERM { throw RemoteFailure.invalid("Only files can be deleted here.") }
+            throw RemoteFailure(.unavailable, "This file could not be deleted from the workspace.")
+        }
+    }
+
     /// Creates a new upload or its ignore file without overwriting an existing entry or following
     /// a link. An existing shield is kept, matching `WorktreeScratch` on the Mac.
     @discardableResult

@@ -1272,6 +1272,15 @@
       "protocol" : "bloom-workspace",
       "version" : 1
     },
+    "delete_file" : {
+      "command_id" : "00000000-0000-4000-8000-000000000001",
+      "operation" : {
+        "kind" : "delete_file",
+        "path" : "README.md"
+      },
+      "protocol" : "bloom-workspace",
+      "version" : 1
+    },
     "discard_hunk" : {
       "command_id" : "00000000-0000-4000-8000-000000000001",
       "operation" : {

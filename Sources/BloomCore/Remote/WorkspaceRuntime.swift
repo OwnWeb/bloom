@@ -412,7 +412,7 @@ public actor WorkspaceRuntime {
             let reserved = Set(reservedPorts)
             return .ports(ports: listeningPorts().map { ListeningPortRecord(port: $0, reserved: reserved.contains($0)) })
         case .setupOutput, .files, .searchCode, .file, .download, .reviewSnapshot, .reviewPatch, .runScripts, .quickPrompts, .notes,
-             .pullRequest, .archivePreview, .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace,
+             .pullRequest, .archivePreview, .writeFile, .deleteFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace,
              .runSetup, .stopSetup, .continueAfterMerge, .runScript, .closeTerminal, .archive, .history, .commitFiles, .commitPatch, .revertFile,
              .discardHunk:
             return try await performOnWorktree(operation, as: caller)

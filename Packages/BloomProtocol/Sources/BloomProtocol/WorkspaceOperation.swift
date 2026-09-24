@@ -57,6 +57,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
 
     // The worktree
     case writeFile(path: String, text: String, revision: String)
+    case deleteFile(path: String)
     case uploadFile(name: String, data: Data)
     case commit(message: String)
     case push
@@ -101,7 +102,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
              .runScripts, .quickPrompts, .searchCode, .history, .commitFiles, .commitPatch, .transcriptSearch, .notes,
              .pullRequest, .recentlyClosed, .markRead: "view"
         case .send, .cancelQueued, .stop, .answer, .newChat, .closeChat, .reopenChat, .renameChat, .setComposer: "prompt"
-        case .writeFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup, .stopSetup, .continueAfterMerge,
+        case .writeFile, .deleteFile, .uploadFile, .commit, .push, .createPullRequest, .saveNotes, .renameWorkspace, .runSetup, .stopSetup, .continueAfterMerge,
              .revertFile, .discardHunk: "files"
         // **A forwarded port is as much reach into the machine as a shell**, so the list that
         // offers one is behind the same ability rather than behind `view`. Somebody who may look
@@ -152,6 +153,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case .stop: "stop"
         case .answer: "answer"
         case .writeFile: "write_file"
+        case .deleteFile: "delete_file"
         case .uploadFile: "upload_file"
         case .commit: "commit"
         case .push: "push"
@@ -229,6 +231,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
         case "write_file":
             self = .writeFile(path: try c.decode(String.self, forKey: .path), text: try c.decode(String.self, forKey: .text),
                               revision: try c.decode(String.self, forKey: .revision))
+        case "delete_file": self = .deleteFile(path: try c.decode(String.self, forKey: .path))
         case "upload_file": self = .uploadFile(name: try c.decode(String.self, forKey: .name), data: try c.decode(Data.self, forKey: .data))
         case "commit": self = .commit(message: try c.decode(String.self, forKey: .message))
         case "push": self = .push
@@ -262,7 +265,7 @@ public enum WorkspaceOperation: Codable, Sendable, Hashable {
             try c.encode(chatID, forKey: .chatID); try c.encode(afterSeq, forKey: .afterSeq); try c.encodeIfPresent(limit, forKey: .limit)
         case .composer(let chatID), .continueAfterMerge(let chatID): try c.encodeIfPresent(chatID, forKey: .chatID)
         case .closeChat(let chatID), .reopenChat(let chatID), .stop(let chatID): try c.encode(chatID, forKey: .chatID)
-        case .file(let path), .download(let path): try c.encode(path, forKey: .path)
+        case .file(let path), .download(let path), .deleteFile(let path): try c.encode(path, forKey: .path)
         case .history(let limit, let before):
             try c.encodeIfPresent(limit, forKey: .limit); try c.encodeIfPresent(before, forKey: .before)
         case .commitFiles(let sha): try c.encode(sha, forKey: .sha)

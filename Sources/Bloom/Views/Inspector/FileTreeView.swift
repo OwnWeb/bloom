@@ -39,6 +39,8 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
     @State private var highlightedPaths: Set<String> = []
     /// Resolved when the selection moves rather than in `body`, which runs again on every hover.
     @State private var previewURL: URL?
+    @State private var pendingDeletion: String?
+    @State private var deletionError: String?
     /// Bumped whenever the keyboard should be on the tree: every row activation, which is what
     /// puts it back after the reader has been in the composer or a terminal, and Return or a
     /// second Escape in the filter field. See `ListKeyboardHost`, whose `armToken` this is.
@@ -112,6 +114,28 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
         .onChange(of: model.changedFiles, initial: true) { _, files in
             changedPaths = Set(files.map(\.path))
             highlightedPaths = FileTreeChanges.highlightedPaths(for: changedPaths)
+        }
+        .confirmationDialog(
+            "Delete this file?",
+            isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingDeletion
+        ) { path in
+            Button(model.worktreePath == nil ? "Delete File" : "Move to Trash", role: .destructive) {
+                Task { await deleteFile(path) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { path in
+            Text(model.worktreePath == nil
+                 ? "\(path) will be permanently deleted from this Bloom Cloud workspace."
+                 : "\(path) will be moved to the Trash.")
+        }
+        .alert("Could not delete file", isPresented: Binding(
+            get: { deletionError != nil }, set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("OK") { deletionError = nil }
+        } message: {
+            Text(deletionError ?? "")
         }
     }
 
@@ -207,7 +231,9 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
                 isChanged: changedPaths.contains(path),
                 containsChanges: highlightedPaths.contains(path),
                 fullPath: fullPath(path),
+                canDelete: model.capabilities.has(.editFiles),
                 action: { activate(item.node) },
+                onDelete: { pendingDeletion = path },
                 onOpenTerminal: { model.openTerminal(in: path) },
                 onOpenPage: { model.openPage(path: path, splittingAxis: nil) },
                 onSplitPage: { model.openPage(path: path, splittingAxis: $0) }
@@ -255,6 +281,11 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
         }
 
         toggle(node)
+    }
+
+    private func deleteFile(_ path: String) async {
+        deletionError = await model.deleteFile(path: path)
+        if deletionError == nil, selection == path { selection = nil }
     }
 
     /// Never animated. The listing lands once when the workspace opens, and eight thousand rows

@@ -34,6 +34,33 @@ struct WorkspaceFileAccessTests {
         #expect(try Data(contentsOf: URL(fileURLWithPath: outside + "/value.txt")) == Data("outside secret".utf8))
     }
 
+    @Test func deletingAFileCannotDeleteADirectoryOrEscapeTheWorktree() throws {
+        let (workspace, outside) = try fixture()
+        try RemoteFileOperations.delete(workspace: workspace, path: "nested/value.txt")
+        #expect(!FileManager.default.fileExists(atPath: workspace.path + "/nested/value.txt"))
+
+        try FileManager.default.createSymbolicLink(atPath: workspace.path + "/link", withDestinationPath: outside + "/value.txt")
+        try RemoteFileOperations.delete(workspace: workspace, path: "link")
+        #expect(try String(contentsOfFile: outside + "/value.txt", encoding: .utf8) == "outside secret")
+
+        #expect(throws: RemoteFailure.self) { try RemoteFileOperations.delete(workspace: workspace, path: "nested") }
+        #expect(throws: RemoteFailure.self) { try RemoteFileOperations.delete(workspace: workspace, path: "../outside/value.txt") }
+        #expect(throws: RemoteFailure.self) { try RemoteFileOperations.delete(workspace: workspace, path: ".git/config") }
+        #expect(FileManager.default.fileExists(atPath: workspace.path + "/nested"))
+    }
+
+    @Test func deletingThroughAHeldParentCannotFollowASwappedSymlink() throws {
+        let (workspace, outside) = try fixture()
+        let file = try WorkspaceFileAccess(workspace: workspace, path: "nested/value.txt", writing: true)
+        try FileManager.default.moveItem(atPath: workspace.path + "/nested", toPath: workspace.path + "/original")
+        try FileManager.default.createSymbolicLink(atPath: workspace.path + "/nested", withDestinationPath: outside)
+
+        try file.delete()
+
+        #expect(!FileManager.default.fileExists(atPath: workspace.path + "/original/value.txt"))
+        #expect(try String(contentsOfFile: outside + "/value.txt", encoding: .utf8) == "outside secret")
+    }
+
     @Test func uploadsAndTheirGitignoreCannotFollowASwappedScratchDirectory() throws {
         let (workspace, outside) = try fixture()
         let upload = try WorkspaceFileAccess(workspace: workspace, path: ".bloom/attachments/fixture/file.txt", creatingParents: true)

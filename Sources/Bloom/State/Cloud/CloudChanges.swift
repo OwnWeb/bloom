@@ -463,6 +463,8 @@ final class CloudChanges {
     /// A file's text, when it has been read. Reading is asynchronous, so the first ask for a file
     /// answers nil and starts the read; the generation bump brings the pane back.
     func contents(of relativePath: String) -> String? {
+        // The cache is ignored by Observation, so the view must observe the generation instead.
+        _ = generation
         if let held = contentsByPath[relativePath] { return held }
         guard let session, contentsBeingRead.insert(relativePath).inserted else { return nil }
         Task {
@@ -472,6 +474,11 @@ final class CloudChanges {
             generation += 1
         }
         return nil
+    }
+
+    func forgetContents(of relativePath: String) {
+        contentsByPath.removeValue(forKey: relativePath)
+        generation += 1
     }
 
     /// A file's text, waited for rather than polled. `contents(of:)` above answers what is held

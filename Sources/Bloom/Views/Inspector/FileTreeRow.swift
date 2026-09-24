@@ -17,6 +17,7 @@ struct FileTreeRow: View, Equatable {
             && lhs.isChanged == rhs.isChanged
             && lhs.containsChanges == rhs.containsChanges
             && lhs.fullPath == rhs.fullPath
+            && lhs.canDelete == rhs.canDelete
     }
 
     var item: FileTreeRowItem
@@ -26,7 +27,9 @@ struct FileTreeRow: View, Equatable {
     /// The node's location on disk, for the menu items that hand it to another app. Nil for a
     /// workspace whose files are in the cloud; those items say so rather than going.
     var fullPath: String?
+    var canDelete: Bool
     var action: () -> Void
+    var onDelete: () -> Void
     /// Opens a shell in this row, which only a folder row offers. See `FolderTerminal`.
     var onOpenTerminal: () -> Void
     /// Opens this row as a page in the workspace's browser tab, and in the half a split opens.
@@ -78,6 +81,10 @@ struct FileTreeRow: View, Equatable {
                 onOpenPage: onOpenPage,
                 onSplitPage: onSplitPage
             )
+            if !item.node.isDirectory, canDelete {
+                Divider()
+                Button("Delete File", role: .destructive, action: onDelete)
+            }
         }
         .help(item.node.path)
         .accessibilityValue(disclosureState)

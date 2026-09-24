@@ -41,6 +41,10 @@ public enum RemoteFileOperations {
         return DownloadRecord(path: path, data: data)
     }
 
+    public static func delete(workspace: Workspace, path: String) throws {
+        try WorkspaceFileAccess(workspace: workspace, path: path, followingFinalSymlink: false, writing: true).delete()
+    }
+
     static func validateUpload(name: String, data: Data) throws {
         guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0"),
               name.utf8.count <= 240 else {
