@@ -50,6 +50,7 @@ public enum CodexPermission {
         let toolName = isQuestion ? AgentQuestionnaire.toolName
             : item.map(CodexTranslation.toolName(for:)) ?? fallbackToolName(request.kind)
         let input = isQuestion ? CodexQuestionnaire.input(for: request)
+            : request.kind == .mcpElicitation ? request.params
             : item.map(CodexTranslation.input(for:)) ?? request.params
         let rule = rule(toolName: toolName, item: item, request: request)
 
@@ -60,7 +61,9 @@ public enum CodexPermission {
             toolUseID: request.itemID,
             input: input,
             summary: summary(for: request, item: item),
-            reason: request.params["reason"]?.stringValue ?? "",
+            reason: request.kind == .mcpElicitation
+                ? (request.params["serverName"]?.stringValue ?? "")
+                : (request.params["reason"]?.stringValue ?? ""),
             reasonType: reasonType(request.kind),
             blockedPath: request.params["grantRoot"]?.stringValue,
             suggestions: rule.map { [PermissionSuggestion(
@@ -191,6 +194,11 @@ public enum CodexPermission {
             return paths.count == 1
                 ? "\(change.changes[0].kind.label) \(paths[0])"
                 : "\(paths.count) files"
+        case .mcpElicitation:
+            return request.params["message"]?.stringValue
+                ?? request.params["description"]?.stringValue
+                ?? request.params["title"]?.stringValue
+                ?? displayName(request.kind)
         default:
             return displayName(request.kind)
         }
