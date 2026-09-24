@@ -228,6 +228,9 @@ struct SidebarView: View {
         // and restores reach the model. A set ignores renames, status updates and reordering;
         // pending and stored workspaces share an id, so finishing a create does not reinsert it.
         .animation(workspaceMotion, value: workspaceIdentities)
+        // The Cloud list is published after its async archive request. Keying the list to
+        // membership gives that row the same removal motion as a local workspace.
+        .animation(workspaceMotion, value: cloudWorkspaceIdentities)
         // A row travelling between the status view's sections: an agent finishing, a question
         // being asked, a workspace being read. The list moves the row rather than swapping it,
         // because the rows either side of it keep their identity through the change.
@@ -555,6 +558,10 @@ struct SidebarView: View {
     /// Membership only, so renames, reordering and status updates do not trigger visibility motion.
     private var projectIdentities: Set<RepoID> {
         Set(groups.map(\.id))
+    }
+
+    private var cloudWorkspaceIdentities: Set<String> {
+        Set(app.cloud.items.map(\.id))
     }
 
     /// Hidden projects still on screen, whose headers dim when "Show hidden projects" is on.

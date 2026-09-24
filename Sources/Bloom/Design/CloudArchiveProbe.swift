@@ -17,6 +17,7 @@ enum CloudArchiveProbe {
         var status: CloudArchivePopoverBody.Status
         var width: CGFloat
         var appearance: NSAppearance.Name
+        var isArchiving = false
         var contrast = ColorSchemeContrast.standard
         var reduceTransparency = false
     }
@@ -37,6 +38,10 @@ enum CloudArchiveProbe {
             Variant(
                 name: "dark", workspace: "Payments", confirmation: summary, status: .answered,
                 width: 380, appearance: .darkAqua
+            ),
+            Variant(
+                name: "deleting", workspace: "Payments", confirmation: summary, status: .answered,
+                width: 380, appearance: .aqua, isArchiving: true
             ),
             Variant(
                 name: "increased-contrast", workspace: "Payments", confirmation: summary, status: .answered,
@@ -62,7 +67,7 @@ enum CloudArchiveProbe {
                 name: variant.workspace,
                 confirmation: variant.confirmation,
                 status: variant.status,
-                isArchiving: false,
+                isArchiving: variant.isArchiving,
                 onConfirm: {},
                 onCancel: {},
                 width: variant.width
@@ -103,6 +108,9 @@ enum CloudArchiveProbe {
         if let regular = heights["light"], let constrained = heights["narrow-long"] {
             check(regular < 320, "the ordinary confirmation is not compact: \(regular) points high")
             check(constrained > regular + 100, "long wrapped content did not grow the confirmation: \(heights)")
+            if let deleting = heights["deleting"] {
+                check(abs(deleting - regular) < 1, "deleting changed the popover height: \(heights)")
+            }
         }
         if checksKeyboard { await checkKeyboard(check: check) }
     }

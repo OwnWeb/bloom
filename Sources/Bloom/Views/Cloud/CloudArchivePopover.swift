@@ -81,6 +81,7 @@ struct CloudArchivePopoverBody: View {
     var onConfirm: () -> Void
     var onCancel: () -> Void
     var width: CGFloat = 380
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 #if DEBUG
     var onFocusChange: ((String?) -> Void)?
 #endif
@@ -101,6 +102,16 @@ struct CloudArchivePopoverBody: View {
                 row(element).padding(.top, element.spacingBefore)
             }
         }
+        .opacity(isArchiving ? 0 : 1)
+        .accessibilityHidden(isArchiving)
+        .overlay {
+            if isArchiving {
+                ProgressView("Deleting \(name)…")
+                    .controlSize(.small)
+                    .transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : Motion.pane, value: isArchiving)
         // Hierarchical .primary otherwise resolves through the selected row's white foreground.
         .environment(\.backgroundProminence, .standard)
         .environment(\.isOnEmphasizedSelection, false)
@@ -181,6 +192,7 @@ struct CloudArchivePopoverBody: View {
                     .buttonStyle(.bordered)
                     .focused($focus, equals: .cancel)
                     .keyboardShortcut(.cancelAction)
+                    .disabled(isArchiving)
                     .accessibilityIdentifier("confirmation-cancel")
                 Button(confirmLabel, role: .destructive) {
                     guard !isArchiving else { return }
