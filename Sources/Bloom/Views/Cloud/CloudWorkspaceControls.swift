@@ -34,7 +34,7 @@ struct CloudWorkspaceControls: ToolbarContent {
         // project's own app and nothing else. A forward is the same reach without that
         // restriction, so the two belong together rather than in different corners of the window.
         ToolbarItem(placement: .primaryAction) {
-            Button { isShowingPorts = true } label: {
+            Button { isShowingPorts.toggle() } label: {
                 Label { Text("Ports") } icon: { CloudPortsIcon(isForwarding: ports.hasLiveForward) }
             }
                 .help("Reach a port inside this Bloom Cloud workspace from this Mac")
