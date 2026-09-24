@@ -26,7 +26,8 @@ public struct CloudMcpConnection: Decodable, Sendable, Hashable, CustomStringCon
 /// Launch configuration for the two CLIs. A token never appears in argv.
 public enum CloudMcpConfiguration {
     public static func writeClaude(
-        _ connections: [CloudMcpConnection], sessionID: SessionID, directory: String
+        _ connections: [CloudMcpConnection], sessionID: SessionID, directory: String,
+        sharedGroup: String? = nil
     ) throws -> String? {
         let path = (directory as NSString).appendingPathComponent("\(sessionID).json")
         guard !connections.isEmpty else {
@@ -38,6 +39,9 @@ public enum CloudMcpConfiguration {
             atPath: directory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o2750]
         )
+        if let sharedGroup {
+            try FileManager.default.setAttributes([.groupOwnerAccountName: sharedGroup], ofItemAtPath: directory)
+        }
         try FileManager.default.setAttributes([.posixPermissions: 0o2750], ofItemAtPath: directory)
 
         var servers: [String: Any] = [:]

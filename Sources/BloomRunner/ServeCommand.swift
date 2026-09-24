@@ -206,7 +206,8 @@ public enum ServeCommand {
                 let cloudMcpConnections = try await client.personalMcpConnections()
                 let cloudMcpConfigPath = try CloudMcpConfiguration.writeClaude(
                     cloudMcpConnections, sessionID: session.id,
-                    directory: MachineSandbox.personBoundSharedDirectory + "/personal-mcp"
+                    directory: MachineSandbox.personBoundSharedDirectory + "/personal-mcp",
+                    sharedGroup: MachineSandbox.sharedGroup
                 )
                 let unclaimed = Mutex(true)
                 let isolate: RemoteRunnerFactory.Isolate = { launch in

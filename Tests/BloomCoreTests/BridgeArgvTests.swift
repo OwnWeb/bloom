@@ -34,12 +34,20 @@ struct BridgeArgvTests {
     func claudeCloudMcpConfig() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
+        let group = try #require(FileManager.default.attributesOfItem(
+            atPath: FileManager.default.temporaryDirectory.path
+        )[.groupOwnerAccountName] as? String)
         let written = try CloudMcpConfiguration.writeClaude([
             CloudMcpConnection(name: "flare", url: "https://runbloom.app/api/mcp/flare", bearer: "private-grant")
-        ], sessionID: session.id, directory: root.path)
+        ], sessionID: session.id, directory: root.path, sharedGroup: group)
         let path = try #require(written)
+        let directoryAttributes = try FileManager.default.attributesOfItem(atPath: root.path)
+        #expect(directoryAttributes[.groupOwnerAccountName] as? String == group)
+        #expect((directoryAttributes[.posixPermissions] as? NSNumber)?.intValue == 0o2750)
         let permissions = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
         #expect(permissions?.intValue == 0o640)
+        let fileGroup = try FileManager.default.attributesOfItem(atPath: path)[.groupOwnerAccountName] as? String
+        #expect(fileGroup == group)
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         let parsed = try JSONSerialization.jsonObject(with: data)
         let document = try #require(parsed as? [String: Any])
@@ -58,6 +66,18 @@ struct BridgeArgvTests {
         let cleared = try CloudMcpConfiguration.writeClaude([], sessionID: session.id, directory: root.path)
         #expect(cleared == nil)
         #expect(!FileManager.default.fileExists(atPath: path))
+    }
+
+    @Test("Claude config refuses an unavailable shared group before writing a grant")
+    func claudeCloudMcpConfigNeedsSharedGroup() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(throws: Error.self) {
+            try CloudMcpConfiguration.writeClaude([
+                CloudMcpConnection(name: "service", url: "https://runbloom.app/api/mcp/service", bearer: "private-grant")
+            ], sessionID: session.id, directory: root.path, sharedGroup: "bloom-no-such-group-for-test")
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("\(session.id).json").path))
     }
 
     @Test("Codex is given the overrides after app-server and never --strict-config")
