@@ -1,17 +1,15 @@
 import Foundation
 
-/// Who to connect to a forwarded database as, read from the workspace's own `.env`.
+/// Who to connect to a forwarded database as, when the workspace's `.env` names a login.
 ///
 /// **A connection URL with no user is a connection as whoever is sitting at this Mac.** TablePlus
 /// handed `postgresql://127.0.0.1:41499` fills the user in from macOS, so the first Open against a
-/// Cloud workspace's Postgres failed with `role "freek" does not exist`: a role that could only
-/// exist on this Mac, asked of a machine that has never had such a user. The project already says who
-/// its app connects as, in the file its framework reads, so that is who the client connects as too.
+/// Cloud workspace's Postgres failed with `role "freek" does not exist`. Use a login the project
+/// names when one is available, and let the person supply it when the project keeps it elsewhere.
 ///
-/// **Only a connection of the same kind is taken.** A Laravel `.env` names one default connection,
-/// and its `DB_USERNAME` belongs to whichever that is; handing MySQL's login to a Postgres forward
-/// would fail as surely as no login did, and less legibly. A URL-style variable is matched by its
-/// own scheme for the same reason.
+/// **Only a connection of the same kind is taken.** Laravel's `DB_USERNAME` belongs to its
+/// `DB_CONNECTION`. PostgreSQL, MySQL and Redis also have their own common variable names, while
+/// URL-style variables identify their database by scheme.
 public struct DatabaseLogin: Sendable, Hashable {
     public var user: String?
     public var password: String?
@@ -29,25 +27,40 @@ public struct DatabaseLogin: Sendable, Hashable {
     public static func from(dotenv text: String, scheme: String) -> DatabaseLogin? {
         let values = parse(dotenv: text)
         let login: DatabaseLogin? = switch scheme {
-        case "postgresql", "mysql":
-            fromURL(values, scheme: scheme) ?? fromLaravel(values, scheme: scheme)
+        case "postgresql":
+            fromURL(values, keys: ["DB_URL", "DATABASE_URL", "POSTGRES_URL", "POSTGRESQL_URL"], scheme: scheme)
+                ?? fromKeys(values, user: "POSTGRES_USER", password: "POSTGRES_PASSWORD", database: "POSTGRES_DB")
+                ?? fromKeys(values, user: "PGUSER", password: "PGPASSWORD", database: "PGDATABASE")
+                ?? fromLaravel(values, scheme: scheme)
+        case "mysql":
+            fromURL(values, keys: ["DB_URL", "DATABASE_URL", "MYSQL_URL", "MARIADB_URL"], scheme: scheme)
+                ?? fromKeys(values, user: "MYSQL_USER", password: "MYSQL_PASSWORD", database: "MYSQL_DATABASE")
+                ?? fromKeys(values, user: "MARIADB_USER", password: "MARIADB_PASSWORD", database: "MARIADB_DATABASE")
+                ?? fromLaravel(values, scheme: scheme)
         case "redis":
-            DatabaseLogin(user: values["REDIS_USERNAME"], password: values["REDIS_PASSWORD"])
+            fromURL(values, keys: ["REDIS_URL"], scheme: scheme)
+                ?? fromKeys(values, user: "REDIS_USERNAME", password: "REDIS_PASSWORD")
         default:
             nil
         }
         return login?.isEmpty == false ? login : nil
     }
 
-    /// `DB_URL` is Laravel's, `DATABASE_URL` everybody else's.
-    private static func fromURL(_ values: [String: String], scheme: String) -> DatabaseLogin? {
-        for key in ["DB_URL", "DATABASE_URL"] {
+    private static func fromURL(_ values: [String: String], keys: [String], scheme: String) -> DatabaseLogin? {
+        for key in keys {
             guard let text = values[key], let url = URLComponents(string: text),
                   let found = url.scheme.map(normalised), found == scheme else { continue }
             let path = url.path.hasPrefix("/") ? String(url.path.dropFirst()) : url.path
-            return DatabaseLogin(user: url.user, password: url.password, database: path.isEmpty ? nil : path)
+            let login = DatabaseLogin(user: url.user, password: url.password, database: path.isEmpty ? nil : path)
+            if !login.isEmpty { return login }
         }
         return nil
+    }
+
+    private static func fromKeys(_ values: [String: String], user: String, password: String,
+                                 database: String? = nil) -> DatabaseLogin? {
+        let login = DatabaseLogin(user: values[user], password: values[password], database: database.flatMap { values[$0] })
+        return login.isEmpty ? nil : login
     }
 
     private static func fromLaravel(_ values: [String: String], scheme: String) -> DatabaseLogin? {

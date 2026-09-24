@@ -15,28 +15,36 @@ import SwiftUI
 /// forwarded. Now a database leads, web servers and unnamed ports fold behind one line, and
 /// Bloom's own are not shown. The order is `WorkspacePorts.arrange`, where it is tested.
 ///
-/// **Open forwards and opens in one click.** A database a client application registers the
-/// scheme of gets "Open in TablePlus" before anything is forwarded; the forward is started, and
-/// the application handed the connection once it is live. Copying is an icon whose tooltip is
-/// the exact text it copies, because a pill with a menu arrow on it read as a control nobody could
-/// name. The rare acts, copying only the port and stopping, are on the row's context menu.
+/// **Open forwards and opens in one click when the login is known.** A database a client
+/// application registers the scheme of gets "Open in TablePlus" before anything is forwarded;
+/// the forward is started, and the application gets the connection once it is live. When the
+/// project keeps its login outside `.env`, the same click asks for it. Copying is an icon whose
+/// tooltip is the exact text it copies. The rare acts, copying only the port and stopping, are on
+/// the row's context menu.
 struct CloudPortsPopover: View {
     var ports: CloudPorts
     @State private var copied: Int?
+    @State private var pendingConnection: PendingDatabaseConnection?
 
     var body: some View {
-        CloudPortsList(
-            rows: ports.rows,
-            problem: ports.problem,
-            isLoading: ports.isLoading,
-            copied: copied,
-            actions: CloudPortsList.Actions(
-                copy: copy,
-                forward: { ports.forward($0) },
-                stop: ports.stop,
-                choices: choices
-            )
-        )
+        Group {
+            if let pendingConnection {
+                CloudDatabaseConnectionForm(pending: pendingConnection) { self.pendingConnection = nil }
+            } else {
+                CloudPortsList(
+                    rows: ports.rows,
+                    problem: ports.problem,
+                    isLoading: ports.isLoading,
+                    copied: copied,
+                    actions: CloudPortsList.Actions(
+                        copy: copy,
+                        forward: { ports.forward($0) },
+                        stop: ports.stop,
+                        choices: choices
+                    )
+                )
+            }
+        }
         .task { await ports.load() }
     }
 
@@ -79,9 +87,72 @@ struct CloudPortsPopover: View {
 
     private func open(_ row: CloudPorts.Row, with app: DetectedApp) {
         Task {
-            guard let url = await ports.applicationURL(row) else { return }
+            guard let local = row.localPort else { return }
+            let login = await ports.databaseLogin(row)
+            if let scheme = row.port.scheme, ["postgresql", "mysql"].contains(scheme), login?.user == nil {
+                pendingConnection = PendingDatabaseConnection(row: row, app: app, suggested: login)
+                return
+            }
+            guard case .application(let url) = WorkspacePorts.opening(row.port, localPort: local, login: login) else { return }
             OpenIn.open(url, with: app)
         }
+    }
+}
+
+private struct PendingDatabaseConnection {
+    var row: CloudPorts.Row
+    var app: DetectedApp
+    var suggested: DatabaseLogin?
+}
+
+private struct CloudDatabaseConnectionForm: View {
+    var pending: PendingDatabaseConnection
+    var onClose: () -> Void
+    @State private var user: String
+    @State private var password: String
+    @State private var database: String
+
+    init(pending: PendingDatabaseConnection, onClose: @escaping () -> Void) {
+        self.pending = pending
+        self.onClose = onClose
+        _user = State(initialValue: pending.suggested?.user ?? "")
+        _password = State(initialValue: pending.suggested?.password ?? "")
+        _database = State(initialValue: pending.suggested?.database ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Metrics.spacing) {
+            Text("Connect to \(pending.row.port.title)")
+                .font(Typo.heading)
+            if let local = pending.row.localPort {
+                Text(verbatim: "127.0.0.1:\(local)")
+                    .font(Typo.codeSmall)
+                    .foregroundStyle(Palette.textSecondary)
+            }
+            TextField("User", text: $user)
+            SecureField("Password (optional)", text: $password)
+            TextField("Database (optional)", text: $database)
+            HStack {
+                Button("Cancel", action: onClose)
+                Spacer()
+                Button("Open in \(pending.app.app.name)", action: open)
+                    .disabled(user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(16)
+        .frame(width: 340)
+    }
+
+    private func open() {
+        guard let local = pending.row.localPort else { return }
+        let login = DatabaseLogin(
+            user: user.trimmingCharacters(in: .whitespacesAndNewlines),
+            password: password.isEmpty ? nil : password,
+            database: database.isEmpty ? nil : database
+        )
+        guard case .application(let url) = WorkspacePorts.opening(pending.row.port, localPort: local, login: login) else { return }
+        onClose()
+        OpenIn.open(url, with: pending.app)
     }
 }
 

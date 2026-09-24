@@ -165,19 +165,12 @@ final class CloudPorts {
         session?.openForwardedPage(url, title: row.port.title)
     }
 
-    /// The address a database client is handed, with the login the project's `.env` gives it.
-    ///
-    /// Read at the click rather than with the list, because the file is the project's and can
-    /// change under an open popover, and because a list that read it would be reading a secret for
-    /// every row nobody opens. No `.env`, or one that says nothing, is the address without a login,
-    /// which is what Open handed on before there was one.
-    func applicationURL(_ row: Row) async -> URL? {
-        guard let local = row.localPort, case .application(let bare) = row.opening else { return nil }
+    /// Read the project's `.env` only when a person opens a database. Some projects keep their
+    /// credentials elsewhere; the caller asks for them when this returns nil.
+    func databaseLogin(_ row: Row) async -> DatabaseLogin? {
         guard let scheme = row.port.scheme, let session,
-              let result = try? await session.perform(.file(path: ".env")), case .file(let record) = result,
-              let login = DatabaseLogin.from(dotenv: record.text, scheme: scheme),
-              case .application(let url) = WorkspacePorts.opening(row.port, localPort: local, login: login) else { return bare }
-        return url
+              let result = try? await session.perform(.file(path: ".env")), case .file(let record) = result else { return nil }
+        return DatabaseLogin.from(dotenv: record.text, scheme: scheme)
     }
 
     /// Closes every forward, for a workspace going away.
