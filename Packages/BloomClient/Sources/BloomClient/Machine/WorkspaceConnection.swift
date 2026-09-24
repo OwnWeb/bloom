@@ -131,13 +131,20 @@ public actor WorkspaceConnection {
     public init(
         workspaceID: String, api: RunbloomAPI, machine: MachineClient = MachineClient(),
         now: @escaping @Sendable () -> Date = { Date() },
-        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+        sleep: (@Sendable (Duration) async throws -> Void)? = nil
     ) {
         self.workspaceID = workspaceID
         self.api = api
         self.machine = machine
         self.now = now
-        self.sleep = sleep
+        // **Not a default argument, because an async closure there is compiled twice.** A default
+        // argument's closure is emitted into every module that leaves the argument out, and each
+        // copy's context size is a separate weak symbol from its body. The test module's copy
+        // sized the context at 128 bytes and this module's at 144, and after #427 the linker kept
+        // the 128 byte size with the 144 byte body, so a cancelled sleep spilled its error over
+        // the next task allocation and aborted with "freed pointer was not the last allocation".
+        // Built here, the closure has one copy.
+        self.sleep = sleep ?? { try await Task.sleep(for: $0) }
         (updates, continuation) = AsyncStream.makeStream(of: Update.self, bufferingPolicy: .unbounded)
     }
 

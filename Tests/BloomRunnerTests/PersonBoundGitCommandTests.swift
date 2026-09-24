@@ -109,16 +109,14 @@ struct PersonBoundGitCommandTests {
         let wrapper = directory + "/wrapper"
         try tools.gitWrapper.write(toFile: wrapper, atomically: true, encoding: .utf8)
 
+        // Through `SetupTestSupport.bash`, for its retry on "Text file busy". The fake runner and
+        // git were written a moment ago, a child another test forks at that instant inherits the
+        // descriptor, and the wrapper's `exec` of the fake is refused until it closes: #428's
+        // Linux run failed the first assertion here with exactly that, over a route that was
+        // right.
         func routed(_ arguments: [String]) throws -> String {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = [wrapper] + arguments
-            let output = Pipe()
-            process.standardOutput = output
-            try process.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            let command = (["/bin/sh", wrapper] + arguments).map(MachineGitTools.shellQuoted).joined(separator: " ")
+            return try SetupTestSupport.bash(command).trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         #expect(try routed(["push", "-u", "origin", "main"]) == "runner git-v2 push -u origin main")
