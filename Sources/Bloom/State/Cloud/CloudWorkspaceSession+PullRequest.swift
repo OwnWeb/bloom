@@ -8,9 +8,8 @@ import BloomProtocol
 /// What GitHub says about a Cloud workspace's branch, and what can be done about it.
 ///
 /// Read from runbloom.app rather than from this Mac's `gh`, which has no access to the
-/// repository: see `CloudPullRequestReader`. Merging and marking ready happen there too, as the
-/// signed-in person; everything else composes a turn for the agent, which is what a local
-/// workspace does with the same buttons.
+/// repository: see `CloudPullRequestReader`. Marking ready happens there as the signed-in person;
+/// merging and the other branch actions compose a turn for the agent, as they do locally.
 extension CloudWorkspaceSession {
     // MARK: What GitHub thinks of it
 
@@ -148,11 +147,20 @@ extension CloudWorkspaceSession {
         await ask("Push this branch.")
     }
 
-    /// Merged by runbloom.app as the signed-in person rather than by the agent, which is the one
-    /// place a Cloud workspace acts on GitHub itself: the merge is this person's, made with their
-    /// access, and the head commit goes with the request so a branch that moved is refused.
+    /// The same merge turn a local workspace sends. The agent runs the command in the transcript
+    /// under the chat's permission mode, with Bloom's merge rules following the editable prompt.
     func requestMerge(_ pullRequest: PullRequest, method: GitHub.MergeMethod, overrides: PromptOverrides) async -> String? {
-        await github.merge(method)
+        let context = MergePromptContext(
+            workspaceName: surfaceName,
+            number: pullRequest.number,
+            title: pullRequest.title,
+            branch: pullRequest.branch,
+            baseBranch: surfaceBaseBranch,
+            method: method
+        )
+        let rendered = context.render(template: overrides.template(for: .mergePullRequest))
+        let turn = ProjectInstructions.turn(rendered.text, for: .merge, adding: .nothing)
+        return await ask(turn)
     }
 
     func requestFixConflicts(_ pullRequest: PullRequest, overrides: PromptOverrides) async -> String? {

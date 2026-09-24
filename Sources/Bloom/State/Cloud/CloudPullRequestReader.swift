@@ -7,8 +7,8 @@ import Observation
 ///
 /// **runbloom.app asks GitHub, not this Mac.** A Cloud workspace's branch may be in a repository
 /// this Mac's `gh` has never been signed in to, and the machine has its own credentials; so the
-/// band, the Checks tab, Mark ready for review and Merge all go through runbloom.app's GitHub App,
-/// as the signed-in person.
+/// band, the Checks tab and Mark ready for review go through runbloom.app's GitHub App, as the
+/// signed-in person. Merge is a turn sent to the workspace's agent.
 ///
 /// **What it answers is up to a minute old.** A scheduled refresh on runbloom.app's side writes the
 /// state every minute and the body says when it was fetched, so nothing here polls harder in the
@@ -149,25 +149,6 @@ final class CloudPullRequestReader {
         let cloud = session.cloud
         do {
             state = try await cloud.api.markPullRequestReady(session.id.rawValue)
-            readAt = Date()
-            return nil
-        } catch let refusal as RunbloomRefusal {
-            return refusal.message
-        } catch {
-            return "runbloom.app could not be reached."
-        }
-    }
-
-    /// Merges it. The head commit is sent with the request, so a branch that moved under what the
-    /// reader was looking at is refused rather than merged on trust.
-    func merge(_ method: GitHub.MergeMethod) async -> String? {
-        guard let session else { return "This Bloom Cloud workspace is closed." }
-        let cloud = session.cloud
-        do {
-            state = try await cloud.api.mergePullRequest(
-                session.id.rawValue,
-                request: CloudMergeRequest(method: method.rawValue, headSHA: state?.headSHA)
-            )
             readAt = Date()
             return nil
         } catch let refusal as RunbloomRefusal {
