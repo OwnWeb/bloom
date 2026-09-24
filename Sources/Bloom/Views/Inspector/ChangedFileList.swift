@@ -203,7 +203,10 @@ struct ChangedFileList<Model: WorkspaceSurface>: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.isLoadingChanges || !model.hasReadChanges {
-            LoadingView("Reading the worktree")
+            LoadingView(
+                model.surfaceID.cloudID != nil && !model.hasReadChats
+                    ? "Waiting for the machine" : "Reading the worktree"
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let problem = model.changesError {
             EmptyStateView(
