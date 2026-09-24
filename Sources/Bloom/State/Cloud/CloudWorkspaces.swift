@@ -73,6 +73,9 @@ final class CloudWorkspaces {
     @ObservationIgnored private var projectSettingsTask: Task<Void, Never>?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     @ObservationIgnored private var lastReading: [CloudWorkspaceItem]?
+    @ObservationIgnored private var lastAccountRead: Date?
+    @ObservationIgnored private var lastMailboxRead: Date?
+    @ObservationIgnored private var lastProjectSettingsRead: Date?
     /// Created here and not read back yet, so their first reading can still notify. See
     /// `CloudWorkspaceNotices`.
     @ObservationIgnored private var watching: Set<String> = []
@@ -86,6 +89,9 @@ final class CloudWorkspaces {
 
     static let pollInterval: Duration = .seconds(20)
     static let backgroundPollInterval: Duration = .seconds(60)
+    private static let accountReadInterval: TimeInterval = 5 * 60
+    private static let mailboxReadInterval: TimeInterval = 60
+    private static let projectSettingsReadInterval: TimeInterval = 5 * 60
     private static let promptsKey = "cloudWorkspaces.pendingOpeningPrompts"
     private static let dismissedBannersKey = "cloudWorkspaces.dismissedBanners"
     private static let originKey = "cloudWorkspaces.runbloomOrigin"
@@ -187,6 +193,9 @@ final class CloudWorkspaces {
         for session in sessions.values { session.close() }
         sessions.removeAll()
         account = nil
+        lastAccountRead = nil
+        lastMailboxRead = nil
+        lastProjectSettingsRead = nil
         items = []
         projectIcons.reset()
         lastReading = nil
@@ -204,12 +213,21 @@ final class CloudWorkspaces {
 
     // MARK: The list
 
-    /// Reads the account and every team's list.
-    func refresh() async {
+    /// Reads every team's list. Polls reuse the account and space out mailbox and project settings
+    /// reads; signing in, retrying and activating the app refresh the account immediately.
+    func refresh(force: Bool = true) async {
         let api = api
         let began = generation
         do {
-            let account = try await api.account()
+            let account: RunbloomAccount
+            if !force, let cached = self.account, let lastAccountRead,
+               Date().timeIntervalSince(lastAccountRead) < Self.accountReadInterval {
+                account = cached
+            } else {
+                account = try await api.account()
+                guard began == generation else { return }
+                lastAccountRead = Date()
+            }
             guard began == generation else { return }
             self.account = account
             accountState = .signedIn
@@ -222,16 +240,24 @@ final class CloudWorkspaces {
             absorb(gathered)
             updateProjectIconState(from: gathered, api: api)
             listProblem = nil
-            // Every refresh, and not only signing in and reconnecting: Bloom is often open with no
-            // stream to the workspace that wrote, and a message would otherwise wait for hours.
-            // Signing in and coming back to the app both refresh, so this covers them too.
-            Task { await app?.drainMacMessages() }
+            let now = Date()
+            let shouldReadMailbox = force || (lastMailboxRead.map {
+                now.timeIntervalSince($0) >= Self.mailboxReadInterval
+            } ?? true)
+            if shouldReadMailbox {
+                lastMailboxRead = now
+                Task { await app?.drainMacMessages() }
+            }
         } catch let failure as SignInFailure where failure == .signedOut {
             if began == generation { await signOut() }
         } catch let refusal as RunbloomRefusal where refusal.isUnauthenticated {
             if began == generation { await signOut() }
         } catch where began != generation {
             return
+        } catch let refusal as RunbloomRefusal where refusal.status == 404 && !force {
+            // A cached team may have been removed or lost Cloud access. Re-read the account now
+            // instead of leaving that team's old workspace rows on screen for five minutes.
+            await refresh(force: true)
         } catch let refusal as RunbloomRefusal {
             if account == nil { accountState = .failed(refusal.message) }
             listProblem = refusal.message
@@ -247,6 +273,11 @@ final class CloudWorkspaces {
     /// already been published, so a slow settings endpoint cannot hold up workspace state,
     /// notifications or messages. These are runbloom.app reads and never contact a machine.
     private func updateProjectIconState(from items: [CloudWorkspaceItem], api: RunbloomAPI) {
+        let now = Date()
+        let forceSettings = lastProjectSettingsRead.map {
+            now.timeIntervalSince($0) >= Self.projectSettingsReadInterval
+        } ?? true
+        if forceSettings { lastProjectSettingsRead = now }
         var requests: [(key: CloudProjectIcons.Key, endpoint: String?)] = []
         var seen: Set<CloudProjectIcons.Key> = []
         for item in items {
@@ -266,7 +297,7 @@ final class CloudWorkspaces {
                     group.addTask {
                         guard !Task.isCancelled else { return }
                         await projectIcons.loadSettings(
-                            for: request.key, endpoint: request.endpoint, api: api, force: true
+                            for: request.key, endpoint: request.endpoint, api: api, force: forceSettings
                         )
                     }
                 }
@@ -416,7 +447,7 @@ final class CloudWorkspaces {
                 // answer is worth a banner most while the person is in another app.
                 guard NSApp.isActive || sinceLastRead >= Self.backgroundPollInterval else { continue }
                 sinceLastRead = .zero
-                await self.refresh()
+                await self.refresh(force: false)
             }
         }
         activation = NotificationCenter.default.addObserver(
