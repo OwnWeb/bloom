@@ -26,7 +26,17 @@ struct RootView: View {
     /// The two Help menu sheets, and the drafts typed into them. See `FeedbackPresenter`.
     @Bindable private var feedback = FeedbackPresenter.shared
 
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @AppStorage(WindowPanePreferences.sidebarVisibleKey) private var isSidebarVisible = true
+    private var columnVisibility: NavigationSplitViewVisibility {
+        isSidebarVisible ? .all : .detailOnly
+    }
+
+    private var columnVisibilityBinding: Binding<NavigationSplitViewVisibility> {
+        Binding(
+            get: { columnVisibility },
+            set: { isSidebarVisible = $0 != .detailOnly }
+        )
+    }
     /// Whether the Cloud workspace's share popover is open. Held by the window rather than by the
     /// toolbar item, because `ToolbarContent` is a value the window rebuilds under the popover.
     @State private var isSharingCloudWorkspace = false
@@ -40,17 +50,7 @@ struct RootView: View {
         @Bindable var app = app
 
         return windowWiring(
-            NavigationSplitView(columnVisibility: $columnVisibility) {
-                RootSidebarColumn(columnVisibility: $columnVisibility)
-            } detail: {
-                RootDetailColumn(
-                    columnVisibility: columnVisibility,
-                    isSharingCloudWorkspace: $isSharingCloudWorkspace,
-                    isShowingPorts: $isShowingPorts
-                )
-            }
-            .containerBackground(.clear, for: .window)
-            .toolbar(removing: .title)
+            navigation
 
             // Marks this scene as the main window, so the menu items that act on a workspace grey out
             // while Settings or a project settings window is key. See `MainWindowFocus`.
@@ -233,6 +233,20 @@ struct RootView: View {
         )
     }
 
+    private var navigation: some View {
+        NavigationSplitView(columnVisibility: columnVisibilityBinding) {
+            RootSidebarColumn(isSidebarVisible: $isSidebarVisible)
+        } detail: {
+            RootDetailColumn(
+                columnVisibility: columnVisibility,
+                isSharingCloudWorkspace: $isSharingCloudWorkspace,
+                isShowingPorts: $isShowingPorts
+            )
+        }
+        .containerBackground(.clear, for: .window)
+        .toolbar(removing: .title)
+    }
+
     /// Debug builds only. In a method of its own so `body` carries one call rather than a
     /// conditional compilation block, which the type checker in there can do without.
     private func presentSearchPanelIfRequested() {
@@ -332,7 +346,7 @@ struct RootView: View {
 
     private func toggleSidebar() {
         withAnimation(reduceMotion ? nil : Motion.pane) {
-            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            isSidebarVisible.toggle()
         }
     }
 
@@ -397,7 +411,7 @@ struct RootView: View {
 /// the row highlight, not rebuild every sidebar row as collateral work for the detail column.
 private struct RootSidebarColumn: View {
     @Environment(AppModel.self) private var app
-    @Binding var columnVisibility: NavigationSplitViewVisibility
+    @Binding var isSidebarVisible: Bool
 
     private var sidebarTintOpacity: Double {
         let preference = ColourThemePreference.shared
@@ -417,7 +431,7 @@ private struct RootSidebarColumn: View {
         SidebarView()
             // Replaced by `SidebarToggleButton`, so it can share glass with New.
             .toolbar(removing: .sidebarToggle)
-            .environment(\.isSidebarFolded, columnVisibility == .detailOnly)
+            .environment(\.isSidebarFolded, !isSidebarVisible)
             .scrollContentBackground(.hidden)
             .background {
                 Group {
@@ -441,7 +455,7 @@ private struct RootSidebarColumn: View {
             // folded when room returns, because unfolding it without being asked rearranges the
             // window behind the user.
             .onChange(of: sidebarCeiling == nil, initial: true) { _, folds in
-                if folds { columnVisibility = .detailOnly }
+                if folds { isSidebarVisible = false }
             }
     }
 }

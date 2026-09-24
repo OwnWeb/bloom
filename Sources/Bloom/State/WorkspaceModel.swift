@@ -50,7 +50,10 @@ final class WorkspaceModel {
         set {
             // Only when it moved, for the reason `reloadSessions` spells out: an identical value
             // written back is still an invalidation, and this one reaches every pane.
-            if storedActiveSessionID != newValue { storedActiveSessionID = newValue }
+            if storedActiveSessionID != newValue {
+                storedActiveSessionID = newValue
+                app.activeInspectorConversationChanged(in: workspace.id)
+            }
             prepareActiveTranscript()
             // The sidebar draws the active chat's subagents, so switching tab changes which rows
             // belong under this workspace even though no roster moved.
