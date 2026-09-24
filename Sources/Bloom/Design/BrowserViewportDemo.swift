@@ -142,7 +142,7 @@ enum BrowserViewportDemo {
 private struct BrowserViewportDemoView: View {
     @Bindable var session: BrowserSession
     @State private var address = "Responsive preview example"
-    @FocusState private var addressFocused: Bool
+    @State private var addressFocused = false
 
     var body: some View {
         VStack(spacing: 0) {

@@ -20,7 +20,7 @@ struct BrowserTabView: View {
     /// with the page until Return is pressed, so this is local state and the session is only told
     /// on submit.
     @State private var address = ""
-    @FocusState private var isAddressFocused: Bool
+    @State private var isAddressFocused = false
     /// The find banner's field, held here rather than in the banner because a `FocusState` belongs
     /// to the view that stays on screen: the banner is added and removed, and a focus binding torn
     /// down with it would never settle.

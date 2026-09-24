@@ -122,7 +122,7 @@ struct BrowserToolbarGallery: View {
         var toolbar: BrowserToolbar
 
         @State private var address = ""
-        @FocusState private var isFocused: Bool
+        @State private var isFocused = false
 
         var body: some View {
             BrowserToolbarView(

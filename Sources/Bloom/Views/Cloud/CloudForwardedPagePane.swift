@@ -20,7 +20,7 @@ struct CloudForwardedPagePane: View {
     var paneMenu: (@MainActor () -> NSMenu)?
 
     @State private var address = ""
-    @FocusState private var isAddressFocused: Bool
+    @State private var isAddressFocused = false
     @State private var isCapturing = false
     @Environment(AppModel.self) private var app
 

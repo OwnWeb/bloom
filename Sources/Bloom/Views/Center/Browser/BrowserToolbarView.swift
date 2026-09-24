@@ -54,7 +54,7 @@ struct BrowserToolbarView: View {
     @Binding var address: String
     /// Nil where there is no field to focus, which is a machine's pane: the capsule is there and
     /// holds the host, and nothing in it takes the keyboard. See `BrowserToolbar.Surface`.
-    var addressFocus: FocusState<Bool>.Binding?
+    var addressFocus: Binding<Bool>?
     /// Incremented by Command-L. The native field uses the value as an idempotent request token.
     var locationFocusRequest = 0
     /// Whether the ring should be drawn at all: focused, and in the window the keys are going to.
@@ -130,15 +130,15 @@ struct BrowserToolbarView: View {
 
     private var addressField: some View {
         HStack(spacing: Metrics.spacingSmall) {
-            // Never while the field is being typed into: a lock beside a string somebody is
-            // halfway through entering is a lock making a promise about nothing.
-            if !isEditing, let symbol = display.security.symbol {
-                Image(systemName: symbol)
-                    .font(Typo.caption)
-                    .foregroundStyle(Palette.textTertiaryOnGlass)
-                    .help(display.security.help ?? "")
-                    .accessibilityLabel(display.security.help ?? "")
-            }
+            // Keep the glyph's space while editing so the field does not move under a drag.
+            Image(systemName: display.security.symbol ?? "lock.fill")
+                .font(Typo.caption)
+                .frame(width: 14)
+                .foregroundStyle(Palette.textTertiaryOnGlass)
+                .opacity(!isEditing && display.security.symbol != nil ? 1 : 0)
+                .accessibilityHidden(isEditing || display.security.symbol == nil)
+                .help(display.security.help ?? "")
+                .accessibilityLabel(display.security.help ?? "")
             field
         }
         .padding(.horizontal, Metrics.spacingWide + Metrics.spacingSmall)
@@ -273,30 +273,17 @@ struct BrowserToolbarView: View {
         }
     }
 
-    /// **The real field is always here, and the two-tone address is drawn over it.**
-    ///
-    /// Swapping a `Text` in for the `TextField` was the other way round, and it costs the field
-    /// everything AppKit does for it: a click lands on the label, so focus has to be set by hand,
-    /// and with it go caret placement, drag selection and select-all on focus. Hidden text with a
-    /// label over it keeps all of that, because what is clicked is still the field.
+    /// AppKit draws the address and owns the selection using the same font and text layout.
     @ViewBuilder
     private var field: some View {
         if let addressFocus {
-            ZStack(alignment: .leading) {
-                BrowserAddressField(
-                    text: $address,
-                    focus: addressFocus,
-                    focusRequest: locationFocusRequest,
-                    isEditing: isEditing,
-                    submit: submit
-                )
-                .frame(maxWidth: .infinity)
-
-                // Nothing over an empty field, so the placeholder is the one AppKit draws.
-                if !isEditing, !display.isEmpty {
-                    addressLabel.allowsHitTesting(false)
-                }
-            }
+            BrowserAddressField(
+                text: $address,
+                focus: addressFocus,
+                focusRequest: locationFocusRequest,
+                submit: submit
+            )
+            .frame(maxWidth: .infinity)
         } else {
             // The label on its own, in the same capsule, at the same size. Nothing of AppKit's
             // field is wanted here, because there is nothing to place a caret in.
