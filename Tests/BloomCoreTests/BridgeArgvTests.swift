@@ -30,6 +30,36 @@ struct BridgeArgvTests {
         #expect(!AgentRunner.argv(session: session, resume: nil).contains("--mcp-config"))
     }
 
+    @Test("Claude Code reads Bloom's bridge and the private Cloud connections")
+    func claudeCloudMcpConfig() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let written = try CloudMcpConfiguration.writeClaude([
+            CloudMcpConnection(name: "flare", url: "https://runbloom.app/api/mcp/flare", bearer: "private-grant")
+        ], sessionID: session.id, directory: root.path)
+        let path = try #require(written)
+        let permissions = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
+        #expect(permissions?.intValue == 0o640)
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let parsed = try JSONSerialization.jsonObject(with: data)
+        let document = try #require(parsed as? [String: Any])
+        let servers = try #require(document["mcpServers"] as? [String: [String: Any]])
+        let flare = try #require(servers["flare"])
+        #expect(flare["url"] as? String == "https://runbloom.app/api/mcp/flare")
+        #expect((flare["headers"] as? [String: String])?["Authorization"] == "Bearer private-grant")
+
+        let arguments = AgentRunner.argv(
+            session: session, resume: nil, mcpConfigPath: "/tmp/bridge.mcp.json",
+            additionalMcpConfigPath: path
+        )
+        let flag = try #require(arguments.firstIndex(of: "--mcp-config"))
+        #expect(arguments[(flag + 1)...(flag + 2)] == ["/tmp/bridge.mcp.json", path])
+        #expect(!arguments.contains("private-grant"))
+        let cleared = try CloudMcpConfiguration.writeClaude([], sessionID: session.id, directory: root.path)
+        #expect(cleared == nil)
+        #expect(!FileManager.default.fileExists(atPath: path))
+    }
+
     @Test("Codex is given the overrides after app-server and never --strict-config")
     func codexArgv() {
         let attachment = BridgeAttachment(
@@ -55,6 +85,19 @@ struct BridgeArgvTests {
     func codexArgvWithoutABridge() {
         let launch = CodexClient.launch(CodexClient.Configuration(cwd: "/tmp/w", environment: [:]))
         #expect(launch.arguments == CodexClient.arguments)
+    }
+
+    @Test("Codex keeps the Cloud proxy grant in its environment")
+    func codexCloudMcpConfig() {
+        let launch = CodexClient.launch(CodexClient.Configuration(
+            cwd: "/tmp/w", environment: [:], cloudMcpConnections: [
+                CloudMcpConnection(name: "there-there", url: "https://runbloom.app/api/mcp/there-there", bearer: "private-grant")
+            ]
+        ))
+        #expect(launch.arguments.contains { $0.contains("mcp_servers.there-there.url=") })
+        #expect(launch.arguments.contains { $0.contains("bearer_token_env_var") })
+        #expect(!launch.arguments.contains { $0.contains("private-grant") })
+        #expect(launch.environment["BLOOM_MCP_THERE_THERE_TOKEN"] == "private-grant")
     }
 
     @Test("Grok is launched as ACP stdio without attaching to the user's leader")

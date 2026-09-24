@@ -80,6 +80,7 @@ public actor AgentRunner {
     /// new runner with a new file and a new token, which is exactly what a token held only in
     /// memory needs.
     private let mcpConfigPath: String?
+    private let additionalMcpConfigPath: String?
     /// Whether the composer's Fast toggle is on for this session.
     ///
     /// Read from the store rather than passed in, because it is the one composer control with no
@@ -160,6 +161,7 @@ public actor AgentRunner {
         session: Session,
         store: Store,
         mcpConfigPath: String? = nil,
+        additionalMcpConfigPath: String? = nil,
         shutdownBudget: Duration = .seconds(5),
         makeProcess: @escaping @Sendable (AgentLaunch) -> any AgentProcessing = AgentRunner.spawn
     ) {
@@ -168,6 +170,7 @@ public actor AgentRunner {
         self.session = session
         self.store = store
         self.mcpConfigPath = mcpConfigPath
+        self.additionalMcpConfigPath = additionalMcpConfigPath
         self.shutdownBudget = shutdownBudget
         self.makeProcess = makeProcess
         self.grants = SessionGrants(store: store, workspaceID: session.workspaceID)
@@ -237,7 +240,8 @@ public actor AgentRunner {
         resume: String?,
         isFastMode: Bool = false,
         outputStyle: String? = nil,
-        mcpConfigPath: String? = nil
+        mcpConfigPath: String? = nil,
+        additionalMcpConfigPath: String? = nil
     ) -> [String] {
         var arguments = [
             "-p",
@@ -288,8 +292,9 @@ public actor AgentRunner {
         if let settings = settingsJSON(outputStyle: outputStyle) {
             arguments += ["--settings", settings]
         }
-        if let mcpConfigPath, !mcpConfigPath.isEmpty {
-            arguments += BridgeRegistration.claudeArguments(configPath: mcpConfigPath)
+        let mcpConfigs = [mcpConfigPath, additionalMcpConfigPath].compactMap { $0 }.filter { !$0.isEmpty }
+        if !mcpConfigs.isEmpty {
+            arguments += ["--mcp-config"] + mcpConfigs
         }
         if let resume, !resume.isEmpty {
             arguments += ["--resume", resume]
@@ -323,7 +328,8 @@ public actor AgentRunner {
                 resume: session.agentSessionID,
                 isFastMode: isFastMode,
                 outputStyle: outputStyle,
-                mcpConfigPath: mcpConfigPath
+                mcpConfigPath: mcpConfigPath,
+                additionalMcpConfigPath: additionalMcpConfigPath
             ),
             cwd: workspacePath,
             environment: Shell.environment()

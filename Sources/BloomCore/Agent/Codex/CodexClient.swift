@@ -42,6 +42,7 @@ public actor CodexClient {
         /// `-c` override at launch is a per-session registration exactly as Claude Code's
         /// recomputed argv is. See `BridgeRegistration.codexArguments`.
         public var bridge: BridgeAttachment?
+        public var cloudMcpConnections: [CloudMcpConnection]
         /// How large this process should be told the model's context window is, in tokens, or
         /// `CodexContextWindow.modelDefault` for Codex's own catalogue. Per process, which here is
         /// per chat, and unlike the model and the effort it cannot travel with a turn: the two
@@ -56,6 +57,7 @@ public actor CodexClient {
             clientVersion: String = "0.0.0",
             environment: [String: String] = Shell.environment(),
             bridge: BridgeAttachment? = nil,
+            cloudMcpConnections: [CloudMcpConnection] = [],
             contextWindow: Int = CodexContextWindow.modelDefault
         ) {
             self.executable = executable
@@ -65,6 +67,7 @@ public actor CodexClient {
             self.clientVersion = clientVersion
             self.environment = environment
             self.bridge = bridge
+            self.cloudMcpConnections = cloudMcpConnections
             self.contextWindow = contextWindow
         }
     }
@@ -89,6 +92,8 @@ public actor CodexClient {
         if let bridge = configuration.bridge {
             arguments += BridgeRegistration.codexArguments(bridge)
         }
+        arguments += CloudMcpConfiguration.codexArguments(configuration.cloudMcpConnections)
+        environment.merge(CloudMcpConfiguration.codexEnvironment(configuration.cloudMcpConnections)) { _, cloud in cloud }
         arguments += CodexContextWindow.overrides(for: configuration.contextWindow)
         return AgentLaunch(
             executable: configuration.executable,

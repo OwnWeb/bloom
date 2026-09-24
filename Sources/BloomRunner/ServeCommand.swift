@@ -203,6 +203,11 @@ public enum ServeCommand {
                 guard let context, let grant = context.githubCredentialGrant else {
                     throw RemoteFailure(.unavailable, "This turn has no person-bound GitHub credential grant.")
                 }
+                let cloudMcpConnections = try await client.personalMcpConnections()
+                let cloudMcpConfigPath = try CloudMcpConfiguration.writeClaude(
+                    cloudMcpConnections, sessionID: session.id,
+                    directory: MachineSandbox.personBoundSharedDirectory + "/personal-mcp"
+                )
                 let unclaimed = Mutex(true)
                 let isolate: RemoteRunnerFactory.Isolate = { launch in
                     let claimed = unclaimed.withLock { available -> Bool in
@@ -232,7 +237,8 @@ public enum ServeCommand {
                     }
                 }
                 return RemoteRunnerFactory.make(
-                    session, path, store, extra, bridge, sandbox: nil, isolate: isolate
+                    session, path, store, extra, bridge, sandbox: nil, isolate: isolate,
+                    cloudMcpConnections: cloudMcpConnections, cloudMcpConfigPath: cloudMcpConfigPath
                 )
             },
             publishing: RemotePublishing(run: runPersonBoundCommand),

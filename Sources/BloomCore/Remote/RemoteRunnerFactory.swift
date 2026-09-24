@@ -39,6 +39,8 @@ public enum RemoteRunnerFactory {
     public static func make(_ session: Session, _ workspacePath: String, _ store: Store, _ environment: [String: String],
                             _ bridge: BridgeHandle?, sandbox: MachineSandbox?,
                             isolate: Isolate? = nil,
+                            cloudMcpConnections: [CloudMcpConnection] = [],
+                            cloudMcpConfigPath: String? = nil,
                             didStart: (@Sendable (Int32) -> Void)? = nil) -> any SessionRunner {
         let launching: @Sendable (AgentLaunch) -> any AgentProcessing = { launch in
             let wrapped = sandbox?.wrap(launch) ?? launch
@@ -52,6 +54,7 @@ public enum RemoteRunnerFactory {
         case .codex:
             return CodexRunner(workspacePath: workspacePath, session: session, store: store, bridge: bridge?.attachment) { configuration in
                 var configuration = configuration
+                configuration.cloudMcpConnections = cloudMcpConnections
                 configuration.environment = ProviderCredentialEnvironment.agent(
                     session.agentKind, granted: environment, inheriting: configuration.environment
                 )
@@ -69,7 +72,10 @@ public enum RemoteRunnerFactory {
             }
         // Cursor and OpenCode have no runner, for the reason `TranscriptModel.makeRunner` gives.
         case .claudeCode, .cursor, .openCode:
-            return AgentRunner(workspacePath: workspacePath, session: session, store: store, mcpConfigPath: bridge?.mcpConfigPath) { launch in
+            return AgentRunner(
+                workspacePath: workspacePath, session: session, store: store,
+                mcpConfigPath: bridge?.mcpConfigPath, additionalMcpConfigPath: cloudMcpConfigPath
+            ) { launch in
                 launching(AgentLaunch(
                     executable: launch.executable, arguments: launch.arguments, cwd: launch.cwd,
                     environment: ProviderCredentialEnvironment.agent(
