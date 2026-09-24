@@ -61,6 +61,9 @@ struct ChangesHistoryList<Model: WorkspaceSurface>: View {
                                     }
                                     .buttonStyle(.plain)
                                     .help("\(commit.sha)\n\(commit.author) · \(commit.date.formatted())\n\(commit.subject)")
+                                    .contextMenu {
+                                        Button("Copy Commit Hash") { Clipboard.copy(commit.sha) }
+                                    }
                                     .accessibilityElement(children: .combine)
                                     .accessibilityAddTraits(model.diffScope == .commit(commit) ? .isSelected : [])
                                 }

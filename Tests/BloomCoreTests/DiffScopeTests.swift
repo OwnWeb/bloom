@@ -148,6 +148,7 @@ struct DiffScopeTests {
         let commits = Git.parseBranchCommits(Data(stream.utf8))
 
         #expect(commits.count == 3)
+        #expect(commits[0].sha == "1111111111111111111111111111111111111111")
         #expect(commits[0].abbreviated == "1111111")
         #expect(commits[1].subject == "Fix the thing\nand the other thing")
         #expect(commits[2].subject == "Café: rename the module")
