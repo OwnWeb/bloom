@@ -111,6 +111,7 @@ OPERATIONS = {
     "stop": plain({"chat_id": S}),
     "answer": plain({"chat_id": S, "request_id": S, "answer": ref("Answer")}),
     "write_file": plain({"path": S, "text": S, "revision": S}),
+    "delete_file": plain({"path": S}),
     "upload_file": plain({"name": S, "data": BASE64}),
     "commit": plain({"message": S}),
     "push": plain(),
