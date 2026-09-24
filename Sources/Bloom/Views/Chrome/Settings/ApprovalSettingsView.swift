@@ -4,6 +4,9 @@ import BloomCore
 /// Permissions stay discoverable before the first project-wide approval is granted.
 struct ApprovalSettingsView: View {
     @Environment(AppModel.self) private var app
+    @AppStorage(MacCloudWorkspaceStartTool.settingKey) private var agentsCreateCloudWorkspaces = false
+    // Each Cloud workspace costs money, so Bloom asks on this Mac unless the owner opts out.
+    @AppStorage(CloudWorkspaceStartQuestion.settingKey) private var asksBeforeCloudWorkspaceStart = true
 
     @Binding var defaults: AppDefaults
     var isReady: Bool
@@ -31,6 +34,17 @@ struct ApprovalSettingsView: View {
                 Text("New sessions")
             } footer: {
                 Text("Controls what an agent can do without asking. Plan mode in Sessions takes priority. Existing sessions keep their permissions.")
+                    .settingsFootnote()
+            }
+
+            Section("Cloud workspaces") {
+                Toggle(MacCloudWorkspaceStartTool.settingTitle, isOn: $agentsCreateCloudWorkspaces)
+                Text("Applies to agents running on this Mac. Agents in Cloud workspaces use their team's permissions on runbloom.app.")
+                    .settingsFootnote()
+
+                Toggle(CloudWorkspaceStartQuestion.settingTitle, isOn: $asksBeforeCloudWorkspaceStart)
+                    .disabled(!agentsCreateCloudWorkspaces)
+                Text("Bloom shows you what the agent wants to create before it starts the workspace. When this is off, the switch above decides alone.")
                     .settingsFootnote()
             }
 

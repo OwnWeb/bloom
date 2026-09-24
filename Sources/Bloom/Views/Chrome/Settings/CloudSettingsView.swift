@@ -11,7 +11,7 @@ import SwiftUI
 /// Cloud has become. So it opens on the brand's own ground, the deep water the About and welcome
 /// windows stand on, with the mark and the name on it and the water breathing behind them, and
 /// says what signing in buys in four lines, each of them checked against what Bloom Cloud actually
-/// does today. Signed in, the same ground heads the account, its teams and the one agent setting.
+/// does today. Signed in, the same ground heads the account and its teams.
 ///
 /// **Drawn in SwiftUI throughout**, with the pane as a value (`CloudSettingsPane`) and this view
 /// only reading the app into it. That is what lets `CloudSettingsGallery` photograph the real pane
@@ -19,9 +19,6 @@ import SwiftUI
 /// so the few controls here go through one switch the gallery flips to drawn stand-ins.
 struct CloudSettingsView: View {
     @Environment(AppModel.self) private var app
-    @AppStorage(MacCloudWorkspaceStartTool.settingKey) private var agentsCreateCloudWorkspaces = false
-    // On when absent, as `CloudWorkspaceStartQuestion.asks` reads it: each one costs money.
-    @AppStorage(CloudWorkspaceStartQuestion.settingKey) private var asksBeforeCloudWorkspaceStart = true
     private var cloud: CloudWorkspaces { app.cloud }
 
     var body: some View {
@@ -29,8 +26,6 @@ struct CloudSettingsView: View {
             CloudSettingsPane(
                 phase: phase,
                 environment: cloud.environment,
-                agentsCreateCloudWorkspaces: $agentsCreateCloudWorkspaces,
-                asksBeforeCloudWorkspaceStart: $asksBeforeCloudWorkspaceStart,
                 drawing: .live,
                 actions: CloudSettingsPane.Actions(
                     signIn: { Task { await cloud.beginSignIn() } },
@@ -81,8 +76,6 @@ struct CloudSettingsPane: View {
 
     var phase: Phase
     var environment: RunbloomEnvironment
-    @Binding var agentsCreateCloudWorkspaces: Bool
-    @Binding var asksBeforeCloudWorkspaceStart: Bool
     var drawing: Drawing
     var actions: Actions
 
@@ -235,42 +228,6 @@ struct CloudSettingsPane: View {
             }
         }
 
-        sectionHeading("Agents")
-        card {
-            HStack(alignment: .top, spacing: Metrics.gutter) {
-                VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
-                    Text(MacCloudWorkspaceStartTool.settingTitle).font(Typo.title)
-                    // Plain words, which is what a settings pane owes somebody. That this is a
-                    // preference Bloom keeps rather than a gate runbloom.app enforces is said in
-                    // docs/BRIDGE.md, where it belongs. No promise that you are asked first: a chat
-                    // that bypasses permissions asks nobody. See `CloudWorkspaceStartTool`.
-                    Text("Each Bloom Cloud workspace is its own machine and costs money. When this is on, your agents may start one.")
-                        .font(Typo.caption)
-                        .foregroundStyle(Palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                toggle($agentsCreateCloudWorkspaces, label: MacCloudWorkspaceStartTool.settingTitle)
-            }
-            Divider().padding(.vertical, Metrics.gutter)
-            HStack(alignment: .top, spacing: Metrics.gutter) {
-                VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
-                    Text(CloudWorkspaceStartQuestion.settingTitle).font(Typo.title)
-                    // A promise this time, and a true one: Bloom asks in its own window, so the
-                    // chat's permission mode does not come into it. See `CloudWorkspaceStartQuestion`.
-                    Text("Bloom shows you what the agent wants to create and waits for your answer, whatever the chat's permission mode. When this is off, the switch above decides alone.")
-                        .font(Typo.caption)
-                        .foregroundStyle(Palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                toggle($asksBeforeCloudWorkspaceStart, label: CloudWorkspaceStartQuestion.settingTitle)
-            }
-            // Meaningless while agents may not create any, so it steps back rather than going.
-            .disabled(!agentsCreateCloudWorkspaces)
-            .opacity(agentsCreateCloudWorkspaces ? 1 : 0.5)
-        }
-
         HStack(spacing: Metrics.spacing) {
             button("Open runbloom.app") { actions.open(environment.accountPage) }
             Spacer()
@@ -336,6 +293,16 @@ struct CloudSettingsPane: View {
                     keyRow("Codex key", account: account, team: team.id, agent: "codex")
                 }
                 .padding(.top, Metrics.spacingWide)
+            }
+            if team.cloudWorkspacesEnabled, !team.slug.isEmpty, ["owner", "admin"].contains(team.role) {
+                Text("Agents in this team's Cloud workspaces use its team permissions on runbloom.app.")
+                    .font(Typo.caption)
+                    .foregroundStyle(Palette.textSecondary)
+                    .padding(.top, Metrics.spacingWide)
+                button("Agent permissions for \(team.name)") {
+                    actions.open(environment.origin.appending(path: "app/\(team.slug)/settings/agent-permissions"))
+                }
+                .padding(.top, Metrics.spacingSmall)
             }
         }
     }
@@ -416,21 +383,6 @@ struct CloudSettingsPane: View {
                 .padding(.vertical, prominent ? 7 : 4)
                 .background(prominent ? Palette.controlAccent : Palette.surface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(prominent ? Color.clear : Palette.border))
-        }
-    }
-
-    @ViewBuilder
-    private func toggle(_ isOn: Binding<Bool>, label: String) -> some View {
-        switch drawing {
-        case .live:
-            Toggle(label, isOn: isOn).toggleStyle(.switch).labelsHidden()
-        case .drawn:
-            Capsule()
-                .fill(isOn.wrappedValue ? Palette.controlAccent : Palette.border)
-                .frame(width: 34, height: 20)
-                .overlay(alignment: isOn.wrappedValue ? .trailing : .leading) {
-                    Circle().fill(.white).frame(width: 16, height: 16).padding(2)
-                }
         }
     }
 }

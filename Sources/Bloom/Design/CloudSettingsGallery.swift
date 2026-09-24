@@ -40,8 +40,7 @@ enum CloudSettingsGallery {
             for dark in [false, true] {
                 let pane = CloudSettingsPane(
                     phase: phase, environment: environment,
-                    agentsCreateCloudWorkspaces: .constant(name.hasSuffix("signed-in")),
-                    asksBeforeCloudWorkspaceStart: .constant(true), drawing: .drawn, actions: .init()
+                    drawing: .drawn, actions: .init()
                 )
                 .frame(width: 640)
                 .background(Palette.surface)
