@@ -343,6 +343,19 @@ final class CloudWorkspaces {
         try? await api.markRead(id.rawValue)
     }
 
+    /// The machine owns the name and reports it back to runbloom.app for every client.
+    func rename(_ id: CloudWorkspaceID, to name: String) async {
+        guard item(id)?.canOpen == true else { return }
+        let session = session(for: id)
+        if let failure = await session.run(.renameWorkspace(name: name), reporting: false) {
+            if failure != .cancelled { app?.notice = BloomNotice(message: failure.message) }
+            return
+        }
+        guard let index = items.firstIndex(where: { $0.id == id.rawValue }) else { return }
+        items[index].name = name
+        items[index].summary?.title = name
+    }
+
     /// Changes only this person's colour mark. The answer replaces the row so every permission
     /// and link remains the server's current one rather than a locally patched copy.
     func setColour(_ colour: String?, for id: CloudWorkspaceID) async {

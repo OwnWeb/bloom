@@ -14,6 +14,7 @@ struct CloudWorkspaceRow: View {
     var item: CloudWorkspaceItem
     var isSelected: Bool
     var showsDiffStats = false
+    @Binding var renaming: CloudWorkspaceID?
     /// Raises the Cloud archive popover, which asks the machine what is about to be lost and says
     /// the conversation goes with it. See `CloudArchivePopover`.
     var onArchive: () -> Void = {}
@@ -22,6 +23,11 @@ struct CloudWorkspaceRow: View {
     @Environment(\.backgroundProminence) private var backgroundProminence
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
+    @State private var draft = ""
+    @State private var hasEnded = false
+    @FocusState private var fieldFocused: Bool
+
+    private var isRenaming: Bool { renaming == CloudWorkspaceID(item.id) }
 
     /// What the machine says it is doing, while its stream is open to say. Nil sends both readings
     /// below back to runbloom.app's poll, which is all there is for a workspace nobody has open.
@@ -44,38 +50,57 @@ struct CloudWorkspaceRow: View {
     var body: some View {
         Label {
             HStack(spacing: Metrics.spacing) {
-                WorkspaceNameText(name: item.displayName, isUnread: item.unread)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if status == .asleep, item.summary != nil {
-                    Image(systemName: "moon.zzz")
-                        .font(Typo.micro)
-                        .foregroundStyle(isEmphasized ? Palette.textInverted : Palette.textTertiary)
-                        .accessibilityHidden(true)
-                }
-                WorkspaceColourDot(hex: item.colour, accessibilityName: colourName)
-                sharingMark
-                Spacer(minLength: Metrics.spacingSmall)
-                if showsDiffStats, let diff = item.summary?.diff, diff.files > 0 {
-                    DiffStatLabel(additions: diff.additions, deletions: diff.deletions, compact: true, quiet: true)
+                if isRenaming {
+                    TextField("Workspace name", text: $draft)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(Palette.textPrimary)
+                        .focused($fieldFocused)
+                        .onSubmit { end(.submitted) }
+                        .onExitCommand { end(.escaped) }
+                        .onChange(of: fieldFocused) { had, has in
+                            guard had, !has else { return }
+                            end(.focusLost)
+                        }
+                        .task {
+                            draft = item.displayName
+                            hasEnded = false
+                            try? await Task.sleep(for: .milliseconds(30))
+                            fieldFocused = true
+                        }
+                } else {
+                    WorkspaceNameText(name: item.displayName, isUnread: item.unread)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if status == .asleep, item.summary != nil {
+                        Image(systemName: "moon.zzz")
+                            .font(Typo.micro)
+                            .foregroundStyle(isEmphasized ? Palette.textInverted : Palette.textTertiary)
+                            .accessibilityHidden(true)
+                    }
+                    WorkspaceColourDot(hex: item.colour, accessibilityName: colourName)
+                    sharingMark
+                    Spacer(minLength: Metrics.spacingSmall)
+                    if showsDiffStats, let diff = item.summary?.diff, diff.files > 0 {
+                        DiffStatLabel(additions: diff.additions, deletions: diff.deletions, compact: true, quiet: true)
+                            .opacity(isHovered && item.canArchive ? 0 : 1)
+                    }
+                    if let project = item.project {
+                        CloudProjectIcon(
+                            teamID: CloudTeamID(item.teamID),
+                            projectID: CloudProjectID(project.id),
+                            repository: project.repository,
+                            iconURL: project.iconURL,
+                            size: Metrics.repoIconSmall,
+                            accessibilityName: "Project \(project.repository)"
+                        )
+                        .frame(width: SidebarMetrics.rowButton)
                         .opacity(isHovered && item.canArchive ? 0 : 1)
-                }
-                if let project = item.project {
-                    CloudProjectIcon(
-                        teamID: CloudTeamID(item.teamID),
-                        projectID: CloudProjectID(project.id),
-                        repository: project.repository,
-                        iconURL: project.iconURL,
-                        size: Metrics.repoIconSmall,
-                        accessibilityName: "Project \(project.repository)"
-                    )
-                    .frame(width: SidebarMetrics.rowButton)
-                    .opacity(isHovered && item.canArchive ? 0 : 1)
+                    }
                 }
             }
             // The local row's own hover control and the ground it clears, so the archive box is
             // under the pointer in the same place in both sections of the column.
-            .modifier(SidebarRowTrailingControl(isShown: (isHovered || isArchiveActive) && item.canArchive) { archiveButton })
+            .modifier(SidebarRowTrailingControl(isShown: (isHovered || isArchiveActive) && item.canArchive && !isRenaming) { archiveButton })
             .animation(reduceMotion ? nil : Motion.hover, value: isHovered)
         } icon: {
             // Every state, as the local row draws it, so the two sections of the column agree.
@@ -85,9 +110,14 @@ struct CloudWorkspaceRow: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .task(id: projectSettingsKey) { await app.cloud.loadProjectIconSettings(for: item) }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: isRenaming ? .contain : .combine)
         .accessibilityValue(status.phrase + (item.unread ? ", unread" : ""))
         .environment(\.isOnEmphasizedSelection, isEmphasized)
+        .focusedValue(\.isTypingProse, fieldFocused)
+        .onChange(of: isRenaming) { was, now in
+            guard was, !now else { return }
+            end(.dismissed)
+        }
     }
 
     private var projectSettingsKey: String? {
@@ -127,6 +157,17 @@ struct CloudWorkspaceRow: View {
             get: { isArchiveActive },
             set: { if !$0, isArchiveActive { app.cloud.archiving = nil } }
         )
+    }
+
+    private func end(_ ending: InPlaceRename.Ending) {
+        guard !hasEnded else { return }
+        hasEnded = true
+        let id = CloudWorkspaceID(item.id)
+        if renaming == id { renaming = nil }
+        guard case .commit(let name) = InPlaceRename.outcome(
+            ending, draft: draft, current: item.displayName
+        ) else { return }
+        Task { await app.cloud.rename(id, to: name) }
     }
 
     /// Whether other people can see it, which is the one thing about a Cloud workspace's row a

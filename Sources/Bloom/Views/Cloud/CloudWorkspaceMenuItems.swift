@@ -5,12 +5,14 @@ import SwiftUI
 /// What a Cloud workspace's row offers on a right click.
 struct CloudWorkspaceMenuItems: View {
     var item: CloudWorkspaceItem
+    var onRename: (CloudWorkspaceID) -> Void
     @Environment(AppModel.self) private var app
 
     private var id: CloudWorkspaceID { CloudWorkspaceID(item.id) }
 
     var body: some View {
         if item.canOpen {
+            Button(MenuBarCatalogue[.renameWorkspace].title) { onRename(id) }
             Button("Open Preview in Browser") {
                 app.selection = .cloud(id)
                 Task { await app.cloud.session(for: id).openPreview() }

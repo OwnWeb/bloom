@@ -33,6 +33,7 @@ struct SidebarView: View {
     @Environment(\.undoManager) private var undoManager
 
     @State private var renaming: WorkspaceID?
+    @State private var renamingCloud: CloudWorkspaceID?
     @State private var filter: SidebarFilter = .all
 
     /// Whether the projects the owner has hidden are in the list.
@@ -808,6 +809,7 @@ struct SidebarView: View {
     /// `InPlaceRename`'s `dismissed` ending. See `WorkspaceRow.end`.
     private func follow(_ target: SidebarSelection) {
         renaming = nil
+        renamingCloud = nil
         listSelection = target
         let hold = SidebarReadingHold.next(
             selection: target, current: readingHold, workspaces: app.workspaces
@@ -897,7 +899,8 @@ struct SidebarView: View {
                 CloudWorkspaceRow(
                     item: item,
                     isSelected: listSelection == target,
-                    showsDiffStats: showsDiffStats
+                    showsDiffStats: showsDiffStats,
+                    renaming: $renamingCloud
                 ) {
                     app.selection = target
                     app.cloud.askToArchive(CloudWorkspaceID(item.id), from: .row)
@@ -909,7 +912,7 @@ struct SidebarView: View {
                     .sidebarSelection(selectionStyle(for: target))
                     .selectionDisabled(!item.canOpen)
                     .moveDisabled(true)
-                    .contextMenu { CloudWorkspaceMenuItems(item: item) }
+                    .contextMenu { CloudWorkspaceMenuItems(item: item) { renamingCloud = $0 } }
             }
             if let problem = app.cloud.listProblem {
                 Text(problem)
