@@ -47,6 +47,12 @@ struct CloudWorkspaceRow: View {
                 WorkspaceNameText(name: item.displayName, isUnread: item.unread)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if status == .asleep, item.summary != nil {
+                    Image(systemName: "moon.zzz")
+                        .font(Typo.micro)
+                        .foregroundStyle(isEmphasized ? Palette.textInverted : Palette.textTertiary)
+                        .accessibilityHidden(true)
+                }
                 WorkspaceColourDot(hex: item.colour, accessibilityName: colourName)
                 sharingMark
                 Spacer(minLength: Metrics.spacingSmall)

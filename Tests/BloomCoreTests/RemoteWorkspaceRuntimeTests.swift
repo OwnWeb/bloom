@@ -20,6 +20,7 @@ struct RemoteWorkspaceRuntimeTests {
     func fixture(
         gate: any RemoteTurnGate = UngatedTurns(),
         createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil,
+        stopCloudWorkspace: (@Sendable (CloudWorkspaceStopRequest) async -> CloudWorkspaceStopAnswer)? = nil,
         models: @escaping WorkspaceRuntime.ModelDiscovery = { _ in [] },
         settings: String? = nil,
         peers: WorkspacePeers? = nil,
@@ -49,7 +50,8 @@ struct RemoteWorkspaceRuntimeTests {
             installedAgents: { [.claudeCode, .codex] }, models: models, publishing: publishing,
             runnerExitGrace: .milliseconds(50), retiresRunnerAfterTurn: retiresRunnerAfterTurn,
             lookUpMember: lookUpMember, addressed: addressed,
-            createCloudWorkspace: createCloudWorkspace, peers: peers, worktreeCloned: worktreeCloned
+            createCloudWorkspace: createCloudWorkspace, stopCloudWorkspace: stopCloudWorkspace,
+            peers: peers, worktreeCloned: worktreeCloned
         )
         if start { try await runtime.start() }
         return Fixture(store: store, workspace: workspace, session: session, runtime: runtime, runners: runners)
@@ -371,6 +373,31 @@ struct RemoteWorkspaceRuntimeTests {
         let request = try #require(asked.withLock { $0 }.first)
         #expect(request.turnID == turnID, "runbloom.app's own id for the turn, which is how it knows who asked")
         #expect(request.idempotencyKey == CloudWorkspaceRequest.idempotencyKey(turnID: turnID, name: "Spike"))
+        await fixture.runners.finishTurn()
+        await fixture.runtime.shutdown()
+    }
+
+    @Test("a Cloud workspace stop is attributed to the running turn")
+    func cloudWorkspaceStopUsesThePromptersTurn() async throws {
+        let gate = RemoteTestGate()
+        let asked = Mutex<[CloudWorkspaceStopRequest]>([])
+        let fixture = try await fixture(gate: gate, stopCloudWorkspace: { request in
+            asked.withLock { $0.append(request) }
+            return .requested(CloudWorkspaceStopped(id: CloudWorkspaceID("01k5other"), name: "Other", state: "archiving"))
+        })
+
+        guard case .refused = await fixture.runtime.stopCloudWorkspace(nil, sessionID: fixture.session.id) else {
+            Issue.record("A chat between turns stopped a workspace"); return
+        }
+        #expect(asked.withLock { $0 }.isEmpty)
+
+        _ = await fixture.runtime.respond(to: CommandRequest(.send(chatID: fixture.session.id.rawValue, text: "Stop Other")),
+                                          as: Self.caller(Self.freek))
+        await waitUntil("the turn is running") { fixture.runners.sent.withLock { $0 } == ["Stop Other"] }
+        let answer = await fixture.runtime.stopCloudWorkspace("Other", sessionID: fixture.session.id)
+        #expect(answer == .requested(CloudWorkspaceStopped(id: CloudWorkspaceID("01k5other"), name: "Other", state: "archiving")))
+        let turnID = try #require(gate.registered.withLock { $0 }.first?.turnID)
+        #expect(asked.withLock { $0 } == [CloudWorkspaceStopRequest(turnID: turnID, workspace: "Other")])
         await fixture.runners.finishTurn()
         await fixture.runtime.shutdown()
     }

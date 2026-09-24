@@ -54,7 +54,7 @@ import Testing
     @Test func aLiveMachineOutranksAStaleSummary() {
         let item = CloudWorkspaceItem(id: "a", teamID: "t", name: "n", branch: "b", state: "running")
         #expect(CloudWorkspaceStatus(item: item) == .running, "the poll still says so")
-        #expect(CloudWorkspaceStatus(item: item, activity: .idle) == .asleep || CloudWorkspaceStatus(item: item, activity: .idle) == .idle)
+        #expect(CloudWorkspaceStatus(item: item, activity: .idle) == .idle)
         #expect(CloudSidebarMark.name(for: item, activity: .idle) != "running")
         #expect(CloudSidebarMark.name(for: item, activity: nil) == "running", "no stream, no opinion")
     }

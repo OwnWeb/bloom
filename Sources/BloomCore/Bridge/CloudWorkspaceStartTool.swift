@@ -30,8 +30,8 @@ public struct CloudWorkspaceOrder: Sendable, Hashable {
     public static let promptLimit = 512 * 1_024
 }
 
-/// The workspace runbloom.app made. **All the agent will ever know about it**: nothing on a
-/// machine can list or read another workspace, so the answer carries the address a person opens.
+/// The workspace runbloom.app made. The answer carries the address a person opens and the id an
+/// agent can later use with `cloud_workspace_stop`.
 public struct CloudWorkspaceCreated: Sendable, Hashable {
     public var id: String
     public var name: String
@@ -108,8 +108,8 @@ public struct CloudWorkspaceStartTool: BridgeToolHandling {
             trying again. A workspace created this way cannot create others.
 
             It returns as soon as the workspace exists, which is before its setup has run; setup \
-            takes minutes. There is no way to look it up afterwards from here, so pass on what \
-            the answer says.
+            takes minutes. Pass the address on to the person and keep the id if they later ask \
+            you to stop it with cloud_workspace_stop.
             """,
         inputSchema: .object([
             "type": .string("object"),

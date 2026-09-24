@@ -50,16 +50,15 @@ public enum CloudWorkspaceStatus: Sendable, Hashable {
         case .waiting(let kind): self = .waiting(kind: kind)
         case .settingUp(let step): self = .settingUp(step: step)
         case .idle:
-            // The machine says nothing is happening, so the row falls to what the workspace IS
-            // rather than to what the poll last saw it doing. Archiving and the refusals stay the
-            // summary's, because they are runbloom.app's own facts and the machine does not carry
-            // them.
+            // A live stream proves the machine is awake, even if the last poll still says it is
+            // asleep. Archiving and the refusals stay the summary's, because they are
+            // runbloom.app's own facts and the machine does not carry them.
             switch item.state {
             case "archiving", "archived": self = .archiving
             case "blocked": self = .blocked
             case "setup_failed": self = .setupFailed
             case "error": self = .error
-            default: self = item.isAwake ? .idle : .asleep
+            default: self = .idle
             }
         }
     }

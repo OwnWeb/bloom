@@ -88,6 +88,7 @@ public actor WorkspaceRuntime {
     /// Asks runbloom.app for another Cloud workspace. Nil off a machine, where there is nobody to
     /// ask; see `startCloudWorkspace`.
     let createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)?
+    let stopCloudWorkspace: (@Sendable (CloudWorkspaceStopRequest) async -> CloudWorkspaceStopAnswer)?
     /// The team's other Bloom Cloud workspaces. Nil off a machine. See `WorkspacePeers`.
     let peers: WorkspacePeers?
     /// The project's services as the machine is running them. Empty everywhere that is not a
@@ -153,6 +154,7 @@ public actor WorkspaceRuntime {
         listMembers: @escaping @Sendable () async -> [WorkspaceMember] = { [] },
         addressed: (@Sendable (AddressedReport) async -> Void)? = nil,
         createCloudWorkspace: (@Sendable (CloudWorkspaceRequest) async -> CloudWorkspaceAnswer)? = nil,
+        stopCloudWorkspace: (@Sendable (CloudWorkspaceStopRequest) async -> CloudWorkspaceStopAnswer)? = nil,
         peers: WorkspacePeers? = nil,
         sandbox: MachineSandbox? = nil,
         sharedDirectory: String? = nil,
@@ -167,6 +169,7 @@ public actor WorkspaceRuntime {
         self.sharedDirectory = sharedDirectory
         self.peers = peers
         self.createCloudWorkspace = createCloudWorkspace
+        self.stopCloudWorkspace = stopCloudWorkspace
         self.lookUpMember = lookUpMember
         self.listMembers = listMembers
         self.addressed = addressed

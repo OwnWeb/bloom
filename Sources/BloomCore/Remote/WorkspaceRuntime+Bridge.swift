@@ -110,6 +110,10 @@ extension WorkspaceRuntime {
                 guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
                 return await self.startCloudWorkspace(order, sessionID: sessionID)
             },
+            CloudWorkspaceStopTool { [weak self] workspace, sessionID in
+                guard let self else { return .refused(RemoteFailure.shuttingDown.message) }
+                return await self.stopCloudWorkspace(workspace, sessionID: sessionID)
+            },
             RequestPaneTool { [weak self] url, placement, sessionID, _ in
                 guard let self else { return 0 }
                 return await self.requestPane(url: url, chatID: sessionID, placement: placement)

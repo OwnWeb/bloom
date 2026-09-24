@@ -999,6 +999,7 @@ No provider name in any path. All take the workspace secret except where noted.
 | `POST /api/machine/workspaces/{id}/turns` | registering a turn or terminal session, with the user's workspace token as well |
 | `POST /api/machine/workspaces/{id}/turns/{turn}/start` | the key and personal environment, or a limit refusal |
 | `DELETE /api/machine/workspaces/{id}/turns/{turn}` | ending a turn or terminal session |
+| `POST /api/machine/workspaces/{id}/cloud-workspaces/archive` | archive this workspace or another named by id as the running turn's prompter, after server-side authorisation and a recent clean git report |
 | `POST /api/machine/workspaces/{id}/github-credential-grants/bootstrap` | a rotating read-only grant for the Runner-owned initial clone |
 | `POST /api/machine/workspaces/{id}/github-credentials` | exchange one rotating grant for one root-attested Git or gh operation |
 | `GET /api/machine/workspaces/{id}/project-icon-request` | the current server-authored discovery revision and polling interval for this authenticated machine |

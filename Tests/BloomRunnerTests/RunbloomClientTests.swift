@@ -465,6 +465,32 @@ struct RunbloomClientTests {
         }
     }
 
+    @Test("stopping self omits a target, while stopping another resolves its name to an id")
+    func cloudWorkspaceStopTargets() async throws {
+        try await Self.withFake { fake, client in
+            fake.script("POST", "/cloud-workspaces/archive", .json(202, ["workspace": [
+                "id": "01k5self", "name": "Here", "state": "archiving",
+            ]]))
+            let own = await client.stopCloudWorkspace(CloudWorkspaceStopRequest(turnID: "01jturn", workspace: nil))
+            #expect(own == .requested(CloudWorkspaceStopped(id: CloudWorkspaceID("01k5self"), name: "Here", state: "archiving")))
+            let ownBody = try #require(fake.requests("POST", "/cloud-workspaces/archive").first?.json)
+            #expect(ownBody["turn_id"] as? String == "01jturn")
+            #expect(ownBody["workspace_id"] == nil)
+
+            fake.script("GET", "/workspaces", .json(200, ["workspaces": [
+                ["id": "01k5self", "name": "Here", "state": "running", "is_self": true],
+                ["id": "01k5other", "name": "Other", "state": "idle", "is_self": false],
+            ]]))
+            fake.script("POST", "/cloud-workspaces/archive", .json(202, ["workspace": [
+                "id": "01k5other", "name": "Other", "state": "archiving",
+            ]]))
+            let other = await client.stopCloudWorkspace(CloudWorkspaceStopRequest(turnID: "01jturn", workspace: "other"))
+            #expect(other == .requested(CloudWorkspaceStopped(id: CloudWorkspaceID("01k5other"), name: "Other", state: "archiving")))
+            let bodies = fake.requests("POST", "/cloud-workspaces/archive")
+            #expect(bodies.last?.json?["workspace_id"] as? String == "01k5other")
+        }
+    }
+
     /// With a prompt, the creating chat's agent and model travel as `controls`, which runbloom.app
     /// requires so the opening turn is registered with the agent whose key it hands out.
     @Test func aPromptTravelsWithTheCreatingChatsControls() async throws {

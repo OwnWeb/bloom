@@ -161,6 +161,7 @@ struct RemoteBridgeTests {
         "browser_snapshot", "browser_text", "browser_console", "browser_network", "browser_reload",
         "browser_scroll", "browser_wait", "media_show", "terminal_start", "terminal_read", "terminal_write",
         "terminal_send_key", "agent_start", "agent_say", "agent_stop", "request_pane", "cloud_workspace_start",
+        "cloud_workspace_stop",
     ])
 
     @Test("only the tools about this one workspace are offered, and only to agents working in it")
@@ -179,7 +180,7 @@ struct RemoteBridgeTests {
         // `CloudWorkspaceStartTool`.
         #expect(toolbox.tools(for: .workspace).map(\.name) == [
             "agent_list", "agent_say", "agent_start", "agent_stop", "chat_list", "chat_read",
-            "cloud_setup", "cloud_workspace_start", "mac_workspace_say", "media_show", "request_pane", "whoami",
+            "cloud_setup", "cloud_workspace_start", "cloud_workspace_stop", "mac_workspace_say", "media_show", "request_pane", "whoami",
             "workspace_diff", "workspace_list", "workspace_say",
         ])
         #expect(toolbox.tools(for: .owner).isEmpty)

@@ -255,6 +255,7 @@ public enum ServeCommand {
             listMembers: { await members.all() },
             addressed: { _ in await addressedReporter.start() },
             createCloudWorkspace: { await client.createCloudWorkspace($0) },
+            stopCloudWorkspace: { await client.stopCloudWorkspace($0) },
             peers: RunbloomPeers.peers(client: client, http: http),
             // **What a terminal runs as.** Agents reach the sandbox through the person-bound launcher
             // above, so this is only the terminals' now, and it was nil: the first shell after

@@ -50,6 +50,17 @@ public struct CloudWorkspaceRequest: Sendable, Hashable {
 }
 
 extension WorkspaceRuntime {
+    func stopCloudWorkspace(_ workspace: String?, sessionID: SessionID?) async -> CloudWorkspaceStopAnswer {
+        guard let stopCloudWorkspace else {
+            return .refused("This machine is not connected to runbloom.app, so it cannot stop a Bloom Cloud workspace.")
+        }
+        switch await personsTurn(sessionID, doing: "stop a Bloom Cloud workspace") {
+        case .failure(let refusal): return .refused(refusal.message)
+        case .success(let turnID):
+            return await stopCloudWorkspace(CloudWorkspaceStopRequest(turnID: turnID, workspace: workspace))
+        }
+    }
+
     /// Asks runbloom.app for another Cloud workspace, as the person whose turn this is.
     ///
     /// **Only a turn a person started can ask.** runbloom.app decides who is asking from the turn,
