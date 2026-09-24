@@ -184,14 +184,10 @@ struct ProbeHarness {
                 await resize(candidate)
                 return (candidate, content)
             }
-            // **A background launch does not always open the scene.** `open -g` is how a probe
-            // stays out of the owner's way, and a `Window` scene launched that way can come up
-            // with no window at all: `NSApp.windows` was empty eighteen seconds in, and a run
-            // that had worked all evening began reporting a broken transcript instead. This is
-            // what a click on the Dock icon does, and it takes no focus.
-            if NSApp.windows.isEmpty, let delegate = NSApp.delegate {
-                _ = delegate.applicationShouldHandleReopen?(NSApp, hasVisibleWindows: false)
-            }
+            // A background launch does not always open the scene. Calling the app delegate's
+            // reopen method here used to activate Bloom through `MainWindow.raise()`, taking
+            // focus from the person using this Mac, and still did not produce a window in an
+            // isolated probe run. Wait for a scene to arrive without asking to raise one.
             try? await Task.sleep(for: .milliseconds(250))
         }
         // Every window, not the filtered set, because "no window to probe" has twice meant "a

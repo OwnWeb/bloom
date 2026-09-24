@@ -167,12 +167,9 @@ struct TranscriptListView: View {
     /// `TranscriptPaneState.anchorDelta`. Nil until the table has a stored row to name, and never
     /// cleared by a pane that cannot see one, so what is written down is the last real place.
     @State private var topPlace = GeometryBox<(seq: Int, delta: CGFloat)?>(nil)
-    /// The question whose output is currently under the reader, only while its full bubble has
-    /// passed above the viewport.
-    @State private var pinnedQuestion: PinnedQuestion?
-    /// The prompt whose turn is at the top of the screen, for the minimap. Written only when the
-    /// reader crosses into another turn, from the same per-frame lookup the pinned question uses.
-    @State private var currentTurnSeq: Int?
+    /// Scroll navigation belongs to its two overlays. Moving between turns must not rebuild the
+    /// table's entries, which are independent of the pinned question and minimap highlight.
+    @State private var scrollNavigation = TranscriptScrollNavigation()
     /// Whether the pane is wide enough for the minimap beside the column. See `TurnMinimap.fits`.
     @State private var minimapFits = false
     /// Whether the pane is at the live end EXACTLY, which is not `geometry.isNearBottom`.
@@ -344,9 +341,7 @@ struct TranscriptListView: View {
            target.workspaceID == transcript.workspace?.id {
             return TranscriptWindow.index(ofSeqAtOrAfter: target.seq, in: seqs)
         }
-        if let unread = transcript.firstUnreadSeq {
-            return TranscriptWindow.index(ofSeqAtOrAfter: unread, in: seqs)
-        }
+        if let unread = transcript.firstUnreadIndex { return unread }
         return nil
     }
 
@@ -823,7 +818,7 @@ struct TranscriptListView: View {
             } else {
                 out.append(TranscriptTableEntry(
                     id: .row(row.seq), contentKey: key, drawsNothing: blank, shape: shape,
-                    fixedHeight: TranscriptRowInk.isStreamEvent(kind: row.kind, payload: row.payload) ? 0 : nil,
+                    fixedHeight: TranscriptRowInk.isDefinitelySilent(kind: row.kind, payload: row.payload) ? 0 : nil,
                     sentArrival: row.kind == .user ? transcript.messageArrivals.row(row.seq) : nil,
                     content: {
                         AnyView(
@@ -1191,15 +1186,12 @@ struct TranscriptListView: View {
                 .accessibilityHidden(true)
         }
         .overlay(alignment: .top) {
-            if let pinnedQuestion {
-                PinnedQuestionView(
-                    question: pinnedQuestion,
-                    onOpen: { showPinnedQuestion(pinnedQuestion) }
-                )
-                .transition(.opacity)
-            }
+            TranscriptPinnedQuestionOverlay(
+                navigation: scrollNavigation,
+                reduceMotion: reduceMotion,
+                onOpen: showPinnedQuestion
+            )
         }
-        .animation(reduceMotion ? nil : Motion.hover, value: pinnedQuestion?.seq)
         .overlay { minimap }
         .onGeometryChange(for: Bool.self) {
             TurnMinimap.fits(paneWidth: $0.size.width, measure: TranscriptLayout.conversationMeasure)
@@ -1289,8 +1281,8 @@ struct TranscriptListView: View {
             didPosition = false
             isLiveScrolling.value = false
             opening = nil
-            pinnedQuestion = nil
-            currentTurnSeq = nil
+            scrollNavigation.pinnedQuestion = nil
+            scrollNavigation.currentTurnSeq = nil
             // The folds of the session being arrived at, which are its own and are usually none.
             let remembered = memory?.remembered(session: transcript.session.id)
             liveEndRequest = TranscriptLiveEndRequest(handled: remembered?.liveEndRequest ?? 0)
@@ -1691,13 +1683,12 @@ struct TranscriptListView: View {
         if minimapFits {
             let turns = transcript.turns()
             if turns.count >= TurnMinimap.minimumTurns {
-                TurnMinimapView(
+                TranscriptTurnMinimapOverlay(
                     turns: turns,
-                    current: currentTurnSeq.flatMap { seq in turns.firstIndex { $0.seq == seq } },
+                    navigation: scrollNavigation,
+                    clearance: composerRoom?.clearance ?? 0,
                     onOpen: showPinnedQuestion
                 )
-                .padding(.top, PinnedQuestionView.height + Metrics.spacingWide)
-                .padding(.bottom, composerRoom?.clearance ?? 0)
             }
         }
     }
@@ -1755,18 +1746,20 @@ struct TranscriptListView: View {
         guard let place = controller.topmostPlace,
               let question = transcript.pinnedQuestion(atOrBefore: place.seq)
         else {
-            if pinnedQuestion != nil { pinnedQuestion = nil }
-            if currentTurnSeq != nil { currentTurnSeq = nil }
+            if scrollNavigation.pinnedQuestion != nil { scrollNavigation.pinnedQuestion = nil }
+            if scrollNavigation.currentTurnSeq != nil { scrollNavigation.currentTurnSeq = nil }
             return
         }
-        if currentTurnSeq != question.seq { currentTurnSeq = question.seq }
+        if scrollNavigation.currentTurnSeq != question.seq {
+            scrollNavigation.currentTurnSeq = question.seq
+        }
 
         // A long user turn can fill most of the pane after its top has scrolled away. Pinning a
         // summary while that real bubble is still visible duplicates the loudest thing on screen.
         // The navigation surface starts only after the row's bottom has left the viewport.
         let isGone = controller.isAboveViewport(.row(question.seq)) ?? (question.seq < place.seq)
         let next = isGone ? question : nil
-        if pinnedQuestion != next { pinnedQuestion = next }
+        if scrollNavigation.pinnedQuestion != next { scrollNavigation.pinnedQuestion = next }
     }
 
     /// Where a session opens: on the first thing the reader has not read, which is the whole point

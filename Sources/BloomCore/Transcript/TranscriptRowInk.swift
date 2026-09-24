@@ -34,12 +34,28 @@ public enum TranscriptRowInk {
     /// reported. Of the two ways to be wrong, this is the one that costs nothing.
     private static let initMarker = Data("\"subtype\":\"init".utf8)
     private static let streamEventPrefix = Data("{\"type\":\"stream_event\"".utf8)
+    /// Stored system events that `TranscriptRowView` never renders. Require the two top-level
+    /// fields in their wire order, so a nested mention of a subtype cannot silence a row.
+    private static let silentSystemPrefixes = [
+        Data("{\"type\":\"system\",\"subtype\":\"task_progress\"".utf8),
+        Data("{\"type\":\"system\",\"subtype\":\"background_tasks_changed\"".utf8),
+        Data("{\"type\":\"system\",\"subtype\":\"vcs_state_changed\"".utf8),
+        Data("{\"type\":\"system\",\"subtype\":\"commands_changed\"".utf8),
+    ]
 
     /// A stream delta is never rendered from its stored row. `AgentEvent.decodeStreamEvent`
     /// produces only live deltas or an unknown event, and the system row renderer accepts neither.
     /// Require the exact top-level prefix: an unfamiliar payload stays eligible for measurement.
     public static func isStreamEvent(kind: MessageKind, payload: Data) -> Bool {
         kind == .system && payload.starts(with: streamEventPrefix)
+    }
+
+    /// Rows whose zero height can be stored without constructing a hosting view. The broader
+    /// `drawsNothing` below is an estimate and still needs a chance to correct itself.
+    public static func isDefinitelySilent(kind: MessageKind, payload: Data) -> Bool {
+        guard kind == .system else { return false }
+        return payload.starts(with: streamEventPrefix)
+            || silentSystemPrefixes.contains { payload.starts(with: $0) }
     }
 
     /// Whether this is the line a turn opens with, which the transcript draws as "Started with".

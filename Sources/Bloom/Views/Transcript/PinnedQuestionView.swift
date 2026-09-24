@@ -1,10 +1,36 @@
 import BloomCore
+import Observation
 import SwiftUI
 
 /// One user turn that can stand for the output beneath it while its full bubble is off screen.
 struct PinnedQuestion: Equatable {
     var seq: Int
     var summary: String
+}
+
+/// The two navigation values written while a transcript scrolls. Only their overlays observe
+/// them, so crossing a turn does not ask the parent transcript to rebuild its table entries.
+@MainActor
+@Observable
+final class TranscriptScrollNavigation {
+    var pinnedQuestion: PinnedQuestion?
+    var currentTurnSeq: Int?
+}
+
+struct TranscriptPinnedQuestionOverlay: View {
+    let navigation: TranscriptScrollNavigation
+    let reduceMotion: Bool
+    let onOpen: (PinnedQuestion) -> Void
+
+    var body: some View {
+        Group {
+            if let question = navigation.pinnedQuestion {
+                PinnedQuestionView(question: question, onOpen: { onOpen(question) })
+                    .transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : Motion.hover, value: navigation.pinnedQuestion?.seq)
+    }
 }
 
 /// The user turns seen in one session, extended only over rows that have just arrived.

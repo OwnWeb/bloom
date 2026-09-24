@@ -196,6 +196,9 @@ final class AppModel {
     /// longer exists would leave the window on an empty detail column with a sidebar that agrees
     /// with nothing.
     private func restoreLastSelection() {
+        // A scroll probe sizes the window before selecting its target. Restoring a previous
+        // workspace here would measure its rows at the old window width first.
+        if ScrollProbe.isRequested || SwitchProbe.isRequested { return }
         guard case .home = storedSelection else { return }
         guard let id = UserDefaults.standard.string(forKey: Self.lastWorkspaceKey).map(WorkspaceID.init),
               workspaces.contains(where: { $0.id == id }) else { return }

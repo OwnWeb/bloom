@@ -748,8 +748,16 @@ final class TranscriptModel {
 
     // MARK: - Unread
 
+    var firstUnreadIndex: Int? {
+        guard session.lastReadSeq < Int.max else { return nil }
+        return TranscriptWindow.index(
+            ofSeqAtOrAfter: session.lastReadSeq + 1,
+            in: rows.lazy.map(\.seq)
+        )
+    }
+
     var firstUnreadSeq: Int? {
-        rows.first { $0.seq > session.lastReadSeq }?.seq
+        firstUnreadIndex.map { rows[$0].seq }
     }
 
     func markAllRead() async {

@@ -696,10 +696,14 @@ struct TranscriptTable: NSViewRepresentable {
             // never appear. `noted` is what keeps those three right and it needs a cell to hear
             // from. A stored row cannot do that to us, because everything that changes what one
             // draws is in its key.
+            // An exact silent row needs neither a cached measurement nor a hosting view. Its
+            // height is fixed at zero by its wire format, even on the first visit.
+            if !entry.id.redrawsItself, entry.fixedHeight == 0 { return nil }
             if !entry.id.redrawsItself, heights.measuredNothing(entry.contentKey) { return nil }
             let identifier = NSUserInterfaceItemIdentifier("bloom.transcript.cell")
             let cell = tableView.makeView(withIdentifier: identifier, owner: self)
                 as? TranscriptTableCell ?? TranscriptTableCell(identifier: identifier)
+            cell.clips(duringLiveScroll: isLiveScrolling)
             // SwiftUI can evaluate a newly assigned root before AppKit installs the cell.
             // Give that first proposal the real column width instead of a zero-sized frame.
             cell.setFrameSize(NSSize(width: columnWidth, height: max(Self.hair, height(of: entry))))
@@ -1519,6 +1523,7 @@ struct TranscriptTable: NSViewRepresentable {
         @objc private func liveScrollBegan() {
             guard !isLiveScrolling else { return }
             isLiveScrolling = true
+            setLiveScrollClipping(true)
             // The reader outranks every standing claim on this view, including one made by a
             // follower that is about to be paused for exactly this reason.
             aimingElsewhere()
@@ -1572,12 +1577,23 @@ struct TranscriptTable: NSViewRepresentable {
             quietWork = nil
             guard isLiveScrolling else { return }
             isLiveScrolling = false
+            setLiveScrollClipping(false)
             onLiveScrollChange?(false)
             // Flush any reports still waiting for the next frame's anchored correction.
             drainOwedHeights()
             // Not the settle itself. Where the reader ends up is written down when the view has
             // stopped moving, and a flick that ends with momentum still running has not.
             scheduleSettle()
+        }
+
+        private func setLiveScrollClipping(_ enabled: Bool) {
+            guard let tableView else { return }
+            // A row arriving at an estimated height can briefly draw past its cell while the
+            // correction is queued. During a gesture that paints its text over the next row.
+            for row in visibleRows {
+                (tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+                    as? TranscriptTableCell)?.clips(duringLiveScroll: enabled)
+            }
         }
 
         /// Where a scroll counts as having stopped.
@@ -1678,7 +1694,7 @@ struct TranscriptTable: NSViewRepresentable {
                 // `viewFor` hands back no view for a row measured at nothing, and a running turn
                 // would have nowhere to appear. The other three that re-render themselves are
                 // excluded for the same reason. See `TranscriptEntryID.redrawsItself`.
-                guard !entry.id.redrawsItself else { continue }
+                guard !entry.id.redrawsItself, entry.fixedHeight != 0 else { continue }
                 let key = entry.contentKey
                 guard heights.height(for: key) == nil || heights.isStale(key) else { continue }
                 let taken = heights.note(
@@ -1951,6 +1967,7 @@ struct TranscriptTable: NSViewRepresentable {
             var moved = IndexSet()
             for row in rows where entries.indices.contains(row) {
                 let entry = entries[row]
+                if !entry.id.redrawsItself, entry.fixedHeight == 0 { continue }
                 guard heights.needsMeasuring(
                     entry.contentKey, redrawsItself: entry.id.redrawsItself
                 ) else { continue }
@@ -2289,6 +2306,8 @@ final class TranscriptTableCell: NSView {
     /// built here is always behind and is always applied. See `Coordinator.cellGeneration`.
     private var appliedGeneration: Int?
     private var unclip: Task<Void, Never>?
+    private var clipsForGrowth = false
+    private var clipsForLiveScroll = false
     private var sentMotion: TranscriptSentMotion?
     private var sentArrival: MessageArrival?
     private var animatedArrival: MessageArrival?
@@ -2384,12 +2403,24 @@ final class TranscriptTableCell: NSView {
     /// the rest of the time.
     func clips(whileGrowingFor seconds: Double) {
         unclip?.cancel()
-        clipsToBounds = true
+        clipsForGrowth = true
+        refreshClipping()
         unclip = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
-            self?.clipsToBounds = false
+            self?.clipsForGrowth = false
+            self?.refreshClipping()
             self?.unclip = nil
         }
+    }
+
+    func clips(duringLiveScroll enabled: Bool) {
+        guard clipsForLiveScroll != enabled else { return }
+        clipsForLiveScroll = enabled
+        refreshClipping()
+    }
+
+    private func refreshClipping() {
+        clipsToBounds = clipsForGrowth || clipsForLiveScroll
     }
 }

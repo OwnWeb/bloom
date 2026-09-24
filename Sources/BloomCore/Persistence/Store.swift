@@ -1272,6 +1272,10 @@ public actor Store {
                     try db.execute("ALTER TABLE addressed_reports ADD COLUMN sender_token TEXT;")
                 }
             },
+            // The unique index added after duplicate transcript positions were repaired covers
+            // the same two columns as messages_session. Keeping both writes two B-trees for every
+            // message, while every read can use messages_session_seq.
+            sql("DROP INDEX IF EXISTS messages_session;"),
         ]
 
         let current = Int(try db.readUserVersion())
@@ -2042,7 +2046,7 @@ public actor Store {
     /// **One statement rather than a session read and a `messageCount(sessionID:)` per row**, for
     /// `crewByWorkspace`'s reason: this is asked every time the pointer crosses the `+` above the
     /// pane, and ten round trips onto this actor per hover would be competing with the writes of
-    /// whichever agent is mid turn. `messages_session` is the index the subquery rides, and the
+    /// whichever agent is mid turn. `messages_session_seq` is the index the subquery rides, and the
     /// chat that forced this feature holds 13,872 rows behind it.
     ///
     /// Empty chats are excluded before `LIMIT`, not discarded afterwards. Otherwise ten empty

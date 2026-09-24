@@ -15,12 +15,32 @@ struct TranscriptRowInkTests {
         #expect(TranscriptRowInk.isStreamEvent(kind: .system, payload: row))
     }
 
-    @Test("only a top-level stream event has a fixed empty height")
+    @Test("only a top-level stream event matches the stream prefix")
     func onlyStreamEventsHaveFixedEmptyHeight() {
         let nested = payload(#"{"type":"system","detail":{"type":"stream_event"}}"#)
         let otherKind = payload(#"{"type":"stream_event"}"#)
         #expect(!TranscriptRowInk.isStreamEvent(kind: .system, payload: nested))
         #expect(!TranscriptRowInk.isStreamEvent(kind: .assistantText, payload: otherKind))
+    }
+
+    @Test("known silent system events have fixed empty heights")
+    func knownSilentSystemEvents() {
+        for subtype in ["task_progress", "background_tasks_changed", "vcs_state_changed", "commands_changed"] {
+            let row = payload(#"{"type":"system","subtype":"\#(subtype)","x":1}"#)
+            #expect(TranscriptRowInk.isDefinitelySilent(kind: .system, payload: row))
+        }
+        let stream = payload(#"{"type":"stream_event","event":{}}"#)
+        #expect(TranscriptRowInk.isDefinitelySilent(kind: .system, payload: stream))
+    }
+
+    @Test("visible and nested system events are never fixed empty")
+    func visibleEventsRemainMeasurable() {
+        for subtype in ["init", "task_notification", "compact_boundary"] {
+            let row = payload(#"{"type":"system","subtype":"\#(subtype)"}"#)
+            #expect(!TranscriptRowInk.isDefinitelySilent(kind: .system, payload: row))
+        }
+        let nested = payload(#"{"type":"system","detail":{"subtype":"task_progress"}}"#)
+        #expect(!TranscriptRowInk.isDefinitelySilent(kind: .system, payload: nested))
     }
 
     /// The one system row that does draw: `SessionStartRowView`, the line that says the session

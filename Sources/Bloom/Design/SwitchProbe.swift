@@ -95,6 +95,17 @@ enum SwitchProbe {
             try? await Task.sleep(for: .milliseconds(800))
         }
 
+        if ProbeHarness.isPresent("--switch-cold-only") {
+            SwitchTrace.isEnabled = false
+            ticker.stop()
+            harness.write(.object([
+                "driver": .string(driver),
+                "order": .strings(order.map(\.rawValue)),
+                "runs": .array(runs),
+            ].merging(harness.conditions(window: window)) { mine, _ in mine }))
+            exit(0)
+        }
+
         for cycle in 0..<cycles {
             for id in order {
                 let run = await switchTo(id, contentView: contentView, ticker: ticker)

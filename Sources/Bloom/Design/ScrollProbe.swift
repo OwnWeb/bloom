@@ -58,9 +58,17 @@ enum ScrollProbe {
         let (window, contentView) = await harness.window()
 
         if let workspace {
-            OpenWorkspaceNotification.post(WorkspaceID(workspace))
+            guard let app = ProbeHarness.appModel else { harness.fail("no app model") }
+            for _ in 0..<300 where !app.isLoaded {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard app.isLoaded else { harness.fail("app did not load before workspace selection") }
+            app.selection = .workspace(WorkspaceID(workspace))
             // Long enough for the transcript to load every row and for the inspector to settle.
             try? await Task.sleep(for: .seconds(8))
+            guard ProbeHarness.appModel?.selectedModel?.workspace.id.rawValue == workspace else {
+                harness.fail("requested workspace did not become selected")
+            }
         }
 
         guard let scroll = ProbeHarness.transcriptScrollView(in: contentView) else {
@@ -85,11 +93,6 @@ enum ScrollProbe {
             exit(0)
         }
 
-        // Sampled before the sweep and again in the report, because these two disagreeing is
-        // itself a finding: a transcript whose content height changes while it is being scrolled
-        // is one whose rows are still being measured, and every one of those measurements lands
-        // on the main thread inside a frame somebody is waiting for.
-        let heightBefore = scroll.documentView?.frame.height ?? 0
         guard scroll.endOffset > 1 else {
             harness.fail("the transcript is shorter than its viewport, so there is nothing to scroll")
         }
@@ -115,6 +118,12 @@ enum ScrollProbe {
         }
 
         await documentToStopChanging(scroll)
+        if ProbeHarness.isPresent("--scroll-height-facts") {
+            initialRowFacts = rowFacts(in: scroll)
+        }
+        // Read after the warm pass and the wait above. An earlier reading included idle history
+        // preparation and overstated how much the document changed during the measured sweep.
+        let heightBefore = scroll.documentView?.frame.height ?? 0
 
         // **Read here rather than on arrival.** The history lands a beat after the tail, so an end
         // sampled before that names a document a fraction of its final height: a run that took
@@ -300,6 +309,7 @@ enum ScrollProbe {
     /// still finding out how tall it is, and every move of it shifts everything below the row that
     /// changed.
     private static var documentHeights: [CGFloat] = []
+    private static var initialRowFacts: [TranscriptTable.Coordinator.RowFact] = []
 
     /// One frame of a sweep: where it was, when it was, and what the table had been asked to do by
     /// then. See `climb`, which is the whole reason this is kept per frame rather than summed.
@@ -346,12 +356,37 @@ enum ScrollProbe {
 
     // MARK: - Reporting
 
+    private static func rowFacts(in scroll: NSScrollView) -> [TranscriptTable.Coordinator.RowFact] {
+        guard let table = scroll.documentView as? NSTableView,
+              let coordinator = table.delegate as? TranscriptTable.Coordinator else { return [] }
+        return coordinator.rowFacts(for: 0..<table.numberOfRows)
+    }
+
+    private static func heightFacts(_ facts: [TranscriptTable.Coordinator.RowFact]) -> JSONValue {
+        .array(facts.map { fact in
+            .object([
+                "name": .string(fact.name),
+                "shape": .string(fact.shape),
+                "known": fact.known.map(JSONValue.number) ?? .null,
+                "assumed": .number(fact.assumed),
+                "told": .number(fact.told),
+                "drawsNothing": .bool(fact.drawsNothing),
+            ])
+        })
+    }
+
     private static func report(
         recorder: FrameRecorder, travel: CGFloat, wall: Double, window: NSWindow,
         scroll: NSScrollView, heightBefore: CGFloat
     ) -> JSONValue {
         let offsets = recorder.widths
-        let own: [String: JSONValue] = [
+        let selected = ProbeHarness.appModel?.selectedModel
+        var own: [String: JSONValue] = [
+            "workspaceID": selected.map { .string($0.workspace.id.rawValue) } ?? .null,
+            "sessionID": selected?.activeTranscript.map { .string($0.session.id.rawValue) } ?? .null,
+            "loadedRows": .integer(selected?.activeTranscript?.rows.count ?? 0),
+            "inspectorVisible": .bool(ProbeHarness.appModel?.isInspectorVisible ?? false),
+            "paneWidth": .number(Double(scroll.contentView.bounds.width)),
             "wallSeconds": .number(wall),
             "travelPoints": .number(Double(travel)),
             "documentHeightBefore": .number(Double(heightBefore)),
@@ -370,6 +405,10 @@ enum ScrollProbe {
             "panePasses": .map(PaneLayoutTiming.timeline()),
         ].merging(documentMovement()) { mine, _ in mine }
             .merging(climb()) { mine, _ in mine }
+        if ProbeHarness.isPresent("--scroll-height-facts") {
+            own["rowFactsBefore"] = heightFacts(initialRowFacts)
+            own["rowFactsAfter"] = heightFacts(rowFacts(in: scroll))
+        }
         // The probe's own keys win over both, so a report that has an opinion keeps it.
         return .object(
             own

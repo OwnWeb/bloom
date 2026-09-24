@@ -1,6 +1,24 @@
 import SwiftUI
 import BloomCore
 
+/// Reads the highlighted turn without invalidating the transcript table around it.
+struct TranscriptTurnMinimapOverlay: View {
+    let turns: [PinnedQuestion]
+    let navigation: TranscriptScrollNavigation
+    let clearance: CGFloat
+    let onOpen: (PinnedQuestion) -> Void
+
+    var body: some View {
+        TurnMinimapView(
+            turns: turns,
+            current: navigation.currentTurnSeq.flatMap { seq in turns.firstIndex { $0.seq == seq } },
+            onOpen: onOpen
+        )
+        .padding(.top, PinnedQuestionView.height + Metrics.spacingWide)
+        .padding(.bottom, clearance)
+    }
+}
+
 /// A mark per prompt down the margin of a long conversation. Pointing at one shows what was asked,
 /// clicking goes there. The spacing, the fit and the hit testing are `TurnMinimap`'s.
 ///
