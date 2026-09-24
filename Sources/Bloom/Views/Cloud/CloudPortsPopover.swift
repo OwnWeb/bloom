@@ -62,7 +62,7 @@ struct CloudPortsPopover: View {
             return [CloudPortRow.OpenChoice(title: "Open") { ports.openPage(row) }]
         case .application(let url):
             return InstalledApps.handlers(for: url).map { app in
-                CloudPortRow.OpenChoice(title: "Open in \(app.app.name)") { OpenIn.open(url, with: app) }
+                CloudPortRow.OpenChoice(title: "Open in \(app.app.name)") { open(row, with: app) }
             }
         case nil:
             break
@@ -71,9 +71,16 @@ struct CloudPortsPopover: View {
         return InstalledApps.handlers(for: probe).map { app in
             CloudPortRow.OpenChoice(title: "Open in \(app.app.name)") {
                 ports.forward(row.port.number) { live in
-                    if case .application(let url) = live.opening { OpenIn.open(url, with: app) }
+                    open(live, with: app)
                 }
             }
+        }
+    }
+
+    private func open(_ row: CloudPorts.Row, with app: DetectedApp) {
+        Task {
+            guard let url = await ports.applicationURL(row) else { return }
+            OpenIn.open(url, with: app)
         }
     }
 }
