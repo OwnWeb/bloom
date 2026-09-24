@@ -2070,6 +2070,22 @@
           "type": "object",
           "properties": {
             "kind": {
+              "const": "delete_file"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
               "const": "upload_file"
             },
             "name": {
