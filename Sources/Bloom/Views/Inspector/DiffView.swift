@@ -975,9 +975,12 @@ struct DiffView<Model: WorkspaceSurface>: View {
                     }
                     .scrollPosition(id: Binding(get: { SourceEditorState.file(fileKey).diffRow }, set: { id in
                         let state = SourceEditorState.file(fileKey)
+                        // SwiftUI may report the same position again during layout. Rewriting
+                        // observable state then schedules another pass over the whole diff.
+                        guard state.diffRow != id else { return }
                         state.diffRow = id
                         if let line = rows.first(where: { $0.id == id })?.sourceLines.compactMap(\.newNumber).first {
-                            state.diffLine = line
+                            if state.diffLine != line { state.diffLine = line }
                         }
                     }), anchor: .topLeading)
                     // Every anchor here is leading, never `.top` or `.center`. Both of those are
