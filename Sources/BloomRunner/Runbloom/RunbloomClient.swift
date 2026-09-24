@@ -36,8 +36,9 @@ public struct RunbloomClient: Sendable {
     private let identity: MachineIdentitySigner
     private let http: HTTPClient
     private let timeout: TimeAmount
-    /// Nothing runbloom.app answers here is near this; it only bounds a misbehaving proxy.
+    /// Ordinary control answers stay small. An opening carrying files has its own larger bound.
     static let largestAnswer = 1 << 20
+    static let largestOpeningAnswer = 12 << 20
 
     /// Every call is small, and a queue or a flush before sleep waits on it, so a hung connection
     /// must not hold either for longer than `timeout`. A refused connection is retried by
@@ -335,22 +336,25 @@ public struct RunbloomClient: Sendable {
     /// will). Every call here is idempotent on runbloom.app or harmless to repeat, which is what
     /// makes sending it twice safe.
     func send(_ method: HTTPMethod, _ path: String, body: Data? = nil, headers: [String: String] = [:],
-              expecting success: Set<Int>) async throws -> Data {
-        try await sendResponse(method, path, body: body, headers: headers, expecting: success).body
+              expecting success: Set<Int>, answerLimit: Int = largestAnswer) async throws -> Data {
+        try await sendResponse(method, path, body: body, headers: headers,
+                               expecting: success, answerLimit: answerLimit).body
     }
 
     func sendResponse(_ method: HTTPMethod, _ path: String, body: Data? = nil, headers: [String: String] = [:],
-                      expecting success: Set<Int>) async throws -> TransportResponse {
+                      expecting success: Set<Int>, answerLimit: Int = largestAnswer) async throws -> TransportResponse {
         do {
-            return try await sendOnce(method, path, body: body, headers: headers, expecting: success)
+            return try await sendOnce(method, path, body: body, headers: headers,
+                                      expecting: success, answerLimit: answerLimit)
         } catch let error as RunbloomError where error.isTerminal && secret.reload() {
-            return try await sendOnce(method, path, body: body, headers: headers, expecting: success)
+            return try await sendOnce(method, path, body: body, headers: headers,
+                                      expecting: success, answerLimit: answerLimit)
         }
     }
 
     private func sendOnce(
         _ method: HTTPMethod, _ path: String, body: Data?, headers: [String: String],
-        expecting success: Set<Int>, signsRequest: Bool = true,
+        expecting success: Set<Int>, signsRequest: Bool = true, answerLimit: Int = largestAnswer,
         proof suppliedProof: MachineIdentityProofHeaders? = nil,
         usesPendingProof: Bool = false
     ) async throws -> TransportResponse {
@@ -366,7 +370,7 @@ public struct RunbloomClient: Sendable {
             let response = try await http.execute(request, timeout: timeout)
             status = Int(response.status.code)
             retryAfter = response.headers.first(name: "Retry-After")
-            let buffer = try await response.body.collect(upTo: Self.largestAnswer)
+            let buffer = try await response.body.collect(upTo: answerLimit)
             answer = Data(buffer.readableBytesView)
         } catch {
             // AsyncHTTPClient reports a cancelled task as its own error, which would read as

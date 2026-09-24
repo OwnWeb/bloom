@@ -433,6 +433,28 @@ struct RemoteWorkspaceRuntimeTests {
         await fixture.runtime.shutdown()
     }
 
+    @Test("a web opening writes its pasted image before its prompt reaches the agent")
+    func anOpeningCarriesItsImage() async throws {
+        let fixture = try await fixture()
+        await fixture.runtime.setupStepStarted("setup")
+        let placeholder = ".bloom/attachments/draft/shot.jpg"
+        let data = Data("image bytes".utf8)
+        let opening = RemoteOpening(
+            turnID: "01jimage", prompt: "Look at `\(placeholder)` and fix the layout",
+            controls: ["agent": .string("codex")],
+            promptedBy: .init(userID: Self.freek.userID, name: "Freek"),
+            attachments: [.init(path: placeholder, name: "shot.jpg", data: data)]
+        )
+        try await fixture.runtime.storeOpening(opening)
+
+        let chat = try #require(try await fixture.runtime.deliverStoredOpening())
+        let queued = try #require(try await fixture.store.pendingDeliveries(sessionID: chat).first)
+        let path = try #require(AttachmentDraft.parse(queued.body).paths.first)
+        #expect(path != placeholder)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: fixture.workspace.path + "/" + path)) == data)
+        await fixture.runtime.shutdown()
+    }
+
     @Test("a prompt is sent with the creating chat's agent, model and chosen or inherited effort")
     func aPromptCarriesTheCreatingChat() async throws {
         let gate = RemoteTestGate()

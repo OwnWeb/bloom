@@ -11,6 +11,23 @@ struct OpeningHandoffTests {
     static let opening = RemoteOpening(turnID: "01jopen", prompt: "Try the retry queue", controls: [:],
                                        promptedBy: .init(userID: "01k5a7c2b0z9y8x7w6v5t4s3rq", name: "Freek"))
 
+    @Test("an opening image larger than the ordinary control answer limit can be fetched")
+    func openingImageCanCrossTheControlConnection() async throws {
+        let fake = try await FakeControlServer.start()
+        let client = RunbloomClient(baseURL: fake.baseURL, workspaceID: fake.workspaceID, secret: fake.secret, http: .shared)
+        let image = Data(repeating: 42, count: 1_100_000)
+        fake.script("GET", "/opening", .json(200, ["opening": [
+            "turn_id": "01jimage", "prompt": "Look at `.bloom/attachments/draft/shot.jpg`", "controls": [:],
+            "prompted_by": ["user_id": "01k5a7c2b0z9y8x7w6v5t4s3rq", "name": "Freek"],
+            "attachments": [["path": ".bloom/attachments/draft/shot.jpg", "name": "shot.jpg",
+                             "data": image.base64EncodedString()]],
+        ]]))
+
+        let opening = try #require(try await client.opening())
+        #expect(opening.attachments.first?.data == image)
+        await fake.stop()
+    }
+
     /// **A lost acknowledgement costs one more call, never a second chat.** The prompt is queued
     /// though runbloom.app was not told, and when the same opening comes back it is recognised by
     /// its turn and acknowledged again.

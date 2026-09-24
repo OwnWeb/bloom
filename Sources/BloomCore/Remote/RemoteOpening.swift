@@ -12,6 +12,18 @@ import Foundation
 /// runbloom.app registered, through the same `turns/{id}/start` every turn goes through, which is
 /// where the key and the limits are decided.
 public struct RemoteOpening: Codable, Sendable, Hashable {
+    public struct Attachment: Codable, Sendable, Hashable {
+        public var path: String
+        public var name: String
+        public var data: Data
+
+        public init(path: String, name: String, data: Data) {
+            self.path = path
+            self.name = name
+            self.data = data
+        }
+    }
+
     public struct PromptedBy: Codable, Sendable, Hashable {
         public var userID: String
         public var name: String?
@@ -35,18 +47,31 @@ public struct RemoteOpening: Codable, Sendable, Hashable {
     /// it, so the object is merged over `composer_defaults` rather than read as a whole.
     public var controls: [String: WireValue]
     public var promptedBy: PromptedBy
+    /// Files held with a web-created workspace until its machine can write them into the worktree.
+    public var attachments: [Attachment]
 
-    public init(turnID: String, prompt: String, controls: [String: WireValue], promptedBy: PromptedBy) {
+    public init(turnID: String, prompt: String, controls: [String: WireValue], promptedBy: PromptedBy,
+                attachments: [Attachment] = []) {
         self.turnID = turnID
         self.prompt = prompt
         self.controls = controls
         self.promptedBy = promptedBy
+        self.attachments = attachments
     }
 
     enum CodingKeys: String, CodingKey {
-        case prompt, controls
+        case prompt, controls, attachments
         case turnID = "turn_id"
         case promptedBy = "prompted_by"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        turnID = try values.decode(String.self, forKey: .turnID)
+        prompt = try values.decode(String.self, forKey: .prompt)
+        controls = try values.decode([String: WireValue].self, forKey: .controls)
+        promptedBy = try values.decode(PromptedBy.self, forKey: .promptedBy)
+        attachments = try values.decodeIfPresent([Attachment].self, forKey: .attachments) ?? []
     }
 
     /// Where a fetched opening waits between being fetched and being queued, so a machine that
@@ -95,12 +120,22 @@ extension WorkspaceRuntime {
             try await store.setSetting(RemoteOpening.storedKey, nil)
             return chat
         }
+        var prompt = opening.prompt
+        if !opening.attachments.isEmpty {
+            let workspace = try await workspace()
+            for attachment in opening.attachments {
+                let token = AttachmentDraft.token(for: attachment.path)
+                guard prompt.contains(token) else { continue }
+                let path = try RemoteFileOperations.upload(workspace: workspace, name: attachment.name, data: attachment.data)
+                prompt = prompt.replacingOccurrences(of: token, with: AttachmentDraft.token(for: path))
+            }
+        }
         let controls = try await openingControls(opening.controls)
         let author = MessageAuthor(userID: opening.promptedBy.userID, name: opening.promptedBy.name ?? "")
         let chat = try await newChat(controls, as: RemoteCaller(author: author, abilities: ["view", "prompt"], sessionToken: nil))
         let session = try chat.id.sessionID
         try await queue().enqueue(Delivery(
-            targetSessionID: session, body: opening.prompt, interactionMode: InteractionMode(rawValue: controls.interactionMode),
+            targetSessionID: session, body: prompt, interactionMode: InteractionMode(rawValue: controls.interactionMode),
             author: author, remoteTurnID: opening.turnID
         ))
         // Marked before the kept copy goes, so no order of stopping leaves it queueable again.

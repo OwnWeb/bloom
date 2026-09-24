@@ -16,12 +16,23 @@ extension Git {
         "should", "would", "could", "make", "let", "lets",
     ]
 
+    /// Attachment paths belong to the prompt the agent reads, never to a workspace's identity.
+    /// Keep other code spans, including source file paths, so they can still distinguish branches.
+    private static func namingText(from prompt: String) -> String {
+        AttachmentDraft.parse(prompt).segments.map { segment in
+            if case .attachment(let path) = segment, path.hasPrefix(AttachmentDraft.copyPrefix) {
+                return " "
+            }
+            return segment.text
+        }.joined()
+    }
+
     /// Turn a prompt into a branch-safe slug. Mirrors what Conductor does: take the meaningful
     /// words from the first line, cap the length, keep it readable.
     public static func slug(from prompt: String, maxWords: Int = 5) -> String {
-        let firstLine = prompt
+        let firstLine = namingText(from: prompt)
             .components(separatedBy: "\n")
-            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? prompt
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
 
         let words = firstLine
             .lowercased()
@@ -93,7 +104,7 @@ extension Git {
 
     /// A human-facing workspace name: the first line, trimmed and sentence-cased.
     public static func title(from prompt: String, maxLength: Int = 72) -> String {
-        let firstLine = prompt
+        let firstLine = namingText(from: prompt)
             .components(separatedBy: "\n")
             .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

@@ -193,6 +193,19 @@ struct GitTests {
         #expect(long.hasSuffix(" ") == false)
     }
 
+    @Test("attachment paths stay in the prompt but out of workspace and branch names")
+    func attachmentPathsAreNotNames() {
+        let attachment = "`.bloom/attachments/bh4Zaa/CleanShot 2026-09-24 at 15.04.55@2x.jpg`"
+        let prompt = "\(attachment) could we add more events like asked?"
+        #expect(Git.title(from: prompt) == "Could we add more events like asked?")
+        #expect(Git.slug(from: prompt) == "add-more-events-like-asked")
+        #expect(Git.title(from: "\(attachment)\nFix the layout") == "Fix the layout")
+        #expect(Git.slug(from: "\(attachment)\nFix the layout") == "fix-layout")
+        #expect(Git.title(from: attachment) == "New workspace")
+        #expect(Git.slug(from: attachment) == "workspace")
+        #expect(Git.slug(from: "Update `app/Domain/Invoice.php`").contains("invoice"))
+    }
+
     /// **A title is cut at the last space inside its limit, and that is the whole reason the
     /// owner's gibberish came out short.** He typed "show me the homepage" with ninety characters
     /// of keyboard-mashing welded to the last word and asked whether the branch would be enormous.

@@ -116,7 +116,7 @@ extension RunbloomClient {
     public func opening() async throws -> RemoteOpening? {
         struct Answer: Decodable { var opening: RemoteOpening }
         do {
-            let data = try await send(.GET, "/opening", expecting: [200])
+            let data = try await send(.GET, "/opening", expecting: [200], answerLimit: Self.largestOpeningAnswer)
             return try decode(Answer.self, data, status: 200).opening
         } catch RunbloomError.refused(404, _, _, _, _), RunbloomError.unexpected(404) {
             // With runbloom.app's `not_found` body or without one: either way there is nothing.
