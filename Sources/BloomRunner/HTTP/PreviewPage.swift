@@ -127,19 +127,6 @@ enum PreviewPage {
         """
     }
 
-    /// The mark, drawn small: the lit disc and the dark disc crossing it, from
-    /// `Resources/BloomMark.svg` without the tile or the blurs, which at forty points are mud.
-    private static let mark = """
-    <svg class="mark" viewBox="200 200 636 636" aria-hidden="true">\
-    <defs><linearGradient id="lit" x1="0.06" y1="0.02" x2="0.92" y2="0.98">\
-    <stop offset="0" stop-color="#F6FEFB"/><stop offset="0.30" stop-color="#7FE8D6"/>\
-    <stop offset="0.68" stop-color="#2E9FB6"/><stop offset="1" stop-color="#175F80"/></linearGradient>\
-    <clipPath id="disc"><circle cx="518" cy="518" r="290"/></clipPath></defs>\
-    <circle cx="518" cy="518" r="290" fill="url(#lit)"/>\
-    <g clip-path="url(#disc)"><circle cx="792" cy="812" r="330" fill="#061620"/>\
-    <circle cx="792" cy="812" r="330" fill="none" stroke="#9BE9DC" stroke-width="12" opacity="0.8"/></g></svg>
-    """
-
     private static let style = """
     *{box-sizing:border-box;margin:0}
     html{min-height:100%;background:#061420}
@@ -149,7 +136,7 @@ enum PreviewPage {
     radial-gradient(55vmax 50vmax at 85% 90%,rgba(42,163,180,.14),transparent 70%),
     linear-gradient(#123B57,#061420) fixed}
     main{width:100%;max-width:560px}
-    .mark{width:44px;height:44px;display:block;margin-bottom:28px;filter:drop-shadow(0 0 18px rgba(127,232,214,.35))}
+    .mark{width:48px;height:48px;display:block;margin-bottom:28px;filter:drop-shadow(0 6px 18px rgba(0,0,0,.35))}
     .eyebrow{font:500 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;
     color:#8AA0AB;display:flex;align-items:center;gap:10px;margin-bottom:14px}
     .pulse{width:8px;height:8px;border-radius:50%;background:#9BE9DC;box-shadow:0 0 0 0 rgba(155,233,220,.6);animation:pulse 2.4s ease-out infinite}
