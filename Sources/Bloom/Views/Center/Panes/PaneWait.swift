@@ -32,4 +32,9 @@ enum PaneWait: Equatable, Sendable {
         case .conversation: "Reading the conversation"
         }
     }
+
+    var isCloudConnection: Bool {
+        if case .sessions(let surface) = self { return surface.cloudID != nil }
+        return false
+    }
 }

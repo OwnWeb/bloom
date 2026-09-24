@@ -96,7 +96,11 @@ struct CenterPaneView<Model: WorkspaceSurface>: View {
             // one of them is a pane with nothing in it: `waitingSurface` fills it edge to edge and
             // has no composer of its own. A conversation being read is not one of them any more.
             .overlay {
-                SlowLoadingView(subject: waiting, label: waiting?.label)
+                SlowLoadingView(
+                    subject: waiting,
+                    label: waiting?.label,
+                    showsCloudConnection: waiting?.isCloudConnection == true
+                )
                     .allowsHitTesting(false)
             }
             // Simultaneous rather than a plain tap: the transcript, the composer and the terminal
