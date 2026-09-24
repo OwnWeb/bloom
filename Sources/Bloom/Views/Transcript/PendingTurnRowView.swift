@@ -211,7 +211,8 @@ struct PendingTurnRowView: View {
         switch subject {
         case .file(let path):
             let target = FileChipTarget.resolve(path, in: home.worktree)
-            return .file(attachment: .sent(path: target.path), worktree: target.worktree)
+            return .file(attachment: .sent(path: target.path), worktree: target.worktree,
+                         cloudID: home.surfaceID?.cloudID)
         case .instructions(let block):
             return .instructions(title: block.title, body: block.body)
         }

@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import BloomCore
 
 /// What a transcript draws in the card that floats over it while the pointer rests on something.
 ///
@@ -14,7 +15,7 @@ import Observation
 enum TranscriptHoverCard: Equatable {
     /// A file a chip names, drawn by Quick Look. `worktree` is empty for a file outside it, whose
     /// path is already absolute.
-    case file(attachment: PromptAttachment, worktree: String)
+    case file(attachment: PromptAttachment, worktree: String, cloudID: CloudWorkspaceID? = nil)
     /// The words a chip stands for when there is no file behind it, which is what Bloom's merge
     /// rules are and what a project's own instructions become in a checkout that cannot be written
     /// to. Carried rather than fetched: they were in the turn, the turn is in hand, and the disk
@@ -30,7 +31,8 @@ enum TranscriptHoverCard: Equatable {
     /// never handed to the next. See `TranscriptHoverOverlay.Measurement`.
     var identity: String {
         switch self {
-        case .file(let attachment, _): "file:" + attachment.path
+        case .file(let attachment, let worktree, let cloudID):
+            "file:" + (cloudID?.rawValue ?? worktree) + "\u{0}" + attachment.path
         case .instructions(let title, let body): "instructions:" + title + "\u{0}" + body
         case .row(let title, let detail, let isCode):
             "row:" + title + "\u{0}" + detail + "\u{0}" + (isCode ? "code" : "prose")

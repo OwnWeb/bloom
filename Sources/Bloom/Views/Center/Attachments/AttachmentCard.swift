@@ -28,7 +28,8 @@ struct AttachmentCardOverlay: View {
     var body: some View {
         if let attachment {
             AttachmentCard(
-                attachment: attachment, worktree: worktree, availableWidth: availableWidth
+                attachment: attachment, worktree: worktree, availableWidth: availableWidth,
+                previewURL: nil, previewFailure: nil
             )
         }
     }
@@ -39,6 +40,9 @@ struct AttachmentCard: View {
     var worktree: String
     /// What the composer has to give, which is what the card may take.
     var availableWidth: CGFloat
+    /// A Cloud file fetched onto this Mac before the transcript card is measured.
+    var previewURL: URL?
+    var previewFailure: String?
 
     /// Big enough that a screenshot of a window is readable, and no bigger: the card sits over the
     /// conversation the reader is answering, so it borrows that space rather than owning it. The
@@ -55,7 +59,18 @@ struct AttachmentCard: View {
                 // the padding rather than as a label, and the preview sat off centre in its own
                 // card. `Metrics.spacing` above and below with the caption's own inset matching
                 // puts the block in the middle of what surrounds it.
-                AttachmentPreview(url: url, maxWidth: width, maxHeight: Self.maxHeight)
+                Group {
+                    if let previewFailure {
+                        Label("Could not fetch the preview. \(previewFailure)", systemImage: "wifi.exclamationmark")
+                            .font(Typo.caption)
+                            .foregroundStyle(Palette.textSecondary)
+                            .lineLimit(3)
+                            .frame(maxWidth: width, minHeight: 100)
+                    } else {
+                        AttachmentPreview(url: url, displayName: attachment.filename,
+                                          maxWidth: width, maxHeight: Self.maxHeight)
+                    }
+                }
                     .frame(maxWidth: .infinity, alignment: isImage ? .center : .leading)
                     .padding(Metrics.inset)
 
@@ -98,7 +113,7 @@ struct AttachmentCard: View {
         .accessibilityHidden(true)
     }
 
-    private var url: URL { attachment.url(in: worktree) }
+    private var url: URL { previewURL ?? attachment.url(in: worktree) }
 
     private var width: CGFloat {
         max(min(availableWidth - Metrics.gutter * 2, Self.maxWidth), 160)
@@ -108,6 +123,6 @@ struct AttachmentCard: View {
     /// without being named. A PDF and a movie do not conform to `.image`, which is where the
     /// line wants to be: a PDF's first page is often a cover and a poster frame says even less.
     private var isImage: Bool {
-        UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
+        UTType(filenameExtension: (attachment.filename as NSString).pathExtension)?.conforms(to: .image) == true
     }
 }
