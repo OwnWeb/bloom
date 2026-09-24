@@ -20,8 +20,11 @@ import UniformTypeIdentifiers
 /// thing means a type nobody can preview fails, and failing is what lets this say so out loud.
 struct AttachmentPreview: View {
     var url: URL
+    var displayName = ""
     var maxWidth: CGFloat
     var maxHeight: CGFloat
+
+    private var filename: String { displayName.isEmpty ? url.lastPathComponent : displayName }
 
     private enum Phase {
         case loading
@@ -72,17 +75,17 @@ struct AttachmentPreview: View {
             // definite size of its own is what lets the card be laid out above the composer: a
             // resizable one has no height until something proposes one, and the only height on
             // offer up there is the composer's own.
-            Image(image, scale: scale, label: Text("Preview of \(url.lastPathComponent)"))
+            Image(image, scale: scale, label: Text("Preview of \(filename)"))
         case .text(let lines, let truncated):
             SourceLines(lines: lines, truncated: truncated)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("The first lines of \(url.lastPathComponent)")
+                .accessibilityLabel("The first lines of \(filename)")
         case .unavailable:
             unpreviewable
         case .missing:
             note(
                 glyph: "doc.questionmark",
-                title: "\(url.lastPathComponent) is gone",
+                title: "\(filename) is gone",
                 detail: "It is no longer on disk."
             )
         }
@@ -94,7 +97,7 @@ struct AttachmentPreview: View {
     private var unpreviewable: some View {
         note(
             glyph: nil,
-            title: url.lastPathComponent,
+            title: filename,
             detail: [kindDescription, sizeDescription].compactMap { $0 }.joined(separator: " · ")
         )
     }
