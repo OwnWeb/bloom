@@ -164,6 +164,12 @@ struct ComposerView: View {
             people: transcript.cloud?.people ?? [],
             isAddressingAPerson: prospectiveAudience.person != nil,
             addressedName: prospectiveAudience.person?.name,
+            onPickAudience: { audience in
+                transcript.audience = audience
+                let message = MentionAddress.withoutMention(transcript.draft)
+                transcript.draft = message.first == " " ? String(message.dropFirst()) : message
+                caret = 0
+            },
             onWriteToBloom: writeToBloom,
             runningAgent: transcript.cloud?.runningAgent,
             attachmentRoot: attachmentRoot,
@@ -208,7 +214,18 @@ struct ComposerView: View {
         .task(id: "planning:\(transcript.session.id):\(transcript.isRunning)") {
             if let store = app.store { await ComposerPlanningSupport.shared.refresh(from: store) }
         }
-        .onChange(of: transcript.draft) { _, _ in scheduleDraftSave() }
+        .onChange(of: transcript.draft) { _, draft in
+            if let address = MentionAddress.completedAddress(
+                in: draft,
+                people: transcript.cloud?.people ?? [],
+                runningAgent: transcript.cloud?.runningAgent
+            ) {
+                transcript.audience = address.audience
+                transcript.draft = address.message
+                caret = max(0, caret - (draft as NSString).length + (address.message as NSString).length)
+            }
+            scheduleDraftSave()
+        }
         // Somebody else changed this Cloud chat's composer, or the machine answered a change of
         // ours. Nil for every local chat, so this never fires there.
         .onChange(of: transcript.cloud?.controls) { _, machine in seed(fromMachine: machine) }

@@ -2673,6 +2673,13 @@ final class TranscriptModel {
         _ text: String, through cloud: CloudChatLink, sourceDraft: String?, uploadingFiles: Bool = true
     ) async -> Bool {
         guard !text.isEmpty else { return false }
+        let initialAddress = MentionAddress.mentioned(
+            in: text, people: cloud.people, runningAgent: cloud.runningAgent
+        )
+        if initialAddress != nil,
+           MentionAddress.withoutMention(text).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return false
+        }
         let submittedDraft = SubmittedDraft.matching(current: draft, message: text, source: sourceDraft)
         if submittedDraft != nil { draft = "" }
 
@@ -2691,10 +2698,8 @@ final class TranscriptModel {
             return false
         }
 
-        // Who this one is for: what it names, or where the last one went. The mention travels with
-        // it rather than being stripped here, because the machine takes it off the text it hands
-        // the model and nowhere else, so an agent asked "@agent run the tests" reads "run the
-        // tests" while the transcript keeps what was typed. See `MentionAddress`.
+        // Who this one is for: what it names, or where the last one went. Older saved drafts can
+        // still have a leading mention, so remove it from the sent text after resolving the address.
         //
         // **Worked out before the message leaves, from the value that then sticks, and in that
         // order.** The web client shipped the other order and found it the hard way: the audience
@@ -2706,26 +2711,27 @@ final class TranscriptModel {
         let named = MentionAddress.mentioned(in: body, people: cloud.people, runningAgent: cloud.runningAgent)
         audience = named ?? audience
         let record = Self.record(for: audience, mention: named == nil ? nil : MentionAddress.token(in: body))
-        let delivery = Delivery(targetSessionID: session.id, body: body)
+        let message = named == nil ? body : MentionAddress.withoutMention(body)
+        let delivery = Delivery(targetSessionID: session.id, body: message)
         messageArrivals.sent(delivery.id)
         // The echo only when nothing is ahead of it, which is when the machine will start it at
         // once; otherwise the queue event that follows draws it where it waits.
         if !queuesNextMessage { sending = delivery }
         jumpToLiveEnd()
-        let outcome = await cloud.send(body, audience: record)
+        let outcome = await cloud.send(message, audience: record)
         guard let sentence = outcome.sentence else { return true }
         // The echo goes either way: it said the turn had started, and for the unknown case that
         // is exactly what nobody can promise. What the machine really did is in the transcript,
         // which is why the sentence sends the reader there.
         if sending?.id == delivery.id { sending = nil }
-        // **A mode entered by a message that did not go does not stick.** The words come back with
-        // their `@seb` still on the front, so pressing Return again addresses the same person and
-        // the state follows the box; leaving the composer addressed to somebody the machine has
-        // just refused would point every plain message after it at the same refusal.
+        // **A mode entered by a message that did not go does not stick.** A legacy draft with a
+        // leading mention gets that draft back, so a retry resolves the same address. A selection
+        // already in the pill keeps its previous audience.
         audience = previousAudience
         // The words come back to the composer in both cases, because losing them is worse than
         // either answer. What differs is what the person is told: see `CloudSendOutcome`.
-        draft = PendingMessageReturn.draft(taking: [delivery], into: draft)
+        let returned = Delivery(targetSessionID: session.id, body: body)
+        draft = PendingMessageReturn.draft(taking: [returned], into: draft)
         composerFocusRequests += 1
         app.alert = BloomAlert(title: outcome.title, message: sentence)
         return false

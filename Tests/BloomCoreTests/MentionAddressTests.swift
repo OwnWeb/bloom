@@ -180,4 +180,29 @@ struct MentionAddressTests {
             in: MentionAddress.withoutMention("@seb hello"), people: Self.people, runningAgent: nil
         ) == nil)
     }
+
+    @Test("A completed address becomes the audience and leaves only the message")
+    func completedAddress() {
+        let person = MentionAddress.completedAddress(
+            in: "@sebdd please look", people: Self.people, runningAgent: .claudeCode
+        )
+        #expect(person?.audience == .person(Self.seb))
+        #expect(person?.message == "please look")
+
+        let agent = MentionAddress.completedAddress(
+            in: "@bloom continue", people: Self.people, runningAgent: .claudeCode
+        )
+        #expect(agent?.audience == .agent)
+        #expect(agent?.message == "continue")
+
+        #expect(MentionAddress.completedAddress(
+            in: "@sebdd", people: Self.people, runningAgent: .claudeCode
+        ) == nil)
+        #expect(MentionAddress.completedAddress(
+            in: "@nobody hello", people: Self.people, runningAgent: .claudeCode
+        ) == nil)
+        #expect(MentionAddress.completedAddress(
+            in: "@sebdd.example hello", people: Self.people, runningAgent: .claudeCode
+        ) == nil)
+    }
 }

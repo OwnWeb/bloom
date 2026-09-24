@@ -8,10 +8,8 @@ import Foundation
 /// "it remembers who you were last talking to", and it is here rather than in a view because both
 /// clients have to agree about it and because a rule in a `View` is a rule nothing can test.
 ///
-/// **The mention stays in the message.** It is not consumed by addressing it: the sent bubble
-/// shows `@seb test` with the mention in its own colour, because what was typed is what was said.
-/// A follow-up carries no mention at all and still goes to Seb, which is why the audience travels
-/// beside the text rather than being read back out of it.
+/// Once a mention is completed, the audience holds the address and the draft holds only the
+/// message. A follow-up with no mention still goes to the same audience.
 public enum MentionAddress {
     /// The tokens that mean the workspace's agent.
     ///
@@ -109,6 +107,20 @@ public enum MentionAddress {
         var rest = draft.dropFirst(leading.count + token.count)
         if rest.first == " " { rest = rest.dropFirst() }
         return String(rest)
+    }
+
+    /// Consume a completed, recognised address. Wait for whitespace so a short handle cannot
+    /// steal the beginning of a longer one while somebody is still typing.
+    public static func completedAddress(
+        in draft: String, people: [ComposerAudience.Person], runningAgent: AgentKind?
+    ) -> (audience: ComposerAudience, message: String)? {
+        guard let token = token(in: draft),
+              let audience = mentioned(in: draft, people: people, runningAgent: runningAgent)
+        else { return nil }
+        let leading = draft.prefix { $0 == " " || $0 == "\n" || $0 == "\t" }
+        let afterToken = draft.dropFirst(leading.count + token.count)
+        guard afterToken.first?.isWhitespace == true else { return nil }
+        return (audience, withoutMention(draft))
     }
 
     /// The literal mention at the head of a draft, or nil where there is none.

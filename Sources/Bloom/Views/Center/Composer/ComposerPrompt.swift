@@ -40,6 +40,7 @@ struct ComposerPrompt<Footer: View>: View {
     /// Who the next message is for, when it is a person: the name on the "To" chip where the words
     /// start. Nil whenever the message goes to Bloom.
     var addressedName: String?
+    var onPickAudience: ((ComposerAudience) -> Void)?
     /// Sends the composer back to Bloom, for the button on the line across the top of the box.
     /// Nil where there is nobody else to write to, which is everywhere but a shared Cloud chat.
     var onWriteToBloom: (() -> Void)?
@@ -640,6 +641,13 @@ struct ComposerPrompt<Footer: View>: View {
     private func pick(candidate: MentionCandidate) {
         guard let token = activeMenu.mention else { return }
         replace(token: token, with: candidate.insertion)
+        guard let onPickAudience else { return }
+        let audience: ComposerAudience
+        switch candidate {
+        case .agent: audience = .agent
+        case .person(let person): audience = .person(person)
+        }
+        onPickAudience(audience)
     }
 
     private func pickHighlighted() {
