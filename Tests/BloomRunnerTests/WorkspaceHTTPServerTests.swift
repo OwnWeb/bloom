@@ -241,7 +241,10 @@ struct WorkspaceHTTPServerTests {
             try await client.execute(uri: "/_bloom/preview/unavailable", method: .get, headers: [.cookie: cookie]) { response in
                 let text = String(buffer: response.body)
                 #expect(response.status == .badGateway)
-                #expect(text.contains("vite: crashed after 3 restarts. Exited with status 1."))
+                #expect(response.headers[.contentType] == "text/html; charset=utf-8")
+                #expect(text.contains("<span class=\"name\">vite</span>"))
+                #expect(text.contains(">crashed</span>") && text.contains("3 restarts"))
+                #expect(text.contains("Exited with status 1."))
             }
             try await client.execute(uri: "/_bloom/preview/unavailable", method: .get) { response in
                 let text = String(buffer: response.body)

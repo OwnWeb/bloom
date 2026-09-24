@@ -111,30 +111,22 @@ enum PreviewRoutes {
         // preview check reaches it, and it names nothing but the services from the project's own
         // settings file and how they ended.
         router.get("/_bloom/preview/unavailable") { request, _ -> Response in
-            var lines = ["The app in this Bloom Cloud workspace is not answering yet."]
             // The services are named only to somebody the preview let in. Caddy reaches this with
             // the original request, but a request straight to this path has no cookie and is told
             // nothing about the project.
             guard let cookie = Self.cookie(in: request), await sessions.subject(for: cookie) != nil else {
-                return Self.plain(lines.joined(separator: "\n") + "\n")
+                return Self.page(PreviewPage.unavailable(advice: [], services: nil), status: .badGateway)
             }
             // The port contract, said out loud, because it is the likeliest reason to be here and
             // the one nothing else states. A project that serves on its own port gets a preview
             // that says the app is not answering, which is true and leaves somebody to deduce that
             // there is an agreed port at all: one workspace served on 8091 while the preview read
             // 3000, and an agent built a second proxy to bridge them.
-            lines.append(contentsOf: portAdvice(appPort: appPort, listening: listening(), reserved: reservedPorts))
-            let statuses = await services()
-            if statuses.isEmpty {
-                lines.append("No services are configured in .bloom/settings.toml, so nothing was started for it.")
-            } else {
-                lines.append("")
-                for status in statuses {
-                    let restarts = status.restarts > 0 ? " after \(status.restarts) restart\(status.restarts == 1 ? "" : "s")" : ""
-                    lines.append("\(status.name): \(status.state.rawValue)\(restarts). \(status.message ?? "")".trimmingCharacters(in: .whitespaces))
-                }
+            let advice = portAdvice(appPort: appPort, listening: listening(), reserved: reservedPorts)
+            let services = await services().map {
+                PreviewPage.Service(name: $0.name, state: $0.state.rawValue, restarts: $0.restarts, message: $0.message)
             }
-            return Self.plain(lines.joined(separator: "\n") + "\n")
+            return Self.page(PreviewPage.unavailable(advice: advice, services: services), status: .badGateway)
         }
 
         router.get("/_bloom/preview/enter") { request, _ -> Response in
@@ -181,17 +173,14 @@ enum PreviewRoutes {
     }
 
     private static func notAllowed() -> Response {
-        var headers = HTTPFields()
-        headers[.contentType] = "text/plain; charset=utf-8"
-        headers[.cacheControl] = "no-store"
-        let text = "This preview has to be opened from Bloom. If you had it open, it has expired: open it again from Bloom.\n"
-        return Response(status: .unauthorized, headers: headers, body: .init(byteBuffer: ByteBuffer(string: text)))
+        page(PreviewPage.notAllowed(), status: .unauthorized)
     }
 
-    private static func plain(_ text: String) -> Response {
+    private static func page(_ html: String, status: HTTPResponse.Status) -> Response {
         var headers = HTTPFields()
-        headers[.contentType] = "text/plain; charset=utf-8"
+        headers[.contentType] = "text/html; charset=utf-8"
         headers[.cacheControl] = "no-store"
-        return Response(status: .badGateway, headers: headers, body: .init(byteBuffer: ByteBuffer(string: text)))
+        headers[.contentSecurityPolicy] = PreviewPage.contentSecurityPolicy
+        return Response(status: status, headers: headers, body: .init(byteBuffer: ByteBuffer(string: html)))
     }
 }
