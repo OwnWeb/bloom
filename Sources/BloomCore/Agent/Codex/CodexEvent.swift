@@ -895,9 +895,14 @@ public enum CodexApprovalDecision: String, Sendable, Hashable, CaseIterable {
             return .object(["decision": .string(rawValue)])
 
         case .mcpElicitation:
-            // The elicitation vocabulary has no session-wide accept.
+            // The elicitation vocabulary has no session-wide accept. Codex's response schema
+            // also carries content and metadata, even when the answer has neither.
             let action = self == .acceptForSession ? Self.accept : self
-            return .object(["action": .string(action == .cancel ? "cancel" : action.rawValue)])
+            return .object([
+                "action": .string(action.rawValue),
+                "content": .null,
+                "_meta": .null,
+            ])
 
         case .toolUserInput:
             return .object(["answers": .object([:])])

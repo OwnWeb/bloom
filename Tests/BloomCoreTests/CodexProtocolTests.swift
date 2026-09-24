@@ -350,10 +350,12 @@ private func events(_ name: String) throws -> [CodexEvent] {
         let decline = CodexApprovalDecision.decline
         #expect(decline.result(for: .commandExecution).compactJSON == #"{"decision":"decline"}"#)
         #expect(decline.result(for: .fileChange).compactJSON == #"{"decision":"decline"}"#)
-        #expect(decline.result(for: .mcpElicitation).compactJSON == #"{"action":"decline"}"#)
+        #expect(decline.result(for: .mcpElicitation) == .object([
+            "action": .string("decline"), "content": .null, "_meta": .null,
+        ]))
         // The elicitation vocabulary has no session-wide accept, so it degrades to a plain one.
         #expect(CodexApprovalDecision.acceptForSession.result(for: .mcpElicitation)
-            .compactJSON == #"{"action":"accept"}"#)
+            == .object(["action": .string("accept"), "content": .null, "_meta": .null]))
     }
 }
 
