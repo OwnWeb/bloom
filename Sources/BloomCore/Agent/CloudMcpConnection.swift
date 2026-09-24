@@ -39,8 +39,15 @@ public enum CloudMcpConfiguration {
             atPath: directory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o2750]
         )
-        if let sharedGroup {
-            try FileManager.default.setAttributes([.groupOwnerAccountName: sharedGroup], ofItemAtPath: directory)
+        let groupID: gid_t? = try sharedGroup.map { name in
+            guard let group = name.withCString({ getgrnam($0) }) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            let groupID = group.pointee.gr_gid
+            guard chown(directory, uid_t.max, groupID) == 0 else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            return groupID
         }
         try FileManager.default.setAttributes([.posixPermissions: 0o2750], ofItemAtPath: directory)
 
@@ -77,6 +84,9 @@ public enum CloudMcpConfiguration {
                 guard count > 0 else { throw CocoaError(.fileWriteUnknown) }
                 written += count
             }
+        }
+        if let groupID, fchown(descriptor, uid_t.max, groupID) != 0 {
+            throw CocoaError(.fileWriteUnknown)
         }
         guard fchmod(descriptor, 0o640) == 0, rename(temporaryPath, path) == 0 else {
             throw CocoaError(.fileWriteUnknown)
