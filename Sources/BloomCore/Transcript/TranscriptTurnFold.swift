@@ -18,6 +18,7 @@ public enum TranscriptTurnFold {
         public var opensTurn: Bool
         public var durationMS: Int?
         public var createdAt: Date?
+        public var requestedScreenshot: Bool
 
         public init(
             seq: Int,
@@ -26,7 +27,8 @@ public enum TranscriptTurnFold {
             parentToolUseID: String? = nil,
             opensTurn: Bool = false,
             durationMS: Int? = nil,
-            createdAt: Date? = nil
+            createdAt: Date? = nil,
+            requestedScreenshot: Bool = false
         ) {
             self.seq = seq
             self.kind = kind
@@ -35,6 +37,7 @@ public enum TranscriptTurnFold {
             self.opensTurn = opensTurn
             self.durationMS = durationMS
             self.createdAt = createdAt
+            self.requestedScreenshot = requestedScreenshot
         }
     }
 
@@ -50,6 +53,9 @@ public enum TranscriptTurnFold {
         /// Whether at least one hidden stored row draws content of its own.
         public var hasHiddenRows: Bool
         public var durationMS: Int?
+        /// Copies of these rows are drawn after the folded work and before the answer.
+        public var requestedScreenshots: [Int]
+        public var answerIndex: Int?
 
         public init(
             span: Range<Int>,
@@ -58,7 +64,9 @@ public enum TranscriptTurnFold {
             firstSeq: Int,
             isComplete: Bool,
             hasHiddenRows: Bool,
-            durationMS: Int? = nil
+            durationMS: Int? = nil,
+            requestedScreenshots: [Int] = [],
+            answerIndex: Int? = nil
         ) {
             self.span = span
             self.hidden = hidden
@@ -67,6 +75,8 @@ public enum TranscriptTurnFold {
             self.isComplete = isComplete
             self.hasHiddenRows = hasHiddenRows
             self.durationMS = durationMS
+            self.requestedScreenshots = requestedScreenshots
+            self.answerIndex = answerIndex
         }
     }
 
@@ -203,6 +213,7 @@ public enum TranscriptTurnFold {
             var hidden: Set<Int> = []
             var hiddenSeqs: Set<Int> = []
             var hasHiddenRows = false
+            var requestedScreenshots: [Int] = []
 
             let hiddenEnd = hidesEntireSpan ? end : finalResponse
             if let hiddenEnd, isComplete, turnStart < hiddenEnd {
@@ -213,6 +224,16 @@ public enum TranscriptTurnFold {
                     hasHiddenRows = hasHiddenRows || !fact.drawsNothing
                 }
             }
+            if isComplete {
+                for index in turnStart..<end {
+                    let fact = facts[facts.index(facts.startIndex, offsetBy: index)]
+                    guard fact.requestedScreenshot else { continue }
+                    requestedScreenshots.append(index)
+                    hidden.insert(index)
+                    hiddenSeqs.insert(fact.seq)
+                    hasHiddenRows = true
+                }
+            }
 
             found.append(Turn(
                 span: turnStart..<end,
@@ -221,7 +242,9 @@ public enum TranscriptTurnFold {
                 firstSeq: first.seq,
                 isComplete: isComplete,
                 hasHiddenRows: hasHiddenRows,
-                durationMS: durationMS
+                durationMS: durationMS,
+                requestedScreenshots: requestedScreenshots,
+                answerIndex: isComplete ? (finalResponse ?? end - 1) : nil
             ))
         }
 

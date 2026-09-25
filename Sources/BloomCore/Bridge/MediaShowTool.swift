@@ -141,10 +141,12 @@ public typealias MediaShowing = @MainActor @Sendable (
 public struct MediaShowRequest: Sendable, Hashable {
     public let path: String
     public let caption: String
+    public let requested: Bool
 
-    public init(path: String, caption: String = "") {
+    public init(path: String, caption: String = "", requested: Bool = false) {
         self.path = path
         self.caption = caption
+        self.requested = requested
     }
 
     public init?(use: AgentToolUse) {
@@ -156,6 +158,7 @@ public struct MediaShowRequest: Sendable, Hashable {
         self.path = path
         self.caption = use.input["caption"]?.stringValue?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.requested = use.input["requested"]?.boolValue == true
     }
 }
 
@@ -219,7 +222,10 @@ public struct MediaShowTool: BridgeToolHandling {
             the ordinary case and works. Nothing is uploaded or copied.
 
             'path' is workspace-relative or absolute. 'caption' is optional and should be one \
-            short sentence that adds context not obvious from the media.
+            short sentence that adds context not obvious from the media. Set 'requested' to true \
+            only for a screenshot the person explicitly asked to see. Bloom repeats those \
+            screenshots after the work, before your final message. Leave it false for screenshots \
+            you took to check your own work.
             """,
         inputSchema: .object([
             "type": .string("object"),
@@ -231,6 +237,10 @@ public struct MediaShowTool: BridgeToolHandling {
                 "caption": .object([
                     "type": .string("string"),
                     "description": .string("An optional short caption."),
+                ]),
+                "requested": .object([
+                    "type": .string("boolean"),
+                    "description": .string("True only when the person explicitly asked to see this screenshot."),
                 ]),
             ]),
             "required": .array([.string("path")]),

@@ -114,8 +114,19 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
     }
 
     /// This row in the terms of the completed turn fold around `TranscriptFold`.
-    nonisolated func turnFoldFact() -> TranscriptTurnFold.Fact {
-        TranscriptTurnFold.Fact(
+    nonisolated func turnFoldFact(picturesFromCalls: Bool = true) -> TranscriptTurnFold.Fact {
+        let requestedScreenshot: Bool
+        if kind == .media {
+            let media = try? JSONDecoder().decode(SharedMedia.self, from: payload)
+            requestedScreenshot = media?.kind == "image" && media?.requested == true
+        } else if picturesFromCalls, kind == .toolUse, MediaShowRow.isCall(payload), resultPayload != nil,
+                  !isError, refusal == nil,
+                  case .toolUse(let use)? = TranscriptEventCache.event(rowID: id, payload: payload) {
+            requestedScreenshot = MediaShowRequest(use: use)?.requested == true
+        } else {
+            requestedScreenshot = false
+        }
+        return TranscriptTurnFold.Fact(
             seq: seq,
             kind: kind,
             drawsNothing: TranscriptNoise.isHidden(self)
@@ -123,7 +134,8 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
             parentToolUseID: parentToolUseID,
             opensTurn: BackgroundWake.isRow(kind: kind, payload: payload),
             durationMS: kind == .result ? durationMS : nil,
-            createdAt: createdAt
+            createdAt: createdAt,
+            requestedScreenshot: requestedScreenshot
         )
     }
 }
@@ -235,7 +247,11 @@ final class TranscriptModel {
     func presentationTurnFolds(
         extending previous: TranscriptTurnFold.Folds = .none
     ) -> TranscriptTurnFold.Folds {
-        TranscriptTurnFold.folds(in: rows.lazy.map { $0.turnFoldFact() }, extending: previous)
+        let picturesFromCalls = cloud == nil
+        return TranscriptTurnFold.folds(
+            in: rows.lazy.map { $0.turnFoldFact(picturesFromCalls: picturesFromCalls) },
+            extending: previous
+        )
     }
 
     /// Every prompt in the session, for the turn minimap. The same incremental index the pinned
