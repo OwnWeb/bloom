@@ -661,6 +661,30 @@ struct TranscriptListView: View {
                     session: sessionID
                 ))
             }
+            if let turn = turnFolds.turn(containing: index), turn.answerIndex == index,
+               !turnFolds.wouldHide(turn, drawn: drawnRange).isEmpty,
+               !turnFolds.isOpen(turn, opened: unfoldedTurns, closed: refoldedTurns,
+                                 revealed: turnRevealed) {
+                for mediaIndex in turn.requestedScreenshots {
+                    let mediaRow = rows[mediaIndex]
+                    out.append(TranscriptTableEntry(
+                        id: .requestedScreenshot(mediaRow.seq),
+                        contentKey: TranscriptContentKey {
+                            $0.combine(mediaRow.id)
+                            $0.combine(mediaRow.resultPayload?.count)
+                            $0.combine(sessionID)
+                        },
+                        shape: .tool,
+                        content: {
+                            AnyView(
+                                TranscriptRowView(row: mediaRow, home: home, cloudLink: transcript.cloud)
+                                    .padding(.horizontal, TranscriptLayout.inset)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            )
+                        }
+                    ))
+                }
+            }
             if turnHiddenIndices.contains(index) { continue }
             // A turn's working, drawn as one line and whatever of it still has to be on screen.
             // See `TranscriptFold`, which holds every decision about where a turn's working starts

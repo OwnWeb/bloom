@@ -22,14 +22,34 @@ public struct SharedMedia: Codable, Sendable, Hashable {
     public var kind: String
     public var mime: String
     public var bytes: Int
+    public var requested: Bool
 
-    public init(path: String, name: String, caption: String, kind: String, mime: String, bytes: Int) {
+    public init(path: String, name: String, caption: String, kind: String, mime: String, bytes: Int,
+                requested: Bool = false) {
         self.path = path
         self.name = name
         self.caption = caption
         self.kind = kind
         self.mime = mime
         self.bytes = bytes
+        self.requested = requested
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path, name, caption, kind, mime, bytes, requested
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            path: try values.decode(String.self, forKey: .path),
+            name: try values.decode(String.self, forKey: .name),
+            caption: try values.decode(String.self, forKey: .caption),
+            kind: try values.decode(String.self, forKey: .kind),
+            mime: try values.decode(String.self, forKey: .mime),
+            bytes: try values.decode(Int.self, forKey: .bytes),
+            requested: try values.decodeIfPresent(Bool.self, forKey: .requested) ?? false
+        )
     }
 
     /// The folder the copies go in, inside the scratch folder a worktree already ignores.
@@ -67,7 +87,8 @@ public struct SharedMedia: Codable, Sendable, Hashable {
     /// **Copied, not pointed at.** The agent's file may be overwritten by the next screenshot, and
     /// a row that pointed at it would show the newer picture under the older message. The copy is
     /// named by its digest, so showing the same picture twice stores it once.
-    public static func copy(path: String, caption: String, workspace: Workspace) throws -> SharedMedia {
+    public static func copy(path: String, caption: String, workspace: Workspace,
+                            requested: Bool = false) throws -> SharedMedia {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         let source = trimmed.hasPrefix("/") ? trimmed : (workspace.path as NSString).appendingPathComponent(trimmed)
         guard let handle = FileHandle(forReadingAtPath: source) else {
@@ -90,7 +111,7 @@ public struct SharedMedia: Codable, Sendable, Hashable {
         _ = try WorkspaceFileAccess(workspace: workspace, path: copy, creatingParents: true).create(data, allowExisting: true)
         return SharedMedia(path: copy, name: (trimmed as NSString).lastPathComponent,
                            caption: caption.trimmingCharacters(in: .whitespacesAndNewlines),
-                           kind: type.kind, mime: type.mime, bytes: data.count)
+                           kind: type.kind, mime: type.mime, bytes: data.count, requested: requested)
     }
 }
 
@@ -116,7 +137,9 @@ public struct MachineMediaShowTool: BridgeToolHandling {
             8 MB; anything else is refused, and so is SVG.
 
             'path' is workspace-relative or absolute. 'caption' is optional and should be one \
-            short sentence that adds context not obvious from the picture.
+            short sentence that adds context not obvious from the picture. Set 'requested' to true \
+            only for a screenshot a person explicitly asked to see. Those screenshots stay visible \
+            after the work, before your final message. Leave it false for your own checks.
             """,
         inputSchema: .object([
             "type": .string("object"),
@@ -128,6 +151,10 @@ public struct MachineMediaShowTool: BridgeToolHandling {
                 "caption": .object([
                     "type": .string("string"),
                     "description": .string("An optional short caption."),
+                ]),
+                "requested": .object([
+                    "type": .string("boolean"),
+                    "description": .string("True only when a person explicitly asked to see this screenshot."),
                 ]),
             ]),
             "required": .array([.string("path")]),
@@ -141,11 +168,13 @@ public struct MachineMediaShowTool: BridgeToolHandling {
         let path = request.stringParam("path")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !path.isEmpty else { return .failure("media_show needs a non-empty 'path'.") }
         let caption = request.stringParam("caption") ?? ""
+        let requested = request.param("requested")?.boolValue == true
         do {
             guard let workspace = try await store.workspace(id: workspaceID) else {
                 return .failure(RemoteFailure.shuttingDown.message)
             }
-            let media = try SharedMedia.copy(path: path, caption: caption, workspace: workspace)
+            let media = try SharedMedia.copy(path: path, caption: caption, workspace: workspace,
+                                             requested: requested)
             _ = try await store.appendNext(sessionID: sessionID, kind: .media, payload: try JSONEncoder().encode(media))
             let what = media.kind == "video" ? "video" : "image"
             return .init(text: "Shown in this chat as \(media.name). Everybody looking at the chat sees the \(what); "

@@ -24,6 +24,7 @@ struct MediaShowRowView: View {
     var source: Source = .workspace
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var magnifierHover = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: TranscriptLayout.block) {
@@ -92,13 +93,31 @@ struct MediaShowRowView: View {
         Group {
             switch media.kind {
             case .image:
-                AttachmentPreview(
-                    url: media.url,
-                    maxWidth: TranscriptLayout.proseMeasure,
-                    maxHeight: 520
-                )
+                Button {
+                    ImageLightbox.open(media.url)
+                } label: {
+                    AttachmentPreview(
+                        url: media.url,
+                        maxWidth: TranscriptLayout.proseMeasure,
+                        maxHeight: 520
+                    )
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering && !magnifierHover {
+                        ImageLightbox.magnifier.push()
+                    } else if !hovering && magnifierHover {
+                        NSCursor.pop()
+                    }
+                    magnifierHover = hovering
+                }
+                .onDisappear {
+                    if magnifierHover { NSCursor.pop() }
+                    magnifierHover = false
+                }
                 .background(HoverQuickLook(url: media.url))
-                .help("Hover and press Space for Quick Look")
+                .help("Click to enlarge. Press Space for Quick Look")
+                .accessibilityLabel("Enlarge \(media.url.lastPathComponent)")
                 .accessibilityAction(named: "Quick Look") {
                     HoverQuickLookController.shared.show(media.url)
                 }

@@ -10,7 +10,8 @@ struct TranscriptTurnFoldTests {
         drawsNothing: Bool = false,
         parent: String? = nil,
         durationMS: Int? = nil,
-        createdAt: TimeInterval? = nil
+        createdAt: TimeInterval? = nil,
+        requestedScreenshot: Bool = false
     ) -> TranscriptTurnFold.Fact {
         TranscriptTurnFold.Fact(
             seq: seq,
@@ -18,7 +19,8 @@ struct TranscriptTurnFoldTests {
             drawsNothing: drawsNothing,
             parentToolUseID: parent,
             durationMS: durationMS,
-            createdAt: createdAt.map(Date.init(timeIntervalSince1970:))
+            createdAt: createdAt.map(Date.init(timeIntervalSince1970:)),
+            requestedScreenshot: requestedScreenshot
         )
     }
 
@@ -44,6 +46,39 @@ struct TranscriptTurnFoldTests {
         #expect(folds.turn(startingAt: 1) == turn)
         #expect(folds.turn(startingAt: 4) == nil)
         #expect(TranscriptTurnFold.label(milliseconds: turn.durationMS ?? 0) == "Worked for 1m 5s")
+    }
+
+    @Test("only requested screenshots are repeated before the final response")
+    func requestedScreenshots() throws {
+        let facts = [
+            fact(0, .user),
+            fact(1, .toolUse, requestedScreenshot: true),
+            fact(2, .toolUse),
+            fact(3, .media, requestedScreenshot: true),
+            fact(4, .assistantText),
+            fact(5, .result),
+        ]
+        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
+
+        #expect(turn.hidden == [1, 2, 3])
+        #expect(turn.requestedScreenshots == [1, 3])
+        #expect(turn.answerIndex == 4)
+    }
+
+    @Test("a requested screenshot shown after prose still precedes the answer when folded")
+    func lateRequestedScreenshot() throws {
+        let facts = [
+            fact(0, .user),
+            fact(1, .toolUse),
+            fact(2, .assistantText),
+            fact(3, .media, requestedScreenshot: true),
+            fact(4, .result),
+        ]
+        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
+
+        #expect(turn.hidden == [1, 3])
+        #expect(turn.requestedScreenshots == [3])
+        #expect(turn.answerIndex == 2)
     }
 
     @Test("a zero-second legacy duration reads naturally")

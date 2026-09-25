@@ -45,7 +45,8 @@ struct MediaShowToolTests {
         let own = AgentToolUse(
             id: "1",
             name: "mcp__\(BridgeRegistration.serverName)__media_show",
-            input: .object(["path": .string("shot.png"), "caption": .string("Result")])
+            input: .object(["path": .string("shot.png"), "caption": .string("Result"),
+                            "requested": .bool(true)])
         )
         let foreign = AgentToolUse(
             id: "2",
@@ -56,6 +57,8 @@ struct MediaShowToolTests {
         let request = try #require(MediaShowRequest(use: own))
         #expect(request.path == "shot.png")
         #expect(request.caption == "Result")
+        #expect(request.requested)
+        #expect(!MediaShowRequest(path: "check.png").requested)
         #expect(MediaShowRequest(use: foreign) == nil)
         #expect(MediaShowRow.isCall(own.raw) == false)
         #expect(
