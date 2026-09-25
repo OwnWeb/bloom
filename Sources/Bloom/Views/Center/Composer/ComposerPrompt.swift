@@ -310,7 +310,7 @@ struct ComposerPrompt<Footer: View>: View {
             height: editorHeight,
             onContentHeightChange: onContentHeightChange,
             onKey: handle(key:),
-            onBackspaceAtStart: backspaceCommand,
+            onBackspaceAtStart: backspaceLeadingChip,
             onAttach: attach(sources:replacing:),
             onAttachmentFailure: attachmentFailed,
             attachmentPaths: attachments.map(\.path),
@@ -585,14 +585,20 @@ struct ComposerPrompt<Footer: View>: View {
         isFocused = true
     }
 
-    /// Backspace at the very start of the prompt, where the thing to the left of the caret is the
-    /// chip. See `SlashCommandDraft.backspacingCommand`.
-    private func backspaceCommand() -> Bool {
+    /// Backspace at the very start of the prompt removes the chip nearest the caret. A command
+    /// comes after the address chip, so it gets the first press when both are present.
+    private func backspaceLeadingChip() -> Bool {
         let draft = command
-        guard let after = draft.backspacingCommand() else { return false }
-        text = after.text
-        caret = draft.caretAfterBackspace
-        isCommandPreviewed = false
+        if let after = draft.backspacingCommand() {
+            text = after.text
+            caret = draft.caretAfterBackspace
+            isCommandPreviewed = false
+            return true
+        }
+
+        guard addressedName != nil, let onWriteToBloom else { return false }
+        onWriteToBloom()
+        caret = 0
         return true
     }
 

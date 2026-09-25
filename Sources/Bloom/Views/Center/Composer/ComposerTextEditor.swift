@@ -39,8 +39,8 @@ struct ComposerTextEditor: NSViewRepresentable {
     var accessibilityLabel: String = "Message"
     var onHeightChange: @MainActor (CGFloat) -> Void
     var onKey: @MainActor (ComposerKey) -> Bool
-    /// Backspace, asked only at a bare caret at the very start of the text, where the thing to the
-    /// left of it is not a character. Returns true when the composer took it.
+    /// Backspace, asked only at a bare caret at the very start of the text, where a chip can sit
+    /// to the left of it instead of a character. Returns true when the composer took it.
     ///
     /// Its own way in rather than another `ComposerKey`. Everywhere else backspace is a plain
     /// deletion and the text system's own answer, undo included, is the right one, so this is not

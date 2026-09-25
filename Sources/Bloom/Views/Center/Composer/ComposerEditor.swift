@@ -14,8 +14,8 @@ struct ComposerEditor: View {
     var height: CGFloat
     var onContentHeightChange: @MainActor (CGFloat) -> Void
     var onKey: @MainActor (ComposerKey) -> Bool
-    /// Backspace at the very start of the text, where what is to the left of the caret is the
-    /// command chip rather than a character. Returns true when the composer took it.
+    /// Backspace at the very start of the text, where a command or address chip can sit to the
+    /// left of the caret rather than a character. Returns true when the composer took it.
     var onBackspaceAtStart: @MainActor () -> Bool = { false }
     /// Files dropped or pasted onto the text, with the stretch of the draft they should take the
     /// place of. Handed straight through to the composer, which owns what an attachment is.
