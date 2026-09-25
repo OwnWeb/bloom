@@ -10,6 +10,9 @@ struct ArchiveConfirmationPopover: View {
 
     @Environment(AppModel.self) private var app
     @State private var checkedRequest: ArchiveRequest?
+    @FocusState private var focusedButton: ButtonFocus?
+
+    private enum ButtonFocus: Hashable { case cancel, archive }
 
     private var currentRequest: ArchiveRequest {
         guard let checkedRequest, checkedRequest.id == request.id else { return request }
@@ -17,36 +20,64 @@ struct ArchiveConfirmationPopover: View {
     }
 
     var body: some View {
-        ConfirmationPopover(
-            title: "Archive this workspace?",
-            confirmLabel: currentRequest.confirmLabel,
-            tint: tint,
-            canConfirm: canConfirm,
-            onConfirm: { onConfirm(currentRequest) },
-            onCancel: onCancel,
-            width: 380
-        ) {
-            // Keep the row after the check finishes. Removing it made the popover contract around
-            // its arrow just as the checked result arrived, so the decision moved under the
-            // pointer. `request` is the initial value and tells us whether this popover had a
-            // checking state at all; already-checked confirmations do not get an empty row.
-            if request.isChecking {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text("Checking for unsaved work…")
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Text("Archive this workspace?")
+                    .font(.headline)
+                Spacer(minLength: 0)
+                if request.isChecking {
+                    ProgressView()
+                        .controlSize(.small)
+                        .opacity(currentRequest.isChecking ? 1 : 0)
+                        .accessibilityLabel("Checking for unsaved work")
+                        .accessibilityHidden(!currentRequest.isChecking)
                 }
-                .opacity(currentRequest.isChecking ? 1 : 0)
-                .accessibilityHidden(!currentRequest.isChecking)
             }
-            ViewThatFits(in: .vertical) {
-                Text(currentRequest.message).fixedSize(horizontal: false, vertical: true)
-                ScrollView {
-                    Text(currentRequest.message).frame(maxWidth: .infinity, alignment: .leading)
+
+            // The safety report can grow after the popover opens. A fixed reading area keeps the
+            // arrow, title and buttons still, while long reports remain readable by scrolling.
+            ScrollView {
+                Text(currentRequest.message)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: 160)
+            .padding(.top, 14)
+
+            Divider()
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button(action: onCancel) {
+                    Text("Cancel")
+                        .frame(width: 58)
                 }
-                .scrollBounceBehavior(.basedOnSize)
+                .buttonStyle(.bordered)
+                .focused($focusedButton, equals: .cancel)
+                .keyboardShortcut(.cancelAction)
+                Button {
+                    guard canConfirm else { return }
+                    onConfirm(currentRequest)
+                } label: {
+                    Text(currentRequest.confirmLabel)
+                        .frame(width: 196)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(tint)
+                .focused($focusedButton, equals: .archive)
+                .disabled(!canConfirm)
             }
-            .frame(maxHeight: 440)
         }
+        .environment(\.backgroundProminence, .standard)
+        .environment(\.isOnEmphasizedSelection, false)
+        .foregroundStyle(Palette.textPrimary)
+        .font(.body)
+        .padding(20)
+        .frame(width: 380)
+        .defaultFocus($focusedButton, .cancel)
         .task(id: request.id) {
             guard request.isChecking else { return }
             let checked = await app.checkArchive(request)
