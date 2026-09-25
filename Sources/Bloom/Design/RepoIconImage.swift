@@ -58,8 +58,9 @@ enum RepoIconImage {
         return image
     }
 
-    /// Cloud artwork is downloaded asynchronously, then rendered into the image slot of an
-    /// `NSMenu` item. A `CloudProjectIcon` view in that slot hides the menu item's title.
+    /// Cloud artwork is downloaded asynchronously, or borrowed from an exact local repository
+    /// match, then rendered into the image slot of an `NSMenu` item. A `CloudProjectIcon` view in
+    /// that slot hides the menu item's title.
     static func ofCloudProject(
         repository: String, artwork: RepoArtwork?, artworkURL: String?,
         size: CGFloat = Metrics.repoIconSmall

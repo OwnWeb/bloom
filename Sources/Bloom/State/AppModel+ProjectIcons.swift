@@ -1,5 +1,6 @@
-import Foundation
+import BloomClient
 import BloomCore
+import Foundation
 
 /// Looking for the artwork of projects that were added before Bloom knew how to look.
 ///
@@ -32,6 +33,21 @@ import BloomCore
 /// is stored, so it happens once rather than on every launch, and `Find icon` in the project's
 /// settings window is unaffected by any of it.
 extension AppModel {
+    /// Reuse artwork already shown for a local checkout of the same GitHub repository while a
+    /// Cloud project has no discovered icon. Names alone are insufficient: forks can share one.
+    func localRepos(for cloudProjects: [RunbloomProject]) async -> [String: Repo] {
+        let projectIDs = Dictionary(grouping: cloudProjects, by: { $0.repository.lowercased() })
+        var matches: [String: Repo] = [:]
+        for repo in repos where repo.hasIcon {
+            guard !Task.isCancelled else { return matches }
+            guard let slug = await GitHub.repositorySlug(repoPath: repo.path),
+                  let projects = projectIDs[slug.lowercased()],
+                  RepoIconArt.artwork(for: repo) != nil else { continue }
+            for project in projects { matches[project.id] = repo }
+        }
+        return matches
+    }
+
     func startProjectIconSearch() {
         iconSearchTask?.cancel()
         iconSearchTask = Task { [weak self] in

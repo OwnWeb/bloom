@@ -12,6 +12,7 @@ struct CloudProjectIcon: View {
     var projectID: CloudProjectID
     var repository: String
     var iconURL: String?
+    var localRepo: Repo?
     var size: CGFloat = Metrics.repoIcon
     /// Nil when the repository name is already beside the mark. Cloud workspace rows set this
     /// because their visible text is the workspace name, not the project name.
@@ -24,9 +25,11 @@ struct CloudProjectIcon: View {
     private var key: CloudProjectIcons.Key { .init(teamID: teamID, projectID: projectID) }
 
     var body: some View {
+        let displayedArtwork = artwork ?? localRepo.flatMap(RepoIconArt.artwork)
         RepoIcon(
             name: projectName, accent: nil, size: size,
-            artwork: artwork, artworkKey: artwork == nil ? nil : resolvedURL
+            artwork: displayedArtwork,
+            artworkKey: artwork == nil ? localRepo?.iconPath : resolvedURL
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityName ?? "")
@@ -46,6 +49,6 @@ struct CloudProjectIcon: View {
 
     private var requestKey: String {
         let revision = app.cloud.projectIcons.requestRevision(for: key)
-        return "\(teamID):\(projectID):\(app.cloud.projectIcons.effectiveURL(for: key, listedURL: iconURL) ?? ""):\(revision)"
+        return "\(teamID):\(projectID):\(app.cloud.projectIcons.effectiveURL(for: key, listedURL: iconURL) ?? ""):\(revision):\(localRepo?.iconPath ?? "")"
     }
 }

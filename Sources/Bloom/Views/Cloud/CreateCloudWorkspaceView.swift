@@ -65,6 +65,7 @@ struct CreateCloudWorkspaceView: View {
     @State private var projectsState = Projects.loading
     @State private var projectID: String?
     @State private var projectMenuArtwork: [String: RepoArtwork] = [:]
+    @State private var localProjectRepos: [String: Repo] = [:]
     @State private var prompt = ""
     @State private var caret = 0
     @State private var isFocused = false
@@ -221,7 +222,7 @@ struct CreateCloudWorkspaceView: View {
             if let project, let teamID {
                 CloudProjectIcon(
                     teamID: CloudTeamID(teamID), projectID: CloudProjectID(project.id), repository: project.repository,
-                    iconURL: project.iconURL, size: Metrics.repoIconSmall
+                    iconURL: project.iconURL, localRepo: localProjectRepos[project.id], size: Metrics.repoIconSmall
                 )
             } else {
                 Image(systemName: "cloud")
@@ -242,8 +243,11 @@ struct CreateCloudWorkspaceView: View {
                             Text(project.repository)
                         } icon: {
                             if let mark = RepoIconImage.ofCloudProject(
-                                repository: project.repository, artwork: projectMenuArtwork[project.id],
-                                artworkURL: project.iconURL
+                                repository: project.repository,
+                                artwork: projectMenuArtwork[project.id]
+                                    ?? localProjectRepos[project.id].flatMap(RepoIconArt.artwork),
+                                artworkURL: projectMenuArtwork[project.id] == nil
+                                    ? localProjectRepos[project.id]?.iconPath : project.iconURL
                             ) {
                                 Image(nsImage: mark).renderingMode(.original)
                             }
@@ -482,11 +486,15 @@ struct CreateCloudWorkspaceView: View {
         guard let teamID else { return }
         projectsState = .loading
         projectMenuArtwork = [:]
+        localProjectRepos = [:]
         do {
             let projects = try await cloud.projects(team: teamID)
             guard !Task.isCancelled, self.teamID == teamID else { return }
             projectsState = .ready(projects)
             if !projects.contains(where: { $0.id == projectID }) { projectID = projects.first?.id }
+            let localRepos = await app.localRepos(for: projects)
+            guard !Task.isCancelled, self.teamID == teamID else { return }
+            localProjectRepos = localRepos
             for project in projects {
                 let artwork = await cloud.projectIcons.artwork(
                     for: .init(teamID: CloudTeamID(teamID), projectID: CloudProjectID(project.id)),
