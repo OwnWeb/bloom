@@ -9,6 +9,7 @@ struct CloudFilePane: View {
 
     @State private var width: CGFloat = 0
     @State private var copyFlash = CopyFlash()
+    @Environment(\.colorScheme) private var colorScheme
     private let edits = FileEditSession.shared
 
     private var key: String { session.editorKey(for: path) }
@@ -60,15 +61,14 @@ struct CloudFilePane: View {
                     session.changes.forgetContents(of: path)
                 })
             } else if let text = session.contents(of: path) {
-                ScrollView([.vertical, .horizontal]) {
-                    Text(text)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(Metrics.gutter)
-                }
+                SourceEditor(
+                    text: .constant(text),
+                    language: state.languageOverride ?? Language.detect(path: path),
+                    colorScheme: colorScheme,
+                    isEditable: false,
+                    editorState: state
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Palette.codeBackground)
             } else {
                 LoadingView("Reading \((path as NSString).lastPathComponent)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
