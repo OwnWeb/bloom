@@ -125,6 +125,7 @@ public enum MenuBarCatalogue {
 
         // MARK: View
 
+        MenuBarItem(.reloadPage, in: .view, "Reload Page", key: .command("r"), availability: .needsBrowserPane),
         // The two splits are submenus of the three kinds, and the key sits on the row that means
         // "the same again" rather than on the parent. See `PaneDuplicateOutcome.sameAgainKind`.
         MenuBarItem(.splitRight, in: .view, "Split Right", key: .command("\\"), keyOnSameAgainRow: true, availability: .needsSplittablePane),
@@ -245,6 +246,7 @@ public enum MenuBarAction: String, CaseIterable, Sendable {
     case search
 
     case splitRight
+    case reloadPage
     case splitDown
     case closePane
     case zoomPane
@@ -361,6 +363,8 @@ public enum MenuBarAvailability: String, Equatable, Sendable {
     /// The tab in front is a terminal, which is the only thing in the centre column with a shell
     /// tree to zoom or to step focus around.
     case needsTerminalPane
+    /// The selected tab contains a browser pane, including a Cloud preview.
+    case needsBrowserPane
     /// A review is open and the worktree has something changed in it.
     case needsReview
     /// The one shape the menu bar does not grey: absent when the project defines none, because a

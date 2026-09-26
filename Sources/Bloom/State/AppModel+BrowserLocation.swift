@@ -6,6 +6,18 @@ import BloomCore
 extension AppModel {
     var browserLocationTarget: String? {
         guard !isAskInFront, let workspace = selectedModel else { return nil }
+        return visibleBrowserTarget(in: workspace)
+    }
+
+    /// The browser in the selected tab, including a Cloud preview or forwarded page.
+    var browserReloadTarget: String? {
+        guard !isAskInFront else { return nil }
+        if let cloud = selectedCloudSession { return visibleBrowserTarget(in: cloud) }
+        guard let workspace = selectedModel else { return nil }
+        return visibleBrowserTarget(in: workspace)
+    }
+
+    private func visibleBrowserTarget(in workspace: some WorkspaceSurface) -> String? {
         let workspaceTabs = WorkspaceTabsStore.shared
         guard let selected = workspaceTabs.selectedTab(in: workspace) else { return nil }
         let layout = workspaceTabs.layout(of: selected)
@@ -32,8 +44,14 @@ extension AppModel {
         NotificationCenter.default.post(name: .bloomFocusBrowserLocation, object: target)
         return true
     }
+
+    func reloadBrowser() {
+        guard let target = browserReloadTarget else { return }
+        NotificationCenter.default.post(name: .bloomReloadBrowser, object: target)
+    }
 }
 
 extension Notification.Name {
     static let bloomFocusBrowserLocation = Notification.Name("bloom.focusBrowserLocation")
+    static let bloomReloadBrowser = Notification.Name("bloom.reloadBrowser")
 }

@@ -85,6 +85,10 @@ struct CloudForwardedPagePane: View {
             if !isAddressFocused { address = browser.displayAddress }
             CenterTabStore.shared.setPage(browser.page, for: tab)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .bloomReloadBrowser)) { note in
+            guard note.object as? String == tab.id else { return }
+            browser.reload()
+        }
     }
 
     private func capture(_ browser: BrowserSession) {

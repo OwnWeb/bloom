@@ -30,6 +30,7 @@ import SwiftUI
 /// looks like, and a workspace whose setup has not run will never fill it in on its own.
 struct CloudPreviewPane: View {
     var session: CloudWorkspaceSession
+    var tab: CenterTab
     /// The pane's own menu, merged under the page's. Without it a right click on the page offers
     /// only WebKit's Reload and Inspect Element, and a pane whose page has not loaded yet is
     /// nothing but page, so there was no way to close it. See `BrowserPageWebView`.
@@ -61,6 +62,10 @@ struct CloudPreviewPane: View {
         // And the connection going live is the other. Nothing is fetched before it: see
         // `openIfReady`.
         .onChange(of: session.phase) { _, _ in
+            Task { await openIfReady() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .bloomReloadBrowser)) { note in
+            guard note.object as? String == tab.id else { return }
             Task { await openIfReady() }
         }
     }
