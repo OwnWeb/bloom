@@ -228,11 +228,14 @@ struct ComposerTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        _ = ColourThemePreference.shared.choice
-        scrollView.documentView?.needsDisplay = true
         guard let textView = scrollView.documentView as? ComposerTextView else { return }
         context.coordinator.parent = self
         handle?.textView = textView
+        let theme = ColourThemePreference.shared.choice
+        if let previous = context.coordinator.lastTheme, previous != theme {
+            textView.needsDisplay = true
+        }
+        context.coordinator.lastTheme = theme
 
         // Ahead of the text, because setting the string re-reads the typing attributes, and
         // because a chip is drawn at the size of the line it sits on.
@@ -244,7 +247,8 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         // Compared as the draft rather than as the string the view is holding: a chip is one
         // character there and a whole path here, and it is the draft the two have to agree about.
-        if refaced || ComposerChipText.draft(of: Self.committed(in: textView)) != text {
+        let rewritten = refaced || ComposerChipText.draft(of: Self.committed(in: textView)) != text
+        if rewritten {
             context.coordinator.write(text, into: textView, font: font)
             place(caretAt: caret, in: textView, coordinator: context.coordinator)
         } else if caret != context.coordinator.lastReportedCaret {
@@ -262,7 +266,9 @@ struct ComposerTextEditor: NSViewRepresentable {
         // the reader had clicked into, so Cmd+C reached a composer with nothing selected.
         context.coordinator.applyFocus(to: textView)
 
-        context.coordinator.reportHeight(of: textView)
+        // Native edits and width changes report their own height. Marked text is the exception:
+        // input methods change it without textDidChange, so selection updates measure it here.
+        if rewritten || textView.hasMarkedText() { context.coordinator.reportHeight(of: textView) }
     }
 
     /// What the view holds minus whatever an input method is still composing, which is the text
@@ -302,6 +308,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         /// The caret as the view last spoke it, so `updateNSView` can tell a binding echoing the
         /// view back from a programmatic move it still has to apply.
         var lastReportedCaret: Int?
+        var lastTheme: ColourTheme?
         private var lastReportedHeight: CGFloat = 0
 
         init(_ parent: ComposerTextEditor) {

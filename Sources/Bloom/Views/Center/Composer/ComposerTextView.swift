@@ -162,6 +162,10 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
     /// the clipboard as bytes with no file behind it at all, so this is the one door where an
     /// attachment has to be written from nothing.
     override func paste(_ sender: Any?) {
+        if Self.hasOnlyText(on: .general) {
+            super.paste(sender)
+            return
+        }
         let sources = Self.attachables(on: .general)
         // At the caret, over the selection if there is one, which is what pasting means
         // everywhere else in the system.
@@ -172,6 +176,10 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
     /// Paste and Match Style lands here rather than in `paste`. The editor is plain text, so the
     /// two mean exactly the same thing.
     override func pasteAsPlainText(_ sender: Any?) {
+        if Self.hasOnlyText(on: .general) {
+            super.pasteAsPlainText(sender)
+            return
+        }
         let sources = Self.attachables(on: .general)
         if !sources.isEmpty, onAttach?(sources, selectedRange()) == true { return }
         super.pasteAsPlainText(sender)
@@ -223,6 +231,13 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
     }
 
     // MARK: - Reading a pasteboard
+
+    /// A text-only paste can go straight to AppKit. Inspecting every pasteboard item first makes
+    /// a dictation tool's ordinary paste wait for providers that have nothing to attach.
+    static func hasOnlyText(on pasteboard: NSPasteboard) -> Bool {
+        pasteboard.availableType(from: [.string]) != nil
+            && pasteboard.availableType(from: AttachmentDrop.types) == nil
+    }
 
     /// What is worth attaching from a pasteboard, and what is better left to the text system.
     ///

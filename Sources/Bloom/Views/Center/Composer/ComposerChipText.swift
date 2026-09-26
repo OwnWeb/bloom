@@ -152,6 +152,10 @@ enum ComposerChipText {
 
     /// What the text view is holding, as the draft it stands for.
     static func draft(of storage: NSAttributedString) -> String {
+        // Ordinary text has no chip to expand. Dictation can insert a long prompt in many small
+        // edits, so avoid an attributed run walk after every edit when plain text is sufficient.
+        let string = storage.string
+        guard string.contains("\u{FFFC}") else { return string }
         var text = ""
         forEachRun(in: storage) { run in
             switch run {
@@ -176,6 +180,7 @@ enum ComposerChipText {
     /// The two disagree by however many chips lie before it: a chip is one character there and a
     /// whole path here.
     static func draftOffset(forStorage offset: Int, in storage: NSAttributedString) -> Int {
+        guard storage.string.contains("\u{FFFC}") else { return min(max(offset, 0), storage.length) }
         var draft = 0
         var seen = 0
         forEachRun(in: storage) { run in
@@ -205,6 +210,7 @@ enum ComposerChipText {
     /// middle of a file's name belongs, and it is what the composer means when it says "after what
     /// I just wrote".
     static func storageOffset(forDraft offset: Int, in storage: NSAttributedString) -> Int {
+        guard storage.string.contains("\u{FFFC}") else { return min(max(offset, 0), storage.length) }
         var draft = 0
         var position = 0
         var answer: Int?

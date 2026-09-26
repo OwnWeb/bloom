@@ -176,12 +176,33 @@ enum ComposerInputProbe {
             await settle(window)
             check(abs(scroll.contentSize.height - ceil(line * 2)) <= 1, "trailing newline did not grow the editor")
 
+            // Dictation tools may insert a long utterance as many small edits. Keep the native
+            // editor and its binding in step throughout, including after SwiftUI updates it.
+            draft.text = ""
+            await settle(window)
+            text.setSelectedRange(NSRange(location: 0, length: 0))
+            let spoken = Array(repeating: "A short dictated sentence. ", count: 80)
+            for (index, phrase) in spoken.enumerated() {
+                text.insertText(phrase, replacementRange: NSRange(location: NSNotFound, length: 0))
+                if index.isMultiple(of: 8) {
+                    await Task.yield()
+                    window.layoutIfNeeded()
+                }
+            }
+            await settle(window)
+            let dictated = spoken.joined()
+            check(draft.text == dictated, "dictated text did not reach the draft")
+            check(text.string == dictated, "dictated text was replaced during a SwiftUI update")
+            check(text.selectedRange().location == (dictated as NSString).length,
+                  "dictation left the caret before the end of the draft")
+
             let file = directory.appending(path: "Finder file.txt")
             try Data("finder attachment".utf8).write(to: file)
             let board = NSPasteboard.withUniqueName()
             defer { board.releaseGlobally() }
             let drag = InputDrag(board: board, window: window)
             board.writeObjects([file as NSURL])
+            check(!ComposerTextView.hasOnlyText(on: board), "file clipboard was mistaken for plain text")
             check(surface.draggingEntered(drag) == .copy, "outer surface rejected Finder file")
             check(surface.prepareForDragOperation(drag), "outer surface refused Finder drop at release")
             check(surface.performDragOperation(drag), "outer surface failed to insert Finder file")
@@ -203,6 +224,7 @@ enum ComposerInputProbe {
             let png = image.representation(using: .png, properties: [:])!
             board.clearContents()
             board.setData(png, forType: .png)
+            check(!ComposerTextView.hasOnlyText(on: board), "image clipboard was mistaken for plain text")
             check(surface.draggingEntered(drag) == .copy, "outer surface rejected screenshot bytes")
             check(surface.performDragOperation(drag), "outer surface failed to attach screenshot bytes")
             await settle(window)
@@ -252,6 +274,7 @@ enum ComposerInputProbe {
 
             board.clearContents()
             board.setString("ordinary text", forType: .string)
+            check(ComposerTextView.hasOnlyText(on: board), "plain text paste took the attachment path")
             check(surface.draggingEntered(drag).isEmpty, "outer surface intercepted a plain text drag")
             check(!window.isVisible && !window.isKeyWindow, "probe displayed its window")
             failures += draft.failures
