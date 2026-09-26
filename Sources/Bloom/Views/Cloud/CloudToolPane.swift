@@ -33,7 +33,7 @@ extension CloudWorkspaceSession {
         case .browser:
             // The machine's own app, in a pane. Not the local browser tab: see `CloudPreviewPane`
             // for why a window onto one machine cannot have an address bar.
-            CloudPreviewPane(session: self, paneMenu: paneMenu)
+            CloudPreviewPane(session: self, tab: tab, paneMenu: paneMenu)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .notes:
             // The machine's note, in the local pane. It is the workspace's scratchpad rather than

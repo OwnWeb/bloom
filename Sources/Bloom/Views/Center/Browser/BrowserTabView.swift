@@ -170,6 +170,10 @@ struct BrowserTabView: View {
             guard note.object as? String == tab.id else { return }
             focusLocation()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .bloomReloadBrowser)) { note in
+            guard note.object as? String == tab.id else { return }
+            session.reload()
+        }
     }
 
     private func focusLocation() {

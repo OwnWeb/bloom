@@ -368,6 +368,11 @@ struct BloomCommands: Commands {
 
             Divider()
 
+            MenuCommand(.reloadPage) { model.reloadBrowser() }
+                .disabled(isMainWindowFocused != true || model.browserReloadTarget == nil)
+
+            Divider()
+
             splitMenu(.splitRight, axis: .horizontal, symbol: PaneSymbol.splitRight)
             splitMenu(.splitDown, axis: .vertical, symbol: PaneSymbol.splitDown)
 
