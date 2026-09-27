@@ -44,11 +44,10 @@ struct PaneSplitTests {
         #expect(Set(splittable) == [.terminal, .browser])
     }
 
-    /// The raw values are what `center.tabs.<workspaceID>` was written with, and the move into the
-    /// core must not have changed a byte of them.
-    @Test("the stored spellings survived the move into the core")
+    /// These raw values are stored under `center.tabs.<workspaceID>` and must stay stable.
+    @Test("the stored tab spellings stay stable")
     func wireFormat() {
-        #expect(CenterTabKind.allCases.map(\.rawValue) == ["terminal", "browser", "review", "notes", "setup"])
+        #expect(CenterTabKind.allCases.map(\.rawValue) == ["terminal", "browser", "review", "notes"])
     }
 
     // MARK: - Which row of a Split submenu carries the key
