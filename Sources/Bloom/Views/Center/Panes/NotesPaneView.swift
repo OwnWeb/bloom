@@ -31,7 +31,7 @@ struct NotesPaneView: View {
         NotesPage(
             text: $text,
             isEditing: $isEditing,
-            surfaceID: .local(model.workspace.id),
+            workspaceID: model.workspace.id,
             workspaceName: model.workspace.name,
             hasLoaded: hasLoaded,
             couldNotLoad: couldNotLoad,

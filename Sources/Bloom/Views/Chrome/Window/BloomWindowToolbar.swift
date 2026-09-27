@@ -7,11 +7,6 @@ import BloomCore
 struct BloomWindowToolbar: ToolbarContent {
     let app: AppModel
     let isSidebarFolded: Bool
-    /// Whether the share popover is open. Here rather than in the item, because a `ToolbarContent`
-    /// is a value the window rebuilds and a popover anchored to state inside it closes itself.
-    @Binding var isSharingCloudWorkspace: Bool
-    /// Whether the ports popover is open, here for the same reason sharing's flag is.
-    @Binding var isShowingPorts: Bool
 
     var body: some ToolbarContent {
         if isSidebarFolded {
@@ -48,27 +43,7 @@ struct BloomWindowToolbar: ToolbarContent {
             }
         }
 
-        // What a Cloud workspace has and a local one has no answer to: who else is here, the
-        // preview and sharing. See `CloudWorkspaceControls`.
-        if let id = app.selection.cloudWorkspaceID {
-            CloudWorkspaceControls(
-                session: app.cloud.session(for: id),
-                item: app.selectedCloudWorkspace,
-                isSharing: $isSharingCloudWorkspace,
-                isShowingPorts: $isShowingPorts,
-                ports: app.cloud.session(for: id).ports
-            )
-        }
-
-        // The same `+`, from the same menu, for a workspace on a machine. It opens the same kinds
-        // of tab, which is why the strip below it is the app's own strip as well.
-        if let id = app.selection.cloudWorkspaceID, app.selectedCloudWorkspace?.canOpen == true {
-            ToolbarItem(placement: .primaryAction) {
-                NewTabMenu(model: app.cloud.session(for: id))
-            }
-        }
-
-        if app.isInspectorPresented || app.selectedWorkspace != nil || app.selection.cloudWorkspaceID != nil {
+        if app.isInspectorPresented || app.selectedWorkspace != nil {
             ToolbarItem(placement: .primaryAction) {
                 Button("Inspector", systemImage: "sidebar.right") {
                     app.isInspectorVisible.toggle()

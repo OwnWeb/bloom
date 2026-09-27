@@ -38,7 +38,7 @@
 # `master.sh` installed to a path he does not use and this guard protected a
 # bundle nobody was running, which is the worst of both: a second Bloom under
 # the same bundle id, on the same database, with LaunchServices free to hand a
-# `bloom://` link to whichever it liked. The three dev identities below stay in
+# `bloom://` link to whichever it liked. The dev identity below stays in
 # `~/Applications` on purpose: they are installed by agents rather than by him,
 # and keeping them out of the folder he actually opens is the point of them.
 BLOOM_REAL_APP="/Applications/Bloom.app"
@@ -54,25 +54,6 @@ BLOOM_DEV_APP="$HOME/Applications/Bloom Dev.app"
 BLOOM_DEV_DB_DIR="$HOME/Library/Application Support/Bloom Dev"
 BLOOM_DEV_DB="$BLOOM_DEV_DB_DIR/bloom.sqlite"
 BLOOM_DEV_BUNDLE_ID="be.spatie.bloom.dev"
-
-# The third identity, for trying a feature out beside the other two. Same
-# separation as the dev copy and for the same reasons: its own container, its own
-# preferences domain, its own tmux socket, its own URL scheme. It exists because
-# a feature that changes what a workspace IS wants a copy of its own to be wrong
-# in, without taking the dev copy's data with it.
-BLOOM_SUB_APP="$HOME/Applications/Bloom Subagents.app"
-BLOOM_SUB_DB_DIR="$HOME/Library/Application Support/Bloom Subagents"
-BLOOM_SUB_DB="$BLOOM_SUB_DB_DIR/bloom.sqlite"
-BLOOM_SUB_BUNDLE_ID="be.spatie.bloom.subagents"
-
-# The fourth identity, Bloom Cloud, for trying Cloud workspaces against production
-# runbloom.app without touching the published Bloom or its appcast. Its own
-# container, preferences domain, tmux socket and URL scheme (bloomcloud:, so its
-# sign in redirect is bloomcloud://oauth/callback), and it never updates itself.
-BLOOM_CLOUD_APP="$HOME/Applications/Bloom Cloud.app"
-BLOOM_CLOUD_DB_DIR="$HOME/Library/Application Support/Bloom Cloud"
-BLOOM_CLOUD_DB="$BLOOM_CLOUD_DB_DIR/bloom.sqlite"
-BLOOM_CLOUD_BUNDLE_ID="be.spatie.bloom.cloud"
 
 # Where a detached dev copy's worktrees are said to be. See Tools/dev-db.sh for
 # why the copied rows are pointed here rather than left on the real ones.

@@ -251,14 +251,6 @@ enum Palette {
     /// An explicit user-selected accent still wins for native and custom interactive controls.
     static let accentFill = dynamic(PaletteInk.accentFill)
 
-    /// The same bubble, sent by somebody else in a shared Cloud workspace. See
-    /// `PaletteInk.teammateFill`, which carries the measurement and the bar it had to clear.
-    static let teammateFill = dynamic(PaletteInk.teammateFill)
-
-    /// Your own bubble, addressed to a person rather than to Bloom, and the composer's tint while
-    /// it is. See `PaletteInk.directFill` and `MessageAuthorship.BubbleFill`.
-    static let directFill = dynamic(PaletteInk.directFill)
-
     /// An address in running text: underlined, and this colour.
     ///
     /// The accent, deliberately and not a blue of its own. A link is the app pointing at

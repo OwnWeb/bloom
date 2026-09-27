@@ -14,15 +14,6 @@ public enum StripOrder {
     public static func updated(
         sessions: [SessionID]? = nil, tools: [String]? = nil, stored: [PaneContent]
     ) -> [PaneContent] {
-        // **Nothing arranged yet, and only half the story: remember nothing.**
-        //
-        // A store reports its own arrivals, and the other kind's list is nil until that store has
-        // loaded. With an order already stored that is harmless, because the nil kind keeps its
-        // places. With no order at all it invents one out of the half it can see, and the first
-        // thing written wins the front of the strip for good: the owner opened a terminal in a
-        // brand new Cloud workspace, whose chats had not been recorded here yet, and the terminal
-        // took the slot before the conversation. Derived beats half remembered, and derived is
-        // conversations first, then tools. See `entries`.
         guard !stored.isEmpty || (sessions != nil && tools != nil) else { return [] }
         let chats = sessions.map { Set($0) }
         let toolIDs = tools.map { Set($0) }

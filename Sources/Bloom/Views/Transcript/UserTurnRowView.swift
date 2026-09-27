@@ -39,30 +39,7 @@ struct UserTurnRowView: View {
     var reviewChips: [ReviewTurnRecord.Chip] = []
     /// Which worktree those paths are relative to, and which review the chips open into.
     var home: TranscriptHome
-    /// Who sent it and who it was for, in a Cloud workspace, on the first of a run. Drawn over the
-    /// bubble in the caption's ink, the way Messages does it, and nil everywhere a Mac has one
-    /// person at it. See `MessageAuthorship.caption`.
-    var caption: String?
-    /// Which of the three fills this bubble carries, and with it which side it sits on.
-    ///
-    /// **Separate from the caption, because a teammate runbloom.app has no name for is still not
-    /// you.** The owner read a nameless "hey" from somebody else as his own message: both bubbles
-    /// were the accent fill, and the label that would have told him otherwise was an empty string.
-    /// Neither the colour nor the side depends on knowing what to call anybody.
-    ///
-    /// The rule and the reason the fill means different things on the two sides are
-    /// `MessageAuthorship.BubbleFill`.
-    var fill: MessageAuthorship.BubbleFill = .own
-
-    private var isFromSomebodyElse: Bool { fill == .somebodyElse }
-
-    private var background: Color {
-        switch fill {
-        case .own: Palette.accentFill
-        case .ownToPerson: Palette.directFill
-        case .somebodyElse: Palette.teammateFill
-        }
-    }
+    private var background: Color { Palette.accentFill }
 
     @Environment(AppModel.self) private var app
     /// The list's one value, set in `TranscriptListView`, rather than actions built per bubble:
@@ -132,39 +109,13 @@ struct UserTurnRowView: View {
     /// in it rather than pressed against the side of it.
     static let padding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
 
-    /// Which side of the transcript this message sits on.
-    ///
-    /// **A bubble is a person's message and its side says whose: yours on the right, anybody
-    /// else's on the left.** The owner found this the way everybody would: a green bubble captioned
-    /// "Spatie Technical to you", hard against the right hand edge, which is where his own messages
-    /// go. Two signals disagreeing, and **position is the stronger one**: people read the side of
-    /// a transcript before they read a colour, which is why every messaging application there is
-    /// puts the other person on the left.
-    ///
-    /// **The agent is not a bubble at all**, so this is not three senders across two sides. It is
-    /// bubble against prose first, and then left against right inside the bubbles: an agent's reply
-    /// is unbubbled prose at the full measure, and a message relayed from another workspace is a
-    /// rule down the left in the colour of whoever spoke. See `CrewMessageRowView`, whose own note
-    /// states the half that makes all of this one rule: **the right hand side of this transcript
-    /// means the person reading it wrote the message**, and nothing else may borrow it.
-    private var side: HorizontalEdge { isFromSomebodyElse ? .leading : .trailing }
+    private var side: HorizontalEdge { .trailing }
 
     var body: some View {
         HStack(spacing: 0) {
             if side == .trailing { Spacer(minLength: Self.inset) }
 
             VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
-                if let caption {
-                    Text(caption)
-                        .font(Typo.caption)
-                        .foregroundStyle(Palette.textTertiary)
-                        // Two names and a preposition is longer than one name, and a caption that
-                        // ran off the side of the pane would take the bubble's own measure with
-                        // it. Capped at the bubble's width and wrapped rather than truncated: who
-                        // a message was for is not a detail worth losing the end of.
-                        .frame(maxWidth: maxWidth, alignment: side == .leading ? .leading : .trailing)
-                        .multilineTextAlignment(side == .leading ? .leading : .trailing)
-                }
                 CappedWidth(width: maxWidth) {
                     bubble.padding(Self.padding)
                 }
@@ -351,8 +302,7 @@ struct UserTurnRowView: View {
         switch subject {
         case .file(let path):
             let target = FileChipTarget.resolve(path, in: home.worktree)
-            return .file(attachment: .sent(path: target.path), worktree: target.worktree,
-                         cloudID: home.surfaceID?.cloudID)
+            return .file(attachment: .sent(path: target.path), worktree: target.worktree)
         case .instructions(let block):
             return .instructions(title: block.title, body: block.body)
         }

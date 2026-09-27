@@ -14,15 +14,6 @@ struct ComposerOption: Identifiable, Hashable {
     /// footnote under the whole menu, which is what the owner could not read before choosing.
     var detail: String?
 
-    /// **The fallback, not the list.** Claude Code's models come from the `claude` CLI itself
-    /// (`ClaudeModelList`, through `ComposerModelCatalog`), which is where a Bloom Cloud machine
-    /// reads them too. This is what the picker offers until the CLI has answered, on a Mac where it
-    /// never does, and the names for ids a chat was set to before the CLI's list replaced this one.
-    ///
-    /// Most capable first, which here means most expensive first: see `ClaudeModelRank`, whose
-    /// head carries the prices this order is read off. The order is not left to this literal.
-    /// `ranked` sorts it, so a model pinned in a settings file lands among these rather than
-    /// under them.
     static let models = [
         ComposerOption(id: "fable", label: "Fable 5.1"),
         ComposerOption(id: "opus", label: "Opus 5.5"),

@@ -226,9 +226,6 @@ struct BloomApp: App {
         // One window per project, opened from the gear on its sidebar header. See the scene.
         RepoSettingsWindow(model: model)
 
-        // Where a Cloud workspace is started. See the scene and `CreateCloudWorkspaceView`.
-        CreateCloudWorkspaceWindow(model: model)
-
         // Where a project is started, a window for the same reason and at the owner's asking. One
         // of these rather than one per project: it is not about a project yet. See the scene.
         StartProjectWindow(model: model)

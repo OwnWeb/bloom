@@ -135,10 +135,6 @@ struct SessionLifecycleTests {
         #expect(SessionState.cancelled.transition(on: .cancelled) == .unchanged)
     }
 
-    /// test.55's Runner log: `[transitions] error: session refused cancelled from idle` after
-    /// nearly every turn. A Cloud machine ends the agent's process once each turn is over, and
-    /// ending it went through Stop, which refuses on a turn that has already finished. Ending a
-    /// process for good is its own event, so the rule for Stop keeps firing only for a Stop.
     @Test("ending a process with no turn open is not a refused stop", arguments: [
         SessionState.idle, .failed, .cancelled,
     ])

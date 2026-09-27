@@ -4,14 +4,6 @@ import Glibc
 import Darwin
 #endif
 
-/// How a process ended, in the only two ways it can, and what to say about each.
-///
-/// **A number alone cannot be read.** Foundation on Linux reports a signalled process by putting
-/// the signal number in `terminationStatus` rather than 128 plus it, so 13 is either a program
-/// saying 13 or a program killed by `SIGPIPE`, and nothing in the number tells them apart. A Cloud
-/// workspace's `resume` script was reported as "exited with status 13" when it had been killed by
-/// SIGPIPE as the server shut down under it, and the person reading that took it for the script's
-/// own verdict and rebuilt by hand what setup should have done.
 public enum ProcessEnding: Sendable, Hashable {
     case exited(Int32)
     case signalled(Int32)

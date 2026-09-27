@@ -3,19 +3,13 @@ import Synchronization
 
 /// What a Bloom session needs from whatever is driving its agent.
 ///
-/// Deliberately tiny: it is exactly the five things `TranscriptModel` calls plus the one the
-/// permission prompt calls, and nothing else. Every runner has a great deal more surface than
-/// this, and none of that surface is shared, because the two backends share no protocol: Claude
-/// Code speaks stream-json over stdin and stdout, Codex speaks JSON-RPC over the same pipes, and
-/// what they agree on is only what a conversation is.
+/// Each agent CLI has its own wire protocol. This interface holds only the operations the
+/// conversation and permission UI need, so backend details stay in their runners.
 ///
 /// **The backend belongs to the chat, not to the workspace.** One worktree can hold a Claude Code
 /// conversation and a Codex one at the same time, editing the same files, so nothing here is
 /// keyed on a workspace and nothing may assume a workspace has one of these.
 ///
-/// Adopted on the Codex side first, on purpose. `AgentRunner` already has every member below with
-/// the right shape, so conforming it is one line and no redesign, and doing that separately keeps
-/// this out of a file somebody else is holding.
 public protocol SessionRunner: Actor {
     /// Which CLI this is. Nonisolated because a view asks it while drawing.
     nonisolated var agentKind: AgentKind { get }

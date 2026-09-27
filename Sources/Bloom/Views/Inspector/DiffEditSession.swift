@@ -91,14 +91,6 @@ final class DiffEditSession {
         )
     }
 
-    /// Open a box on the lines around `line`, or say why not.
-    ///
-    /// - Returns: nil when the box is open, or the sentence to put in front of the user. The
-    ///   commonest of those sentences is the agent having rewritten the file since this diff was
-    ///   drawn, which is a refusal rather than a failure: opening on the diff's numbers would put
-    ///   the reader's typing into code they have never seen.
-    /// - Parameter files: where the file is read from, which is this Mac's disk for a worktree and
-    ///   the connection for a Cloud workspace. See `EditableFiles`.
     func begin(
         path absolutePath: String, at line: Int, hunks: [DiffHunk],
         from files: any EditableFiles = DiskFiles()

@@ -10,9 +10,9 @@ import BloomCore
 /// or goes.
 extension WorkspaceTabsStore {
     func busySignal(
-        in model: some WorkspaceSurface, entries: [PaneContent], selected: PaneContent?, isStripShown: Bool
+        in model: WorkspaceModel, entries: [PaneContent], selected: PaneContent?, isStripShown: Bool
     ) -> BusySignalPlacement<PaneContent> {
-        let tools = CenterTabStore.shared.tabs(for: model.surfaceID)
+        let tools = CenterTabStore.shared.tabs(for: model.workspace.id)
         return BusySignalPlacement.resolve(
             isStripShown: isStripShown,
             tabs: entries,

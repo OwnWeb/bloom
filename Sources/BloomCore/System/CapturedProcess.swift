@@ -40,22 +40,6 @@ final class CapturedProcess: Sendable {
         self.grace = grace
     }
 
-    /// How long after the caller's own deadline this gives up on the worker thread entirely.
-    ///
-    /// **A launch that never returns must not stop the machine.** `collect` honours the deadline
-    /// itself: it polls with a twenty millisecond timeout and checks the clock on every pass, so
-    /// nothing inside it can outlast the timeout by more than that. The launch before it is
-    /// Foundation's, and it has no deadline of ours. On a Cloud workspace's first start, one
-    /// `git config` child exited within a second, was never reaped, and `Process.run()` never
-    /// returned: the machine answered health, RPC and its own shutdown for eighteen minutes while
-    /// setup sat in that one call and the workspace was never cloned. No debugger can attach to a
-    /// Sprite to say why, so the fix is to stop waiting rather than to wait better.
-    ///
-    /// The grace is what keeps this a backstop rather than a second timeout: `collect` gets its
-    /// full deadline and the chance to kill the child and report properly, and only a call that is
-    /// past even that is abandoned. The worker thread is left where it is, because there is nothing
-    /// safe to do with a thread parked inside Foundation, and one leaked thread costs a stack where
-    /// a machine that never boots costs the whole workspace.
     static let launchGrace: Duration = .seconds(15)
 
     func run() async throws -> ShellBytes {

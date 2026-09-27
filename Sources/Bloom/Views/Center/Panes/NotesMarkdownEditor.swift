@@ -10,7 +10,7 @@ struct NotesMarkdownEditor: NSViewControllerRepresentable {
     var isEditing: FocusState<Bool>.Binding
     /// What the editor files its own state under. The workspace's storage key, which is its id
     /// for a worktree on this Mac and namespaced for one on a machine, so two workspaces cannot
-    /// share an undo stack. See `WorkspaceSurfaceID.storageKey`.
+    /// share an undo stack. See `WorkspaceID.rawValue`.
     var documentKey: String
     var isEditable: Bool
     var showsSource: Bool

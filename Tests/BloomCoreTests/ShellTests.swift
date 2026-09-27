@@ -82,9 +82,6 @@ struct ShellTests {
     }
 }
 
-/// The backstop under `Shell.run(timeout:)`, which exists because a Cloud workspace's first
-/// `git config` once never came back: the child exited in a second, was never reaped, and
-/// `Process.run()` sat there for eighteen minutes while the machine answered everything else.
 @Suite("A launch that never returns", .tags(.subprocess))
 struct CapturedProcessWatchdogTests {
     @Test("a launch that never answers is abandoned rather than waited on")

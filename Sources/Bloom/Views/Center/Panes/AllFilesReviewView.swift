@@ -3,8 +3,8 @@ import BloomCore
 
 /// File sections share one vertical scroller. Each diff keeps its wrapped code,
 /// comments and viewed control, and loads only as its section approaches the viewport.
-struct AllFilesReviewView<Model: WorkspaceSurface>: View {
-    let model: Model
+struct AllFilesReviewView: View {
+    let model: WorkspaceModel
     let selectedPath: String
     let navigationRevision: Int
     /// A prepared file can still move when neighbouring diffs load or the lazy stack lays out.
@@ -31,7 +31,7 @@ struct AllFilesReviewView<Model: WorkspaceSurface>: View {
             EmptyStateView(
                 glyph: "doc.text",
                 title: "No changes",
-                message: model.diffScope.emptyMessage(base: model.surfaceBaseBranch)
+                message: model.diffScope.emptyMessage(base: model.workspace.baseBranch)
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {

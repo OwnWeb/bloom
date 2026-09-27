@@ -5,36 +5,17 @@
 # Pass --changes-review-only to check history and staging in invisible windows, without input events.
 # Pass --review-fold-only to check that ticking a file folds it and that the row controls line up.
 # Pass --tab-store-only to check what a workspace's tabs are written as and what comes back.
-# Pass --cloud-terminal-only to check what a Cloud terminal shows after the machine reattaches it.
-# Pass --share-popover-only to draw two Share popover designs, offscreen, into the evidence folder.
-# Pass --cloud-settings-only to draw Settings' Bloom Cloud pane, signed out and in, light and dark.
-# Pass --cloud-sidebar-only to draw the signed-in Cloud sidebar invitations, light and dark.
-# Pass --cloud-setup-only to draw a new Cloud workspace's setup card at each stage, light and dark.
-# Pass --cloud-ports-only to draw a Cloud workspace's Ports popover in each state, light and dark.
-# Pass --cloud-archive-only to check the Cloud delete confirmation's layout and semantics.
-# Add --cloud-archive-keyboard to drive its Return and Escape key equivalents.
 # Pass --terminal-scroller-only to check both terminals' scroll bars follow the system's setting.
-# Pass --cloud-selection-only to check Cloud selection before chats arrive and in a split tab.
 # It crashes rather than fails on the code these regressions were written for.
 # Set BLOOM_PROBE_VERBOSE=1 to print the probe's own log on a passing run as well as a failing
 # one, which is how a check that only goes wrong on someone else's machine is read.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-bin_dir="$(swift build --show-bin-path)"
+source Tools/probe-app.sh
 probe_root="$(mktemp -d "${TMPDIR:-/tmp}/bloom-review-probe.XXXXXX")"
 probe_app="$probe_root/Bloom Review Probe.app"
-framework="$(find .build/artifacts -path '*Sparkle.xcframework/macos*/Sparkle.framework' -type d | head -1)"
-[[ -n "$framework" ]]
-mkdir -p "$probe_app/Contents/MacOS" "$probe_app/Contents/Frameworks"
-cp "$bin_dir/Bloom" "$probe_app/Contents/MacOS/Bloom"
-cp Resources/Info.plist "$probe_app/Contents/Info.plist"
-ditto Resources "$probe_app/Contents/Resources"
-ditto "$framework" "$probe_app/Contents/Frameworks/Sparkle.framework"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier be.spatie.bloom.review-probe' "$probe_app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleName Bloom Review Probe' "$probe_app/Contents/Info.plist"
-install_name_tool -add_rpath '@executable_path/../Frameworks' "$probe_app/Contents/MacOS/Bloom"
-codesign --force --deep --sign - "$probe_app" >/dev/null 2>&1
+bloom_prepare_probe_app "$probe_app" "be.spatie.bloom.review-probe" "Bloom Review Probe"
 
 # Refuse a release or stale binary, which would ignore the flag and start the application.
 python3 - "$probe_app/Contents/MacOS/Bloom" "$probe_root" "$@" <<'PY'
@@ -97,33 +78,14 @@ for index in range(8):
 # **Not `check=True`, and the reason is a probe that answers too quickly.** `open -W` waits for
 # the application by asking the kernel to watch a process that has to still be there when it
 # asks, and a probe with no window to draw can be finished before that: on the CI runner
-# `--cloud-selection-only` came back "Unable to block on applications (initial call to kevent()
+# a short probe came back "Unable to block on applications (initial call to kevent()
 # failed: No such process)" and exit 1, having written a perfectly good result a moment earlier.
 # What the exit status of `open` cannot tell apart, the result file can, so the result is what
 # is believed: written means it ran, absent means it died. See the crash branch below, which is
 # the case this must not swallow.
-keyboard_mode = None
-keyboard_mode_was_set = False
-if '--cloud-archive-keyboard' in arguments and os.environ.get('CI'):
-    # Buttons accept focus only when macOS keyboard navigation is enabled. Set that preference for
-    # this disposable CI app, then put the runner back exactly as it was after the process exits.
-    previous = subprocess.run(
-        ['defaults', 'read', '-g', 'AppleKeyboardUIMode'], capture_output=True, text=True,
-    )
-    keyboard_mode_was_set = previous.returncode == 0
-    if keyboard_mode_was_set:
-        keyboard_mode = previous.stdout.strip()
-    subprocess.run(
-        ['defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', '3'], check=True,
-    )
 try:
     open_arguments = ['open']
-    # Every ordinary probe stays in the background. The keyboard variant is the exception: `-g`
-    # explicitly forbids the disposable app from activating, so AppKit cannot give its offscreen
-    # confirmation a key window and SwiftUI cannot resolve the default focus. It runs only in CI,
-    # where allowing this isolated accessory app to activate is how the real focus path is tested.
-    if '--cloud-archive-keyboard' not in arguments:
-        open_arguments.append('-g')
+    open_arguments.append('-g')
     open_arguments.extend([
         '-n', '-W', '-a', str(pathlib.Path(binary).parents[2]),
         '--stdout', f'{root}/result.json', '--stderr', f'{root}/probe.log',
@@ -136,16 +98,6 @@ try:
 except subprocess.TimeoutExpired:
     print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
     raise
-finally:
-    if '--cloud-archive-keyboard' in arguments and os.environ.get('CI'):
-        if keyboard_mode_was_set:
-            subprocess.run(
-                ['defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', keyboard_mode], check=True,
-            )
-        else:
-            subprocess.run(
-                ['defaults', 'delete', '-g', 'AppleKeyboardUIMode'], check=True, capture_output=True,
-            )
 result_path = pathlib.Path(root, 'result.json')
 report = result_path.read_text() if result_path.exists() else ''
 print(report)
@@ -153,8 +105,7 @@ if os.environ.get('BLOOM_PROBE_VERBOSE'):
     print(pathlib.Path(root, 'probe.log').read_text(), file=sys.stderr)
 # A probe that died wrote nothing, and `open -W` reports its own exit status rather than the
 # app's, so a crash arrives here as an empty file. It used to come out as a JSON traceback, which
-# reads as the harness being broken rather than the thing under test. `--cloud-selection-only`
-# exists for a recursion that takes the process with it, so this is its ordinary failure.
+# reads as the harness being broken rather than the thing under test.
 try:
     passed = json.loads(report)['passed']
 except json.JSONDecodeError:

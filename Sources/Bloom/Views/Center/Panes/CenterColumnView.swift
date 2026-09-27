@@ -8,7 +8,7 @@ import BloomCore
 /// conversation and a terminal rebuild the column and re-run the workspace's arrival work, and it
 /// is also what made a chat and a terminal mutually exclusive. A pane holds a tab, so now they are
 /// not.
-/// The one name the column is measured in, outside the view because it is generic now.
+/// The coordinate space shared by the strip, panes and drag overlay.
 enum CentreColumnMeasure {
     /// The space a carried tab's pointer is reported in and its landing is washed in. The column
     /// rather than the window, because the strip, the panes and the overlay that washes them are
@@ -16,8 +16,8 @@ enum CentreColumnMeasure {
     nonisolated static let space = "bloom.centreColumn"
 }
 
-struct CenterColumnView<Model: WorkspaceSurface>: View {
-    let model: Model
+struct CenterColumnView: View {
+    let model: WorkspaceModel
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -89,11 +89,11 @@ struct CenterColumnView<Model: WorkspaceSurface>: View {
         // item and cannot see this column's strip, so the answer is published for it, under this
         // workspace's selection. Keyed on the id, so moving to another workspace clears this one's
         // claim before the next is made.
-        .onChange(of: busy.showsColumnTop ? model.surfaceID : nil, initial: true) { was, now in
-            if let was = was?.local { WindowTitleText.shared.setBusy(false, for: .workspace(was)) }
-            if let now = now?.local { WindowTitleText.shared.setBusy(true, for: .workspace(now)) }
+        .onChange(of: busy.showsColumnTop ? model.workspace.id : nil, initial: true) { was, now in
+            if let was { WindowTitleText.shared.setBusy(false, for: .workspace(was)) }
+            if let now { WindowTitleText.shared.setBusy(true, for: .workspace(now)) }
         }
-        .onDisappear { if let id = model.surfaceID.local { WindowTitleText.shared.setBusy(false, for: .workspace(id)) } }
+        .onDisappear { WindowTitleText.shared.setBusy(false, for: .workspace(model.workspace.id)) }
         // Over the strip and the panes alike, and hit testing nothing, so the carried tab's wash
         // and ghost never take the release that lets it go.
         .overlay { TabCarryOverlay(carry: carry) }
@@ -114,8 +114,8 @@ struct CenterColumnView<Model: WorkspaceSurface>: View {
             renamingID = selected.id
         }
         // A field left open in one workspace is not one to carry into the next.
-        .onChange(of: model.surfaceID) { _, _ in renamingID = nil }
-        .task(id: model.surfaceID) {
+        .onChange(of: model.workspace.id) { _, _ in renamingID = nil }
+        .task(id: model.workspace.id) {
             // The icons this Mac has already seen, read back once per launch. Here rather than at
             // startup because this is what needs them: a workspace reopening on a browser tab
             // should draw its icon on the first frame instead of asking the page for something
@@ -195,12 +195,11 @@ struct CenterColumnView<Model: WorkspaceSurface>: View {
     /// Through `NewPane`, which is the door the title bar's `+` and every split menu already use, so
     /// a tab a workspace is born on and a tab somebody opens a second later are the same tab.
     private func openStartingPane() {
-        let workspaceID = model.surfaceID
+        let workspaceID = model.workspace.id
         // Idempotent, and first: adding a tab to a workspace whose stored list has not been read
         // back yet would replace that list rather than extend it.
         CenterTabStore.shared.load(workspaceID: workspaceID)
-        guard let localID = workspaceID.local,
-              let opening = WorkspaceStartMode.consumeOpeningTab(workspaceID: localID) else {
+        guard let opening = WorkspaceStartMode.consumeOpeningTab(workspaceID: workspaceID) else {
             return
         }
         // No address for a browser, where the title bar's `+` passes the workspace's own dev server.
@@ -214,27 +213,20 @@ struct CenterColumnView<Model: WorkspaceSurface>: View {
 
 /// Runs arrival work when a retained column becomes current without making that activity a
 /// dependency of the centre column and every transcript row under it.
-private struct WorkspaceColumnArrival<Model: WorkspaceSurface>: View {
-    let model: Model
+private struct WorkspaceColumnArrival: View {
+    let model: WorkspaceModel
     var openStartingPane: @MainActor () -> Void
 
     @Environment(\.workspaceColumnActivity) private var activity
 
     private struct ArrivalKey: Hashable {
-        var surface: WorkspaceSurfaceID
+        var surface: WorkspaceID
         var isActive: Bool
     }
 
     var body: some View {
-        // Keyed on the workspace as well as on whether it is current. A retained local column
-        // never changes workspace, so the activity alone was enough for those, but a Cloud column
-        // is one view that `CloudWorkspaceColumn` hands a different session: with no activity
-        // behind it the key was `true` for ever, so choosing one Cloud workspace from another
-        // suspended the old stream and never opened the new one. A workspace left that way sat
-        // with no event stream while its sends still went through, and a turn that ended in it
-        // was never heard of.
         Color.clear
-            .task(id: ArrivalKey(surface: model.surfaceID, isActive: activity?.isActive ?? true)) {
+            .task(id: ArrivalKey(surface: model.workspace.id, isActive: activity?.isActive ?? true)) {
                 guard activity?.isActive ?? true else { return }
                 openStartingPane()
                 await model.onColumnAppear()

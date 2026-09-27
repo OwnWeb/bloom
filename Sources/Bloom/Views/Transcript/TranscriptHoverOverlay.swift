@@ -30,14 +30,6 @@ import BloomCore
 struct TranscriptHoverOverlay: View {
     var host: TranscriptHoverHost
 
-    @Environment(AppModel.self) private var app
-
-    private enum CloudPreview {
-        case none
-        case ready(String, URL)
-        case failed(String, String)
-    }
-
     /// How long the card's size has to stop changing before it is believed.
     ///
     /// Quick Look answers in four to fourteen milliseconds for these files, so this is a few
@@ -63,13 +55,12 @@ struct TranscriptHoverOverlay: View {
 
     @State private var measured: Measurement?
     @State private var settled: Measurement?
-    @State private var cloudPreview: CloudPreview = .none
 
     var body: some View {
         GeometryReader { geometry in
             let pane = geometry.frame(in: .global)
             let request = host.request
-            let display = request.flatMap { canDisplay($0.card) ? $0 : nil }
+            let display = request
             let size = settled.flatMap { measurement in
                 display.flatMap {
                     measurement.fits($0, availableWidth: pane.width) ? measurement.size : nil
@@ -131,7 +122,6 @@ struct TranscriptHoverOverlay: View {
                 guard !Task.isCancelled else { return }
                 settled = measured
             }
-            .task(id: request?.card.identity) { await prepare(request?.card) }
         }
         // Neither the card nor the invisible sheet the popover is anchored to takes the pointer.
         // The sheet covers the whole transcript, and a transparent view that answered to clicks
@@ -142,9 +132,8 @@ struct TranscriptHoverOverlay: View {
     @ViewBuilder
     private func card(for request: TranscriptHoverRequest, availableWidth: CGFloat) -> some View {
         switch request.card {
-        case .file(let attachment, let worktree, let cloudID):
-            fileCard(attachment: attachment, worktree: worktree, cloudID: cloudID,
-                     availableWidth: availableWidth)
+        case .file(let attachment, let worktree):
+            AttachmentCard(attachment: attachment, worktree: worktree, availableWidth: availableWidth)
         case .instructions(_, let body):
             // The title is the chip's, and the chip is what the pointer is on: repeating it as a
             // heading inside the card would say it twice, where the file card beside this one says
@@ -154,62 +143,6 @@ struct TranscriptHoverOverlay: View {
             ToolRowCard(
                 title: title, detail: detail, isCode: isCode, availableWidth: availableWidth
             )
-        }
-    }
-
-    private func fileCard(attachment: PromptAttachment, worktree: String, cloudID: CloudWorkspaceID?,
-                          availableWidth: CGFloat) -> AttachmentCard {
-        let previewURL: URL?
-        let previewFailure: String?
-        if cloudID != nil {
-            switch cloudPreview {
-            case .ready(_, let url):
-                previewURL = url
-                previewFailure = nil
-            case .failed(_, let sentence):
-                previewURL = nil
-                previewFailure = sentence
-            case .none:
-                previewURL = nil
-                previewFailure = "The preview is still loading."
-            }
-        } else {
-            previewURL = nil
-            previewFailure = nil
-        }
-        return AttachmentCard(
-            attachment: attachment, worktree: worktree, availableWidth: availableWidth,
-            previewURL: previewURL, previewFailure: previewFailure
-        )
-    }
-
-    private func canDisplay(_ card: TranscriptHoverCard) -> Bool {
-        guard case .file(_, _, let cloudID) = card, cloudID != nil else { return true }
-        return switch cloudPreview {
-        case .ready(let identity, _), .failed(let identity, _): identity == card.identity
-        case .none: false
-        }
-    }
-
-    private func prepare(_ card: TranscriptHoverCard?) async {
-        cloudPreview = .none
-
-        guard let card, case .file(let attachment, _, let cloudID) = card,
-              let cloudID else { return }
-        measured = nil
-        settled = nil
-        guard let session = app.cloud.existingSession(for: cloudID) else {
-            cloudPreview = .failed(card.identity, "This Cloud workspace is closed.")
-            return
-        }
-
-        do {
-            let url = try await session.attachmentPreview(path: attachment.path)
-            guard !Task.isCancelled else { return }
-            cloudPreview = .ready(card.identity, url)
-        } catch {
-            guard !Task.isCancelled else { return }
-            cloudPreview = .failed(card.identity, error.localizedDescription)
         }
     }
 

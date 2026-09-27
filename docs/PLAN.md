@@ -62,7 +62,7 @@ The worst of these were proved with reproductions rather than argued.
 
 ## Non-goals
 
-Cloud workspaces, auth, teams, the public API, non-Claude agent backends, checkpointing.
+Non-Claude agent backends and checkpointing.
 Everything here runs locally against the `claude` CLI and `git`.
 
 ## Architecture

@@ -98,8 +98,6 @@ public struct WorkspaceMedia: Sendable, Hashable {
         return WorkspaceMedia(url: file, relativePath: file.lastPathComponent, kind: .image)
     }
 
-    /// Uniform Type Identifiers where the platform has them, and a table where it does not: Linux
-    /// has no type database, and the in-workspace bridge tools run there on a Cloud workspace.
     private static func kind(forExtension name: String) -> WorkspaceMediaKind? {
         #if canImport(UniformTypeIdentifiers)
         guard let type = UTType(filenameExtension: name) else { return nil }

@@ -32,14 +32,10 @@ public enum TabDefaults {
     /// session behind them. A killed shell cannot be got back. One literal, read by both.
     public static let tabListPrefix = "center.tabs."
 
-    public static func tabListKey(_ workspaceID: WorkspaceID) -> String {
-        tabListKey(.local(workspaceID))
-    }
-
     /// The same key for a workspace of either kind. A local one's key is its id, so nothing a
-    /// previous version wrote moves; see `WorkspaceSurfaceID.storageKey`.
-    public static func tabListKey(_ workspaceID: WorkspaceSurfaceID) -> String {
-        tabListPrefix + workspaceID.storageKey
+    /// previous version wrote moves; see `WorkspaceID.rawValue`.
+    public static func tabListKey(_ workspaceID: WorkspaceID) -> String {
+        tabListPrefix + workspaceID.rawValue
     }
 
     /// The order the user has dragged one workspace's strip into. See `StripOrder`.
@@ -52,11 +48,7 @@ public enum TabDefaults {
     public static let stripPrefix = "center.strip."
 
     public static func stripKey(_ workspaceID: WorkspaceID) -> String {
-        stripKey(.local(workspaceID))
-    }
-
-    public static func stripKey(_ workspaceID: WorkspaceSurfaceID) -> String {
-        stripPrefix + workspaceID.storageKey
+        stripPrefix + workspaceID.rawValue
     }
 
     /// `TerminalSplitStore`'s pane tree, per tab, and the second half of what the census reads.

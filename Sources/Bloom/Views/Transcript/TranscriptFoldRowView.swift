@@ -1,6 +1,15 @@
 import BloomCore
 import SwiftUI
 
+struct CompletedWorkDisclosure {
+    var firstSeq: Int
+    var durationMS: Int
+    var isExpanded: Bool
+    var onToggle: () -> Void
+
+    var label: String { TranscriptTurnFold.label(milliseconds: durationMS) }
+}
+
 /// One disclosure line that stands for hidden transcript work.
 ///
 /// The label keeps the same geometry in both states. The commands belong inside the disclosure,

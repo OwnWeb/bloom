@@ -12,8 +12,7 @@ import BloomCore
 /// a workspace with one tab has no strip, however that tab is split, the way a Safari window with
 /// one tab has no tab bar. The `+` that used to end this row is `NewTabMenu`, in the title bar,
 /// which is what lets the row go.
-/// The numbers and names the strip is drawn to, in a type of their own because a generic view may
-/// hold no stored static. Nothing about them is generic.
+/// Measurements shared by the strip and its drag handling.
 private enum TabStripMeasure {
     /// The space the tabs are measured in and the pointer is reported in. It is the row of tabs
     /// itself, so it scrolls with them and the two sets of numbers cannot drift apart.
@@ -23,8 +22,8 @@ private enum TabStripMeasure {
     static let pane = TabPane.content
 }
 
-struct SessionTabsView<Model: WorkspaceSurface>: View {
-    let model: Model
+struct SessionTabsView: View {
+    let model: WorkspaceModel
     /// The tab whose name field is open. Owned by the column rather than by this view, because
     /// Rename Tab has to be able to open a field on a strip that is not drawn yet: the column
     /// hears the request, sets this, and the strip appears with the field already open.
@@ -109,6 +108,7 @@ struct SessionTabsView<Model: WorkspaceSurface>: View {
         // is the moment after a tab is closed: aiming a scroll at an id that is no longer laid out
         // does nothing, and this says so rather than relying on that.
         let selectedID = selected.flatMap { entries.contains($0) ? AnyHashable($0.id) : nil }
+        let showsAgentMarks = PaneGlyph.marksAgents(model.sessions.lazy.map(\.agentKind))
         return TabStrip(tabCount: entries.count, pane: pane, selection: selectedID) {
             EmptyView()
         } tabs: {
@@ -125,7 +125,7 @@ struct SessionTabsView<Model: WorkspaceSurface>: View {
                     switch entry {
                     case .chat(let id):
                         if let session = session(id) {
-                            sessionTab(session, selected: selected, entries: entries)
+                            sessionTab(session, selected: selected, entries: entries, showsAgentMarks: showsAgentMarks)
                                 .id(id)
                         }
                     case .tool(let id):
@@ -164,22 +164,23 @@ struct SessionTabsView<Model: WorkspaceSurface>: View {
     /// The conversation or the tool tab one entry of the strip stands for, and nil for an entry
     /// whose content has gone between the strip being derived and this being asked.
     private func session(_ id: SessionID) -> Session? {
-        model.chats.first { $0.id == id }
+        model.sessions.first { $0.id == id }
     }
 
     private func tool(_ id: String) -> CenterTab? {
-        tabs.tabs(for: model.surfaceID).first { $0.id == id }
+        tabs.tabs(for: model.workspace.id).first { $0.id == id }
     }
 
     // MARK: - Tabs
 
     private func sessionTab(
-        _ session: Session, selected: PaneContent?, entries: [PaneContent]
+        _ session: Session, selected: PaneContent?, entries: [PaneContent], showsAgentMarks: Bool
     ) -> some View {
         let content = PaneContent.chat(session.id)
+        let glyph = sessionGlyph(for: session, showsAgentMarks: showsAgentMarks)
         return SessionTabView(
             session: session,
-            agentGlyph: sessionGlyph(for: session),
+            agentGlyph: glyph,
             isActive: selected == .chat(session.id),
             isRunning: busy.showsInTab(content),
             isRenaming: renamingID == session.id.rawValue,
@@ -207,18 +208,18 @@ struct SessionTabsView<Model: WorkspaceSurface>: View {
             content,
             isEnabled: renamingID != session.id.rawValue,
             title: session.title.isEmpty ? PaneNaming.untitledChat : session.title,
-            symbol: PaneGlyph.chatTab(agentMark: sessionGlyph(for: session))
+            symbol: PaneGlyph.chatTab(agentMark: glyph)
         ))
     }
 
-    private func sessionGlyph(for session: Session) -> String? {
+    private func sessionGlyph(for session: Session, showsAgentMarks: Bool) -> String? {
         if let turn = TerminalSessionStore.shared.agentTurns[session.id], turn.isAwaitingPermission {
             return "questionmark.circle"
         }
-        if CenterTabStore.shared.terminal(for: session.id, in: model.surfaceID) != nil {
+        if CenterTabStore.shared.terminal(for: session.id, in: model.workspace.id) != nil {
             return PaneGlyph.agentMark(for: session.agentKind)
         }
-        return PaneGlyph.agentMark(for: session.agentKind, among: model.chats.map(\.agentKind))
+        return showsAgentMarks ? PaneGlyph.agentMark(for: session.agentKind) : nil
     }
 
     private func toolTab(
@@ -298,7 +299,6 @@ struct SessionTabsView<Model: WorkspaceSurface>: View {
         case .browser: "Close browser"
         case .review: "Close the review"
         case .notes: "Close the notes"
-        case .setup: "Close the setup output"
         }
     }
 
@@ -483,7 +483,7 @@ struct SessionTabsView<Model: WorkspaceSurface>: View {
             guard case .chat(let id) = entry else { return nil }
             return id
         }
-        guard let order = TabReorder.apply(drawn, to: model.chats.map(\.id)) else { return }
+        guard let order = TabReorder.apply(drawn, to: model.sessions.map(\.id)) else { return }
         model.reorderChats(to: order)
     }
 
@@ -492,9 +492,9 @@ struct SessionTabsView<Model: WorkspaceSurface>: View {
             guard case .tool(let id) = entry else { return nil }
             return id
         }
-        let stored = tabs.tabs(for: model.surfaceID).map(\.id)
+        let stored = tabs.tabs(for: model.workspace.id).map(\.id)
         guard let order = TabReorder.apply(drawn, to: stored) else { return }
-        tabs.reorder(order, in: model.surfaceID)
+        tabs.reorder(order, in: model.workspace.id)
     }
 
     // MARK: - Actions

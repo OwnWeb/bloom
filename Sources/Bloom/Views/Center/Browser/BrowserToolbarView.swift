@@ -52,8 +52,7 @@ struct BrowserToolbarView: View {
     var toolbar: BrowserToolbar
     /// What the field shows, which is not where the page is. See `BrowserTabView.address`.
     @Binding var address: String
-    /// Nil where there is no field to focus, which is a machine's pane: the capsule is there and
-    /// holds the host, and nothing in it takes the keyboard. See `BrowserToolbar.Surface`.
+    /// The field's focus state when a caller wants to drive it.
     var addressFocus: Binding<Bool>?
     /// Incremented by Command-L. The native field uses the value as an idempotent request token.
     var locationFocusRequest = 0
@@ -68,12 +67,6 @@ struct BrowserToolbarView: View {
     /// Somewhere further back or further forward than one step, by the distance on the entry.
     var goToHistory: @MainActor (Int) -> Void = { _ in }
     var reloadOrStop: @MainActor () -> Void = {}
-    /// What Open in Default Browser does, where handing over the address on screen is not it.
-    ///
-    /// Nil in a tab, which means the address: that is what the control says and what every browser
-    /// does with it. A machine's pane sets this, because the address on screen was reached through
-    /// a token that has been spent, so opening it again in another application would land on a
-    /// refusal. It asks runbloom.app for a fresh one. See `CloudPreviewPane`.
     var openInBrowser: (@MainActor () -> Void)?
     var capture: @MainActor () -> Void = {}
     var captureRegion: @MainActor () -> Void = {}
@@ -175,35 +168,30 @@ struct BrowserToolbarView: View {
                 }
             }
             .disabled(isReviewing)
-            if toolbar.surface.hasPageCapture { captureGroup }
+            captureGroup
             // The pair that hands this page to something outside Bloom. The address is the one on
             // screen, so a page navigated away from its starting URL opens where it now is. On a
-            // machine there is one of the two: see `BrowserToolbar.Surface.hasSystemSharing`.
             actionGroup {
                 pageAction(toolbar.openInDefaultBrowser) {
                     openExternally()
                 }
-                if toolbar.surface.hasSystemSharing {
-                    Hairline(axis: .vertical)
-                    BrowserShareButton(
-                        control: toolbar.share,
-                        shareable: toolbar.shareable,
-                        opticalOffsetY: -0.5
-                    )
-                    .frame(width: pageActionWidth, height: Metrics.controlHeight)
-                }
+                Hairline(axis: .vertical)
+                BrowserShareButton(
+                    control: toolbar.share,
+                    shareable: toolbar.shareable,
+                    opticalOffsetY: -0.5
+                )
+                .frame(width: pageActionWidth, height: Metrics.controlHeight)
             }
         }
     }
 
     /// The camera and the area comment, which are the two controls that end in an attachment on
-    /// the composer's draft. A machine's pane has the first and not yet the second: see
-    /// `BrowserToolbar.Surface`.
+    /// the composer's draft.
     private var captureGroup: some View {
         actionGroup {
             pageAction(toolbar.screenshot, action: capture)
-            if toolbar.surface.hasRegionComment {
-                Hairline(axis: .vertical)
+            Hairline(axis: .vertical)
                 // The style goes on the label, as in `BrowserToolbarButton`. Set on the button,
                 // `.accessoryBar` read it as the primary level and drew the glyph a level below,
                 // which is how a live Comment button came out in the grey of a disabled one.
@@ -216,7 +204,6 @@ struct BrowserToolbarView: View {
                 .frame(width: pageActionWidth, height: Metrics.controlHeight)
                 .disabled(!isCommentEnabled)
                 .help(isReviewing ? "Finish reviewing this page" : "Drag over part of this page to leave a comment")
-            }
         }
     }
 

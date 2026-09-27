@@ -1,6 +1,6 @@
 import Foundation
 
-/// Looks for each of the four tools on this machine, once.
+/// Checks Git, GitHub CLI and the supported agent CLIs on this Mac.
 ///
 /// In the core rather than beside the view, so the welcome window can be a drawing and nothing
 /// else. Every one of these calls is a subprocess or a file read, and CLAUDE.md's rule about what

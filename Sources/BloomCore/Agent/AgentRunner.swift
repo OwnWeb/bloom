@@ -80,7 +80,6 @@ public actor AgentRunner {
     /// new runner with a new file and a new token, which is exactly what a token held only in
     /// memory needs.
     private let mcpConfigPath: String?
-    private let additionalMcpConfigPath: String?
     /// Whether the composer's Fast toggle is on for this session.
     ///
     /// Read from the store rather than passed in, because it is the one composer control with no
@@ -161,7 +160,6 @@ public actor AgentRunner {
         session: Session,
         store: Store,
         mcpConfigPath: String? = nil,
-        additionalMcpConfigPath: String? = nil,
         shutdownBudget: Duration = .seconds(5),
         makeProcess: @escaping @Sendable (AgentLaunch) -> any AgentProcessing = AgentRunner.spawn
     ) {
@@ -170,7 +168,6 @@ public actor AgentRunner {
         self.session = session
         self.store = store
         self.mcpConfigPath = mcpConfigPath
-        self.additionalMcpConfigPath = additionalMcpConfigPath
         self.shutdownBudget = shutdownBudget
         self.makeProcess = makeProcess
         self.grants = SessionGrants(store: store, workspaceID: session.workspaceID)
@@ -240,8 +237,7 @@ public actor AgentRunner {
         resume: String?,
         isFastMode: Bool = false,
         outputStyle: String? = nil,
-        mcpConfigPath: String? = nil,
-        additionalMcpConfigPath: String? = nil
+        mcpConfigPath: String? = nil
     ) -> [String] {
         var arguments = [
             "-p",
@@ -292,9 +288,8 @@ public actor AgentRunner {
         if let settings = settingsJSON(outputStyle: outputStyle) {
             arguments += ["--settings", settings]
         }
-        let mcpConfigs = [mcpConfigPath, additionalMcpConfigPath].compactMap { $0 }.filter { !$0.isEmpty }
-        if !mcpConfigs.isEmpty {
-            arguments += ["--mcp-config"] + mcpConfigs
+        if let mcpConfigPath, !mcpConfigPath.isEmpty {
+            arguments += ["--mcp-config", mcpConfigPath]
         }
         if let resume, !resume.isEmpty {
             arguments += ["--resume", resume]
@@ -328,8 +323,7 @@ public actor AgentRunner {
                 resume: session.agentSessionID,
                 isFastMode: isFastMode,
                 outputStyle: outputStyle,
-                mcpConfigPath: mcpConfigPath,
-                additionalMcpConfigPath: additionalMcpConfigPath
+                mcpConfigPath: mcpConfigPath
             ),
             cwd: workspacePath,
             environment: Shell.environment()
@@ -408,13 +402,6 @@ public actor AgentRunner {
                        deliveryID: delivery.id, interactionMode: delivery.interactionMode)
     }
 
-    /// Hands a fresh process a turn another process already accepted and recorded, without
-    /// accepting or recording it a second time.
-    ///
-    /// For one moment only: a Cloud turn whose `--resume` found no conversation, which
-    /// `RemoteSession` launches again without the id. The delivery is `accepted` by then and its
-    /// row is in the transcript, so `sendDelivery` would refuse it as not claimed, and `send`
-    /// would draw the person's message twice.
     public func resendDelivery(_ delivery: Delivery) async throws {
         try await send(delivery.sent, recording: nil, deliveryID: nil,
                        interactionMode: delivery.interactionMode, recordsTurn: false)
@@ -633,17 +620,6 @@ public actor AgentRunner {
             await persist(kind: .system, payload: report.raw)
         }
 
-        // **The question is filed before the row that draws it**, which is the order `CodexRunner`
-        // and `GrokRunner` already wrote them in. This one wrote the row first and filed the question
-        // in `handle` after the yield, so a Cloud workspace published the ask's row while
-        // `permission_asks` did not hold it yet, and the Mac, reading "a question that is not
-        // waiting", drew "Answered." over an AskUserQuestion nobody had answered while the agent sat
-        // blocked on it. Onto `pending` in the same breath as the store, because a question a client
-        // can see is one it can answer, and `answer` drops a request id `pending` does not hold.
-        //
-        // Nothing changes for a view on this Mac: the event still reaches the sink before `handle`
-        // can decide it. A remote answer landing inside the two writes below would be yielded
-        // before the ask, but it has a network round trip to make against one row of SQLite.
         if case .permissionAsk(let ask) = event, !BridgeToolApproval.isSelfApproved(toolName: ask.toolName) {
             await file(ask)
         }
@@ -734,14 +710,6 @@ public actor AgentRunner {
         }
     }
 
-    /// Lets go of a conversation id the CLI says it cannot find, and says so in the transcript.
-    ///
-    /// **Without this a chat whose conversation has gone never answers again.** The id is only
-    /// ever replaced by the next `system/init`, and a `--resume` that finds nothing fails before
-    /// it prints one, so every later launch resumed the same missing id and failed the same way.
-    /// Saved here, before the event that reports the failure is handed on, because a Cloud
-    /// session launches again the moment it sees that event and reads the row to do it. See
-    /// `ConversationNotResumed` for the exact failure, which is the only one allowed here.
     private func forgetMissingConversation() async {
         guard session.agentSessionID != nil else { return }
         Self.log.info("the conversation for \(self.session.id.rawValue, privacy: .public) could not be resumed, so the next launch starts a new one")
@@ -1079,8 +1047,6 @@ public actor AgentRunner {
                 \(self.session.state.rawValue, privacy: .public)
                 """)
 
-            // Before the error goes out rather than after: a Cloud session relaunches on that event,
-            // and a launch that read the row before the id was cleared would resume it again.
             if ConversationNotResumed.matches(unfinished.message) { await forgetMissingConversation() }
             await ingest(.error(AgentError(message: unfinished.message, raw: unfinished.payload)))
 
@@ -1141,15 +1107,6 @@ public actor AgentRunner {
         // anywhere from a turn in flight, so after this line the question can no longer be asked.
         stopLeftTurnOpen = session.state.isMidTurn
 
-        // Refused on a session with no turn open, and left alone rather than written. Stop is fire
-        // and forget from a button that cannot await, so the request reaches this actor whenever
-        // the actor gets to it; filing a turn that had already finished normally as one the user
-        // abandoned is a claim the transcript then makes for ever.
-        //
-        // A process ended for good is `retired` rather than stopped, which files an open turn the
-        // same way and leaves a finished one alone without calling it a refusal. A Cloud machine
-        // ends the process after every turn, once the turn is idle, and each of those logged
-        // "session refused cancelled from idle" for code that was doing exactly what it should.
         session.apply(handle.wasRetired ? .retired : .cancelled)
         // The write has to be deferred, because this is reached from synchronous paths, but it
         // deliberately does not carry a snapshot: by the time it runs the user may already have

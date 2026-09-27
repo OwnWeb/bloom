@@ -474,8 +474,8 @@ public struct WorkspaceManager: Sendable {
         WorktreeScratch.shield(WorktreeScratch.generated, in: workspace.path)
 
         return WorkspaceScriptVariables(
-            isLocal: true, workspaceName: WorkspaceScriptVariables.workspaceName(branch: workspace.branch),
-            workspaceID: workspace.id.rawValue, workspacePath: workspace.path, projectName: Self.projectName(for: repo),
+            workspaceName: WorkspaceScriptVariables.workspaceName(branch: workspace.branch),
+            workspaceID: workspace.id, workspacePath: workspace.path, projectName: Self.projectName(for: repo),
             rootPath: repo.path, defaultBranch: repo.defaultBranch, port: port,
             urlFile: WorkspaceBrowserURL.path(inWorktree: workspace.path)
         ).environment

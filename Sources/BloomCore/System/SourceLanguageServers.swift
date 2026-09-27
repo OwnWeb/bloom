@@ -1,5 +1,3 @@
-// The file system watcher behind this is FSEvents, so the code panes' language servers are a Mac
-// feature; a Cloud workspace has no code pane of its own to serve.
 #if canImport(CoreServices)
 import Foundation
 

@@ -21,23 +21,6 @@ public struct ClaudeModel: Sendable, Hashable {
     }
 }
 
-/// Claude Code's models, **from the CLI itself** rather than from a table Bloom keeps.
-///
-/// **One source, and it is not ours.** A Bloom Cloud machine listed only Codex's models, because
-/// Codex has a `model/list` call and Claude Code seemed not to, and each client carried its own
-/// Claude list: the Mac's is a literal in the app target, and the web could offer only the model a
-/// chat was already on. Claude Code does answer the question: its stream-json `initialize` control
-/// request returns `models`, each with its `supportedEffortLevels` and whether it has a fast mode,
-/// the `[1m]` variants included. Measured on claude 2.1.276 on 19 September 2026: it answers in
-/// half a second, starts no model turn and so costs nothing, and exits when its input closes.
-///
-/// **The list depends on who asks.** With no account the same CLI listed Opus with 1M context,
-/// Sonnet and Haiku, and left out Fable, which a signed-in account was offered. A machine has no
-/// key outside a turn, so this is the list a machine can honestly give; a model a person's own key
-/// unlocks is still one they can type.
-///
-/// **Asked from a scratch directory, never from the worktree**, because `claude` in a project runs
-/// that project's hooks, and listing models must not run a repository's code outside a turn.
 public enum ClaudeModelList {
     static let request = #"{"type":"control_request","request_id":"bloom-models","request":{"subtype":"initialize"}}"# + "\n"
 

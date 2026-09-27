@@ -26,17 +26,7 @@ struct CenterTab: Identifiable, Hashable, Codable, Sendable {
     typealias Kind = CenterTabKind
 
     var id: String = newID()
-    /// The worktree on this Mac this tab belongs to, when it belongs to one. Nil for a tab in a
-    /// Cloud workspace, which has no rows in this Mac's database and no tmux sessions of its own:
-    /// the shells, the CLI bridges and the agent turns below are all about a local workspace.
-    var localWorkspaceID: WorkspaceID? { workspaceID.local }
-
-    /// The workspace this tab belongs to, of either kind.
-    ///
-    /// Stored as one string, and a local workspace's is its bare id, so every tab list written
-    /// before a Cloud workspace could have tabs reads back naming the same workspace. See
-    /// `WorkspaceSurfaceID`.
-    var workspaceID: WorkspaceSurfaceID
+    var workspaceID: WorkspaceID
     var kind: Kind
     var title: String
     /// Browser only, and kept up to date as the user navigates, so reopening the workspace lands
@@ -108,7 +98,6 @@ struct CenterTab: Identifiable, Hashable, Codable, Sendable {
         case .browser: PaneGlyph.browser
         case .review: PaneGlyph.review
         case .notes: PaneGlyph.notes
-        case .setup: PaneGlyph.setup
         }
     }
 
@@ -131,7 +120,7 @@ struct CenterTab: Identifiable, Hashable, Codable, Sendable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
-        workspaceID = try container.decode(WorkspaceSurfaceID.self, forKey: .workspaceID)
+        workspaceID = try container.decode(WorkspaceID.self, forKey: .workspaceID)
         kind = try container.decode(Kind.self, forKey: .kind)
         title = try container.decode(String.self, forKey: .title)
         url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
@@ -149,7 +138,7 @@ struct CenterTab: Identifiable, Hashable, Codable, Sendable {
     }
 
     init(
-        id: String = newID(), workspaceID: WorkspaceSurfaceID, kind: Kind, title: String,
+        id: String = newID(), workspaceID: WorkspaceID, kind: Kind, title: String,
         url: String = "", path: String = "", pageTitle: String = "", isNamed: Bool = false,
         directory: String = "", isPinnedToPath: Bool = false, agentSessionID: SessionID? = nil,
         runScriptID: String? = nil

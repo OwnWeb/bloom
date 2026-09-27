@@ -21,7 +21,7 @@ its three bands close into a texture well before that: a lane 20 percent of the
 tile high is three pixels and the gaps between them are one. So nothing here
 scales the icon down. What it keeps is the icon's one gesture, three lanes that
 arrive apart and end up going the same way, and it keeps it by drawing the same
-curve: `centreline` samples lib9's own eased lane. Every candidate below is built
+curve: `centreline` samples icon_canvas's own eased lane. Every candidate below is built
 from that one curve and they differ only in how many lanes there are and what
 becomes of them.
 
@@ -104,7 +104,7 @@ RESOURCES = os.path.join(ROOT, "Resources")
 BUILD = os.path.join(HERE, ".build", "menubar")
 
 sys.path.insert(0, HERE)
-import lib9  # noqa: E402
+import icon_canvas  # noqa: E402
 
 # The candidate that ships. One line, and the other fifteen stay in the file, so
 # swapping the mark is a rerun rather than a redraw.
@@ -120,14 +120,14 @@ BLEED = 1.5
 
 # ------------------------------------------------------------------ the curve
 #
-# The icon's lane, and nothing else. lib9.band draws a cubic from y0 on the left
+# The icon's lane, and nothing else. icon_canvas.band draws a cubic from y0 on the left
 # to y1 on the right with its control points at fixed fractions of the span, and
 # the tile shows the part of it between x=0 and x=1024 of a span running from
-# -280 to 1304. Both are read off lib9 rather than copied, so a change to the
+# -280 to 1304. Both are read off icon_canvas rather than copied, so a change to the
 # icon's easing reaches the menu bar mark without anybody remembering to bring
 # it.
 SPAN0, SPAN1 = -280.0, 1304.0
-XS = (SPAN0, lib9.CX + (300 - 512) * lib9.S, lib9.CX + (560 - 512) * lib9.S, SPAN1)
+XS = (SPAN0, icon_canvas.CX + (300 - 512) * icon_canvas.S, icon_canvas.CX + (560 - 512) * icon_canvas.S, SPAN1)
 
 
 def _bez(p, t):
@@ -137,7 +137,7 @@ def _bez(p, t):
 
 
 def _tat(x):
-    """Where on the cubic the tile's edge at x falls. lib9.yat inverts the same
+    """Where on the cubic the tile's edge at x falls. icon_canvas.yat inverts the same
     curve and then evaluates y on it; this wants the parameter itself."""
     lo, hi = 0.0, 1.0
     for _ in range(40):
@@ -181,7 +181,7 @@ def centreline(ystart, yend, x0, x1, n=72, window=WINDOW):
     The two arguments are where the lane is seen, not the band's own asymptotes:
     a window that does not reach the band's ends shows neither of them, so the
     asymptotes are solved for and the drawing is asked for in the numbers the box
-    is laid out in. Everything else is lib9's curve, sampled.
+    is laid out in. Everything else is icon_canvas's curve, sampled.
     """
     a, b = _weights(window)
     # ystart = a*y0 + (1-a)*y1 and yend = b*y0 + (1-b)*y1, solved for y0 and y1.
@@ -350,8 +350,8 @@ def solid(poly):
 
 
 def squircle(x, y, w, h):
-    """The system's icon shape at any size, from lib9's measured quadrant."""
-    d = lib9.squircle(x, y, w, h)
+    """The system's icon shape at any size, from icon_canvas's measured quadrant."""
+    d = icon_canvas.squircle(x, y, w, h)
     pts = []
     for chunk in d.replace("M", " ").replace("L", " ").replace("Z", " ").split():
         a, b = chunk.split(",")
@@ -879,7 +879,7 @@ def tall():
 #
 # WHAT IS NOT A KNOB, and why.
 #
-#   The band. XS and the window's far end at t = 1 are lib9's, shared with the
+#   The band. XS and the window's far end at t = 1 are icon_canvas's, shared with the
 #   app icon, and they are what lets this mark claim to be the icon's own
 #   gesture rather than something that resembles it. A knob on the band is a
 #   knob on the icon.

@@ -1,5 +1,4 @@
 import SwiftUI
-import BloomClient
 import BloomCore
 
 /// The left column: where you can go, every project with its workspaces, and a status bar that
@@ -33,7 +32,6 @@ struct SidebarView: View {
     @Environment(\.undoManager) private var undoManager
 
     @State private var renaming: WorkspaceID?
-    @State private var renamingCloud: CloudWorkspaceID?
     @State private var filter: SidebarFilter = .all
 
     /// Whether the projects the owner has hidden are in the list.
@@ -173,9 +171,6 @@ struct SidebarView: View {
             } else {
                 Section { paneRowsList }
             }
-            if app.cloud.isSignedIn {
-                cloudSection
-            }
         }
         // The native list owns row height, keyboard navigation and which row is selected. How the
         // selected row is drawn is `SidebarSelectionFill`'s, on each row, for the reason given there.
@@ -229,12 +224,6 @@ struct SidebarView: View {
         // and restores reach the model. A set ignores renames, status updates and reordering;
         // pending and stored workspaces share an id, so finishing a create does not reinsert it.
         .animation(workspaceMotion, value: workspaceIdentities)
-        // The Cloud list is published after its async archive request. Keying the list to
-        // membership gives that row the same removal motion as a local workspace.
-        .animation(workspaceMotion, value: cloudWorkspaceIdentities)
-        // A row travelling between the status view's sections: an agent finishing, a question
-        // being asked, a workspace being read. The list moves the row rather than swapping it,
-        // because the rows either side of it keep their identity through the change.
         .animation(workspaceMotion, value: statusArrangement)
         // A subagent's row leaving when its work is done, which is another insertion or removal
         // and so another reflow, at the one length this pane confirms anything in.
@@ -561,10 +550,6 @@ struct SidebarView: View {
         Set(groups.map(\.id))
     }
 
-    private var cloudWorkspaceIdentities: Set<String> {
-        Set(app.cloud.items.map(\.id))
-    }
-
     /// Hidden projects still on screen, whose headers dim when "Show hidden projects" is on.
     private var hiddenProjects: [RepoID] {
         groups.filter(\.repo.hidden).map(\.id)
@@ -809,7 +794,6 @@ struct SidebarView: View {
     /// `InPlaceRename`'s `dismissed` ending. See `WorkspaceRow.end`.
     private func follow(_ target: SidebarSelection) {
         renaming = nil
-        renamingCloud = nil
         listSelection = target
         let hold = SidebarReadingHold.next(
             selection: target, current: readingHold, workspaces: app.workspaces
@@ -882,72 +866,6 @@ struct SidebarView: View {
             listHasKeyboard: listHasKeyboard,
             windowIsKey: windowIsKey
         )
-    }
-
-    // MARK: - Cloud workspaces
-
-    /// Cloud workspaces, below the projects, only while a Bloom account is signed in.
-    ///
-    /// A section of their own rather than rows among a project's, because a Cloud workspace belongs
-    /// to a runbloom.app project and a team, not to a folder on this Mac, and because the one thing
-    /// the pane's drag moves is the order of this Mac's own rows. Newest first, as runbloom.app
-    /// lists them.
-    private var cloudSection: some View {
-        Section {
-            ForEach(app.cloud.items) { item in
-                let target = SidebarSelection.cloud(CloudWorkspaceID(item.id))
-                CloudWorkspaceRow(
-                    item: item,
-                    isSelected: listSelection == target,
-                    showsDiffStats: showsDiffStats,
-                    renaming: $renamingCloud
-                ) {
-                    app.selection = target
-                    app.cloud.askToArchive(CloudWorkspaceID(item.id), from: .row)
-                }
-                    // The same zero outer inset as a local workspace, so local, Cloud and status
-                    // groupings keep their marks and names in the same two columns.
-                    .padding(.leading, grouping == .projects ? SidebarMetrics.rowIndent : 0)
-                    .tag(target)
-                    .sidebarSelection(selectionStyle(for: target))
-                    .selectionDisabled(!item.canOpen)
-                    .moveDisabled(true)
-                    .contextMenu { CloudWorkspaceMenuItems(item: item) { renamingCloud = $0 } }
-            }
-            if let problem = app.cloud.listProblem {
-                Text(problem)
-                    .font(.caption)
-                    .foregroundStyle(Palette.textTertiary)
-                    .lineLimit(3)
-                    .selectionDisabled()
-            } else if app.cloud.items.isEmpty {
-                if app.cloud.emptyState.action == .createWorkspace {
-                    // Everything is in place and there is simply nothing yet, which is what an
-                    // empty project says, in the same quiet line: the header's `+` makes one, so
-                    // the notice needs no second button.
-                    SidebarEmptyNoticeRow(isFiltered: false)
-                        .selectionDisabled()
-                        .moveDisabled(true)
-                } else {
-                    // Something is in the way, signing in or finishing setup on runbloom.app, which
-                    // an empty project never has. So the section says what is true and carries the
-                    // one thing to do next. See `CloudEmptyState`.
-                    CloudEmptyStateView(state: app.cloud.emptyState, isCompact: true)
-                        .selectionDisabled()
-                        .moveDisabled(true)
-                }
-            }
-        } header: {
-            // The heading alone, at the owner's asking: "we don't need that small + there". A
-            // project's `+` earns its place because a project is the thing a workspace is made in
-            // and there is one per row; this section has one heading for the whole of Cloud, and
-            // the two doors it duplicated are both still open. The dock's New menu offers New Cloud
-            // Workspace beside New Workspace, the File menu carries the same item, and the section's
-            // own empty state has the button while there is nothing in it.
-            Text("Bloom Cloud workspaces")
-                .bold()
-                .accessibilityAddTraits(.isHeader)
-        }
     }
 
     // MARK: - Empty

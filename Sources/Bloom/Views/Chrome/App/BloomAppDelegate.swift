@@ -328,16 +328,9 @@ final class BloomAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         withCompletionHandler completionHandler: @escaping @Sendable () -> Void
     ) {
         let workspaceID = NotificationService.workspaceID(from: response)
-        let cloudWorkspaceID = NotificationService.cloudWorkspaceID(from: response)
         let reply = (response as? UNTextInputNotificationResponse)?.userText
 
         Task { @MainActor in
-            if let cloudWorkspaceID {
-                MainWindow.raise()
-                OpenWorkspaceNotification.postCloud(cloudWorkspaceID)
-                completionHandler()
-                return
-            }
             if let reply, let workspaceID, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 await NotificationService.shared.reply(reply, toWorkspace: workspaceID)
                 completionHandler()

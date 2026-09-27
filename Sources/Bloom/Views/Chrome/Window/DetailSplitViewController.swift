@@ -592,7 +592,7 @@ private struct SelectedInspectorPane: View {
         ForEach(app.retainedWorkspaceIDs, id: \.self) { id in
             if let model = app.existingModel(for: id) {
                 let isActive = app.selection.workspaceID == id
-                InspectorPane(model: model, cloud: nil)
+                InspectorPane(model: model)
                     .allowsHitTesting(isActive)
                     .accessibilityHidden(!isActive)
                     .zIndex(isActive ? 1 : 0)
@@ -600,18 +600,12 @@ private struct SelectedInspectorPane: View {
         }
     }
 
-    /// Home, archived records and Cloud have no local workspace id. They keep the existing
+    /// Home and archived records have no local workspace id. They keep the existing
     /// inspector behaviour in front of the dormant local cache.
     @ViewBuilder
     private var selectionWithoutLocalWorkspace: some View {
         if app.selection.workspaceID == nil {
-        // **`selectedCloudSession` rather than `existingSession`, and that was the bug.** The
-        // sessions are held outside observation, so a nil read here never came back: the inspector
-        // was built in the same pass that the centre column made the session, got nothing, and
-        // nothing afterwards told it to look again. This is the accessor the column, the title bar
-        // and the window's commands all use. Making a session opens no connection and wakes
-        // nothing: see `CloudWorkspaces.session(for:)`.
-            InspectorPane(model: app.selectedModel, cloud: app.selectedCloudSession)
+            InspectorPane(model: app.selectedModel)
                 .zIndex(2)
         }
     }

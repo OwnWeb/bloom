@@ -152,14 +152,6 @@ public protocol BridgeToolHandling: Sendable {
     /// `appendNext` exist to survive rather than to invite.
     func call(_ request: MCPRequest, as identity: BridgeIdentity, store: Store) async -> BridgeToolResult
 
-    /// The tool as it is listed beside `offered`, the names of every tool this caller is offered
-    /// with it.
-    ///
-    /// **A description never sends an agent to a tool it cannot call.** The same handlers serve the
-    /// owner's Mac and a Cloud machine, and a description written for the Mac told an agent on a
-    /// machine to "use workspace_start" and to pass "an id from workspace_list", neither of which
-    /// it had: advice to a dead end, found by the agent Freek was testing with. A handler whose
-    /// words name another tool narrows them here; the rest keep `tool` as it is.
     func tool(offering offered: Set<String>) -> BridgeTool
 }
 

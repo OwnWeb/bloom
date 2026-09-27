@@ -1,5 +1,4 @@
 import AppKit
-import BloomClient
 import Observation
 import SwiftUI
 import BloomCore
@@ -54,19 +53,11 @@ final class AppModel {
     /// which leaves every chat exactly as it was before the bridge existed rather than refusing to
     /// start one.
     @ObservationIgnored private(set) var bridge: BridgeServer?
-    /// The `mac_message` ids already put into a chat, so one sent down two streams goes in once.
-    /// See `AppModel+MacMessages`.
-    @ObservationIgnored var macMessagesDelivered = MacMessageLedger()
-    /// Taking what runbloom.app held for this Mac, one drain at a time. See `drainMacMessages`.
-    @ObservationIgnored let macMessageDrain = MacMessageDrain()
 
     private(set) var repos: [Repo] = []
     private(set) var workspaces: [Workspace] = [] {
         didSet { updateInspectorPresentation() }
     }
-    /// Cloud workspaces: the Bloom account, runbloom.app's list and the open ones. See
-    /// `CloudWorkspaces`, which holds all of it so this file holds one line.
-    let cloud = CloudWorkspaces()
     private(set) var isLoaded = false
     /// What every provider has said about its own allowances, as last read from the store.
     ///
@@ -568,9 +559,6 @@ final class AppModel {
             Log.launchStep("recovery done")
             bridge = makeBridge(on: store)
             TerminalSessionStore.shared.useBridge(bridge)
-            // After the store, because a Cloud workspace's opening controls are this Mac's defaults
-            // for a new chat, which are read from it.
-            cloud.attach(self)
             Log.launchStep("bridge bound")
             await reload()
             Log.launchStep("reloaded")
@@ -692,7 +680,6 @@ final class AppModel {
     /// a login shell keeps running, all reparented to launchd. Worse, the next launch marks those
     /// sessions idle and happily resumes them, which puts two `claude` processes on one session.
     func shutdownEverything() async {
-        cloud.shutdown()
         refreshTask?.cancel()
         refreshTask = nil
         worktreeWatcher.stop()
@@ -1247,22 +1234,6 @@ final class AppModel {
             ?? (archivingWorkspaceIDs.contains(id) ? workspaceModels[id]?.workspace : nil)
     }
 
-    /// The Cloud workspace the window is on, as the list has it. The window's title, its toolbar
-    /// and its inspector ask this the way they ask `selectedWorkspace`, so a Cloud workspace is
-    /// named and acted on where a local one is rather than in a bar of its own.
-    var selectedCloudWorkspace: CloudWorkspaceItem? {
-        guard let id = selection.cloudWorkspaceID else { return nil }
-        return cloud.item(id)
-    }
-
-    /// The Cloud workspace's session, for the window's own commands: the same New Chat, New
-    /// Terminal Tab, Show Changes and Close Tab a local workspace answers. Nil unless the window
-    /// is on one that can be opened.
-    var selectedCloudSession: CloudWorkspaceSession? {
-        guard let id = selection.cloudWorkspaceID, cloud.item(id)?.canOpen == true else { return nil }
-        return cloud.session(for: id)
-    }
-
     /// Whether the inspector is actually on screen, rather than merely switched on.
     ///
     /// Keyed on `selectedWorkspace` rather than on `selection`, because `DetailColumn` already
@@ -1277,8 +1248,7 @@ final class AppModel {
         let hasLocalWorkspace = storedSelection.workspaceID.map { id in
             workspaces.contains { $0.id == id }
         } ?? false
-        let presented = isInspectorVisible
-            && (hasLocalWorkspace || storedSelection.cloudWorkspaceID != nil)
+        let presented = isInspectorVisible && hasLocalWorkspace
         if isInspectorPresented != presented { isInspectorPresented = presented }
     }
 

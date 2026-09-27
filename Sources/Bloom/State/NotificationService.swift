@@ -3,7 +3,6 @@ import Observation
 import SwiftUI
 import UserNotifications
 import BloomCore
-import BloomClient
 
 /// Delivers the local notifications, and nothing else.
 ///
@@ -215,51 +214,6 @@ final class NotificationService {
         ))
     }
 
-    /// Something changed in a Cloud workspace, as read from runbloom.app's list.
-    ///
-    /// Through the same settings as a local workspace's banners, and not batched: the list is read
-    /// every twenty seconds, which already gathers whatever happened together. Skipped for the
-    /// workspace on screen while Bloom is in front, where it happened in view.
-    func cloudWorkspace(_ notice: CloudWorkspaceNotices.Notice) {
-        let id = CloudWorkspaceID(notice.workspaceID)
-        let event: NotificationEvent = switch notice.kind {
-        case .needsInput: .needsInput
-        case .finished: .turnFinished
-        case .setupFailed: .setupFailed
-        }
-        guard !(context.isAppActive && app?.selection == .cloud(id)) else { return }
-        // A workspace id no local row can have, so the policy's own "is it on screen" check never
-        // matches a local workspace by accident.
-        let verdict = NotificationPolicy.verdict(
-            for: event, workspaceID: WorkspaceID("cloud:" + notice.workspaceID), settings: preferences.settings, context: context
-        )
-        guard verdict.delivers, Self.isAvailable else { return }
-        let content = UNMutableNotificationContent()
-        content.title = notice.name
-        content.body = switch notice.kind {
-        case .needsInput: notice.detail.isEmpty ? "The agent is waiting for you." : notice.detail
-        case .finished: notice.detail.isEmpty ? "The agent finished its turn." : notice.detail
-        case .setupFailed: "Setting up this Bloom Cloud workspace failed. Open it to read the setup output."
-        }
-        content.sound = .default
-        content.threadIdentifier = "cloud." + notice.workspaceID
-        content.userInfo = BannerUserInfo.encode(cloudWorkspaceID: id)
-        UNUserNotificationCenter.current().add(UNNotificationRequest(
-            identifier: "cloud.\(notice.workspaceID).\(notice.kind.rawValue)", content: content, trigger: nil
-        ))
-    }
-
-    /// Takes every Cloud workspace banner out of Notification Center, on signing out: they name
-    /// workspaces and quote agents from an account this Mac is no longer signed in to.
-    func removeCloudNotifications() {
-        guard Self.isAvailable else { return }
-        Task {
-            let center = UNUserNotificationCenter.current()
-            let delivered = await center.deliveredNotifications()
-            center.removeDeliveredNotifications(withIdentifiers: delivered.map(\.request.identifier).filter { $0.hasPrefix("cloud.") })
-        }
-    }
-
     /// Delivered straight past the policy, because it was asked for by somebody who is looking at
     /// the settings window: every rule that would suppress it would suppress exactly this case.
     func sendTestNotification() {
@@ -365,10 +319,6 @@ final class NotificationService {
     /// delegate off the main actor and has to be read before hopping.
     nonisolated static func workspaceID(from response: UNNotificationResponse) -> WorkspaceID? {
         BannerUserInfo.workspaceID(from: response.notification.request.content.userInfo)
-    }
-
-    nonisolated static func cloudWorkspaceID(from response: UNNotificationResponse) -> CloudWorkspaceID? {
-        BannerUserInfo.cloudWorkspaceID(from: response.notification.request.content.userInfo)
     }
 
     // MARK: - Checks

@@ -381,10 +381,6 @@ private struct SubagentFailureLabelStyle: LabelStyle {
     }
 }
 
-/// The row's hover control and the ground it clears, for every workspace row in the sidebar.
-///
-/// Lifted out of `WorkspaceRow` whole, prose included, when a Cloud workspace's row needed the same
-/// archive box under the pointer: one copy of a mask this careful is enough.
 struct SidebarRowTrailingControl<Control: View>: ViewModifier {
     /// Whether the control is being shown, which the row decides: hovered, or held open by an
     /// archive question it raised, and never while its name is being edited.

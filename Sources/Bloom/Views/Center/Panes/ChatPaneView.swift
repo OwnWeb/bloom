@@ -8,9 +8,9 @@ import BloomCore
 /// two panes can hold two different conversations at once and neither of them is "the" session any
 /// more. Everything the pair share is measured here, which is also per pane: the divider between
 /// them can be dragged to a different place in each.
-struct ChatPaneView<Model: WorkspaceSurface>: View {
+struct ChatPaneView: View {
     var transcript: TranscriptModel
-    let model: Model
+    let model: WorkspaceModel
     /// Which pane of the tab this is, and the only thing it is used for is remembering where the
     /// reader had got to in the conversation. See `TranscriptPaneMemory`.
     var pane: String
@@ -80,18 +80,11 @@ struct ChatPaneView<Model: WorkspaceSurface>: View {
                 showsJumpToNewest: isTranscriptScrolledUp,
                 onJumpToNewest: transcript.jumpToLiveEnd
             ) {
-                VStack(spacing: Metrics.spacingWide) {
-                    // What this workspace cannot start a turn without, said before anything is
-                    // typed. Nil for a local workspace, which has no such state.
-                    if let notice = model.composerNotice(for: transcript) {
-                        ChatComposerNoticeView(notice: notice)
-                    }
-                    ComposerView(transcript: transcript, model: model.composerWorkspace, room: room)
-                }
+                ComposerView(transcript: transcript, model: model, room: room)
             }
         }
         // Whatever this workspace hangs over a conversation: a local one its side conversations
-        // and the pill back to the chat one was opened from. See `WorkspaceSurface.chatLayer`.
+        // and the pill back to the chat one was opened from. See `WorkspaceModel.chatLayer`.
         .overlay { model.chatLayer(for: transcript) }
         .onGeometryChange(for: CGFloat.self) { PaneMeasure.room($0.size.height) } action: {
             room.height = $0

@@ -349,7 +349,7 @@ private struct NotesPageFixture: View {
     init(body: String = "") { _text = State(initialValue: body) }
 
     var body: some View {
-        NotesPage(text: $text, isEditing: $isEditing, surfaceID: .local(WorkspaceID("notes-probe")), workspaceName: "Redesign the website",
+        NotesPage(text: $text, isEditing: $isEditing, workspaceID: WorkspaceID("notes-probe"), workspaceName: "Redesign the website",
                   hasLoaded: true, couldNotLoad: false, couldNotSave: false, hasChanges: false,
                   onRetryLoad: {}, onRetrySave: {})
     }

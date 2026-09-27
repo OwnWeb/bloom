@@ -106,20 +106,7 @@ public enum SessionReopening {
 
     /// "2 hours ago", "yesterday", "last week".
     ///
-    /// **Written out rather than formatted, because the formatter was Darwin only.** It was
-    /// `RelativeDateTimeFormatter`, which swift-corelibs-foundation does not have, so `BloomCore`
-    /// stopped building on Linux the moment this landed, and **every branch that compiles for
-    /// Linux failed on it regardless of what that branch changed**, because a pull request is
-    /// built as a merge with `main`. Today that is the server-runtime branches; `main`'s own CI
-    /// compiles Swift on macOS alone, which is why this reached `main` green.
-    ///
-    /// **Nothing local could have caught it, and that is the part worth knowing.** `make lint`
-    /// refuses a UI framework in the core, and a Darwin-only Foundation type is not a UI
-    /// framework. `make test` mirrors the core into a package with no app target, where this
-    /// compiles. `swift build` on a Mac never compiles for Linux at all. So the check was a CI job
-    /// on one set of branches, which is a twenty-minute round trip to learn something a compiler
-    /// could say in a second: compiling the core for Linux in the `lint` job is the mechanism that
-    /// cannot rot, and a list of type names is the one that can.
+    /// Written out so the labels are consistent across supported platforms.
     ///
     /// **One implementation rather than one per platform**, which is the other half of the fix: two
     /// would agree on the two cases the tests pin and drift everywhere else, and only one of them

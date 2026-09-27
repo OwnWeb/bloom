@@ -12,8 +12,8 @@ import BloomCore
 /// two shared the column's height, so a wide diff got a narrow pane and a long list got a short
 /// one. Files open in the centre column now, which is where Conductor puts them and where there
 /// is room for them, and this column went back to being a list of what changed.
-struct InspectorView<Model: WorkspaceSurface>: View {
-    let model: Model
+struct InspectorView: View {
+    let model: WorkspaceModel
 
     /// The one Connect GitHub sheet, presented from the column's root rather than from whichever
     /// control raised it, so the pull request strip and the checks tab share one presentation.

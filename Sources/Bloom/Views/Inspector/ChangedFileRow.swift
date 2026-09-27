@@ -32,8 +32,6 @@ struct ChangedFileRow: View, Equatable {
     /// is the whole point of the mark: the first version of this feature could be set and was
     /// never visible anywhere except the control that set it. See `ReviewedFile`.
     var isViewed: Bool = false
-    /// The file's location in the worktree, for the menu items that hand it to another app.
-    /// Where the row is on this Mac, or nil for a workspace whose files are in the cloud.
     var fullPath: String?
     /// How many levels down the tree this row is drawn. Zero in the flat list, which is what
     /// leaves that shape with no indent and no guides while both shapes run this same row.

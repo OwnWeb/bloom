@@ -22,8 +22,8 @@ import BloomCore
 /// The first three take their name and their glyph from `PaneKind` rather than spelling them out,
 /// because the pane's split submenus offer the same three and the two lists have to keep saying
 /// the same words.
-struct NewTabMenu<Model: WorkspaceSurface>: View {
-    let model: Model
+struct NewTabMenu: View {
+    let model: WorkspaceModel
 
     private var store: WorkspaceTabsStore { .shared }
 
@@ -37,13 +37,8 @@ struct NewTabMenu<Model: WorkspaceSurface>: View {
                 .keyboardShortcut("t", modifiers: .command)
             Button(PaneKind.terminal.title, systemImage: PaneKind.terminal.symbol, action: newTerminal)
                 .keyboardShortcut("t", modifiers: [.command, .shift])
-            // Absent rather than greyed for a workspace with no browser of its own: a Cloud
-            // workspace's own app is its preview, which has a door of its own, and an item that
-            // could only ever refuse is an item that teaches nothing.
-            if model.supportsBrowserTabs {
-                Button(PaneKind.browser.title, systemImage: PaneKind.browser.symbol, action: newBrowser)
-                    .keyboardShortcut("b", modifiers: [.command, .shift])
-            }
+            Button(PaneKind.browser.title, systemImage: PaneKind.browser.symbol, action: newBrowser)
+                .keyboardShortcut("b", modifiers: [.command, .shift])
             Divider()
             // **Never disabled, and it used to be**, on the argument that an empty review has
             // nothing to show. It has: the pane says what the worktree is being compared against
@@ -55,9 +50,7 @@ struct NewTabMenu<Model: WorkspaceSurface>: View {
             Button(PaneNaming.changes, systemImage: PaneGlyph.review) { model.openReview() }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
             // An empty note is exactly what somebody opening this is about to fix.
-            if model.supportsNotes {
-                Button(CenterTab.notesTitle, systemImage: PaneGlyph.notes) { model.openNotes() }
-            }
+            Button(CenterTab.notesTitle, systemImage: PaneGlyph.notes) { model.openNotes() }
             runScriptItems
             reopenItems
         } label: {
@@ -80,7 +73,7 @@ struct NewTabMenu<Model: WorkspaceSurface>: View {
         }
         // The first opening of this menu in a launch has had no close and no hover behind it, and
         // an empty Recently Closed section is indistinguishable from a chat that cannot come back.
-        .task(id: model.surfaceID) { await model.refreshClosedChats() }
+        .task(id: model.workspace.id) { await model.refreshClosedChats() }
         .accessibilityLabel("New Tab")
         .help("New tab in this workspace")
     }
@@ -166,7 +159,7 @@ struct NewTabMenu<Model: WorkspaceSurface>: View {
 
     /// The ids of the run scripts with a tab whose command is going.
     private func runningScripts() -> Set<String> {
-        Set(tabs.tabs(for: model.surfaceID).compactMap { tab in
+        Set(tabs.tabs(for: model.workspace.id).compactMap { tab in
             launcher.isRunning(tab) ? tab.runScriptID : nil
         })
     }

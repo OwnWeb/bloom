@@ -6,7 +6,7 @@ import BloomCore
 /// The welcome window's model: it runs the probes, and it holds back what the window draws so the
 /// checks can be seen settling one after another.
 ///
-/// Not a view, deliberately. `SetupProbe` shells out to four CLIs, and a `View` that did that
+/// Not a view, deliberately. `SetupProbe` checks the required command line tools, and a `View` that did that
 /// would do it again on every redraw, which is the rule `Tools/house-rules.sh` holds. This is what
 /// the view calls instead.
 ///
@@ -15,7 +15,7 @@ import BloomCore
 /// animation. `shown` is `truth` revealed one row at a time in reading order, and it is what the
 /// rows and the headline read, so the window has a moment where the last check lands and the
 /// sentence above it becomes the answer. The probes themselves run concurrently; only the drawing
-/// is sequenced, because a person watching four rows resolve in a random order learns nothing from
+/// is sequenced, because a person watching the rows resolve in a random order learns nothing from
 /// the order and a person watching them resolve top to bottom is watching a list being read.
 @MainActor
 @Observable
@@ -102,7 +102,7 @@ final class SetupInspection {
 
     /// The checks step has gone, because somebody walked back to the greeting. What was already
     /// revealed stays revealed: coming forward again shows the settled list rather than replaying
-    /// four rows somebody has already read.
+    /// checks somebody has already read.
     func dismissChecks() {
         isPresentingChecks = false
     }

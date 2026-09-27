@@ -58,13 +58,6 @@ public enum TranscriptRowInk {
             || silentSystemPrefixes.contains { payload.starts(with: $0) }
     }
 
-    /// Whether this is the line a turn opens with, which the transcript draws as "Started with".
-    ///
-    /// Asked by the fold as well as here, because that line stands above a turn's group rather
-    /// than inside it: it says what the work below it ran with, and folded into "N actions" it
-    /// would hide the one row that answers that. It stood apart in a Cloud workspace before it did
-    /// anywhere else, by accident of key order (see `CloudPayloadBytes`); the owner looked at it
-    /// there and it became the rule everywhere.
     public static func isSessionStart(kind: MessageKind, payload: Data) -> Bool {
         kind == .system && payload.prefix(probeLength).range(of: initMarker) != nil
     }

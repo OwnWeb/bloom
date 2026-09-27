@@ -59,14 +59,6 @@ final class FileEditSession {
         )
     }
 
-    /// Read the file, unless there is a draft with unsaved changes in it.
-    ///
-    /// A dirty draft wins on purpose: reloading over one would be the data loss this whole type
-    /// exists to avoid, and finding out whether the file moved on underneath is the save's job,
-    /// where there is a user to tell about it. A clean draft is only a cached read, so it is
-    /// re-read instead, which is how reopening a file shows what the agent did to it since.
-    /// - Parameter files: where the bytes come from, which is this Mac's disk for a worktree and
-    ///   the connection for a Cloud workspace. See `EditableFiles`.
     func load(path absolutePath: String, from files: any EditableFiles = DiskFiles()) async {
         guard drafts[absolutePath]?.isDirty != true, !saving.contains(absolutePath) else { return }
         // Only the first read shows a spinner. Re-reading a clean draft has something to display

@@ -31,9 +31,6 @@ struct WindowTitle: ViewModifier {
 
     private var title: String {
         if let workspace = app.selectedWorkspace { return workspace.name }
-        // A Cloud workspace is a workspace: the window wears its name too, or the switcher and
-        // the Window menu would say "Bloom" for half of what somebody has open.
-        if let cloud = app.selectedCloudWorkspace { return cloud.displayName }
         return "Bloom"
     }
 

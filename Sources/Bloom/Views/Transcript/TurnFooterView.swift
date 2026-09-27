@@ -32,10 +32,11 @@ struct TurnFooterView: View {
     /// limit resets: one with anything below it has already been answered.
     var closesTranscript = false
     var transcript: TranscriptModel?
-    /// False when the completed turn disclosure above the response already carries the duration.
+    /// False when the completed work disclosure carries the duration.
     var showsDuration = true
     /// The duration of the visible segment when a running turn was steered by another message.
     var durationMS: Int?
+    var workDisclosure: CompletedWorkDisclosure?
 
     /// More chips than this and the footer stops being a footer.
     private static let visibleFileLimit = 6
@@ -64,6 +65,16 @@ struct TurnFooterView: View {
             denials: result?.permissionDenials ?? 0
         )
         return VStack(alignment: .leading, spacing: 0) {
+            if let workDisclosure {
+                TranscriptFoldRowView(
+                    label: workDisclosure.label,
+                    isExpanded: workDisclosure.isExpanded,
+                    showsSeparator: true,
+                    onToggle: workDisclosure.onToggle
+                )
+                .padding(.top, Metrics.gutter)
+            }
+
             // A turn's duration is the number a user goes looking for, so it sits a rung above
             // the counts and timings that decorate a single row.
             if showsDuration || outcome != .finished || !files.isEmpty {
@@ -80,10 +91,12 @@ struct TurnFooterView: View {
 
                     if showsDuration || outcome != .finished {
                         Text(
-                            Self.durationLabel(
-                                outcome: outcome,
-                                milliseconds: durationMS ?? row.durationMS ?? result?.durationMS ?? 0
-                            )
+                            workDisclosure == nil
+                                ? Self.durationLabel(
+                                    outcome: outcome,
+                                    milliseconds: durationMS ?? row.durationMS ?? result?.durationMS ?? 0
+                                )
+                                : outcome.label
                         )
                             .font(Typo.caption)
                             .foregroundStyle(Palette.textSecondary)

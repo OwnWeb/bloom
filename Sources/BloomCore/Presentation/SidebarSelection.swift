@@ -72,15 +72,6 @@ public enum SidebarSelection: Hashable, Sendable {
     /// and it is still the right one: a window that reopened inside a crew member's chat would
     /// start you somewhere no person put you.
     case crew(WorkspaceID, SessionID)
-    /// A Cloud workspace, open in the centre column.
-    ///
-    /// **`workspaceID` is nil for it, and that is the decision.** Everything that hangs off
-    /// `workspaceID` (the inspector, the Workspace menu, the terminal pane, session restore, the
-    /// diff stat refresh) is about a worktree on this Mac, and a Cloud workspace has none. Its
-    /// chats, terminal and review are drawn by its own column from its machine. See
-    /// `CloudWorkspaceColumn`.
-    case cloud(CloudWorkspaceID)
-
     /// The workspace the window is about, which is the line the three cases above keep pointing at.
     ///
     /// **Written out on both sides, because the nil half is a decision rather than a leftover.**
@@ -93,14 +84,8 @@ public enum SidebarSelection: Hashable, Sendable {
     public var workspaceID: WorkspaceID? {
         switch self {
         case .workspace(let id), .subagent(let id, _), .subagentCall(let id, _), .crew(let id, _): id
-        case .home, .archived, .cloud: nil
+        case .home, .archived: nil
         }
-    }
-
-    /// The Cloud workspace being shown, when one is.
-    public var cloudWorkspaceID: CloudWorkspaceID? {
-        if case .cloud(let id) = self { return id }
-        return nil
     }
 
     /// The crew member being read, when one is. Only the centre column asks.

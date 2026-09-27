@@ -136,21 +136,12 @@ struct TitleBarStrip: View {
     /// transition was holding has to be held here instead. The same shape as
     /// `InspectorGeometry.bandWidth` and for the same reason: a band on its way out is still a band.
     @State private var shown: WorkspaceModel?
-    /// The same, for a workspace on a machine. One of the two is nil: which of them the band is
-    /// drawn over is the selection resolving, and everything the band itself does is the same for
-    /// both, because it is written against `WorkspaceSurface`.
-    @State private var shownCloud: CloudWorkspaceSession?
 
     private var inspector: InspectorGeometry { .shared }
 
     var body: some View {
         HStack(spacing: 0) {
-            if let cloud = shownCloud, shown == nil, inspector.isVisible {
-                PullRequestBar(model: cloud)
-                    .frame(width: inspector.bandWidth, height: height)
-                    .background { ground(pullRequest: cloud.pullRequest, localWork: nil) }
-                    .overlay(alignment: .leading) { Hairline(axis: .vertical) }
-            } else if let model = shown, inspector.isVisible {
+            if let model = shown, inspector.isVisible {
                 PullRequestBar(model: model)
                     // As wide as the pane below it, so the band ends where the pane does and the
                     // split divider runs out of the bottom of it. `bandWidth` rather than `width`
@@ -212,15 +203,7 @@ struct TitleBarStrip: View {
         .onChange(of: app.selectedModel.map { ObjectIdentifier($0) }, initial: true) { _, _ in
             if let model = app.selectedModel {
                 shown = model
-                shownCloud = nil
             }
-        }
-        // The same for a Cloud workspace, which the window selects the same way and which the
-        // band is drawn over on the same terms.
-        .onChange(of: app.selection.cloudWorkspaceID, initial: true) { _, id in
-            guard let id else { return }
-            shownCloud = app.cloud.session(for: id)
-            shown = nil
         }
         // The end of a slide out is the moment the departing band can be let go of. Taken from the
         // selection rather than set to nil, because the inspector can also be closed with a

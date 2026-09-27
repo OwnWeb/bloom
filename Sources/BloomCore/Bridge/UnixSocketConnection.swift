@@ -81,9 +81,8 @@ public final class UnixSocketConnection: Sendable {
         closed.withLock { closed -> pid_t? in
             guard !closed else { return nil }
             #if os(Linux)
-            // Linux has no LOCAL_PEERPID; the kernel records the peer's credentials instead, and
-            // Bloom Server's bridge asks the same question there. Without this the linux job
-            // failed to compile on SOL_LOCAL. Glibc only declares `ucred` and `SO_PEERCRED` under
+            // Linux has no LOCAL_PEERPID; the kernel records the peer's credentials instead.
+            // Glibc only declares `ucred` and `SO_PEERCRED` under
             // _GNU_SOURCE, which Swift does not define, so both are spelled out here: the struct
             // is three 32 bit fields and the option is 17 on x86_64 and arm64 alike.
             struct PeerCredentials { var pid: pid_t = 0; var uid: uid_t = 0; var gid: gid_t = 0 }

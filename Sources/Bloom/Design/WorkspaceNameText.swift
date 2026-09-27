@@ -30,8 +30,6 @@ import BloomCore
 /// Skipped outright, not shortened. The whole effect is motion for its own sake, and half of a
 /// decorative animation is worse than none.
 struct WorkspaceNameText: View {
-    /// The workspace whose rename this plays, or nil for a name that is never revealed: a Cloud
-    /// workspace's name arrives in runbloom.app's list rather than from an agent naming it here.
     let workspaceID: WorkspaceID?
     let name: String
     /// Whether this row has finished work nobody has read yet.

@@ -16,8 +16,7 @@ struct GitFailure: Error, Sendable {
 @Observable
 final class WorkspaceModel {
     var workspace: Workspace
-    /// The window this workspace belongs to. `fileprivate` rather than `private` so the surface
-    /// conformance beside it can reach the archive and the continuation, which are the app's.
+    /// The app that owns this workspace model.
     unowned let app: AppModel
 
     var sessions: [Session] = []
@@ -92,7 +91,7 @@ final class WorkspaceModel {
 
     /// The hand-off of a failed check to the agent, which runs `gh` and writes an attachment. On
     /// the model rather than in the pane, so the "one at a time" guard survives the pane being
-    /// scrolled away, and so the pane can be written against the protocol.
+    /// scrolled away.
     @ObservationIgnored private(set) lazy var checkFailures = CheckFailureSender()
 
     func loadMoreCommits() {
@@ -468,7 +467,7 @@ final class WorkspaceModel {
         WorkspaceTabsStore.shared.updateOrder(
             sessions: TabSet.tabbable(fresh),
             tools: tabs.hasReadTabs(for: workspace.id) ? tabs.tabs(for: workspace.id).map(\.id) : nil,
-            workspaceID: surfaceID
+            workspaceID: workspace.id
         )
         SwitchTrace.mark("sessions.assigned", workspace: workspace.id)
         if activeSessionID == nil || !sessions.contains(where: { $0.id == activeSessionID }) {
@@ -645,7 +644,7 @@ final class WorkspaceModel {
         }
         let tabs = WorkspaceTabsStore.shared
         tabs.prepareToClose(.chat(session.id), in: self)
-        tabs.forget(.chat(session.id), workspaceID: surfaceID)
+        tabs.forget(.chat(session.id), workspaceID: workspace.id)
         if let terminal = CenterTabStore.shared.terminal(for: session.id, in: workspace.id) {
             await CenterTabStore.shared.close(terminal, in: self)
             pendingCLILaunches.remove(session.id)

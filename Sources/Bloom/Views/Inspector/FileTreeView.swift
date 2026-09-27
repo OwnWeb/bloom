@@ -6,8 +6,8 @@ import BloomCore
 /// `git ls-files` is asked once and turned into a directory index. Rows are then produced only
 /// for directories the user actually opened, so a repository with fifty thousand files costs one
 /// subprocess and a handful of views rather than a tree of fifty thousand nodes.
-struct FileTreeView<Model: WorkspaceSurface>: View {
-    let model: Model
+struct FileTreeView: View {
+    let model: WorkspaceModel
 
     /// Which folders this reader has opened. The listing itself is the model's: see
     /// `WorkspaceModel.fileTree`, and the note there for why it cannot live in this view.
@@ -58,7 +58,7 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct LoadID: Hashable {
-        var workspaceID: WorkspaceSurfaceID
+        var workspaceID: WorkspaceID
         var workspacePath: String?
     }
 
@@ -69,7 +69,7 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
     /// Reading the listing, and the two watches that come off the workspace itself.
     private var loading: some View {
         stack
-        .task(id: LoadID(workspaceID: model.surfaceID, workspacePath: model.worktreePath)) {
+        .task(id: LoadID(workspaceID: model.workspace.id, workspacePath: model.workspace.path)) {
             // Nothing is thrown away first. A workspace whose listing has already been read draws
             // it on the frame it arrives on, and this returns without a subprocess.
             expanded = Set(UserDefaults.standard.stringArray(forKey: expansionKey) ?? [])
@@ -95,8 +95,7 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
         .onChange(of: model.fileTree, initial: true) { _, _ in rebuildRows() }
     }
 
-    /// The second half of the same chain. Two properties rather than one, because the whole of it
-    /// as a single expression, generic over `Model`, is past what the type checker will finish.
+    /// Split from `stack` to keep view type-checking tractable.
     private var watched: some View {
         loading
         .onChange(of: query) { _, _ in
@@ -121,14 +120,12 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
             titleVisibility: .visible,
             presenting: pendingDeletion
         ) { path in
-            Button(model.worktreePath == nil ? "Delete File" : "Move to Trash", role: .destructive) {
+            Button("Move to Trash", role: .destructive) {
                 Task { await deleteFile(path) }
             }
             Button("Cancel", role: .cancel) {}
         } message: { path in
-            Text(model.worktreePath == nil
-                 ? "\(path) will be permanently deleted from this Bloom Cloud workspace."
-                 : "\(path) will be moved to the Trash.")
+            Text("\(path) will be moved to the Trash.")
         }
         .alert("Could not delete file", isPresented: Binding(
             get: { deletionError != nil }, set: { if !$0 { deletionError = nil } }
@@ -139,9 +136,7 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
         }
     }
 
-    /// The field and the tree under it. Its own property because the whole of this view's body,
-    /// with the task and the six `onChange`s inline and every one of them generic over `Model`, is
-    /// past what the CI runner's type checker will finish in the time it allows itself.
+    /// The field and tree, kept separate from the observation chain for type-checking.
     private var stack: some View {
         VStack(spacing: 0) {
             // Only over a listing there is something to narrow. A filter above "Nothing tracked"
@@ -183,7 +178,7 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
         )
     }
 
-    private var expansionKey: String { "fileTree.expanded." + model.surfaceID.storageKey }
+    private var expansionKey: String { "fileTree.expanded." + model.workspace.id.rawValue }
 
     // MARK: - Tree
 
@@ -231,7 +226,7 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
                 isChanged: changedPaths.contains(path),
                 containsChanges: highlightedPaths.contains(path),
                 fullPath: fullPath(path),
-                canDelete: model.capabilities.has(.editFiles),
+                canDelete: true,
                 action: { activate(item.node) },
                 onDelete: { pendingDeletion = path },
                 onOpenTerminal: { model.openTerminal(in: path) },
@@ -447,7 +442,6 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
         keyboardArm += 1
     }
 
-    /// The file on this Mac, or nil for a workspace whose files are in the cloud.
     private func fullPath(_ relative: String) -> String? {
         model.absolutePath(for: relative)
     }
@@ -456,9 +450,7 @@ struct FileTreeView<Model: WorkspaceSurface>: View {
 
 /// Keeping the tree scrolled to what the keyboard and a reveal are pointing at.
 ///
-/// Its own modifier because the three `onChange`s inline, inside a generic view, are past what the
-/// CI runner's type checker will finish. See `SidebarView`, which carries the same note for the
-/// same reason.
+/// Keeping these changes in a modifier keeps the tree view small enough to type-check quickly.
 private struct FileTreeScrolling: ViewModifier {
     let proxy: ScrollViewProxy
     let selection: String?

@@ -20,13 +20,6 @@ extension ClaudeModel {
 }
 
 extension AgentModelSource {
-    /// Claude Code's models, asked of the `claude` CLI itself rather than read from a list Bloom
-    /// keeps, which is what a Bloom Cloud machine does too: one owner for the list, so the Mac and a
-    /// machine cannot offer different models. The composer keeps its written list as the answer
-    /// for a Mac where the CLI is missing or says nothing. See `ComposerModelCatalog.options`.
-    ///
-    /// Nothing to invalidate: the catalog already asks again after fifteen minutes, and the list
-    /// only changes when the CLI is updated or somebody signs in.
     public static func claude(_ catalog: ClaudeModelCatalog = .shared) -> AgentModelSource {
         AgentModelSource(
             models: { try await catalog.models().map(\.agentModel) },

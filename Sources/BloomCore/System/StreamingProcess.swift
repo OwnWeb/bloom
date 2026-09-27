@@ -45,9 +45,6 @@ public final class StreamingProcess: Sendable {
         /// the child is done writing to it.
         var stdoutAtEOF = false
         var stderrAtEOF = false
-        /// A person-bound launch must lose broker authority before its cgroup is killed. The
-        /// callback is single-shot across explicit termination, launch failure and natural exit.
-        var cleanupCalled = false
         /// When the last byte arrived on either pipe, used to tell "still flushing" from
         /// "finished".
         var lastOutputAt = DispatchTime.now()
@@ -105,11 +102,9 @@ public final class StreamingProcess: Sendable {
         cwd: String? = nil,
         environment: [String: String] = Shell.environment(),
         mergeStderr: Bool = true,
-        didStart: (@Sendable (Int32) -> Void)? = nil,
-        cleanup: (@Sendable () -> Void)? = nil
+        didStart: (@Sendable (Int32) -> Void)? = nil
     ) {
         self.didStart = didStart
-        self.cleanup = cleanup
         self.executable = executable
         self.arguments = arguments
         self.cwd = cwd
@@ -152,7 +147,6 @@ public final class StreamingProcess: Sendable {
 
     /// Told the pid once the process is running. See `start()`.
     private let didStart: (@Sendable (Int32) -> Void)?
-    private let cleanup: (@Sendable () -> Void)?
 
     public var isRunning: Bool {
         state.withLock { $0.started && $0.status == nil }
@@ -236,7 +230,6 @@ public final class StreamingProcess: Sendable {
         #endif
 
         process.terminationHandler = { [weak self] process in
-            self?.runCleanup()
             self?.state.withLock { $0.wasSignalled = process.terminationReason == .uncaughtSignal }
             self?.settle(status: process.terminationStatus, deadline: nil)
         }
@@ -250,7 +243,6 @@ public final class StreamingProcess: Sendable {
             try startPipeReader(stderrPipe.fileHandleForReading, stdout: false)
             #endif
         } catch {
-            runCleanup()
             if process.isRunning { process.terminate() }
             finish(status: -1, error: error)
             throw error
@@ -370,24 +362,13 @@ public final class StreamingProcess: Sendable {
     }
 
     public func terminate() {
-        runCleanup()
         signalGroup(SIGTERM)
         closeStdin()
     }
 
     /// SIGKILL, for a process that ignored SIGTERM.
     public func kill() {
-        runCleanup()
         signalGroup(SIGKILL)
-    }
-
-    private func runCleanup() {
-        let shouldRun = state.withLock { state -> Bool in
-            guard !state.cleanupCalled else { return false }
-            state.cleanupCalled = true
-            return true
-        }
-        if shouldRun { cleanup?() }
     }
 
     /// Signal the whole process group, not just the child.
@@ -459,25 +440,6 @@ public final class StreamingProcess: Sendable {
     }
 
     #if os(Linux)
-    /// **Wait for the child ourselves, because Foundation sometimes never does.**
-    ///
-    /// Everything here hangs off `process.terminationHandler`: it calls `settle`, which calls
-    /// `finish`, which resumes whoever is awaiting `exitStatus`. Twice on one morning, on Cloud
-    /// workspace machines, that handler never fired. The child had exited, both pipes were at EOF,
-    /// and the process sat in the table as `<defunct>`: a zombie is a child nobody has waited on,
-    /// so Foundation's own reaping had not run. A setup script that finished in 26 seconds left
-    /// the runner waiting for ever, the workspace never became usable, and the control server kept
-    /// restarting a machine whose setup had in fact completed.
-    ///
-    /// So once both pipes are closed, which is the moment the child has almost certainly gone, this
-    /// polls `waitpid` with `WNOHANG` once a second. A child that is genuinely still running, and
-    /// has merely closed its own output, answers 0 and is left alone for as long as it likes: the
-    /// poll costs one syscall a second and ends when the child does. A child that has exited gives
-    /// its status here rather than through a handler that is not coming, and `ECHILD` means
-    /// somebody else reaped it, which is settled as an exit nobody saw rather than as a hang.
-    ///
-    /// Linux only, and deliberately: this is where the fault is, and on Darwin reaping a child
-    /// Foundation is managing would take its `terminationStatus` away from it.
     private func reapWhenFoundationDoesNot(waited: Int = 0) {
         let pid = process.processIdentifier
         guard pid > 0 else { return }

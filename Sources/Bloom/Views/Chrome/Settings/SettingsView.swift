@@ -25,8 +25,6 @@ struct SettingsView: View {
     @State private var isLoaded = false
     @State private var saveTask: Task<Void, Never>?
     @State private var saveError: String?
-    @State private var cloudDiscovery = CloudSettingsDiscovery()
-    @State private var cloudSettingsRevealed = false
 
     var body: some View {
         // A fixed sidebar avoids the split view's collapsible toolbar and its reserved top inset.
@@ -80,39 +78,14 @@ struct SettingsView: View {
             defaults = await AppDefaults.load(from: store)
             isLoaded = true
         }
-        .onChange(of: showsCloudSettings) { _, visible in
-            if !visible, tab == .account { tab = .general }
-        }
-        .onChange(of: app.cloud.accountState) { oldState, newState in
-            guard oldState != newState, newState == .signedOut else { return }
-            hideCloudSettings()
-        }
-        .onDisappear {
-            hideCloudSettings()
-        }
-    }
-
-    private var showsCloudSettings: Bool {
-        CloudSettingsDiscovery.isVisible(
-            isSignedIn: app.cloud.isSignedIn,
-            isRevealed: cloudSettingsRevealed
-        )
     }
 
     private var bloomTabs: [SettingsTab] {
-        var tabs: [SettingsTab] = [.general]
-        if showsCloudSettings { tabs.append(.account) }
-        tabs.append(contentsOf: [.appearance, .menuBar, .notifications])
-        return tabs
+        [.general, .appearance, .menuBar, .notifications]
     }
 
     private func available(_ requested: SettingsTab) -> SettingsTab {
-        requested == .account && !showsCloudSettings ? .general : requested
-    }
-
-    private func hideCloudSettings() {
-        cloudSettingsRevealed = false
-        cloudDiscovery = CloudSettingsDiscovery()
+        requested
     }
 
     private var defaultsBinding: Binding<AppDefaults> {
@@ -136,13 +109,7 @@ struct SettingsView: View {
 
     private func navigationRows(_ tabs: [SettingsTab]) -> some View {
         ForEach(tabs, id: \.self) { item in
-            Label(item.title, systemImage: item.systemImage)
-                .tag(item)
-                .simultaneousGesture(TapGesture().onEnded {
-                    if cloudDiscovery.record(isGeneral: item == .general, at: Date()) {
-                        cloudSettingsRevealed = true
-                    }
-                })
+            Label(item.title, systemImage: item.systemImage).tag(item)
         }
     }
 
@@ -160,7 +127,6 @@ struct SettingsView: View {
         case .prompts: PromptSettingsView()
         case .terminal: TerminalSettingsView()
         case .commandLine: CommandLineSettingsView()
-        case .account: CloudSettingsView()
         }
     }
 }

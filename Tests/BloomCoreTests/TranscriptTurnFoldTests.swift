@@ -2,128 +2,66 @@ import Foundation
 import Testing
 @testable import BloomCore
 
-@Suite("Completed turn folding")
+@Suite("Completed turn boundaries")
 struct TranscriptTurnFoldTests {
     private func fact(
         _ seq: Int,
         _ kind: MessageKind,
-        drawsNothing: Bool = false,
         parent: String? = nil,
         durationMS: Int? = nil,
-        createdAt: TimeInterval? = nil,
-        requestedScreenshot: Bool = false
+        createdAt: TimeInterval? = nil
     ) -> TranscriptTurnFold.Fact {
         TranscriptTurnFold.Fact(
             seq: seq,
             kind: kind,
-            drawsNothing: drawsNothing,
             parentToolUseID: parent,
             durationMS: durationMS,
-            createdAt: createdAt.map(Date.init(timeIntervalSince1970:)),
-            requestedScreenshot: requestedScreenshot
+            createdAt: createdAt.map(Date.init(timeIntervalSince1970:))
         )
     }
 
-    @Test("a completed turn hides its streamed process and keeps its final response")
+    @Test("a result closes the turn after the agent's response")
     func completedTurn() throws {
         let facts = [
             fact(0, .user),
             fact(1, .assistantText),
             fact(2, .toolUse),
-            fact(3, .thinking, drawsNothing: true),
-            fact(4, .assistantText),
-            fact(5, .result, durationMS: 65_000),
+            fact(3, .assistantText),
+            fact(4, .result, durationMS: 65_000),
         ]
-
         let folds = TranscriptTurnFold.folds(in: facts)
         let turn = try #require(folds.all.first)
 
         #expect(turn.firstSeq == 1)
-        #expect(turn.hidden == [1, 2, 3])
-        #expect(turn.hiddenSeqs == [1, 2, 3])
-        #expect(turn.hasHiddenRows)
-        #expect(turn.span == 1..<6)
-        #expect(folds.turn(startingAt: 1) == turn)
-        #expect(folds.turn(startingAt: 4) == nil)
-        #expect(TranscriptTurnFold.label(milliseconds: turn.durationMS ?? 0) == "Worked for 1m 5s")
+        #expect(turn.span == 1..<5)
+        #expect(turn.isComplete)
+        #expect(turn.durationMS == 65_000)
+        #expect(folds.turn(containing: 1) == turn)
+        #expect(folds.turn(containing: 3) == turn)
+        #expect(folds.turn(containing: 5) == nil)
+        #expect(TranscriptTurnFold.label(milliseconds: 65_000) == "Worked for 1m 5s")
     }
 
-    @Test("only requested screenshots are repeated before the final response")
-    func requestedScreenshots() throws {
-        let facts = [
-            fact(0, .user),
-            fact(1, .toolUse, requestedScreenshot: true),
-            fact(2, .toolUse),
-            fact(3, .media, requestedScreenshot: true),
-            fact(4, .assistantText),
-            fact(5, .result),
-        ]
-        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
-
-        #expect(turn.hidden == [1, 2, 3])
-        #expect(turn.requestedScreenshots == [1, 3])
-        #expect(turn.answerIndex == 4)
-    }
-
-    @Test("a requested screenshot shown after prose still precedes the answer when folded")
-    func lateRequestedScreenshot() throws {
-        let facts = [
-            fact(0, .user),
-            fact(1, .toolUse),
-            fact(2, .assistantText),
-            fact(3, .media, requestedScreenshot: true),
-            fact(4, .result),
-        ]
-        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
-
-        #expect(turn.hidden == [1, 3])
-        #expect(turn.requestedScreenshots == [3])
-        #expect(turn.answerIndex == 2)
-    }
-
-    @Test("a zero-second legacy duration reads naturally")
-    func zeroDuration() {
-        #expect(TranscriptTurnFold.label(milliseconds: 0) == "Worked for a while")
-    }
-
-    @Test("the process stays visible until a result identifies the final response")
+    @Test("a live turn has no duration yet")
     func liveTurn() throws {
         let facts = [fact(0, .user), fact(1, .assistantText), fact(2, .toolUse)]
-        let folds = TranscriptTurnFold.folds(in: facts)
-        let turn = try #require(folds.all.first)
+        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
 
         #expect(!turn.isComplete)
-        #expect(turn.hidden.isEmpty)
-        #expect(turn.firstSeq == 1)
+        #expect(turn.durationMS == nil)
+        #expect(turn.span == 1..<3)
     }
 
-    @Test("a turn with no process before its response draws no disclosure")
+    @Test("a direct response still has a turn boundary")
     func directResponse() throws {
         let facts = [fact(0, .user), fact(1, .assistantText), fact(2, .result, durationMS: 800)]
         let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
 
-        #expect(turn.isComplete)
-        #expect(!turn.hasHiddenRows)
+        #expect(turn.span == 1..<3)
+        #expect(turn.durationMS == 800)
     }
 
-    @Test("invisible rows inside the process cannot leave an inner action fold behind")
-    func hidesInvisibleFoldHeaders() throws {
-        let facts = [
-            fact(0, .user),
-            fact(1, .assistantText),
-            fact(2, .system, drawsNothing: true),
-            fact(3, .toolUse),
-            fact(4, .assistantText),
-            fact(5, .result, durationMS: 14_000),
-        ]
-        let folds = TranscriptTurnFold.folds(in: facts)
-        let turn = try #require(folds.all.first)
-
-        #expect(turn.hidden == [1, 2, 3])
-        #expect(folds.hiddenIndices(opened: [], closed: [], revealed: []) == [1, 2, 3])
-    }
-
-    @Test("a missing backend duration is measured from the turn timestamps")
+    @Test("a missing backend duration is measured from turn timestamps")
     func measuredDuration() throws {
         let facts = [
             fact(0, .user, createdAt: 100),
@@ -134,10 +72,10 @@ struct TranscriptTurnFoldTests {
         let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
 
         #expect(turn.durationMS == 14_000)
-        #expect(TranscriptTurnFold.label(milliseconds: turn.durationMS ?? 0) == "Worked for 14s")
+        #expect(TranscriptTurnFold.label(milliseconds: 0) == "Worked for a while")
     }
 
-    @Test("a background task finishing starts a segment without closing one behind a rule")
+    @Test("a background wake starts new work without closing the previous turn")
     func backgroundWake() throws {
         let facts = [
             fact(0, .user, createdAt: 100),
@@ -151,17 +89,15 @@ struct TranscriptTurnFoldTests {
             fact(5, .assistantText, createdAt: 113),
             fact(6, .result, durationMS: 14_000, createdAt: 114),
         ]
-        let folds = TranscriptTurnFold.folds(in: facts)
-        let turns = folds.all
+        let turns = TranscriptTurnFold.folds(in: facts).all
 
-        // One rule, for the segment the result closes. A person interrupting would have left two.
         #expect(turns.count == 1)
-        #expect(turns[0].hidden == [4])
-        #expect(folds.turn(startingAt: 4) == turns[0])
+        #expect(turns[0].firstSeq == 4)
+        #expect(turns[0].span == 4..<7)
         #expect(turns[0].durationMS == 4_000)
     }
 
-    @Test("a steering message closes the work before its bubble and starts a new timer")
+    @Test("a steering message closes the previous turn before its own bubble")
     func steeringMessage() throws {
         let facts = [
             fact(0, .user, createdAt: 100),
@@ -173,88 +109,63 @@ struct TranscriptTurnFoldTests {
             fact(6, .result, durationMS: 14_000, createdAt: 114),
         ]
         let folds = TranscriptTurnFold.folds(in: facts)
-        let turns = folds.all
 
-        #expect(turns.count == 2)
-        #expect(turns[0].hidden == [1, 2])
-        #expect(folds.turn(startingAt: 1) == turns[0])
-        #expect(turns[0].durationMS == 10_000)
-        #expect(turns[1].hidden == [4])
-        #expect(folds.turn(startingAt: 4) == turns[1])
-        #expect(turns[1].durationMS == 4_000)
+        #expect(folds.all.count == 2)
+        #expect(folds.all[0].span == 1..<3)
+        #expect(folds.all[0].durationMS == 10_000)
+        #expect(folds.turn(endingAt: 3) == folds.all[0])
+        #expect(folds.all[1].span == 4..<7)
+        #expect(folds.all[1].durationMS == 4_000)
+        #expect(folds.turn(endingAt: 4) == nil)
     }
 
-    @Test("revealing a hidden row opens its completed turn")
-    func revealedRow() throws {
+    @Test("a nested result does not close the main agent's turn")
+    func nestedResult() throws {
         let facts = [
             fact(0, .user),
-            fact(1, .assistantText),
-            fact(2, .toolUse),
+            fact(1, .toolUse),
+            fact(2, .result, parent: "subagent"),
             fact(3, .assistantText),
             fact(4, .result, durationMS: 2_000),
         ]
-        let folds = TranscriptTurnFold.folds(in: facts)
-        let turn = try #require(folds.all.first)
+        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
 
-        #expect(folds.hiddenIndices(opened: [], closed: [], revealed: []) == [1, 2])
-        #expect(folds.hiddenIndices(opened: [], closed: [], revealed: [2]).isEmpty)
-        #expect(folds.isOpen(turn, opened: [1], closed: [], revealed: []))
+        #expect(turn.span == 1..<5)
+        #expect(turn.durationMS == 2_000)
     }
 
-    @Test("closing a turn that a revealed row opened is what the reader said")
-    func closingOverridesRevealed() throws {
-        let facts = [
-            fact(0, .user),
-            fact(1, .assistantText),
-            fact(2, .toolUse),
-            fact(3, .assistantText),
-            fact(4, .result, durationMS: 2_000),
-        ]
-        let folds = TranscriptTurnFold.folds(in: facts)
-        let turn = try #require(folds.all.first)
+    @Test("only a completed turn with folded action rows offers the duration disclosure")
+    func availableDisclosures() {
+        let completed = TranscriptTurnFold.Turn(
+            span: 1..<5, firstSeq: 1, isComplete: true, durationMS: 2_000
+        )
+        let live = TranscriptTurnFold.Turn(span: 6..<9, firstSeq: 6, isComplete: false)
+        let turns = TranscriptTurnFold.Folds(all: [completed, live], scannedRows: 9, resumeIndex: 5)
+        func work(_ start: Int) -> TranscriptFold.Work {
+            TranscriptFold.Work(
+                span: start..<(start + 3),
+                rows: (start..<(start + 3)).map { TranscriptFold.Row(index: $0, seq: $0) },
+                ready: Set(start..<(start + 3)),
+                hasAnswer: true
+            )
+        }
+        let groups = TranscriptFold.Folds(all: [work(1), work(6)], scannedRows: 9, resumeIndex: 5)
 
-        // A turn that ran while the reader was away holds the unread mark, so it opens itself.
-        #expect(folds.isOpen(turn, opened: [], closed: [], revealed: [2]))
-        // The click has to be able to answer that, and it used to be ignored.
-        #expect(!folds.isOpen(turn, opened: [], closed: [1], revealed: [2]))
-        #expect(folds.hiddenIndices(opened: [], closed: [1], revealed: [2]) == [1, 2])
-        // And open again afterwards, whatever the revealed rows say.
-        #expect(folds.isOpen(turn, opened: [1], closed: [], revealed: []))
+        let shown = TranscriptTurnFold.disclosures(
+            work: groups, turns: turns, revealed: [], drawn: 0..<9
+        )
+        #expect(shown.hiddenByWork[1] == [1, 2, 3])
+        #expect(shown.turnByWork[1] == 1)
+        #expect(shown.turnByWork[6] == nil)
+        #expect(shown.expandableTurns == [1])
+
+        let clipped = TranscriptTurnFold.disclosures(
+            work: groups, turns: turns, revealed: [], drawn: 2..<9
+        )
+        #expect(clipped.expandableTurns.isEmpty)
     }
 
-    @Test("a window that stops inside a turn gets no disclosure, because it would hide nothing")
-    func windowStopsInsideTurn() throws {
-        let facts = [
-            fact(0, .user),
-            fact(1, .assistantText),
-            fact(2, .toolUse),
-            fact(3, .assistantText),
-            fact(4, .result, durationMS: 2_000),
-        ]
-        let folds = TranscriptTurnFold.folds(in: facts)
-        let turn = try #require(folds.all.first)
-
-        #expect(folds.wouldHide(turn, drawn: 0..<5) == [1, 2])
-        #expect(folds.wouldHide(turn, drawn: 2..<5).isEmpty)
-        #expect(folds.hiddenIndices(opened: [], closed: [], revealed: [], drawn: 2..<5).isEmpty)
-    }
-
-    @Test("a turn whose hidden rows all draw nothing gets no disclosure")
-    func nothingWorthHiding() throws {
-        let facts = [
-            fact(0, .user),
-            fact(1, .system, drawsNothing: true),
-            fact(2, .assistantText),
-            fact(3, .result, durationMS: 2_000),
-        ]
-        let folds = TranscriptTurnFold.folds(in: facts)
-        let turn = try #require(folds.all.first)
-
-        #expect(!turn.hasHiddenRows)
-        #expect(folds.wouldHide(turn).isEmpty)
-    }
-
-    @Test("a rescan keeps completed history and rebuilds only the live tail")
+    @Test("an incremental scan keeps completed turns and updates the live tail")
     func extending() {
         var facts = [
             fact(0, .user),

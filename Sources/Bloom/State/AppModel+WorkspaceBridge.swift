@@ -46,31 +46,13 @@ extension AppModel {
             return await self.driveTerminalForBridge(command, in: workspaceID)
         }
 
-        // The tools that read or write another workspace, handed the way into Bloom Cloud ones so a
-        // Cloud workspace's id or name works where a local one's does. They replace the standard
-        // toolbox's copies, which have no way in. See `CloudWorkspaceReach`.
-        let reach = cloudWorkspaceReach()
-        let reaching: [any BridgeToolHandling] = [
-            WorkspaceListTool(cloud: reach),
-            ChatListTool(cloud: reach),
-            ChatReadTool(cloud: reach),
-            WorkspaceDiffTool(cloud: reach),
-        ]
-        let replaced = Set(reaching.map(\.tool.name))
-        return BridgeToolbox(handlers: BridgeToolbox.standard.handlers.filter { !replaced.contains($0.tool.name) } + reaching + [
+        return BridgeToolbox(handlers: BridgeToolbox.standard.handlers + [
             WorkspaceStartTool { [weak self] order, project, identity, origin in
                 guard let self else { throw AppNotReady.stillStartingUp }
                 return try await self.startWorkspaceForBridge(
                     order, in: project, from: identity, origin: origin
                 )
             },
-            MacCloudWorkspaceStartTool(
-                allowed: { UserDefaults.standard.bool(forKey: MacCloudWorkspaceStartTool.settingKey) },
-                start: { [weak self] order in
-                    guard let self else { return .refused("Bloom is still starting up.") }
-                    return await self.startCloudWorkspaceForBridge(order)
-                }
-            ),
             ChatCreateTool { [weak self] workspaceID, order in
                 guard let self else { return .refused("Bloom is still starting up.") }
                 return await self.createChatForBridge(order, in: workspaceID)
@@ -177,7 +159,7 @@ extension AppModel {
             WorkspaceSayTool({ [weak self] message in
                 guard let self else { return .refused("Bloom is still starting up.") }
                 return await self.deliverWorkspaceMessage(message)
-            }, cloud: reach),
+            }),
         ])
     }
 
@@ -732,7 +714,7 @@ extension AppModel {
             )
         }
 
-        guard tabs.close(pane: pane, in: tab, of: model.surfaceID) else {
+        guard tabs.close(pane: pane, in: tab, of: model.workspace.id) else {
             return .refused("Bloom could not close that pane.")
         }
         return .opened(kind.map { "Closed the \($0.title.lowercased())." } ?? "Closed that pane.")
@@ -801,7 +783,7 @@ extension AppModel {
             switch tab.kind {
             case .terminal: return .terminal
             case .browser: return .browser
-            case .review, .notes, .setup: return nil
+            case .review, .notes: return nil
             }
         }
     }

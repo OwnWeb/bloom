@@ -285,19 +285,12 @@ public struct TmuxCommand: Sendable, Equatable {
     public let tmuxPath: String
     public let socketName: String
     public let configPath: String
-    /// Set on a machine with a sandbox user: every tmux call, client and server alike, runs as that
-    /// user, so the panes do. See `MachineSandbox`. Nil everywhere else, and then nothing changes.
-    public let sandbox: MachineSandbox?
+    public var executable: String { tmuxPath }
 
-    /// What to actually spawn, which is `sudo` when sandboxed. Every call site runs this with
-    /// `arguments(_:)`, and both ends of the pair know about the sandbox or neither does.
-    public var executable: String { sandbox?.sudo ?? tmuxPath }
-
-    public init(executable: String, socketName: String, configPath: String, sandbox: MachineSandbox? = nil) {
+    public init(executable: String, socketName: String, configPath: String) {
         self.tmuxPath = executable
         self.socketName = socketName
         self.configPath = configPath
-        self.sandbox = sandbox
     }
 
     /// `-u` forces UTF-8 rather than inferring it from a LANG that a GUI-launched app may not have
@@ -308,9 +301,7 @@ public struct TmuxCommand: Sendable, Equatable {
     }
 
     public func arguments(_ tail: [String]) -> [String] {
-        let full = globalArguments + tail
-        guard let sandbox else { return full }
-        return sandbox.wrap(executable: tmuxPath, arguments: full).arguments
+        globalArguments + tail
     }
 
     /// The command a pane's pty actually execs.

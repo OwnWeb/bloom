@@ -53,17 +53,9 @@ struct TranscriptRowView: View, Equatable {
             && lhs.projectName == rhs.projectName
             // Both are the list's answer about the message above this one, so neither is visible
             // in the row and both change without anything on the row changing.
-            && lhs.caption == rhs.caption
-            && lhs.fill == rhs.fill
     }
 
     var row: TranscriptRow
-    /// What this message says about who sent it and who it was for, or nil where it says nothing.
-    /// Only the list can answer it: it depends on the message above. See `MessageAuthorship`.
-    var caption: String?
-    /// Which fill the bubble carries and which side it sits on. The list answers it, because it is
-    /// the only thing here that knows which account is reading.
-    var fill: MessageAuthorship.BubbleFill = .own
     /// Which worktree the row's paths are relative to, and where a file chip opens. Read by a user
     /// turn's attachment chips and by the file chips in a tool row, and constant for a whole
     /// transcript, so it is handed down rather than looked up per row.
@@ -79,9 +71,6 @@ struct TranscriptRowView: View, Equatable {
     /// What an Agent call row opens, or nil where nothing can be opened, such as a subagent's own
     /// pane, whose rows are the run already.
     var runActions: SubagentRunActions?
-    /// What fetches a Bloom Cloud machine's picture. Nil everywhere else, and left out of `==`
-    /// like `runActions`: it is the same for every row of a transcript.
-    var cloudLink: CloudChatLink?
     /// The completed response copied by the control beside this row, or nil for intermediate
     /// prose and prose that is still streaming.
     var responseCopyText: String?
@@ -126,9 +115,7 @@ struct TranscriptRowView: View, Equatable {
                 UserTurnRowView(
                     text: review.message,
                     reviewChips: review.chips,
-                    home: home,
-                    caption: caption,
-                    fill: fill
+                    home: home
                 )
             } else {
                 // Attachments reach the agent as paths in the prompt text, which is the only
@@ -141,9 +128,7 @@ struct TranscriptRowView: View, Equatable {
                 UserTurnRowView(
                     text: turn.body,
                     attachments: turn.paths,
-                    home: home,
-                    caption: caption,
-                    fill: fill
+                    home: home
                 )
             }
 
@@ -165,12 +150,6 @@ struct TranscriptRowView: View, Equatable {
                 ProseRowView(text: text, copyText: responseCopyText)
             }
 
-        case .media:
-            // Only a Bloom Cloud machine writes this row. A local transcript draws the same picture
-            // from the `media_show` call, because the file is on the same disk as the window.
-            if let media = sharedMedia {
-                CloudMediaRowView(media: media, home: home, link: cloudLink)
-            }
         case .thinking:
             if let text = thinkingText, !text.isEmpty {
                 ThinkingRowView(text: text, isExpanded: isExpanded, onToggle: onToggle)
@@ -311,7 +290,7 @@ struct TranscriptRowView: View, Equatable {
     /// A media call becomes content only after its successful result arrives. Before that it stays
     /// an ordinary pending tool row, and a refusal stays visible as the refusal it is.
     private func successfulMediaRequest(_ use: AgentToolUse) -> MediaShowRequest? {
-        guard home.drawsMediaFromCalls, row.resultPayload != nil, !row.isError, row.refusal == nil else { return nil }
+        guard row.resultPayload != nil, !row.isError, row.refusal == nil else { return nil }
         return MediaShowRequest(use: use)
     }
 
@@ -353,7 +332,7 @@ struct TranscriptRowView: View, Equatable {
     /// Codex's native image viewer is also deliberate visible content. Its absolute paths often
     /// point at `/tmp`, so it uses the narrower image-only resolver rather than the MCP resolver.
     private func successfulCodexImageRequest(_ use: AgentToolUse) -> CodexImageViewRequest? {
-        guard home.drawsMediaFromCalls, row.resultPayload != nil, !row.isError, row.refusal == nil else { return nil }
+        guard row.resultPayload != nil, !row.isError, row.refusal == nil else { return nil }
         return CodexImageViewRequest(use: use)
     }
 
@@ -368,12 +347,6 @@ struct TranscriptRowView: View, Equatable {
     private var permissionAsk: PermissionAsk? {
         guard case .permissionAsk(let ask)? = event else { return nil }
         return ask
-    }
-
-    /// The picture a `media` row names. Small, and a row that is its own content, so it is decoded
-    /// directly rather than through the event cache, which knows only the CLI's events.
-    private var sharedMedia: SharedMedia? {
-        try? JSONDecoder().decode(SharedMedia.self, from: row.payload)
     }
 
     private var initInfo: AgentInit? {

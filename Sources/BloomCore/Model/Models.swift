@@ -585,11 +585,6 @@ public enum MessageKind: String, Sendable, Codable, CaseIterable {
     /// A row of this kind holds both renderings, so the window draws what a person reads and the
     /// model still got what it was handed.
     case crew
-    /// An image or a video an agent on a Bloom Cloud machine showed with `media_show`, copied where
-    /// a client can fetch it. The payload is a `SharedMedia`. On a Mac the same tool draws straight
-    /// from the agent's call, because the file is on the same disk as the window; a machine's file
-    /// is not, so the machine writes down where its copy is. See `MachineMediaShowTool`.
-    case media
 }
 
 public struct Message: Identifiable, Sendable, Hashable, Codable {
@@ -602,14 +597,6 @@ public struct Message: Identifiable, Sendable, Hashable, Codable {
     public var durationMS: Int?
     /// For toolUse rows: the tool_use id, so a tool_result can find its parent.
     public var refID: String?
-    /// Who wrote a user row in a Cloud workspace. See `MessageAuthor`.
-    public var author: MessageAuthor?
-    /// Who it was addressed to. Nil means the agent, which is every row written before mentions
-    /// existed. **A row addressed to a person is one the agent must never be given**; see
-    /// `MessageAudience`.
-    public var audience: MessageAudience?
-    /// Set when an agent wrote it on the author's behalf. See `MessageVia`.
-    public var via: MessageVia?
 
     public init(
         id: Int64 = 0,
@@ -620,13 +607,7 @@ public struct Message: Identifiable, Sendable, Hashable, Codable {
         createdAt: Date = Date(),
         durationMS: Int? = nil,
         refID: String? = nil,
-        author: MessageAuthor? = nil,
-        audience: MessageAudience? = nil,
-        via: MessageVia? = nil
     ) {
-        self.author = author
-        self.audience = audience
-        self.via = via
         self.id = id
         self.sessionID = sessionID
         self.seq = seq

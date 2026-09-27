@@ -217,19 +217,11 @@ struct GitTests {
         let mashed = "show me the homepage" + String(repeating: "qsdfjklm", count: 12)
         #expect(Git.title(from: mashed) == "Show me the")
 
-        // And the case that rule cannot help: one word and no space to cut at, which keeps the
-        // prefix as it stands. The branch derived from it is capped separately, because a ref is
-        // typed and read by people: see `CloudBranchName.suggestion`.
         let oneWord = Git.title(from: String(repeating: "q", count: 200))
         #expect(oneWord.count == 72)
         #expect(!oneWord.contains(" "))
     }
 
-    /// **The owner's own sentence, and the shape of the complaint: a long sentence must give a
-    /// short branch.** His workspace cut
-    /// `freekmurze/show-me-the-homepage-in-a-pane-next-to-this-chat`, because the Cloud window
-    /// slugged the workspace NAME, which is a sentence. A branch comes from the prompt through
-    /// this, which drops the stop words and keeps five.
     @Test("a sentence gives a branch short enough to read in a git listing")
     func slugStaysShort() {
         let slug = Git.slug(from: "show me the homepage in a pane next to this chat")

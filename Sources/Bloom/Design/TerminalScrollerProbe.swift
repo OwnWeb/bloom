@@ -2,7 +2,7 @@ import AppKit
 import SwiftTerm
 
 #if DEBUG
-/// Checks the terminal's scroll bar is the system's, offscreen, in both terminals.
+/// Checks the terminal's scroll bar is the system's, offscreen.
 ///
 /// What is measured is what the owner asked for and what must not break on the way: the style is
 /// the one "Show scroll bars" chose; in the overlay style nothing is drawn at rest, which is the
@@ -16,11 +16,10 @@ enum TerminalScrollerProbe {
 
     static func run(check: (Bool, String) -> Void) {
         let preferred = NSScroller.preferredScrollerStyle
-        let terminals: [(String, SwiftTerm.TerminalView, TerminalScrollerPresenter?)] = {
-            let local = BloomTerminalView(frame: CGRect(x: 0, y: 0, width: 640, height: 320))
-            let cloud = CloudTerminalView(frame: CGRect(x: 0, y: 0, width: 640, height: 320))
-            return [("local", local, local.scrollerPresenter), ("Cloud", cloud, cloud.scrollerPresenter)]
-        }()
+        let local = BloomTerminalView(frame: CGRect(x: 0, y: 0, width: 640, height: 320))
+        let terminals: [(String, SwiftTerm.TerminalView, TerminalScrollerPresenter?)] = [
+            ("local", local, local.scrollerPresenter)
+        ]
         for (name, terminal, presenter) in terminals {
             // In a window that is never ordered in, so layout happens and nothing is shown.
             let window = NSWindow(contentRect: terminal.frame, styleMask: [.borderless], backing: .buffered, defer: false)

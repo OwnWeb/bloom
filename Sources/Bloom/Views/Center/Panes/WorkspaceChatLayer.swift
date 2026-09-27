@@ -1,12 +1,6 @@
 import SwiftUI
 import BloomCore
 
-/// What a local workspace hangs over a conversation: the side conversation card, and the pill back
-/// to the chat a side conversation was opened from.
-///
-/// Its own view, handed back by the workspace rather than drawn by `ChatPaneView`, because it is a
-/// whole layer with its own placement and its own state rather than a control a capability could
-/// switch off. A Cloud workspace has no side conversations and answers with nothing at all.
 struct WorkspaceChatLayer: View {
     var transcript: TranscriptModel
     @Bindable var model: WorkspaceModel
@@ -79,26 +73,5 @@ struct WorkspaceChatLayer: View {
             .disabled(!model.sessions.contains { $0.id == origin.parentID })
             .padding(8)
         }
-    }
-}
-
-/// The sentence above the composer that says what a turn here is waiting on, with the one way
-/// forward it has. See `ChatComposerNotice`.
-struct ChatComposerNoticeView: View {
-    var notice: ChatComposerNotice
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Metrics.spacingWide) {
-            Image(systemName: "exclamationmark.circle").foregroundStyle(Palette.warning)
-            Text(notice.sentence)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: Metrics.spacingWide)
-            if let title = notice.actionTitle, let action = notice.action {
-                Button(title, action: action)
-                    .buttonStyle(.borderless)
-            }
-        }
-        .font(Typo.caption)
-        .padding(.horizontal, Metrics.gutter)
     }
 }

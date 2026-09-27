@@ -43,8 +43,6 @@ enum RepoIconArt {
         return artwork
     }
 
-    /// Validates downloaded project artwork with AppKit's image decoder before it enters the
-    /// in-memory Cloud cache. Bytes that merely claim to be PNG remain the initials fallback.
     static func artwork(data: Data) -> RepoArtwork? {
         guard let image = NSImage(data: data), image.size.width > 0, image.size.height > 0 else { return nil }
         return RepoArtwork(image: image, isFullBleed: fillsItsTile(image))

@@ -13,8 +13,8 @@ import BloomCore
 ///
 /// The wording is `ReviewedMarkAction`, in the core, shared with the row's context menu, so the
 /// bar and the menu cannot come to two accounts of what the control does.
-struct ViewedToggle<Model: WorkspaceSurface>: View {
-    var model: Model
+struct ViewedToggle: View {
+    var model: WorkspaceModel
     var file: ChangedFile
 
     private var isViewed: Bool { model.isViewed(file) }

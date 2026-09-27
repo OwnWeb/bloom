@@ -15,7 +15,7 @@
 # tried to second-guess it would be wrong the first time a file moved.
 
 .DEFAULT_GOAL := help
-.PHONY: help build test app run lint swiftlint master dev dev-fast dev-db subagents cloud release dmg
+.PHONY: help build test app run lint swiftlint master dev dev-fast dev-db release dmg
 
 help: ## Show this list
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -23,8 +23,8 @@ help: ## Show this list
 	@echo
 	@echo "  Anything that takes an argument is run directly. See the head of this file."
 
-build: ## Compile every target, app included, the way CI does
-	swift build
+build: ## Compile every target with warnings treated as errors
+	swift build -Xswiftc -warnings-as-errors
 
 test: ## Run the BloomCore suite without building the app target
 	./Tools/test-core.sh
@@ -52,12 +52,6 @@ dev-fast: ## Build current edits as Bloom Dev with an incremental debug build
 
 dev-db: ## Copy the real database into Bloom Dev's own container
 	./Tools/dev-db.sh
-
-subagents: ## Build HEAD as Bloom Subagents, a third app for trying the subagent work out
-	./Tools/subagents-build.sh
-
-cloud: ## Build HEAD as Bloom Cloud, a separate app for trying Cloud workspaces
-	./Tools/cloud-build.sh
 
 release: ## Build, sign, notarise and staple a zip and a disk image you can send
 	./Tools/release.sh

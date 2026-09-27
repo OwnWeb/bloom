@@ -3,18 +3,6 @@ import BloomCore
 import SwiftUI
 
 #if DEBUG
-/// What a local workspace's tabs are written as, and what comes back.
-///
-/// **This exists because the two tab stores were re-keyed.** They used to be keyed by `WorkspaceID`
-/// and are keyed by `WorkspaceSurfaceID` now, so that a Cloud workspace's tabs are ordinary rows in
-/// them. The argument that nothing anybody has stored moves is that a local workspace's key is its
-/// own id, which is true and is still an argument; this drives the stores and reads the bytes back.
-///
-/// It checks the things a person would lose rather than the things a type checker already knows:
-/// the defaults keys are the same strings as before, a stored tab still names its workspace as a
-/// bare id, a split arrangement reads back with both its panes, and the strip's order survives the
-/// round trip. The one thing it cannot check is the drag itself, which is a gesture: see
-/// `TabProbe`, and the note in the report this prints.
 @MainActor
 enum TabStoreProbe {
     static func run(directory: String, check: (Bool, String) -> Void) async {
@@ -51,7 +39,7 @@ enum TabStoreProbe {
         let stripKey = "center.strip." + workspaceID.rawValue
         check(defaults.data(forKey: listKey) != nil, "the tab list is not under \(listKey)")
         check(
-            TabDefaults.tabListKey(.local(workspaceID)) == listKey && TabDefaults.stripKey(.local(workspaceID)) == stripKey,
+            TabDefaults.tabListKey(workspaceID) == listKey && TabDefaults.stripKey(workspaceID) == stripKey,
             "the keys a surface builds are not the keys a workspace built"
         )
 
@@ -109,14 +97,6 @@ enum TabStoreProbe {
             check(swept == forked && swept.contains(workspaceID.rawValue), "a shell's name and the swept name differ")
         }
 
-        // And a Cloud workspace's tabs are invisible to it, which is what stops a machine's tab
-        // list being read as a worktree's and a local shell being spared or swept for the wrong
-        // reason. Its key is namespaced; the census reads only the bare one.
-        let cloudID = WorkspaceSurfaceID.cloud(CloudWorkspaceID(workspaceID.rawValue))
-        _ = tabs.add(kind: .terminal, workspaceID: cloudID)
-        let again = TerminalPaneCensus.census(of: [workspaceID], in: defaults)
-        check(again.panes == census.panes, "a Cloud workspace's tabs reached the orphan sweep")
-
         // What a relaunch does with all three, as far as it can be done in one process: the stores
         // are singletons, so this reads the bytes the way `restore` does rather than building them
         // again. A real relaunch is still worth one pass by a person; see the note in the report.
@@ -124,7 +104,7 @@ enum TabStoreProbe {
             let decoded = try? JSONDecoder().decode([CenterTab].self, from: data)
             check(decoded?.count == 2, "a relaunch would read back \(decoded?.count ?? 0) of the two tabs")
             check(
-                decoded?.allSatisfy { $0.workspaceID == .local(workspaceID) } == true,
+                decoded?.allSatisfy { $0.workspaceID == workspaceID } == true,
                 "a relaunch would read a tab back under another workspace"
             )
             check(decoded?.contains { $0.kind == .review } == true, "the review tab did not survive the round trip")

@@ -5,14 +5,13 @@ import BloomCore
 ///
 /// The list polls only while it is on screen. A dozen workspaces each asking gh for check runs
 /// every twenty seconds would be a dozen subprocesses a minute for panels nobody is looking at.
-/// How often GitHub is asked again while the tab is on screen, in a type of its own because a
-/// generic view may hold no stored static.
+/// How often GitHub is asked again while the tab is on screen.
 private enum ChecksPolling {
     static let interval = Duration.seconds(20)
 }
 
-struct ChecksView<Model: WorkspaceSurface>: View {
-    let model: Model
+struct ChecksView: View {
+    let model: WorkspaceModel
 
     @State private var runs: [CheckRun] = []
     @State private var groups: [CheckRunGroup] = []
@@ -40,17 +39,6 @@ struct ChecksView<Model: WorkspaceSurface>: View {
                 summary
                 Hairline()
             }
-            // Only where the answer is not as fresh as the question. A workspace whose checks come
-            // from a cache says how old they are rather than letting the list imply they are live.
-            if let note = model.checksNote {
-                Text(note)
-                    .font(Typo.caption)
-                    .foregroundStyle(Palette.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, InspectorLayout.inset)
-                    .padding(.vertical, Metrics.spacingSmall)
-                Hairline()
-            }
             if runs.isEmpty {
                 empty
             } else {
@@ -58,7 +46,7 @@ struct ChecksView<Model: WorkspaceSurface>: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task(id: "\(model.surfaceID.storageKey)|\(reload)") { await poll() }
+        .task(id: "\(model.workspace.id.rawValue)|\(reload)") { await poll() }
     }
 
     private var list: some View {
@@ -82,7 +70,7 @@ struct ChecksView<Model: WorkspaceSurface>: View {
         // Nil rather than a button that would explain itself: a check that passed has nothing to
         // hand over, and a workspace with no conversation has nowhere to hand it.
         var onSend: (@MainActor () -> Void)?
-        if CheckFailureSender.canSend(run), model.canSendCheckFailure {
+        if CheckFailureSender.canSend(run), model.activeSession != nil {
             onSend = { send(run) }
         }
 
@@ -157,7 +145,7 @@ struct ChecksView<Model: WorkspaceSurface>: View {
                     ? "Checks come from GitHub through the gh command, and it is not on this Mac."
                     : "Checks come from GitHub through the gh command, and it is signed out.",
                 actionTitle: github == .notInstalled ? "Install the GitHub CLI" : "Connect GitHub",
-                action: { GitHubSignIn.shared.run(directory: model.worktreePath ?? "") { reload += 1 } }
+                action: { GitHubSignIn.shared.run(directory: model.workspace.path) { reload += 1 } }
             )
         } else if checksUnavailable {
             EmptyStateView(
@@ -232,10 +220,7 @@ struct ChecksView<Model: WorkspaceSurface>: View {
             // Asked every pass rather than once: gh can be signed in from a terminal while this
             // tab is open, and the answer is cached, so this costs a subprocess only when it
             // has actually expired.
-            // Asked of the workspace rather than of this Mac: a local one answers with what `gh`
-            // is doing here, and a Cloud one is never in the dark, because its checks come from
-            // runbloom.app's own GitHub App.
-            let state = model.worktreePath == nil ? model.gitHubReadiness : await GitHubAvailability.shared.check()
+            let state = await GitHubAvailability.shared.check()
             github = state
 
             if state == .ready {

@@ -28,7 +28,6 @@ enum RepoIconImage {
         var name: String
         var accent: String?
         var artwork: String?
-        var isCloud: Bool
         var size: CGFloat
         var scale: CGFloat
     }
@@ -45,37 +44,12 @@ enum RepoIconImage {
             name: repo.name,
             accent: repo.accent,
             artwork: repo.hasIcon ? repo.iconPath : nil,
-            isCloud: false,
             size: size,
             scale: scale
         )
         if let cached = cache[key] { return cached }
 
         let renderer = ImageRenderer(content: RepoIcon(repo: repo, size: size))
-        renderer.scale = scale
-        guard let image = renderer.nsImage else { return nil }
-        cache[key] = image
-        return image
-    }
-
-    /// Cloud artwork is downloaded asynchronously, or borrowed from an exact local repository
-    /// match, then rendered into the image slot of an `NSMenu` item. A `CloudProjectIcon` view in
-    /// that slot hides the menu item's title.
-    static func ofCloudProject(
-        repository: String, artwork: RepoArtwork?, artworkURL: String?,
-        size: CGFloat = Metrics.repoIconSmall
-    ) -> NSImage? {
-        let name = repository.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init) ?? repository
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
-        let key = Key(
-            name: name, accent: nil, artwork: artwork == nil ? nil : artworkURL,
-            isCloud: true, size: size, scale: scale
-        )
-        if let cached = cache[key] { return cached }
-
-        let renderer = ImageRenderer(content: RepoIcon(
-            name: name, accent: nil, size: size, artwork: artwork, artworkKey: artworkURL
-        ))
         renderer.scale = scale
         guard let image = renderer.nsImage else { return nil }
         cache[key] = image

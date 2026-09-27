@@ -21,7 +21,7 @@ import SwiftUI
 struct ComposerOptionMenu: View {
     var options: [ComposerOption]
     /// When set, the rows are grouped under headings instead of run together. The model menu is
-    /// the one that needs it: with two backends a flat list of five names says nothing about which
+    /// the one that needs it: with several backends a flat list of five names says nothing about which
     /// agent each name belongs to, and picking a name is picking an agent.
     var sections: [ComposerModelSection]?
     var selection: String

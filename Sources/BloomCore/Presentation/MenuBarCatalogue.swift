@@ -1,32 +1,5 @@
 import Foundation
 
-/// Every item the menu bar publishes: which menu it is in, what it is called, and which key it
-/// carries.
-///
-/// **It is the source of truth rather than a description of one.** `BloomCommands` is a
-/// `Commands` body, which is a view and so is a thing no test can look at, and the four questions
-/// this table answers are decisions: which items exist, what each is called, which key it carries
-/// and roughly when it can be pressed. Written inside the view, all four were only checkable by
-/// opening the menus and reading them. Written here, `MenuBarCatalogueTests` can hold the one that
-/// actually bites, which is that no two items in the bar claim the same keystroke: two items in
-/// one menu sharing a key equivalent is not a tie AppKit reports, it silently picks the one it
-/// finds first. That bug has been hit here at least twice, once between Go to Home and Actual Size
-/// over `Cmd+0`, and each time it was found by pressing the key rather than by a test.
-///
-/// **Enablement is not in the table, and that is deliberate.** Whether Split Right can be pressed
-/// depends on the live pane tree, whether Stop Agent can depends on a running turn, and neither is
-/// a value the core can hold. What is here is `availability`, which says what KIND of thing has to
-/// be true, so a reader can see at a glance which items are always live and the app target has one
-/// place to be consistent with. The rules themselves stay where the state is, and the ones already
-/// extracted (`PaneSplit`, `TabClosure`, `WorkspaceMenuSubject`, `TabCycle`) are named on the
-/// items that read them.
-///
-/// **Greyed rather than absent.** A menu bar is a map of what the app can do, so an item that
-/// vanishes when it cannot be pressed teaches nothing. That is the opposite of the habit the
-/// context menus have, on purpose: a context menu is a shortcut to somewhere you already are. The
-/// The exceptions in the table are the run scripts and setup script, which are absent when the
-/// project defines none, and the Bloom Cloud workspace command, which stays undiscoverable until
-/// somebody signs in.
 public enum MenuBarCatalogue {
     /// The item for one action. Traps on an action with no row, which cannot happen: `commands`
     /// covers every case and `MenuBarCatalogueTests.everyActionHasARow` holds it.
@@ -61,22 +34,6 @@ public enum MenuBarCatalogue {
 
         MenuBarItem(.newWorkspace, in: .file, "New Workspace…", key: .command("n"), availability: .needsProject),
         MenuBarItem(.newWorkspaceFromPullRequest, in: .file, "New Workspace from Pull Request…", availability: .needsProject),
-        // Beside the two above, because it starts the same kind of thing somewhere else. It is
-        // here at all because the small `+` on the sidebar's Cloud heading came off at the owner's
-        // asking, and the dock's New menu should not be the only door: "New Workspace…" is in File
-        // and its Cloud sibling belongs in the same place. It is absent until somebody signs in to
-        // a Bloom account, which is a fact the core cannot hold, hence `sometimes`. No key
-        // equivalent: Cmd+N is the local one and this is the rarer of the two.
-        MenuBarItem(.newCloudWorkspace, in: .file, "New Bloom Cloud Workspace…", availability: .sometimes),
-        // The conversation above every project, started again. It existed only as a toolbar button
-        // that appears while Ask Bloom is open, which is a control you have to already be looking
-        // at to find: the owner asked whether Bloom could clear an Ask conversation at all, and it
-        // could, by pressing a glyph a few inches from where he was reading. An item here is the
-        // answer to somebody looking for it in the place a Mac app keeps "start another one".
-        //
-        // No key equivalent. Cmd+N is New Workspace and this is the rarer of the two, so it takes
-        // the item without the shortcut, which is the same call `newWorkspaceFromPullRequest`
-        // makes directly above it.
         MenuBarItem(.newAskConversation, in: .file, "New Ask Bloom Conversation", availability: .always),
         MenuBarItem(.projectSettings, in: .file, "Project Settings…", key: .init("comma", .command, .shift), availability: .needsProject),
         MenuBarItem(.searchFiles, in: .file, "Search Files…", key: .command("p"), availability: .needsWorkspace),
@@ -223,7 +180,6 @@ public enum MenuBarAction: String, CaseIterable, Sendable {
 
     case newWorkspace
     case newWorkspaceFromPullRequest
-    case newCloudWorkspace
     case newAskConversation
     case projectSettings
     case newSession
@@ -363,7 +319,6 @@ public enum MenuBarAvailability: String, Equatable, Sendable {
     /// The tab in front is a terminal, which is the only thing in the centre column with a shell
     /// tree to zoom or to step focus around.
     case needsTerminalPane
-    /// The selected tab contains a browser pane, including a Cloud preview.
     case needsBrowserPane
     /// A review is open and the worktree has something changed in it.
     case needsReview

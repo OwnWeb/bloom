@@ -25,18 +25,10 @@ struct PullRequestSummary: View {
     /// What this worktree is holding that GitHub has not got. Nil while the first refresh is
     /// still running, which is not the same as "nothing", and is drawn as nothing extra.
     var localWork: LocalWork?
-    /// Why Continue cannot be pressed on this workspace, or nil when it can. The control stays and
-    /// says the sentence, because one that vanishes teaches nobody anything.
-    var continueBlocker: String?
-    /// The same for the two controls that act on GitHub as the signed-in person, Merge and Mark
-    /// ready for review.
-    var managementBlocker: String?
     var isWorking: Bool
     /// Message requests stay available during a turn. Continue and Archive act immediately
     /// and still require an idle workspace. `PullRequestCreator` shares the same decision.
     var branchActions: BranchActionAvailability
-    /// Cloud workspaces are permanently deleted rather than kept in Bloom's local archive.
-    var isCloudWorkspace: Bool
     /// How this project merges, which the split button promises and its menu ticks. Per project
     /// and remembered: see `MergeMethodChoice`.
     var mergeMethod: GitHub.MergeMethod
@@ -344,10 +336,8 @@ struct PullRequestSummary: View {
         Button("Continue", systemImage: "chevron.forward.2", action: onContinue)
             .buttonStyle(.bordered)
             .controlSize(.regular)
-            .disabled(continueBlocker != nil)
             .help(
-                continueBlocker
-                    ?? branchActions.reason
+                branchActions.reason
                     ?? "Cut a new branch from \(baseBranch) in this worktree and carry on, "
                         + "keeping this workspace's session, its setup and anything uncommitted."
             )
@@ -383,8 +373,8 @@ struct PullRequestSummary: View {
 
     private var archiveControl: some View {
         Button(
-            isCloudWorkspace ? "Delete Workspace" : "Archive",
-            systemImage: isCloudWorkspace ? "trash" : "archivebox",
+            "Archive",
+            systemImage: "archivebox",
             action: onArchive
         )
             .archiveConfirmation(
@@ -404,9 +394,6 @@ struct PullRequestSummary: View {
     }
 
     private var archiveHelp: String {
-        if isCloudWorkspace {
-            return "Permanently delete this Bloom Cloud workspace, including its machine, worktree and conversation."
-        }
         return "Remove this workspace's worktree. #\(pullRequest.number) is merged, so "
             + "this asks first only when something here exists nowhere else."
     }
@@ -455,10 +442,8 @@ struct PullRequestSummary: View {
             .tint(status.tone.fill)
             .controlSize(.regular)
             .fixedSize()
-            .disabled(managementBlocker != nil)
             .help(
-                managementBlocker
-                    ?? branchActions.reason
+                branchActions.reason
                     ?? "Mark #\(pullRequest.number) ready for review on GitHub."
             )
     }
@@ -548,7 +533,7 @@ struct PullRequestSummary: View {
             fill: status.tone.fill,
             // Queueing a request does not bypass GitHub's merge restrictions, and neither does a
             // workspace that cannot act on the pull request at all.
-            canMerge: status.canMerge && managementBlocker == nil,
+            canMerge: status.canMerge,
             help: blockedReason,
             choose: onChooseMergeMethod,
             merge: { propose(mergeMethod) }
@@ -568,7 +553,7 @@ struct PullRequestSummary: View {
 
     /// What the Merge button has to say for itself, or nil when there is nothing.
     private var blockedReason: String? {
-        managementBlocker ?? branchActions.reason ?? status.blockedReason
+        branchActions.reason ?? status.blockedReason
     }
 
     /// The title belongs somewhere, and a tooltip on the state is where: it answers "which pull

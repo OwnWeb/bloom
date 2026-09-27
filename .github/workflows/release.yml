@@ -36,87 +36,16 @@ permissions:
   # Only to attach the zip to the release that triggered this.
   contents: write
 
-# Mac releases share one lock because each reads and rewrites the appcast. Runner releases touch
-# neither the appcast nor Mac artefacts, so they use a separate lock and cannot delay one.
 concurrency:
-  group: ${{ (startsWith(github.event.release.tag_name, 'runner-v') || startsWith(inputs.tag, 'runner-v')) && 'bloom-runner-release' || 'bloom-mac-release' }}
+  group: bloom-mac-release
   cancel-in-progress: false
 
 jobs:
-  # Bloom Runner has releases of its own. A Mac release does not spend a Linux runner or publish a
-  # server artefact; only an explicit runner-v tag reaches this job.
-  runner:
-    if: ${{ startsWith(github.event.release.tag_name, 'runner-v') || startsWith(inputs.tag, 'runner-v') }}
-    runs-on: ubuntu-latest
-    container: swift:6.3.3-noble@sha256:8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5
-    timeout-minutes: 60
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Work out what is being released
-        id: release
-        env:
-          EVENT: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT" = "release" ]; then tag="$RELEASE_TAG"; else tag="$INPUT_TAG"; fi
-          [ -n "$tag" ] || { echo "No tag to build."; exit 1; }
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          # This job only accepts runner-v tags, stripped to the version in the archive name.
-          version="${tag#runner-}"
-          echo "version=${version#v}" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ steps.release.outputs.tag }}
-          persist-credentials: false
-
-      - name: Install system dependencies
-        run: |
-          set -euo pipefail
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends libsqlite3-dev zlib1g-dev pkg-config git patchelf python3 curl
-          # gh, for the upload. The Swift image does not carry it.
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
-          apt-get update -qq
-          apt-get install -y -qq gh
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: Build bloom-runner in release configuration
-        run: |
-          set -euo pipefail
-          swift build -c release --force-resolved-versions --product bloom-runner -j 4 -Xswiftc -warnings-as-errors
-          swift build -c release --force-resolved-versions --product bloom-bridge -j 4 -Xswiftc -warnings-as-errors
-
-      - name: Package it
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
-          python3 Tools/package-linux-runner.py "$(swift build -c release --show-bin-path)" .build/runner-release --version "$VERSION"
-          (cd .build/runner-release && sha256sum -c "bloom-runner-linux-x86_64-$VERSION.tar.gz.sha256")
-
-      - name: Attach it to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
-            ".build/runner-release/bloom-runner-linux-x86_64-$VERSION.tar.gz" \
-            ".build/runner-release/bloom-runner-linux-x86_64-$VERSION.tar.gz.sha256"
-
   # The whole of test.yml, macOS pair included, against the tag being released. Pull requests no
   # longer compile the app or run the core suite, to save the bill (the head of test.yml has the
   # numbers), so this is the one place a broken app is stopped before it reaches anybody. Read
   # only, whatever this file grants, because nothing in test.yml writes.
   checks:
-    if: ${{ !startsWith(github.event.release.tag_name, 'runner-v') && !startsWith(inputs.tag, 'runner-v') }}
     permissions:
       contents: read
     uses: ./.github/workflows/test.yml
@@ -124,12 +53,7 @@ jobs:
       ref: ${{ github.event.release.tag_name || inputs.tag }}
 
   release:
-    # A `runner-v` tag publishes only Bloom Runner, the Cloud workspace server, for runbloom.app to
-    # install machines from while it is tested. It must never build the app, touch the bucket or
-    # write either appcast, and a release event runs this file as it is at the tagged commit, so
-    # the guard has to be here before any such tag exists.
     needs: checks
-    if: ${{ !startsWith(github.event.release.tag_name, 'runner-v') && !startsWith(inputs.tag, 'runner-v') }}
     runs-on: macos-26
     timeout-minutes: 90
 

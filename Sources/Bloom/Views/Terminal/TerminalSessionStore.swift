@@ -293,7 +293,8 @@ final class TerminalSessionStore {
             defer { startingPanes.remove(pane) }
             if let tab = CenterTabStore.shared.tabsByWorkspace.values.joined().first(where: { $0.id == pane }),
                let sessionID = tab.agentSessionID {
-                guard let store = repoStore, let workspaceID = tab.localWorkspaceID,
+                let workspaceID = tab.workspaceID
+                guard let store = repoStore,
                       let session = try? await store.session(id: sessionID), session.archivedAt == nil,
                       let workspace = try? await store.workspace(id: workspaceID),
                       CenterTabStore.shared.terminal(for: sessionID, in: workspaceID)?.id == pane else { return }
@@ -472,11 +473,8 @@ final class TerminalSessionStore {
         })
         var turns: [SessionID: AgentTurns.Live] = [:]
         for tab in linkedTabs {
-            // Every shell this sweeps is a tmux session on this Mac, so a tab without a worktree
-            // here has nothing in it to find. A Cloud workspace's terminal is a stream to a machine
-            // and is not a `CenterTab` of this kind at all.
-            guard let workspaceID = tab.localWorkspaceID,
-                  let sessionID = tab.agentSessionID,
+            let workspaceID = tab.workspaceID
+            guard let sessionID = tab.agentSessionID,
                   let session = try? await store.session(id: sessionID),
                   session.archivedAt == nil else { continue }
             let paneIDs = TerminalSplitStore.shared.panes(of: tab.id)

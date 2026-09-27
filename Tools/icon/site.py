@@ -35,7 +35,7 @@ WHAT THE SITE DRAWS AND WHAT IT DOES NOT.
 
   favicon.svg             THE FRAME IS DELIBERATELY DROPPED HERE, and this
   brand/favicon-32.png    script does not touch these three. They carry
-  favicon.ico             `gen10.unframed`, the figure with no margin and the
+  favicon.ico             `icon_geometry.unframed`, the figure with no margin and the
                           lanes opened up on its own dark tile, because at 16
                           pixels the margin is two pixels of white, the
                           crossing it exists for is gone, and a near white tile
@@ -61,9 +61,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import design  # noqa: E402
-import gen10  # noqa: E402
+import icon_geometry  # noqa: E402
 import lib  # noqa: E402
-import lib9  # noqa: E402
+import icon_canvas  # noqa: E402
 
 DEFAULT_SITE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))),
                             "runbloom")
@@ -98,7 +98,7 @@ MARK_NOTE = """<!--
 
 def flush(body):
     """The composite with no tile clip, so the ground runs to the corners."""
-    return lib9.HEAD + "<defs>" + lib.defs() + "</defs>" + body + "</svg>"
+    return icon_canvas.HEAD + "<defs>" + lib.defs() + "</defs>" + body + "</svg>"
 
 
 def rsvg(src, size, out):
@@ -189,7 +189,7 @@ def main(site=None):
 
     # The three the frame is dropped for. Checked, not written: if the small
     # artwork ever moves, this says so instead of leaving the tab icon stale.
-    small, _ = gen10.unframed(small=True)
+    small, _ = icon_geometry.unframed(small=True)
     fav = os.path.join(site, "public", "favicon.svg")
     carried = open(fav).read()
     stale = carried[carried.index("<svg"):].strip() != small.strip()

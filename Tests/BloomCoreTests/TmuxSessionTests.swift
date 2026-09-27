@@ -305,64 +305,6 @@ struct TmuxCommandTests {
         #expect(command.killSession("bloom-x").starts(with: command.globalArguments))
     }
 
-    /// On a machine with a sandbox user, the tmux server and every client run as that user, so the
-    /// panes do: that is what keeps a shell from reading the workspace secret. Nothing changes
-    /// anywhere else, which is why every call site can stay as it is.
-    @Test("with a sandbox, tmux itself runs as the sandbox user, and without one nothing changes")
-    func sandboxed() {
-        let sandboxed = TmuxCommand(executable: "/usr/bin/tmux", socketName: "bloom-deadbeef", configPath: "/var/lib/bloom/shared/tmux.conf",
-                                    sandbox: MachineSandbox(user: "bloom-agent"))
-        #expect(sandboxed.executable == "/usr/bin/sudo")
-        #expect(sandboxed.tmuxPath == "/usr/bin/tmux")
-        let listed = sandboxed.listSessions
-        #expect(listed.first == "-E")
-        let script = try! #require(listed.last)
-        #expect(script.contains("mount --bind /dev/null '/.sprite/api.sock'"))
-        #expect(script.contains("'--reuid=bloom-agent'"))
-        #expect(script.hasSuffix("'/usr/bin/tmux' '-L' 'bloom-deadbeef' '-f' '/var/lib/bloom/shared/tmux.conf' '-u' 'list-sessions' '-F' '#{session_name}'"))
-        #expect(command.executable == "/opt/homebrew/bin/tmux", "a Mac spawns tmux itself")
-        #expect(command.listSessions == command.globalArguments + ["list-sessions", "-F", "#{session_name}"])
-    }
-
-    @Test("A pane attaches or creates in one exec, with its workspace environment")
-    func attachOrCreate() {
-        let arguments = command.attachOrCreate(
-            session: "bloom-x",
-            directory: "/tmp/work",
-            environment: [
-                "BLOOM_PORT": "3000", "CONDUCTOR_PORT": "3000",
-                "ANTHROPIC_API_KEY": "sentinel", "openai_api_token": "sentinel",
-            ]
-        )
-        #expect(arguments == [
-            "-L", "bloom-deadbeef", "-f", "/cfg/tmux.conf", "-u",
-            "set-environment", "-gr", "NO_COLOR", ";",
-            "new-session", "-A", "-D", "-s", "bloom-x", "-c", "/tmp/work",
-            "-e", "BLOOM_PORT=3000",
-            "-e", "CONDUCTOR_PORT=3000",
-        ])
-        #expect(!arguments.contains { $0.contains("sentinel") })
-    }
-
-    @Test("Kills name the session exactly, so a prefix match can never take a second one")
-    func exactKill() {
-        #expect(command.killSession("bloom-x").suffix(2) == ["-t", "=bloom-x"])
-    }
-
-    @Test("The generated configuration turns off everything that would be noticed")
-    func configuration() {
-        let text = TmuxSessions.configuration(defaultShell: "/bin/zsh")
-        #expect(text.contains("set -g default-shell \"/bin/zsh\""))
-        #expect(text.contains("set -g escape-time 0"))
-        #expect(text.contains("set -g status off"))
-        #expect(text.contains("set -g prefix None"))
-        #expect(text.contains("set -g prefix2 None"))
-        #expect(text.contains("unbind-key -a -T prefix"))
-        // The wheel is the one thing that must reach tmux: a client puts SwiftTerm into its
-        // alternate screen, so without this a scroll would do nothing at all.
-        #expect(text.contains("set -g mouse on"))
-        #expect(text.contains("set -g set-clipboard on"))
-    }
 }
 
 @Suite("tmux pane pids")

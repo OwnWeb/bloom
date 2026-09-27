@@ -1,30 +1,21 @@
 import Foundation
 
-/// The variables every setup, archive and run script is given, on a Mac and on a Cloud workspace's
-/// machine alike, under both prefixes.
-///
-/// **One list, because scripts are written once and run in both places.** A repository's setup
-/// script that starts with `set -u` and reads `$BLOOM_ROOT_PATH` ended on its first line on a
-/// machine, because the machine built its own shorter list of names. The values differ between the
-/// two (a machine's clone is both the worktree and the repository root, and it is not local); the
-/// names never should, so they live here and nowhere else.
+/// The variables given to setup, archive and run scripts under both prefixes.
 public struct WorkspaceScriptVariables: Sendable, Hashable {
-    public var isLocal: Bool
     public var workspaceName: String
-    public var workspaceID: String
+    public var workspaceID: WorkspaceID
     public var workspacePath: String
     public var projectName: String
     public var rootPath: String
     public var defaultBranch: String
     public var port: Int
-    /// Where a browser pane's address can be written. Only a Mac has a browser pane.
+    /// Where a browser pane's address can be written.
     public var urlFile: String?
 
     public init(
-        isLocal: Bool, workspaceName: String, workspaceID: String, workspacePath: String, projectName: String,
+        workspaceName: String, workspaceID: WorkspaceID, workspacePath: String, projectName: String,
         rootPath: String, defaultBranch: String, port: Int, urlFile: String? = nil
     ) {
-        self.isLocal = isLocal
         self.workspaceName = workspaceName
         self.workspaceID = workspaceID
         self.workspacePath = workspacePath
@@ -39,9 +30,9 @@ public struct WorkspaceScriptVariables: Sendable, Hashable {
     /// sees the same workspace.
     public var environment: [String: String] {
         var pairs: [(String, String)] = [
-            ("IS_LOCAL", isLocal ? "1" : "0"),
+            ("IS_LOCAL", "1"),
             ("WORKSPACE_NAME", workspaceName),
-            ("WORKSPACE_ID", workspaceID),
+            ("WORKSPACE_ID", workspaceID.rawValue),
             ("WORKSPACE_PATH", workspacePath),
             ("PROJECT_NAME", projectName),
             ("ROOT_PATH", rootPath),

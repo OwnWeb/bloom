@@ -5,7 +5,7 @@ import BloomCore
 struct NotesPage: View {
     @Binding var text: String
     var isEditing: FocusState<Bool>.Binding
-    var surfaceID: WorkspaceSurfaceID
+    var workspaceID: WorkspaceID
     var workspaceName: String
     var hasLoaded: Bool
     var couldNotLoad: Bool
@@ -58,7 +58,7 @@ struct NotesPage: View {
     }
 
     private var editor: some View {
-        NotesMarkdownEditor(text: $text, isEditing: isEditing, documentKey: surfaceID.storageKey,
+        NotesMarkdownEditor(text: $text, isEditing: isEditing, documentKey: workspaceID.rawValue,
                             isEditable: hasLoaded, showsSource: showsSource, commands: commands)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topLeading) { placeholder }

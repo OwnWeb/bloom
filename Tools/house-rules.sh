@@ -102,7 +102,7 @@ baton_allowed=(
   'Tests/BloomCoreTests/InstallPingTests.swift'     # a sample path
   'Tests/BloomCoreTests/LegacyMigrationTests.swift' # tests the migration off the old name
   'Tests/BloomCoreTests/RepositoryStartPlanTests.swift' # sample folder names
-  'Tools/icon/lib9.py'                              # a sample path
+  'Tools/icon/icon_canvas.py'                              # a sample path
 )
 for file in $(git grep --untracked -l -I -i baton -- ':!.claude' ':!Tools/house-rules.sh' || true); do
   allowed=0
@@ -297,10 +297,6 @@ id_type_allowed_files=(
   'Sources/BloomCore/Agent/Grok/GrokClient.swift'    # the same protocol's request envelopes
   'Sources/BloomCore/Agent/Grok/GrokRunner.swift'    # Grok session ids assigned by that server
   'Sources/BloomCore/Agent/AgentRetry.swift'   # the same stream-json, one line of it
-  'Sources/BloomCore/Remote/RemoteSummary.swift'      # runbloom.app's summary body, ids as JSON strings
-  'Sources/BloomCore/Remote/RemoteUsageMeter.swift'   # runbloom.app's usage body and the kernel's boot id
-  'Sources/BloomCore/Bridge/CloudWorkspaceReach.swift' # Bloom Cloud workspace and chat ids, which runbloom.app and the machine assign
-  'Sources/BloomRunner/Machine/MachineConfiguration.swift' # runbloom.app's workspace.json
   'Sources/BloomCore/Transcript/ContextCompaction.swift' # the same stream-json, one line of it
 )
 # Names that are never a Bloom row, wherever they appear. This list should only
@@ -321,13 +317,7 @@ id_type_allowed_names=(
   processID         # a pid, as text
   bundleID          # macOS, not Bloom
   ownerID           # a split pane, which is the layout's namespace and not a row
-  authorID          # runbloom.app's account for whoever wrote a message, as `AuthorRecord`
-                    # spells it. Never a Bloom row: it is compared with the reader's own id and
-                    # with the previous message's, and looked up in nothing
-  previousAuthorID  # the same id, one message earlier, for labelling a run of them
-  stagingDraftID    # a composer draft's attachment folder under the temporary directory, and the
-                    # bucket key PromptAttachmentStore holds it by. Never a row, and its own copy
-                    # lives in BloomClient, which cannot import the typed ids at all
+
 )
 # The remaining stored `String` ids, each one a deliberate decision. This list
 # should only ever get shorter.
@@ -356,26 +346,6 @@ id_type_allowed_lines=(
 id_type_allowed_properties=(
   'Sources/BloomCore/Agent/Delivery.swift:providerTurnID'             # the provider's accepted turn, used for recovery
   'Sources/BloomCore/Agent/PlanArtefact.swift:sourceID'               # the provider's plan item or tool-use token
-  'Sources/BloomCore/Agent/Delivery.swift:remoteTurnID'               # runbloom.app's turn, a ULID it assigns
-  'Sources/Bloom/State/Cloud/CloudSharing.swift:teamID'               # runbloom.app's team, a ULID it assigns
-  'Sources/BloomCore/Model/MessageAuthor.swift:userID'                # runbloom.app's user, the token's sub
-  'Sources/BloomCore/Model/MessageAudience.swift:userID'              # the same, as who a message was addressed to
-  'Sources/BloomCore/Remote/WorkspaceMembers.swift:userID'            # the same, as runbloom.app lists a team
-  'Sources/BloomCore/Remote/AddressedReport.swift:userID'             # the same, as who a message was addressed to
-  'Sources/BloomCore/Remote/AddressedReport.swift:id'                 # runbloom.app's dedupe key for one mail
-  'Sources/BloomCore/Remote/RemoteOpening.swift:userID'              # runbloom.app's user who prompted the opening
-  'Sources/BloomCore/Remote/RemoteTurnGate.swift:userID'             # runbloom.app's user bound to a registered turn
-  'Sources/BloomCore/Remote/RemoteProjectSettings.swift:id'          # a stable repository-declared service id, not a Bloom row
-  'Sources/BloomCore/Remote/RemoteProjectSettings.swift:seenIDs'     # those same service ids while validating one manifest
-  'Sources/BloomRunner/Runbloom/MachineEnvironmentSnapshot.swift:id' # runbloom.app's opaque one-use handoff ULID
-  'Sources/BloomCore/Bridge/CloudWorkspaceStartTool.swift:id'         # runbloom.app's id for a workspace another machine holds
-  'Sources/BloomRunner/Runbloom/RunbloomCloudWorkspaces.swift:id'     # the same id, as runbloom.app answers it
-  'Sources/BloomCore/Remote/WorkspacePeers.swift:id'                  # runbloom.app's id for another team workspace
-  'Sources/BloomRunner/Runbloom/RunbloomPeers.swift:id'               # the same id, as runbloom.app lists it
-  'Sources/BloomCore/Workspace/WorkspaceScriptVariables.swift:workspaceID' # a value handed to a script, a Mac's or runbloom.app's
-  'Sources/BloomCore/Remote/RemoteEventHub.swift:userID'              # the same user, holding an event stream open
-  'Sources/BloomRunner/HTTP/EventStreams.swift:userID'                # the same user, on the server's side of the stream
-  'Sources/BloomRunner/HTTP/ControlRoutes.swift:userID'               # runbloom.app's user, named in a revoke
 )
 # A stored property whose name ends in ID or Ids and whose type is a bare
 # String. Trailing `{` is excluded by the `$` anchor, which is what leaves

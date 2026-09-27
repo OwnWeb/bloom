@@ -9,19 +9,18 @@ extension AppModel {
         return visibleBrowserTarget(in: workspace)
     }
 
-    /// The browser in the selected tab, including a Cloud preview or forwarded page.
+    /// The browser in the selected tab.
     var browserReloadTarget: String? {
         guard !isAskInFront else { return nil }
-        if let cloud = selectedCloudSession { return visibleBrowserTarget(in: cloud) }
         guard let workspace = selectedModel else { return nil }
         return visibleBrowserTarget(in: workspace)
     }
 
-    private func visibleBrowserTarget(in workspace: some WorkspaceSurface) -> String? {
+    private func visibleBrowserTarget(in workspace: WorkspaceModel) -> String? {
         let workspaceTabs = WorkspaceTabsStore.shared
         guard let selected = workspaceTabs.selectedTab(in: workspace) else { return nil }
         let layout = workspaceTabs.layout(of: selected)
-        let tools = CenterTabStore.shared.tabs(for: workspace.surfaceID)
+        let tools = CenterTabStore.shared.tabs(for: workspace.workspace.id)
         guard let pane = BrowserLocationTarget.resolve(
             focused: layout.focus,
             visible: layout.panes,

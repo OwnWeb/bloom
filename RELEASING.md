@@ -63,10 +63,6 @@ through one piece of code on purpose.
 2. Generate release notes from the commits and merged PRs since the preceding release, checking
    them against the selected commit. Describe user-visible changes in concise British English.
    Publish them on GitHub; they become the description Sparkle shows.
-   **Bloom Cloud is embargoed until the owner explicitly says it is public.** Until then, exclude
-   Bloom Cloud and supporting infrastructure from every public release title, GitHub note, Sparkle
-   note and website changelog. Write and review the notes by hand rather than publishing generated
-   notes that may reveal it.
 3. Publish. Tick "set as a pre-release" for anything you do not want everyone
    offered.
 4. After the release workflow succeeds, [publish the website release notes](#publish-the-website-release-notes)
@@ -75,10 +71,6 @@ through one piece of code on purpose.
 A prerelease is anything whose tag has a semver prerelease part, or anything
 you ticked the box on. Either one puts the item on Sparkle's `beta` channel,
 which nobody sees unless the app asks for that channel.
-
-Bloom Runner is released separately under a `runner-v<version>` tag. A normal `v<version>` Bloom
-release builds only the macOS app, so it spends no Linux runner time and publishes no server
-artefact. The release workflow selects the matching job from the tag prefix.
 
 The version in the bundle comes from the tag, not from `Resources/Info.plist`.
 The build number is the number of commits reachable from the tag, which is what

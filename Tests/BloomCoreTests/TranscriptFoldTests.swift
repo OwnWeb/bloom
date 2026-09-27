@@ -501,17 +501,4 @@ struct TranscriptFoldTests {
         #expect(TranscriptFold.hiddenIndices(work, revealed: [], drawn: 0..<facts.count).count == 10)
     }
 
-    /// A Bloom Cloud machine's picture is its own row, and it splits the work around it exactly as
-    /// a local `media_show` call does. `foldFact` marks it `featured`; the machine's own call before
-    /// it is ordinary work there, because the picture is the row.
-    @Test("a machine's media row splits the group and stays on screen")
-    func mediaRowSplits() {
-        var facts: [TranscriptFold.Fact] = [.init(seq: 0, kind: .user)]
-        for seq in 1..<5 { facts.append(.init(seq: seq, kind: .toolUse, toolUseID: "a\(seq)")) }
-        facts.append(.init(seq: 5, kind: .media, featured: true))
-        for seq in 6..<10 { facts.append(.init(seq: seq, kind: .toolUse, toolUseID: "b\(seq)")) }
-
-        let folds = TranscriptFold.folds(in: facts)
-        #expect(folds.all.map { $0.rows.map(\.seq) } == [[1, 2, 3, 4], [6, 7, 8, 9]])
-    }
 }

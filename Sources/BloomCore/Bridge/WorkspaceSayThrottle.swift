@@ -44,9 +44,6 @@ public enum WorkspaceSayThrottle {
         )
     }
 
-    /// The same rule over what was sent and when, which is all it reads. A message to a Bloom
-    /// Cloud workspace is not a row in the store, so `CloudSayLedger` hands it this instead, and
-    /// there is still one rule rather than two.
     public static func refusal(
         sending text: String, to workspace: String, sent: [(text: String, at: Date)], now: Date = Date()
     ) -> WorkspaceSayTrouble? {

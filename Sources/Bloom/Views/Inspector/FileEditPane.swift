@@ -10,8 +10,8 @@ import BloomCore
 /// A path rather than a `ChangedFile`, because the two ways into a file are the diff of one the
 /// agent touched and the worktree tree, and the tree opens files git has never heard of. Editing
 /// is a question about bytes on disk either way, so the pane only ever needed the path.
-struct FileEditPane<Model: WorkspaceSurface>: View {
-    let model: Model
+struct FileEditPane: View {
+    let model: WorkspaceModel
     /// Relative to the workspace's worktree, the way every path in the inspector is.
     let path: String
     let session: FileEditSession
@@ -76,24 +76,12 @@ struct FileEditPane<Model: WorkspaceSurface>: View {
         }, content: { comparison })
     }
 
-    /// The worktree behind this file, or nil for a file on a machine.
-    ///
-    /// **What the two kinds of workspace genuinely differ on inside this pane, and it is not the
-    /// editing.** The tools bar and every lookup under it need a language server rooted in a
-    /// worktree on this Mac and a chat to ask about a symbol in, which a Cloud workspace has
-    /// neither of. `offersSourceLookup` already says so for the diff; this is the same answer for
-    /// the editor, and what is left is a text view that reads and writes a file, which is the
-    /// whole of Edit mode.
-    private var worktree: WorkspaceModel? { model.composerWorkspace }
-
     @ViewBuilder
     private var editor: some View {
         if session.draft(for: absolutePath) != nil {
             VStack(spacing: 0) {
-                if let worktree {
-                    SourceTools(model: worktree, path: path, state: state)
-                    Hairline()
-                }
+                SourceTools(model: model, path: path, state: state)
+                Hairline()
                 SourceEditor(
                     text: session.binding(for: absolutePath),
                     language: state.languageOverride ?? Language.detect(path: path),
@@ -101,24 +89,19 @@ struct FileEditPane<Model: WorkspaceSurface>: View {
                     isEditable: isEditable,
                     editorState: state,
                     onOpenReference: { reference, offset, newTab in
-                        guard let worktree else { return }
-                        SourceActions.open(reference, at: offset, path: path, model: worktree, state: state, newTab: newTab)
+                        SourceActions.open(reference, at: offset, path: path, model: model, state: state, newTab: newTab)
                     },
                     onDefinition: { offset in
-                        guard let worktree else { return }
-                        SourceActions.definition(at: offset, path: path, model: worktree, state: state)
+                        SourceActions.definition(at: offset, path: path, model: model, state: state)
                     },
                     onReferences: { offset in
-                        guard let worktree else { return }
-                        SourceActions.references(at: offset, path: path, model: worktree, state: state)
+                        SourceActions.references(at: offset, path: path, model: model, state: state)
                     },
                     onNavigateSymbol: { offset, newTab in
-                        guard let worktree else { return }
-                        SourceActions.navigate(at: offset, path: path, model: worktree, state: state, newTab: newTab)
+                        SourceActions.navigate(at: offset, path: path, model: model, state: state, newTab: newTab)
                     },
                     onAsk: {
-                        guard let worktree else { return }
-                        SourceActions.ask(path: path, model: worktree, state: state)
+                        SourceActions.ask(path: path, model: model, state: state)
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -269,14 +252,7 @@ struct FileEditPane<Model: WorkspaceSurface>: View {
 }
 
 extension WorkspaceModel {
-    /// The file itself, editable, which is what Edit mode in a diff shows.
-    ///
-    /// A view built by the workspace rather than by `DiffView`, because the workspace is what
-    /// knows where the bytes are: this Mac's disk here, the machine's connection for a Cloud
-    /// workspace. It is the same pane over both, which it was not: it took a `WorkspaceModel` and
-    /// read the file itself, and the sentence saying a Cloud workspace could not be edited was
-    /// true only because of that. See `EditableFiles`.
-    func editorPane(path: String, session: FileEditSession) -> FileEditPane<WorkspaceModel> {
+    func editorPane(path: String, session: FileEditSession) -> FileEditPane {
         FileEditPane(model: self, path: path, session: session)
     }
 }

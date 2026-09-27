@@ -18,12 +18,6 @@ struct StripOrderTests {
         #expect(StripOrder.entries(sessions: [one, two], tools: ["t1", "t2"], stored: order) == order)
     }
 
-    /// **A new tab went to the left of the conversation, and this is why.** The owner opened a
-    /// terminal in a Cloud workspace whose chats this store had not recorded yet, so the only
-    /// arrival it could see was the terminal, and a stored order naming the terminal alone puts it
-    /// in front of everything the list has never heard of. Nothing arranged plus half the story is
-    /// no arrangement at all now, and the strip falls back to what it derives: conversations, then
-    /// tools, with the new tab on the end.
     @Test("a tool reported before any conversation does not take the front of the strip")
     func aPartialFirstReportIsNotAnArrangement() {
         let order = StripOrder.updated(tools: ["t1"], stored: [])

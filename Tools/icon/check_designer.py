@@ -9,8 +9,8 @@ lookalike, and this script is what keeps it one. It checks three things and
 prints the numbers rather than a verdict, because "close enough" is a judgement
 and the numbers are what it should be made on.
 
-  THE CONSTANTS. designer.geom.js carries lib9's cubic as literals. They are
-  recomputed here from lib9 itself and compared.
+  THE CONSTANTS. designer.geom.js carries icon_canvas's cubic as literals. They are
+  recomputed here from icon_canvas itself and compared.
 
   THE GEOMETRY. Three parameter sets are drawn by both sides and every vertex of
   every polygon is compared. These should agree to the last bit or close to it:
@@ -37,7 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 BUILD = os.path.join(HERE, ".build", "designer")
 sys.path.insert(0, HERE)
-import lib9      # noqa: E402
+import icon_canvas      # noqa: E402
 import menubar as m   # noqa: E402
 
 GEOM = os.path.join(HERE, "designer.geom.js")
@@ -66,11 +66,11 @@ def js(expr):
 
 def check_constants():
     src = open(GEOM).read()
-    want = [-280.0, lib9.CX + (300 - 512) * lib9.S,
-            lib9.CX + (560 - 512) * lib9.S, 1304.0]
+    want = [-280.0, icon_canvas.CX + (300 - 512) * icon_canvas.S,
+            icon_canvas.CX + (560 - 512) * icon_canvas.S, 1304.0]
     got = json.loads(re.search(r"const XS = (\[[^\]]*\]);", src).group(1))
     worst = max(abs(a - b) for a, b in zip(want, got))
-    print("constants      XS worst difference from lib9: %.3g" % worst)
+    print("constants      XS worst difference from icon_canvas: %.3g" % worst)
     return worst
 
 

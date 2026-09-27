@@ -35,9 +35,6 @@ public enum WindowPanePreferences {
             if let sessionID { return "inspector.visible.session.\(sessionID.rawValue)" }
             return "inspector.visible.workspace.\(workspaceID.rawValue)"
         }
-        if let cloudID = selection.cloudWorkspaceID {
-            return "inspector.visible.cloud.\(cloudID.rawValue)"
-        }
         return nil
     }
 }

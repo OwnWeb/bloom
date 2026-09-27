@@ -15,8 +15,7 @@ import BloomCore
 /// building a new one. A moved terminal keeps its shell and a moved browser keeps its page.
 /// The names and numbers the centre's panes are laid out to.
 ///
-/// Their own type because three of them are read from outside the view, and because the view is
-/// generic over the workspace now and a generic type may hold no stored static.
+/// Three are also read by the column outside this view.
 enum CentrePaneMeasure {
     /// What a split takes out of the space its two panes share. One point, because the strip the
     /// pointer aims at is drawn over the panes rather than reserved between them.
@@ -67,8 +66,8 @@ enum CentrePaneMeasure {
     nonisolated static let ghostSize = CGSize(width: 96, height: 56)
 }
 
-struct CenterPanesView<Model: WorkspaceSurface>: View {
-    let model: Model
+struct CenterPanesView: View {
+    let model: WorkspaceModel
 
     private var tabs: WorkspaceTabsStore { .shared }
 
@@ -247,7 +246,7 @@ struct CenterPanesView<Model: WorkspaceSurface>: View {
         case .chat:
             return PaneKind.chat.symbol
         case .tool(let id):
-            let open = CenterTabStore.shared.tabs(for: model.surfaceID)
+            let open = CenterTabStore.shared.tabs(for: model.workspace.id)
             return open.first { $0.id == id }?.icon ?? PaneKind.terminal.symbol
         }
     }

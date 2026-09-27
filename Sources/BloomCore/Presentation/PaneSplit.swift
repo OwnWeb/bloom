@@ -18,10 +18,6 @@ public enum CenterTabKind: String, Codable, Sendable, CaseIterable {
     case review
     /// The workspace's scratch text.
     case notes
-    /// What a Cloud workspace's machine did while it was starting: the only account of its first
-    /// few minutes, and the only way back from a setup that failed. A local workspace's setup
-    /// output is a row in its transcript, where the reader already is, so it has no tab of its own.
-    case setup
 }
 
 /// What goes in the half a split opens, worked out from the pane being split.
@@ -93,7 +89,7 @@ public enum PaneSplit {
             switch tabKind {
             case .terminal: return .freshTerminal
             case .browser: return .freshBrowser
-            case .review, .notes, .setup, nil: return .nothing
+            case .review, .notes, nil: return .nothing
             }
         }
     }

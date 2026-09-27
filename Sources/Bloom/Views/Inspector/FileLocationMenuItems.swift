@@ -14,10 +14,6 @@ import BloomCore
 /// Everything here is values and closures, so a row that holds these as parameters keeps comparing
 /// on its values alone. See `ChangedFileRow.==`.
 struct FileLocationMenuItems: View {
-    /// Where the row is on disk, which is what every item but the last is handed. Nil for a
-    /// workspace whose files are in the cloud: the items stay, greyed, with `unavailable` saying
-    /// why, because a menu that loses half its rows on one kind of workspace teaches nobody
-    /// anything. See `WorkspaceCapabilities`.
     var path: String?
     /// Why the items above Copy path are off, when they are.
     var unavailable: String?

@@ -2,19 +2,6 @@ import AppKit
 import BloomCore
 import SwiftTerm
 
-/// What a terminal in Bloom looks like, for every terminal in Bloom.
-///
-/// **One source of settings, both panes, at the owner's asking.** A Cloud workspace's terminal came
-/// up black with SwiftTerm's own palette and a twelve point default while the local one beside it
-/// was drawing his scheme, his font and his Ghostty configuration. His question was whether the
-/// Cloud one could simply use those settings, and the answer turned out to be yes for nothing: none
-/// of this describes a worktree or a process on this Mac. `ColourThemePreference` is a shared
-/// singleton and `TerminalGhostty` reads the appearance it is handed, so the whole of a terminal's
-/// look is already a value both views can ask for.
-///
-/// It is an extension on SwiftTerm's own view rather than a shared superclass because the two
-/// terminals differ in what feeds them, a local process against a socket, and not at all in what
-/// they look like. A subclass would have made them share the half that genuinely differs.
 extension SwiftTerm.TerminalView {
     /// The sixteen ANSI slots, the foreground, the background, the cursor and the selection, from
     /// the scheme this reader chose with their Ghostty configuration over it where they follow one.

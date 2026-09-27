@@ -92,10 +92,10 @@ final class WorkspaceTabsStore {
     /// was never persisted before either, because `CenterPaneStore.persist` removed the key
     /// whenever the column was down to one pane. A launch has always opened on the active
     /// conversation and it still does.
-    private var selected: [WorkspaceSurfaceID: PaneContent] = [:]
+    private var selected: [WorkspaceID: PaneContent] = [:]
 
     /// Opening order across chats and tools, updated when either list changes or a tab is dragged.
-    private var stripOrders: [WorkspaceSurfaceID: [PaneContent]] = [:]
+    private var stripOrders: [WorkspaceID: [PaneContent]] = [:]
 
     /// Read in one pass at launch rather than lazily per workspace. A getter may not mutate, and
     /// loading from a task would leave the first frame showing a single pane, which is long enough
@@ -153,7 +153,7 @@ final class WorkspaceTabsStore {
 
         for (key, value) in snapshot
         where key.hasPrefix(TabDefaults.stripPrefix) {
-            let workspaceID = WorkspaceSurfaceID(storageKey: String(key.dropFirst(TabDefaults.stripPrefix.count)))
+            let workspaceID = WorkspaceID(String(key.dropFirst(TabDefaults.stripPrefix.count)))
             guard let data = value as? Data,
                   let order = try? JSONDecoder().decode([PaneContent].self, from: data) else {
                 // Dropped rather than kept, on the same terms as an unreadable arrangement above:
@@ -175,24 +175,24 @@ final class WorkspaceTabsStore {
     /// Everything the workspace has, minus whatever a tab has absorbed, in whatever order the user
     /// has dragged it into. `TabSet` states the first rule and `StripOrder` the second, and this is
     /// the only place either is asked, so a tab is in the strip once or not at all.
-    func entries(in model: some WorkspaceSurface) -> [PaneContent] {
+    func entries(in model: WorkspaceModel) -> [PaneContent] {
         // `TabSet.tabbable` and never `sessions.map(\.id)`: a workspace's chats include the crew
         // members an agent started in it, and those are sidebar rows rather than tabs. See
         // `TabSet.tabbable`, which is where that rule is argued.
-        let sessions = TabSet.tabbable(model.chats)
-        let tools = CenterTabStore.shared.tabs(for: model.surfaceID).filter { $0.agentSessionID == nil }.map(\.id)
+        let sessions = TabSet.tabbable(model.sessions)
+        let tools = CenterTabStore.shared.tabs(for: model.workspace.id).filter { $0.agentSessionID == nil }.map(\.id)
         return StripOrder.entries(
             sessions: sessions,
             tools: tools,
             claimed: claimed(sessions: sessions, tools: tools),
-            stored: stripOrders[model.surfaceID] ?? []
+            stored: stripOrders[model.workspace.id] ?? []
         )
     }
 
     /// Both stores report arrivals here. An unloaded store keeps its saved positions until it
     /// can supply a real list, so launch order cannot discard half of an interleaved strip.
     func updateOrder(
-        sessions: [SessionID]? = nil, tools: [String]? = nil, workspaceID: WorkspaceSurfaceID
+        sessions: [SessionID]? = nil, tools: [String]? = nil, workspaceID: WorkspaceID
     ) {
         let previous = stripOrders[workspaceID] ?? []
         let order = StripOrder.updated(sessions: sessions, tools: tools, stored: previous)
@@ -203,10 +203,10 @@ final class WorkspaceTabsStore {
 
     /// Capture selection before removing the content. A background close must not fall back to
     /// the workspace's active conversation, and a split tab keeps its surviving panes.
-    func prepareToClose(_ content: PaneContent, in model: some WorkspaceSurface) {
+    func prepareToClose(_ content: PaneContent, in model: WorkspaceModel) {
         let entries = entries(in: model)
         guard let current = selectedTab(in: model, entries: entries) else { return }
-        if selected[model.surfaceID] != current { selected[model.surfaceID] = current }
+        if selected[model.workspace.id] != current { selected[model.workspace.id] = current }
         guard current == content,
               layout(of: current).panes.allSatisfy({ self.content(of: $0, in: current) == content })
         else { return }
@@ -221,11 +221,11 @@ final class WorkspaceTabsStore {
     /// which is the caller's job and not this one's: see `StripOrder` for why that matters, which is
     /// that a lost defaults file should cost the interleaving and not the order of the
     /// conversations within it.
-    func reorder(_ drawn: [PaneContent], in model: some WorkspaceSurface) {
-        let workspaceID = model.surfaceID
+    func reorder(_ drawn: [PaneContent], in model: WorkspaceModel) {
+        let workspaceID = model.workspace.id
         guard let order = StripOrder.rewritten(
             drawn,
-            sessions: TabSet.tabbable(model.chats),
+            sessions: TabSet.tabbable(model.sessions),
             tools: CenterTabStore.shared.tabs(for: workspaceID).filter { $0.agentSessionID == nil }.map(\.id),
             stored: stripOrders[workspaceID] ?? []
         ) else { return }
@@ -241,7 +241,7 @@ final class WorkspaceTabsStore {
     /// closed, itself absorbed into another tab) cannot leave the column pointing at nothing. It
     /// deliberately does not write the answer back: a view body asks this, and a body may not
     /// mutate observed state.
-    func selectedTab(in model: some WorkspaceSurface) -> PaneContent? {
+    func selectedTab(in model: WorkspaceModel) -> PaneContent? {
         selectedTab(in: model, entries: entries(in: model))
     }
 
@@ -252,18 +252,10 @@ final class WorkspaceTabsStore {
     /// absorbed and lays the user's own order over the result, and the tab strip needs the list
     /// itself as well as the selection. Asking through the parameterless overload above made every
     /// pass derive it once for the `ForEach` and again in here.
-    func selectedTab(in model: some WorkspaceSurface, entries: [PaneContent]) -> PaneContent? {
-        if let chosen = selected[model.surfaceID], entries.contains(chosen) { return chosen }
+    func selectedTab(in model: WorkspaceModel, entries: [PaneContent]) -> PaneContent? {
+        if let chosen = selected[model.workspace.id], entries.contains(chosen) { return chosen }
 
-        // The active conversation, which is what the toolbar, the inspector and the pull request
-        // button are already talking about. It can be a pane of a composite tab rather than a tab
-        // of its own, in which case the tab holding it is the one to open on.
-        //
-        // `preferredChatID` and never `activeChat`, and the difference is a crash rather than a
-        // preference: a workspace whose idea of the chat in front comes from this store answers
-        // nil, so this cannot re-enter. It used to ask for `activeChat`, which a Cloud workspace
-        // answers by asking this method. See `WorkspaceSurface.preferredChatID`.
-        if let active = model.preferredChatID.map({ PaneContent.chat($0) }) {
+        if let active = model.activeSession.map({ PaneContent.chat($0.id) }) {
             if entries.contains(active) { return active }
             if let owner = entries.first(where: { claimedContents(of: $0).contains(active) }) {
                 return owner
@@ -272,7 +264,7 @@ final class WorkspaceTabsStore {
         return entries.first
     }
 
-    private func persistStrip(_ workspaceID: WorkspaceSurfaceID) {
+    private func persistStrip(_ workspaceID: WorkspaceID) {
         let defaults = UserDefaults.standard
         let key = TabDefaults.stripKey(workspaceID)
         guard let order = stripOrders[workspaceID], !order.isEmpty,
@@ -343,10 +335,10 @@ final class WorkspaceTabsStore {
     /// request button all speak about one conversation, so a tab whose focused pane is a chat says
     /// which one that is. A tab whose focused pane is a shell or a page says nothing about it and
     /// leaves the last answer standing, which is what clicking a terminal tab has always done.
-    func select(_ tab: PaneContent, in model: some WorkspaceSurface) {
+    func select(_ tab: PaneContent, in model: WorkspaceModel) {
         // A selected tab remains clickable. Do not turn that click into an observed dictionary
         // mutation and a redraw of the strip and panes when the selection did not move.
-        if selected[model.surfaceID] != tab { selected[model.surfaceID] = tab }
+        if selected[model.workspace.id] != tab { selected[model.workspace.id] = tab }
         adoptActiveSession(of: tab, in: model)
     }
 
@@ -356,7 +348,7 @@ final class WorkspaceTabsStore {
     /// the shortcut walks the tabs in the order they are seen rather than in the order they were
     /// opened. Which tab is next is `TabCycle` in the core, with the wrapping and the
     /// closed-tab case tested; what is here is the strip it asks about.
-    func selectNextTab(offset: Int, in model: some WorkspaceSurface) {
+    func selectNextTab(offset: Int, in model: WorkspaceModel) {
         let tabs = entries(in: model)
         guard let next = TabCycle.next(from: selectedTab(in: model), in: tabs, offset: offset) else {
             return
@@ -377,7 +369,7 @@ final class WorkspaceTabsStore {
     ///   should be made the focused one. False for a click on a filename, whose reader is standing
     ///   in the inspector; true for a menu item or a keystroke that asks for the thing itself,
     ///   where landing on a pane nobody is in is indistinguishable from nothing having happened.
-    func reveal(_ content: PaneContent, in model: some WorkspaceSurface, focusing: Bool = false) {
+    func reveal(_ content: PaneContent, in model: WorkspaceModel, focusing: Bool = false) {
         if let current = selectedTab(in: model),
            let showing = layout(of: current).panes
                .first(where: { self.content(of: $0, in: current) == content }) {
@@ -393,7 +385,7 @@ final class WorkspaceTabsStore {
                   .first(where: { self.content(of: $0, in: owner) == content })
         else { return }
 
-        selected[model.surfaceID] = owner
+        selected[model.workspace.id] = owner
         focus(pane, in: owner, of: model)
     }
 
@@ -402,7 +394,7 @@ final class WorkspaceTabsStore {
     ///
     /// It moves the active session where picking a tab does, and for the same reason: a composite
     /// tab holding two conversations has to point the toolbar at the one the caret is in.
-    func focus(_ pane: String, in tab: PaneContent, of model: some WorkspaceSurface) {
+    func focus(_ pane: String, in tab: PaneContent, of model: WorkspaceModel) {
         if var arrangement = arrangements[tab.id], arrangement.layout.focus != pane,
            arrangement.layout.setFocus(pane) {
             arrangements[tab.id] = arrangement
@@ -414,7 +406,7 @@ final class WorkspaceTabsStore {
     /// Only when it moved. Every click into a pane comes through here, and assigning an identical
     /// value is still a mutation as far as Observation is concerned: `WorkspaceModel.reloadSessions`
     /// is the note about what that costs, an invalidation that reaches every pane of the column.
-    private func adoptActiveSession(of tab: PaneContent, in model: some WorkspaceSurface) {
+    private func adoptActiveSession(of tab: PaneContent, in model: WorkspaceModel) {
         guard case .chat(let sessionID) = content(of: focusedPane(of: tab), in: tab) else { return }
         model.adoptActiveChat(sessionID)
     }
@@ -467,7 +459,7 @@ final class WorkspaceTabsStore {
     /// An unsplit tab has no pane to repoint. Its one pane IS the tab, so showing something else
     /// in it means picking that other tab, and picking a tab is the one thing here that never
     /// writes a pane. That is the inversion, stated where `CenterPaneStore.show` used to break it.
-    func replace(pane: String, of tab: PaneContent, with content: PaneContent, in model: some WorkspaceSurface) {
+    func replace(pane: String, of tab: PaneContent, with content: PaneContent, in model: WorkspaceModel) {
         guard var arrangement = arrangements[tab.id] else { return select(content, in: model) }
         guard arrangement.contents[pane] != content, arrangement.canHold(content),
               canAbsorb(content) else { return }
@@ -479,24 +471,24 @@ final class WorkspaceTabsStore {
         // Repointing the root's last pane takes the root out of the tab as surely as closing that
         // pane would, so it is settled the same way.
         if let stored = arrangement.stored {
-            apply(TabSurgery.settle(stored, root: tab), to: tab, in: model.surfaceID)
+            apply(TabSurgery.settle(stored, root: tab), to: tab, in: model.workspace.id)
         }
-        adoptActiveSession(of: selected[model.surfaceID] ?? tab, in: model)
+        adoptActiveSession(of: selected[model.workspace.id] ?? tab, in: model)
     }
 
     /// `/clear` replaces a conversation in place, including any split tabs showing it.
-    func replaceConversation(_ previous: SessionID, with replacement: SessionID, in model: some WorkspaceSurface) {
+    func replaceConversation(_ previous: SessionID, with replacement: SessionID, in model: WorkspaceModel) {
         let old = PaneContent.chat(previous)
         let new = PaneContent.chat(replacement)
         for arrangement in Array(arrangements.values) {
             guard let stored = arrangement.stored else { continue }
             apply(TabSurgery.replace(old, with: new, in: stored, root: arrangement.root),
-                  to: arrangement.root, in: model.surfaceID)
+                  to: arrangement.root, in: model.workspace.id)
         }
-        if selected[model.surfaceID] == old { selected[model.surfaceID] = new }
-        if let order = stripOrders[model.surfaceID] {
-            stripOrders[model.surfaceID] = order.map { $0 == old ? new : $0 }
-            persistStrip(model.surfaceID)
+        if selected[model.workspace.id] == old { selected[model.workspace.id] = new }
+        if let order = stripOrders[model.workspace.id] {
+            stripOrders[model.workspace.id] = order.map { $0 == old ? new : $0 }
+            persistStrip(model.workspace.id)
         }
     }
 
@@ -508,7 +500,7 @@ final class WorkspaceTabsStore {
     /// back to the strip as an unsplit tab of its own on the next pass. See `TabSurgery`, which is
     /// where the rest of that decision lives.
     @discardableResult
-    func close(pane: String, in tab: PaneContent, of workspaceID: WorkspaceSurfaceID) -> Bool {
+    func close(pane: String, in tab: PaneContent, of workspaceID: WorkspaceID) -> Bool {
         guard let stored = arrangements[tab.id]?.stored else { return false }
         let outcome = TabSurgery.closePane(pane, in: stored, root: tab)
         guard outcome != .unchanged else { return false }
@@ -531,7 +523,7 @@ final class WorkspaceTabsStore {
     @discardableResult
     func move(
         pane: String, beside target: String, axis: SplitAxis, before: Bool,
-        in tab: PaneContent, of model: some WorkspaceSurface
+        in tab: PaneContent, of model: WorkspaceModel
     ) -> Bool {
         guard var arrangement = arrangements[tab.id],
               arrangement.layout.move(pane, beside: target, axis: axis, before: before)
@@ -550,7 +542,7 @@ final class WorkspaceTabsStore {
     /// there would be.
     @discardableResult
     func exchange(
-        pane: String, with other: String, in tab: PaneContent, of model: some WorkspaceSurface
+        pane: String, with other: String, in tab: PaneContent, of model: WorkspaceModel
     ) -> Bool {
         guard var arrangement = arrangements[tab.id],
               arrangement.layout.exchange(pane, with: other) else { return false }
@@ -581,7 +573,7 @@ final class WorkspaceTabsStore {
     /// an empty state until something else happened to reload the workspace.
     ///
     /// The caller chooses a neighbouring tab before removal when the whole active tab closes.
-    func forget(_ content: PaneContent, workspaceID: WorkspaceSurfaceID) {
+    func forget(_ content: PaneContent, workspaceID: WorkspaceID) {
         for arrangement in arrangements.values {
             guard let stored = arrangement.stored else { continue }
             let outcome = TabSurgery.remove(content, from: stored, root: arrangement.root)
@@ -598,15 +590,15 @@ final class WorkspaceTabsStore {
     ///
     /// **Both lists are handed over as an answer or as doubt, never flattened.** `TabReconciliation`
     /// carries the reasoning and the tests; the part that belongs here is that neither store can be
-    /// asked to guess on its behalf. `model.chats` is empty until the `Store` actor comes back,
+    /// asked to guess on its behalf. `model.sessions` is empty until the `Store` actor comes back,
     /// and `CenterTabStore.tabs(for:)` is empty both for a workspace with no tool tabs and for one
     /// whose stored list would not decode.
     ///
     /// Called from `CenterColumnView` after `WorkspaceModel.onAppear`, which is what makes the
     /// first of those an answer rather than doubt on the first visit of a launch. Its own task
     /// loads the tool tabs before it awaits, so both are settled by the time this runs.
-    func reconcile(in model: some WorkspaceSurface) {
-        let workspaceID = model.surfaceID
+    func reconcile(in model: WorkspaceModel) {
+        let workspaceID = model.workspace.id
         let tabs = CenterTabStore.shared
 
         var stored: [PaneContent: StoredPaneArrangement] = [:]
@@ -616,7 +608,7 @@ final class WorkspaceTabsStore {
 
         let dead = TabReconciliation.dead(
             in: stored,
-            sessions: model.hasReadChats ? model.chats.map(\.id) : nil,
+            sessions: model.hasReadSessions ? model.sessions.map(\.id) : nil,
             tools: tabs.hasReadTabs(for: workspaceID) ? tabs.tabs(for: workspaceID).map(\.id) : nil
         )
         for content in dead {
@@ -628,7 +620,7 @@ final class WorkspaceTabsStore {
 
     /// Files what `TabSurgery` decided, and moves the selection with it when the tab the user is
     /// in is the one that changed name or went away.
-    private func apply(_ outcome: TabSurgery.Outcome, to tab: PaneContent, in workspaceID: WorkspaceSurfaceID) {
+    private func apply(_ outcome: TabSurgery.Outcome, to tab: PaneContent, in workspaceID: WorkspaceID) {
         switch outcome {
         case .unchanged:
             return

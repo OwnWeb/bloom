@@ -40,7 +40,6 @@ struct AttachmentCard: View {
     var worktree: String
     /// What the composer has to give, which is what the card may take.
     var availableWidth: CGFloat
-    /// A Cloud file fetched onto this Mac before the transcript card is measured.
     var previewURL: URL?
     var previewFailure: String?
 

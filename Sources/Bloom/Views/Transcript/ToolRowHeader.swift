@@ -429,8 +429,7 @@ struct ToolRowHeader: View {
             onOpen: onOpen,
             onOpenInNewTab: onOpenInNewTab,
             onPreview: { frame in
-                let file = TranscriptHoverCard.file(attachment: attachment, worktree: worktree,
-                                                    cloudID: home.surfaceID?.cloudID)
+                let file = TranscriptHoverCard.file(attachment: attachment, worktree: worktree)
                 guard let frame else {
                     if hoverHost?.request?.card == file { hoverHost?.request = nil }
                     return

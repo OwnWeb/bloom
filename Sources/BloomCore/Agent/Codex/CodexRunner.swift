@@ -6,8 +6,8 @@ import Synchronization
 /// The shape is `AgentRunner`'s, deliberately: a long-lived process, the thread id persisted the
 /// moment it arrives so a crashed app can resume, every event written to the store before it
 /// reaches the UI, and the same permission bookkeeping. What it is not is a second code path
-/// inside `AgentRunner`. The two backends share no protocol, only the idea of a conversation, and
-/// that idea is `SessionRunner`.
+/// inside `AgentRunner`. Their wire protocols differ; `SessionRunner` shares only the
+/// conversation operations the app needs.
 ///
 /// **One connection per chat.** app-server can carry several threads on one connection, which is
 /// tempting to share per workspace or per app, and would mean one crash taking down every Codex
@@ -72,8 +72,8 @@ public actor CodexRunner: SessionRunner {
 
     /// The workspace bridge this chat registers, or nil for none. Written once, by whoever built
     /// this runner, and read on every connect: `CodexClient.Configuration` is rebuilt per connect
-    /// exactly as `AgentRunner`'s argv is recomputed per start, so the two backends re-register on
-    /// the same schedule.
+    /// exactly as `AgentRunner`'s argv is recomputed per start, so both register the bridge
+    /// when their process starts.
     private let bridge: BridgeAttachment?
 
     public init(
@@ -908,8 +908,7 @@ public actor CodexRunner: SessionRunner {
         case .tell(let sentence):
             sink.yield(.error(.storage(message: sentence)))
         case .stop:
-            // Kills the server rather than interrupting the turn, which is where the two backends
-            // part company: `cancelNow` here would leave `codex app-server` running in a worktree
+            // Stop app-server itself. `cancelNow` would leave the process running in a worktree
             // that is being deleted. See `SessionRunner.terminateNow`.
             Self.log.info("the transcript for \(self.session.id.rawValue, privacy: .public) has been removed, so this run is being stopped without a word")
             terminateNow()

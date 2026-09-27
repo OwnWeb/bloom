@@ -2,12 +2,8 @@
 # Renders Bloom's icon the way the system renders it, into a PNG, so a drawing of the icon can be
 # held against the real thing.
 #
-# The Bloom Cloud hero draws the icon's layers itself, filled from the gradients in `icon.json`
-# (see `BloomIconArtwork`), because a dev or Cloud build tints its own compiled icon and the hero
-# must be Bloom's blue in every build. A drawing that nobody checks against the original is how the
-# hero came out wrong once already, so this compiles `Resources/Bloom.icon` with actool exactly as
-# `Tools/build.sh` does, puts it in a throwaway bundle, and asks the system for that bundle's icon.
-# Nothing is installed, nothing is launched and nothing appears on screen.
+# This compiles `Resources/Bloom.icon` with actool as `Tools/build.sh` does, then asks the
+# system for the icon from a throwaway bundle. Nothing is installed or launched.
 #
 #     ./Tools/icon-truth.sh [output.png] [size]
 set -euo pipefail

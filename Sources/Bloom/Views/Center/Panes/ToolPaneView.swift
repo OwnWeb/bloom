@@ -107,14 +107,6 @@ struct ToolPaneView: View {
                 .id(model.workspace.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        // A tab only a Cloud workspace opens: a local workspace's setup output is a row in its
-        // transcript, where the reader already is. See `CloudWorkspaceSession.toolPane`.
-        case .setup:
-            EmptyStateView(
-                glyph: PaneGlyph.setup,
-                title: "Nothing to show",
-                message: "This workspace's setup is in its conversation rather than in a tab."
-            )
         }
     }
 

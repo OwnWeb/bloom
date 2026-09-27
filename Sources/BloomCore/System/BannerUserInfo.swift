@@ -17,19 +17,6 @@ public enum BannerUserInfo {
     /// The bytes of this key are what banners already sitting in Notification Center were written
     /// with, so it is not free to change.
     private static let workspaceKey = "bloomWorkspaceID"
-    /// A Cloud workspace's banner names runbloom.app's id under a key of its own, because it is not
-    /// a workspace in this Mac's database and a click must not go looking for one there.
-    private static let cloudWorkspaceKey = "bloomCloudWorkspaceID"
-
-    public static func encode(cloudWorkspaceID: CloudWorkspaceID) -> [String: String] {
-        [cloudWorkspaceKey: cloudWorkspaceID.rawValue]
-    }
-
-    public static func cloudWorkspaceID(from userInfo: [AnyHashable: Any]) -> CloudWorkspaceID? {
-        guard let raw = userInfo[cloudWorkspaceKey] as? String, !raw.isEmpty else { return nil }
-        return CloudWorkspaceID(raw)
-    }
-
     public static func encode(workspaceID: WorkspaceID) -> [String: String] {
         [workspaceKey: workspaceID.rawValue]
     }

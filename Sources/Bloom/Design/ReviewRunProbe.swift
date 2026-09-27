@@ -16,9 +16,7 @@ enum ReviewRunProbe {
         // default focus. Give that dedicated process accessory status before AppKit finishes
         // launching it. Switching a running prohibited app in the probe itself is too late on a
         // fresh CI login, where Launch Services will decline the activation request.
-        let policy: NSApplication.ActivationPolicy = CommandLine.arguments.contains("--cloud-archive-keyboard")
-            ? .accessory
-            : .prohibited
+        let policy: NSApplication.ActivationPolicy = .prohibited
         NSApplication.shared.setActivationPolicy(policy)
         Task { await run() }
         RunLoop.main.run()
@@ -63,115 +61,6 @@ enum ReviewRunProbe {
             let result: JSONValue = .object([
                 "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
                 "terminal": .string(TerminalScrollerProbe.summary),
-            ])
-            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
-            exit(failures.isEmpty ? 0 : 1)
-        }
-
-        if CommandLine.arguments.contains("--cloud-settings-only"),
-           let directory = ProbeHarness.value(for: "--review-run-probe") {
-            progress("Drawing the Bloom Cloud settings pane, signed out and signed in")
-            let written = CloudSettingsGallery.render(into: directory)
-            check(written.count == 15, "the gallery drew \(written.count) of the fifteen images")
-            check(BloomIconArtwork.hasLayers, "the bundle has no icon layers, so the hero has no icon")
-            check(BloomIconArtwork.image(.ground, size: 64) != nil, "a layer could not be filled")
-            let sizes = CloudSettingsGallery.archiveSizes
-            check(sizes.count == 3, "the archive popover was drawn \(sizes.count) times, not three")
-            check(Set(sizes.map(\.width)).count == 1, "the archive popover's widths differ: \(sizes)")
-            if sizes.count == 3 {
-                check(sizes[1].height > sizes[0].height, "the machine's longer answer did not grow the popover: \(sizes)")
-            }
-            let result: JSONValue = .object([
-                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
-                "images": .strings(written),
-            ])
-            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
-            exit(failures.isEmpty ? 0 : 1)
-        }
-
-        if CommandLine.arguments.contains("--cloud-sidebar-only"),
-           let directory = ProbeHarness.value(for: "--review-run-probe") {
-            progress("Drawing the Cloud sidebar invitations")
-            let written = CloudSidebarInvitationGallery.render(into: directory)
-            check(written.count == 4, "the gallery drew \(written.count) of the four images")
-            let result: JSONValue = .object([
-                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
-                "images": .strings(written),
-            ])
-            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
-            exit(failures.isEmpty ? 0 : 1)
-        }
-
-        if CommandLine.arguments.contains("--cloud-setup-only"),
-           let directory = ProbeHarness.value(for: "--review-run-probe") {
-            progress("Drawing a new Cloud workspace's setup card at each stage")
-            let written = CloudSetupGallery.render(into: directory)
-            check(written.count == 10, "the gallery drew \(written.count) of the ten images")
-            let result: JSONValue = .object([
-                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
-                "images": .strings(written),
-            ])
-            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
-            exit(failures.isEmpty ? 0 : 1)
-        }
-
-        if CommandLine.arguments.contains("--cloud-ports-only"),
-           let directory = ProbeHarness.value(for: "--review-run-probe") {
-            progress("Drawing a Cloud workspace's Ports popover in each state a row passes through")
-            let written = CloudPortsGallery.render(into: directory)
-            check(written.count == 20, "the gallery drew \(written.count) of the twenty images")
-            let result: JSONValue = .object([
-                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
-                "images": .strings(written),
-            ])
-            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
-            exit(failures.isEmpty ? 0 : 1)
-        }
-
-        if CommandLine.arguments.contains("--cloud-archive-only"),
-           let directory = ProbeHarness.value(for: "--review-run-probe") {
-            progress("Checking the Bloom Cloud delete confirmation")
-            await CloudArchiveProbe.run(
-                directory: directory,
-                checksKeyboard: CommandLine.arguments.contains("--cloud-archive-keyboard"),
-                check: check
-            )
-            let result: JSONValue = .object([
-                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
-            ])
-            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
-            exit(failures.isEmpty ? 0 : 1)
-        }
-
-        if CommandLine.arguments.contains("--share-popover-only"),
-           let directory = ProbeHarness.value(for: "--review-run-probe") {
-            progress("Drawing two Share popovers")
-            let written = SharePopoverGallery.render(into: directory)
-            check(written.count == 4, "the gallery drew \(written.count) of the four images")
-            let result: JSONValue = .object([
-                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
-                "images": .strings(written),
-            ])
-            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
-            exit(failures.isEmpty ? 0 : 1)
-        }
-
-        if CommandLine.arguments.contains("--cloud-selection-only") {
-            progress("Checking Cloud tab selection before chats arrive and in a split tab")
-            await CloudSelectionProbe.run(check: check)
-            let result: JSONValue = .object([
-                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
-            ])
-            if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
-            exit(failures.isEmpty ? 0 : 1)
-        }
-
-        if CommandLine.arguments.contains("--cloud-terminal-only") {
-            progress("Checking what a Cloud terminal shows after the machine reattaches it")
-            await CloudTerminalProbe.run(check: check)
-            let result: JSONValue = .object([
-                "checks": .integer(checks), "passed": .bool(failures.isEmpty), "failures": .strings(failures),
-                "terminal": .string(CloudTerminalProbe.summary),
             ])
             if let data = try? JSONEncoder().encode(result) { FileHandle.standardOutput.write(data) }
             exit(failures.isEmpty ? 0 : 1)
@@ -299,9 +188,9 @@ enum ReviewRunProbe {
             await model.refreshChanges()
             check(model.changedFiles.count == 6, "review fixture did not load its six changed files")
             check(model.reviewFiles.last?.path == "README.md", "review order did not put root files after folders")
-            let fresh = CenterTab(workspaceID: model.surfaceID, kind: .review, title: CenterTab.reviewTitle)
+            let fresh = CenterTab(workspaceID: model.workspace.id, kind: .review, title: CenterTab.reviewTitle)
             check(fresh.showsAllFiles, "a new review did not default to all files")
-            let pinned = CenterTab(workspaceID: model.surfaceID, kind: .review, title: "Pinned", isPinnedToPath: true)
+            let pinned = CenterTab(workspaceID: model.workspace.id, kind: .review, title: "Pinned", isPinnedToPath: true)
             check(!pinned.showsAllFiles, "a pinned review defaulted to all files")
             do {
                 var selected = fresh

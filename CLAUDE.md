@@ -10,7 +10,7 @@ worktree on disk, which is why so much of what follows is about not destroying o
 Longer documents, pointed at rather than repeated here: `README.md` for what the app is,
 `RELEASING.md` for signing, notarising and the appcast, `docs/CODEX.md` for the Codex app-server
 protocol as measured, `docs/GROK.md` for Grok's ACP over stdio, `docs/PROTOCOL.md` for Claude Code's stream-json,
-`docs/AGENTS-INTEGRATION.md` for how the four CLIs are detected, `docs/BRIDGE.md` for the MCP
+`docs/AGENTS-INTEGRATION.md` for how agent CLIs are detected, `docs/BRIDGE.md` for the MCP
 bridge an agent calls back in through and which callers may call what, `docs/PLAN.md` for what was
 built and in what order, `docs/start-from.html` for the design note the create sheet's source picker
 was drawn from, which is a page to open in a browser rather than to read here.
@@ -28,9 +28,8 @@ relays lines to the running app over a unix socket. Three lines of `main.swift`;
 testing is `BridgeShim` in the core. It is a relay with nothing to draw, so it is held to the same
 line as the core.
 
-`Sources/BloomRunner` is the Cloud workspace server, with `Sources/bloom-runner` as its executable
-entry point. `Sources/bloom-sleep-helper` is a separate privileged helper for Keep Awake. Neither
-imports a UI framework. `BloomRunnerTests` and `BloomCoreTests` exercise their respective modules.
+`Sources/bloom-sleep-helper` is a separate privileged helper for Keep Awake. It does not
+import a UI framework. `BloomCoreTests` exercises the core module.
 
 `make lint` holds that line for both, and it looks for the framework rather than for a literal,
 because `import Cocoa` re-exports the whole of AppKit and `import class AppKit.NSView` names
@@ -130,7 +129,7 @@ question keeps coming back, so the answer is written down here.
 
 **Xcode already has the targets and the schemes.** Open `Package.swift` in Xcode and it builds,
 runs, debugs, profiles and previews. `xcodebuild -list` in this directory, with no `.xcodeproj`
-anywhere, answers with four schemes: `Bloom`, `bloom-bridge`, `BloomCore` and `Bloom-Package`.
+anywhere, discovers the package products and schemes.
 Apple's own position is in the tooling: `swift package generate-xcodeproj` was removed years ago,
 and `swift build --build-system xcode` is labelled "discouraged" in its own help text.
 
@@ -182,8 +181,8 @@ the machine back, so a local run is both a stall for him and an answer you may n
 owner does ask for a local run, run only the filter that covers what you touched, for example
 `./Tools/test-core.sh DiffParser`, never the full suite.
 
-**A pull request runs only the Linux half of CI.** `.github/workflows/test.yml` runs the house
-rules, SwiftLint, the secrets scan and the Linux server build on every pull request push. The macOS
+**A pull request runs lint and the secrets scan.** `.github/workflows/test.yml` runs the house
+rules, SwiftLint and secrets scan on every pull request push. The macOS
 pair, the app target with `-warnings-as-errors` and the whole core suite, does not run there,
 because it was nearly all of the Actions bill and pull requests here are merged without waiting
 for it. It runs in front of every Mac release (`release.yml` calls it and

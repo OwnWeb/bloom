@@ -1,82 +1,48 @@
 import Foundation
 
-/// A completed work segment, folded behind one line before the next message that stays visible.
+/// The boundaries and duration of each agent turn.
 ///
-/// `TranscriptFold` keeps a live turn readable by folding consecutive runs of actions while the
-/// agent's commentary stays in place. Once the result row or another user message arrives, the
-/// preceding work is history. A result keeps the last top-level assistant message as its response,
-/// while a steering message closes all the work before its own bubble.
-///
-/// A live turn is still returned with nothing hidden. Its entry can therefore take its stable
-/// place at the start of the work before completion removes any rows from the table.
+/// `TranscriptFold` owns the activity groups within a turn. This scan only finds where a completed
+/// turn ends, so its duration can be shown after the agent's text and its action groups can be
+/// opened together. It keeps completed turns when new rows arrive and rescans only the live tail.
 public enum TranscriptTurnFold {
     public struct Fact: Equatable, Sendable {
         public var seq: Int
         public var kind: MessageKind
-        public var drawsNothing: Bool
         public var parentToolUseID: String?
         public var opensTurn: Bool
         public var durationMS: Int?
         public var createdAt: Date?
-        public var requestedScreenshot: Bool
 
         public init(
             seq: Int,
             kind: MessageKind,
-            drawsNothing: Bool = false,
             parentToolUseID: String? = nil,
             opensTurn: Bool = false,
             durationMS: Int? = nil,
-            createdAt: Date? = nil,
-            requestedScreenshot: Bool = false
+            createdAt: Date? = nil
         ) {
             self.seq = seq
             self.kind = kind
-            self.drawsNothing = drawsNothing
             self.parentToolUseID = parentToolUseID
             self.opensTurn = opensTurn
             self.durationMS = durationMS
             self.createdAt = createdAt
-            self.requestedScreenshot = requestedScreenshot
         }
     }
 
     public struct Turn: Equatable, Sendable {
-        /// Every stored row from the first work row through the result, or through the live tail.
+        /// Stored rows from the first work row through the result, or up to the next user message.
         public var span: Range<Int>
-        /// The working rows replaced by the disclosure once this segment is complete.
-        public var hidden: Set<Int>
-        /// The sequence numbers corresponding to `hidden`, for a search or restored position.
-        public var hiddenSeqs: Set<Int>
         public var firstSeq: Int
         public var isComplete: Bool
-        /// Whether at least one hidden stored row draws content of its own.
-        public var hasHiddenRows: Bool
         public var durationMS: Int?
-        /// Copies of these rows are drawn after the folded work and before the answer.
-        public var requestedScreenshots: [Int]
-        public var answerIndex: Int?
 
-        public init(
-            span: Range<Int>,
-            hidden: Set<Int>,
-            hiddenSeqs: Set<Int>,
-            firstSeq: Int,
-            isComplete: Bool,
-            hasHiddenRows: Bool,
-            durationMS: Int? = nil,
-            requestedScreenshots: [Int] = [],
-            answerIndex: Int? = nil
-        ) {
+        public init(span: Range<Int>, firstSeq: Int, isComplete: Bool, durationMS: Int? = nil) {
             self.span = span
-            self.hidden = hidden
-            self.hiddenSeqs = hiddenSeqs
             self.firstSeq = firstSeq
             self.isComplete = isComplete
-            self.hasHiddenRows = hasHiddenRows
             self.durationMS = durationMS
-            self.requestedScreenshots = requestedScreenshots
-            self.answerIndex = answerIndex
         }
     }
 
@@ -94,14 +60,10 @@ public enum TranscriptTurnFold {
             self.resumeIndex = resumeIndex
         }
 
-        /// The segment whose disclosure is drawn at this row, which is the first row of its work.
-        ///
-        /// **Above the work, not above the response.** Folded, the two places look the same,
-        /// because every row between them is hidden. Opened, a line drawn over the response put
-        /// the work it had just revealed above itself, and the reader pressed a line and watched
-        /// the rows appear behind them rather than under it.
-        public func turn(startingAt index: Int) -> Turn? {
-            guard let turn = turn(containing: index), turn.span.lowerBound == index else { return nil }
+        /// A turn interrupted by the user ends immediately before that user's row.
+        public func turn(endingAt index: Int) -> Turn? {
+            guard index > 0, let turn = turn(containing: index - 1),
+                  turn.span.upperBound == index else { return nil }
             return turn
         }
 
@@ -121,59 +83,38 @@ public enum TranscriptTurnFold {
             }
             return nil
         }
+    }
 
-        /// What collapsing this segment would actually take off the table, which is nothing at
-        /// all when the drawn window stops inside it.
-        ///
-        /// **The line and the rows it claims to stand for are one answer, asked here.** They used
-        /// to be two: the disclosure was drawn whenever the segment had hidden rows, and the rows
-        /// were removed only when the whole span was inside the window, so a segment the window
-        /// cut in half got a rule saying "Worked for 9m 24s" above work that was still there, and
-        /// pressing it did nothing that could be seen. `TranscriptFold.hiddenIndices` refuses the
-        /// same case for the same reason, and `foldEntry` draws no line when it comes back empty:
-        /// a control that answers nothing when it is pressed is worse than no control.
-        public func wouldHide(_ turn: Turn, drawn: Range<Int> = 0..<Int.max) -> Set<Int> {
-            guard turn.hasHiddenRows,
-                  turn.span.lowerBound >= drawn.lowerBound,
-                  turn.span.upperBound <= drawn.upperBound else { return [] }
-            return turn.hidden
-        }
+    /// The action groups available to a completed turn's disclosure in the drawn window.
+    public struct Disclosures: Sendable {
+        public var hiddenByWork: [Int: Set<Int>]
+        public var turnByWork: [Int: Int]
+        public var expandableTurns: Set<Int>
+    }
 
-        public func hiddenIndices(
-            opened: Set<Int>,
-            closed: Set<Int>,
-            revealed: Set<Int>,
-            drawn: Range<Int> = 0..<Int.max
-        ) -> Set<Int> {
-            var hidden: Set<Int> = []
-            for turn in all
-            where !isOpen(turn, opened: opened, closed: closed, revealed: revealed) {
-                hidden.formUnion(wouldHide(turn, drawn: drawn))
+    public static func disclosures(
+        work: TranscriptFold.Folds,
+        turns: Folds,
+        revealed: Set<Int>,
+        drawn: Range<Int>
+    ) -> Disclosures {
+        var hiddenByWork: [Int: Set<Int>] = [:]
+        var turnByWork: [Int: Int] = [:]
+        var expandableTurns: Set<Int> = []
+        for group in work.all where drawn.contains(group.span.lowerBound) {
+            let hidden = TranscriptFold.hiddenIndices(group, revealed: revealed, drawn: drawn)
+            guard !hidden.isEmpty else { continue }
+            hiddenByWork[group.firstSeq] = hidden
+            if let turn = turns.turn(containing: group.span.lowerBound), turn.isComplete {
+                turnByWork[group.firstSeq] = turn.firstSeq
+                expandableTurns.insert(turn.firstSeq)
             }
-            return hidden
         }
-
-        /// Whether this segment's working is on the table, and **the reader's own answer outranks
-        /// every reason this file has for opening one.**
-        ///
-        /// `revealed` is the rows something has asked to be on screen, which for a segment is the
-        /// row a search, an unread mark or a restored place is about to scroll to: folding that
-        /// row away leaves `put(at:)` with no index and the reader at the top of a conversation
-        /// they were meant to be put back into. See `TranscriptListView.revealedSeqs`.
-        ///
-        /// **It was the only answer, and that is the bug this pair of sets exists for.** A segment
-        /// holding a revealed row was open, and stayed open, whatever the reader pressed: the
-        /// click flipped a set the question then ignored, the disclosure never moved, and the
-        /// line read as a dead control. A turn that ran while somebody was away holds the unread
-        /// mark by definition, so this was most of them. `closed` is the reader saying no to it,
-        /// and it is asked before `revealed` is.
-        public func isOpen(
-            _ turn: Turn, opened: Set<Int>, closed: Set<Int>, revealed: Set<Int>
-        ) -> Bool {
-            if opened.contains(turn.firstSeq) { return true }
-            if closed.contains(turn.firstSeq) { return false }
-            return !turn.hiddenSeqs.isDisjoint(with: revealed)
-        }
+        return Disclosures(
+            hiddenByWork: hiddenByWork,
+            turnByWork: turnByWork,
+            expandableTurns: expandableTurns
+        )
     }
 
     public static func folds<Facts: RandomAccessCollection>(
@@ -193,7 +134,6 @@ public enum TranscriptTurnFold {
         var turnStart: Int?
         var turnStartedAt: Date?
         var acceptsResultDuration = true
-        var finalResponse: Int?
         var resume = start
 
         func elapsed(until end: Date?) -> Int? {
@@ -202,49 +142,14 @@ public enum TranscriptTurnFold {
             }
         }
 
-        func appendTurn(
-            endingAt end: Int,
-            isComplete: Bool,
-            durationMS: Int?,
-            hidesEntireSpan: Bool = false
-        ) {
+        func appendTurn(endingAt end: Int, isComplete: Bool, durationMS: Int?) {
             guard let turnStart, turnStart < end else { return }
             let first = facts[facts.index(facts.startIndex, offsetBy: turnStart)]
-            var hidden: Set<Int> = []
-            var hiddenSeqs: Set<Int> = []
-            var hasHiddenRows = false
-            var requestedScreenshots: [Int] = []
-
-            let hiddenEnd = hidesEntireSpan ? end : finalResponse
-            if let hiddenEnd, isComplete, turnStart < hiddenEnd {
-                for index in turnStart..<hiddenEnd {
-                    let fact = facts[facts.index(facts.startIndex, offsetBy: index)]
-                    hidden.insert(index)
-                    hiddenSeqs.insert(fact.seq)
-                    hasHiddenRows = hasHiddenRows || !fact.drawsNothing
-                }
-            }
-            if isComplete {
-                for index in turnStart..<end {
-                    let fact = facts[facts.index(facts.startIndex, offsetBy: index)]
-                    guard fact.requestedScreenshot else { continue }
-                    requestedScreenshots.append(index)
-                    hidden.insert(index)
-                    hiddenSeqs.insert(fact.seq)
-                    hasHiddenRows = true
-                }
-            }
-
             found.append(Turn(
                 span: turnStart..<end,
-                hidden: hidden,
-                hiddenSeqs: hiddenSeqs,
                 firstSeq: first.seq,
                 isComplete: isComplete,
-                hasHiddenRows: hasHiddenRows,
-                durationMS: durationMS,
-                requestedScreenshots: requestedScreenshots,
-                answerIndex: isComplete ? (finalResponse ?? end - 1) : nil
+                durationMS: durationMS
             ))
         }
 
@@ -254,20 +159,10 @@ public enum TranscriptTurnFold {
 
             if fact.kind == .user || fact.kind == .crew || fact.opensTurn {
                 if turnStart != nil {
-                    // **A background task finishing closes nothing a person was waiting on.**
-                    // The work before it is folded behind a rule only when a PERSON interrupted
-                    // it, because the rule is a turn's answer to "how long did that take me". A
-                    // run of background agents reporting in drew one rule between every pair of
-                    // notices, each standing for a span with nothing in it worth hiding, which is
-                    // furniture rather than information. See `BackgroundWake`, which is what these
-                    // rows are and why they open a turn at all.
+                    // A background wake starts new work without ending the previous turn.
                     if !fact.opensTurn {
-                        appendTurn(
-                            endingAt: offset,
-                            isComplete: true,
-                            durationMS: elapsed(until: fact.createdAt),
-                            hidesEntireSpan: true
-                        )
+                        appendTurn(endingAt: offset, isComplete: true,
+                                   durationMS: elapsed(until: fact.createdAt))
                     }
                     acceptsResultDuration = false
                 } else {
@@ -275,12 +170,6 @@ public enum TranscriptTurnFold {
                 }
                 turnStartedAt = fact.createdAt
                 turnStart = offset + 1
-                finalResponse = nil
-                continue
-            }
-
-            if fact.kind == .assistantText, turnStart != nil, !fact.drawsNothing {
-                finalResponse = offset
                 continue
             }
 
@@ -288,12 +177,11 @@ public enum TranscriptTurnFold {
                 let reported = acceptsResultDuration
                     ? fact.durationMS.flatMap { $0 > 0 ? $0 : nil }
                     : nil
-                let durationMS = reported ?? elapsed(until: fact.createdAt)
-                appendTurn(endingAt: offset + 1, isComplete: true, durationMS: durationMS)
+                appendTurn(endingAt: offset + 1, isComplete: true,
+                           durationMS: reported ?? elapsed(until: fact.createdAt))
                 turnStart = nil
                 turnStartedAt = nil
                 acceptsResultDuration = true
-                finalResponse = nil
                 resume = offset + 1
             }
         }

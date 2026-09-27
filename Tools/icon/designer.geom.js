@@ -7,7 +7,7 @@
 // rendered pixels one by one. If a function here stops matching its Python
 // twin, that script says so.
 //
-// The constants below are lib9's, which is where the app icon's own lane comes
+// The constants below are icon_canvas's, which is where the app icon's own lane comes
 // from. They are checked by the same script rather than trusted.
 
 const SPAN0 = -280.0, SPAN1 = 1304.0;

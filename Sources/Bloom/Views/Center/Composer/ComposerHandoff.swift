@@ -24,47 +24,19 @@ enum ComposerHandoff {
         var paths: [String] = []
     }
 
-    /// Attaches to the workspace's active session, writes `body` at the end of that draft, and
-    /// brings the conversation into view.
-    ///
-    /// **At the end of the draft rather than at the caret**, which is the one place this differs
-    /// from a drop. A drop knows where it was let go; a button in another pane does not, and the
-    /// caret it would find is wherever the user last left it, which is as likely to be the middle
-    /// of a word as anywhere. The end is the only position that is the same every time.
-    ///
-    /// **The conversation is revealed rather than switched to.** `WorkspaceTabsStore.reveal` does
-    /// nothing at all when the chat is already a pane of the tab on screen, which is the split the
-    /// browser is normally used in, so a snapshot taken beside the composer does not throw the
-    /// browser away to show a box that was never hidden. It is only when the pane is filling the
-    /// window that the tab changes, and then it has to: an attachment you cannot see did not
-    /// visibly happen.
-    ///
-    /// **Generic over the workspace rather than about a worktree.** It took a `WorkspaceModel`,
-    /// which is a worktree on this Mac, so the one pane a Cloud workspace has that needs this, the
-    /// window onto its own app, had no way in. Everything here is the same for both kinds: the
-    /// store, the chip, the sentence, the reveal. The one thing that differs is where the bytes are
-    /// written, and the workspace answers that: see `WorkspaceSurface.attachmentRoot`.
     @discardableResult
-    static func attach<Model: WorkspaceSurface>(
+    static func attach(
         _ sources: [AttachmentSource],
-        to model: Model,
+        to model: WorkspaceModel,
         sessionID: SessionID? = nil,
         revealConversation: Bool = true,
         imageComment: BrowserImageComment? = nil,
         body: @escaping @Sendable ([String]) -> String = { $0.map(AttachmentDraft.token(for:)).joined(separator: " ") }
     ) async -> Outcome {
-        // A review can stay open while another chat becomes active. An explicit destination
-        // must never fall back to that new chat if the original conversation has been closed.
-        //
-        // **And the chat in front is not always a chat.** A Cloud workspace's notion of the active
-        // one is the tab strip's own selection, so pressing a button in the pane beside the
-        // conversation asks a workspace whose selected tab is that pane: it answers nil, and the
-        // first chat is the right fallback, because a workspace with one conversation is where
-        // this is pressed.
         let destination: Session? = if let sessionID {
-            model.chats.first { $0.id == sessionID }
+            model.sessions.first { $0.id == sessionID }
         } else {
-            model.activeChat ?? model.chats.first
+            model.activeSession ?? model.sessions.first
         }
         guard let session = destination else {
             return Outcome(failure: sessionID == nil
@@ -98,8 +70,8 @@ enum ComposerHandoff {
     /// conclusion and the URL are worth handing over on their own, and going through the
     /// attachment path with no files would only produce a failure to report.
     @discardableResult
-    static func write<Model: WorkspaceSurface>(_ sentence: String, to model: Model) async -> Outcome {
-        guard let session = model.activeChat ?? model.chats.first else {
+    static func write(_ sentence: String, to model: WorkspaceModel) async -> Outcome {
+        guard let session = model.activeSession ?? model.sessions.first else {
             return Outcome(failure: "This workspace has no conversation to write to yet.")
         }
         model.prepareTranscript(for: session.id)

@@ -62,9 +62,11 @@ do not describe a worktree as isolation equivalent to a virtual machine.
 
 ## Verification and review scope
 
-Run focused core tests, build the app, and run both `make lint` and `make swiftlint`. The full suite
-and warnings-as-errors app build run on the pull request. Fault-injection tests cover failed writes,
-and fake-process tests cover protocol timing. Licence packaging is tested separately.
+Build the app with warnings treated as errors, then run both `make lint` and `make swiftlint`.
+Pull requests run lint and the secrets scan. The app build and core suite run before a release or
+when dispatched manually. On the owner's Mac, follow `CLAUDE.md` and leave test execution to CI
+unless asked. Fault-injection tests cover failed writes, and fake-process tests cover protocol
+timing. Licence packaging is tested separately.
 
 The September 2026 audit addressed concrete persistence, cancellation, duplicate-delivery,
 file-containment and token-revocation findings. It also removed the duplicate copy walker and

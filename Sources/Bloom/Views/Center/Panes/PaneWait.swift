@@ -16,25 +16,17 @@ import BloomCore
 enum PaneWait: Equatable, Sendable {
     /// The store has not yet said which conversations this workspace has. The first visit of a
     /// launch only, since `WorkspaceModel.hasReadSessions` stays true afterwards.
-    case sessions(WorkspaceSurfaceID)
+    case sessions(WorkspaceID)
     /// The conversation is known and its rows are not on screen yet: either this launch has never
     /// built its transcript, or the transcript exists and is still reading.
     case conversation(SessionID)
 
     /// In the register the file loader already uses: what is being read.
     ///
-    /// A Cloud workspace has read nothing until its machine has answered, so what it is waiting
-    /// for is the machine. "Opening the workspace" sat beside the inspector's "Reading the
-    /// worktree" as two unrelated waits, when both were the same connection.
     var label: String {
         switch self {
-        case .sessions(let surface): surface.cloudID == nil ? "Opening the workspace" : "Connecting to the machine"
+        case .sessions: "Opening the workspace"
         case .conversation: "Reading the conversation"
         }
-    }
-
-    var isCloudConnection: Bool {
-        if case .sessions(let surface) = self { return surface.cloudID != nil }
-        return false
     }
 }

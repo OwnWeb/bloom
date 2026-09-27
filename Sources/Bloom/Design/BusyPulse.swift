@@ -101,33 +101,6 @@ final class BusyPulse {
 
 // MARK: - Driver
 
-/// Decides when the window's heartbeat runs, and is the only thing that does.
-///
-/// Two conditions, and each of them is a case that was argued somewhere else in this app already.
-///
-/// **Something is running.** Read from `AppModel.runningWorkspaceIDs`, which is the one observable
-/// set the transcript writes when a turn starts or ends. Nothing here keeps a count of its own:
-/// see that property for what happened the last time a reader did. A Cloud workspace is in no
-/// such set, so runbloom.app's list is asked as well: see `CloudWorkspaces.hasMovingMark`.
-///
-/// **Reduce Motion is off.** Dropped rather than slowed, matching `RowArrival` and the pane
-/// animations. Every mark keeps its meaning without it, which is the test the mockup applied: the
-/// rule holds a quiet accent tint and a row holds a whole dot at full strength. Read here rather
-/// than at the marks, so a call site cannot keep half the mechanism.
-///
-/// # The third condition, and why it is gone
-///
-/// It used to stop the heartbeat while the window was not the front one, and `ActivityDot` carried
-/// a second copy of that gate. The argument was a real measurement of the wrong mechanism: a
-/// SwiftUI `.animation(_:value:)` is interpolated on the main thread, so a mark that never stopped
-/// kept a backgrounded window off the idle path for as long as an agent ran. Nothing here is a
-/// SwiftUI animation any more. A `CAAnimation` handed to a layer is copied into the render server
-/// and interpolated there on the display's own clock, and this process is not woken for a frame of
-/// it, so a window behind a browser costs the same whether its marks are moving or parked.
-///
-/// What the gate cost is the one thing these marks are for. A window put to one side while five
-/// agents work is exactly the window whose marks are worth reading, and it was the window that
-/// showed them frozen.
 struct BusyPulseDriver: ViewModifier {
     let app: AppModel
 
@@ -150,7 +123,7 @@ struct BusyPulseDriver: ViewModifier {
         // a view body may not. `runningAgentCount` reaches for Ask through the same door and for
         // the same reason, and says so: it is in no workspace, so nothing else here counts it.
         let isAskRunning = app.askStatus == .running
-        let wanted = (!app.runningWorkspaceIDs.isEmpty || isAskRunning || app.cloud.hasMovingMark) && !reduceMotion
+        let wanted = (!app.runningWorkspaceIDs.isEmpty || isAskRunning) && !reduceMotion
 
         return content.onChange(of: wanted, initial: true) { _, on in
             BusyPulse.shared.setTicking(on)

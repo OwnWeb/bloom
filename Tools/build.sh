@@ -301,10 +301,7 @@ compile_asset_catalogue
 # repository's public/mail/ rather than redrawn, because a product's own mark is not ours to
 # approximate. At 192 pixels for a mark drawn about twenty points wide they stay sharp on Retina.
 # BloomMark.svg is the flat mark. The five files under Bloom.icon/Assets are the app icon's own
-# layers, which the Bloom Cloud hero stacks in depth and lights: they are silhouettes, filled here
-# from the canonical gradients in `BloomIconArtwork`, so the hero is the real icon in its real blue
-# even in a dev or Cloud build, whose compiled icon is tinted another colour. AppKit reads an SVG
-# as vector art, as it does a PDF.
+# layers. AppKit reads an SVG as vector art, as it does a PDF.
 for art in Resources/Spatie*.pdf(N) Resources/BloomMenuBar.pdf(N) Resources/BloomMark.svg(N) Resources/Maker*.png(N) Resources/Bloom.icon/Assets/*.svg(N); do
   cp "$art" "$APP/Contents/Resources/"
 done
@@ -384,11 +381,8 @@ print(arguments[arguments.index('-package-name') + 1])
 PY
 )"
 
-  # Swift modules retain their Clang-module dependencies. The app imports BloomAuthentication,
-  # whose compiled module in turn requires AppAuth and AppAuthCore, so this second typecheck needs
-  # every module map SwiftPM generated beside the real build. Keeping only CrashReporter's map
-  # worked until the app gained a second Clang dependency and then made release builds fail after
-  # the app itself had already compiled successfully.
+  # Swift modules retain Clang module dependencies, so this typecheck uses every module map
+  # SwiftPM generated beside the build.
   for modulemap in "$BIN_DIR"/*.build/module.modulemap(N); do
     clangModuleArguments+=(-Xcc "-fmodule-map-file=$modulemap")
     # An umbrella module can contain a header that includes another module's header by its bare

@@ -1,36 +1,6 @@
 import SwiftUI
 import CoreGraphics
 
-/// The paper itself, baked into two small bitmaps once per launch.
-///
-/// **Why procedural and not a scan.** A photographed sheet of aged rag paper is the better
-/// looking answer and it was the first thing considered. It was not taken, for two reasons that
-/// both had to hold. The first is provenance: a texture ships inside the app, so its licence
-/// has to be one this project can stand behind rather than one a stock site asserts on a page
-/// that can change, and every candidate that survived a reading of its actual terms was either
-/// too small to cover a window or came with an attribution clause an offline app has nowhere to
-/// honour. The second is size: this chart's whole coastline dataset is 22.8KB, and a bitmap
-/// large enough to cover eight tenths of a large display at retina without repeating is several
-/// megabytes. Both objections disappear here. Nothing is shipped, nothing is licensed, and the
-/// two images below come to half a megabyte of pixels generated in twelve milliseconds, once.
-///
-/// **Why not Core Image.** The obvious procedural route is `CIRandomGenerator` through blurs,
-/// and it was tried. The trouble is the tile: a tiled texture is the only way to get device
-/// resolution grain across a large window without holding a full screen bitmap, and Core Image's
-/// blurs do not wrap, so every tile seam arrives as a visible line where the blur ran out of
-/// pixels to average. Wrapping is not an effect that can be added afterwards, it has to be in
-/// the noise, so the noise is generated here on a lattice whose index wraps. Seamless comes out
-/// of the arithmetic rather than being fought for, and the whole generator is shorter than the
-/// filter chain it replaces.
-///
-/// **What paper is, in three layers.** Grain is the tooth of the sheet, one or two device pixels
-/// across, and it must be at device resolution or it reads as blur. Fibre is the same thing
-/// stretched: pulp lies down in the direction the sheet was drawn off the wire, so the noise is
-/// eight times longer than it is tall. Formation is the cloudiness held up to a light, where the
-/// pulp settled thicker in some places than others, and it is what a flat fill can never fake.
-/// The first two are high frequency and tile; the third is low frequency and is generated once
-/// as a small field stretched over the whole window, which costs nothing and cannot be seen to
-/// be stretched because there is nothing sharp in it.
 @MainActor
 enum ChartPaperTexture {
     /// 256 device pixels. Large enough that the eye cannot find the repeat in grain this fine,

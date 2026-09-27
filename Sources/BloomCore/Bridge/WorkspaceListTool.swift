@@ -30,16 +30,8 @@ import Foundation
 /// what `project_list` already gives a workspace agent one level up. It reads and changes nothing,
 /// so nothing that can act comes with it. The polling point is still made, in the description.
 ///
-/// **Bloom Cloud workspaces only where the signed-in person can open them.** The list the app hands
-/// in is `CloudWorkspaceItem.isReachableFromBridge`, tested in BloomClient: a teammate's private
-/// workspace, which an owner or admin can see exists and archive, is not in it.
 public struct WorkspaceListTool: BridgeToolHandling {
-    /// The way into Bloom Cloud workspaces, when there is one. See `CloudWorkspaceReach`.
-    private let cloud: CloudWorkspaceReach?
-
-    public init(cloud: CloudWorkspaceReach? = nil) {
-        self.cloud = cloud
-    }
+    public init() {}
 
     public let roles: Set<BridgeRole> = [.workspace, .owner]
 
@@ -83,11 +75,6 @@ public struct WorkspaceListTool: BridgeToolHandling {
             refreshes every few seconds. With Bloom closed they are as old as the last time it \
             was open. Read only. It changes nothing and starts nothing.
 
-            Bloom Cloud workspaces the signed-in person can open are listed after this Mac's, marked \
-            "cloud": true, with runbloom.app's id, name, state, repository and branch and nothing \
-            else: they have no worktree here. workspace_say, chat_list, chat_read and \
-            workspace_diff take their id or name as they take a local one's. Naming a project \
-            leaves them out, because a project is a folder on this Mac.
             """,
         inputSchema: .object([
             "type": .string("object"),
@@ -163,21 +150,6 @@ public struct WorkspaceListTool: BridgeToolHandling {
                     includeGitHub: includeGitHub,
                     store: store
                 ))
-            }
-
-            // After this Mac's own, and only when no project narrows the list: a project is a
-            // folder on this Mac, and a Bloom Cloud workspace is in none of them.
-            if project == nil, let cloud {
-                for target in await cloud.workspaces() {
-                    rows.append(.object([
-                        "id": .string(target.id),
-                        "name": .string(target.name),
-                        "state": .string(target.state),
-                        "repository": .string(target.repository),
-                        "branch": .string(target.branch),
-                        "cloud": .bool(true),
-                    ]))
-                }
             }
 
             return .json(.object([

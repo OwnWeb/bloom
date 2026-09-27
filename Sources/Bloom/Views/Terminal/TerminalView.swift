@@ -292,10 +292,6 @@ final class BloomTerminalView: LocalProcessTerminalView {
         usesGhosttyTheme ? TerminalGhostty.theme(for: effectiveAppearance) : nil
     }
 
-    /// SwiftTerm ships a palette that looks nothing like the rest of Bloom, so both the sixteen
-    /// ANSI slots and the default foreground and background are replaced. The work is
-    /// `applyBloomColours`, shared with the Cloud workspace's terminal: one source of settings,
-    /// both panes. See `TerminalAppearance`.
     func applyAppearanceColors() {
         applyBloomColours()
     }

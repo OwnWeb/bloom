@@ -44,14 +44,6 @@ struct ProviderCredentialEnvironmentTests {
         #expect(!result.values.contains("inherited-sentinel"))
     }
 
-    @Test("provider aliases in personal environment do not mark or identify a launch")
-    func providerAliasesAreNotPersonalEnvironment() {
-        let grant = RemoteTurnGrant(environment: ["OPENAI_API_TOKEN": "sentinel"])
-
-        #expect(grant.personalMarks(for: []).isEmpty)
-        #expect(grant.launchIdentity(for: .codex) == "\n")
-    }
-
     @Test("an exact subprocess environment does not merge Bloom's inherited variables")
     func exactSubprocessEnvironment() async throws {
         let result = try await Shell.run(

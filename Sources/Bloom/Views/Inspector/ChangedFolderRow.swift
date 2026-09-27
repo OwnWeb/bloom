@@ -28,8 +28,6 @@ struct ChangedFolderRow: View, Equatable {
     var isExpanded: Bool
     /// How many levels down the tree this row is drawn.
     var depth: Int
-    /// The folder's location in the worktree, for the menu items that hand it to another app.
-    /// Where the row is on this Mac, or nil for a workspace whose files are in the cloud.
     var fullPath: String?
     var action: () -> Void
     /// Opens a shell in this folder. See `FolderTerminal`.

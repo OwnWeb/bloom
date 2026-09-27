@@ -25,8 +25,8 @@ import Foundation
 ///
 /// - The entry is under **this copy's own** `BridgeRegistration.ownerServerName`. That name is
 ///   derived from `Store.databaseDirectoryName`, so the release copy only ever looks at `bloom`,
-///   the dev copy at `bloom-dev` and the subagents copy at `bloom-subagents`. The three identities
-///   in `Tools/guard.sh` therefore cannot fight over one entry: they are not looking at the same
+///   the dev copy at `bloom-dev`. These identities are defined in `Tools/guard.sh` and cannot
+///   fight over one entry: they are not looking at the same
 ///   one.
 /// - Its `BLOOM_BRIDGE_SOCKET` and `BLOOM_BRIDGE_TOKEN` are **exactly what this instance would
 ///   hand out today**. The socket is derived from the database path through

@@ -59,7 +59,6 @@ struct TranscriptListView: View {
         _expanded = State(initialValue: remembered?.expanded ?? [])
         _unfolded = State(initialValue: remembered?.unfolded ?? [])
         _unfoldedTurns = State(initialValue: remembered?.unfoldedTurns ?? [])
-        _refoldedTurns = State(initialValue: remembered?.refoldedTurns ?? [])
         _liveEndRequest = State(initialValue: TranscriptLiveEndRequest(
             handled: remembered?.liveEndRequest ?? 0
         ))
@@ -91,11 +90,8 @@ struct TranscriptListView: View {
     /// each. Kept in the pane's memory beside `expanded` and for the same reason: a turn somebody
     /// opened to read must not fold itself away again behind a tab switch.
     @State private var unfolded: Set<Int> = []
-    /// Completed turns whose streamed process the reader has opened.
+    /// Completed turns whose activity groups the reader opened together.
     @State private var unfoldedTurns: Set<Int> = []
-    /// Completed turns the reader has closed again, which a segment that opens itself has to be
-    /// told about. See `TranscriptTurnFold.Folds.isOpen`.
-    @State private var refoldedTurns: Set<Int> = []
     /// Whether the reader has unfolded the setup log at the head of this conversation, and nil
     /// while nobody has. Here rather than in the setup views, because the table measures a copy of
     /// that row whose own state is always folded. See `WorkspaceEventsView.setupLogOpen`.
@@ -114,7 +110,7 @@ struct TranscriptListView: View {
     @State private var folds = TranscriptFold.Folds.none
     @State private var foldSession: SessionID?
     @State private var foldRevision = -1
-    /// The outer fold that replaces a completed turn's commentary and action groups with its time.
+    /// Completed turn boundaries and durations for the control beneath their activity.
     @State private var turnFolds = TranscriptTurnFold.Folds.none
     @State private var turnFoldSession: SessionID?
     @State private var turnFoldRevision = -1
@@ -370,24 +366,6 @@ struct TranscriptListView: View {
     /// the run whose context they are most likely to want.
     private var revealedSeqs: Set<Int> {
         var out = expanded
-        out.formUnion(turnRevealedSeqs)
-        return out
-    }
-
-    /// The same question asked of a whole completed segment, which is the one above WITHOUT
-    /// `expanded`.
-    ///
-    /// **The granularity is why they are two.** A run holds a handful of rows, so keeping it open
-    /// around a tool result somebody had opened costs a handful of rows. A segment is the whole of
-    /// a turn's working, seventy rows of it in the report this was written for, and one expanded
-    /// tool call anywhere inside pinned all seventy on screen for the rest of the visit. What a
-    /// collapsed segment does to an expanded row inside it is hide it, which is what collapsing
-    /// means and what the reader asked for.
-    ///
-    /// The three that are left are the navigation targets, and they are here for the reason
-    /// `revealedSeqs` gives above: a scroll can only find a row the table is drawing.
-    private var turnRevealedSeqs: Set<Int> {
-        var out: Set<Int> = []
         if let seq = opening?.seq { out.insert(seq) }
         if let target = app.pendingTranscriptTarget,
            target.workspaceID == transcript.workspace?.id {
@@ -406,8 +384,8 @@ struct TranscriptListView: View {
         return TranscriptFold.mayAdopt(fresh, over: folds, drawn: drawn) ? fresh : folds
     }
 
-    /// A result lands before the rows above it collapse, keeping the append and removal as two
-    /// table changes. A new session still gets its own answer on the first pass.
+    /// A result lands before its duration control appears. A new session still gets its own
+    /// boundaries on the first pass.
     private func turnFoldsForThisPass() -> TranscriptTurnFold.Folds {
         guard turnFoldSession == transcript.session.id else {
             return transcript.presentationTurnFolds()
@@ -488,14 +466,12 @@ struct TranscriptListView: View {
         let backgroundWork = transcript.isRunning ? nil : transcript.backgroundWork
         let paneHeight = geometry.paneHeight
         let arrivals = self.arrivals
-        // The fold's three inputs, read once for the pass for the reason the eight above are: each
+        // The fold's inputs, read once for the pass for the reason the eight above are: each
         // is a property of an `@Observable` or a set this body copies, and reading one inside a
         // per-row closure records an observation edge per row.
         let unfolded = self.unfolded
         let unfoldedTurns = self.unfoldedTurns
-        let refoldedTurns = self.refoldedTurns
         let revealed = revealedSeqs
-        let turnRevealed = turnRevealedSeqs
         let sessionID = transcript.session.id
         // Read once, and the range taken off the slice itself rather than off `drawnWindow` a
         // second time, so the range a fold is measured against cannot disagree with the rows being
@@ -508,11 +484,10 @@ struct TranscriptListView: View {
         // and the `onChange` at the foot of `body`, which is the pass.
         let folds = foldsForThisPass(drawn: drawnRange)
         let turnFolds = turnFoldsForThisPass()
-        let turnHiddenIndices = turnFolds.hiddenIndices(
-            opened: unfoldedTurns,
-            closed: refoldedTurns,
-            revealed: turnRevealed,
-            drawn: drawnRange
+        // The same action groups drive their own rows and the completed turn control. The core
+        // computes their hidden indices once for both readers.
+        let disclosures = TranscriptTurnFold.disclosures(
+            work: folds, turns: turnFolds, revealed: revealed, drawn: drawnRange
         )
         let lastVisibleRow = drawnRows.last(where: { !TranscriptNoise.isHidden($0) })
         let lastVisibleSeq = lastVisibleRow?.seq
@@ -573,12 +548,12 @@ struct TranscriptListView: View {
         // A workspace's setup script, its worktree events and its opening prompt. All three are
         // things a worktree has. Ask Bloom uses this opening entry only for the space below the
         // title bar, since it has no setup information: see `TranscriptHome`.
-        if let surfaceID = home.surfaceID {
+        if let workspaceID = home.workspaceID {
             out.append(TranscriptTableEntry(
                 id: .setup,
                 contentKey: TranscriptContentKey {
                     $0.combine("setup")
-                    $0.combine(surfaceID.storageKey)
+                    $0.combine(workspaceID.rawValue)
                     $0.combine(isRunningSetup)
                     $0.combine(transcript.hasNothingToShow)
                     $0.combine(transcript.rows.isEmpty)
@@ -600,7 +575,7 @@ struct TranscriptListView: View {
                                 .frame(height: TranscriptLayout.topSpace)
                                 .accessibilityHidden(true)
                             WorkspaceEventsView(
-                                surfaceID: surfaceID,
+                                workspaceID: workspaceID,
                                 isRunning: isRunningSetup,
                                 // Nothing said yet AND nothing waiting to be said. Once there is a
                                 // bubble on screen, "You can ask for something now" is answered by
@@ -630,62 +605,31 @@ struct TranscriptListView: View {
             ))
         }
 
-        // Who spoke last and who they were speaking to, so a run of messages from one person to
-        // one reader is captioned once. Nil is the reader's own and the agent respectively, which
-        // is every message in a workspace nobody shares.
-        var previousAuthorID: String?
-        var previousAddressee: String?
-        // What this workspace calls everybody, read once for the whole list rather than per row:
-        // it walks the member list, and a transcript is hundreds of rows long.
-        let addresseeNames = transcript.addresseeNames
-        // Who is reading, so a message of the reader's own that came back from the machine with
-        // their account still on it is drawn as theirs. See `MessageAuthorship.isFromSomebodyElse`.
-        let readerID = transcript.cloud?.readerID
-
         for index in drawnRows.indices {
             let row = drawnRows[index]
-            // The completed turn's outer disclosure stands before the same process it replaces.
-            // Opened, the existing commentary and action folds below it draw unchanged.
-            if let turn = turnFolds.turn(startingAt: index) {
-                let isOpen = turnFolds.isOpen(
-                    turn, opened: unfoldedTurns, closed: refoldedTurns, revealed: turnRevealed
+            // The existing result or next user row owns the completed work control. Inserting a
+            // separate entry here would turn a normal completion into a table reload.
+            let closingTurn: TranscriptTurnFold.Turn?
+            if row.kind == .result {
+                closingTurn = turnFolds.turn(containing: index)
+            } else if row.kind == .user || row.kind == .crew, index > 0,
+                      rows[index - 1].kind != .result {
+                closingTurn = turnFolds.turn(endingAt: index)
+            } else {
+                closingTurn = nil
+            }
+            let workDisclosure: CompletedWorkDisclosure?
+            if let closingTurn, closingTurn.isComplete,
+               disclosures.expandableTurns.contains(closingTurn.firstSeq) {
+                workDisclosure = CompletedWorkDisclosure(
+                    firstSeq: closingTurn.firstSeq,
+                    durationMS: closingTurn.durationMS ?? 0,
+                    isExpanded: unfoldedTurns.contains(closingTurn.firstSeq),
+                    onToggle: { toggleTurnFold(closingTurn.firstSeq, anchor: .row(row.seq)) }
                 )
-                out.append(turnFoldEntry(
-                    firstSeq: turn.firstSeq,
-                    milliseconds: turn.durationMS ?? 0,
-                    isExpanded: isOpen,
-                    // What collapsing it would take off the table, rather than what it holds: a
-                    // line drawn over work the window stops inside hides nothing when it is
-                    // pressed. See `TranscriptTurnFold.Folds.wouldHide`.
-                    shows: !turnFolds.wouldHide(turn, drawn: drawnRange).isEmpty,
-                    session: sessionID
-                ))
+            } else {
+                workDisclosure = nil
             }
-            if let turn = turnFolds.turn(containing: index), turn.answerIndex == index,
-               !turnFolds.wouldHide(turn, drawn: drawnRange).isEmpty,
-               !turnFolds.isOpen(turn, opened: unfoldedTurns, closed: refoldedTurns,
-                                 revealed: turnRevealed) {
-                for mediaIndex in turn.requestedScreenshots {
-                    let mediaRow = rows[mediaIndex]
-                    out.append(TranscriptTableEntry(
-                        id: .requestedScreenshot(mediaRow.seq),
-                        contentKey: TranscriptContentKey {
-                            $0.combine(mediaRow.id)
-                            $0.combine(mediaRow.resultPayload?.count)
-                            $0.combine(sessionID)
-                        },
-                        shape: .tool,
-                        content: {
-                            AnyView(
-                                TranscriptRowView(row: mediaRow, home: home, cloudLink: transcript.cloud)
-                                    .padding(.horizontal, TranscriptLayout.inset)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            )
-                        }
-                    ))
-                }
-            }
-            if turnHiddenIndices.contains(index) { continue }
             // A turn's working, drawn as one line and whatever of it still has to be on screen.
             // See `TranscriptFold`, which holds every decision about where a turn's working starts
             // and ends and what may be hidden; what happens here is only the emitting.
@@ -697,8 +641,10 @@ struct TranscriptListView: View {
                     foldSeq = work.firstSeq
                     // What the fold would hide if the reader had not opened it, which is what the
                     // line has to say either way, and whether it has anything to say at all.
-                    let would = TranscriptFold.hiddenIndices(work, revealed: revealed, drawn: drawnRange)
-                    hiddenIndices = unfolded.contains(work.firstSeq) ? [] : would
+                    let would = disclosures.hiddenByWork[work.firstSeq] ?? []
+                    let turnIsOpen = disclosures.turnByWork[work.firstSeq]
+                        .map(unfoldedTurns.contains) ?? false
+                    hiddenIndices = unfolded.contains(work.firstSeq) || turnIsOpen ? [] : would
                     let isFolded = !hiddenIndices.isEmpty
                     out.append(foldEntry(
                         firstSeq: work.firstSeq,
@@ -728,32 +674,6 @@ struct TranscriptListView: View {
                 index: index, seq: row.seq, parent: row.parentToolUseID, revealed: revealed
             ) { continue }
             guard !TranscriptNoise.isHidden(row) else { continue }
-            // Who spoke before this one, for the label above a teammate's bubble. Tracked as the
-            // list is walked, because it is the one thing a row cannot answer about itself, and
-            // measured against the previous MESSAGE rather than the previous row: an agent
-            // answering in between does not make the same person a new speaker. See
-            // `MessageAuthorship`.
-            let addressee = MessageAuthorship.addressee(row.audience, names: addresseeNames)
-            let caption = row.kind == .user
-                ? MessageAuthorship.caption(
-                    MessageAuthorship.caption(
-                        author: row.authorID,
-                        name: row.authorName,
-                        addressee: addressee,
-                        previousAuthor: previousAuthorID,
-                        previousAddressee: previousAddressee,
-                        reader: readerID
-                    ),
-                    via: row.via
-                )
-                : nil
-            let fill = MessageAuthorship.fill(
-                author: row.authorID, reader: readerID, audience: row.audience
-            )
-            if row.kind == .user {
-                previousAuthorID = row.authorID
-                previousAddressee = addressee
-            }
             // How much work the subagent this call started has done. In the key below, so a child
             // landing redraws this row where it stands instead of putting a row in the list.
             let subagentActions = row.kind == .toolUse ? folds.actions(underCall: row.refID) : nil
@@ -791,10 +711,9 @@ struct TranscriptListView: View {
                 $0.combine(wasStopped)
                 $0.combine(closesTranscript)
                 $0.combine(stillRunning)
-                // A row whose label appears or disappears because the message above it changed is
-                // a row that has to be drawn again.
-                $0.combine(caption)
-                $0.combine(fill)
+                $0.combine(workDisclosure?.firstSeq)
+                $0.combine(workDisclosure?.durationMS)
+                $0.combine(workDisclosure?.isExpanded)
             }
             // Free, and no for the two kinds that make up most of a long session, so it is asked
             // here rather than inside the closure that runs per cell.
@@ -826,8 +745,9 @@ struct TranscriptListView: View {
                                 stillRunning: stillRunning,
                                 closesTranscript: closesTranscript,
                                 transcript: transcript,
-                                showsDuration: turnFolds.turn(containing: index)?.hasHiddenRows != true,
-                                durationMS: turnFolds.turn(containing: index)?.durationMS
+                                showsDuration: workDisclosure == nil,
+                                durationMS: closingTurn?.durationMS,
+                                workDisclosure: workDisclosure
                             )
                             .arrivingRow(settles && arrivals.isArriving(row.seq))
                             .padding(.horizontal, TranscriptLayout.inset)
@@ -845,33 +765,41 @@ struct TranscriptListView: View {
                     fixedHeight: TranscriptRowInk.isDefinitelySilent(kind: row.kind, payload: row.payload) ? 0 : nil,
                     sentArrival: row.kind == .user ? transcript.messageArrivals.row(row.seq) : nil,
                     content: {
-                        AnyView(
-                            TranscriptRowView(
-                                row: row,
-                                caption: caption,
-                                fill: fill,
-                                home: home,
-                                isExpanded: isExpanded,
-                                isNested: row.parentToolUseID != nil,
-                                subagentActions: subagentActions,
-                                subagentHasRun: subagentHasRun,
-                                runActions: runActions,
-                                cloudLink: transcript.cloud,
-                                responseCopyText: responseCopyText,
-                                projectName: projectName,
-                                onToggle: { toggle(row.seq) },
-                                onAnswer: { requestID, decision in
-                                    Task { await transcript.answer(requestID: requestID, decision: decision) }
-                                }
-                            )
-                            // Innermost, on the drawing alone. What settles is what is inside the
-                            // row: the row is inserted at its full height exactly as it always
-                            // was, so nothing moves, nothing reflows, and nothing below it shifts.
-                            .arrivingRow(settles && arrivals.isArriving(row.seq))
-                            .messageArrival(transcript.messageArrivals.row(row.seq))
-                            .padding(.horizontal, TranscriptLayout.inset)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        let content = TranscriptRowView(
+                            row: row,
+                            home: home,
+                            isExpanded: isExpanded,
+                            isNested: row.parentToolUseID != nil,
+                            subagentActions: subagentActions,
+                            subagentHasRun: subagentHasRun,
+                            runActions: runActions,
+                            responseCopyText: responseCopyText,
+                            projectName: projectName,
+                            onToggle: { toggle(row.seq) },
+                            onAnswer: { requestID, decision in
+                                Task { await transcript.answer(requestID: requestID, decision: decision) }
+                            }
                         )
+                        // The arriving animation belongs to the bubble, not the earlier work.
+                        .arrivingRow(settles && arrivals.isArriving(row.seq))
+                        .messageArrival(transcript.messageArrivals.row(row.seq))
+                        if let workDisclosure {
+                            return AnyView(VStack(alignment: .leading, spacing: 0) {
+                                TranscriptFoldRowView(
+                                    label: workDisclosure.label,
+                                    isExpanded: workDisclosure.isExpanded,
+                                    showsSeparator: true,
+                                    onToggle: workDisclosure.onToggle
+                                )
+                                .padding(.bottom, Metrics.gutter)
+                                content
+                            }
+                            .padding(.horizontal, TranscriptLayout.inset)
+                            .frame(maxWidth: .infinity, alignment: .leading))
+                        }
+                        return AnyView(content
+                            .padding(.horizontal, TranscriptLayout.inset)
+                            .frame(maxWidth: .infinity, alignment: .leading))
                     }
                 ))
             }
@@ -913,31 +841,19 @@ struct TranscriptListView: View {
                 }
                 let review = ReviewTurn.split(sending.body)
                 let turn = AttachmentTrailer.split(sending.body)
-                // **The echo is the same message as the bubble it becomes, so it is the same
-                // colour.** It defaulted to the accent, so a message addressed to a person went
-                // terracotta composer, teal echo, terracotta bubble: the colour disappeared for
-                // the second somebody was watching hardest. Read from the audience it was sent
-                // with, which is already settled by the time this is drawn, and through the one
-                // rule rather than by asking the same question a second way.
-                let sentTo = MessageAuthorship.fill(
-                    author: nil,
-                    audience: MessageAudience(kind: transcript.audience.isAgent ? .agent : .person)
-                )
                 return AnyView(
                     Group {
                         if let review {
                             UserTurnRowView(
                                 text: review.message,
                                 reviewChips: review.chips,
-                                home: transcript.home,
-                                fill: sentTo
+                                home: transcript.home
                             )
                         } else {
                             UserTurnRowView(
                                 text: turn.body,
                                 attachments: turn.paths,
-                                home: transcript.home,
-                                fill: sentTo
+                                home: transcript.home
                             )
                         }
                     }
@@ -1037,7 +953,6 @@ struct TranscriptListView: View {
                     return AnyView(
                         PendingTurnRowView(
                             delivery: delivery,
-                            reader: transcript.cloud?.readerID,
                             home: transcript.home,
                             holdSentence: holdSentence,
                             canRetry: transcript.canRetry(delivery),
@@ -1114,42 +1029,6 @@ struct TranscriptListView: View {
                     // The same two insets every row in this list carries: one here, and one inside
                     // `transcriptRowFrame`. A fold's line drawn with only the inner one would sit
                     // a gutter to the left of the run it stands for.
-                    .padding(.horizontal, TranscriptLayout.inset)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                )
-            }
-        )
-    }
-
-    private func turnFoldEntry(
-        firstSeq: Int,
-        milliseconds: Int,
-        isExpanded: Bool,
-        shows: Bool,
-        session: SessionID
-    ) -> TranscriptTableEntry {
-        let label = TranscriptTurnFold.label(milliseconds: milliseconds)
-        return TranscriptTableEntry(
-            id: .turnFold(firstSeq),
-            contentKey: TranscriptContentKey {
-                $0.combine("turn-fold")
-                $0.combine(session)
-                $0.combine(firstSeq)
-                $0.combine(milliseconds)
-                $0.combine(isExpanded)
-                $0.combine(shows)
-            },
-            drawsNothing: !shows,
-            shape: .fold,
-            content: {
-                guard shows else { return AnyView(EmptyView()) }
-                return AnyView(
-                    TranscriptFoldRowView(
-                        label: label,
-                        isExpanded: isExpanded,
-                        showsSeparator: true,
-                        onToggle: { toggleTurnFold(firstSeq) }
-                    )
                     .padding(.horizontal, TranscriptLayout.inset)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 )
@@ -1255,7 +1134,7 @@ struct TranscriptListView: View {
             if rescanned != folds { folds = rescanned }
             foldSession = transcript.session.id
             foldRevision = transcript.presentationRevision
-            let rescannedTurns = transcript.presentationTurnFolds(extending: turnFolds)
+            let rescannedTurns = transcript.presentationTurnFolds()
             if rescannedTurns != turnFolds { turnFolds = rescannedTurns }
             turnFoldSession = transcript.session.id
             turnFoldRevision = transcript.presentationRevision
@@ -1313,7 +1192,6 @@ struct TranscriptListView: View {
             expanded = remembered?.expanded ?? []
             unfolded = remembered?.unfolded ?? []
             unfoldedTurns = remembered?.unfoldedTurns ?? []
-            refoldedTurns = remembered?.refoldedTurns ?? []
             setupLogOpen = nil
             folds = transcript.presentationFolds()
             foldSession = transcript.session.id
@@ -1899,7 +1777,6 @@ struct TranscriptListView: View {
                 expanded: expanded,
                 unfolded: unfolded,
                 unfoldedTurns: unfoldedTurns,
-                refoldedTurns: refoldedTurns,
                 offset: contentOffset.value,
                 // The row at the top of the pane and how far into it the reader was, which is the
                 // place; the offset above is what answers when there is no row to name.
@@ -2048,32 +1925,19 @@ struct TranscriptListView: View {
         remember()
     }
 
-    /// Whether the segment starting at this row is open right now, asked the way the entries pass
-    /// asks it, so a click cannot disagree with the chevron it was aimed at.
-    private func isTurnFoldOpen(_ firstSeq: Int) -> Bool {
-        let folds = turnFoldsForThisPass()
-        guard let turn = folds.all.first(where: { $0.firstSeq == firstSeq })
-        else { return unfoldedTurns.contains(firstSeq) }
-        return folds.isOpen(
-            turn, opened: unfoldedTurns, closed: refoldedTurns, revealed: turnRevealedSeqs
-        )
-    }
-
-    private func toggleTurnFold(_ firstSeq: Int) {
+    /// Open or close every action group in this completed turn, leaving its prose in place.
+    private func toggleTurnFold(_ firstSeq: Int, anchor: TranscriptEntryID) {
         scroller.stop()
         follower.stop()
-        controller.willChangeFoldRows(.turnFold(firstSeq))
-        // Both sets are written, because the question this answers has three states and a single
-        // set holds two. A segment holding the unread mark or a restored place opens itself, so
-        // "not in `unfoldedTurns`" was never the same as "the reader closed it", and a click on
-        // one of those flipped a set that was then ignored. See
-        // `TranscriptTurnFold.Folds.isOpen`.
-        if isTurnFoldOpen(firstSeq) {
-            unfoldedTurns.remove(firstSeq)
-            refoldedTurns.insert(firstSeq)
+        controller.willChangeFoldRows(anchor)
+        if unfoldedTurns.remove(firstSeq) != nil {
+            if let turn = turnFolds.all.first(where: { $0.firstSeq == firstSeq }) {
+                for work in folds.all where turn.span.contains(work.span.lowerBound) {
+                    unfolded.remove(work.firstSeq)
+                }
+            }
         } else {
             unfoldedTurns.insert(firstSeq)
-            refoldedTurns.remove(firstSeq)
         }
         remember()
     }

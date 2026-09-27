@@ -4,8 +4,7 @@ import Foundation
 import os
 typealias CoreLogger = Logger
 #else
-/// Linux services log to stderr for systemd or their container runtime. Keep the same privacy
-/// defaults as OSLog, so porting a log statement cannot reveal an unmarked interpolated value.
+/// Platforms without OSLog write to stderr and keep the same privacy defaults.
 struct CoreLogger: Sendable {
     private let category: String
 

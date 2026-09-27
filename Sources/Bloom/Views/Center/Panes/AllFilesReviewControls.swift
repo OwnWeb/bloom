@@ -2,8 +2,8 @@ import SwiftUI
 import BloomCore
 
 /// Settings shared by every file, drawn once above the continuous review.
-struct AllFilesReviewControls<Model: WorkspaceSurface>: View {
-    let model: Model
+struct AllFilesReviewControls: View {
+    let model: WorkspaceModel
 
     @AppStorage(DiffLayoutSetting.storageKey) private var isSideBySide = false
     @AppStorage(DiffWhitespaceSetting.storageKey) private var ignoresWhitespace = false

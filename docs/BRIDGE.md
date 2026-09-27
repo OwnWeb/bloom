@@ -143,7 +143,7 @@ uses, so Bloom and Bloom Dev can never land on one. The landmine there is `socka
 
 ## 3. The tools
 
-Forty-three, each a type of its own in `Sources/BloomCore/Bridge/`, each carrying its own role
+Each tool is a type of its own in `Sources/BloomCore/Bridge/`, each carrying its own role
 gate. A list of handlers rather than a switch, because a switch would put every tool in three
 places: the listing, the dispatch and the gate.
 
@@ -154,10 +154,8 @@ places: the listing, the dispatch and the gate.
 | `project_add` | Register a git repository that **already exists** as a project | | ✓ |
 | `project_hide` | Take a project out of the sidebar. A view preference and nothing more | | ✓ |
 | `project_unhide` | Put it back, in the place it already had | | ✓ |
-| `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why, then the Bloom Cloud workspaces the signed-in person can open. Read only | ✓ | ✓ |
+| `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why, and its local state. Read only | ✓ | ✓ |
 | `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. Optional `model` and `effort` choose the first chat's exact controls; either omitted value inherits the caller or Bloom's default. A workspace agent starts it in its own project, or in another one it names. With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
-| `cloud_workspace_start` | Create a Bloom Cloud workspace on runbloom.app, which is a machine and costs money. A Mac agent is refused unless the owner has turned on "Let agents on this Mac create Bloom Cloud workspaces" under Settings, Permissions. A Cloud agent uses its team's Agent permissions on runbloom.app. Bloom asks the owner in its own window before a Mac agent creates one unless "Ask before an agent creates a Bloom Cloud workspace" is off. Same arguments as a machine's own copy: required `name`, then optional `prompt`, `effort`, `branch`, `base_branch`, `run_setup`, `project`. `effort` applies to the opening chat and otherwise inherits the creating chat. A workspace agent leaving `project` out gets the project whose repository is its own. Returns flat `id`, `name`, `state`, `url` and `note` fields as soon as it exists, without selecting it | ✓ | ✓ |
-| `cloud_workspace_stop` | On a Cloud machine, archive its own workspace with no arguments, or another Cloud workspace named by `workspace` (id or name from `workspace_list`). runbloom.app checks the running turn's prompter can archive it and requires a recent report with no uncommitted, untracked or unpushed work. Archiving permanently deletes the machine and conversation |  | ✓ |
 | `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own by default, or any workspace named out loud by name or id; the owner must name one | ✓ | ✓ |
 | `workspace_archive` | Archive a workspace through normal safety checks, keeping its branch and history. For a workspace agent, its own once the turn asking for it has ended, or one it started, by id and at once; any of them, named out loud and at once, for the owner | ✓ | ✓ |
 | `workspace_merge` | Ask a workspace's own agent to merge its pull request | | ✓ |
@@ -322,11 +320,11 @@ One number kept its old sense deliberately: `WorkspaceStartAllowance.running`, t
 eight on the workspaces one agent has started, counts workspaces that are not archived and says so in its own
 doc comment. That is a brake on worktrees held open, not on turns in flight.
 
-### The twenty-eight that need the app, and the fifteen that do not
+### Which tools need the app
 
-`BridgeToolbox.standard` holds the fifteen that reach nothing but the store, and it is what a
+`BridgeToolbox.standard` holds the tools that reach nothing but the store, and it is what a
 `BridgeServer` built without the app serves, which is every test that did not ask for more.
-`AppModel.bridgeToolbox()` adds the other twenty-eight to it, because starting a workspace has to reach
+`AppModel.bridgeToolbox()` adds the tools that need the window to it, because starting a workspace has to reach
 the main-actor graph that runs one, asking for a merge has to reach the same path the Merge button
 takes, moving the selection is the window's own, and a pane is a thing the window owns. Each of
 those crosses the line as an injected closure
@@ -336,132 +334,6 @@ those crosses the line as an injected closure
 menu makes, unchanged and not copied. It adds them **to** `.standard` rather than listing its
 handlers again, because a copy of that list is a copy that drifts: a tool added to the core toolbox
 and not to the app's would pass every test in the suite and never reach the running app.
-
-### An agent on a Cloud machine, and the pane it cannot ask for
-
-The same split decides what a Cloud workspace's agent is offered, and there the consequence is
-visible rather than architectural. A machine's bridge serves eight tools: `whoami`, `chat_list`,
-`chat_read`, `workspace_diff` and the four `agent_*` ones. **Nothing that touches a window is there,
-because the window is on somebody's Mac and the machine is in a datacentre.**
-
-On 18 September 2026 an agent was asked to open a browser pane beside its chat. It ran `which
-sprite-env`, searched its tools, read `sprite-env --help`, listed `/opt/bloom/current/bin`, grepped
-the repository for a port, read `.bloom/settings.toml` and the Caddyfile, disassembled
-`/.sprite/bin/sprite-browser`, worked out that it writes an OSC escape to a controlling TTY and that
-its own Bash tool has none, checked the runner's HTTP API for a pane endpoint, and finally ran
-`strings` over Bloom Runner's binary looking for the word "browser". Thirty-five actions.
-**Every conclusion it reached was correct.** `tools/list` had told it what exists; nothing had told
-it that the absence of a pane tool was the answer rather than a gap to route around. That is what
-`BridgeBriefing` now says, as MCP `instructions` and again in `whoami`.
-
-**Whether a machine's agent should be able to *ask* for a pane is a real question and the answer is
-not yet.** It would be a message from the machine to whoever is looking, the same direction as
-`workspace_say`, carried on the event stream the clients already hold, and the machine already
-computes nothing it would need. Three things make it hard, and none of them is size:
-
-- **Nobody may be looking.** A machine runs with every window shut. So such a tool can never report
-  that a pane opened, only that it asked, and it has to say plainly when there was nobody to ask.
-  **A tool that silently evaporates is worse than no tool**, because the agent then spends its next
-  several actions wondering, which is the failure this whole section is about.
-- **Several people may be looking**, on a Mac and in the web client at once. Either they all get a
-  pane or the request names none of them; there is no "the" window.
-- **It is an escalation.** An agent on a machine in another country causing a window to open on
-  somebody's desk belongs behind the approval a local `pane_open` already goes through, not in front
-  of it. See `BridgeToolApproval`.
-
-**The two tab tools are on that side for a reason worth stating plainly, because it is not the
-same reason the browser tools are there.** A browser is a `WKWebView`, which is obviously the
-window's. A tab looks like data and is not: the tool tabs are a JSON blob in user defaults that
-only `CenterTabStore` reads, the split arrangements are more of the same under `WorkspaceTabsStore`,
-and **which tab a workspace is in is in memory on the main actor and is written nowhere at all**.
-There is no table to read, so there was never a version of these two that lived in
-`BridgeToolbox.standard`. What that forces is the pair of closures above, and the same rule the
-rest of the family follows: no workspace argument, so the caller reads and moves the strip of the
-workspace it is standing in and no other.
-
-**The browser and terminal seams are how their tools see the window.** `PaneListing` takes a
-workspace and gives back a `PaneCensus`, and that shape is the point: there is no argument on it
-that could ask the window to do anything, so the tool that reports cannot act. `BrowserPaneCommanding`
-carries one `BrowserPaneCommand` and is what the other twelve share, so the pane a call means is
-resolved once, by `BrowserPaneChoice.choose` in the core, rather than six times in the window.
-`TerminalPaneCommanding` does the equivalent for terminal reads, text and control keys.
-`TerminalStarting` is separate because opening a blank pane is self-approved while running a
-command is not. Folding the command into `pane_open` would let it bypass the agent's permission
-mode.
-
-**The four quick prompt tools are the case that shows where the line really is.** They write, and
-they need no seam at all, because a quick prompt is a row in `quick_prompt` and `Store` is an actor
-a handler on a background task calls directly. The window finds out the way it finds out about
-every other write: the update hook publishes the `quickPrompts` domain and `QuickPromptCatalog`
-re-reads. The panel used to read that list once and never again, so a prompt written over the
-bridge was invisible for the rest of the session; it subscribes now. An injected main-actor closure
-here would have been a second way to write the same row.
-
-`workspace_rename` is on the same side for the same reason, and it is worth saying because a
-workspace looks far more like a thing the window owns than a quick prompt does. It is not. A
-workspace's name is one column of the `workspaces` table, the sidebar draws it from there, and the
-sidebar re-reads on the `workspaces` domain already, because that is how it finds out about a
-rename typed into the row itself. The write goes through `Store.update(workspaceID:)` and never
-`upsert`: a diff stat refresh writes to that row every six seconds and an agent turn writes to it
-for ten minutes, and a whole-value write would put both back to whatever the rename had read. See
-`Tests/BloomCoreTests/WorkspaceWriteIsolationTests.swift`, which is that bug written down.
-
-**The four crew tools split three to one, and the line runs where it always does.** `agent_list`
-reads a crew, which is rows in `sessions` joined by `parent_session_id`, so it is in
-`BridgeToolbox.standard` beside the quick prompt tools and reaches no window at all. `agent_start`,
-`agent_say` and `agent_stop` are on the other side, because one runner per session is held in
-main-actor UI object identity: starting a chat, sending a turn into one and stopping one all happen
-in the graph that owns those runners, and a handler that reached round it would put a second CLI
-process on the same worktree. `CrewSeam` is the three closures, and `Crew` is every rule they are
-held to, both in the core and both testable without a socket, a worktree or a running CLI.
-
-`BridgeServer` **never constructs an `AgentRunner`, and nothing added to it ever may.** One runner
-per session is held in main-actor UI object identity, and a handler that built its own would put a
-second CLI process on the same session row and the same worktree, both writing `agent_session_id`
-and both editing the same files. It holds no database connection of its own either: `Store` is an
-actor whose `update` methods re-read inside the actor, so a handler on a background task calls them
-directly, and a second `SQLiteDatabase` on the file is the cross-connection sequence race that
-`UNIQUE(session_id, seq)` exists to survive rather than to invite.
-
-### Bloom Cloud workspaces from this Mac
-
-`workspace_list`, `workspace_say`, `chat_list`, `chat_read` and `workspace_diff` also take a Bloom
-Cloud workspace's id or name, through the connection the window already holds to its machine and
-as the signed-in person (`CloudWorkspaceReach`, filled in by `AppModel+CloudWorkspaceReach`).
-
-- **Only workspaces runbloom.app lists for that person and that they can open.** Anything else is
-  "no such workspace", not a machine's refusal. A local workspace with the same name wins.
-- **`workspace_list`** puts them after this Mac's, marked `"cloud": true`, with runbloom.app's id,
-  name, state, repository and branch. Naming a project leaves them out.
-- **`workspace_say`** becomes the machine's `send` on the most recently active top-level chat, never
-  a subagent's. The words go as written, with `via` on `send` naming the sending workspace and chat
-  (none from the owner's own client), and every client draws it under the author: "Via an agent in
-  Queue retries · Chat" (`MessageAuthorship.caption(_:via:)`). The same throttle as a local message applies,
-  read from `CloudSayLedger`. No reply can come back and `notify_when_done` is not available,
-  because a machine cannot reach this Mac, and the answer says to read the chat instead.
-- **`chat_list` and `chat_read`** read the machine's chats and transcript in the local answer's
-  shape. **A message addressed to a person is left out**, before paging, so a page is still full.
-- **`workspace_diff`** reads the machine's review snapshot at branch scope and one patch per file,
-  paged as a local diff.
-- **A workspace not open in the window** is opened for the call and closed after it, which wakes a
-  sleeping machine, as anybody doing anything there does.
-- **Known: a message sent to a Bloom Cloud workspace draws in the sending chat as an ordinary tool
-  row**, not as the "To" bubble a local one gets. The bubble is drawn from a `message_id` in this
-  Mac's store (`WorkspaceSayRecord`), and a Cloud send makes no row here to have one.
-- **A workspace agent lists them too**, since the owner widened `workspace_list` to the workspace
-  role. What it lists is `CloudWorkspaceItem.isReachableFromBridge`: never a teammate's private
-  workspace that an owner or admin is sent only to see and archive, and never an archived one.
-
-### Messages from Bloom Cloud agents to this Mac
-
-An agent in a Bloom Cloud workspace can write to a workspace on this Mac. With a stream open to that
-workspace it arrives as the `mac_message` event; without one, runbloom.app holds it, and Bloom
-drains `GET /api/v1/me/mac-messages` on every list refresh (so also on signing in and on coming
-back to the app) and whenever a stream comes up. Either way it goes through `MacMessageIntake`: the
-signed-in person's own, a workspace here by that name, once per id, in the untrusted envelope and
-without the owner's authority. A held message is acknowledged (`DELETE .../{id}`) only once it has
-landed, one drain at a time (`MacMessageDrain`). One for a workspace name this Mac does not have is
-told to the person in a notice that carries the words and stays until dismissed.
 
 ## 4. What an agent cannot reach through it
 
@@ -964,19 +836,6 @@ So `BridgeToolApproval` names the tools Bloom answers for itself:
 
 It is a list rather than "anything with our prefix", so a tool added later is opted in by somebody
 thinking about it rather than by inheriting a decision made before it existed.
-
-`cloud_workspace_start` is off that list on purpose: Bloom cannot weigh whether a machine is worth
-what it costs, and that is the one thing a person can, so Bloom never answers its ask itself.
-The CLI's ask alone is not a promise that the owner is asked: a chat that asks before using tools
-asks the owner before each one, and a chat set to bypass permissions asks nobody. So Bloom asks as
-well. With "Ask before an agent creates a Bloom Cloud workspace" on, which is the default, the
-window shows what would be created (who asked, the name, the project, the branch and its base) and
-nothing is created on runbloom.app until the owner answers, whatever the chat's permission mode. One
-question at a time: a second call while one is up is refused, and so is a call the owner declines,
-with a sentence telling the agent not to ask again unprompted. With it off, the setting "Let agents
-create Bloom Cloud workspaces", itself off by default, decides alone. Both are preferences this
-client keeps, not an authorisation: anything holding the owner's sign in can create Bloom Cloud
-workspaces with either setting on or off.
 
 Answering is not a shortcut round consent, because **Bloom is on both ends of this question**. It
 wrote the tool, it minted the token, it knows which workspace is asking, and it enforces every

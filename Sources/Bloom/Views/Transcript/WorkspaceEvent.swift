@@ -1,4 +1,3 @@
-import BloomClient
 import BloomCore
 import SwiftUI
 
@@ -166,7 +165,7 @@ struct WorkspaceEvent: Identifiable, Equatable {
             // wrote. A local log has no such lines, so nothing is taken off one but its blank
             // ones, which a count should not have been promising either: it is a promise about
             // what opening the disclosure shows, and a blank line shows nothing.
-            let lines = SetupLogVoice.outputLines(in: log)
+            let lines = LogTail.lineCount(log)
             return WorkspaceEvent(
                 id: "setup", kind: .setup, outcome: .succeeded,
                 title: "Setup finished",

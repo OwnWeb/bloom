@@ -75,16 +75,6 @@ struct BrowserToolbarGallery: View {
                 )
             )
             row(
-                "The same bar over a Cloud workspace's own app",
-                "No field to type into, no camera and no share sheet, and the reason for each is on"
-                    + " BrowserToolbar.Surface. Everything else is the bar above it.",
-                BrowserToolbar(
-                    surface: .machineApp,
-                    page: page("https://m-8fa21c.runbloom.app/orders", "Orders"),
-                    canGoBack: true
-                )
-            )
-            row(
                 "A screenshot on its way to the composer",
                 "The camera goes quiet rather than attaching the same page twice.",
                 BrowserToolbar(page: page("http://localhost:3100/", "Bloom"), isCapturing: true)

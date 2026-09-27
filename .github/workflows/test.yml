@@ -1,73 +1,8 @@
 name: Test
 
-# What a change has to survive. Every pull request gets the Linux half of it;
-# the macOS half runs before every release, and by hand. The note
-# above `on:` says why the two halves are treated so differently.
+# Pull requests run lint and the secrets scan. The macOS app build and core suite run
+# before releases and on manual dispatch.
 #
-# Three jobs, all three side by side, because they fail for different reasons
-# and one run should tell you everything that is wrong with it rather than one
-# thing at a time.
-#
-#   lint     the workflows, the shell scripts, the house rules and SwiftLint,
-#            all on Linux, because not one of them needs a Mac.
-#   build    swift build, which compiles the app target, Sources/Bloom included.
-#            Tools/test-core.sh mirrors only BloomCore into a throwaway package
-#            with no app target, so a view that stops compiling leaves the whole
-#            suite green. That has broken main four times in a single day: widen
-#            an enum, leave a switch non-exhaustive, tests pass, app does not
-#            build. This job is what catches it.
-#   test     ./Tools/test-core.sh, the BloomCore suite, over three thousand
-#            tests in about half a minute.
-#   linux    the server half on Linux x86_64, which is what a Cloud workspace
-#            runs on: BloomCore and bloom-bridge built, and the tests Package.swift
-#            names for Linux run. See docs/REMOTE-WORKSPACES.md.
-#
-# build and test were one job with one after the other in it, and were 187 and
-# 204 seconds of a 404 second run. They share no output, so they now share no
-# runner either.
-#
-# A bundle is only built when somebody asks for one by hand, from the Actions
-# tab. It used to be built on every push, which proved the app can be assembled
-# on a runner. That is proven, and release.yml is what builds the copies people
-# actually install, so paying for a zip nobody downloads on every commit was
-# space and macOS minutes spent on a question already answered.
-#
-# The runner image and the toolchain check are copied from release.yml on
-# purpose. If the two ever disagree about which Xcode builds Bloom, the release
-# is the one that finds out, and it finds out at the worst moment.
-#
-# **The macOS pair does not run on pull requests, and the reason is the bill.**
-# macOS bills at ten times the rate of Linux, and `build` and `test` are almost
-# the whole of what this repository spends. Over the six days to 22 September
-# 2026 that was 8,584 macOS minutes across 654 runs, around 3,400 US dollars a
-# month, against about 34 for every Linux job in all three workflows together.
-#
-# Skipping the pair on drafts came first, and was not enough. On 23 September,
-# with that rule in place, the pair still took 1,000 macOS minutes, 62 of the
-# day's 76 dollars, across fifty-odd pull request runs. Nearly all of each run
-# is compiling from cold: 482 seconds to build the app, 497 to build and run a
-# suite whose tests take about thirty, because nothing compiled survives a fresh
-# checkout (see the note above `Build the app target`). And pull requests here
-# are squash-merged as soon as they are opened, without waiting for this run, so
-# the pair was answering after the merge a question nobody was waiting on.
-#
-# So it runs where the answer is read:
-#
-#   workflow_call      from release.yml, in front of the Mac release, which
-#                      waits for all of this workflow to pass. A release is the
-#                      moment a broken app would reach people, so it is the one
-#                      moment this must gate.
-#   workflow_dispatch  by hand, from the Actions tab or `gh workflow run test.yml
-#                      --ref <branch>`, for a branch somebody wants compiled
-#                      and tested before it lands.
-#
-# `lint`, `secrets`, `linux` and `packaged-runner` still run on every pull
-# request push, so the house rules, SwiftLint, the protocol schema, the archive
-# modes and BloomCore compiling for Linux answer for every commit. What a pull
-# request gives up is the app target compiling with -warnings-as-errors and the
-# core suite running, which `swift build -Xswiftc -warnings-as-errors` on the
-# author's own Mac answers for the first of them before the push.
-
 on:
   # Proposed changes run once through their pull request. A push to main does
   # not repeat the same work after merge.
@@ -172,27 +107,6 @@ jobs:
       - name: Check the house rules
         run: ./Tools/house-rules.sh
 
-      # The Cloud workspace protocol: the JSON Schema a client in another language reads has to
-      # list every kind the Swift types decode and accept every vector they encode. Python and
-      # nothing installed, so it belongs here rather than on a Swift runner.
-      - name: Check the workspace protocol schema
-        run: python3 Protocol/v1/schema.py --check
-
-      # What a Cloud workspace's machine runs before bloom-runner does: the release a machine falls
-      # back to when a new one will not start. A shell script, tested by a shell script, because the
-      # case it exists for is a binary that cannot start at all.
-      - name: Check what the runner's start wrapper decides
-        run: zsh Tools/runner-start-probe.sh
-
-      # The modes the release archive carries, which decide whether a machine will serve at all:
-      # the person-bound attestor refuses an executable anyone but root can write. This was found
-      # the expensive way, by `packaged-runner` refusing the package after a Linux build, a
-      # package and a container, twenty minutes after the push. The promise is the archive
-      # filter's alone and needs nothing built to check, so it is answered here in a tenth of a
-      # second instead.
-      - name: Check the release archive's ownership and modes
-        run: python3 Tools/package-linux-runner.py --check
-
       # And the rules that are the language's rather than ours, which is the other half.
       # `.swiftlint.yml` is tuned rather than default: the head of that file has the counts every
       # disabled rule produced and why each one is off.
@@ -263,7 +177,7 @@ jobs:
   # spent, on two runners instead of one, and only the few seconds of checkout
   # and toolchain check are paid twice.
   build:
-    # Never on a pull request. See the note above `on:` at the head of this file.
+    # Run before releases and on manual dispatch.
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: macos-26
     # A cold run is about three and a half minutes. Anything past thirty is
@@ -378,20 +292,6 @@ jobs:
       - name: Check that a ticked file folds
         run: ./Tools/review-run-probe.sh --review-fold-only
 
-      # A Cloud workspace with no chats yet used to send the tab store and the workspace round
-      # each other until the stack ran out, and it crashed on the first Cloud workspace anybody
-      # made. Cheap enough to run on every push: no fixture, no window, four objects.
-      - name: Check that a Cloud workspace cannot recurse with the tab store
-        run: ./Tools/review-run-probe.sh --cloud-selection-only
-
-      # The same for a Cloud terminal's reattach frame, which is a redraw and must replace the
-      # screen rather than be appended to it.
-      - name: Check what a Cloud terminal shows after a reattach
-        run: ./Tools/review-run-probe.sh --cloud-terminal-only
-
-      - name: Check the Bloom Cloud delete confirmation
-        run: ./Tools/review-run-probe.sh --cloud-archive-only --cloud-archive-keyboard
-
       # And what a workspace's tabs are written as, which is the re-keying the two above sit on.
       - name: Check the tab store's keys and what a relaunch reads back
         run: ./Tools/review-run-probe.sh --tab-store-only
@@ -474,7 +374,7 @@ jobs:
   # thousand lines of test source, which a fresh checkout's mtimes force to be
   # recompiled whatever is on disk.
   test:
-    # Never on a pull request. See the note above `on:` at the head of this file.
+    # Run before releases and on manual dispatch.
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: macos-26
     # A cold run is about three and a half minutes.
@@ -526,234 +426,3 @@ jobs:
 
       - name: Run the core tests
         run: ./Tools/test-core.sh
-
-      # The Mac client's own package: runbloom.app's API, the connection to a Cloud workspace's
-      # machine and the merging rules, against fakes of both. On the Mac runner because the
-      # event stream is read with URLSession's byte streams, which Linux Foundation lacks.
-      - name: Run the Cloud workspace client tests
-        run: swift test --package-path Packages/BloomClient -Xswiftc -warnings-as-errors
-
-  # The server half, on the platform it ships to. A Cloud workspace runs on
-  # Ubuntu x86_64 and nothing on a Mac compiles for it, so a Darwin-only call
-  # added to BloomCore is found here or on a machine. The image pins the Swift
-  # the release is built with.
-  #
-  # As an unprivileged user rather than the container's root, because that is
-  # how the server runs on a machine (uid 1001 with sudo) and because some of
-  # what it runs refuses root outright.
-  linux:
-    runs-on: ubuntu-latest
-    container:
-      image: swift:6.3.3-noble@sha256:8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5
-      # The person-bound integration test creates a private mount namespace and a cgroup, exactly
-      # as the production Runner does. Unit tests still cover refusal paths without privileges.
-      options: --privileged
-    timeout-minutes: 30
-    # A container step runs under dash by default, which has no pipefail.
-    defaults:
-      run:
-        shell: bash
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false
-
-      # The dependency half of the build, kept between runs. This is not the cache the build job
-      # measured and rejected, and the difference is what is being cached rather than where.
-      #
-      # That decision, written above the build job, found four seconds in caching the *fetch* of
-      # three packages and refused to pay a hundred and fifty six megabytes for it, and separately
-      # refused to cache compiled objects because `actions/checkout` restamps every source file
-      # and llbuild rebuilds what looks newer. Both halves still hold. Neither covers this job.
-      # The Linux graph is twenty seven packages now, nio and hummingbird and BoringSSL among
-      # them, and it is their *compilation* rather than their download that costs: measured on
-      # run 35630567863, 317 of the 648 seconds elapse before the first Bloom module starts.
-      #
-      # Their sources live in `.build/checkouts`, which checkout never touches, so they arrive
-      # from the cache with the mtimes they were compiled under and llbuild leaves them alone.
-      # Our own objects come back too and are rebuilt exactly as that comment says they will be,
-      # which is correct and is the point: the cache returns the half that cannot have changed,
-      # because `Package.resolved` pins it, and the key is that file.
-      #
-      # This buys wall clock rather than money. A Linux minute is a tenth of a macOS one and this
-      # whole job is a rounding error on the bill, so it is here because waiting eleven minutes
-      # for a spelling fix is miserable, not because it saves anything worth counting.
-      #
-      # Before the chown below, so the restored tree ends up belonging to the user that builds.
-      # `runner-package` is this job's own output and is excluded; it is 122 MB of what we just
-      # made.
-      - name: Restore the compiled dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .build
-            !.build/runner-package
-          key: linux-swiftpm-${{ hashFiles('Package.resolved', 'Package.swift') }}
-          restore-keys: linux-swiftpm-
-
-      - name: Install system dependencies
-        run: |
-          set -euo pipefail
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends libsqlite3-dev zlib1g-dev pkg-config git gh tmux patchelf python3 openssl sudo util-linux
-          useradd --create-home --shell /bin/bash bloom-ci
-          chown -R bloom-ci:bloom-ci "$GITHUB_WORKSPACE"
-          runuser -u bloom-ci -- git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          runuser -u bloom-ci -- git config --global user.name "Bloom CI"
-          runuser -u bloom-ci -- git config --global user.email "ci@bloom.local"
-
-      - name: Build for Linux
-        run: runuser -u bloom-ci -- swift build --build-tests -j 4 -Xswiftc -warnings-as-errors
-
-      - name: Run the Linux tests
-        run: runuser -u bloom-ci -- swift test --skip-build
-
-      - name: Prove the live person-bound sandbox
-        run: |
-          set -euo pipefail
-          echo 'bloom-ci ALL=(ALL) NOPASSWD:SETENV: ALL' >/etc/sudoers.d/bloom-ci-bootstrap
-          chmod 0440 /etc/sudoers.d/bloom-ci-bootstrap
-          runuser -u bloom-ci -- env HOME=/home/bloom-ci BLOOM_WORKTREE="$GITHUB_WORKSPACE" bash Tools/provision-sandbox.sh
-          mkdir -p /.sprite
-          rm -f /.sprite/api.sock
-          python3 -c 'import socket,time; s=socket.socket(socket.AF_UNIX); s.bind("/.sprite/api.sock"); s.listen(); time.sleep(300)' &
-          socket_server=$!
-          trap 'kill "$socket_server" 2>/dev/null || true; wait "$socket_server" 2>/dev/null || true; rm -f /.sprite/api.sock' EXIT
-          for _ in {1..50}; do
-            [ -S /.sprite/api.sock ] && break
-            sleep 0.1
-          done
-          [ -S /.sprite/api.sock ]
-          runner="$(runuser -u bloom-ci -- swift build --show-bin-path)/bloom-runner"
-          install -o root -g root -m 0755 "$runner" /usr/local/bin/bloom-runner-ci
-          clang -shared -fPIC -O2 -Wall -Wextra -Werror Sources/BloomCredentialShield/shield.c \
-            -o /usr/local/lib/bloom-credential-shield.so
-          chown root:root /usr/local/lib/bloom-credential-shield.so
-          chmod 0555 /usr/local/lib/bloom-credential-shield.so
-          clang -O2 -Wall -Wextra -Werror Tests/fixtures/person-bound-fake-gh.c -o /usr/bin/gh
-          chown root:root /usr/bin/gh
-          chmod 0755 /usr/bin/gh
-          clang -O2 -Wall -Wextra -Werror Tests/fixtures/person-bound-trusted-launch.c \
-            -o /usr/local/bin/person-bound-trusted-launch
-          chown root:root /usr/local/bin/person-bound-trusted-launch
-          chmod 0755 /usr/local/bin/person-bound-trusted-launch
-          mkdir -p /sys/fs/cgroup/bloom-person-bound/stale-proof \
-            /var/lib/bloom/person-bound/stale-proof /var/lib/bloom/person-bound-provenance/stale-proof
-          python3 -c 'import os,time
-          child=os.fork()
-          if child == 0:
-              os.setsid(); os.setgid(200123); os.setuid(200123); time.sleep(300); os._exit(0)
-          open("/tmp/bloom-stale-pid", "w").write(str(child))
-          os.waitpid(child, 0)' &
-          stale_reaper=$!
-          for _ in {1..50}; do
-            [ -s /tmp/bloom-stale-pid ] && break
-            sleep 0.1
-          done
-          stale_pid="$(cat /tmp/bloom-stale-pid)"
-          echo "$stale_pid" >/sys/fs/cgroup/bloom-person-bound/stale-proof/cgroup.procs
-          runuser -u bloom-ci -- env BLOOM_PERSON_BOUND_INTEGRATION=1 BLOOM_WORKTREE="$GITHUB_WORKSPACE" \
-            BLOOM_PERSON_BOUND_STALE_PID="$stale_pid" BLOOM_RUNNER_TEST_EXECUTABLE=/usr/local/bin/bloom-runner-ci \
-            swift test --skip-build --filter liveLinuxFoundation
-          wait "$stale_reaper"
-
-      # The wire shapes are their own package, so their vectors are checked on their own. On
-      # Linux, because a client in another language is most likely to be reading them there.
-      - name: Boot bloom-runner against a fake runbloom.app
-        run: |
-          set -euo pipefail
-          rm -f /.sprite/api.sock
-          python3 -c 'import socket,time; s=socket.socket(socket.AF_UNIX); s.bind("/.sprite/api.sock"); s.listen(); time.sleep(300)' &
-          socket_server=$!
-          trap 'kill "$socket_server" 2>/dev/null || true; wait "$socket_server" 2>/dev/null || true; rm -f /.sprite/api.sock' EXIT
-          for _ in {1..50}; do
-            [ -S /.sprite/api.sock ] && break
-            sleep 0.1
-          done
-          [ -S /.sprite/api.sock ]
-          install -d -o bloom-ci -g bloom-ci /tmp/bloom-untrusted-bin
-          cp /bin/false /tmp/bloom-untrusted-bin/gh
-          chown bloom-ci:bloom-ci /tmp/bloom-untrusted-bin/gh
-          runuser -u bloom-ci -- env PATH="/tmp/bloom-untrusted-bin:$PATH" \
-            python3 Tools/runner-smoke.py /usr/local/bin/bloom-runner-ci
-
-      # The package a release would publish, from this debug build, and the packaged server booted
-      # against a fake runbloom.app on a machine with no Swift. The artefact is what a bloomdev
-      # machine is tried with before a release.
-      - name: Package bloom-runner as a release would
-        env:
-          RUN: ${{ github.run_number }}
-        run: |
-          set -euo pipefail
-          # Emptied first, because a cache saved before `runner-package` was excluded from it is
-          # still restored by the `restore-keys` prefix, and a stale tarball beside this run's made
-          # `tar -xzf package/*.tar.gz` below expand to two files and fail on the second.
-          rm -rf .build/runner-package
-          # As the user that built it, because SwiftPM's lock on the build directory is that user's.
-          runuser -u bloom-ci -- python3 Tools/package-linux-runner.py "$(runuser -u bloom-ci -- swift build --show-bin-path)" \
-            .build/runner-package --version "0.0.0-ci.$RUN"
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: bloom-runner-linux-x86_64
-          path: .build/runner-package/
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Check the protocol vectors
-        run: runuser -u bloom-ci -- swift test --package-path Packages/BloomProtocol -Xswiftc -warnings-as-errors
-
-  # The package on the Ubuntu a Cloud workspace's machine runs, with no Swift installed: what
-  # proves the bundled runtime libraries are complete, rather than borrowed from the build image.
-  packaged-runner:
-    needs: linux
-    runs-on: ubuntu-latest
-    container:
-      image: ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78
-      options: --privileged
-    timeout-minutes: 15
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: bloom-runner-linux-x86_64
-          path: package
-      - name: Run the package on a machine with no Swift
-        run: |
-          set -euo pipefail
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends python3 openssl git gh ca-certificates sudo util-linux tmux
-          if command -v swift >/dev/null; then echo "This job must not have Swift."; exit 1; fi
-          cd package && sha256sum -c ./*.sha256 && cd ..
-          package_root=/opt/bloom/package-smoke
-          install -d -o root -g root "$package_root"
-          tar -xzf package/*.tar.gz -C "$package_root"
-          chown -R root:root "$package_root"
-          "$package_root/bin/bloom-runner" version
-          "$package_root/bin/caddy" version
-          useradd --create-home smoke
-          echo 'smoke ALL=(ALL) NOPASSWD:SETENV: ALL' >/etc/sudoers.d/bloom-smoke-bootstrap
-          chmod 0440 /etc/sudoers.d/bloom-smoke-bootstrap
-          install -d -o smoke -g smoke /tmp/bloom-smoke-worktree
-          runuser -u smoke -- env HOME=/home/smoke BLOOM_WORKTREE=/tmp/bloom-smoke-worktree \
-            BLOOM_CREDENTIAL_SHIELD_SOURCE="$package_root/lib/bloom-credential-shield.so" \
-            bash "$package_root/bin/provision-sandbox.sh"
-          mkdir -p /.sprite
-          rm -f /.sprite/api.sock
-          python3 -c 'import socket,time; s=socket.socket(socket.AF_UNIX); s.bind("/.sprite/api.sock"); s.listen(); time.sleep(300)' &
-          socket_server=$!
-          trap 'kill "$socket_server" 2>/dev/null || true; wait "$socket_server" 2>/dev/null || true; rm -f /.sprite/api.sock' EXIT
-          for _ in {1..50}; do
-            [ -S /.sprite/api.sock ] && break
-            sleep 0.1
-          done
-          [ -S /.sprite/api.sock ]
-          runuser -u smoke -- python3 Tools/runner-smoke.py "$package_root/bin/bloom-runner"

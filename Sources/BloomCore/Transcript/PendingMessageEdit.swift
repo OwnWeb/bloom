@@ -15,24 +15,8 @@ public enum PendingMessageEdit {
     /// nothing honest to draw for it: a disabled button with no explanation says less than no
     /// button, so the row simply does not offer one.
     ///
-    /// **And never on somebody else's sentence.** Edit is not "remove this from the queue", it is
-    /// "put these words in my composer", where they can be rewritten and sent under my name. In a
-    /// shared Cloud workspace the queue holds several people's sentences, and a machine that
-    /// permits anybody who may prompt to cancel a queued prompt has answered a different question:
-    /// permission to take something out of a queue is not permission to speak in somebody's voice.
-    /// Delete stays, because taking a message out of a shared queue is visible to everybody and
-    /// puts nobody's words anywhere. The same reasoning already keeps Edit off a message relayed
-    /// from another workspace; see `WorkspaceMessageRowView`.
-    ///
-    /// **Whose it is is `MessageAuthorship`'s question, not this one's**, and it is asked with the
-    /// reading account rather than with the absence of an author alone. A queued prompt comes back
-    /// from the machine with the account that wrote it on it, the reader's own included, so "it
-    /// carries no author, therefore it is mine" would take the pencil off every message the reader
-    /// had queued in a Cloud workspace. `reader` is nil for every local queue, where the absence is
-    /// the whole of the answer and always was.
-    public static func canEdit(_ delivery: Delivery, reader: String? = nil) -> Bool {
-        !MessageAuthorship.isFromSomebodyElse(author: delivery.author?.userID, reader: reader)
-            && PendingMessageDiscard.canDiscard(delivery)
+    public static func canEdit(_ delivery: Delivery) -> Bool {
+        PendingMessageDiscard.canDiscard(delivery)
             && PendingMessageDiscard.isPlainText(delivery.body)
     }
 

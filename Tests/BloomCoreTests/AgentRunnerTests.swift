@@ -1165,12 +1165,6 @@ struct AgentRunnerPermissionTests {
         #expect(row.refID == "toolu_01")
     }
 
-    /// A Cloud client reads a question row whose request id is not waiting as one already
-    /// answered, and the runner used to write the row first and file the question after the
-    /// yield, so an AskUserQuestion reached the Mac as "Answered." while the agent sat blocked on
-    /// it. The database itself holds the order here: a second connection adds a rule refusing the
-    /// question's row while `permission_asks` does not hold the question yet, so filing it second
-    /// leaves no row at all rather than a race a test might or might not lose.
     @Test("the question is filed before the row that draws it")
     func filedBeforeItsRow() async throws {
         let store = try makeTestStore("perm")

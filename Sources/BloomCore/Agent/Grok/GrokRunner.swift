@@ -5,9 +5,8 @@ import Synchronization
 ///
 /// The shape is `CodexRunner`'s, deliberately: a long-lived process, the session id persisted the
 /// moment it arrives so a crashed app can resume, every event written to the store before it
-/// reaches the UI, and the same permission bookkeeping. What it is not is a second code path
-/// inside `CodexRunner`. The two backends share no protocol, only the idea of a conversation, and
-/// that idea is `SessionRunner`.
+/// reaches the UI, and the same permission bookkeeping. Grok has its own wire protocol;
+/// `SessionRunner` is the shared conversation interface.
 public actor GrokRunner: SessionRunner {
     public nonisolated let agentKind = AgentKind.grok
     public nonisolated let workspacePath: String

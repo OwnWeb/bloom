@@ -1,6 +1,5 @@
 import Testing
 import Foundation
-import BloomProtocol
 @testable import BloomCore
 
 private func chat(
@@ -22,21 +21,6 @@ private func chat(
 @Suite("Session reopening")
 struct SessionReopeningTests {
     // MARK: - Which chats are offered
-
-    @Test("wire rows keep the agent and reject one this client does not know")
-    func wireRows() throws {
-        let closedAt = Date(timeIntervalSince1970: 1_700_000_000)
-        let record = ClosedChatRecord(
-            id: "c1", title: "Review", agent: "codex", messageCount: 12, closedAt: closedAt
-        )
-        let closed = try #require(ClosedChat(record: record))
-        #expect(closed.id == SessionID("c1"))
-        #expect(closed.agentKind == .codex)
-        #expect(closed.messageCount == 12)
-        #expect(ClosedChat(record: ClosedChatRecord(
-            id: "c2", title: "Future", agent: "future-agent", messageCount: 1, closedAt: closedAt
-        )) == nil)
-    }
 
     @Test("the newest closures come first")
     func newestFirst() {

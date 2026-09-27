@@ -11,8 +11,8 @@ import BloomCore
 ///
 /// Selection, hover, the revert dialog and the empty states live here rather than in either shape,
 /// which is what keeps picking a file identical in both.
-struct ChangedFileList<Model: WorkspaceSurface>: View {
-    let model: Model
+struct ChangedFileList: View {
+    let model: WorkspaceModel
 
     @State private var pendingRevert: ChangedFile?
     /// A revert that failed, so the user hears about it. It used to be a `try?` that threw the
@@ -193,20 +193,8 @@ struct ChangedFileList<Model: WorkspaceSurface>: View {
     private var empty: some View {
         // "Nobody has looked yet" first, because an empty list before git has answered is not an
         // answer. See `WorkspaceModel.hasReadChanges`.
-        if model.isPreparingChanges {
-            // Nothing has been asked for, because there is nothing to ask yet: the machine is
-            // still making the worktree. A spinner would promise something is on its way.
-            EmptyStateView(
-                glyph: PaneGlyph.setup,
-                title: "Nothing to read yet",
-                message: "This Bloom Cloud workspace is setting up. Its changes appear once it has finished."
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if model.isLoadingChanges || !model.hasReadChanges {
-            LoadingView(
-                model.surfaceID.cloudID != nil && !model.hasReadChats
-                    ? "Waiting for the machine" : "Reading the worktree"
-            )
+        if model.isLoadingChanges || !model.hasReadChanges {
+            LoadingView("Reading the worktree")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let problem = model.changesError {
             EmptyStateView(
@@ -223,7 +211,7 @@ struct ChangedFileList<Model: WorkspaceSurface>: View {
             EmptyStateView(
                 glyph: "checkmark.circle",
                 title: "No changes yet",
-                message: model.diffScope.emptyMessage(base: model.surfaceBaseBranch)
+                message: model.diffScope.emptyMessage(base: model.workspace.baseBranch)
             )
         }
     }
@@ -335,7 +323,7 @@ struct ChangedFileList<Model: WorkspaceSurface>: View {
             // different operations.
             message: {
                 FileRevert.losses(
-                    for: file, baseBranch: model.surfaceBaseBranch,
+                    for: file, baseBranch: model.workspace.baseBranch,
                     hasDraft: fullPath(file.path).map { FileEditSession.shared.isDirty($0) } ?? false
                 )
             },
@@ -599,8 +587,6 @@ struct ChangedFileList<Model: WorkspaceSurface>: View {
         return treeRows.first(where: { $0.node.file != nil })?.node.path
     }
 
-    /// The file on this Mac, for the things only a worktree here has. Nil for a workspace whose
-    /// files are in the cloud, where every control that reads this is already behind a capability.
     private func fullPath(_ relative: String) -> String? {
         model.absolutePath(for: relative)
     }

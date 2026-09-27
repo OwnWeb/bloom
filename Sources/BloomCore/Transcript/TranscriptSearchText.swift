@@ -77,7 +77,7 @@ public enum TranscriptSearchText {
     public static func isIndexed(_ kind: MessageKind) -> Bool {
         switch kind {
         case .user, .assistantText, .thinking, .toolUse, .toolResult, .error, .crew: true
-        case .result, .system, .notice, .permissionAsk, .media: false
+        case .result, .system, .notice, .permissionAsk: false
         }
     }
 

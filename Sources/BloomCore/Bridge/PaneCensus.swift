@@ -92,20 +92,12 @@ public struct PaneCensusEntry: Sendable, Equatable {
     }
 }
 
-/// What a pane is showing, in the words the strip uses.
-///
-/// Six rather than `PaneKind`'s three, because the review, the notes and a Cloud workspace's setup
-/// output are panes a reader has open and a census that could not name them would be a census with
-/// holes in it. They are still not `PaneKind`, and must not become it: that enum is what
-/// `pane_open` and `pane_close` accept, and the missing cases are missing on purpose, because a
-/// workspace has exactly one of each and they hold the reader's own work.
 public enum PaneCensusKind: String, Sendable, Equatable, CaseIterable {
     case chat
     case terminal
     case browser
     case review
     case notes
-    case setup
 
     /// The kind of a tool tab, in these words.
     ///
@@ -118,7 +110,6 @@ public enum PaneCensusKind: String, Sendable, Equatable, CaseIterable {
         case .browser: self = .browser
         case .review: self = .review
         case .notes: self = .notes
-        case .setup: self = .setup
         }
     }
 }

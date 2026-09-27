@@ -7,9 +7,7 @@ import BloomCore
 /// The bar lives here rather than in the panes above, because this is the one view every route to
 /// a file goes through: the changes tab, the file tree and the review pane all end up in it, and a
 /// header bar bolted onto each of them would be three bars to keep in step.
-/// The numbers this view is drawn to, in a type of their own because a generic type may hold no
-/// stored static. Nothing about them is generic: they are about a diff, not about the workspace
-/// under it.
+/// Measurements shared by the diff layouts and controls.
 private enum DiffMeasure {
     /// Above this many changed lines the diff is gated behind a tap. Rendering is lazy and would
     /// survive it, but the preparation pass and the user's attention would both rather not.
@@ -30,8 +28,8 @@ private enum DiffMeasure {
     static let leadingCentre = UnitPoint(x: 0, y: 0.5)
 }
 
-struct DiffView<Model: WorkspaceSurface>: View {
-    let model: Model
+struct DiffView: View {
+    let model: WorkspaceModel
     let file: ChangedFile
     /// Non-nil when the all-files review owns vertical scrolling.
     let embeddedWidth: CGFloat?
@@ -100,9 +98,9 @@ struct DiffView<Model: WorkspaceSurface>: View {
     /// Whether a note can be left on this diff: the same question, and the capability besides.
     /// A workspace without it draws no gutter `+`, no bands and no editor, and `FileHeaderBar`
     /// says why where the control would be.
-    private var allowsComments: Bool { allowsWorktreeActions && model.capabilities.has(.reviewComments) }
+    private var allowsComments: Bool { allowsWorktreeActions }
     /// The same for the in-place editor, which writes the file.
-    private var allowsEditing: Bool { allowsWorktreeActions && model.capabilities.has(.editFiles) }
+    private var allowsEditing: Bool { allowsWorktreeActions }
     private var draft: ReviewDraft? { allowsComments ? model.reviewDrafts[file.path] : nil }
     private var draftSelection: ReviewSelection? { draft?.selection }
     /// Where the editor is drawn: under the LAST line the note will cover, so a note begun by
@@ -185,7 +183,7 @@ struct DiffView<Model: WorkspaceSurface>: View {
     /// available yet here, and it has to be part of the question: ignoring whitespace changes
     /// which hunks there are.
     init(
-        model: Model, file: ChangedFile, embeddedWidth: CGFloat? = nil,
+        model: WorkspaceModel, file: ChangedFile, embeddedWidth: CGFloat? = nil,
         embeddedViewportHeight: CGFloat? = nil, isCollapsed: Bool = false,
         onScrollFocus: (() -> Void)? = nil, navigationTarget: Bool = false,
         onNavigationLayout: (() -> Void)? = nil, onPrepared: (() -> Void)? = nil,
@@ -202,8 +200,8 @@ struct DiffView<Model: WorkspaceSurface>: View {
         self.onPrepared = onPrepared
         self.onToggleCollapsed = onToggleCollapsed
         let absolute = model.editorKey(for: file.path)
-        _mode = State(initialValue: model.capabilities.has(.editFiles)
-            && model.diffScope.allowsWorktreeActions(for: file) && (FileEditSession.shared.isDirty(absolute)
+        _mode = State(initialValue: model.diffScope.allowsWorktreeActions(for: file)
+            && (FileEditSession.shared.isDirty(absolute)
             || SourceEditorState.file(absolute).prefersEditing
             || (embeddedWidth == nil && SourceEditorState.file(absolute).request != nil)) ? .edit : .diff)
 
@@ -229,7 +227,7 @@ struct DiffView<Model: WorkspaceSurface>: View {
 
     private struct LoadID: Hashable {
         var language: Language
-        var workspaceID: WorkspaceSurfaceID
+        var workspaceID: WorkspaceID
         var file: ChangedFile
         var scope: DiffScope
         var generation: Int
@@ -261,16 +259,9 @@ struct DiffView<Model: WorkspaceSurface>: View {
         return nil
     }
 
-    /// What the editor, the find bar and the source state file this file under: its path on this
-    /// Mac for a worktree, and a key naming the workspace and the file for one in the cloud.
-    /// Nothing here opens it; everything that reads or writes the file is behind `.editFiles`.
     private var fileKey: String {
         model.editorKey(for: file.path)
     }
-
-    /// The worktree on this Mac, for the one thing that genuinely needs one: previewing a
-    /// Markdown or HTML file by reading it, and the links inside that preview.
-    private var worktree: String? { model.worktreePath }
 
     var body: some View {
         observedBody
@@ -352,7 +343,7 @@ struct DiffView<Model: WorkspaceSurface>: View {
         }
         .task(id: LoadID(
             language: effectiveLanguage,
-            workspaceID: model.surfaceID, file: file, scope: model.diffScope,
+            workspaceID: model.workspace.id, file: file, scope: model.diffScope,
             generation: model.diffScope.isHistorical ? 0 : model.changesGeneration,
             isCollapsed: isCollapsed, ignoringWhitespace: ignoresWhitespace
         )) {
@@ -428,7 +419,7 @@ struct DiffView<Model: WorkspaceSurface>: View {
         // A section of the all-files review previews Markdown natively, at a fixed height. An HTML
         // report in a box that size is not a way to read one, so it gets its preview in the file tab.
         let kind = DocumentPreview.kind(path: file.path)
-        guard allowsWorktreeActions, model.worktreePath != nil,
+        guard allowsWorktreeActions,
               kind == .markdown || (kind == .html && embeddedWidth == nil),
               !file.isBinary, file.change != .deleted else {
             return nil
@@ -444,9 +435,9 @@ struct DiffView<Model: WorkspaceSurface>: View {
         // The preview renders a Markdown or HTML file by reading it off this Mac, and the links
         // inside it open other files the same way, so it belongs to a worktree. Without one
         // `markdownPreviewAction` is nil as well, so nothing offers a preview that cannot be made.
-        if embeddedWidth == nil, let worktree = model.worktreePath {
+        if embeddedWidth == nil {
             MarkdownPreviewContent(
-                path: fileKey, worktree: worktree, revision: model.changesGeneration,
+                path: fileKey, worktree: model.workspace.path, revision: model.changesGeneration,
                 isPresented: $showsMarkdownPreview,
                 openFile: { model.openSource(at: CodeLocation(path: $0)) }
             ) {
@@ -1224,7 +1215,7 @@ struct DiffView<Model: WorkspaceSurface>: View {
             lookupRevision: rowRevision,
             isReadOnly: !allowsEditing,
             onLookup: { view, offset, references, automatic, newTab in
-                guard allowsWorktreeActions, model.offersSourceLookup, isCurrent(document), let fileLines else { return }
+                guard allowsWorktreeActions, isCurrent(document), let fileLines else { return }
                 model.lookUpInDiff(at: offset, view: view, lines: lines, source: fileLines.joined(separator: "\n"),
                     path: file.path, references: references, automatic: automatic, newTab: newTab) { location, newTab in
                     guard isCurrent(document) else { return }

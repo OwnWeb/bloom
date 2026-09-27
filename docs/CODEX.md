@@ -5,7 +5,7 @@ against `codex-cli 0.147.0` on this machine, driving the real binary, on 2026-08
 a section dates itself against a later build. Everything under "Plan" is a decision, not a
 measurement, and is meant to be argued with.
 
-Related: `AGENTS-INTEGRATION.md` (how the four CLIs are detected), `PROTOCOL.md` (Claude Code's
+Related: `AGENTS-INTEGRATION.md` (how agent CLIs are detected), `PROTOCOL.md` (Claude Code's
 stream-json), `PLAN.md`.
 
 ---
@@ -260,8 +260,8 @@ public struct Session {
 
 The migration step is the real-code form, not `sql(_:)`, because `ADD COLUMN` has no
 `IF NOT EXISTS` and every step in that list has to be replayable over a database that already has
-it applied. Rewinding `user_version` is how an old schema is reproduced, and a step that threw
-would take the whole transaction with it. `theMigrationSurvivesBeingReplayed` pins that:
+it applied. The replay test rewinds `user_version` on a migrated database; a step that threw would
+take the whole transaction with it. `theMigrationSurvivesBeingReplayed` pins that:
 
 ```swift
 { db in
@@ -272,10 +272,10 @@ would take the whole transaction with it. `theMigrationSurvivesBeingReplayed` pi
 }
 ```
 
-Every existing row is a Claude Code chat and the default says so. It is threaded through the three
-places in `Store.swift` that name session columns: the `INSERT … ON CONFLICT` list, the row reader,
-and `updateSessionPreferences`, which gained this column and none of the runner's. That last part
-is not decoration: `upsert` writes every column from the value it is handed, which is why `34b840b`,
+Every existing row is a Claude Code chat and the default says so. It is threaded through the
+session insert and preferences update in `Store+Sessions.swift`, and the row reader in
+`Store+Rows.swift`. The preferences update gained this column and none of the runner's. That
+distinction matters: `upsert` writes every column from the value it is handed, which is why `34b840b`,
 `e47a3b7` and `de3f173` exist. `upsert` creates a row, `update` modifies one, and a new column
 changes nothing about that.
 
@@ -540,7 +540,7 @@ flag and Bloom infers it; here it is handed over.
 
 ---
 
-## 8. Every place that assumes Claude today
+## 8. Places the Codex integration changed
 
 | Place | What it assumes | What to do |
 | --- | --- | --- |
@@ -553,25 +553,16 @@ flag and Bloom infers it; here it is handed over.
 | `ComposerOption.models` / `.efforts` | Three Claude models and five flat efforts, hardcoded | See §9 |
 | `AgentRunner`, `AgentEvent` | Claude Code's stream-json, end to end | Stay Claude Code's. A `CodexRunner` beside them |
 | Sidebar status glyph, `WorkspaceRunningGlyph` | Workspace-level busy state | A workspace is busy when **any** of its chats is. Already per workspace, so no change, but check it is aggregating chats and not reading one |
-| `CenterTab` / the tab strip | Chat tabs deliberately carry no glyph, so a row of conversations does not read as a toolbar | A backend mark on a chat tab is needed and must not undo that. A small tinted dot or a wordmark-sized glyph, only where the workspace holds more than one backend, and reconciled with the running glyph that is already there |
+| `CenterTab` / the tab strip | Chat tabs originally carried no backend mark | `PaneGlyph` now marks chats when a workspace contains multiple agent kinds, while keeping the strip visually quiet for a single kind |
 
 ---
 
-## 8a. The tab strip has to say which backend a chat is
+## 8a. The tab strip names the backend
 
-Today a chat tab carries no glyph at all, deliberately: a strip of conversations must not read as a
-toolbar of icons. But with two backends, **you would have to open a chat to find out what is
-running it**, and the answer changes what the composer offers, what the permission prompt says and
-what the numbers in the inspector mean.
-
-So the mark is needed, and it has to cost almost nothing:
-
-- Only when the workspace actually holds more than one backend. A workspace of five Claude chats
-  gets no marks, because there is nothing to tell apart.
-- A small tinted dot or a wordmark-sized glyph, not a full icon, and reconciled with the running
-  glyph already in that row rather than placed beside it.
-- The same mark wherever a chat is named outside its own window: the sidebar row, the window title,
-  the menu bar summary.
+The tab strip shows an agent mark when a workspace contains more than one agent kind. A workspace
+whose chats all use the same backend keeps its quieter chat tabs. Permission questions and linked
+agent terminals still show their own status mark. `SessionTabsView` derives the agent mix once for
+the strip, and `PaneGlyph` owns the mark for each backend.
 
 ---
 

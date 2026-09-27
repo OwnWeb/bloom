@@ -34,14 +34,6 @@ struct PullRequestCreator: View {
     /// Where a sign in would run, if the quiet line below the branch is pressed. Empty for a
     /// workspace with no worktree on this Mac, which is also one that is never in the dark.
     var worktree: String
-    /// Whether GitHub can be asked anything at all. It has no bearing on the button, which goes to
-    /// the agent, and every bearing on whether this strip can be trusted when it says there is no
-    /// pull request: signed out, Bloom simply never found out.
-    ///
-    /// Handed in rather than read off the shared observable, because the answer is the workspace's
-    /// own: a local one asks this Mac's `gh`, and a Cloud workspace's machine asks GitHub itself,
-    /// so it is never signed out on this Mac's behalf. A local caller passes the shared state
-    /// straight through, so signing in through the sheet still takes the line below away at once.
     var github: GitHubAvailability.State
     /// Whether this branch has anything on it at all. A worktree identical to its base has nothing
     /// to open a pull request for, and Bloom knows that for free, so it says so here rather than
@@ -50,13 +42,6 @@ struct PullRequestCreator: View {
     /// It settles both halves of the strip: the line under the branch name, and whether there is a
     /// button at all.
     var hasChanges: Bool
-    /// True while a Cloud workspace's machine is still making the worktree. "Nothing has changed
-    /// on this branch yet" is a claim about a branch that does not exist on the machine yet, and
-    /// it sat above a list saying the same worktree could not be read.
-    var isPreparing = false
-    /// Whether the changes have been read at all. Before they have, an empty list is nobody having
-    /// looked, and "Nothing has changed on this branch yet" sat above "Reading the worktree" on
-    /// every Cloud workspace while its machine was being reached.
     var hasReadChanges = true
     /// Set for the branch this workspace was carried on to when its pull request merged, and only
     /// while nothing has been committed to it. It is the difference between an empty branch that
@@ -166,7 +151,6 @@ struct PullRequestCreator: View {
         // `PullRequestSummary.detailLine` gives: a disabled button that explains itself only on
         // hover is a button most people never get an explanation from.
         if let note = branchActions.note { return note }
-        if isPreparing { return "Setting up. Nothing to compare yet." }
         if !hasChanges, !hasReadChanges { return "Comparing with \(baseBranch)…" }
         guard hasChanges else { return ContinuedBranch.line(on: branch, continued: continued) }
         return "No pull request yet. Target \(baseBranch)."

@@ -1,70 +1,11 @@
 #!/usr/bin/env python3
-"""THE SHIPPED DRAWING. make.py builds `Resources/` from this file and from
-nothing else.
+"""The app icon artwork used by make.py.
 
-It is `gen10.tongue` at a margin of 150, the design round ten settled on, with
-round eleven's three decisions applied to it. Read make.py's docstring for what
-the design IS and why the spur cannot be simplified away; this file is only
-what changed after it.
-
-  THE GRADE. `shine.py`'s `02-piece`, the row the owner chose. Every piece is
-  graded across ITS OWN height rather than across the tile: the ground, the
-  panel with its spur, each lane separately, and the bar. Lighter at the
-  piece's own top by 0.14 and deeper at its own bottom by 0.11, so the average
-  tone of every piece is still the palette entry it started as and the palette
-  is not being changed by the back door. This is Numbers' move and Apple's
-  `orientation` key is the only reason it is expressible at all.
-
-  THE GRADE IS A KEY IN THE LAYERED DOCUMENT AND PAINT ONLY IN THE FLAT ONE.
-  make.py's third rule. On macOS 26 each layer carries a two stop
-  `linear-gradient` fill with an `orientation` and the system draws it; the
-  artwork under it is a silhouette whose own colours are thrown away. The flat
-  composite, which is now the contact sheets and the website mark rather than
-  an `.icns`, says the same two stops over the same two canvas coordinates as
-  an SVG gradient, because nothing draws that for a bare SVG. Neither output
-  gets a second layer, a blur or a baked gloss: `shine.py` found that a
-  duplicate silhouette carrying an alpha ramp comes back lifted and grey
-  because the system lights every layer separately, and that CoreSVG drops
-  `feGaussianBlur` silently.
-
-  A GRADED GROUP BECOMES SEVERAL LAYERS. One fill key replaces a whole layer's
-  colours, so a group holding two colours cannot be one layer any more: Bleed
-  is now Spatie and Current, one gradient each. Splitting a group is not a
-  change to the drawing and the geometry is identical either way.
-
-  THE LANES ARE CLIPPED TO THE PLAIN SQUIRCLE. `gen10.figure` clipped them to
-  the panel AFTER the spur had been unioned onto it, so at the leaving edge a
-  lane that happened to lie inside the spur followed it out over the Foam and
-  what crossed the white was mid teal, dark, pale bar, dark, mid teal. The left
-  edge showed what was intended. They are cut at the plain panel now; the bar
-  and the spur are untouched by this.
-
-  THE SPUR IS CONCENTRIC WITH THE BAR, AND 17 UNITS PROUD RATHER THAN 26.
-  `trim.py`'s `02-match`. Two things were wrong at the leaving edge. The spur
-  was drawn `bar height + 52`, exactly 26 units proud on each side, but its
-  band was ENDED SOMEWHERE ELSE THAN THE BAR'S: the bar runs to 1304 in the
-  panel's frame and the spur ran to `outof(1200)`, which is 1485. A band's
-  centre line is a cubic whose two control points are fixed, so stretching the
-  end point reparametrises the curve and at any given x the longer band has not
-  travelled as far down its own descent. Across the margin the spur's centre
-  line therefore sat about 7 canvas units ABOVE the bar's, and a symmetric
-  skirt was drawn as 22 above and 11 below. Ending it where the bar ends makes
-  the two concentric again; 17 units proud then measures 11 canvas units on
-  both sides, which is what the lower edge, the side nobody complained about,
-  already measured.
-
-  SOME DARK MUST STAY. Shallow #9BE9DC on Foam #E9F7F4 measures 1.26, well
-  under the 1.60 two layers need, so the bar cannot be seen on the margin on
-  its own and the spur is the whole reason this design is `tongue` rather than
-  `flush`. 17 is a trim. Do not take it to zero.
-
-THE SMALL ARTWORK IS NOT GRADED AND DOES NOT COME FROM HERE. `site.py` draws
-the website's favicon from `gen10.unframed()`, flat, for the reason make.py
-gives: at 16 a 150 margin is two pixels of white. A grade of a tenth of a tone
-over twelve pixels is not a grade, and the tone it costs at the bottom of a
-piece is real, so the small artwork keeps its palette colours. The app has no
-size at which it can make that swap: one set of artwork serves every size in a
-layered document.
+The layered icon and flat website mark share the same geometry. Each icon layer
+has its own vertical gradient; the flat SVG paints the same stops directly.
+The lanes are clipped to the panel before its spur is added. The spur follows
+the bar's curve and extends 17 units above and below it, keeping the pale bar
+visible where it crosses the light outer margin.
 """
 import os
 import sys
@@ -72,13 +13,13 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-import gen10  # noqa: E402
+import icon_geometry  # noqa: E402
 import lib  # noqa: E402
-import lib9  # noqa: E402
-from gen10 import (BAND_X1, CY, END, H, HS, M, YA, YB, band_in, into, kof,  # noqa: E402
+import icon_canvas  # noqa: E402
+from icon_geometry import (BAND_X1, CY, END, H, HS, M, YA, YB, band_in, into, kof,  # noqa: E402
                    squircle_panel)
 from lib import sh_group  # noqa: E402
-from lib9 import clipped, fullbleed, sh_squircle, sheen, wrap_flat, wrap_layer  # noqa: E402
+from icon_canvas import clipped, fullbleed, sh_squircle, sheen, wrap_flat, wrap_layer  # noqa: E402
 
 # How far the spur is proud of the bar, above and below, in the panel's own
 # units, and where its band ends. The end point is the bar's own and must stay
@@ -203,9 +144,9 @@ def where(small=False, m=M):
 
 # ------------------------------------------------------------- the document
 GROUNDKEYS = {}
-BLEEDKEYS = gen10.BLEEDKEYS
-PANELKEYS = gen10.PANELKEYS
-MARKKEYS = gen10.MARKKEYS
+BLEEDKEYS = icon_geometry.BLEEDKEYS
+PANELKEYS = icon_geometry.PANELKEYS
+MARKKEYS = icon_geometry.MARKKEYS
 
 
 def groups(small=False):
@@ -234,15 +175,14 @@ def groups(small=False):
 
 # ------------------------------------------------------------- the flat body
 def body(small=False):
-    """gen10.figure's own composite for `tongue`, graded, with the contact
+    """icon_geometry.figure's own composite for `tongue`, graded, with the contact
     shadows the flat file needs and the layered one must not have.
 
     The order is the order it is painted in: ground, the panel seated on the
     margin, the panel, the lanes cut at the plain panel, the bar seated on each
-    lane and on the panel, the bar. It is `depth.base_flat`'s composition,
-    which is the one every shine row and every trim row was judged as.
+    lane and on the panel, the bar. The layered icon omits these contact shadows because the system supplies them.
 
-    TWO THINGS gen10.figure DRAWS HERE AND THIS DOES NOT, and both are the same
+    TWO THINGS icon_geometry.figure DRAWS HERE AND THIS DOES NOT, and both are the same
     argument. `outside(side(c), p)` lays a Current thickness under the bar
     wherever the bar is on the margin without one, and
     `outside(contact(c, tile), p)` drops the bar's own shadow onto the Foam.
@@ -253,18 +193,18 @@ def body(small=False):
     asked to take away, only on the other side.
     """
     sp, w = shapes(small), where(small)
-    S = lib9.S
+    S = icon_canvas.S
     p, plain, c = sp["panel"], sp["plain"], sp["bar"]
     lanes = (sp["a"](paint("spatie", UP, DOWN, *w["a"]))
              + sp["b"](paint("current", UP, DOWN, *w["b"])))
     return "".join([
         fullbleed(paint("foam", UP, DOWN, *w["ground"])),
-        lib9.contact(p, sp["tile"], d=(0, 16 * S), blur=20 * S, alpha=0.22),
+        icon_canvas.contact(p, sp["tile"], d=(0, 16 * S), blur=20 * S, alpha=0.22),
         p(paint("deep", UP, DOWN, *w["panel"])),
         clipped(lanes, plain),
-        lib9.contact(c, sp["a"], d=(0, 26 * S), blur=13 * S, alpha=0.34),
-        lib9.contact(c, sp["b"], d=(0, -26 * S), blur=13 * S, alpha=0.34),
-        lib9.contact(c, p, d=(0, 26 * S), blur=15 * S, alpha=0.30),
+        icon_canvas.contact(c, sp["a"], d=(0, 26 * S), blur=13 * S, alpha=0.34),
+        icon_canvas.contact(c, sp["b"], d=(0, -26 * S), blur=13 * S, alpha=0.34),
+        icon_canvas.contact(c, p, d=(0, 26 * S), blur=15 * S, alpha=0.30),
         c(paint("shallow", UP, DOWN, *w["bar"])),
     ])
 
@@ -272,12 +212,8 @@ def body(small=False):
 def render(small=False):
     """The groups and the full bleed composite.
 
-    TWO, WHERE gen10.render AND gen9.render RETURN THREE. Theirs end with the
-    same composite drawn at the Big Sur template, at 824 inside 1024, which was
-    the shape a flat `.icns` had to carry on macOS 15. The app's floor is macOS
-    26 and it ships no flat icon at all, so this file stops producing one; the
-    round nine and round ten files keep theirs because their contact sheets are
-    the record of a comparison that was really made. See make.py.
+    The app ships a layered icon, so this returns only its groups and the flat
+    composite used for the website.
 
     The two halves are built against separate def tables on purpose. Every
     wrapper embeds the whole of `lib.defs()`, so building the flat body first

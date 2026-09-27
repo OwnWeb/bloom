@@ -11,8 +11,8 @@ import BloomCore
 ///
 /// The shared review offers a choice between one file and all files. In all-files mode,
 /// layout controls live above the review and each file keeps a compact, collapsible header.
-struct ReviewPaneView<Model: WorkspaceSurface>: View {
-    let model: Model
+struct ReviewPaneView: View {
+    let model: WorkspaceModel
     var tab: CenterTab
     /// What every pane of the tab this one is in is showing, this pane included, which is the one
     /// fact the composer below turns on. See `ReviewComposer`.
@@ -94,13 +94,7 @@ struct ReviewPaneView<Model: WorkspaceSurface>: View {
         // who has not moved: the changes generation is what says the worktree has been looked at
         // again.
         .task(id: ExistsID(path: tab.path, generation: model.changesGeneration)) {
-            // Only a worktree can be asked this, and only a worktree can lose a file under a
-            // reader who has not moved. A Cloud workspace's files are the machine's: asking for one
-            // that has gone comes back as the machine saying so, which is where that belongs.
-            guard let worktree = model.worktreePath else {
-                exists = true
-                return
-            }
+            let worktree = model.workspace.path
             let path = tab.path
             let absolute = Self.absolutePath(path, worktree: worktree)
             exists = await Task.detached(priority: .userInitiated) {
@@ -131,16 +125,16 @@ struct ReviewPaneView<Model: WorkspaceSurface>: View {
                 model: model, selectedPath: tab.path,
                 navigationRevision: tab.reviewNavigationRevision
             )
-                .id(model.surfaceID)
+                .id(model.workspace.id)
         } else if let changed {
             // A path can exist in several workspaces. Include the workspace so switching
             // checkouts cannot reuse another workspace's diff, selection or expanded context.
             DiffView(model: model, file: changed)
-                .id("\(model.surfaceID.storageKey):\(changed.id)")
+                .id("\(model.workspace.id.rawValue):\(changed.id)")
         } else if model.diffScope.isHistorical {
             EmptyStateView(glyph: "doc.text", title: "No file selected",
                            message: model.changedFiles.isEmpty
-                            ? model.diffScope.emptyMessage(base: model.surfaceBaseBranch)
+                            ? model.diffScope.emptyMessage(base: model.workspace.baseBranch)
                             : "Pick a changed file in the inspector to read it here.")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if tab.path.isEmpty {
@@ -150,23 +144,20 @@ struct ReviewPaneView<Model: WorkspaceSurface>: View {
                 glyph: "doc.text",
                 title: "No file open",
                 message: model.changedFiles.isEmpty
-                    ? "Nothing here differs from \(model.surfaceBaseBranch) yet."
+                    ? "Nothing here differs from \(model.workspace.baseBranch) yet."
                     : "Pick a file in the inspector to read it here."
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let worktree = model.worktreePath, isPresent, FileMediaView.isMedia(path: tab.path) {
+        } else if isPresent, FileMediaView.isMedia(path: tab.path) {
             // An image, a PDF, a video. `FilePreview` reads a file as text and would say there is
             // nothing to show, which for the screenshot somebody just attached is both wrong and
             // the whole reason they clicked.
             FileMediaView(
-                worktree: Self.isAbsolute(tab.path) ? "/" : worktree,
+                worktree: Self.isAbsolute(tab.path) ? "/" : model.workspace.path,
                 path: Self.isAbsolute(tab.path) ? String(tab.path.dropFirst()) : tab.path
             )
                 .id(tab.path)
         } else if isPresent {
-            // A file nobody changed, read rather than diffed. The pane is the workspace's to draw,
-            // because reading one means opening it on this Mac for a worktree and asking the
-            // machine for it in the cloud.
             model.filePane(path: tab.path)
                 .id(tab.path)
         } else {

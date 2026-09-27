@@ -58,43 +58,6 @@ public struct RepoID: Identifier {
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }
 
-/// A person on runbloom.app, as the wire spells their account: the author of a message in a shared
-/// Cloud workspace, the audience of one addressed to them, and a row in the presence list.
-///
-/// **Typed even though it is never looked up in this Mac's database, and that is the point.** It
-/// sits beside a workspace id, a chat id and a handle in the same values, and a handle is the one
-/// it would be confused with: both are strings that name a person, one is what they are called
-/// this week in this team and the other is who they are. See `MessageAudience.Person`.
-public struct CloudUserID: Identifier {
-    public let rawValue: String
-    public init(_ rawValue: String) { self.rawValue = rawValue }
-}
-
-/// A team on runbloom.app. Kept distinct from its projects because both ULIDs travel together in
-/// every authorised project artwork request and form its cache boundary.
-public struct CloudTeamID: Identifier {
-    public let rawValue: String
-    public init(_ rawValue: String) { self.rawValue = rawValue }
-}
-
-/// A project on runbloom.app, not a local `RepoID`. Two teams may carry the same repository name.
-public struct CloudProjectID: Identifier {
-    public let rawValue: String
-    public init(_ rawValue: String) { self.rawValue = rawValue }
-}
-
-/// A Cloud machine record on runbloom.app, bound to one workspace and one signing key.
-public struct CloudMachineID: Identifier {
-    public let rawValue: String
-    public init(_ rawValue: String) { self.rawValue = rawValue }
-}
-
-/// The lowercase SHA-256 fingerprint naming one machine identity public key.
-public struct MachineIdentityKeyID: Identifier {
-    public let rawValue: String
-    public init(_ rawValue: String) { self.rawValue = rawValue }
-}
-
 /// A worktree on disk. The id outlives the worktree: an archived workspace keeps its row, and the
 /// row is what a restore reads.
 public struct WorkspaceID: Identifier {
@@ -153,6 +116,18 @@ public struct PermissionGrantID: Identifier {
 /// subagent's own transcript on disk. So `new()` is never called for one. It is also not stored,
 /// because a subagent lives for seconds and nothing outlives the turn that spawned it.
 public struct SubagentID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
+/// A message sent from one workspace to another through `workspace_say`.
+public struct WorkspaceMessageID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
+/// A request to be told when another workspace's turn finishes.
+public struct WorkspaceDoneWatchID: Identifier {
     public let rawValue: String
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }

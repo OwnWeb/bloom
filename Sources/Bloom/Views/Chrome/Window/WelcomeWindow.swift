@@ -9,7 +9,7 @@ import BloomCore
 /// worktrees. So the common case is that nothing is wrong, and a window that opened onto a
 /// checklist would be interrogating somebody who passed. It is a welcome that happens to check,
 /// not a check with a welcome painted on it: the plinth, the mark and the wordmark are the About
-/// window's, which are the site's, and the four rows underneath settle into ticks in about a
+/// window's, which are the site's, and the checks underneath settle into ticks in about a
 /// second and say so.
 ///
 /// For the person who IS missing something it has to be the other thing, and the same window is
@@ -66,7 +66,7 @@ enum WelcomeWindow {
         existing.makeKeyAndOrderFront(nil)
         // Only when Bloom is already the front application, or when somebody asked for this
         // window by name. `NSApp.activate()` was unconditional, and the caller behind it is an
-        // async probe whose own comment says it "can take as long as four CLIs take", so Bloom
+        // async probe whose own comment says it "can take as long as the command line probes take", so Bloom
         // pulled itself to the front seconds after the owner had moved to another app. The window
         // is still ordered in, so it is there when they come back.
         if mayActivate || NSApp.isActive { NSApp.activate() }
@@ -174,7 +174,7 @@ enum WelcomeWindow {
         // thing that could move the window afterwards was the hosting view's minimum size growing
         // underneath it. Opening the GitHub login grew the window from 534 points to 747 to make
         // room for the terminal, and pressing "Back to the checks" took the terminal out and left
-        // the window at 747, with the four check rows spread down 180 points of dead space. It
+        // the window at 747, with the check rows spread down 180 points of dead space. It
         // never came back, not on a re-probe and not on a second visit, because nothing was left
         // that could make a window smaller. Calling `setContentSize` again on the way back would
         // only have been a second ratchet pointing the other way, and wrong for every size change
@@ -286,7 +286,7 @@ enum WelcomeLaunch {
         }
 
         Task {
-            // Nothing is drawn for this, so it can take as long as four CLIs take. If the machine
+            // Nothing is drawn for this, so it can take as long as the command line probes take. If the machine
             // is fine, which it nearly always is, the user never learns this happened.
             let overrides = await WelcomeWindow.waitForAgentOverrides()
             let report = await SetupProbe(agentOverrides: overrides).report()
@@ -325,7 +325,7 @@ enum WelcomeLaunch {
 ///
 /// The missing-tool states cannot be looked at on a machine that has every tool, and the only
 /// other ways to see them are to uninstall something or to point the agent overrides at a path
-/// that does not exist, which covers two of the four rows and none of the GitHub ones. So the
+/// that does not exist, which covers agent rows but not the GitHub check. So the
 /// detection INPUT can be supplied on the command line:
 ///
 ///     Bloom --setup-rehearsal signed-out-github

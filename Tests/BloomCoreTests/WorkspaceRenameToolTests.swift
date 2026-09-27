@@ -158,23 +158,23 @@ struct WorkspaceRenameToolTests {
 
         let coordinatorResult = await WorkspaceRenameTool().call(
             request([
-                "name": .string("Bloom Cloud: Coordinator History"),
+                "name": .string("Bloom: Coordinator History"),
                 "workspace": .string("old coordinator"),
             ]),
             as: agent(mine), store: store
         )
         #expect(!coordinatorResult.isError, "\(coordinatorResult.text)")
-        #expect(try await store.workspace(id: previousCoordinator.id)?.name == "Bloom Cloud: Coordinator History")
+        #expect(try await store.workspace(id: previousCoordinator.id)?.name == "Bloom: Coordinator History")
 
         let roleResult = await WorkspaceRenameTool().call(
             request([
-                "name": .string("Bloom Cloud: Web Client"),
+                "name": .string("Bloom: Web Client"),
                 "workspace": .string(role.id.rawValue),
             ]),
             as: agent(mine), store: store
         )
         #expect(!roleResult.isError, "\(roleResult.text)")
-        #expect(try await store.workspace(id: role.id)?.name == "Bloom Cloud: Web Client")
+        #expect(try await store.workspace(id: role.id)?.name == "Bloom: Web Client")
         #expect(try await store.workspace(id: mine.id)?.name == "test")
     }
 

@@ -35,10 +35,6 @@ enum Log {
 
     static let crashes = Logger(subsystem: subsystem, category: "crashes")
 
-    /// A Cloud terminal's output, batched per display refresh: how many of the machine's frames
-    /// each feed of the emulator carried. See `TerminalOutputBatch`.
-    static let cloudTerminal = Logger(subsystem: subsystem, category: "cloud-terminal")
-
     /// The launch sweep for project artwork, which is the only work the app does that nobody
     /// asked for and that changes something on screen. When a badge is suddenly a picture, this
     /// is where it says which projects it looked at and how long it spent.
@@ -63,15 +59,6 @@ enum Log {
     /// could not register. Every one of those is a tool the agent silently does not have, which is
     /// invisible from inside a transcript.
     static let bridge = Logger(subsystem: subsystem, category: "bridge")
-
-    /// A Cloud workspace's connection to its machine: every phase it moves through, with
-    /// runbloom.app's own sentence where it gave one. Notice rather than info, so it is persisted.
-    ///
-    /// Added after a workspace sat on "Creating the machine" for three minutes and the only way to
-    /// tell a provider refusing the create from a Mac that never connected was reading the
-    /// network trace: the app wrote nothing of its own about Cloud at all.
-    /// `log show --last 1h --predicate 'category == "cloud"'`.
-    static let cloud = Logger(subsystem: subsystem, category: "cloud")
 
     /// Run scripts: an autostart approval that could not be written, which is why nothing started.
     static let runScripts = Logger(subsystem: subsystem, category: "runScripts")

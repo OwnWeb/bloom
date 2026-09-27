@@ -47,78 +47,6 @@ public struct BrowserToolbar: Equatable, Sendable {
         }
     }
 
-    /// Which pane this bar is drawn in, which is the only thing that decides what it holds.
-    ///
-    /// **Two panes, one bar, and the differences are capabilities rather than branches.** A Cloud
-    /// workspace's app is shown beside its conversation by `CloudPreviewPane`, and the first
-    /// version of that pane drew a thin custom row of its own: a glyph, a host, two borderless
-    /// buttons. It was a different browser in the same window, which is the whole thing this slice
-    /// of work exists to avoid. So the pane draws `BrowserToolbarView` like the local one, and what
-    /// it has less of is written here, where a test can read it.
-    public enum Surface: String, Sendable, Equatable, CaseIterable, Codable {
-        /// A browser tab in a local workspace. Everything below is present.
-        case tab
-        /// A Cloud workspace's own app, over a machine rather than over this Mac.
-        case machineApp
-        /// A port of a Cloud workspace forwarded to this Mac, at `localhost`. An ordinary page on
-        /// an ordinary address, so it has an address field; still a Cloud workspace's pane, so it
-        /// has what `machineApp` has and not the rest. See `WorkspacePorts.opening`.
-        case forwardedPage
-
-        /// Whether the address is a field to type into.
-        ///
-        /// It is not, on a machine. The pane is reached through a token that is single use and
-        /// lasts a minute, and there is one address it may ever show, so a field would be a
-        /// promise the pane cannot keep. The capsule stays, holding the host, because that is
-        /// where a reader looks to find out where they are.
-        public var hasAddressField: Bool { self != .machineApp }
-
-        /// Whether the camera is there: a screenshot of this page, on the composer's next turn.
-        ///
-        /// **It is, on a machine, now that a file can cross.** It was not, and the reason given was
-        /// that a screenshot is a file written into the workspace's worktree and a Cloud workspace
-        /// has none on this Mac. That stopped being true when attachments learned to stage on this
-        /// Mac and upload when the turn goes: the bytes take the same road a dragged screenshot
-        /// takes, and the owner works by screenshot, so this was the first control he would have
-        /// reached for.
-        public var hasPageCapture: Bool { true }
-
-        /// Whether dragging over part of the page to comment on it is there.
-        ///
-        /// Not on a machine yet, and it is a bigger thing than the camera: the region is drawn on a
-        /// canvas over the page, the comment travels with the image, and the review gutter it
-        /// belongs beside is itself not built for a Cloud workspace. Left out rather than drawn
-        /// dead, which is the rule for the whole of this enum.
-        public var hasRegionComment: Bool { self == .tab }
-
-        /// Whether the system share sheet is there.
-        ///
-        /// It is not, on a machine. What it would hand over is the one-time exchange address,
-        /// which stops working the moment it is used, so anybody receiving it gets a dead link.
-        /// Nor on a forwarded page, whose `localhost` means the reader's Mac to whoever opens it.
-        /// Sharing a Cloud workspace's app with somebody is a preview link, which is its own
-        /// decision in the Share popover, with its own expiry. See `CloudSharePopover`.
-        public var hasSystemSharing: Bool { self == .tab }
-
-        /// What the capsule shows, given where the page actually is.
-        ///
-        /// A tab shows the address, whole, because that is what an address bar is. A machine's
-        /// pane shows it without its query, because the one query this pane ever carries is the
-        /// single-use token the exchange was made with, and a token drawn in a bar reads as part
-        /// of the address: it invites somebody to copy it, and it is the one string here that is
-        /// worth nothing a second after it was used. The scheme, the host and the path stay, so
-        /// the reader still sees which page of the app they are on.
-        public func shownAddress(_ address: String) -> String {
-            guard self == .machineApp, !address.isEmpty else { return address }
-            guard var parts = URLComponents(string: address) else { return address }
-            parts.query = nil
-            parts.fragment = nil
-            return parts.string ?? address
-        }
-    }
-
-    public var surface: Surface
-
     /// Where the page is and what it says it is called.
     public var page: BrowserTabTitle.BrowserPage
     public var canGoBack: Bool
@@ -131,7 +59,6 @@ public struct BrowserToolbar: Equatable, Sendable {
     public var isCapturing: Bool
 
     public init(
-        surface: Surface = .tab,
         page: BrowserTabTitle.BrowserPage = BrowserTabTitle.BrowserPage(),
         canGoBack: Bool = false,
         canGoForward: Bool = false,
@@ -139,7 +66,6 @@ public struct BrowserToolbar: Equatable, Sendable {
         loadProgress: Double = 0,
         isCapturing: Bool = false
     ) {
-        self.surface = surface
         self.page = page
         self.canGoBack = canGoBack
         self.canGoForward = canGoForward
@@ -206,8 +132,8 @@ public struct BrowserToolbar: Equatable, Sendable {
         return Control(
             symbol: "arrow.clockwise",
             name: "Reload",
-            help: surface == .machineApp ? "Ask the Bloom Cloud workspace for its app again" : "Reload this page",
-            isEnabled: surface == .machineApp || destination != nil
+            help: "Reload this page",
+            isEnabled: destination != nil
         )
     }
 
@@ -248,7 +174,7 @@ public struct BrowserToolbar: Equatable, Sendable {
             symbol: "arrow.up.forward.app",
             name: "Open in Default Browser",
             help: "Open in Default Browser",
-            isEnabled: surface == .machineApp || externalURL != nil
+            isEnabled: externalURL != nil
         )
     }
 

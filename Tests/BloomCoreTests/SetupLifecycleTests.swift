@@ -64,18 +64,6 @@ struct SetupLifecycleTests {
         #expect(SetupState.skipped.transition(on: .runSkipped(note: nil)) == .unchanged)
     }
 
-    @Test("output lands on a run that is going, and never on one that has been filed")
-    func progressDuringARun() {
-        var running = workspace(.running, log: "")
-        #expect(running.apply(.runProgressed(log: "Reading package lists")) == .unchanged)
-        #expect(running.setupState == .running)
-        #expect(running.setupLog == "Reading package lists")
-
-        var finished = workspace(.succeeded, log: "done")
-        #expect(finished.apply(.runProgressed(log: "a late batch")) == .refused)
-        #expect(finished.setupLog == "done")
-    }
-
     @Test("only a failure can be ignored, and the log it left is kept")
     func ignoringAFailure() {
         var subject = workspace(.failed, log: "sudo: a password is required")
@@ -111,31 +99,18 @@ struct SetupLifecycleTests {
     @Test("the app dying mid run leaves a workspace asking to be set up, not one that failed")
     func interruptedRun() {
         var subject = workspace(.running, log: "installing")
-        #expect(subject.apply(.runInterrupted(.appStopped)) == .moves(to: .pending))
+        #expect(subject.apply(.runInterrupted) == .moves(to: .pending))
         #expect(subject.setupState == .pending)
         // `.pending` and not `.failed`: nobody witnessed a failure. The line is what separates
         // this from a workspace whose setup genuinely never started.
         #expect(subject.setupLog.hasPrefix("installing\n[bloom] The app stopped"))
     }
 
-    /// **The same interruption, and the other half of the sentence.** On a machine the app did not
-    /// stop and nobody has to ask for anything: telling them to run setup again would send them
-    /// looking for a button that is already being pressed.
-    @Test("a machine stopping says the machine stopped, and does not ask for anything")
-    func interruptedOnAMachine() {
-        var subject = workspace(.running, log: "installing")
-
-        #expect(subject.apply(.runInterrupted(.machineStopped)) == .moves(to: .pending))
-        #expect(subject.setupLog.contains("This machine stopped"))
-        #expect(!subject.setupLog.contains("Run setup again"))
-        #expect(subject.setupLog.contains("runs again by itself"))
-    }
-
     @Test("there is nothing to interrupt outside a run", arguments: [
         SetupState.pending, .succeeded, .failed, .skipped,
     ])
     func interruptingNothing(from state: SetupState) {
-        #expect(state.transition(on: .runInterrupted(.appStopped)) == .refused)
+        #expect(state.transition(on: .runInterrupted) == .refused)
     }
 
     /// A rebuilt worktree is a fact about a directory, so it is legal from every state including
@@ -247,7 +222,7 @@ struct RefusedTransitionsTests {
             setupState: .succeeded
         )
 
-        #expect(subject.apply(.runInterrupted(.appStopped)) == .refused)
+        #expect(subject.apply(.runInterrupted) == .refused)
 
         #expect(subject.setupState == .succeeded)
         // **This one's own refusal, rather than the only refusal in the process.** The register is
@@ -268,7 +243,7 @@ struct RefusedTransitionsTests {
             repoID: RepoID("r"), name: "w", branch: "b", path: "/tmp/w", baseBranch: "main",
             setupState: .succeeded
         )
-        for _ in 0..<250 { subject.apply(.runInterrupted(.appStopped)) }
+        for _ in 0..<250 { subject.apply(.runInterrupted) }
         // At least its own, for the reason above; the bound is the assertion that matters here and
         // it is exact either way.
         #expect(RefusedTransitions.count >= 250)

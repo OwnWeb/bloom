@@ -3,8 +3,7 @@ import BloomCore
 
 /// The same wait the file loader draws, held back until it is a wait somebody can feel.
 ///
-/// Most waits use the same quiet `LoadingView` as file loading. Opening a Cloud workspace is a
-/// longer, whole-pane wait, so it gets a title and an explanation after the same delay.
+/// Most waits use the same quiet `LoadingView` as file loading.
 ///
 /// The rule is `SlowWait`, in the core, with its tests. See the head of that file for why half a
 /// second and not none: almost every switch in this window is over inside three frames, and a
@@ -28,7 +27,6 @@ struct SlowLoadingView<Subject: Equatable & Sendable>: View {
     var subject: Subject?
     /// The sentence under the spinner, in the register the file loader uses: what is being read.
     var label: String?
-    var showsCloudConnection = false
 
     /// The subject the delay has run out for, rather than a plain flag, so an answer left over
     /// from the previous subject cannot draw for the current one.
@@ -37,50 +35,11 @@ struct SlowLoadingView<Subject: Equatable & Sendable>: View {
     var body: some View {
         Group {
             if let subject, showing == subject {
-                if showsCloudConnection {
-                    cloudConnection
-                } else {
-                    LoadingView(label)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                LoadingView(label)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task(id: subject) { await announceIfSlow() }
-    }
-
-    private var cloudConnection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Image(systemName: "cloud")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(Palette.accent)
-                .frame(width: 56, height: 56)
-                .background(Palette.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
-                .accessibilityHidden(true)
-
-            Text("Opening your workspace")
-                .font(Typo.heading)
-                .foregroundStyle(Palette.textPrimary)
-                .padding(.top, Metrics.pane)
-
-            Text("Your conversations and files will appear when the machine is ready.")
-                .font(Typo.body)
-                .foregroundStyle(Palette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, Metrics.spacingWide)
-
-            HStack(spacing: Metrics.spacingWide) {
-                ProgressView().controlSize(.small)
-                Text("Connecting to the machine")
-                    .font(Typo.label)
-                    .foregroundStyle(Palette.textTertiary)
-            }
-            .padding(.top, Metrics.pane)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Connecting to the machine")
-        }
-        .frame(maxWidth: 320, alignment: .leading)
-        .padding(Metrics.pane)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func announceIfSlow() async {

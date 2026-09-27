@@ -254,9 +254,7 @@ public struct ChatCreateTool: BridgeToolHandling {
             case .success(let resolved):
                 target = resolved
             }
-            guard let workspaceID = target.workspaceID else {
-                return .failure("chat_create does not yet create chats in Bloom Cloud workspaces from the Mac bridge.")
-            }
+            let workspaceID = target.workspaceID
 
             switch await create(workspaceID, order) {
             case .created(let summary):
@@ -422,9 +420,7 @@ public struct ChatCloseTool: BridgeToolHandling {
             case .success(let resolved):
                 target = resolved
             }
-            guard let workspaceID = target.workspaceID else {
-                return .failure("chat_close does not yet close chats in Bloom Cloud workspaces from the Mac bridge.")
-            }
+            let workspaceID = target.workspaceID
 
             let sessions = try await store.sessions(workspaceID: workspaceID)
             let session: Session
@@ -501,9 +497,7 @@ public struct ChatRenameTool: BridgeToolHandling {
             case .success(let resolved):
                 target = resolved
             }
-            guard let workspaceID = target.workspaceID else {
-                return .failure("chat_rename does not yet rename chats in Bloom Cloud workspaces from the Mac bridge.")
-            }
+            let workspaceID = target.workspaceID
 
             let sessions = try await store.sessions(workspaceID: workspaceID)
             let session: Session
@@ -570,6 +564,5 @@ private func place(_ target: BridgeReadTarget) -> String {
     switch target {
     case .own: "your workspace"
     case .named(let workspace): "the workspace '\(workspace.name)'"
-    case .cloud(let workspace): "the Bloom Cloud workspace '\(workspace.name)'"
     }
 }

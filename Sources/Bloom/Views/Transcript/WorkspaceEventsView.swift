@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import BloomClient
 import BloomCore
 
 /// What Bloom did to this workspace, at the top of its transcript.
@@ -33,7 +32,7 @@ struct WorkspaceEventsView: View, Equatable {
     /// through a storage box and is never stale, and the one stored value they reach, the
     /// transcript, cannot change without the workspace changing, which is compared here.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.surfaceID == rhs.surfaceID
+        lhs.workspaceID == rhs.workspaceID
             && lhs.isRunning == rhs.isRunning
             && lhs.isFirstThing == rhs.isFirstThing
             && lhs.isBeforeFirstTurn == rhs.isBeforeFirstTurn
@@ -41,20 +40,13 @@ struct WorkspaceEventsView: View, Equatable {
             && lhs.setupLogOpen == rhs.setupLogOpen
     }
 
-    /// The workspace whose setup this is, of either kind. A local one's events come from its
-    /// model's memoised timeline; a Cloud one's from the machine's last setup record and the log
-    /// it has streamed. See `CloudSetupEvents` for why a machine's setup is a row here rather than
-    /// a tab of its own.
-    var surfaceID: WorkspaceSurfaceID
+    var workspaceID: WorkspaceID
     /// Whether a setup run is in flight, as the pane above already knows it. The stored state
     /// catches up a moment later, when the workspace row is next read.
     var isRunning: Bool
     /// True while the session has no messages, which is the only time it is worth saying that a
     /// prompt typed now will go as soon as setup finishes.
     var isFirstThing: Bool
-    /// True while the conversation has no turn in it yet, a queued message aside. A Cloud
-    /// workspace being built draws its whole setup card here until then, and its one line after,
-    /// because a card at the head of a conversation that has started is in the way.
     var isBeforeFirstTurn = false
     /// How tall the transcript is, so a running setup can take a share of it rather than a fixed
     /// number of lines. Already quantised by `TranscriptGeometry.height`; nought means the pane has
@@ -75,85 +67,37 @@ struct WorkspaceEventsView: View, Equatable {
     /// reader asking to be taken there, and is obeyed wherever they are; a flush is the log moving
     /// under them, and is obeyed only while they are still at the end of it.
     var onShowLogEnd: (@MainActor (Bool) -> Void)?
-    /// Whether the reader has unfolded the setup log, in the setup card or in the setup row, and
-    /// nil while nobody has touched it.
-    ///
-    /// **Held by the list, because a row's own `@State` is not what the table measures.** The
-    /// table sizes a row by hosting a second copy of it offscreen, and that copy starts with
-    /// every `@State` at its initial value. The setup entry is measured again on almost every
-    /// pass, since it redraws itself from the log (see `TranscriptEntryID.redrawsItself`), so the
-    /// copy with the log folded kept telling the table the row was the folded height. The drawn
-    /// row only reports when its own size changes, and an open log of a fixed height, or a
-    /// finished run's log that is not growing, never does. The owner met both: a Cloud setup log
-    /// that opened and then fell to a sliver one clipped line tall, and a "Setup finished" row
-    /// that unfolded onto nothing. Held here and carried in the row's content key, both copies
-    /// draw the same thing.
     var setupLogOpen: Bool?
     /// Writes `setupLogOpen`. Nil where nothing outside holds it, and the views keep their own.
     var setSetupLogOpen: (@MainActor (Bool) -> Void)?
 
     @Environment(AppModel.self) private var app
 
-    /// The local workspace behind this feed, and nil for a Cloud one. What it is still for is the
-    /// two actions only a worktree has: ignoring a failure, and stopping a run.
     private var model: WorkspaceModel? {
-        surfaceID.local.flatMap { app.existingModel(for: $0) }
+        app.existingModel(for: workspaceID)
     }
 
-    private var session: CloudWorkspaceSession? {
-        surfaceID.cloudID.flatMap { app.cloud.existingSession(for: $0) }
-    }
-
-    /// Read here rather than in `TranscriptListView`, for both kinds and for the same reason: a
-    /// setup script flushes several times a second, and a list that read the log would re-run its
-    /// `ForEach` over every row in the session on every flush. Observation redraws this view alone.
     private var events: [WorkspaceEvent] {
-        if let model { return model.timeline(isRunningSetup: isRunning) }
-        guard let session else { return [] }
-        return CloudSetupEvents.events(setup: session.state.setup, log: session.state.setupLog)
+        model?.timeline(isRunningSetup: isRunning) ?? []
     }
 
-    /// Running setup again, which both kinds can do and each does its own way: a worktree asks
-    /// first, because it is about to run a script on this Mac, and a machine is told.
     private var runSetupAgain: (@MainActor () -> Void)? {
-        if let model {
-            guard model.canRunSetup else { return nil }
-            return { @MainActor in SetupRunAlert.shared.ask(model) }
-        }
-        guard let session, session.allows("files") else { return nil }
-        return { @MainActor in Task { await session.run(.runSetup) } }
+        guard let model, model.canRunSetup else { return nil }
+        return { @MainActor in SetupRunAlert.shared.ask(model) }
     }
 
-    /// Stopping a running setup, which both kinds can do: a worktree's script is this Mac's to end,
-    /// and a machine is told with `stop_setup`, which ends the step running and starts nothing
-    /// after it. Nil while nothing is running or for a reader who may not change files.
     private var stopSetup: (@MainActor () -> Void)? {
-        if let model {
-            guard model.isRunningSetup else { return nil }
-            return { @MainActor in model.stopSetup() }
-        }
-        guard let session, session.allows("files"), session.state.setup?.state == "running" else { return nil }
-        return { @MainActor in Task { await session.run(.stopSetup) } }
-    }
-
-    /// The setup card, for a Cloud workspace being built whose conversation has not begun.
-    private var setupCard: CloudSetupProgress? {
-        guard isBeforeFirstTurn, let session else { return nil }
-        return session.setupProgress
+        guard let model, model.isRunningSetup else { return nil }
+        return { @MainActor in model.stopSetup() }
     }
 
     var body: some View {
-        let card = setupCard
-        let events = card == nil ? events : []
+        let events = events
 
         // A `Group` rather than a bare `if`, so the visibility report has a view to hang on in
         // both cases. On the empty branch there would otherwise be nothing to run an `onChange`
         // on, and the pane would never be told it may draw its empty state again.
         Group {
-            if let card, let session {
-                // The message waiting for it is the conversation's own bubble, just below.
-                session.setupCard(card, heldPrompt: nil, logOpen: setupLogOpen, setLogOpen: setSetupLogOpen)
-            }
             ForEach(events) { event in
                 WorkspaceEventRow(
                     event: event,
@@ -168,7 +112,7 @@ struct WorkspaceEventsView: View, Equatable {
                 )
             }
         }
-        .onChange(of: events.isEmpty && card == nil, initial: true) { _, isEmpty in
+        .onChange(of: events.isEmpty, initial: true) { _, isEmpty in
             onVisibilityChange?(!isEmpty)
         }
     }
@@ -205,8 +149,6 @@ struct WorkspaceEventRow: View {
     /// See `WorkspaceEventsView.paneHeight`, and `tailCap`.
     var paneHeight: CGFloat = 0
     var model: WorkspaceModel?
-    /// What the Run setup again link does, or nil where this reader may not. Handed in rather than
-    /// taken off the model, because a Cloud workspace has no model here and does have the verb.
     var runSetupAgain: (@MainActor () -> Void)?
     /// What Stop setup does, handed in for the same reason. See `WorkspaceEventsView.stopSetup`.
     var stopSetup: (@MainActor () -> Void)?

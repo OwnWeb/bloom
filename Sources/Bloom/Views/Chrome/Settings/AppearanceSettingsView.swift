@@ -208,11 +208,11 @@ private struct TerminalSettingsPreview: NSViewRepresentable {
     var size: CGFloat
     var lineHeight: Double
 
-    func makeNSView(context: Context) -> CloudTerminalView {
-        CloudTerminalView(frame: .zero)
+    func makeNSView(context: Context) -> BloomTerminalView {
+        BloomTerminalView(frame: .zero)
     }
 
-    func updateNSView(_ terminal: CloudTerminalView, context: Context) {
+    func updateNSView(_ terminal: BloomTerminalView, context: Context) {
         terminal.applyBloomFont(family: family, size: size, lineHeight: lineHeight)
         terminal.applyBloomColours()
         terminal.feed(text: "\u{1B}[2J\u{1B}[H\u{1B}[?25l" + Self.sample)
