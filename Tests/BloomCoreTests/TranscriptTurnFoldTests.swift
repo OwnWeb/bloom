@@ -1,0 +1,188 @@
+import Foundation
+import Testing
+@testable import BloomCore
+
+@Suite("Completed turn boundaries")
+struct TranscriptTurnFoldTests {
+    private func fact(
+        _ seq: Int,
+        _ kind: MessageKind,
+        parent: String? = nil,
+        durationMS: Int? = nil,
+        createdAt: TimeInterval? = nil
+    ) -> TranscriptTurnFold.Fact {
+        TranscriptTurnFold.Fact(
+            seq: seq,
+            kind: kind,
+            parentToolUseID: parent,
+            durationMS: durationMS,
+            createdAt: createdAt.map(Date.init(timeIntervalSince1970:))
+        )
+    }
+
+    @Test("a result closes the turn after the agent's response")
+    func completedTurn() throws {
+        let facts = [
+            fact(0, .user),
+            fact(1, .assistantText),
+            fact(2, .toolUse),
+            fact(3, .assistantText),
+            fact(4, .result, durationMS: 65_000),
+        ]
+        let folds = TranscriptTurnFold.folds(in: facts)
+        let turn = try #require(folds.all.first)
+
+        #expect(turn.firstSeq == 1)
+        #expect(turn.span == 1..<5)
+        #expect(turn.isComplete)
+        #expect(turn.durationMS == 65_000)
+        #expect(folds.turn(containing: 1) == turn)
+        #expect(folds.turn(containing: 3) == turn)
+        #expect(folds.turn(containing: 5) == nil)
+        #expect(TranscriptTurnFold.label(milliseconds: 65_000) == "Worked for 1m 5s")
+    }
+
+    @Test("a live turn has no duration yet")
+    func liveTurn() throws {
+        let facts = [fact(0, .user), fact(1, .assistantText), fact(2, .toolUse)]
+        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
+
+        #expect(!turn.isComplete)
+        #expect(turn.durationMS == nil)
+        #expect(turn.span == 1..<3)
+    }
+
+    @Test("a direct response still has a turn boundary")
+    func directResponse() throws {
+        let facts = [fact(0, .user), fact(1, .assistantText), fact(2, .result, durationMS: 800)]
+        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
+
+        #expect(turn.span == 1..<3)
+        #expect(turn.durationMS == 800)
+    }
+
+    @Test("a missing backend duration is measured from turn timestamps")
+    func measuredDuration() throws {
+        let facts = [
+            fact(0, .user, createdAt: 100),
+            fact(1, .toolUse, createdAt: 102),
+            fact(2, .assistantText, createdAt: 113),
+            fact(3, .result, durationMS: 0, createdAt: 114),
+        ]
+        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
+
+        #expect(turn.durationMS == 14_000)
+        #expect(TranscriptTurnFold.label(milliseconds: 0) == "Worked for a while")
+    }
+
+    @Test("a background wake starts new work without closing the previous turn")
+    func backgroundWake() throws {
+        let facts = [
+            fact(0, .user, createdAt: 100),
+            fact(1, .assistantText, createdAt: 102),
+            fact(2, .toolUse, createdAt: 104),
+            TranscriptTurnFold.Fact(
+                seq: 3, kind: .system, opensTurn: true,
+                createdAt: Date(timeIntervalSince1970: 110)
+            ),
+            fact(4, .toolUse, createdAt: 111),
+            fact(5, .assistantText, createdAt: 113),
+            fact(6, .result, durationMS: 14_000, createdAt: 114),
+        ]
+        let turns = TranscriptTurnFold.folds(in: facts).all
+
+        #expect(turns.count == 1)
+        #expect(turns[0].firstSeq == 4)
+        #expect(turns[0].span == 4..<7)
+        #expect(turns[0].durationMS == 4_000)
+    }
+
+    @Test("a steering message closes the previous turn before its own bubble")
+    func steeringMessage() throws {
+        let facts = [
+            fact(0, .user, createdAt: 100),
+            fact(1, .assistantText, createdAt: 102),
+            fact(2, .toolUse, createdAt: 104),
+            fact(3, .user, createdAt: 110),
+            fact(4, .toolUse, createdAt: 111),
+            fact(5, .assistantText, createdAt: 113),
+            fact(6, .result, durationMS: 14_000, createdAt: 114),
+        ]
+        let folds = TranscriptTurnFold.folds(in: facts)
+
+        #expect(folds.all.count == 2)
+        #expect(folds.all[0].span == 1..<3)
+        #expect(folds.all[0].durationMS == 10_000)
+        #expect(folds.turn(endingAt: 3) == folds.all[0])
+        #expect(folds.all[1].span == 4..<7)
+        #expect(folds.all[1].durationMS == 4_000)
+        #expect(folds.turn(endingAt: 4) == nil)
+    }
+
+    @Test("a nested result does not close the main agent's turn")
+    func nestedResult() throws {
+        let facts = [
+            fact(0, .user),
+            fact(1, .toolUse),
+            fact(2, .result, parent: "subagent"),
+            fact(3, .assistantText),
+            fact(4, .result, durationMS: 2_000),
+        ]
+        let turn = try #require(TranscriptTurnFold.folds(in: facts).all.first)
+
+        #expect(turn.span == 1..<5)
+        #expect(turn.durationMS == 2_000)
+    }
+
+    @Test("only a completed turn with folded action rows offers the duration disclosure")
+    func availableDisclosures() {
+        let completed = TranscriptTurnFold.Turn(
+            span: 1..<5, firstSeq: 1, isComplete: true, durationMS: 2_000
+        )
+        let live = TranscriptTurnFold.Turn(span: 6..<9, firstSeq: 6, isComplete: false)
+        let turns = TranscriptTurnFold.Folds(all: [completed, live], scannedRows: 9, resumeIndex: 5)
+        func work(_ start: Int) -> TranscriptFold.Work {
+            TranscriptFold.Work(
+                span: start..<(start + 3),
+                rows: (start..<(start + 3)).map { TranscriptFold.Row(index: $0, seq: $0) },
+                ready: Set(start..<(start + 3)),
+                hasAnswer: true
+            )
+        }
+        let groups = TranscriptFold.Folds(all: [work(1), work(6)], scannedRows: 9, resumeIndex: 5)
+
+        let shown = TranscriptTurnFold.disclosures(
+            work: groups, turns: turns, revealed: [], drawn: 0..<9
+        )
+        #expect(shown.hiddenByWork[1] == [1, 2, 3])
+        #expect(shown.turnByWork[1] == 1)
+        #expect(shown.turnByWork[6] == nil)
+        #expect(shown.expandableTurns == [1])
+
+        let clipped = TranscriptTurnFold.disclosures(
+            work: groups, turns: turns, revealed: [], drawn: 2..<9
+        )
+        #expect(clipped.expandableTurns.isEmpty)
+    }
+
+    @Test("an incremental scan keeps completed turns and updates the live tail")
+    func extending() {
+        var facts = [
+            fact(0, .user),
+            fact(1, .toolUse),
+            fact(2, .assistantText),
+            fact(3, .result, durationMS: 1_000),
+            fact(4, .user),
+            fact(5, .assistantText),
+        ]
+        var folds = TranscriptTurnFold.folds(in: facts)
+        facts.append(fact(6, .toolUse))
+        folds = TranscriptTurnFold.folds(in: facts, extending: folds)
+        facts.append(fact(7, .assistantText))
+        facts.append(fact(8, .result, durationMS: 2_000))
+        folds = TranscriptTurnFold.folds(in: facts, extending: folds)
+
+        #expect(folds == TranscriptTurnFold.folds(in: facts))
+        #expect(folds.all.map(\.firstSeq) == [1, 5])
+    }
+}

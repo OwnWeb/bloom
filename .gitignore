@@ -1,0 +1,20 @@
+.build/
+.swiftpm/
+*.xcodeproj
+.DS_Store
+Tests/fixtures/*.local.jsonl
+dist/
+
+# Agent worktrees. Each is a checkout of this repository, so `git add -A` from inside one commits
+# an embedded repository as a gitlink: a one line entry pointing at a commit nobody else has, in
+# somebody else's branch. It happened once, from this session.
+.claude/worktrees/
+
+# Scratch. Reports and captures an agent made, which belong to a run rather than to the repository.
+output/
+# Python bytecode. CPython writes it beside any script it imports, named for the interpreter that
+# wrote it, so one source compiled by two versions is two files that churn depending on which
+# machine ran it: `bloom_fake_runbloom` was tracked as both cpython-312 and cpython-314. All three
+# that were committed had outlived their sources, which are in no commit here and referenced by
+# nothing, so they were caches of files that no longer exist.
+__pycache__/

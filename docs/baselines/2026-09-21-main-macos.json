@@ -1,0 +1,93 @@
+{
+  "configuration": {
+    "runs": 15,
+    "warmups": 3
+  },
+  "context": {
+    "architecture": "arm64",
+    "captured_at_utc": "2026-09-21T08:37:29Z",
+    "logical_cpus": 14,
+    "machine": "Apple M4 Pro",
+    "memory_bytes": 51539607552,
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "python": "3.14.3",
+    "tools": {
+      "composer": "Composer version 2.9.2 2025-11-19 21:57:25",
+      "gh": "gh version 2.88.1 (2026-03-12)",
+      "git": "git version 2.54.0 (Apple Git-157)",
+      "npm": "10.9.3",
+      "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)",
+      "tmux": "tmux 3.6a"
+    },
+    "tracked_files_dirty": true
+  },
+  "definitions": {
+    "command": "wall time from process spawn until successful exit",
+    "credential_resolution": "git credential fill through an isolated local helper",
+    "terminal_cold": "isolated tmux server start until its shell writes a marker",
+    "terminal_warm": "new session on an isolated running tmux server until its shell writes a marker"
+  },
+  "measurements": {
+    "gh_version": {
+      "maximum_ms": 30.665,
+      "median_ms": 29.33,
+      "minimum_ms": 28.681,
+      "p95_ms": 30.665,
+      "samples": 15
+    },
+    "git_credential_fill": {
+      "maximum_ms": 28.176,
+      "median_ms": 25.897,
+      "minimum_ms": 24.162,
+      "p95_ms": 28.176,
+      "samples": 15
+    },
+    "git_status": {
+      "maximum_ms": 18.558,
+      "median_ms": 16.994,
+      "minimum_ms": 15.786,
+      "p95_ms": 18.558,
+      "samples": 15
+    },
+    "git_version": {
+      "maximum_ms": 13.499,
+      "median_ms": 12.522,
+      "minimum_ms": 11.729,
+      "p95_ms": 13.499,
+      "samples": 15
+    },
+    "shell_noop": {
+      "maximum_ms": 6.135,
+      "median_ms": 5.686,
+      "minimum_ms": 5.065,
+      "p95_ms": 6.135,
+      "samples": 15
+    },
+    "synthetic_long_stream": {
+      "elapsed_seconds": 10.122,
+      "events_per_second": 50,
+      "note": "Synthetic JSON encode/decode stream. Peak RSS is sampled every 100 ms.",
+      "payload_bytes": 4096,
+      "payload_mebibytes": 1.953,
+      "peak_rss_bytes": 23871488,
+      "worker_cpu_seconds": 0.131
+    },
+    "terminal_startup": {
+      "cold": {
+        "maximum_ms": 21.457,
+        "median_ms": 19.954,
+        "minimum_ms": 19.26,
+        "p95_ms": 21.457,
+        "samples": 15
+      },
+      "warm": {
+        "maximum_ms": 14.399,
+        "median_ms": 13.144,
+        "minimum_ms": 12.472,
+        "p95_ms": 14.399,
+        "samples": 15
+      }
+    }
+  },
+  "schema": 1
+}
