@@ -411,6 +411,29 @@ private func events(_ name: String) throws -> [CodexEvent] {
         #expect(models.filter(\.acceptsImages).count == models.count)
     }
 
+    @Test func offersReleasedSolUntilCodexListsIt() throws {
+        let listed = CodexModel.decodeList(try codexFixtureJSON("codex-model-list-astra.json"))
+        let models = CodexModel.includingReleasedSol(listed)
+        let sol = try #require(models.first { $0.id == "gpt-6.1-sol" })
+
+        #expect(sol.displayName == "GPT-6.1 Sol")
+        #expect(sol.effortIDs == ["low", "medium", "high", "xhigh", "max", "ultra"])
+        #expect(sol.defaultEffort == "medium")
+        #expect(sol.acceptsImages)
+        #expect(sol.fastServiceTier == "priority")
+        #expect(CodexModelRank.ordered(models).prefix(2).map(\.id) == ["gpt-6-astra", "gpt-6.1-sol"])
+    }
+
+    @Test func usesCodexMetadataWhenItListsReleasedSol() {
+        let listed = [CodexModel(
+            id: "gpt-6.1-sol", displayName: "Sol from Codex", isDefault: true,
+            supportedEfforts: [CodexReasoningEffort(id: "high")], defaultEffort: "high"
+        )]
+
+        #expect(CodexModel.includingReleasedSol(listed) == listed)
+        #expect(CodexModel.includingReleasedSol([]).isEmpty)
+    }
+
     // MARK: - A generation that arrived after this code was written
 
     /// `codex-model-list-astra.json` is the same call answered by codex-cli 0.153.0 on this
