@@ -199,6 +199,8 @@ struct BrowserTabView: View {
                 loadProgress: session.loadProgress,
                 isCapturing: isCapturing || isSelectingRegion
             ),
+            isPageScrolled: session.isPageScrolled,
+            scrollEdgeImage: session.scrollEdgeImage,
             address: $address,
             addressFocus: $isAddressFocused,
             locationFocusRequest: locationFocusRequest,
