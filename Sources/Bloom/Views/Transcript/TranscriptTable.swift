@@ -2299,17 +2299,14 @@ private struct TranscriptCellRoot: View {
 /// The hosting view is exactly the row, so there is no second opinion about its height. What the
 /// content wants instead comes back through `HostedRow`, measured by the same layout that drew it.
 ///
-/// **Pinned on all four edges, and it was briefly a frame set in `layout`.** A profile of an upward
-/// scroll spent 726 samples of 3,034 inside `-[NSView _layoutSubtreeWithOldSize:]`, which is every
-/// live cell sitting in the Auto Layout engine, and a frame is the same geometry with no solver in
-/// it. Then a reader resized a pane and got rows drawn over one another, and the constraints came
-/// back, because the saving was small and unmeasured on its own while text over text is the app
-/// looking broken.
-///
-/// It was never proved to be the cause: nothing in the width path changed that night, so a row can
-/// be drawn at a height measured for another width either way. It was reverted on the shape of the
-/// risk rather than on evidence, and the evidence is a build with this line changed and nothing
-/// else. If that build overlaps too, the fault is older than the mask and this can come back.
+/// **The host follows the cell with AppKit autoresizing.** Four edge constraints previously sent
+/// every live cell through Auto Layout during a scroll. Against the same 2,608 row conversation in
+/// a debug probe, replacing those constraints cut first-pass scroll p95 from 32.7ms to 16.7ms and
+/// the share of dropped frames from 26.5% to 11.7%. A previous frame-based attempt was reverted
+/// after a reader saw rows overlap during resize, but the cause was not isolated. This version
+/// passed all 81 `TranscriptLayoutProbe` checks, including narrow and wide pane resizes and the
+/// agreement between rendered cells and table row rectangles. Keep that geometry check with any
+/// future change to the cell's sizing.
 final class TranscriptTableCell: NSView {
     private let host: NSHostingView<TranscriptCellRoot>
     private var appliedKey: TranscriptContentKey?
@@ -2345,14 +2342,9 @@ final class TranscriptTableCell: NSView {
         // over the content at its own ideal size. `DetailSplitViewController` and `TitleBarStrip`
         // make the same call for the same reason.
         host.sizingOptions = []
-        host.translatesAutoresizingMaskIntoConstraints = false
+        host.autoresizingMask = [.width, .height]
+        host.frame = bounds
         addSubview(host)
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: trailingAnchor),
-            host.topAnchor.constraint(equalTo: topAnchor),
-            host.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
     }
 
     @available(*, unavailable)

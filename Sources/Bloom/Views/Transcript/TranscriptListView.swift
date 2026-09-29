@@ -1269,6 +1269,7 @@ struct TranscriptListView: View {
             guard !Task.isCancelled else { return }
             adoptScrollView()
             position()
+            SwitchTrace.mark("transcript.positioned", workspace: transcript.workspace?.id)
             // **The pane may be drawn again now.** It has been blank since the session changed:
             // its rows are in, its window is chosen and `position` has applied the placement, so
             // what fades in is already where the reader left it rather than at the top on its way
@@ -1282,6 +1283,8 @@ struct TranscriptListView: View {
             await Task.yield()
             guard !Task.isCancelled else { return }
             controller.arrived()
+            SwitchTrace.mark("transcript.revealed", workspace: transcript.workspace?.id)
+            SwitchTrace.markOnScreen("transcript.revealed", workspace: transcript.workspace?.id)
 
             // A pane coming back to a session it has drawn before is already in the window the
             // reader was reading in and already where they left off, so none of the reveal below

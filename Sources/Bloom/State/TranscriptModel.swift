@@ -453,6 +453,11 @@ final class TranscriptModel {
         // rows and at most a handful of them are questions.
         let decisions = (try? await store.permissionAskDecisions(sessionID: session.id)) ?? [:]
 
+        // These reads do not depend on the row fold. Start them while that fold runs off the main
+        // actor, so opening a long conversation does not wait for three more store round trips
+        // after its rows are ready.
+        async let opening = loadOpening(from: store)
+
         // Off the main actor, and not for tidiness. The fold below is the one place in the app
         // that JSON-parses a whole session in one go: `ParentProbe.parentToolUseID` materialises
         // every message's payload to read one top level key, `ToolResultSummary.decode` does it
@@ -505,13 +510,20 @@ final class TranscriptModel {
         SwitchTrace.mark("transcript.rows.built", workspace: workspace?.id)
         SwitchTrace.markOnScreen("transcript.rows.built", workspace: workspace?.id)
 
+        await opening
+        isLoaded = true
+    }
+
+    private func loadOpening(from store: Store) async {
         draft = (try? await store.draft(sessionID: session.id)) ?? ""
+        SwitchTrace.mark("transcript.draft.loaded", workspace: workspace?.id)
         // Read, and deliberately not drained. A message queued before the last quit must not
         // start a paid turn on a Mac nobody is sitting at, so it is shown as pending and goes with
         // the owner's next message. See `DeliveryHold.none`.
         await refreshQueue()
+        SwitchTrace.mark("transcript.queue.loaded", workspace: workspace?.id)
         await history.load(store: store, sessionID: session.id)
-        isLoaded = true
+        SwitchTrace.mark("transcript.checkpoints.loaded", workspace: workspace?.id)
     }
 
     /// Folds a stored message into the row list, pairing tool results onto their tool call.
