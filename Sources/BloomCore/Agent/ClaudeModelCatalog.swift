@@ -4,6 +4,8 @@ import Foundation
 public struct ClaudeModel: Sendable, Hashable {
     /// What `--model` takes: `opus[1m]`, `sonnet`, `claude-fable-5-1[1m]`.
     public var id: String
+    /// The full model id behind an alias such as `sonnet`.
+    public var resolvedModel: String?
     /// "Opus 5 with 1M context", read off the CLI's own description, which names the version where
     /// its display name ("Opus (1M context)") does not.
     public var label: String
@@ -12,10 +14,14 @@ public struct ClaudeModel: Sendable, Hashable {
     /// The one the CLI recommends: whichever entry resolves to what its `default` entry does.
     public var isDefault: Bool
 
-    public init(id: String, label: String, efforts: [String], supportsFastMode: Bool = false, isDefault: Bool = false) {
+    public init(
+        id: String, label: String, efforts: [String], resolvedModel: String? = nil,
+        supportsFastMode: Bool = false, isDefault: Bool = false
+    ) {
         self.id = id
         self.label = label
         self.efforts = efforts
+        self.resolvedModel = resolvedModel
         self.supportsFastMode = supportsFastMode
         self.isDefault = isDefault
     }
@@ -50,6 +56,7 @@ public enum ClaudeModelList {
                 models.append(ClaudeModel(
                     id: id, label: label(entry, id: id),
                     efforts: (entry["supportedEffortLevels"]?.arrayValue ?? []).compactMap(\.stringValue),
+                    resolvedModel: entry["resolvedModel"]?.stringValue,
                     supportsFastMode: entry["supportsFastMode"]?.boolValue ?? false,
                     isDefault: isDefault
                 ))

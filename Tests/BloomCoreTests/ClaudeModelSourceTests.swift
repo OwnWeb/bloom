@@ -27,4 +27,30 @@ struct ClaudeModelSourceTests {
     func registered() {
         #expect(Set(AgentModelSource.live().keys) == [.claudeCode, .codex, .grok])
     }
+
+    @Test("a newly released Sonnet remains selectable while Claude Code lists the previous one")
+    func supplementsOlderCLI() {
+        let models = ClaudeModelList.parse(ClaudeModelListTests.output).agentModels
+        let sonnet = models.first { $0.id == "claude-sonnet-5-5" }
+
+        #expect(sonnet?.displayName == "Sonnet 5.5")
+        #expect(sonnet?.supportedEfforts.map(\.id) == ["low", "medium", "high", "xhigh", "max"])
+        #expect(sonnet?.defaultEffort == "medium")
+        #expect(models.contains { $0.id == "sonnet" && $0.displayName == "Sonnet 5" })
+    }
+
+    @Test("the CLI's Sonnet 5.5 alias replaces the temporary explicit choice")
+    func currentCLI() {
+        let listed = [ClaudeModel(
+            id: "sonnet", label: "Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"],
+            resolvedModel: "claude-sonnet-5-5"
+        )]
+
+        #expect(listed.agentModels.map(\.id) == ["sonnet"])
+    }
+
+    @Test("an empty CLI answer leaves the fallback menu in use")
+    func emptyCLI() {
+        #expect([ClaudeModel]().agentModels.isEmpty)
+    }
 }
