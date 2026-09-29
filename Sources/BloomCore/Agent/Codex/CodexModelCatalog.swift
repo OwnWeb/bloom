@@ -110,6 +110,25 @@ public struct CodexModel: Sendable, Hashable, Identifiable {
     static func decodeList(_ json: JSONValue) -> [CodexModel] {
         (json["data"]?.arrayValue ?? []).compactMap(CodexModel.decode)
     }
+
+    /// Codex can accept a newly released model before its `model/list` advertises it. Keep the
+    /// published Sol choice available during that gap, then use the CLI's own metadata once it
+    /// arrives. The documented Codex effort range includes Ultra; the API's range ends at Max.
+    static func includingReleasedSol(_ models: [CodexModel]) -> [CodexModel] {
+        guard !models.isEmpty, !models.contains(where: { $0.id == "gpt-6.1-sol" }) else { return models }
+        let efforts = ["low", "medium", "high", "xhigh", "max", "ultra"].map {
+            CodexReasoningEffort(id: $0)
+        }
+        let sol = CodexModel(
+            id: "gpt-6.1-sol",
+            displayName: "GPT-6.1 Sol",
+            supportedEfforts: efforts,
+            defaultEffort: "medium",
+            inputModalities: ["text", "image"],
+            fastServiceTier: "priority"
+        )
+        return models + [sol]
+    }
 }
 
 /// One reasoning level, with the sentence the server wrote for it. The description is worth
@@ -189,7 +208,7 @@ public actor CodexModelCatalog {
             ))
             defer { Task { await client.stop() } }
             try await client.start()
-            return try await client.listModels()
+            return CodexModel.includingReleasedSol(try await client.listModels())
         })
     }
 
