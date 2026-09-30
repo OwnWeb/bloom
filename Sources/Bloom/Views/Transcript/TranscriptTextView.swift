@@ -771,6 +771,15 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
         return menu
     }
 
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        // NSTextView disables actions it does not recognise, even when a custom menu item names
+        // this view as its target. The link is attached to the item when the menu is built.
+        if menuItem.action == #selector(copyLink(_:)) {
+            return menuItem.represented(URL.self) != nil
+        }
+        return super.validateMenuItem(menuItem)
+    }
+
     private func item(_ title: String, url: URL, target: TranscriptLinkTarget) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: #selector(openLink(_:)), keyEquivalent: "")
         item.target = self

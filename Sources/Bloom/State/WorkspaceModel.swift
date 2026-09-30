@@ -2212,11 +2212,22 @@ final class WorkspaceModel {
                 let deleted = try? await Shell.run(
                     "git", ["ls-files", "--deleted"], cwd: worktree, timeout: .seconds(30)
                 )
+                // All files includes ignored build output and local configuration as well as
+                // tracked and ordinary untracked files. Git still omits its own internal .git
+                // directory, which is not a worktree file.
+                let ignored = try? await Shell.run(
+                    "git", ["ls-files", "--others", "--ignored", "--exclude-standard"],
+                    cwd: worktree, timeout: .seconds(30)
+                )
+                let directories = FileTreeDirectoryListing.paths(in: worktree)
                 // Indexed off the main thread as well as read there. Forty thousand paths turned
                 // into a dictionary is not a subprocess, but it is not free either, and the main
                 // thread is what the switch is waiting on.
                 let missing = Set(deleted?.lines ?? [])
-                return FileTreeNode.index((result?.lines ?? []).filter { !missing.contains($0) })
+                return FileTreeNode.index(
+                    ((result?.lines ?? []) + (ignored?.lines ?? [])).filter { !missing.contains($0) }
+                        + directories
+                )
             }.value
             guard let self, !Task.isCancelled else { return }
             if fileTree != index { fileTree = index }

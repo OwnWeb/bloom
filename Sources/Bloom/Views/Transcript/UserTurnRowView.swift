@@ -112,8 +112,14 @@ struct UserTurnRowView: View {
     private var side: HorizontalEdge { .trailing }
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             if side == .trailing { Spacer(minLength: Self.inset) }
+
+            if !copyText.isEmpty {
+                CopyButton(text: copyText, title: "Copy this prompt", size: 18, imageScale: .small)
+                    .padding(.trailing, TranscriptLayout.tight)
+                    .padding(.top, Self.padding.top)
+            }
 
             VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
                 CappedWidth(width: maxWidth) {
@@ -172,6 +178,8 @@ struct UserTurnRowView: View {
             withdraw()
         }
     }
+
+    private var copyText: String { SentTurn.withoutInstructions(text) }
 
     /// The words and then the files, which is the order they were written in and the order the
     /// composer showed them in, except that up there the chips sat above the text because that is

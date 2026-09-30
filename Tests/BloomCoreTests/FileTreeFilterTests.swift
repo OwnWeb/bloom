@@ -4,6 +4,18 @@ import Testing
 /// The All files tab's filter field, which is a pure function over the listing and the needle.
 @Suite("File tree filter")
 struct FileTreeFilterTests {
+    @Test("The All files index keeps empty folders, including ignored ones")
+    func emptyFoldersRemainInTheTree() {
+        let index = FileTreeNode.index(["README.md", "cache/", "cache/empty/"])
+        let rows = FileTreeRowItem.flatten(
+            children: index, expanded: ["cache", "cache/empty"]
+        ).map(\.node)
+
+        #expect(rows.map(\.path) == ["cache", "cache/empty", "README.md"])
+        #expect(rows[0].isDirectory)
+        #expect(rows[1].isDirectory)
+    }
+
     private let index = FileTreeNode.index([
         "README.md",
         "app/Http/Controllers/UserController.php",

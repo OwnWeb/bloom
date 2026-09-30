@@ -14,7 +14,7 @@ import BloomCore
 /// toolbar in the title bar, and both of those put the choice somewhere Settings does not put it.
 ///
 /// Two kinds of setting live here and they are stored in two different places, which the screen is
-/// explicit about. The name, mark and colour are Bloom's own record of a folder and live in its
+/// explicit about. The name, mark, colour and default branch are Bloom's own record and live in its
 /// database. Everything else is stated in the repository's settings files, is shared with whoever
 /// else works on it, and is written back to the file it came from. Every field that writes a file
 /// names the file underneath it, so the destination is known before Save is pressed. See
@@ -41,6 +41,10 @@ struct RepoSettingsView: View {
     /// same place. See `RepoMonogram.initials(for:)` for what counts as one, which is a single
     /// leading pictograph and nothing else.
     @State private var name = ""
+    @State private var defaultBranch = ""
+    @State private var branchOptions: [String] = []
+    @State private var branchError: String?
+    @State private var isSavingBranch = false
     /// Which pane the window is showing. What a capture run can ask for, and why, is on
     /// `RepoSettingsPane.requested`.
     @State private var pane: RepoSettingsPane = RepoSettingsPane.requested ?? .project
@@ -145,7 +149,18 @@ struct RepoSettingsView: View {
             // The stored name verbatim. Nothing is written back on load, so a project whose name
             // begins with an emoji keeps it whether or not this window is ever opened.
             name = repo.name
+            defaultBranch = repo.defaultBranch
+            branchOptions = [repo.defaultBranch]
             await model.load()
+            let context = await WorkspaceStartContext.load(repoPath: repo.path)
+            let available = WorkspaceStartContext.baseBranchOptions(
+                local: context.branches,
+                remote: context.remoteBranches,
+                defaultBranch: repo.defaultBranch
+            )
+            branchOptions = Array(Set(available + [defaultBranch])).sorted {
+                $0.localizedStandardCompare($1) == .orderedAscending
+            }
         }
         // The usual way a settings file changes while this window is open is a `git pull` in a
         // terminal beside it, and coming back to the window is when that becomes visible.
@@ -461,6 +476,20 @@ struct RepoSettingsView: View {
 
     private var branchSection: some View {
         Section {
+            SettingsRow("Default branch") {
+                Picker("Default branch", selection: Binding(
+                    get: { defaultBranch },
+                    set: { saveDefaultBranch($0) }
+                )) {
+                    ForEach(branchOptions, id: \.self) { branch in
+                        Text(branch).tag(branch)
+                    }
+                }
+                .labelsHidden()
+                .disabled(isSavingBranch)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             SettingsRow("Branch prefix") {
                 VStack(alignment: .leading, spacing: Metrics.spacingTight) {
                     TextField("", text: $model.draft.branchPrefix, prompt: Text("None"))
@@ -479,6 +508,39 @@ struct RepoSettingsView: View {
             }
         } header: {
             Text("Branches")
+        } footer: {
+            if let branchError {
+                Text(branchError)
+                    .foregroundStyle(Palette.negative)
+            } else {
+                Text("New workspaces start from this branch. Saved in Bloom for this project.")
+            }
+        }
+    }
+
+    private func saveDefaultBranch(_ branch: String) {
+        guard branch != defaultBranch, branchOptions.contains(branch) else { return }
+        let previous = defaultBranch
+        defaultBranch = branch
+        branchError = nil
+        isSavingBranch = true
+        Task {
+            defer { isSavingBranch = false }
+            guard let store = app.store else {
+                defaultBranch = previous
+                branchError = "Project is unavailable."
+                return
+            }
+            do {
+                guard try await store.update(repoID: repo.id, { $0.defaultBranch = branch }) != nil else {
+                    defaultBranch = previous
+                    branchError = "Project is unavailable."
+                    return
+                }
+            } catch {
+                defaultBranch = previous
+                branchError = error.readableMessage
+            }
         }
     }
 
