@@ -14,7 +14,7 @@ import Foundation
 ///
 /// Bloom is on both ends of this question. It wrote the tool, it minted the token the caller is
 /// using, it knows which workspace is asking, and it enforces every limit itself: the handler refuses
-/// a caller whose workspace was itself agent-started, and eight running children is the ceiling. There is nothing for a person to
+/// a caller whose workspace was itself agent-started, and running children have a configurable ceiling. There is nothing for a person to
 /// weigh that Bloom has not already decided, and the ask carries no information a person could
 /// act on beyond "an agent would like to use Bloom".
 ///

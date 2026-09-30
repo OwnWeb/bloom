@@ -3,8 +3,8 @@ import Foundation
 /// How many workspaces a caller may start, and how fast.
 ///
 /// Three answers to one question, in one place, because they were in three and nothing said they
-/// were related. The Create sheet is uncapped, a parent agent may have eight children running, and
-/// the owner's own client may start six in a quarter of an hour. Read apart, those look like an
+/// were related. The Create sheet is uncapped, a parent agent has a configurable running child
+/// limit, and the owner's own client may start six in a quarter of an hour. Read apart, those look like an
 /// omission, a safety limit and a rate limit. Read together they are one rule with one variable in
 /// it, which is **how much a workspace costs the caller to ask for**.
 ///
@@ -20,8 +20,8 @@ import Foundation
 /// so a ceiling would refuse the eleventh workspace of a busy fortnight, which is ordinary use
 /// rather than a runaway. What is not ordinary is the rate, so the brake is on how fast.
 ///
-/// Neither number is a safety limit. Six worktrees and six agents is already real money, and the
-/// point of both is that somebody notices at six or at eight instead of at forty.
+/// Neither number is a safety limit. Every worktree and agent costs real money, and the point of
+/// both is that somebody notices before an accidental loop grows without bound.
 public enum WorkspaceStartAllowance: Sendable, Equatable {
     /// No brake, because the asking is already the brake. The Create sheet, a `bloom://` link, the
     /// Services menu and a Shortcut: each of them is one deliberate gesture per workspace.
@@ -43,9 +43,8 @@ public enum WorkspaceStartAllowance: Sendable, Equatable {
     /// How many a single agent may have running at once.
     ///
     /// Not a safety limit, a sanity one: an agent that misreads its own instructions can ask for
-    /// workspaces in a loop. Eight is more than anyone has wanted and small enough that a runaway
-    /// is noticed rather than discovered on the next bill.
-    public static let maximumChildren = 8
+    /// workspaces in a loop. The owner can change this in General settings.
+    public static let maximumChildren = 20
 
     /// How many the owner's own client may start inside `ownerWindow`.
     ///
@@ -63,10 +62,12 @@ public enum WorkspaceStartAllowance: Sendable, Equatable {
     /// The one switch, and the reason `WorkspaceOrigin` is the seam rather than a parallel notion
     /// of who is calling. Adding a fourth kind of caller makes this stop compiling, which is the
     /// point: a new door with no answer to "how many" is the gap `workspace_start` shipped with.
-    public static func of(_ origin: WorkspaceOrigin) -> WorkspaceStartAllowance {
+    public static func of(
+        _ origin: WorkspaceOrigin, maximumChildren: Int = Self.maximumChildren
+    ) -> WorkspaceStartAllowance {
         switch origin {
         case .user: .unlimited
-        case .agent: .running(limit: maximumChildren)
+        case .agent: .running(limit: max(1, maximumChildren))
         case .ownerClient: .rate(limit: maximumOwnerStarts, window: ownerWindow)
         }
     }

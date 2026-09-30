@@ -136,6 +136,7 @@ struct GeneralSettingsView: View {
     @AppStorage(SidebarPreferences.showsDiffStatsKey)
     private var showsSidebarDiffStats = SidebarPreferences.showsDiffStatsByDefault
     @State private var namesWorkspaces = WorkspaceNamingPreferences().isEnabled
+    @State private var maximumAgentWorkspaces = WorkspaceStartPreferences().maximumChildren
 
     var body: some View {
         Form {
@@ -152,6 +153,14 @@ struct GeneralSettingsView: View {
             SleepSettingsSection()
 
             Section("Workspaces") {
+                Stepper(value: $maximumAgentWorkspaces, in: WorkspaceStartPreferences.allowedRange) {
+                    Text("Agent workspace limit: \(maximumAgentWorkspaces)")
+                    Text("Maximum workspaces one agent can have running at once.")
+                }
+                .onChange(of: maximumAgentWorkspaces) { _, value in
+                    WorkspaceStartPreferences().maximumChildren = value
+                }
+
                 Toggle(isOn: $namesWorkspaces) {
                     Text("Name workspaces automatically")
                     Text("Claude uses your first message to suggest a name, without accessing your code.")
