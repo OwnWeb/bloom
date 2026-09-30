@@ -211,15 +211,18 @@ public typealias PullRequestCheckoutResolving =
 /// The argument that two identical asks a minute apart from a person are two asks is an argument
 /// about the Create sheet, where each of them is a press; here neither of them is.
 public struct WorkspaceStartTool: BridgeToolHandling {
+    private let preferences: WorkspaceStartPreferences
     private let start: WorkspaceStarting
     private let resolvePullRequest: PullRequestCheckoutResolving
 
     public init(
+        preferences: WorkspaceStartPreferences = .init(),
         start: @escaping WorkspaceStarting,
         resolvePullRequest: @escaping PullRequestCheckoutResolving = {
             await WorkspaceCheckoutResolver.resolve($0, repoPath: $1)
         }
     ) {
+        self.preferences = preferences
         self.start = start
         self.resolvePullRequest = resolvePullRequest
     }
@@ -666,7 +669,9 @@ public struct WorkspaceStartTool: BridgeToolHandling {
     func overAllowance(
         _ origin: WorkspaceOrigin, store: Store, now: Date = Date()
     ) async throws -> String? {
-        let allowance = WorkspaceStartAllowance.of(origin)
+        let allowance = WorkspaceStartAllowance.of(
+            origin, maximumChildren: preferences.maximumChildren
+        )
 
         switch allowance {
         case .unlimited:

@@ -11,6 +11,9 @@ import Testing
 struct WorkspaceStartToolTests {
     /// Records what the tool asked for, so a test can assert on the order rather than on prose.
     private final class Recorder: @unchecked Sendable {
+        private let defaultPreferences = WorkspaceStartPreferences(
+            defaults: UserDefaults(suiteName: "WorkspaceStartToolTests.\(UUID().uuidString)")!
+        )
         var orders: [AgentWorkspaceOrder] = []
         var identities: [BridgeIdentity] = []
         var projects: [Repo] = []
@@ -22,8 +25,8 @@ struct WorkspaceStartToolTests {
         /// workspace produces one, so the origin is where the answer lives.
         var spawnIDs: [String] { origins.compactMap(\.spawnToolUseID) }
 
-        func tool() -> WorkspaceStartTool {
-            WorkspaceStartTool { [self] order, project, identity, origin in
+        func tool(preferences: WorkspaceStartPreferences? = nil) -> WorkspaceStartTool {
+            WorkspaceStartTool(preferences: preferences ?? defaultPreferences) { [self] order, project, identity, origin in
                 try await record(order, project: project, identity: identity, origin: origin)
             }
         }
@@ -592,6 +595,61 @@ struct WorkspaceStartToolTests {
         #expect(result.isError)
         #expect(result.text.contains("limit"))
         #expect(recorder.orders.isEmpty)
+    }
+
+    @Test("workspace_start uses the configured running limit")
+    func configuredLimit() async throws {
+        let fixture = try await fixture(label: "start-configured-limit")
+        let domain = "WorkspaceStartToolTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let preferences = WorkspaceStartPreferences(defaults: defaults)
+        preferences.maximumChildren = 3
+        let recorder = Recorder()
+        let tool = recorder.tool(preferences: preferences)
+
+        for index in 0..<2 {
+            _ = try await fixture.store.upsert(Workspace(
+                repoID: fixture.workspace.repoID,
+                name: "child \(index)",
+                branch: "claude/child-\(index)",
+                path: "/tmp/configured-child-\(index)",
+                baseBranch: "main",
+                origin: .agent(parentWorkspaceID: fixture.workspace.id, spawnToolUseID: "t\(index)")
+            ))
+        }
+
+        let allowed = await tool.call(
+            request(["prompt": .string("one more")]), as: fixture.identity, store: fixture.store
+        )
+        #expect(!allowed.isError)
+        #expect(recorder.orders.count == 1)
+
+        _ = try await fixture.store.upsert(Workspace(
+            repoID: fixture.workspace.repoID,
+            name: "child 2",
+            branch: "claude/child-2",
+            path: "/tmp/configured-child-2",
+            baseBranch: "main",
+            origin: .agent(parentWorkspaceID: fixture.workspace.id, spawnToolUseID: "t2")
+        ))
+        let refused = await tool.call(
+            request(["prompt": .string("a different task")]),
+            as: fixture.identity,
+            store: fixture.store
+        )
+        #expect(refused.isError)
+        #expect(refused.text.contains("limit"))
+        #expect(recorder.orders.count == 1)
+
+        preferences.maximumChildren = 4
+        let afterChange = await tool.call(
+            request(["prompt": .string("a different task")]),
+            as: fixture.identity,
+            store: fixture.store
+        )
+        #expect(!afterChange.isError)
+        #expect(recorder.orders.count == 2)
     }
 
     /// The bug the two brakes had while they were checked in two places. The owner's rate was
