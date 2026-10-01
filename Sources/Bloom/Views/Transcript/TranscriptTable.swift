@@ -196,6 +196,9 @@ struct TranscriptTable: NSViewRepresentable {
     /// `TranscriptHoldView.hold()`.
     let session: SessionID
     let controller: TranscriptTableController
+    /// Shared with the next table this pane builds for the same conversation. Nil in detached
+    /// readers and probes, which keep their own cache for the life of that table.
+    let heightMemory: TranscriptHeightMemory?
     /// The text scale the rows are drawn at. Part of what the height cache is keyed on, because
     /// the same row at a different scale is a different height.
     let scale: CGFloat
@@ -219,7 +222,7 @@ struct TranscriptTable: NSViewRepresentable {
     /// Where a passage selected in these rows is quoted. See `TranscriptTableView.quoteSelection`.
     var quoteSelection: (@MainActor (String) -> Void)?
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(heightMemory: heightMemory) }
 
     func makeNSView(context: Context) -> TranscriptHoldView {
         let table = TranscriptTableView()
@@ -303,6 +306,11 @@ struct TranscriptTable: NSViewRepresentable {
     @MainActor
     final class Coordinator:
         NSObject, NSTableViewDataSource, NSTableViewDelegate, TranscriptHoldDelegate {
+        init(heightMemory: TranscriptHeightMemory? = nil) {
+            self.heightMemory = heightMemory ?? TranscriptHeightMemory()
+            super.init()
+        }
+
         private(set) var entries: [TranscriptTableEntry] = []
         private var ids: [TranscriptEntryID] = []
         private var index: [TranscriptEntryID: Int] = [:]
@@ -321,7 +329,11 @@ struct TranscriptTable: NSViewRepresentable {
         /// after a row lands as it was before, so nothing under the reader moves, and the number a
         /// reader's place was written down against still means something. See
         /// `TranscriptRowHeights`.
-        private var heights = TranscriptRowHeights()
+        private let heightMemory: TranscriptHeightMemory
+        private var heights: TranscriptRowHeights {
+            _read { yield heightMemory.heights }
+            _modify { yield &heightMemory.heights }
+        }
         private let sentMotion = TranscriptSentMotion()
         private var settleWork: Task<Void, Never>?
         /// Preparing older rows while nobody is moving. See `warmAhead`.
@@ -490,11 +502,13 @@ struct TranscriptTable: NSViewRepresentable {
             let previous = rowEnvironment
             rowEnvironment = environment
             let environmentMoved = previous != nil && previous != environment
+            let fontMoved = heightMemory.chatFont.map { $0 != environment.chatFont } ?? false
+            heightMemory.chatFont = environment.chatFont
             // The reload below is what says every cell holds values from the environment it was
             // built in, and a cell that recycles on its content key alone would take none of it.
             // See `cellGeneration`.
             if environmentMoved { cellGeneration += 1 }
-            let wrapsDifferently = previous?.wraps(differentlyFrom: environment) ?? false
+            let wrapsDifferently = fontMoved || (previous?.wraps(differentlyFrom: environment) ?? false)
             if wrapsDifferently { heights.forget() }
 
             // The first width the table ever has, and any change of text size. Until a width
@@ -551,6 +565,9 @@ struct TranscriptTable: NSViewRepresentable {
                 // Every cell is going anyway.
                 break
             }
+            // An in-place edit can change a row the idle pass has already walked past. Its next
+            // settle starts a fresh pass at the visible row and sees the new content key.
+            if !changed.isEmpty { warmWork?.cancel() }
             pendingUnfolds.removeAll()
 
             if change == .same, changed.isEmpty, !remeasured, !environmentMoved {
@@ -1686,14 +1703,16 @@ struct TranscriptTable: NSViewRepresentable {
         private func warmTheRowsAbove() async {
             guard let tableView, let scrollView, heights.isReady,
                   let sizing = heights.measure else { return }
+            let visible = scrollView.contentView.documentVisibleRect
+            guard visible.minY > 1 else { return }
+            let found = tableView.rows(in: CGRect(x: 0, y: 0, width: 1, height: visible.minY))
+            guard found.length > 0 else { return }
+            let upper = found.location + found.length
+            let lower = max(found.location, upper - TranscriptWarming.lookbackRows)
+            var nextUpper = upper
             while !Task.isCancelled && !isLiveScrolling {
-                let visible = scrollView.contentView.documentVisibleRect
-                guard visible.minY > 1 else { return }
-                let found = tableView.rows(in: CGRect(x: 0, y: 0, width: 1, height: visible.minY))
-                guard found.length > 0 else { return }
-                let upper = found.location + found.length
                 let rows = TranscriptWarming.nextBatch(
-                    in: max(found.location, upper - TranscriptWarming.lookbackRows)..<upper
+                    in: lower..<nextUpper
                 ) { row in
                     guard entries.indices.contains(row) else { return false }
                     let entry = entries[row]
@@ -1704,6 +1723,10 @@ struct TranscriptTable: NSViewRepresentable {
                     return heights.height(for: key) == nil || heights.isStale(key)
                 }
                 guard !rows.isEmpty else { return }
+                // Everything above this point was either measured already or picked in this
+                // batch. Searching it again on each batch made a 4,000 row lookback inspect the
+                // nearest rows dozens of times while the main actor was preparing history.
+                nextUpper = rows[rows.count - 1]
                 var moved = IndexSet()
                 var movedIDs: Set<TranscriptEntryID> = []
                 for row in rows {
