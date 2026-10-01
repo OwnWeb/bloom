@@ -49,6 +49,9 @@ struct PullRequestCreator: View {
     /// on, which read identically until `ContinuedBranch` gave the first of them a sentence.
     var continued: ContinuedBranch?
     var action: () -> Void
+    var onMergeLocally: () -> Void
+
+    @State private var confirmingLocalMerge = false
 
     var body: some View {
         HStack(spacing: InspectorLayout.gap) {
@@ -124,7 +127,33 @@ struct PullRequestCreator: View {
                 // first candidate, and "Create pull request" therefore kept its title at every
                 // pane width and the icon-only form was unreachable. See
                 // `PullRequestSummary.continueButton`.
-                createButton.labelStyle(.titleOnly).fixedSize()
+                HStack(spacing: Metrics.spacingSmall) {
+                    Button("Merge", systemImage: "arrow.triangle.merge") {
+                        confirmingLocalMerge = true
+                    }
+                    .labelStyle(.titleOnly)
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .help("Merge this branch into local \(baseBranch)")
+                    .popover(isPresented: $confirmingLocalMerge, arrowEdge: .top) {
+                        ConfirmationPopover(
+                            title: "Merge \(branch) into local \(baseBranch)?",
+                            confirmLabel: "Merge locally",
+                            tint: Palette.controlAccent,
+                            onConfirm: {
+                                confirmingLocalMerge = false
+                                onMergeLocally()
+                            },
+                            onCancel: { confirmingLocalMerge = false },
+                            width: 380
+                        ) {
+                            Text("Bloom will merge the committed branch into the project's local \(baseBranch) checkout. Both checkouts must be clean. If Git reports conflicts, Bloom will abort the merge.")
+                            Text("The workspace and its branch will remain available. Nothing will be pushed to a remote.")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    createButton.labelStyle(.titleOnly).fixedSize()
+                }
             }
         }
         // Reading the name is half of what a truncated branch name is wanted for. The other half
