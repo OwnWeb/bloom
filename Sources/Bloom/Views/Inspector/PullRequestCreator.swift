@@ -1,18 +1,15 @@
 import SwiftUI
 import BloomCore
 
-/// The strip before there is a pull request: which branch you are on, and the button that asks the
-/// agent to open one.
+/// The strip before there is a pull request: the branch and one button for its next action.
 ///
-/// The button is prominent and it is the only prominent thing in the column, because on a branch
-/// with no pull request it is the whole point of the strip. Its counterpart once there is one is
-/// Merge, in the same place, at the same weight.
+/// The button opens a compact choice beside the strip. Its counterpart once there is a pull
+/// request is Merge, in the same place and at the same weight.
 ///
 /// On a branch with nothing on it there is no button. See `body`.
 ///
-/// Nothing here is gated on the GitHub CLI. Pressing it composes a turn and sends it to this
-/// workspace's own agent, which is already authenticated and already standing in the worktree, so
-/// whether Bloom itself can talk to GitHub has no bearing on it. See `WorkspaceModel`.
+/// Creating a pull request still sends a turn to this workspace's agent. The popover also shows
+/// the remembered merge route, including why it cannot run before Bloom can see a pull request.
 ///
 /// The branch name is the part that gives way. It is given a lower layout priority than the
 /// button so a long branch truncates from the head, which keeps the readable end of it, rather
@@ -26,6 +23,7 @@ import BloomCore
 /// into a row about an ellipsis. Both strips carry the same detail rung underneath, so the two
 /// states of the same band still share one rhythm.
 struct PullRequestCreator: View {
+    var model: WorkspaceModel
     var branch: String
     var baseBranch: String
     var isWorking: Bool
@@ -49,6 +47,8 @@ struct PullRequestCreator: View {
     /// on, which read identically until `ContinuedBranch` gave the first of them a sentence.
     var continued: ContinuedBranch?
     var action: () -> Void
+
+    @State private var isShowingBranchActions = false
 
     var body: some View {
         HStack(spacing: InspectorLayout.gap) {
@@ -124,7 +124,7 @@ struct PullRequestCreator: View {
                 // first candidate, and "Create pull request" therefore kept its title at every
                 // pane width and the icon-only form was unreachable. See
                 // `PullRequestSummary.continueButton`.
-                createButton.labelStyle(.titleOnly).fixedSize()
+                branchActionsButton.fixedSize()
             }
         }
         // Reading the name is half of what a truncated branch name is wanted for. The other half
@@ -156,26 +156,18 @@ struct PullRequestCreator: View {
         return "No pull request yet. Target \(baseBranch)."
     }
 
-    /// Explicit so the button reads from the shared semantic token. See
-    /// `PullRequestSummary.mergeButton` for the one case where a state colour replaces it.
-    private var createButton: some View {
-        Button("Create pull request", systemImage: "arrow.triangle.pull", action: action)
+    /// A single title-bar control. The popover makes the merge route visible even when GitHub's
+    /// PR refresh failed, and never presents an unavailable merge as if it could run.
+    private var branchActionsButton: some View {
+        Button("Create or merge") { isShowingBranchActions = true }
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.roundedRectangle(radius: Metrics.corner))
             .tint(Palette.controlAccent)
             .controlSize(.regular)
             .disabled(!branchActions.isAllowed)
-            .help(helpText)
-    }
-
-    private var helpText: String {
-        // The same sentence `PullRequestSummary` shows on the buttons it draws in this band once
-        // there is a pull request, from the one place it is written: it is a fact about how all
-        // of these buttons work rather than about this one.
-        if let reason = branchActions.reason { return reason }
-        // No path named. There are two, the project's own and Bloom's copy of the default, and
-        // which one is in play is not something a tooltip should be teaching anybody.
-        return "Ask this workspace's agent to push the branch and open a pull request against "
-            + "\(baseBranch), following this project's pull request instructions."
+            .help("Choose a pull request action for \(branch)")
+            .popover(isPresented: $isShowingBranchActions, arrowEdge: .top) {
+                BranchActionsPopover(model: model, onCreatePullRequest: action)
+            }
     }
 }

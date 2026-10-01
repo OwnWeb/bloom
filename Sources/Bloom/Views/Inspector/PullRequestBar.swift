@@ -116,6 +116,7 @@ struct PullRequestBar: View {
             )
         } else {
             PullRequestCreator(
+                model: model,
                 branch: model.workspace.branch,
                 baseBranch: model.workspace.baseBranch,
                 isWorking: isWorking || model.isLoadingPullRequest,
