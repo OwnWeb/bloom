@@ -1051,6 +1051,7 @@ struct TranscriptListView: View {
             entries: entries,
             session: transcript.session.id,
             controller: controller,
+            heightMemory: memory.map { transcript.heightMemory(for: $0.pane) },
             scale: fontScale,
             rowEnvironment: rowEnvironment,
             onGeometryChange: { measured($0) },
@@ -1116,7 +1117,7 @@ struct TranscriptListView: View {
         .onDisappear { setColumnActive(false) }
         .background { WorkspaceColumnActivitySignal(changed: setColumnActive) }
         .onChange(of: transcript.presentationRevision, initial: true) { _, _ in
-            updatePinnedQuestion()
+            updatePinnedQuestion(at: controller.topmostPlace)
             position()
             // A row arriving is another chance to notice that the window stops short of it.
             growWindowDown()
@@ -1399,8 +1400,9 @@ struct TranscriptListView: View {
             offset: table.offset
         )
         contentOffset.value = table.offset
-        if let place = controller.topmostPlace { topPlace.value = place }
-        updatePinnedQuestion()
+        let place = controller.topmostPlace
+        if let place { topPlace.value = place }
+        updatePinnedQuestion(at: place)
         atLiveEnd.value = table.isAtEnd || controller.holdsEnd || follower.isFollowing
             || follower.isSeekingLiveEnd
 
@@ -1647,8 +1649,8 @@ struct TranscriptListView: View {
     /// Updates the compact header only when the reader crosses a user-turn boundary. The geometry
     /// callback reaches this every frame, but the binary lookup and one equality check do not make
     /// scrolling invalidate the transcript.
-    private func updatePinnedQuestion() {
-        guard let place = controller.topmostPlace,
+    private func updatePinnedQuestion(at place: (seq: Int, delta: CGFloat)?) {
+        guard let place,
               let question = transcript.pinnedQuestion(atOrBefore: place.seq)
         else {
             if scrollNavigation.pinnedQuestion != nil { scrollNavigation.pinnedQuestion = nil }

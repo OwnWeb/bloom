@@ -143,6 +143,23 @@ final class TranscriptModel {
     @ObservationIgnored private var foldCache = TranscriptFoldCache()
     @ObservationIgnored private var turnFoldCache = TranscriptTurnFoldCache()
     @ObservationIgnored private var questionIndex = PinnedQuestionIndex()
+    /// A tab switch destroys its table, but it should not discard rows already measured at this
+    /// pane's width. Kept per pane because two split panes can draw this chat at different widths.
+    /// Old split pane ids are expendable, so the cache is bounded even after many rearrangements.
+    private let heightMemories: NSCache<NSString, TranscriptHeightMemory> = {
+        let cache = NSCache<NSString, TranscriptHeightMemory>()
+        cache.countLimit = 8
+        return cache
+    }()
+
+    func heightMemory(for pane: String) -> TranscriptHeightMemory {
+        let key = pane as NSString
+        if let remembered = heightMemories.object(forKey: key) { return remembered }
+        let remembered = TranscriptHeightMemory()
+        heightMemories.setObject(remembered, forKey: key)
+        return remembered
+    }
+
     /// Tool calls that arrived moments ago, by call id, which fold before their result is back.
     /// See `TranscriptFold.freshCall`. Told through `presentationRevision`, like the cache above.
     @ObservationIgnored private var freshCalls: Set<String> = []
