@@ -21,16 +21,6 @@ extension WorkspaceModel {
         await app.continueAfterMerge(workspace, pullRequest: pullRequest)
     }
 
-    func mergeLocally() async throws -> LocalMergeOutcome {
-        guard let repo else {
-            throw LocalMergeFailure("This workspace's project is unavailable.")
-        }
-        return try await Git.mergeLocally(
-            branch: workspace.branch, from: workspace.path,
-            into: workspace.baseBranch, at: repo.path
-        )
-    }
-
     func requestArchive(presenting: @escaping (ArchiveRequest) -> Void) async {
         await app.archive(workspace, presentConfirmation: presenting)
     }

@@ -9,7 +9,7 @@ import BloomCore
 /// On a branch with nothing on it there is no button. See `body`.
 ///
 /// Creating a pull request still sends a turn to this workspace's agent. The popover also shows
-/// the remembered merge route, including why it cannot run before Bloom can see a pull request.
+/// the remembered merge route for when Bloom can see a pull request.
 ///
 /// The branch name is the part that gives way. It is given a lower layout priority than the
 /// button so a long branch truncates from the head, which keeps the readable end of it, rather
@@ -47,7 +47,6 @@ struct PullRequestCreator: View {
     /// on, which read identically until `ContinuedBranch` gave the first of them a sentence.
     var continued: ContinuedBranch?
     var action: () -> Void
-    var onMergeLocally: () -> Void
 
     @State private var isShowingBranchActions = false
 
@@ -157,20 +156,17 @@ struct PullRequestCreator: View {
         return "No pull request yet. Target \(baseBranch)."
     }
 
-    /// A single title-bar control. The popover makes the merge route visible even when GitHub's
-    /// PR refresh failed, and never presents an unavailable merge as if it could run.
+    /// A single title-bar control. The popover lets the owner choose how to merge the future PR.
     private var branchActionsButton: some View {
-        Button("Create or merge") { isShowingBranchActions = true }
+        Button("Create PR") { isShowingBranchActions = true }
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.roundedRectangle(radius: Metrics.corner))
             .tint(Palette.controlAccent)
             .controlSize(.regular)
             .disabled(!branchActions.isAllowed)
-            .help("Choose a pull request action for \(branch)")
+            .help("Create a pull request for \(branch)")
             .popover(isPresented: $isShowingBranchActions, arrowEdge: .top) {
-                BranchActionsPopover(
-                    model: model, onCreatePullRequest: action, onMergeLocally: onMergeLocally
-                )
+                BranchActionsPopover(model: model, onCreatePullRequest: action)
             }
     }
 }
