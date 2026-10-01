@@ -217,8 +217,8 @@ final class WorkspaceModel {
     /// the same repository are two copies of this property and the store is the one answer between
     /// them. See `MergeMethodChoice`, which holds the scope argument and the key.
     private(set) var mergeMethod = MergeMethodChoice.fallback
-    private(set) var localMergeMode = LocalMergeModeChoice.fallback
-    @ObservationIgnored private var localMergeModeSaveTask: Task<Void, Never>?
+    private(set) var mergeExecution = MergeExecutionChoice.fallback
+    @ObservationIgnored private var mergeExecutionSaveTask: Task<Void, Never>?
     /// What the last press on the pull request strip left to say, drawn at the top of the
     /// inspector column.
     ///
@@ -228,7 +228,6 @@ final class WorkspaceModel {
     /// tall, so a notice added under the strip was drawn into a band with no room for it and cut
     /// off mid sentence. See `TitleBarStrip` and `InspectorView`.
     var pullRequestNotice: PullRequestNotice?
-    var isShowingLocalMerge = false
     /// The branch this workspace was carried on to when its pull request merged, while the strip
     /// is still drawing that branch and nothing has been committed to it.
     ///
@@ -2389,21 +2388,20 @@ final class WorkspaceModel {
         await MergeMethodChoice.save(method, repoID: workspace.repoID, to: store)
     }
 
-    func loadLocalMergeMode() async {
-        await localMergeModeSaveTask?.value
+    func loadMergeExecution() async {
+        await mergeExecutionSaveTask?.value
         guard let store else { return }
-        localMergeMode = await LocalMergeModeChoice.load(repoID: workspace.repoID, from: store)
+        mergeExecution = await MergeExecutionChoice.load(repoID: workspace.repoID, from: store)
     }
 
-    /// Update the sheet immediately and serialize writes if the owner changes their mind twice.
-    func chooseLocalMergeMode(_ mode: LocalMergeMode) {
-        localMergeMode = mode
+    func chooseMergeExecution(_ choice: MergeExecution) {
+        mergeExecution = choice
         guard let store else { return }
-        let previous = localMergeModeSaveTask
+        let previous = mergeExecutionSaveTask
         let repoID = workspace.repoID
-        localMergeModeSaveTask = Task {
+        mergeExecutionSaveTask = Task {
             await previous?.value
-            await LocalMergeModeChoice.save(mode, repoID: repoID, to: store)
+            await MergeExecutionChoice.save(choice, repoID: repoID, to: store)
         }
     }
 
@@ -2588,34 +2586,14 @@ final class WorkspaceModel {
         return nil
     }
 
-    /// Sends a local merge to the workspace agent with the same preflight as the direct path.
-    /// This is a git-only request and carries no pull request or GitHub instructions.
-    func requestAgentLocalMerge(_ plan: LocalMergePlan) async -> String? {
-        guard !isRunning else { return "Wait for the current agent turn to finish before merging." }
-        do {
-            let current = try await LocalBranchMerger.shared.prepare(
-                source: plan.source, target: plan.target, in: plan.sourcePath
-            )
-            guard current == plan else { return "A checkout changed. Review the merge again." }
-        } catch let failure as LocalMergeFailure {
-            return failure.message
-        } catch {
-            return String(describing: error)
-        }
-        guard let session = await sessionForPullRequest(titledIfNew: "Merge locally") else {
-            return "Could not open a session in \(workspace.name) to send the request to."
-        }
-        let text = """
-            Merge local branch `\(plan.source)` into local branch `\(plan.target)` in `\(plan.targetPath)`.
-            Check that both checkouts are clean and still on those branches before changing anything.
-            Use local git only. Do not fetch, push, open or merge a pull request, delete a branch,
-            force a merge, or change this workspace's checkout. If there are conflicts, resolve them
-            carefully in the target checkout. If you cannot resolve them, abort the merge and report
-            what blocked it. Report the result and the target commit.
-            """
-        activeSessionID = session.id
-        await transcript(for: session).submit(text)
-        return nil
+    func mergePullRequestDirectly(
+        _ pullRequest: PullRequest, method: GitHub.MergeMethod
+    ) async throws -> DirectMergeOutcome {
+        let outcome = try await GitHubBridge.mergePullRequest(
+            pullRequest, base: workspace.baseBranch, method: method, worktree: workspace.path
+        )
+        await refreshPullRequest()
+        return outcome
     }
 
     /// One of Bloom's own turns about landing a branch, with Bloom's rules under it and the

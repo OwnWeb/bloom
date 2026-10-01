@@ -140,12 +140,6 @@ struct InspectorView: View {
                 signIn.finish(connected: connected)
             }
         }
-        .sheet(isPresented: Binding(
-            get: { model.isShowingLocalMerge },
-            set: { model.isShowingLocalMerge = $0 }
-        )) {
-            LocalMergeSheet(model: model)
-        }
         // Once, here, rather than a repository id threaded through every row of two lists that
         // have no other use for one. See `EnvironmentValues.openInRepoID`.
         .environment(\.openInRepoID, model.openInRepoID)

@@ -32,10 +32,12 @@ struct PullRequestSummary: View {
     /// How this project merges, which the split button promises and its menu ticks. Per project
     /// and remembered: see `MergeMethodChoice`.
     var mergeMethod: GitHub.MergeMethod
+    var mergeExecution: MergeExecution
     /// Changes the method in force. It never merges, which is the whole difference between this
     /// and `onMerge`.
     var onChooseMergeMethod: (GitHub.MergeMethod) -> Void
-    var onMerge: (GitHub.MergeMethod) -> Void
+    var onChooseMergeExecution: (MergeExecution) -> Void
+    var onMerge: (GitHub.MergeMethod, MergeExecution) -> Void
     var onMarkReadyForReview: () -> Void
     /// Hands the outstanding work to the workspace's agent to commit and push.
     var onPush: () -> Void
@@ -222,12 +224,14 @@ struct PullRequestSummary: View {
                         baseBranch: baseBranch,
                         localWork: localWork,
                         method: method,
+                        execution: mergeExecution,
+                        onChooseExecution: onChooseMergeExecution,
                         deletesBranch: Self.deletesBranch,
                         canMerge: canConfirmMerge,
                         tint: status.tone.fill,
                         onConfirm: {
                             pendingMerge = nil
-                            onMerge(method)
+                            onMerge(method, mergeExecution)
                         },
                         onCancel: { pendingMerge = nil }
                     )
@@ -525,8 +529,8 @@ struct PullRequestSummary: View {
     /// it. When the window loses key, AppKit draws the menu as a neutral capsule that covers that
     /// fill, so `MergeSplitButton` pins its control to the active state rather than going grey.
     ///
-    /// Every path through it opens the confirmation. Nothing here performs a merge, and since
-    /// merging moved onto the agent nothing anywhere in this target does either.
+    /// Every path through it opens the confirmation. The owner chooses direct gh or an agent turn
+    /// there; this view itself performs neither.
     private var mergeControl: some View {
         MergeSplitButton(
             method: mergeMethod,
@@ -572,11 +576,9 @@ struct PullRequestSummary: View {
 
     // MARK: - Actions
 
-    /// The sign in gate stays, even though this app no longer runs `gh` itself. The agent does,
-    /// with the same credentials on the same machine, so a signed out user gets the same failure
-    /// one turn later and with a wasted turn in front of it. Catching it here is the cheaper half
-    /// of the same answer. Opening the page, copying the link and sharing it are ordinary URL
-    /// handling and work signed out.
+    /// Both routes use gh with this Mac's credentials, directly or through the agent. Catch a
+    /// signed out user before showing a confirmation neither route could complete. Opening the
+    /// page, copying the link and sharing it still work signed out.
     ///
     /// What is handed to the gate is "open the confirmation", never "merge". A sign in that
     /// succeeds re-raises the dialog the user was heading for and they still have to say yes to

@@ -2,8 +2,9 @@ import Foundation
 
 /// How Bloom lands a pull request, in the words the agent reads.
 ///
-/// Pressing Merge does not call `gh`. It composes a turn and sends it, exactly as if the user had
-/// typed it. The same arrangement `PullRequestInstructions` already made for opening one, and for
+/// The agent-guided choice composes a turn and sends it, exactly as if the user had typed it.
+/// The direct choice runs a guarded gh command instead. The same arrangement
+/// `PullRequestInstructions` already made for opening one, and for
 /// the same reasons plus one that only applies here: merging is the one destructive, off-machine
 /// thing this app offers, and an agent doing it in the transcript is an agent whose command the
 /// reader can see, whose permission prompt the reader answers, and whose refusal the reader is

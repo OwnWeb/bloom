@@ -658,9 +658,12 @@ public struct PullRequest: Sendable, Hashable, Codable {
     public var checksSummary: String
     public var reviewDecision: String?
     /// The head branch as GitHub knows it. Empty when the gh version in use did not report it.
-    /// This is the branch merging deletes, so the confirmation names this one rather than the
-    /// local checkout's idea of it.
+    /// The agent route may delete this branch after merging, so its confirmation names the
+    /// server's branch rather than the local checkout's idea of it.
     public var branch: String
+    /// GitHub's target and head commit when last read. Direct merges require both to still match.
+    public var baseBranch: String?
+    public var headRevision: String?
     /// When it stopped being open, whether by merging or by being closed. Nil while it is open,
     /// and nil from a gh old enough not to report it.
     ///
@@ -680,6 +683,8 @@ public struct PullRequest: Sendable, Hashable, Codable {
         checksSummary: String = "",
         reviewDecision: String? = nil,
         branch: String = "",
+        baseBranch: String? = nil,
+        headRevision: String? = nil,
         closedAt: Date? = nil
     ) {
         self.number = number
@@ -692,6 +697,8 @@ public struct PullRequest: Sendable, Hashable, Codable {
         self.checksSummary = checksSummary
         self.reviewDecision = reviewDecision
         self.branch = branch
+        self.baseBranch = baseBranch
+        self.headRevision = headRevision
         self.closedAt = closedAt
     }
 }

@@ -8,8 +8,7 @@ import BloomCore
 /// with no pull request it is the whole point of the strip. Its counterpart once there is one is
 /// Merge, in the same place, at the same weight.
 ///
-/// A branch with no diff has no Create pull request button. The local merge choice remains
-/// available because the branch can have commits even when its final diff is empty.
+/// On a branch with nothing on it there is no button. See `body`.
 ///
 /// Nothing here is gated on the GitHub CLI. Pressing it composes a turn and sends it to this
 /// workspace's own agent, which is already authenticated and already standing in the worktree, so
@@ -17,7 +16,8 @@ import BloomCore
 ///
 /// The branch name is the part that gives way. It is given a lower layout priority than the
 /// button so a long branch truncates from the head, which keeps the readable end of it, rather
-/// than pushing the actions in the strip off the edge of the pane.
+/// than pushing the only action in the strip off the edge of the pane. Below even that width the
+/// button drops its title, the way a toolbar item does.
 ///
 /// A rung below the state headline `PullRequestSummary` draws in the same band, on purpose. That
 /// one is a state you are waiting on and it is the top of the column; this one is a branch name
@@ -49,7 +49,6 @@ struct PullRequestCreator: View {
     /// on, which read identically until `ContinuedBranch` gave the first of them a sentence.
     var continued: ContinuedBranch?
     var action: () -> Void
-    var onLocalMerge: () -> Void
 
     var body: some View {
         HStack(spacing: InspectorLayout.gap) {
@@ -60,8 +59,8 @@ struct PullRequestCreator: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: Metrics.spacingHair) {
-                // Keep the readable end of a long branch. The full name can be copied from the
-                // context menu below without a hover card covering the band.
+                // Keep the readable end of a long branch. The context menu below makes the full
+                // name copyable without a hover card covering the band.
                 Text(branch)
                     .font(Typo.title)
                     .foregroundStyle(Palette.textPrimary)
@@ -127,12 +126,9 @@ struct PullRequestCreator: View {
                 // `PullRequestSummary.continueButton`.
                 createButton.labelStyle(.titleOnly).fixedSize()
             }
-
-            Button("Merge locally", action: onLocalMerge)
-                .buttonStyle(.bordered)
-                .help("Merge this workspace branch into \(baseBranch) on this Mac")
         }
-        // A truncated branch name still needs a way to be pasted into a terminal.
+        // Reading the name is half of what a truncated branch name is wanted for. The other half
+        // is pasting it into a terminal, and a tooltip cannot be copied.
         //
         // Here as well as in the inspector toolbar's menu, and that is not a duplicate path for
         // its own sake: the toolbar's copy is behind an ellipsis in a different bar, which is a
