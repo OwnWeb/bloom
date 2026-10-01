@@ -31,6 +31,10 @@ struct WindowTitle: ViewModifier {
 
     private var title: String {
         if let workspace = app.selectedWorkspace { return workspace.name }
+        if case .conversation(let id) = app.selection,
+           let conversation = app.ask.sessions.first(where: { $0.id == id }) {
+            return app.ask.title(for: conversation)
+        }
         return "Bloom"
     }
 

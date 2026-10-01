@@ -42,11 +42,12 @@ account. Agent CLIs use their own authentication and provider connections.
 
 Workspaces live under `~/bloom/workspaces.noindex` by default. The `.noindex` suffix keeps Spotlight
 from indexing every worktree. Bloom also supports multiple chats in one workspace, reusable quick
-prompts and subagents that work in the same branch. **Ask Bloom** is a separate conversation area
-for questions that do not need a worktree.
+prompts and subagents that work in the same branch. Conversation workspaces appear below projects
+in the sidebar and need no project, Git repository or worktree.
 
-Useful shortcuts include Cmd+N for a new workspace, Cmd+P to search files in the current workspace
-and Cmd+T for a new conversation. See [the menu reference](docs/MENUS.md) for the full list.
+Useful shortcuts include Cmd+N for a new workspace, Cmd+J for a project-free conversation and
+Cmd+P to search files in the current project workspace. See [the menu reference](docs/MENUS.md)
+for the full list.
 
 ### Repository settings
 
