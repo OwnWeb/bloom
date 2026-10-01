@@ -35,6 +35,9 @@ struct HomeView: View {
     /// the sidebar cannot show a worktree that no longer exists. Home is the one screen that has
     /// to be able to look at them, so it asks `AppModel` for them, once, rather than per row.
     @State private var archived: [Workspace] = []
+    @State private var archivedConversations: [Session] = []
+    @State private var deletingConversation: Session?
+    @State private var archivingConversation: Session?
     @State private var listing = HomeListing.empty
     /// The list's own selection, not the app's. Writing to `app.selection` would navigate away
     /// from Home, so arrowing down the list would open every workspace it passed.
@@ -108,7 +111,7 @@ struct HomeView: View {
             if hasAnyWorkspace {
                 HomeBar(
                     repos: app.repos,
-                    counts: listing.counts,
+                    counts: displayCounts,
                     isSearching: listing.isSearching,
                     filter: $app.homeFilter
                 )
@@ -146,6 +149,10 @@ struct HomeView: View {
             archived = await app.archivedWorkspaces()
             await loadFootprints()
         }
+        .task(id: app.ask.archiveRevision) {
+            archivedConversations = await app.ask.archivedConversations()
+        }
+        .task { await app.ask.open() }
         .task { await keepAgesCurrent() }
         // The one irreversible act in the app, so it counts what would go rather than asking "are
         // you sure" over an unnamed quantity.
@@ -159,6 +166,42 @@ struct HomeView: View {
             )
         } onConfirm: { deletion in
             Task { await delete(deletion) }
+        }
+        .confirmationDialog(
+            "Delete this conversation?",
+            isPresented: Binding(
+                get: { deletingConversation != nil },
+                set: { if !$0 { deletingConversation = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let conversation = deletingConversation {
+                Button("Delete Conversation", role: .destructive) {
+                    Task { await app.ask.deleteArchived(conversation.id) }
+                    deletingConversation = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { deletingConversation = nil }
+        } message: {
+            Text("The transcript will be removed. Files in its folder are removed when no other conversation uses them.")
+        }
+        .confirmationDialog(
+            "Archive this conversation?",
+            isPresented: Binding(
+                get: { archivingConversation != nil },
+                set: { if !$0 { archivingConversation = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let conversation = archivingConversation {
+                Button("Archive Conversation") {
+                    Task { await app.ask.close(conversation.id) }
+                    archivingConversation = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { archivingConversation = nil }
+        } message: {
+            Text("The conversation stays available in Archived. A running agent will stop.")
         }
         .onChange(of: app.workspaces, initial: true) { _, _ in rebuild() }
         .onChange(of: app.repos) { _, _ in rebuild() }
@@ -193,7 +236,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let empty = emptyState {
+        if let empty = emptyState, homeConversations.isEmpty {
             empty
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -260,6 +303,7 @@ struct HomeView: View {
                 }
             }
 
+            conversationRows
             transcriptResults
         }
         .listStyle(.inset)
@@ -303,6 +347,70 @@ struct HomeView: View {
                 askToDelete(row.workspace)
             } else {
                 Task { await app.archive(row.workspace) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var conversationRows: some View {
+        if !homeConversations.isEmpty {
+            Section {
+                HomeGroupHeading(title: "Conversations")
+                    .listRowInsets(Self.rowInsets)
+                    .listRowBackground(Color.clear)
+                    .selectionDisabled()
+
+                ForEach(homeConversations, id: \.id) { conversation in
+                    Button {
+                        app.selection = conversation.archivedAt == nil
+                            ? .conversation(conversation.id)
+                            : .archivedConversation(conversation.id)
+                    } label: {
+                        HStack(spacing: Metrics.spacingWide) {
+                            Image(systemName: PaneGlyph.chat)
+                                .foregroundStyle(Palette.textTertiary)
+                            VStack(alignment: .leading, spacing: Metrics.spacingHair) {
+                                Text(app.ask.title(for: conversation))
+                                    .font(Typo.labelEmphasis)
+                                Text(conversation.archivedAt == nil
+                                     ? "Conversation · No project" : "Archived conversation")
+                                    .font(Typo.caption)
+                                    .foregroundStyle(Palette.textTertiary)
+                            }
+                            WorkspaceColourDot(
+                                hex: app.ask.conversationColours[conversation.id],
+                                accessibilityName: nil
+                            )
+                            Spacer()
+                            if app.ask.pinnedConversations.contains(conversation.id) {
+                                Image(systemName: "pin.fill")
+                                    .font(Typo.micro)
+                                    .foregroundStyle(Palette.textTertiary)
+                            }
+                        }
+                        .foregroundStyle(Palette.textPrimary)
+                        .frame(minHeight: HomeMetrics.rowHeight)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowInsets(Self.rowInsets)
+                    .listRowBackground(Color.clear)
+                    .selectionDisabled()
+                    .contextMenu {
+                        if conversation.archivedAt != nil {
+                            Button("Restore Conversation") {
+                                Task { await app.ask.restore(conversation.id) }
+                            }
+                            Button("Delete…", role: .destructive) {
+                                deletingConversation = conversation
+                            }
+                        } else {
+                            Button("Archive Conversation") {
+                                archivingConversation = conversation
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -374,7 +482,8 @@ struct HomeView: View {
             listing: listing,
             filter: filter,
             projects: app.repos.count,
-            database: databaseSize
+            database: databaseSize,
+            conversationCount: homeConversations.count
         )
     }
 
@@ -391,6 +500,33 @@ struct HomeView: View {
 
     private var hasAnyWorkspace: Bool {
         !app.workspaces.isEmpty || !archived.isEmpty
+            || !app.ask.workspaceConversations.isEmpty || !archivedConversations.isEmpty
+    }
+
+    private var homeConversations: [Session] {
+        guard filter.projects.isEmpty, filter.scope != .transcripts else { return [] }
+        let candidates = app.ask.workspaceConversations + archivedConversations
+        let query = filter.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidates.filter { session in
+            (filter.scope != .archived || session.archivedAt != nil)
+                && (query.isEmpty || app.ask.title(for: session).localizedCaseInsensitiveContains(query))
+        }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var displayCounts: HomeScopeCounts {
+        var counts = listing.counts
+        guard filter.projects.isEmpty else { return counts }
+        let query = filter.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        for conversation in app.ask.workspaceConversations + archivedConversations
+        where query.isEmpty || app.ask.title(for: conversation).localizedCaseInsensitiveContains(query) {
+            if !query.isEmpty { counts.workspaces += 1 }
+            if conversation.archivedAt == nil {
+                counts.live += 1
+            } else {
+                counts.archived += 1
+            }
+        }
+        return counts
     }
 
     // MARK: - Empty
@@ -416,9 +552,9 @@ struct HomeView: View {
     @ViewBuilder
     private var emptyState: (some View)? {
         if let state = HomeEmptyState.resolve(
-            hasProjects: !app.repos.isEmpty,
+            hasProjects: !app.repos.isEmpty || hasAnyWorkspace,
             hasAnyWorkspace: hasAnyWorkspace,
-            isListEmpty: listing.isEmpty,
+            isListEmpty: listing.isEmpty && homeConversations.isEmpty,
             query: filter.query,
             scope: filter.scope,
             hasProjectFilter: !filter.projects.isEmpty,

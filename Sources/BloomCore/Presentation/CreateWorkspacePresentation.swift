@@ -10,6 +10,7 @@ public struct CreateWorkspacePresentation: Sendable {
         public let id: UInt64
         public fileprivate(set) var repoID: RepoID?
         public fileprivate(set) var pullRequestRevision: UInt64
+        public fileprivate(set) var startsAsConversation: Bool
     }
 
     public private(set) var request: Request?
@@ -17,10 +18,15 @@ public struct CreateWorkspacePresentation: Sendable {
 
     public init() {}
 
-    public mutating func present(repoID: RepoID?, asksForPullRequest: Bool = false) {
+    public mutating func present(
+        repoID: RepoID?, asksForPullRequest: Bool = false, startsAsConversation: Bool = false
+    ) {
         if var request {
-            if let repoID { request.repoID = repoID }
+            if let repoID {
+                request.repoID = repoID
+            }
             if asksForPullRequest { request.pullRequestRevision &+= 1 }
+            request.startsAsConversation = startsAsConversation
             self.request = request
             return
         }
@@ -29,7 +35,8 @@ public struct CreateWorkspacePresentation: Sendable {
         request = Request(
             id: nextID,
             repoID: repoID,
-            pullRequestRevision: asksForPullRequest ? 1 : 0
+            pullRequestRevision: asksForPullRequest ? 1 : 0,
+            startsAsConversation: startsAsConversation
         )
     }
 

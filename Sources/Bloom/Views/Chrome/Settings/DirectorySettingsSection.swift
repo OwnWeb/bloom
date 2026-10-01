@@ -33,16 +33,6 @@ struct DirectorySettingsSection: View {
             }
             Text("Autocomplete also searches beside projects you have already added.")
                 .settingsFootnote()
-        }
-        .disabled(!isLoaded)
-
-        Section("Ask Bloom") {
-            folderRow("Working directory", path: preferences.ask, fallback: "Bloom’s own folder",
-                      message: "Choose the working directory for new Ask Bloom conversations.") {
-                preferences.ask = $0
-            }
-            Text("New conversations start here. Existing conversations keep their working directory.")
-                .settingsFootnote()
             if let error { Text(error).foregroundStyle(Palette.negative) }
         }
         .disabled(!isLoaded)

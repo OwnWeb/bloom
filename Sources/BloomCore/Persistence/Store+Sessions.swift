@@ -233,17 +233,63 @@ extension Store {
 
     /// The chats that belong to no worktree, oldest first.
     ///
-    /// Ask Bloom's, and nothing else today. It is a separate method rather than a nil argument to
+    /// Project-free conversations. It is a separate method rather than a nil argument to
     /// `sessions(workspaceID:)` because `= NULL` is never true in SQL and a caller that passed nil
     /// there would get an empty list and no error, which is the quietest way to be wrong.
-    public func sessionsWithoutWorkspace() throws -> [Session] {
-        try db.query(
-            """
-            SELECT * FROM sessions
-            WHERE workspace_id IS NULL AND archived_at IS NULL
-            ORDER BY sort_order, created_at
-            """
+    public func sessionsWithoutWorkspace(includeArchived: Bool = false) throws -> [Session] {
+        let archivedClause = includeArchived ? "archived_at IS NOT NULL" : "archived_at IS NULL"
+        return try db.query(
+            "SELECT * FROM sessions WHERE workspace_id IS NULL AND \(archivedClause) "
+                + "ORDER BY sort_order, created_at"
         ).map(Self.session(from:))
+    }
+
+    /// Legacy conversations may still have the old placeholder title and no agent thread id.
+    /// Their transcript or draft, rather than the title, decides whether they belong in a list.
+    public func projectFreeSessionsWithHistory(includeArchived: Bool = false) throws -> Set<SessionID> {
+        let archivedClause = includeArchived ? "s.archived_at IS NOT NULL" : "s.archived_at IS NULL"
+        let rows = try db.query(
+            """
+            SELECT s.id FROM sessions s
+            WHERE s.workspace_id IS NULL AND \(archivedClause)
+              AND (
+                EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id)
+                OR EXISTS (SELECT 1 FROM deliveries d WHERE d.target_session_id = s.id)
+                OR EXISTS (SELECT 1 FROM drafts f WHERE f.session_id = s.id AND length(trim(f.body)) > 0)
+              )
+            """
+        )
+        return Set(rows.compactMap { $0.string("id").map(SessionID.init) })
+    }
+
+    /// Brings a project-free conversation back to the live list.
+    @discardableResult
+    public func restoreConversation(id: SessionID) throws -> Session? {
+        try db.transaction {
+            guard let session = try session(id: id), session.workspaceID == nil,
+                  session.archivedAt != nil else { return nil }
+            let restored = try update(sessionID: id) { $0.archivedAt = nil }
+            try setSetting(AskTabs.selectionKey, id.rawValue)
+            return restored
+        }
+    }
+
+    /// Removes only an archived project-free conversation and its dependent records.
+    public func deleteArchivedConversation(id: SessionID) throws -> Bool {
+        try db.transaction {
+            let eligible = try db.query(
+                "SELECT id FROM sessions WHERE id = ? AND workspace_id IS NULL AND archived_at IS NOT NULL",
+                [.text(id)]
+            ).first != nil
+            guard eligible else { return false }
+            try db.run("DELETE FROM drafts WHERE session_id = ?", [.text(id)])
+            try db.run("DELETE FROM deliveries WHERE target_session_id = ?", [.text(id)])
+            try setSetting(AskTabs.directoryKey(id), nil)
+            try setSetting(ConversationListing.pinnedKey(id), nil)
+            try setSetting(ConversationListing.colourKey(id), nil)
+            try db.run("DELETE FROM sessions WHERE id = ?", [.text(id)])
+            return true
+        }
     }
 
     public func session(id: SessionID) throws -> Session? {

@@ -84,7 +84,6 @@ struct BloomCommands: Commands {
                 // what the main window has selected. See `RootView.presentCreateWorkspace`.
                 NotificationCenter.default.post(name: .bloomNewWorkspace, object: nil)
             }
-            .disabled(model.repos.isEmpty)
 
             // Directly under New Workspace, because it starts one, and at the top level of File
             // rather than nowhere. Opening a workspace on somebody else's pull request was a whole
@@ -115,14 +114,10 @@ struct BloomCommands: Commands {
             }
             .disabled(projectSettingsRepo == nil)
 
-            // Reached from the menu as well as from the toolbar glyph that appears while Ask Bloom
-            // is open. See the note beside this item in `MenuBarCatalogue`: the toolbar button is
-            // a control you have to be looking at Ask Bloom to see, so it could not answer
-            // somebody wondering whether the conversation can be started over at all.
-            //
-            // The menu and toolbar both append a conversation and preserve the open tabs.
-            MenuCommand(.newAskConversation) {
-                NotificationCenter.default.post(name: .bloomNewAskConversation, object: nil)
+            // Available even before a project is added. The create sheet opens on Conversation
+            // in that case, and the File menu gives it a direct action as well.
+            MenuCommand(.newConversation) {
+                NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
             }
 
             MenuCommand(.searchFiles) {
@@ -131,14 +126,10 @@ struct BloomCommands: Commands {
             .disabled(model.selectedWorkspace == nil)
 
             MenuCommand(.newSession) {
-                if model.isAskInFront {
-                    Task { await model.ask.newConversation() }
-                    return
-                }
                 guard let workspace = model.selectedModel else { return }
                 NewPane.open(.chat, in: workspace) { WorkspaceTabsStore.shared.select($0, in: workspace) }
             }
-            .disabled(model.selectedModel == nil && !model.isAskInFront)
+            .disabled(model.selectedModel == nil)
 
             // The other four things that open a tab in the workspace's centre column, which until
             // now existed only as key equivalents on hidden buttons inside `SessionTabsView`. The
@@ -224,7 +215,7 @@ struct BloomCommands: Commands {
             }
             // Scoped to the main window as well as to there being a tab, because this item holds
             // Cmd+W for the whole app. See `MainWindowFocus`.
-            .disabled(isMainWindowFocused != true || (model.isAskInFront ? !canCloseAskTab : closableTab == nil))
+            .disabled(isMainWindowFocused != true || closableTab == nil)
 
             Divider()
 
@@ -462,7 +453,6 @@ struct BloomCommands: Commands {
             // AppKit finds first would silently have killed the other. Cmd+Shift+H is what Home is
             // bound to in Finder and in Safari anyway, so this is where it should always have been.
             MenuCommand(.goToHome) {
-                AskPanelModel.shared.close()
                 model.selection = .home
             }
             .disabled(model.selection == .home)
@@ -472,10 +462,6 @@ struct BloomCommands: Commands {
             // keylessness nothing could compare against the rest of the bar, which is what
             // `MenuCommand`'s header calls the whole point of it. The argument for no key is on
             // the row itself now.
-            // Opens and closes the panel rather than going anywhere.
-            MenuCommand(.goToAsk) {
-                AskPanelModel.shared.toggle(app: model)
-            }
         }
 
         // Zoom, at the foot of the View menu, where Safari, Preview and Notes all keep it, and
@@ -849,7 +835,6 @@ struct BloomCommands: Commands {
     /// Greyed on a strip with nothing to move to, rather than on no workspace at all, which is
     /// the same rule Split Right follows two items above.
     private var canCycleCentreTabs: Bool {
-        if model.isAskInFront { return model.ask.sessions.count > 1 }
         guard let workspace = model.selectedModel else { return false }
         return WorkspaceTabsStore.shared.entries(in: workspace).count > 1
     }
@@ -872,20 +857,7 @@ struct BloomCommands: Commands {
     /// `TabCycle.numbered` in the core.
     @ViewBuilder
     private var goToTabMenu: some View {
-        if model.isAskInFront {
-            MenuCommandGroup(.goToTab) {
-                ForEach(TabCycle.numbered(model.ask.sessions.map(\.id))) { entry in
-                    if let chat = model.ask.sessions.first(where: { $0.id == entry.tab }) {
-                        let button = Button(model.ask.title(for: chat)) {
-                            Task { await model.ask.select(chat.id) }
-                        }
-                        if let ordinal = entry.ordinal {
-                            button.keyboardShortcut(KeyEquivalent(Character("\(ordinal)")), modifiers: .command)
-                        } else { button }
-                    }
-                }
-            }
-        } else if let workspace = model.selectedModel {
+        if let workspace = model.selectedModel {
             let entries = WorkspaceTabsStore.shared.entries(in: workspace)
             MenuCommandGroup(.goToTab) {
                 ForEach(TabCycle.numbered(entries), id: \.tab) { entry in
@@ -948,17 +920,7 @@ struct BloomCommands: Commands {
         NotificationCenter.default.post(name: .bloomRenameTab, object: nil)
     }
 
-    /// Closing a conversation still goes through `CloseSessionAlert`, which asks when there is
-    /// something to lose by it and never asks when there is not. That is the whole of what the old
-    /// Close Session did, so nothing about a chat closes more quietly than it used to.
-    /// The last one closes too, and is replaced by a blank conversation. See `AskModel.close`.
-    private var canCloseAskTab: Bool { model.isAskInFront && model.ask.selectedID != nil }
-
     private func closeSelectedTab() {
-        if model.isAskInFront {
-            if canCloseAskTab, let id = model.ask.selectedID { model.ask.requestClose(id) }
-            return
-        }
         guard let workspace = model.selectedModel, let target = closableTab else { return }
         switch target {
         case .chat(let id):

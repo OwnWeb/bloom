@@ -7,6 +7,10 @@ import Foundation
 /// empty box for every route at once. Words are the right requirement for a chat and the wrong one
 /// for a shell, and one condition covering both is how the wrong one gets applied.
 public enum WorkspaceStartPlan {
+    public static func canStartConversation(prompt: String, isBusy: Bool) -> Bool {
+        !isBusy && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Whether Create may be pressed.
     ///
     /// Words are required for a chat, and for nothing else.

@@ -68,14 +68,15 @@ extension Store {
 
     /// Ask tabs also carry their directory and persisted selection into the replacement.
     public func replaceAskConversation(
-        id: SessionID, controls: ComposerControls, draft: String = ""
+        id: SessionID, controls: ComposerControls, draft: String = "",
+        nextID: SessionID = .new(), replacementDirectory: String? = nil
     ) throws -> Session {
         try db.transaction {
             guard let current = try session(id: id), current.workspaceID == nil,
                   current.archivedAt == nil else {
                 throw SQLiteError(message: "This conversation is no longer current.", sql: nil)
             }
-            var next = AskConversation.newSession(sortOrder: current.sortOrder)
+            var next = AskConversation.newSession(id: nextID, sortOrder: current.sortOrder)
             next.model = controls.model
             next.effort = controls.effort
             next.agentKind = controls.agentKind
@@ -86,7 +87,8 @@ extension Store {
                 try setSetting(key, value)
             }
             try saveDraft(sessionID: next.id, body: draft)
-            let directory = try setting(AskTabs.directoryKey(id))
+            let savedDirectory = try setting(AskTabs.directoryKey(id))
+            let directory = replacementDirectory ?? savedDirectory
                 ?? AskConversation.directory(besideDatabaseAt: path)
             try setSetting(AskTabs.directoryKey(next.id), directory)
             try setSetting(AskTabs.selectionKey, next.id.rawValue)
@@ -97,17 +99,21 @@ extension Store {
 
     /// Inserting the chat and its controls, draft, directory and selection is one transaction.
     public func createAskConversation(
-        directory: String, controls: ComposerControls? = nil, draft: String = ""
+        directory: String, controls: ComposerControls? = nil, draft: String = "",
+        title: String? = nil, id: SessionID = .new()
     ) throws -> Session {
         try db.transaction {
             let existing = try sessionsWithoutWorkspace()
-            var next = AskConversation.newSession(sortOrder: (existing.map(\.sortOrder).max() ?? -1) + 1)
+            var next = AskConversation.newSession(
+                id: id, sortOrder: (existing.map(\.sortOrder).max() ?? -1) + 1
+            )
+            if let title { next.title = title }
             if let controls {
                 next.model = controls.model
                 next.effort = controls.effort
                 next.agentKind = controls.agentKind
                 next.permissionMode = controls.permissionMode
-            next.interactionMode = controls.interactionMode
+                next.interactionMode = controls.interactionMode
             }
             try upsert(next)
             if let controls {

@@ -116,7 +116,7 @@ struct WorkspaceSourcePicker: View {
         .buttonStyle(.plain)
         .fixedSize()
         .help("Open a pull request or a branch, or cut a new branch")
-        .accessibilityLabel("Start from")
+        .accessibilityLabel("Source")
         .accessibilityValue(label)
     }
 
@@ -173,7 +173,7 @@ struct WorkspaceSourcePicker: View {
     /// sized to its two labels and this stack aligns leading, which is what left it short of the
     /// right edge with a gap after it.
     private var tabs: some View {
-        PanelTabs("Start from", tabs: WorkspaceSourceTab.allCases, selection: $tab) { $0.title }
+        PanelTabs("Source", tabs: WorkspaceSourceTab.allCases, selection: $tab) { $0.title }
         .padding(.horizontal, Metrics.gutter)
         .padding(.top, Metrics.spacingWide)
         .padding(.bottom, Metrics.spacingWide)

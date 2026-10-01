@@ -20,6 +20,9 @@ struct NewMenuItems: View {
 
     var body: some View {
         Button("New workspace…", action: onNewWorkspace)
+        Button("New conversation…") {
+            NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
+        }
         Button("New project…", action: onStartProject)
 
         if !recent.isEmpty {
