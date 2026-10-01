@@ -4,14 +4,6 @@ import Foundation
 public enum SidebarTopSection: String, Sendable {
     case work
     case conversations
-
-    public var dragToken: String { "bloom.sidebar.section.\(rawValue)" }
-
-    public init?(dragToken: String) {
-        let prefix = "bloom.sidebar.section."
-        guard dragToken.hasPrefix(prefix) else { return nil }
-        self.init(rawValue: String(dragToken.dropFirst(prefix.count)))
-    }
 }
 
 /// A preference, rather than a per-window choice, so a section stays where it was dropped.
@@ -22,8 +14,12 @@ public enum SidebarSectionOrder: String, Sendable {
     public static let fallback = Self.workFirst
     public static let storageKey = "sidebar.sectionOrder"
 
-    public static func moving(_ source: SidebarTopSection, onto target: SidebarTopSection) -> Self? {
-        guard source != target else { return nil }
-        return source == .conversations ? .conversationsFirst : .workFirst
+    /// A heading moving one row towards the other section swaps the two groups. The order at
+    /// drag start stays the reference, so pulling back reverses the swap before release.
+    public func dragging(_ section: SidebarTopSection, translation: Double) -> Self {
+        let first: SidebarTopSection = self == .workFirst ? .work : .conversations
+        let reachesOther = section == first ? translation > 32 : translation < -32
+        guard reachesOther else { return self }
+        return self == .workFirst ? .conversationsFirst : .workFirst
     }
 }

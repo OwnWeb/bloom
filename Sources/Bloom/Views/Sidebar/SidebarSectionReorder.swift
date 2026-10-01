@@ -1,55 +1,42 @@
 import SwiftUI
 import BloomCore
-import UniformTypeIdentifiers
 
-/// A top section's heading is a List row, so its drag gesture reaches AppKit. Native Section
-/// headers swallow that gesture. Dragging one heading over the other moves its whole section.
+/// A List heading owns its drag directly. Its contents follow the pointer until it crosses one
+/// row; then the two stable sections exchange places while the pointer is still down.
 private struct SidebarSectionReorder: ViewModifier {
     let section: SidebarTopSection
     @Binding var order: String
-    @Binding var dragging: SidebarTopSection?
-    @State private var isDropTarget = false
-
-    private static var type: UTType { UTType(exportedAs: "be.spatie.bloom.sidebar-section") }
+    @State private var startingOrder: SidebarSectionOrder?
+    @State private var verticalOffset: CGFloat = 0
 
     func body(content: Content) -> some View {
         content
             .contentShape(Rectangle())
-            .onDrag {
-                dragging = section
-                let provider = NSItemProvider()
-                provider.registerDataRepresentation(
-                    forTypeIdentifier: Self.type.identifier, visibility: .all
-                ) { completion in
-                    completion(Data(section.dragToken.utf8), nil)
-                    return nil
-                }
-                return provider
-            }
-            .onDrop(of: [Self.type], isTargeted: $isDropTarget) { providers, _ in
-                guard !providers.isEmpty, let source = dragging else { return false }
-                if let next = SidebarSectionOrder.moving(source, onto: section) {
-                    order = next.rawValue
-                }
-                dragging = nil
-                return true
-            }
-            .onChange(of: isDropTarget) { _, targeted in
-                guard targeted, let source = dragging,
-                      let next = SidebarSectionOrder.moving(source, onto: section)
-                else { return }
-                // The dragged header keeps its identity when the rows beneath it move.
-                // Entering its new location cannot immediately undo the reorder.
-                order = next.rawValue
-            }
-            .accessibilityHint("Drag onto the other section heading to change their order")
+            .offset(y: verticalOffset)
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = startingOrder
+                            ?? SidebarSectionOrder(rawValue: order)
+                            ?? .fallback
+                        if startingOrder == nil { startingOrder = start }
+                        let next = start.dragging(
+                            section, translation: Double(value.translation.height)
+                        )
+                        verticalOffset = next == start ? value.translation.height : 0
+                        if order != next.rawValue { order = next.rawValue }
+                    }
+                    .onEnded { _ in
+                        verticalOffset = 0
+                        startingOrder = nil
+                    }
+            )
+            .accessibilityHint("Drag up or down to move this section")
     }
 }
 
 extension View {
-    func reorderableSection(
-        _ section: SidebarTopSection, order: Binding<String>, dragging: Binding<SidebarTopSection?>
-    ) -> some View {
-        modifier(SidebarSectionReorder(section: section, order: order, dragging: dragging))
+    func reorderableSection(_ section: SidebarTopSection, order: Binding<String>) -> some View {
+        modifier(SidebarSectionReorder(section: section, order: order))
     }
 }

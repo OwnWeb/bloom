@@ -108,7 +108,6 @@ struct SidebarView: View {
     /// The New menu's "New workspace in" section, loaded here rather than in the menu because the
     /// archived workspaces it counts are a store read. See `RecentProjects.newMenu`.
     @State private var recentProjects: [Repo] = []
-    @State private var draggingTopSection: SidebarTopSection?
     /// The crew member whose Stop is waiting on an answer, and nil when nothing is being asked.
     ///
     /// Only ever set for one that is still working: stopping an agent that has already finished
@@ -171,7 +170,7 @@ struct SidebarView: View {
         // selection above, keyboard navigation and the standard insets. Four points is not worth
         // that. Project rows use the list's own vertical insets too.
         .listStyle(.sidebar)
-        .animation(Motion.pane, value: storedSectionOrder)
+        .animation(reduceMotion ? nil : Motion.pane, value: storedSectionOrder)
         .confirmation($stoppingCrew) { pending in
             Confirmation(
                 title: "Stop \(pending.name)?",
@@ -210,7 +209,8 @@ struct SidebarView: View {
                         .font(Typo.label)
                         .fontWeight(.semibold)
                         .foregroundStyle(Palette.textSecondary)
-                    Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .reorderableSection(.conversations, order: $storedSectionOrder)
                     if !app.ask.workspaceConversations.isEmpty {
                         Button("New conversation", systemImage: "plus") {
                             NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
@@ -221,9 +221,6 @@ struct SidebarView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .reorderableSection(
-                    .conversations, order: $storedSectionOrder, dragging: $draggingTopSection
-                )
                 .accessibilityAddTraits(.isHeader)
                 .selectionDisabled()
 
@@ -255,7 +252,7 @@ struct SidebarView: View {
             Spacer()
         }
         .padding(.trailing, Metrics.inset + Metrics.spacingWide)
-        .reorderableSection(section, order: $storedSectionOrder, dragging: $draggingTopSection)
+        .reorderableSection(section, order: $storedSectionOrder)
         .accessibilityAddTraits(.isHeader)
     }
 
@@ -519,6 +516,7 @@ struct SidebarView: View {
         case .project(let group):
             RepoHeaderRow(
                 repo: group.repo,
+                isFirstProject: groups.first?.id == group.id,
                 hasUnreadWork: group.hasUnreadWork,
                 workspaceCount: group.workspaces.count,
                 onCreateWorkspace: presentCreate
