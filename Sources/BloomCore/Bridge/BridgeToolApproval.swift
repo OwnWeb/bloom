@@ -104,6 +104,10 @@ public enum BridgeToolApproval {
     public static let selfApproved: Set<String> = [
         "whoami",
         "workspace_start",
+        // A restore rebuilds an archived worktree from its surviving branch. It never writes
+        // over an occupied path, and the archived record remains if rebuilding fails. An owner
+        // who asked for it should not have to answer a second question for Bloom's own tool.
+        "workspace_restore",
         // Both add something the reader can see and close, in the workspace whose agent is
         // asking and nowhere else. Nothing is destroyed and nothing is hidden, which is a very
         // different weight from `workspace_merge`, which is deliberately not on this list.

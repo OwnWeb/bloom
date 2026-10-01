@@ -158,6 +158,7 @@ places: the listing, the dispatch and the gate.
 | `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. Optional `model` and `effort` choose the first chat's exact controls; either omitted value inherits the caller or Bloom's default. A workspace agent starts it in its own project, or in another one it names. With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
 | `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own by default, or any workspace named out loud by name or id; the owner must name one | ✓ | ✓ |
 | `workspace_archive` | Archive a workspace through normal safety checks, keeping its branch and history. For a workspace agent, its own once the turn asking for it has ended, or one it started, by id and at once; any of them, named out loud and at once, for the owner | ✓ | ✓ |
+| `workspace_restore` | Rebuild an archived workspace's worktree from its surviving branch, returning it to the active list. Takes its exact id from `workspace_list` with `include_archived: true` | | ✓ |
 | `workspace_merge` | Ask a workspace's own agent to merge its pull request | | ✓ |
 | `workspace_say` | Put a message in another workspace's chat, with the owner's authority, headed with the workspace, project and chat it came from. The owner can delete it from the receiving chat while it is queued. With `notify_when_done`, Bloom tells the calling chat once when the turn it caused finishes, fails or blocks on the owner. Refused past thirty messages to one workspace in ten minutes, or for the same words twice in that window, except from the owner's own client | ✓ | ✓ |
 | `reveal` | Point Bloom's window at one workspace, or at Home narrowed by project, scope and search. Navigation and nothing else: it creates nothing and archives nothing | | ✓ |
@@ -378,6 +379,11 @@ nothing excused: another agent still running in the workspace or a message still
 and the refusal reaches the owner as a notice, because by then there is no agent left to tell. The
 first check, made during the call, excuses only the asking chat's own running turn, and never its
 queue. See `WorkspaceArchiveSafety`, which is the one place both checks are written.
+
+`workspace_restore` uses the same rebuild as the Restore button, but leaves the window selection
+alone. It refuses a workspace that is already active or whose branch no longer exists locally or
+on the remote. If the previous path is occupied, it uses a free path and reports the relocation.
+Restoring does not run the setup script or recreate files lost when the workspace was archived.
 
 Nothing a rename touches is on disk. `workspace_rename` writes one column of one row: the branch,
 the worktree, the pull request and the directory keep the names they have. That is worth saying out
