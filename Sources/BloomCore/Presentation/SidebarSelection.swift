@@ -14,6 +14,10 @@ import Foundation
 public enum SidebarSelection: Hashable, Sendable {
     case home
     case workspace(WorkspaceID)
+    /// A saved conversation whose session has no project or worktree.
+    case conversation(SessionID)
+    /// The saved transcript of a conversation removed from the live sidebar.
+    case archivedConversation(SessionID)
     /// An archived workspace, open for reading.
     ///
     /// Its own case rather than a flag on `workspace`, because an archived workspace is not a
@@ -84,7 +88,7 @@ public enum SidebarSelection: Hashable, Sendable {
     public var workspaceID: WorkspaceID? {
         switch self {
         case .workspace(let id), .subagent(let id, _), .subagentCall(let id, _), .crew(let id, _): id
-        case .home, .archived: nil
+        case .home, .archived, .conversation, .archivedConversation: nil
         }
     }
 

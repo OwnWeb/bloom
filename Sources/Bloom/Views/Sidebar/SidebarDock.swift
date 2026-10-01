@@ -1,16 +1,9 @@
 import SwiftUI
 import BloomCore
 
-/// Home, New and Ask Bloom, at the leading end of the sidebar's status bar.
-///
-/// **These were two rows and a plus at the top of the list.** Home carried the pane's one `+`, and
-/// Ask Bloom sat under it as a destination of its own. The owner found "Home / Ask Bloom" a waste of
-/// the pane's best real estate and asked for Ask behind a button, as Amp does it; the plus came
-/// with them, as a third button, second in the row because making something is reached for more
-/// often than asking. The rows' sixty points went back to the list.
-///
-/// Buttons in a status bar rather than a toolbar, because this strip is already where the pane
-/// keeps the controls that are about the whole of it, and it is in both shapes of the pane.
+/// Home and New at the leading end of the sidebar's status bar.
+/// The former Ask Bloom button is gone. Project-free conversations have their own rows below
+/// Projects, so a separate panel entry point would give the same chats two homes.
 struct SidebarDock: View {
     @Environment(AppModel.self) private var app
 
@@ -21,7 +14,7 @@ struct SidebarDock: View {
 
     @State private var hovered: Item?
 
-    private enum Item { case home, new, ask }
+    private enum Item { case home, new }
 
     var body: some View {
         HStack(spacing: Metrics.spacingTight) {
@@ -50,35 +43,11 @@ struct SidebarDock: View {
             .fixedSize()
             .help("New workspace or project")
 
-            Button { askBloom() } label: {
-                label(
-                    AskConversation.title, systemImage: PaneGlyph.chat, item: .ask,
-                    isActive: AskPanelModel.shared.isOpen
-                )
-                // The mark the Ask Bloom row wore. A question left running behind a closed panel
-                // is otherwise a turn nothing in the window reports. See `AppModel.askStatus`.
-                .overlay(alignment: .topTrailing) {
-                    if let status = app.askStatus {
-                        WorkspaceStatusGlyph(status: status)
-                            .scaleEffect(0.7)
-                            .offset(x: Metrics.spacingSmall, y: -Metrics.spacingSmall)
-                            .allowsHitTesting(false)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .help("Ask Bloom")
-            .accessibilityValue(app.askStatus?.label ?? "")
         }
     }
 
     private func goHome() {
-        AskPanelModel.shared.close()
         app.selection = .home
-    }
-
-    private func askBloom() {
-        AskPanelModel.shared.toggle(app: app)
     }
 
     private func label(_ title: String, systemImage: String, item: Item, isActive: Bool) -> some View {

@@ -56,7 +56,7 @@ public struct ComposerControls: Equatable, Sendable {
     /// `CodexContextWindow.modelDefault` for whatever Codex's own catalogue says. Ignored on
     /// every other backend, which is why the picker is not drawn there. See `CodexContextWindow`.
     public var codexContextWindow: Int
-    /// Whether this chat has a worktree behind it. False is Ask Bloom, and it is here rather than
+    /// Whether this chat has a worktree behind it. False is a project-free conversation, and it is here rather than
     /// left to the view because it changes what the permission menu has to say. See
     /// `permissionModeNote`.
     public var hasWorktree: Bool
@@ -151,8 +151,7 @@ public struct ComposerControls: Equatable, Sendable {
         guard !hasWorktree else { return nil }
         return "This conversation has no worktree, so permissions beyond "
             + "\(PermissionMode.auto.label(on: agentKind)) can reach the whole machine "
-            + "rather than a copy of a project. Your choice lasts until Bloom next starts, "
-            + "when the current default applies."
+            + "rather than a copy of a project. Your choice is saved for this conversation."
     }
 
     /// Whether this backend has output styles at all.

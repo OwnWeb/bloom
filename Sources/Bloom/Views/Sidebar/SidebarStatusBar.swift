@@ -1,7 +1,7 @@
 import SwiftUI
 import BloomCore
 
-/// The strip pinned to the bottom of the sidebar: Home, New and Ask Bloom (`SidebarDock`), the two
+/// The strip pinned to the bottom of the sidebar: Home and New (`SidebarDock`), the two
 /// controls that narrow or explain the list, and a line the pane borrows when it has something to
 /// say about itself.
 ///

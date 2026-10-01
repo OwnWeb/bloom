@@ -160,7 +160,7 @@ struct SidebarView: View {
             // naming something that is not there. Starting a project is still one press away, on
             // the projects button in the status bar, in both shapes, which is why the heading has
             // no button of its own: it had one, and it was the same action twice in one pane.
-            if grouping == .projects {
+            if grouping == .projects, !groups.isEmpty {
                 Section {
                     paneRowsList
                 } header: {
@@ -168,8 +168,46 @@ struct SidebarView: View {
                         .bold()
                         .accessibilityAddTraits(.isHeader)
                 }
-            } else {
+            } else if grouping == .status {
                 Section { paneRowsList }
+            }
+
+            if filter == .all {
+                Section {
+                    if app.ask.workspaceConversations.isEmpty {
+                        Button("New conversation…", systemImage: "plus") {
+                            NotificationCenter.default.post(
+                                name: .bloomNewConversationWorkspace, object: nil
+                            )
+                        }
+                        .foregroundStyle(Palette.textSecondary)
+                    } else {
+                        ForEach(app.ask.workspaceConversations, id: \.id) { chat in
+                            ConversationSidebarRow(chat: chat)
+                                .tag(SidebarSelection.conversation(chat.id))
+                                .sidebarSelection(selectionStyle(for: .conversation(chat.id)))
+                        }
+                        .onMove { offsets, destination in
+                            Task { await app.ask.reorderConversations(from: offsets, to: destination) }
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("Conversations")
+                            .bold()
+                        Spacer()
+                        if !app.ask.workspaceConversations.isEmpty {
+                            Button("New conversation", systemImage: "plus") {
+                                NotificationCenter.default.post(
+                                    name: .bloomNewConversationWorkspace, object: nil
+                                )
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .accessibilityAddTraits(.isHeader)
+                }
             }
         }
         // The native list owns row height, keyboard navigation and which row is selected. How the
@@ -294,6 +332,9 @@ struct SidebarView: View {
             hasSettled = true
         }
         .onChange(of: app.repos, initial: true) { _, _ in regroup() }
+        .task(id: app.isLoaded) {
+            if app.isLoaded { await app.ask.open() }
+        }
         .onChange(of: app.workspaces) { _, _ in regroup() }
         // The whole run changes shape, and nothing in it counts as having arrived: every row was
         // already on screen a moment ago, in another order. See the filter's own change below.

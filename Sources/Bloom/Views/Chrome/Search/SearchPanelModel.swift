@@ -43,8 +43,6 @@ final class SearchPanelModel {
 
     func openFiles(app: AppModel) {
         guard let workspace = app.selectedWorkspace else { return }
-        // One card in front of the window at a time. They share the ground they are drawn on.
-        AskPanelModel.shared.close()
         if isOpen, files?.workspace.id == workspace.id {
             selectAllToken &+= 1
             return
@@ -57,7 +55,6 @@ final class SearchPanelModel {
     /// - Parameter scope: the chip to open on. Shift+Cmd+F opens on Transcripts, which is what that
     ///   key has always meant, and Cmd+K opens on Everything.
     func open(scope: HomeScope = .all, app: AppModel) {
-        AskPanelModel.shared.close()
         if files != nil { close(app: app) }
         if isOpen {
             // The platform's rule for pressing a find key at an open find: select what is there,

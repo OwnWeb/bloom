@@ -41,8 +41,9 @@ contribute for free.
 
 | Item | Key | Enabled when |
 | --- | --- | --- |
-| New Workspace… | `⌘N` | a project exists |
+| New Workspace… | `⌘N` | always; opens on Conversation when no project exists |
 | New Workspace from Pull Request… | | a project exists |
+| New Conversation… | `⌘J` | always |
 | Project Settings… | `⇧⌘,` | a project exists |
 | New Session | `⌘T` | a workspace is selected |
 | New Terminal Tab | `⇧⌘T` | a workspace is selected |
@@ -83,7 +84,6 @@ contribute for free.
 | Next / Previous Workspace | `⌥⌘↓` `⌥⌘↑` | any workspace exists |
 | Next Unread | `⇧⌘U` | something is unread |
 | Go to Home | `⇧⌘H` | not already on Home |
-| Ask Bloom | `⌘J` | Ask Bloom is not open as the full pane |
 | Zoom In / Zoom Out / Actual Size | `⌘+` `⌘-` `⌘0` | the focused text can zoom |
 | Enter Full Screen | `⌃⌘F` | AppKit |
 

@@ -3,6 +3,13 @@ import Testing
 
 @Suite("Whether a workspace may be started")
 struct WorkspaceStartPlanTests {
+    @Test("a conversation needs words but no project")
+    func conversationNeedsOnlyWords() {
+        #expect(WorkspaceStartPlan.canStartConversation(prompt: "Plan an article", isBusy: false))
+        #expect(!WorkspaceStartPlan.canStartConversation(prompt: "  \n  ", isBusy: false))
+        #expect(!WorkspaceStartPlan.canStartConversation(prompt: "Plan an article", isBusy: true))
+    }
+
     @Test("a chat needs words")
     func chatNeedsWords() {
         #expect(!WorkspaceStartPlan.canStart(

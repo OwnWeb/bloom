@@ -32,9 +32,9 @@ public enum MenuBarCatalogue {
 
         // MARK: File
 
-        MenuBarItem(.newWorkspace, in: .file, "New Workspace…", key: .command("n"), availability: .needsProject),
+        MenuBarItem(.newWorkspace, in: .file, "New Workspace…", key: .command("n"), availability: .always),
         MenuBarItem(.newWorkspaceFromPullRequest, in: .file, "New Workspace from Pull Request…", availability: .needsProject),
-        MenuBarItem(.newAskConversation, in: .file, "New Ask Bloom Conversation", availability: .always),
+        MenuBarItem(.newConversation, in: .file, "New Conversation…", key: .command("j"), availability: .always),
         MenuBarItem(.projectSettings, in: .file, "Project Settings…", key: .init("comma", .command, .shift), availability: .needsProject),
         MenuBarItem(.searchFiles, in: .file, "Search Files…", key: .command("p"), availability: .needsWorkspace),
         MenuBarItem(.newSession, in: .file, "New Session", key: .command("t"), availability: .needsConversationArea),
@@ -107,10 +107,6 @@ public enum MenuBarCatalogue {
         MenuBarItem(.previousWorkspace, in: .view, "Previous Workspace", key: .init(.upArrow, .command, .option), availability: .needsAnyWorkspace),
         MenuBarItem(.nextUnread, in: .view, "Next Unread", key: .init("u", .command, .shift), availability: .sometimes),
         MenuBarItem(.goToHome, in: .view, "Go to Home", key: .init("h", .command, .shift), availability: .sometimes),
-        // Command-J opens and closes the Ask Bloom panel. It had no key while Ask was a place in the
-        // sidebar, because a destination is a click away; a panel in front of the window is the
-        // kind of thing a key is for, and J was free. See `AskPanelModel`.
-        MenuBarItem(.goToAsk, in: .view, "Ask Bloom", key: .command("j"), availability: .sometimes),
         MenuBarItem(.zoomIn, in: .view, "Zoom In", key: .command("+"), availability: .sometimes),
         MenuBarItem(.zoomOut, in: .view, "Zoom Out", key: .command("-"), availability: .sometimes),
         MenuBarItem(.actualSize, in: .view, "Actual Size", key: .command("0"), availability: .sometimes),
@@ -180,7 +176,7 @@ public enum MenuBarAction: String, CaseIterable, Sendable {
 
     case newWorkspace
     case newWorkspaceFromPullRequest
-    case newAskConversation
+    case newConversation
     case projectSettings
     case newSession
     case newTerminalTab
@@ -220,7 +216,6 @@ public enum MenuBarAction: String, CaseIterable, Sendable {
     case previousWorkspace
     case nextUnread
     case goToHome
-    case goToAsk
     case zoomIn
     case zoomOut
     case actualSize
@@ -303,7 +298,7 @@ public enum MenuBarAvailability: String, Equatable, Sendable {
     case needsProject
     /// A workspace is selected in the sidebar.
     case needsWorkspace
-    /// A workspace or Ask Bloom is selected.
+    /// A workspace or project-free conversation is selected.
     case needsConversationArea
     /// Any workspace exists at all, selected or not.
     case needsAnyWorkspace

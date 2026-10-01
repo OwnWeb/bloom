@@ -54,6 +54,22 @@ struct AskConversationTests {
         #expect(session.state == .idle)
     }
 
+    @Test("new conversations use an isolated directory and keep legacy titles readable")
+    func workspaceDirectoryAndLegacyTitle() throws {
+        let root = TestScratch.unique("conversation-directory")
+        let database = root + "/bloom.sqlite"
+        let first = SessionID("first")
+        let path = try #require(AskConversation.prepareWorkspaceDirectory(
+            besideDatabaseAt: database, id: first
+        ))
+        #expect(path == root + "/Conversations/first")
+        #expect(AskConversation.workspaceDirectory(
+            besideDatabaseAt: database, id: SessionID("second")
+        ) != path)
+        #expect(AskConversation.isBlank(Session(workspaceID: nil, title: "Ask Bloom")))
+        #expect(AskConversation.automaticTitle(current: "Ask Bloom", prompt: "Plan a trip") == "Plan a trip")
+    }
+
     @Test("Ask Bloom inherits the permission preference with its model and effort")
     func defaultsReachAskBloom() {
         var defaults = AppDefaults()
@@ -81,32 +97,6 @@ struct AskConversationTests {
         )
     }
 
-    @Test("a new launch applies the current preference, while an in-session choice remains")
-    func openingUsesCurrentPreference() {
-        var defaults = AppDefaults()
-        defaults.permissionMode = .acceptEdits
-        #expect(
-            AskConversation.modeOnOpening(stored: .auto, defaults: defaults,
-                                          agentKind: .codex, isFirstOpenSinceLaunch: true)
-                == .acceptEdits
-        )
-        #expect(
-            AskConversation.modeOnOpening(stored: .auto, defaults: defaults,
-                                          agentKind: .codex, isFirstOpenSinceLaunch: false)
-                == nil
-        )
-        #expect(
-            AskConversation.modeOnOpening(stored: .acceptEdits, defaults: defaults,
-                                          agentKind: .codex, isFirstOpenSinceLaunch: true) == nil
-        )
-
-        defaults.planMode = true
-        #expect(AskConversation.modeOnOpening(stored: .auto, defaults: defaults,
-                                               agentKind: .claudeCode, isFirstOpenSinceLaunch: true) == .plan)
-        #expect(AskConversation.modeOnOpening(stored: .auto, defaults: defaults,
-                                               agentKind: .codex, isFirstOpenSinceLaunch: true) == .acceptEdits)
-    }
-
     /// The menu must explain the wider scope and when the preference returns.
     @Test("the permission menu says what a mode means with no worktree")
     func theMenuSaysWhatAModeMeansHere() throws {
@@ -124,8 +114,7 @@ struct AskConversationTests {
         #expect(!ask.hasWorktree)
         let note = try #require(ask.permissionModeNote)
         #expect(note.contains("whole machine"))
-        #expect(note.contains("Bloom next starts"))
-        #expect(note.contains("current default"))
+        #expect(note.contains("saved for this conversation"))
     }
 
     /// The empty state is the first thing the owner sees, and it used to open by listing what this
