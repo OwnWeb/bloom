@@ -149,8 +149,8 @@ struct SidebarView: View {
     /// finish in a release build: green on this Mac, red there, three times.
     private var list: some View {
         List(selection: $listSelection) {
-            // No rows above the projects. Home and Ask Bloom were two here, with the pane's `+` on
-            // Home, and all three are buttons in the status bar now. See `SidebarDock`.
+            // No rows above the projects. Home and Ask Bloom used to be rows here. The archive
+            // shortcut is in the status bar, and the toolbar's `+` opens the creation menu.
             //
             // One native section supplies the Projects heading's font and spacing. The rows
             // stay in one ForEach so dragging still uses the same indices in `paneRows`.
@@ -203,9 +203,14 @@ struct SidebarView: View {
                                 )
                             }
                             .labelStyle(.iconOnly)
+                            .font(Typo.label)
+                            .frame(width: Metrics.headerButton.width, height: Metrics.headerButton.height)
                             .buttonStyle(.plain)
                         }
                     }
+                    // Section headers span farther right than list rows. Match the project row's
+                    // trailing button column rather than the section's own edge.
+                    .padding(.trailing, Metrics.inset + Metrics.spacingWide)
                     .accessibilityAddTraits(.isHeader)
                 }
             }
@@ -263,6 +268,9 @@ struct SidebarView: View {
         // pending and stored workspaces share an id, so finishing a create does not reinsert it.
         .animation(workspaceMotion, value: workspaceIdentities)
         .animation(workspaceMotion, value: statusArrangement)
+        // Project-free conversations are drawn outside `paneRows`, so workspace membership never
+        // changes when one is archived. Key their membership to the same row-removal curve.
+        .animation(workspaceMotion, value: conversationIdentities)
         // A subagent's row leaving when its work is done, which is another insertion or removal
         // and so another reflow, at the one length this pane confirms anything in.
         //
@@ -310,9 +318,7 @@ struct SidebarView: View {
             SidebarStatusBar(
                 filter: $filter,
                 onCreateWorkspace: { presentCreate(in: $0) },
-                onNewWorkspace: { presentCreate(in: nil) },
                 onStartProject: startProject,
-                recentProjects: recentProjects,
                 note: reorderNote?.sentence
             )
         }
@@ -589,6 +595,10 @@ struct SidebarView: View {
     /// Membership only, so renames, reordering and status updates do not trigger visibility motion.
     private var projectIdentities: Set<RepoID> {
         Set(groups.map(\.id))
+    }
+
+    private var conversationIdentities: Set<SessionID> {
+        Set(app.ask.workspaceConversations.map(\.id))
     }
 
     /// Hidden projects still on screen, whose headers dim when "Show hidden projects" is on.
@@ -1049,7 +1059,7 @@ struct SidebarToolbar: ToolbarContent {
                     Label("New", systemImage: "plus")
                 }
                 .menuIndicator(.hidden)
-                .help("New workspace or project")
+                .help("New workspace, project or conversation")
 
                 SidebarToggleButton()
             }

@@ -1,11 +1,7 @@
 import SwiftUI
 import BloomCore
 
-/// What the sidebar's two `+` buttons open: the toolbar's and the status bar's.
-///
-/// One view, because the two menus were already kept word for word the same by comments pointing
-/// at each other, and a section of recent projects added to one and forgotten in the other is the
-/// drift those comments existed to prevent.
+/// What the sidebar toolbar's `+` button opens.
 ///
 /// The generic items stay first, so the position somebody aims at for "New workspace…" did not
 /// move when the recent projects arrived. A recent project opens the same create window with that
@@ -20,10 +16,10 @@ struct NewMenuItems: View {
 
     var body: some View {
         Button("New workspace…", action: onNewWorkspace)
+        Button("New project…", action: onStartProject)
         Button("New conversation…") {
             NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
         }
-        Button("New project…", action: onStartProject)
 
         if !recent.isEmpty {
             Divider()

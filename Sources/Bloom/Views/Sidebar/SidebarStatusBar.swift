@@ -1,7 +1,7 @@
 import SwiftUI
 import BloomCore
 
-/// The strip pinned to the bottom of the sidebar: Home and New (`SidebarDock`), the two
+/// The strip pinned to the bottom of the sidebar: Archive (`SidebarDock`), the two
 /// controls that narrow or explain the list, and a line the pane borrows when it has something to
 /// say about itself.
 ///
@@ -14,11 +14,7 @@ struct SidebarStatusBar: View {
     /// Raised to the sidebar so the projects submenu's New workspace posts for the create window
     /// through the same door every other entry point uses. See `SidebarView.presentCreate`.
     var onCreateWorkspace: (Repo) -> Void = { _ in }
-    /// New workspace with no project named, which the create window asks for.
-    var onNewWorkspace: () -> Void = {}
     var onStartProject: () -> Void = {}
-    /// The New menu's recent section. See `NewMenuItems`.
-    var recentProjects: [Repo] = []
     /// Whether the projects the owner has hidden are in the list. A preference rather than this
     /// window's state, which is why it is `@AppStorage` here and in `SidebarView` rather than a
     /// second `@State` passed down. See `ProjectVisibility.showsHiddenKey`.
@@ -41,12 +37,7 @@ struct SidebarStatusBar: View {
             Hairline()
 
             HStack(spacing: Metrics.spacingSmall) {
-                SidebarDock(
-                    onNewWorkspace: onNewWorkspace,
-                    onStartProject: onStartProject,
-                    onCreateWorkspace: onCreateWorkspace,
-                    recentProjects: recentProjects
-                )
+                SidebarDock()
 
                 noteLabel
 
@@ -60,8 +51,8 @@ struct SidebarStatusBar: View {
                         grouping: $storedGrouping
                     )
                     SidebarProjectsMenu(repos: app.repos, onCreateWorkspace: onCreateWorkspace)
-                    // The same words the New button's menu uses, so one action is not named two
-                    // ways inside one pane. See `SidebarDock`.
+                    // The same words the toolbar's New menu uses, so one action is not named two
+                    // ways inside one pane. See `NewMenuItems`.
                     Button("New project…", action: onStartProject)
                 } label: {
                     controlLabel(

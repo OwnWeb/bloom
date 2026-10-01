@@ -50,7 +50,6 @@ struct ConversationSidebarRow: View {
                     .accessibilityLabel("Pinned")
             }
         }
-        .frame(minHeight: Metrics.rowHeight)
         .contentShape(Rectangle())
         .contextMenu {
             Button("Rename") {

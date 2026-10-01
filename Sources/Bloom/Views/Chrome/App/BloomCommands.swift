@@ -453,9 +453,10 @@ struct BloomCommands: Commands {
             // AppKit finds first would silently have killed the other. Cmd+Shift+H is what Home is
             // bound to in Finder and in Safari anyway, so this is where it should always have been.
             MenuCommand(.goToHome) {
+                model.homeFilter.scope = .all
                 model.selection = .home
             }
-            .disabled(model.selection == .home)
+            .disabled(model.selection == .home && model.homeFilter.scope == .all)
 
             // The title and the key come from the table, like every other row in the bar. Written
             // here as a `Button` with its own string, it was a title nothing could check and a
