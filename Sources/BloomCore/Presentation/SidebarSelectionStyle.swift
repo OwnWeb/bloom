@@ -13,10 +13,8 @@ import Foundation
 /// could read on `#197593`.
 ///
 /// The owner had already chosen the grey, comparing the pane with Finder's sidebar, where the
-/// selected item keeps its ordinary ink on a quiet fill whatever has the keyboard. So the fill is
-/// the same in every state, and the one thing that changes is an edge, drawn only while the arrow
-/// keys really do move this list. The edge is what a keyboard user reads to know where the next
-/// arrow lands, and it carries no accent, so it cannot reproduce the report.
+/// selected item keeps its ordinary ink on a quiet fill whatever has the keyboard. The fill is
+/// the same in every state, including while the sidebar has keyboard focus.
 public enum SidebarSelectionStyle: Sendable, Equatable {
     /// Not the selected row. Nothing is drawn, so the list's own hover wash still shows.
     case unselected
@@ -41,6 +39,4 @@ public enum SidebarSelectionStyle: Sendable, Equatable {
     /// Whether the quiet fill is drawn. The same fill for both selected styles, by design.
     public var drawsFill: Bool { self != .unselected }
 
-    /// Whether the keyboard edge is drawn over the fill.
-    public var drawsKeyboardEdge: Bool { self == .keyboard }
 }
