@@ -9,6 +9,7 @@ final class AskModel {
     private(set) var sessions: [Session] = []
     private(set) var selectedID: SessionID?
     private(set) var transcripts: [SessionID: TranscriptModel] = [:]
+    private(set) var paneStates: [SessionID: ConversationPaneState] = [:]
     private(set) var trouble: String?
     private(set) var archiveRevision = 0
     private(set) var pinnedConversations: Set<SessionID> = []
@@ -24,6 +25,7 @@ final class AskModel {
 
     var transcript: TranscriptModel? { selectedID.flatMap { transcripts[$0] } }
     func transcript(for id: SessionID) -> TranscriptModel? { transcripts[id] }
+    func paneState(for id: SessionID) -> ConversationPaneState? { paneStates[id] }
     var session: Session? { transcript?.session ?? sessions.first { $0.id == selectedID } }
 
     init(app: AppModel) { self.app = app }
@@ -70,7 +72,8 @@ final class AskModel {
         trouble = nil
         do {
             try await store.setSetting(AskTabs.selectionKey, id.rawValue)
-            if transcripts[id] != nil || loading.contains(id) { return }
+            if transcripts[id] != nil, paneStates[id] != nil { return }
+            if loading.contains(id) { return }
             loading.insert(id)
             defer { loading.remove(id) }
             // Old conversations predate directory preferences and retain their original cwd.
@@ -78,6 +81,10 @@ final class AskModel {
             guard let directory = AskTabs.prepareDirectory(saved ?? "", databasePath: store.path) else {
                 throw AskDirectoryError.unavailable(saved ?? AskConversation.directory(besideDatabaseAt: store.path))
             }
+            if paneStates[id] == nil {
+                paneStates[id] = ConversationPaneState(sessionID: id, directory: directory)
+            }
+            if transcripts[id] != nil { return }
             let model = TranscriptModel(askSession: chat, directory: directory, app: app)
             transcripts[id] = model
             await model.load()
@@ -177,6 +184,8 @@ final class AskModel {
         do {
             let directory = try await store.setting(AskTabs.directoryKey(id))
             guard try await store.deleteArchivedConversation(id: id) else { return }
+            paneStates.removeValue(forKey: id)?.discard()
+            ConversationPaneState.discardStoredLayout(for: id)
             pinnedConversations.remove(id)
             conversationColours[id] = nil
             archiveRevision &+= 1
@@ -234,6 +243,7 @@ final class AskModel {
             )
             preparedDirectory = nil
             transcripts.removeValue(forKey: current.id)?.teardown()
+            paneStates.removeValue(forKey: current.id)?.discard()
             app.bridge?.retire(sessionID: current.id)
             unreadConversations.remove(current.id)
             if let index = sessions.firstIndex(where: { $0.id == current.id }) { sessions[index] = made }
@@ -268,6 +278,7 @@ final class AskModel {
         do {
             let next = try await store.closeAskConversation(id: id, selected: selectedID)
             transcripts.removeValue(forKey: id)?.teardown()
+            paneStates.removeValue(forKey: id)?.suspend()
             app.bridge?.retire(sessionID: id)
             sessions.removeAll { $0.id == id }
             unreadConversations.remove(id)

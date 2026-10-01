@@ -178,12 +178,19 @@ final class TerminalSessionStore {
     ///
     /// The workspace is passed when the caller knows it, because a tab can be closed from the strip
     /// without ever having been drawn, and a pane that was never drawn has no owner recorded.
-    func closePanes(of ownerID: String, workspaceID: WorkspaceID? = nil) {
+    func closePanes(of ownerID: String, workspaceID: WorkspaceID? = nil, preserveLayout: Bool = false) {
         for pane in TerminalSplitStore.shared.panes(of: ownerID) {
             if let workspaceID { paneOwner[pane] = workspaceID }
             closePane(id: pane)
         }
-        TerminalSplitStore.shared.discard(ownerID: ownerID)
+        if !preserveLayout { TerminalSplitStore.shared.discard(ownerID: ownerID) }
+    }
+
+    /// An archived conversation may be restored with the same pane ids and fresh shells.
+    func reopenPanes(of ownerID: String) {
+        for pane in TerminalSplitStore.shared.panes(of: ownerID) {
+            closedPanes.remove(pane)
+        }
     }
 
     /// Whether a shell has been forked for one pane in this run of Bloom.
@@ -317,9 +324,7 @@ final class TerminalSessionStore {
     /// `FolderTerminal.launchDirectory`.
     func terminal(
         for tab: TerminalTab,
-        workspace: Workspace,
-        repo: Repo?,
-        port: Int,
+        owner: TerminalOwner,
         directory: String = "",
         output: String? = nil
     ) -> BloomTerminalView {
@@ -339,14 +344,15 @@ final class TerminalSessionStore {
         if let output {
             if terminals[tab.id.rawValue] == nil {
                 terminals[tab.id.rawValue] = view
-                paneOwner[tab.id.rawValue] = workspace.id
+                paneOwner[tab.id.rawValue] = owner.id
             }
             view.showOutput(output)
             return view
         }
 
         var extra: [String: String] = [:]
-        if let repo, let store = repoStore {
+        if case .workspace(let workspace, let repo, let port) = owner,
+           let repo, let store = repoStore {
             extra = WorkspaceManager(store: store).environment(
                 for: workspace, repo: repo, port: port
             )
@@ -354,10 +360,18 @@ final class TerminalSessionStore {
 
         // `tab.id.rawValue` is the pane id here: a split hands each pane a `TerminalTab` carrying its own id,
         // and an unsplit tab is its own single pane.
-        paneOwner[tab.id.rawValue] = workspace.id
-        let start = FolderTerminal.launchDirectory(requested: directory, root: workspace.path)
-        let decision = persistence?.decision(workspaceID: workspace.id, paneID: tab.id.rawValue)
-            ?? .inProcess
+        paneOwner[tab.id.rawValue] = owner.id
+        let start = FolderTerminal.launchDirectory(requested: directory, root: owner.root)
+        let decision: TerminalStartDecision
+        switch owner {
+        case .workspace:
+            decision = persistence?.decision(workspaceID: owner.id, paneID: tab.id.rawValue)
+                ?? .inProcess
+        case .conversation:
+            // A project-free conversation is absent from the workspace census used by the tmux
+            // orphan sweep. Its layout persists, but each shell starts fresh on app launch.
+            decision = .inProcess
+        }
         if let command = persistence?.command, let session = decision.session {
             paneSession[tab.id.rawValue] = session
             view.start(TerminalLaunch.tmux(

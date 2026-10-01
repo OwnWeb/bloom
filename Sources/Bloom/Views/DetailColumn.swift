@@ -61,7 +61,7 @@ struct DetailColumn: View {
         case .workspace:
             EmptyView()
         case .conversation(let id):
-            AskConversationContent(sessionID: id)
+            ConversationColumnView(sessionID: id)
         case .archivedConversation(let id):
             ArchivedConversationView(sessionID: id)
         case .crew(let workspaceID, let sessionID):

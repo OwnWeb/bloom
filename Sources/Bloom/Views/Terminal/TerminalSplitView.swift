@@ -16,9 +16,7 @@ struct TerminalSplitView: View {
     /// The tab these panes belong to. It is also the id of the first pane, so a tab that has never
     /// been split keeps the shell it had before splitting existed.
     var ownerID: String
-    var workspace: Workspace
-    var repo: Repo?
-    var port: Int
+    var owner: TerminalOwner
     /// The folder every pane of this tab forks in, empty for the worktree root. See
     /// `FolderTerminal`.
     var directory: String = ""
@@ -146,10 +144,8 @@ struct TerminalSplitView: View {
             }
 
             TerminalView(
-                tab: TerminalTab(id: TerminalTabID(id), workspaceID: workspace.id, title: "Terminal"),
-                workspace: workspace,
-                repo: repo,
-                port: port,
+                tab: TerminalTab(id: TerminalTabID(id), workspaceID: owner.id, title: "Terminal"),
+                owner: owner,
                 directory: directory,
                 isFocusedPane: isFocused,
                 focusRequest: focusRequest,
@@ -158,7 +154,7 @@ struct TerminalSplitView: View {
                 onExit: { finished($0, in: id) },
                 onContextMenu: {
                     let excerpt = TerminalSessionStore.shared.excerpt(
-                        inPaneID: id, workspaceID: workspace.id, label: terminalLabel
+                        inPaneID: id, workspaceID: owner.id, label: terminalLabel
                     )
                     let add: (@MainActor () -> Void)? = if let excerpt, let onAddToChat {
                         { onAddToChat(excerpt) }
@@ -272,7 +268,7 @@ struct TerminalSplitView: View {
         // to add to, hands the key back, so the menu bar answers it with a beep rather than nothing.
         case .addSelectionToChat:
             guard let onAddToChat, let excerpt = TerminalSessionStore.shared.excerpt(
-                inPaneID: pane, workspaceID: workspace.id, label: terminalLabel
+                inPaneID: pane, workspaceID: owner.id, label: terminalLabel
             ) else { return false }
             onAddToChat(excerpt)
             return true

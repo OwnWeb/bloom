@@ -79,6 +79,12 @@ public struct TerminalTabID: Identifier {
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }
 
+/// A pane in a project-free conversation. Its first pane also names the tab containing it.
+public struct ConversationPaneID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
 /// A review note left on a line of a diff.
 public struct ReviewCommentID: Identifier {
     public let rawValue: String

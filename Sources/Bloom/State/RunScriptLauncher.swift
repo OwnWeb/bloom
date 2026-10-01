@@ -151,9 +151,7 @@ final class RunScriptLauncher {
     private func fork(_ tab: CenterTab, in model: WorkspaceModel) {
         _ = sessions.terminal(
             for: TerminalTab(id: TerminalTabID(tab.id), workspaceID: model.workspace.id, title: tab.title),
-            workspace: model.workspace,
-            repo: model.repo,
-            port: model.port,
+            owner: .workspace(model.workspace, model.repo, port: model.port),
             directory: tab.directory
         )
     }

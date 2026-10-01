@@ -66,7 +66,9 @@ struct AskTabsTests {
             besideDatabaseAt: store.path, id: nextID
         )
         let replacement = try await store.replaceAskConversation(
-            id: first.id, controls: ComposerControls(session: first),
+            id: first.id, controls: ComposerControls(
+                session: first, isFastMode: false, outputStyle: OutputStyle.defaultName
+            ),
             nextID: nextID, replacementDirectory: directory
         )
 

@@ -51,9 +51,7 @@ extension AppModel {
                 for: TerminalTab(
                     id: TerminalTabID(tab.id), workspaceID: workspaceID, title: tab.title
                 ),
-                workspace: model.workspace,
-                repo: model.repo,
-                port: model.port,
+                owner: .workspace(model.workspace, model.repo, port: model.port),
                 directory: tab.directory
             )
         }

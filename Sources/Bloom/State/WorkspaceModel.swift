@@ -1454,7 +1454,7 @@ final class WorkspaceModel {
         terminals.run(command, inPaneID: terminal.id)
         _ = terminals.terminal(
             for: TerminalTab(id: TerminalTabID(terminal.id), workspaceID: workspace.id, title: terminal.title),
-            workspace: workspace, repo: repo, port: port, directory: terminal.directory
+            owner: .workspace(workspace, repo, port: port), directory: terminal.directory
         )
         pendingCLILaunches.remove(cliSession.id)
         pendingCLIPrompts[cliSession.id] = nil

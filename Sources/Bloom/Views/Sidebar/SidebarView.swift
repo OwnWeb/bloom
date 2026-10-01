@@ -108,6 +108,7 @@ struct SidebarView: View {
     /// The New menu's "New workspace in" section, loaded here rather than in the menu because the
     /// archived workspaces it counts are a store read. See `RecentProjects.newMenu`.
     @State private var recentProjects: [Repo] = []
+    @State private var draggingTopSection: SidebarTopSection?
     /// The crew member whose Stop is waiting on an answer, and nil when nothing is being asked.
     ///
     /// Only ever set for one that is still working: stopping an agent that has already finished
@@ -230,7 +231,9 @@ struct SidebarView: View {
                     }
                 }
                 .padding(.trailing, Metrics.inset + Metrics.spacingWide)
-                .reorderableSection(.conversations, order: $storedSectionOrder)
+                .reorderableSection(
+                    .conversations, order: $storedSectionOrder, dragging: $draggingTopSection
+                )
                 .accessibilityAddTraits(.isHeader)
             }
         }
@@ -242,7 +245,7 @@ struct SidebarView: View {
             Spacer()
         }
         .padding(.trailing, Metrics.inset + Metrics.spacingWide)
-        .reorderableSection(section, order: $storedSectionOrder)
+        .reorderableSection(section, order: $storedSectionOrder, dragging: $draggingTopSection)
         .accessibilityAddTraits(.isHeader)
     }
 
