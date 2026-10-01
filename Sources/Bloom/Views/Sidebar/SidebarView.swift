@@ -48,6 +48,8 @@ struct SidebarView: View {
     /// workspace needs. A preference for the same reason hiding a project is one, and the status
     /// bar binds the same key so the two cannot disagree. See `SidebarGrouping`.
     @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.fallback.rawValue
+    @AppStorage(SidebarSectionOrder.storageKey)
+    private var storedSectionOrder = SidebarSectionOrder.fallback.rawValue
     @AppStorage(SidebarPreferences.showsDiffStatsKey)
     private var showsDiffStats = SidebarPreferences.showsDiffStatsByDefault
 
@@ -149,70 +151,12 @@ struct SidebarView: View {
     /// finish in a release build: green on this Mac, red there, three times.
     private var list: some View {
         List(selection: $listSelection) {
-            // No rows above the projects. Home and Ask Bloom used to be rows here. The archive
-            // shortcut is in the status bar, and the toolbar's `+` opens the creation menu.
-            //
-            // One native section supplies the Projects heading's font and spacing. The rows
-            // stay in one ForEach so dragging still uses the same indices in `paneRows`.
-            //
-            // The heading is the project view's alone. The status view's headings are its own
-            // sections, and a "Projects" label over rows that are not grouped by project would be
-            // naming something that is not there. Starting a project is still one press away, on
-            // the projects button in the status bar, in both shapes, which is why the heading has
-            // no button of its own: it had one, and it was the same action twice in one pane.
-            if grouping == .projects, !groups.isEmpty {
-                Section {
-                    paneRowsList
-                } header: {
-                    Text("Projects")
-                        .bold()
-                        .accessibilityAddTraits(.isHeader)
-                }
-            } else if grouping == .status {
-                Section { paneRowsList }
-            }
-
-            if filter == .all {
-                Section {
-                    if app.ask.workspaceConversations.isEmpty {
-                        Button("New conversation…", systemImage: "plus") {
-                            NotificationCenter.default.post(
-                                name: .bloomNewConversationWorkspace, object: nil
-                            )
-                        }
-                        .foregroundStyle(Palette.textSecondary)
-                    } else {
-                        ForEach(app.ask.workspaceConversations, id: \.id) { chat in
-                            ConversationSidebarRow(chat: chat)
-                                .tag(SidebarSelection.conversation(chat.id))
-                                .sidebarSelection(selectionStyle(for: .conversation(chat.id)))
-                        }
-                        .onMove { offsets, destination in
-                            Task { await app.ask.reorderConversations(from: offsets, to: destination) }
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Text("Conversations")
-                            .bold()
-                        Spacer()
-                        if !app.ask.workspaceConversations.isEmpty {
-                            Button("New conversation", systemImage: "plus") {
-                                NotificationCenter.default.post(
-                                    name: .bloomNewConversationWorkspace, object: nil
-                                )
-                            }
-                            .labelStyle(.iconOnly)
-                            .font(Typo.label)
-                            .frame(width: Metrics.headerButton.width, height: Metrics.headerButton.height)
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    // Section headers span farther right than list rows. Match the project row's
-                    // trailing button column rather than the section's own edge.
-                    .padding(.trailing, Metrics.inset + Metrics.spacingWide)
-                    .accessibilityAddTraits(.isHeader)
-                }
+            if sectionOrder == .conversationsFirst {
+                conversationsSection
+                workSection
+            } else {
+                workSection
+                conversationsSection
             }
         }
         // The native list owns row height, keyboard navigation and which row is selected. How the
@@ -226,6 +170,7 @@ struct SidebarView: View {
         // selection above, keyboard navigation and the standard insets. Four points is not worth
         // that. Project rows use the list's own vertical insets too.
         .listStyle(.sidebar)
+        .animation(Motion.pane, value: storedSectionOrder)
         .confirmation($stoppingCrew) { pending in
             Confirmation(
                 title: "Stop \(pending.name)?",
@@ -236,6 +181,79 @@ struct SidebarView: View {
         } onConfirm: { pending in
             Task { await stop(pending) }
         }
+    }
+
+    @ViewBuilder
+    private var workSection: some View {
+        if grouping == .projects, !groups.isEmpty {
+            Section { paneRowsList } header: {
+                sectionHeader(for: .work, title: "Projects")
+            }
+        } else if grouping == .status {
+            Section { paneRowsList } header: {
+                sectionHeader(for: .work, title: "Workspaces")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var conversationsSection: some View {
+        if filter == .all {
+            Section {
+                if app.ask.workspaceConversations.isEmpty {
+                    Button("New conversation…", systemImage: "plus") {
+                        NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
+                    }
+                    .foregroundStyle(Palette.textSecondary)
+                } else {
+                    ForEach(app.ask.workspaceConversations, id: \.id) { chat in
+                        ConversationSidebarRow(chat: chat)
+                            .tag(SidebarSelection.conversation(chat.id))
+                            .sidebarSelection(selectionStyle(for: .conversation(chat.id)))
+                    }
+                    .onMove { offsets, destination in
+                        Task { await app.ask.reorderConversations(from: offsets, to: destination) }
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("Conversations").bold()
+                    Spacer()
+                    Image(systemName: "line.3.horizontal")
+                        .foregroundStyle(Palette.textTertiary)
+                        .accessibilityHidden(true)
+                    if !app.ask.workspaceConversations.isEmpty {
+                        Button("New conversation", systemImage: "plus") {
+                            NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
+                        }
+                        .labelStyle(.iconOnly)
+                        .font(Typo.label)
+                        .frame(width: Metrics.headerButton.width, height: Metrics.headerButton.height)
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.trailing, Metrics.inset + Metrics.spacingWide)
+                .reorderableSection(.conversations, order: $storedSectionOrder)
+                .accessibilityAddTraits(.isHeader)
+            }
+        }
+    }
+
+    private func sectionHeader(for section: SidebarTopSection, title: String) -> some View {
+        HStack {
+            Text(title).bold()
+            Spacer()
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(Palette.textTertiary)
+                .accessibilityHidden(true)
+        }
+        .padding(.trailing, Metrics.inset + Metrics.spacingWide)
+        .reorderableSection(section, order: $storedSectionOrder)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var sectionOrder: SidebarSectionOrder {
+        SidebarSectionOrder(rawValue: storedSectionOrder) ?? .fallback
     }
 
     /// The motion keyed to the list's values, one step of `body`. See `list`.
