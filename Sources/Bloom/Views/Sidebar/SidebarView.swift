@@ -152,12 +152,12 @@ struct SidebarView: View {
     /// finish in a release build: green on this Mac, red there, three times.
     private var list: some View {
         List(selection: $listSelection) {
-            if sectionOrder == .conversationsFirst {
-                conversationsSection
-                workSection
-            } else {
-                workSection
-                conversationsSection
+            ForEach(topSections, id: \.rawValue) { section in
+                if section == .work {
+                    workSection
+                } else {
+                    conversationsSection
+                }
             }
         }
         // The native list owns row height, keyboard navigation and which row is selected. How the
@@ -187,12 +187,16 @@ struct SidebarView: View {
     @ViewBuilder
     private var workSection: some View {
         if grouping == .projects, !groups.isEmpty {
-            Section { paneRowsList } header: {
+            Section {
                 sectionHeader(for: .work, title: "Projects")
+                    .selectionDisabled()
+                paneRowsList
             }
         } else if grouping == .status {
-            Section { paneRowsList } header: {
+            Section {
                 sectionHeader(for: .work, title: "Workspaces")
+                    .selectionDisabled()
+                paneRowsList
             }
         }
     }
@@ -201,24 +205,11 @@ struct SidebarView: View {
     private var conversationsSection: some View {
         if filter == .all {
             Section {
-                if app.ask.workspaceConversations.isEmpty {
-                    Button("New conversation…", systemImage: "plus") {
-                        NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
-                    }
-                    .foregroundStyle(Palette.textSecondary)
-                } else {
-                    ForEach(app.ask.workspaceConversations, id: \.id) { chat in
-                        ConversationSidebarRow(chat: chat)
-                            .tag(SidebarSelection.conversation(chat.id))
-                            .sidebarSelection(selectionStyle(for: .conversation(chat.id)))
-                    }
-                    .onMove { offsets, destination in
-                        Task { await app.ask.reorderConversations(from: offsets, to: destination) }
-                    }
-                }
-            } header: {
                 HStack {
-                    Text("Conversations").bold()
+                    Text("Conversations")
+                        .font(Typo.label)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Palette.textSecondary)
                     Spacer()
                     if !app.ask.workspaceConversations.isEmpty {
                         Button("New conversation", systemImage: "plus") {
@@ -235,13 +226,33 @@ struct SidebarView: View {
                     .conversations, order: $storedSectionOrder, dragging: $draggingTopSection
                 )
                 .accessibilityAddTraits(.isHeader)
+                .selectionDisabled()
+
+                if app.ask.workspaceConversations.isEmpty {
+                    Button("New conversation…", systemImage: "plus") {
+                        NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
+                    }
+                    .foregroundStyle(Palette.textSecondary)
+                } else {
+                    ForEach(app.ask.workspaceConversations, id: \.id) { chat in
+                        ConversationSidebarRow(chat: chat)
+                            .tag(SidebarSelection.conversation(chat.id))
+                            .sidebarSelection(selectionStyle(for: .conversation(chat.id)))
+                    }
+                    .onMove { offsets, destination in
+                        Task { await app.ask.reorderConversations(from: offsets, to: destination) }
+                    }
+                }
             }
         }
     }
 
     private func sectionHeader(for section: SidebarTopSection, title: String) -> some View {
         HStack {
-            Text(title).bold()
+            Text(title)
+                .font(Typo.label)
+                .fontWeight(.semibold)
+                .foregroundStyle(Palette.textSecondary)
             Spacer()
         }
         .padding(.trailing, Metrics.inset + Metrics.spacingWide)
@@ -251,6 +262,10 @@ struct SidebarView: View {
 
     private var sectionOrder: SidebarSectionOrder {
         SidebarSectionOrder(rawValue: storedSectionOrder) ?? .fallback
+    }
+
+    private var topSections: [SidebarTopSection] {
+        sectionOrder == .conversationsFirst ? [.conversations, .work] : [.work, .conversations]
     }
 
     /// The motion keyed to the list's values, one step of `body`. See `list`.

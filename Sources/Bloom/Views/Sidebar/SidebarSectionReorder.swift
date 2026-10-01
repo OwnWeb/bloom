@@ -2,8 +2,8 @@ import SwiftUI
 import BloomCore
 import UniformTypeIdentifiers
 
-/// The headers are native List section headers, which `onMove` cannot pick up as rows.
-/// Dragging one over the other changes only their order, leaving every row inside untouched.
+/// A top section's heading is a List row, so its drag gesture reaches AppKit. Native Section
+/// headers swallow that gesture. Dragging one heading over the other moves its whole section.
 private struct SidebarSectionReorder: ViewModifier {
     let section: SidebarTopSection
     @Binding var order: String
@@ -27,7 +27,10 @@ private struct SidebarSectionReorder: ViewModifier {
                 return provider
             }
             .onDrop(of: [Self.type], isTargeted: $isDropTarget) { providers, _ in
-                guard !providers.isEmpty, dragging != nil else { return false }
+                guard !providers.isEmpty, let source = dragging else { return false }
+                if let next = SidebarSectionOrder.moving(source, onto: section) {
+                    order = next.rawValue
+                }
                 dragging = nil
                 return true
             }

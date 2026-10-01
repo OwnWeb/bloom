@@ -13,10 +13,11 @@ import SwiftUI
 /// `frame(height:)` on the row, `defaultMinListRowHeight` and `controlSize` were each captured
 /// and each left the pitch at exactly 32 points. The reference draws 28. Reaching it would mean
 /// leaving `.listStyle(.sidebar)`, and with it AppKit selection, keyboard navigation and the
-/// standard insets. Project rows rely on those insets without adding their own vertical padding.
+/// standard insets. Workspace rows use those insets; project headers add a little space above
+/// their content to separate adjacent groups.
 ///
-/// Project headers are plain rows in the flat list and use the full 32 points. The old `Section`
-/// headers had only 19 points for content below 13 points of spacing.
+/// Project headers are plain rows in the flat list. The old `Section` headers had only 19 points
+/// for content below 13 points of spacing.
 enum SidebarMetrics {
     private static let columns = SidebarColumnLayout(
         disclosureWidth: caretGutter,
