@@ -5,11 +5,37 @@ import BloomCore
 struct BranchActionsPopover: View {
     let model: WorkspaceModel
     let onCreatePullRequest: () -> Void
+    let onMergeLocally: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var isRefreshing = false
+    @State private var confirmingLocalMerge = false
 
     var body: some View {
+        Group {
+            if confirmingLocalMerge {
+                ConfirmationPopover(
+                    title: "Merge \(model.workspace.branch) into local \(model.workspace.baseBranch)?",
+                    confirmLabel: "Merge locally",
+                    tint: Palette.controlAccent,
+                    onConfirm: {
+                        dismiss()
+                        onMergeLocally()
+                    },
+                    onCancel: { confirmingLocalMerge = false },
+                    width: 380
+                ) {
+                    Text("Bloom will merge the committed branch into the project's local \(model.workspace.baseBranch) checkout. Both checkouts must be clean. If Git reports conflicts, Bloom will abort the merge.")
+                    Text("The workspace and its branch will remain available. Nothing will be pushed to a remote.")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                actions
+            }
+        }
+    }
+
+    private var actions: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Branch actions")
                 .font(.headline)
@@ -29,6 +55,14 @@ struct BranchActionsPopover: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Palette.controlAccent)
+
+            Divider()
+
+            Text("Merge locally")
+                .font(.subheadline.weight(.medium))
+            Text("Merge committed work into the local \(model.workspace.baseBranch) checkout without GitHub.")
+            Button("Merge locally") { confirmingLocalMerge = true }
+                .buttonStyle(.bordered)
 
             Divider()
 

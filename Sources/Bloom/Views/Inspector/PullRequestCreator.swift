@@ -47,6 +47,7 @@ struct PullRequestCreator: View {
     /// on, which read identically until `ContinuedBranch` gave the first of them a sentence.
     var continued: ContinuedBranch?
     var action: () -> Void
+    var onMergeLocally: () -> Void
 
     @State private var isShowingBranchActions = false
 
@@ -167,7 +168,9 @@ struct PullRequestCreator: View {
             .disabled(!branchActions.isAllowed)
             .help("Choose a pull request action for \(branch)")
             .popover(isPresented: $isShowingBranchActions, arrowEdge: .top) {
-                BranchActionsPopover(model: model, onCreatePullRequest: action)
+                BranchActionsPopover(
+                    model: model, onCreatePullRequest: action, onMergeLocally: onMergeLocally
+                )
             }
     }
 }

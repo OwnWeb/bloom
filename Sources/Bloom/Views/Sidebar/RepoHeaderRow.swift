@@ -124,6 +124,7 @@ struct RepoHeaderRow: View {
             .onHoverChange { isCreateHovered = $0 }
             .help("New workspace in \(repo.name)")
         }
+        .background(Palette.hover, in: RoundedRectangle(cornerRadius: Metrics.cornerSmall))
         .contentShape(Rectangle())
         // Every item and the reasoning for the shape is `ProjectMenuItems`, beside the workspace
         // row's own menu, so a menu can be photographed rather than only read.
@@ -154,9 +155,8 @@ struct RepoHeaderRow: View {
     ///
     /// The weight is invisible to VoiceOver, so the same fact is said in words as the heading's
     /// value. The dot on the row does the same through `WorkspaceRow`'s status description.
-    /// `Typo.title` with one more step of weight on it, and nothing else changed. Not a rung of
-    /// the scale, because it is not a size: it is the same rung saying one more thing.
-    private static let unreadTitle = ScaledFont(.headline, weight: .heavy)
+    /// The same heading size as the ordinary project name, with one more step of weight.
+    private static let unreadTitle = ScaledFont(.title3, weight: .heavy)
 
     /// The project's name with what is under it, for VoiceOver only.
     ///
@@ -173,19 +173,11 @@ struct RepoHeaderRow: View {
     private var name: some View {
         // A source list section header is usually set below its rows, which is right when the
         // header names a category ("Favorites", "Locations") and the rows are the things. Here the
-        // header names a thing: a project, with its own icon, its own menu and its own colour, and
-        // the rows are what is inside it. Mail's account headers and Xcode's project group are the
-        // closer precedent, and both sit at reading size in the heading weight. `Typo.title` is
-        // that, and it is what the same project name is already set in on Home, so the two agree.
-        //
-        // The rows below are `Typo.body`, one weight lighter and one shade quieter, so the pair
-        // reads as a heading and its contents rather than as two ranks of similar grey text.
-        // The weight is part of the rung rather than a `fontWeight` laid over it. `Typo.title` is
-        // `.headline`, which carries its own weight inside the `Font` it resolves to, and a
-        // `fontWeight` outside that resolves to nothing at all: captured both ways, the two names
-        // were identical to the pixel.
+        // header names a thing: a project, with its own icon and menu, and the rows are what is
+        // inside it. The heading rung and quiet background give each project a clear start in a
+        // long list. Workspace names stay at reading size beneath it.
         let label = Text(repo.name)
-            .font(hasUnreadWork ? Self.unreadTitle : Typo.title)
+            .font(hasUnreadWork ? Self.unreadTitle : Typo.heading)
             .foregroundStyle(Palette.textPrimary)
             .lineLimit(1)
 

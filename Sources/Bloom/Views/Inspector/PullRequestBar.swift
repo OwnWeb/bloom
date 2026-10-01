@@ -126,7 +126,8 @@ struct PullRequestBar: View {
                 hasChanges: hasChanges,
                 hasReadChanges: model.hasReadChanges,
                 continued: model.continued,
-                action: createPullRequest
+                action: createPullRequest,
+                onMergeLocally: mergeLocally
             )
         }
     }
@@ -184,6 +185,29 @@ struct PullRequestBar: View {
             if let refusal = await model.requestPullRequest() {
                 report = PullRequestNotice(
                     tone: .info, title: "Nothing was sent", message: refusal
+                )
+            }
+        }
+    }
+
+    private func mergeLocally() {
+        guard !isWorking else { return }
+        isWorking = true
+        report = nil
+
+        Task {
+            defer { isWorking = false }
+            do {
+                let outcome = try await model.mergeLocally()
+                report = PullRequestNotice(
+                    tone: .info,
+                    title: outcome == .merged ? "Merged locally" : "Already merged locally",
+                    message: "\(model.workspace.branch) is in the local \(model.workspace.baseBranch) branch. The workspace and its branch remain available."
+                )
+            } catch {
+                report = PullRequestNotice(
+                    tone: .failure, title: "Could not merge locally",
+                    message: String(describing: error)
                 )
             }
         }
