@@ -1,10 +1,7 @@
 import SwiftUI
 import BloomCore
 
-/// The mark at the head of a workspace row, and the same mark in the legend that explains it.
-///
-/// One type for both, because the two copies had already drifted: the legend drew the branch mark
-/// in tertiary where the row draws it in secondary, and it named four of the thirteen states.
+/// The mark at the head of workspace and project-free conversation rows.
 ///
 /// Every state is a different shape, not only a different colour, so the column can be read at a
 /// glance and by someone who cannot tell the red one from the green one. That rule is why a draft

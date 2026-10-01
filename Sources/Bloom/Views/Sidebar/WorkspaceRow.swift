@@ -9,7 +9,7 @@ import BloomCore
 /// else on the row is secondary and is allowed to truncate.
 ///
 /// What the mark distinguishes is decided by `WorkspaceStatus`, not here, and how it is drawn by
-/// `WorkspaceStatusGlyph`, which the legend shares so the two cannot describe different marks. The
+/// `WorkspaceStatusGlyph`, which conversation rows also use. The
 /// verdict spans both halves of a workspace's life, the local one (setting up, running, unread,
 /// changed) and GitHub's (draft, checks, merged), because a column that shows only the local half
 /// cannot answer the question the user actually has, which is which of these is finished.

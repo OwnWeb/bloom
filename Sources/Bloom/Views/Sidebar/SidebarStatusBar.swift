@@ -2,7 +2,7 @@ import SwiftUI
 import BloomCore
 
 /// The strip pinned to the bottom of the sidebar: a transient note at the leading edge, then
-/// Archive (`SidebarDock`), filter and help together at the trailing edge.
+/// Archive (`SidebarDock`) and filter together at the trailing edge.
 ///
 /// The filter lives down here rather than in a header, which is where Xcode and Finder put the
 /// controls that narrow a source list.
@@ -27,9 +27,7 @@ struct SidebarStatusBar: View {
     /// disagree about it. See `SidebarGrouping`.
     @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.fallback.rawValue
 
-    @State private var isShowingLegend = false
     @State private var isFilterHovered = false
-    @State private var isLegendHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,28 +72,6 @@ struct SidebarStatusBar: View {
                 .help("Filter the sidebar")
                 .accessibilityValue(filterValue)
 
-                Button {
-                    isShowingLegend.toggle()
-                } label: {
-                    controlLabel(
-                        "What the sidebar glyphs mean",
-                        systemImage: "questionmark.circle",
-                        isHovered: isLegendHovered || isShowingLegend
-                    )
-                    .foregroundStyle(Palette.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .onHoverChange { isLegendHovered = $0 }
-                .help("What the sidebar glyphs mean")
-                .popover(isPresented: $isShowingLegend, arrowEdge: .top) {
-                    SidebarLegend()
-                }
-
-                // **No Settings cogwheel.** There was one here, and it was the one control in this
-                // strip that duplicated something every Mac user already knows: Command-comma, and
-                // the Bloom menu. The other two earn their place because neither is reachable any
-                // other way, and a third glyph beside them spent the strip's width saying what the
-                // menu bar says for free.
             }
             .padding(.horizontal, Metrics.spacingSmall)
             .frame(height: Metrics.barHeight)
@@ -103,10 +79,8 @@ struct SidebarStatusBar: View {
         // Let the native sidebar ground continue behind these controls without a second material.
     }
 
-    // The native accessory style did not show a hover fill here. Both labels own the square
-    // target so the menu and button draw and respond over the same area. The plate is handed its
-    // flag rather than tracking the pointer, because hover is read off the `Menu` and the legend
-    // stays lit while its popover is open.
+    // The native accessory style did not show a hover fill here. The label owns the square
+    // target, and the plate is handed its flag because hover is read off the `Menu`.
     private func controlLabel(_ title: String, systemImage: String, isHovered: Bool) -> some View {
         Label(title, systemImage: systemImage)
             .labelStyle(.iconOnly)
