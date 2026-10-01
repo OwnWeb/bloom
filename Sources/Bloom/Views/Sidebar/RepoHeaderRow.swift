@@ -124,7 +124,7 @@ struct RepoHeaderRow: View {
             .onHoverChange { isCreateHovered = $0 }
             .help("New workspace in \(repo.name)")
         }
-        .padding(.top, Metrics.spacing)
+        .padding(.top, Metrics.inset)
         .contentShape(Rectangle())
         // Every item and the reasoning for the shape is `ProjectMenuItems`, beside the workspace
         // row's own menu, so a menu can be photographed rather than only read.

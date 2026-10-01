@@ -221,7 +221,6 @@ struct SidebarView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.trailing, Metrics.inset + Metrics.spacingWide)
                 .reorderableSection(
                     .conversations, order: $storedSectionOrder, dragging: $draggingTopSection
                 )
