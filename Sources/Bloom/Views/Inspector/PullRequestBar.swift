@@ -123,7 +123,8 @@ struct PullRequestBar: View {
                 hasChanges: hasChanges,
                 hasReadChanges: model.hasReadChanges,
                 continued: model.continued,
-                action: createPullRequest
+                action: createPullRequest,
+                onLocalMerge: { model.isShowingLocalMerge = true }
             )
         }
     }
