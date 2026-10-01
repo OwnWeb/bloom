@@ -116,11 +116,9 @@ final class InspectorGeometry {
 /// `PullRequestBar` itself is drawn exactly as the inspector drew it, given the width of the pane
 /// it is now the heading for.
 ///
-/// **What the band cannot say, it says on hover.** 380 points with a Create pull request button
-/// in them leaves the branch and the state a couple of dozen characters each, so the band reads
-/// `…t-question` over `No pull reque…` on a name nobody would call long. Resting on it opens the
-/// pull request card. Nothing new is fetched for it. Everything on it is what
-/// `PullRequestBar` is already polling for the band itself.
+/// The band has no hover card. It covered the inspector and made a press on its controls feel
+/// like a dismissal before the intended action. The branch's context menu still copies its full
+/// name, while pull request details remain in the inspector and on GitHub.
 struct TitleBarStrip: View {
     let app: AppModel
 
@@ -149,36 +147,6 @@ struct TitleBarStrip: View {
                     .frame(width: inspector.bandWidth, height: height)
                     .background { ground(pullRequest: model.pullRequest, localWork: model.localWork) }
                     .overlay(alignment: .leading) { Hairline(axis: .vertical) }
-                    // The whole band is the target, button included, and that is a decision rather
-                    // than the easy way to write it. The band is one subject: the branch, where it
-                    // is going, and what GitHub says about it, with a button that acts on exactly
-                    // that. A card that opened over the left two thirds and not the right third
-                    // would be an affordance you have to find. What keeps it from firing on a
-                    // pointer crossing the band on its way to that button is the wait, which is
-                    // `Motion.hoverCardDelay`.
-                    //
-                    // The card hangs BELOW, so it never covers the thing it was opened from, and
-                    // it closes when the pointer leaves the band. See `hoverPopover`.
-                    //
-                    // Whether hover works at all in a title bar accessory is the one thing here
-                    // that was reasoned rather than measured, and it is written down as reasoning
-                    // so the next reader knows to check it. The accessory is a real `NSView` in
-                    // the window's title bar container, so SwiftUI installs its tracking area the
-                    // ordinary way, and what AppKit reserves in that band is the window DRAG,
-                    // which is a mouse-down gesture rather than a tracking one. The head of
-                    // `TitleBarStripController` measured the neighbouring half of that: a click on
-                    // a control here reaches the control and a drag on the band's background still
-                    // moves the window. If the card never opens, this is the line to doubt first,
-                    // and an `NSTrackingArea` on the hosting view is the way out.
-                    // A band that leaves under a stationary pointer, when the inspector collapses
-                    // or the selection moves to Home, closes its card: `hoverPopover` does that
-                    // on disappear.
-                    .hoverPopover(
-                        id: model.workspace.id,
-                        arrowEdge: .bottom
-                    ) {
-                        WorkspaceHoverCardView(card: bandCard(for: model), isInPopover: true)
-                    }
             }
         }
         // The band is drawn at the width the PANE settles at, inside an accessory whose own width
@@ -214,20 +182,6 @@ struct TitleBarStrip: View {
         // A separate SwiftUI root: the window's environment does not reach a title bar accessory,
         // so the model is handed in rather than inherited.
         .environment(app)
-    }
-
-    /// What the card says, built at the moment it opens rather than on every redraw.
-    ///
-    /// **Nothing in here fetches.** The pull request is whatever `PullRequestBar`'s own poll last
-    /// brought back and the local counts are whatever the inspector last read, which are the two
-    /// facts the band beside it is already drawn and tinted from. A hover that started a `gh` call
-    /// would put a subprocess behind moving the pointer across the top of the window.
-    private func bandCard(for model: WorkspaceModel) -> WorkspaceHoverCard {
-        WorkspaceHoverCard.pullRequestBand(
-            workspace: model.workspace,
-            pullRequest: model.pullRequest,
-            localWork: model.localWork
-        )
     }
 
     /// The four points the title bar is taller than the strip.
