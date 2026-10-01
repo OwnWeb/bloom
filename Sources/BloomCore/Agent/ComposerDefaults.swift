@@ -31,20 +31,8 @@ public struct ComposerDefaults: Equatable {
 
     /// Pure, so the rules above can be checked without a store, a repository or a view.
     ///
-    /// - Parameter hasWorktree: false for a conversation that is in no workspace, which is Ask
-    ///   Bloom and nothing else today. It changes exactly one answer, and it is the one that
-    ///   matters: the permission mode becomes `AskConversation.permissionMode` rather than the
-    ///   owner's default.
-    ///
-    ///   **The default that overrules is not `acceptEdits`.**
-    ///   `AppDefaults.fallbackPermissionMode` is `bypassPermissions`, and the Models tab can pin
-    ///   anything over it, so a chat that inherited it would have opened on Full access: an agent
-    ///   sitting above every project, running whatever it liked without asking. Neither of the two
-    ///   modes that grant anything means what it usually means here anyway, because there is no
-    ///   worktree for an accepted edit to be in.
-    ///
-    ///   The model and the effort are still the owner's, because those are about what a
-    ///   conversation costs and that is the same question here as anywhere.
+    /// - Parameter hasWorktree: false for Ask Bloom. Its permission mode follows the same app
+    ///   preference; the flag still keeps Codex Plan's work mode out of a chat with no workspace.
     /// - Parameter running: the backend the chat is already on, which is what an id nothing
     ///   recognises stays on. It is no longer what the answer runs on: the model decides that, and
     ///   the mode follows it. "Start in plan mode" is an app-wide switch, chosen before any model
@@ -98,9 +86,8 @@ public struct ComposerDefaults: Equatable {
             // Through the backend the model just landed on rather than through the caller's, which
             // is the whole point of settling the two together: Plan plus a Codex default used to
             // depend on the caller passing the right backend in, and the create window passed none.
-            permissionMode: (hasWorktree
-                ? (app.planMode && resolved.kind != .codex ? .plan : app.permissionMode)
-                : AskConversation.permissionMode).nearest(on: resolved.kind),
+            permissionMode: (app.planMode && resolved.kind != .codex
+                ? .plan : app.permissionMode).nearest(on: resolved.kind),
             backend: resolved.kind,
             interactionMode: hasWorktree && app.planMode && resolved.kind == .codex ? .plan : .build
         )

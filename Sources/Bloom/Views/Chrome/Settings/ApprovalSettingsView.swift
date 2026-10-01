@@ -30,7 +30,7 @@ struct ApprovalSettingsView: View {
             } header: {
                 Text("New sessions")
             } footer: {
-                Text("Controls what an agent can do without asking. Plan mode in Sessions takes priority. Existing sessions keep their permissions.")
+                Text("Controls what an agent can do without asking. Plan mode in Sessions takes priority. Existing workspace sessions keep their permissions. Ask Bloom uses this default when Bloom starts.")
                     .settingsFootnote()
             }
 

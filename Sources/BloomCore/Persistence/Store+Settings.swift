@@ -18,7 +18,7 @@ extension Store {
         if remembered != mode.rawValue { try setSetting(key, mode.rawValue) }
     }
 
-    public func planImplementationMode(sessionID: SessionID, hasWorktree: Bool) throws -> PermissionMode {
+    public func planImplementationMode(sessionID: SessionID, hasWorktree _: Bool) throws -> PermissionMode {
         if let session = try session(id: sessionID), session.permissionMode != .plan {
             return PlanApproval.implementationMode(session.permissionMode)
         }
@@ -26,9 +26,9 @@ extension Store {
            let mode = PermissionMode(rawValue: raw) {
             return PlanApproval.implementationMode(mode)
         }
-        guard hasWorktree else { return AskConversation.permissionMode }
         let configured = try setting(AppDefaults.Key.permissionMode).flatMap(PermissionMode.init(rawValue:))
-        return PlanApproval.implementationMode(configured ?? AppDefaults.fallbackPermissionMode)
+        let preset = ModelPresetList.decode(try setting(ModelPresetList.key)).defaultPreset
+        return PlanApproval.implementationMode(preset?.permissionMode ?? configured ?? AppDefaults.fallbackPermissionMode)
     }
 
     public func setting(_ key: String) throws -> String? {

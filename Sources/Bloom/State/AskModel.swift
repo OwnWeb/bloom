@@ -56,8 +56,12 @@ final class AskModel {
             guard let directory = AskTabs.prepareDirectory(saved ?? "", databasePath: store.path) else {
                 throw AskDirectoryError.unavailable(saved ?? AskConversation.directory(besideDatabaseAt: store.path))
             }
+            let defaults = await AppDefaults.loadForNewSessions(from: store)
             if let mode = AskConversation.modeOnOpening(
-                stored: chat.permissionMode, isFirstOpenSinceLaunch: !settledModes.contains(id)
+                stored: chat.permissionMode,
+                defaults: defaults,
+                agentKind: chat.agentKind,
+                isFirstOpenSinceLaunch: !settledModes.contains(id)
             ) {
                 try await store.updateSessionPreferences(id: id, permissionMode: mode)
                 chat.permissionMode = mode

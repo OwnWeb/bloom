@@ -36,33 +36,15 @@ public enum AskConversation {
     /// worktree looks exactly like a chat with one until you ask it something it cannot do.
     public static let placeholder = "Ask about your projects and workspaces, or ask for one"
 
-    /// The mode it opens on, and it is deliberately not the app's default.
-    ///
-    /// **The default is Full access.** `AppDefaults.fallbackPermissionMode` is
-    /// `bypassPermissions`, and the Models tab can pin anything over it, so this chat inheriting
-    /// the owner's default would have meant an agent above every project running whatever it liked
-    /// without asking. That default is a reasonable one for a worktree, which is a copy: the
-    /// argument for it is that a session which stops before its first command is a session somebody
-    /// has to sit and watch. Neither half of that argument holds here, because there is no worktree
-    /// and because the owner is by definition sitting in front of this conversation.
-    ///
-    /// `acceptEdits` would be no better and is not the middle ground it sounds like: there is no
-    /// worktree for an accepted edit to be in, so what it accepts is edits anywhere the agent can
-    /// reach. So the mode is the narrowest one there is, and the composer still offers the others
-    /// for the day somebody wants one. `ComposerDefaults.resolve` is what stops the owner's
-    /// default landing on this chat the first time it is opened.
-    public static let permissionMode = PermissionMode.auto
-
     /// The fallback working directory, used until the owner chooses a folder in Settings.
     /// Each conversation keeps the directory it started in. See `AskTabs`.
     ///
-    /// **This is a permission decision rather than a tidiness one**, and it is the second lock
-    /// rather than the first. `permissionMode` above is what stops this chat opening on the mode
-    /// the owner's other chats open on; this is what makes the mode it does open on mean something.
+    /// **This is a permission decision rather than a tidiness one.** Ask Bloom follows the owner's
+    /// default permission mode, so its working directory still needs a deliberate boundary.
     /// A chat started in the owner's home directory would treat every file in it as inside the
-    /// working directory, which is the one place a mode stops asking about. An empty directory of
-    /// its own makes every filesystem reach a reach *outside* it, which is a reach that asks, and
-    /// it pushes the agent towards the bridge tools instead, which are the audited surface.
+    /// working directory. With a mode that asks before leaving that directory, an empty one keeps
+    /// those reaches visible and pushes the agent towards the audited bridge tools. Full access
+    /// still means full access, as the permission picker explains.
     ///
     /// Beside the database rather than at a fixed path, for the reason `BridgeOwnerToken.beside`
     /// gives: `Store.databaseDirectoryName` is the one rule that decides which copy of Bloom a
@@ -95,34 +77,20 @@ public enum AskConversation {
         }
     }
 
-    /// What this conversation opens on, given the mode its row was last left holding.
-    ///
-    /// Nil means leave the row alone.
-    ///
-    /// **The lock has to be reapplied, or it holds exactly once.** `ComposerDefaults.resolve`
-    /// settles a chat's mode the first time it is opened and never again, and the composer's
-    /// picker writes the owner's choice onto the row. So a Full access chosen once to get
-    /// something done would have been what this conversation opened on for ever after, which is
-    /// the state the mode exists to prevent, arrived at quietly.
-    ///
-    /// The answer is not to take the picker away. A mode chosen mid-conversation was chosen by
-    /// somebody sitting in front of the conversation with the facts on the screen, and overruling
-    /// that while they watch would be a control that does not work. What expires is not the choice
-    /// but the presence behind it: a launch later, the agent that choice was made for is gone and
-    /// so is the memory of making it, and the mode would go on governing everything asked
-    /// tomorrow. This is the same reasoning `Store.resetRunningSessions` and
-    /// `abandonPendingPermissionAsks` are built on, which is that a launch boundary ends what a
-    /// person's presence justified.
-    ///
-    /// So: honoured for the rest of the launch, back to the narrowest mode on the next one, and
-    /// the permission menu's own footnote says so before the choice is made. See
-    /// `ComposerControls.permissionModeNote`.
+    /// An Ask conversation can keep a picker choice while Bloom is open. On the next launch it
+    /// starts from the current default, including a default preset and Claude Code's Plan switch.
+    /// The mode is mapped through the conversation's own backend because an older conversation
+    /// need not use the backend currently selected for new sessions.
     public static func modeOnOpening(
         stored: PermissionMode,
+        defaults: AppDefaults,
+        agentKind: AgentKind,
         isFirstOpenSinceLaunch: Bool
     ) -> PermissionMode? {
-        guard isFirstOpenSinceLaunch, stored != permissionMode else { return nil }
-        return permissionMode
+        guard isFirstOpenSinceLaunch else { return nil }
+        let preferred = (defaults.planMode && agentKind != .codex
+            ? PermissionMode.plan : defaults.permissionMode).nearest(on: agentKind)
+        return stored == preferred ? nil : preferred
     }
 
     /// A brand new Ask chat, with no workspace behind it.
@@ -130,7 +98,7 @@ public enum AskConversation {
         Session(
             workspaceID: nil,
             title: title,
-            permissionMode: permissionMode,
+            permissionMode: AppDefaults.fallbackPermissionMode,
             sortOrder: sortOrder
         )
     }
