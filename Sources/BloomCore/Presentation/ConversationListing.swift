@@ -39,10 +39,11 @@ public enum ConversationListing {
     }
 
     public static func status(
-        isRunning: Bool, isAwaitingPermission: Bool
-    ) -> WorkspaceStatus? {
+        isRunning: Bool, isAwaitingPermission: Bool, isUnread: Bool
+    ) -> WorkspaceStatus {
         if isAwaitingPermission { return .awaitingPermission }
         if isRunning { return .running }
-        return nil
+        if isUnread { return .unread }
+        return .clean
     }
 }

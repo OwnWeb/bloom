@@ -28,6 +28,25 @@ struct AskTabsTests {
         #expect(AskTabs.selectionAfterClosing(first.id, selected: first.id, sessions: [first]) == nil)
     }
 
+    @Test func unreadConversationsRequireAnUnseenFinishedTurn() async throws {
+        let store = try makeTestStore("ask-unread-conversations")
+        let chat = try await store.createAskConversation(directory: "/first")
+        _ = try await store.createAskConversation(directory: "/second")
+
+        try await store.appendNext(sessionID: chat.id, kind: .user, payload: Data("hello".utf8))
+        #expect(try await store.unreadProjectFreeConversationIDs().isEmpty)
+
+        try await store.appendNext(sessionID: chat.id, kind: .result, payload: Data("{}".utf8))
+        #expect(try await store.unreadProjectFreeConversationIDs() == Set([chat.id]))
+
+        try await store.updateLastReadSeq(sessionID: chat.id, seq: 1)
+        #expect(try await store.unreadProjectFreeConversationIDs().isEmpty)
+
+        try await store.appendNext(sessionID: chat.id, kind: .result, payload: Data("{}".utf8))
+        _ = try await store.closeAskConversation(id: chat.id, selected: chat.id)
+        #expect(try await store.unreadProjectFreeConversationIDs().isEmpty)
+    }
+
     @Test func replacingOneTabPreservesItsLocationAndNeighbours() async throws {
         let store = try makeTestStore("ask-replace-tab")
         let first = try await store.createAskConversation(directory: "/first")

@@ -37,6 +37,7 @@ struct CreateWorkspaceView: View {
 
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var repoID: RepoID?
     /// The picker's Recent section, newest first. See `RecentProjects`.
@@ -213,18 +214,22 @@ struct CreateWorkspaceView: View {
     /// workspace will be called instead.
     /// One line saying what pressing Create actually does.
     ///
-    /// The sheet asked for a task and a branch and never said what it would make, so somebody
-    /// meeting Bloom read "New workspace" and had to infer that a workspace is a worktree on disk.
-    /// It names the two things that happen and nothing else: the checkout, and the setup script
-    /// where the project has one. No worktree jargon, because a person who knows the word does not
-    /// need the sentence and a person who does not is not helped by it.
+    /// The project route says what it creates on disk. The conversation route only needs to say
+    /// that it has no repository behind it; naming each thing it does not create repeated the
+    /// choice in the segmented control and made the shorter route wordier than the project one.
     private var consequence: some View {
-        Text(isConversation
-             ? "Saved in Bloom. No project, branch or Git repository is created."
-             : "Creates a separate copy of the project on this Mac, on its own branch.")
-            .font(Typo.caption)
-            .foregroundStyle(Palette.textTertiary)
-            .fixedSize(horizontal: false, vertical: true)
+        Group {
+            if isConversation {
+                Text("A plain conversation without a repository.")
+                    .transition(.opacity)
+            } else {
+                Text("Creates a separate copy of the project on this Mac, on its own branch.")
+                    .transition(.opacity)
+            }
+        }
+        .font(Typo.caption)
+        .foregroundStyle(Palette.textTertiary)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var offersName: Bool { checkout == nil }
@@ -244,6 +249,7 @@ struct CreateWorkspaceView: View {
                         .disabled(isLoading)
                         .padding(.horizontal, Metrics.gutter)
                         .padding(.bottom, Metrics.spacingWide)
+                        .transition(.opacity)
                 }
             }
         }
@@ -310,10 +316,14 @@ struct CreateWorkspaceView: View {
                 .font(Typo.heading)
                 .foregroundStyle(Palette.textPrimary)
 
-            if !isConversation { projectControl }
+            if !isConversation {
+                projectControl
+                    .transition(.opacity)
+            }
 
             if repo != nil && !isConversation {
                 sourceControl
+                    .transition(.opacity)
             }
 
             Spacer(minLength: 0)
@@ -481,7 +491,10 @@ struct CreateWorkspaceView: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: Metrics.gutter) {
             workspaceKindPicker
-            if !isConversation { modePicker }
+            if !isConversation {
+                modePicker
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
 
             if isEnteringReference && !isConversation {
                 referenceField
@@ -515,6 +528,7 @@ struct CreateWorkspaceView: View {
                 Text(heading)
                     .font(Typo.title)
                     .foregroundStyle(Palette.textPrimary)
+                    .transition(.opacity)
             }
 
             switch mode {
@@ -526,13 +540,16 @@ struct CreateWorkspaceView: View {
             }
 
             consequence
-            statusRow
+            if !isConversation {
+                statusRow
+                    .transition(.opacity)
+            }
         }
         .padding(Metrics.gutter)
     }
 
     private var workspaceKindPicker: some View {
-        Picker("Workspace type", selection: $isConversation) {
+        Picker("Workspace type", selection: conversationBinding) {
             Text("Project").tag(false)
             Text("Conversation").tag(true)
         }
@@ -541,6 +558,19 @@ struct CreateWorkspaceView: View {
         .fixedSize()
         .disabled(app.repos.isEmpty)
         .accessibilityLabel("Workspace type")
+    }
+
+    private var conversationBinding: Binding<Bool> {
+        Binding(
+            get: { isConversation },
+            set: { value in
+                guard value != isConversation else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                    if value { selectedMode = .chat }
+                    isConversation = value
+                }
+            }
+        )
     }
 
     private var modePicker: some View {
@@ -773,11 +803,7 @@ struct CreateWorkspaceView: View {
     /// now.
     private var statusRow: some View {
         HStack(spacing: Metrics.spacingWide) {
-            if isConversation {
-                Text("The conversation is named from your first message")
-                    .font(Typo.caption)
-                    .foregroundStyle(Palette.textTertiary)
-            } else if mode.cliAgentKind != nil {
+            if mode.cliAgentKind != nil {
                 Text("Opens in a terminal using your default agent configuration")
                     .font(Typo.caption)
                     .foregroundStyle(Palette.textTertiary)

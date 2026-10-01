@@ -36,9 +36,13 @@ struct ConversationListingTests {
     }
 
     @Test func waitingOutranksRunning() {
-        #expect(ConversationListing.status(isRunning: true, isAwaitingPermission: true)
+        #expect(ConversationListing.status(isRunning: true, isAwaitingPermission: true, isUnread: true)
                 == .awaitingPermission)
-        #expect(ConversationListing.status(isRunning: true, isAwaitingPermission: false) == .running)
-        #expect(ConversationListing.status(isRunning: false, isAwaitingPermission: false) == nil)
+        #expect(ConversationListing.status(isRunning: true, isAwaitingPermission: false, isUnread: true)
+                == .running)
+        #expect(ConversationListing.status(isRunning: false, isAwaitingPermission: false, isUnread: true)
+                == .unread)
+        #expect(ConversationListing.status(isRunning: false, isAwaitingPermission: false, isUnread: false)
+                == .clean)
     }
 }

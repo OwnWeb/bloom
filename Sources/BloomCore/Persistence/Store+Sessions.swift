@@ -244,6 +244,23 @@ extension Store {
         ).map(Self.session(from:))
     }
 
+    /// Finished turns in active project-free conversations that have not been read yet.
+    /// A user message alone is not news, and the indexed result lookup answers the whole list in
+    /// one store read rather than one actor hop per conversation at launch.
+    public func unreadProjectFreeConversationIDs() throws -> Set<SessionID> {
+        let rows = try db.query(
+            """
+            SELECT s.id FROM sessions s
+            WHERE s.workspace_id IS NULL AND s.archived_at IS NULL
+              AND EXISTS (
+                SELECT 1 FROM messages m
+                WHERE m.session_id = s.id AND m.seq > s.last_read_seq AND m.kind = 'result'
+              )
+            """
+        )
+        return Set(rows.compactMap { $0.string("id").map(SessionID.init) })
+    }
+
     /// Legacy conversations may still have the old placeholder title and no agent thread id.
     /// Their transcript or draft, rather than the title, decides whether they belong in a list.
     public func projectFreeSessionsWithHistory(includeArchived: Bool = false) throws -> Set<SessionID> {

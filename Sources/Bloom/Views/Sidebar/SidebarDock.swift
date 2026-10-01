@@ -1,7 +1,7 @@
 import SwiftUI
 import BloomCore
 
-/// The archive shortcut at the leading end of the sidebar's status bar.
+/// The archive shortcut beside filter and help at the trailing end of the sidebar's status bar.
 /// The toolbar and section headers already offer creation, so the footer only navigates.
 struct SidebarDock: View {
     @Environment(AppModel.self) private var app

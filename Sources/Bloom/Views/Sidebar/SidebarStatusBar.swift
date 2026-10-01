@@ -1,9 +1,8 @@
 import SwiftUI
 import BloomCore
 
-/// The strip pinned to the bottom of the sidebar: Archive (`SidebarDock`), the two
-/// controls that narrow or explain the list, and a line the pane borrows when it has something to
-/// say about itself.
+/// The strip pinned to the bottom of the sidebar: a transient note at the leading edge, then
+/// Archive (`SidebarDock`), filter and help together at the trailing edge.
 ///
 /// The filter lives down here rather than in a header, which is where Xcode and Finder put the
 /// controls that narrow a source list.
@@ -37,11 +36,11 @@ struct SidebarStatusBar: View {
             Hairline()
 
             HStack(spacing: Metrics.spacingSmall) {
-                SidebarDock()
-
                 noteLabel
 
                 Spacer(minLength: Metrics.spacingSmall)
+
+                SidebarDock()
 
                 Menu {
                     SidebarFilterMenuItems(

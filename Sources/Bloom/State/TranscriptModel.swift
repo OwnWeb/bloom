@@ -2281,9 +2281,13 @@ final class TranscriptModel {
 
     private func notifyFinished(result: AgentResult) async {
         guard let store else { return }
-        // Every line below is about a worktree: an unread mark on a sidebar row, a workspace model
-        // to refresh, a banner naming where the turn finished. A chat with none is a chat the
-        // owner is looking at, so there is nothing to mark and nobody to tell.
+        if workspace == nil {
+            let wasViewed = app.selection == .conversation(session.id)
+            if wasViewed { await markAllRead() }
+            app.ask.noteTurnFinished(session.id, wasViewed: wasViewed)
+            return
+        }
+        // The remaining work is about a worktree: its unread mark, model and notification.
         guard let workspace, let workspaceNow else { return }
         try? await store.touch(
             workspaceID: workspace.id, unread: app.selection.workspaceID != workspace.id

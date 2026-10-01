@@ -12,6 +12,7 @@ final class AskModel {
     private(set) var trouble: String?
     private(set) var archiveRevision = 0
     private(set) var pinnedConversations: Set<SessionID> = []
+    private(set) var unreadConversations: Set<SessionID> = []
     private(set) var conversationColours: [SessionID: String] = [:]
     var closingID: SessionID?
     private unowned let app: AppModel
@@ -52,6 +53,7 @@ final class AskModel {
         do {
             sessions = try await store.sessionsWithoutWorkspace()
             sessionsWithHistory = try await store.projectFreeSessionsWithHistory()
+            unreadConversations = try await store.unreadProjectFreeConversationIDs()
             await loadMarks(from: store)
             let saved = try await store.setting(AskTabs.selectionKey)
             hasOpened = true
@@ -62,6 +64,9 @@ final class AskModel {
     func select(_ id: SessionID) async {
         guard let store = app.store, let chat = sessions.first(where: { $0.id == id }) else { return }
         selectedID = id
+        // `open()` restores a saved selection even when the window is showing a workspace.
+        // Only a conversation actually on screen has been read.
+        if app.selection == .conversation(id) { unreadConversations.remove(id) }
         trouble = nil
         do {
             try await store.setSetting(AskTabs.selectionKey, id.rawValue)
@@ -230,6 +235,7 @@ final class AskModel {
             preparedDirectory = nil
             transcripts.removeValue(forKey: current.id)?.teardown()
             app.bridge?.retire(sessionID: current.id)
+            unreadConversations.remove(current.id)
             if let index = sessions.firstIndex(where: { $0.id == current.id }) { sessions[index] = made }
             await select(made.id)
         } catch {
@@ -264,6 +270,7 @@ final class AskModel {
             transcripts.removeValue(forKey: id)?.teardown()
             app.bridge?.retire(sessionID: id)
             sessions.removeAll { $0.id == id }
+            unreadConversations.remove(id)
             archiveRevision &+= 1
             if let next { await select(next) }
             if app.selection == .conversation(id) { app.selection = .home }
@@ -362,11 +369,21 @@ final class AskModel {
     }
 
     /// The mark one conversation's row wears in the sidebar.
-    func status(for id: SessionID) -> WorkspaceStatus? {
+    func status(for id: SessionID) -> WorkspaceStatus {
         ConversationListing.status(
             isRunning: isRunning(id),
-            isAwaitingPermission: transcripts[id]?.isAwaitingPermission == true
+            isAwaitingPermission: transcripts[id]?.isAwaitingPermission == true,
+            isUnread: unreadConversations.contains(id)
         )
+    }
+
+    func noteTurnFinished(_ id: SessionID, wasViewed: Bool) {
+        guard sessions.contains(where: { $0.id == id }) else { return }
+        if wasViewed {
+            unreadConversations.remove(id)
+        } else {
+            unreadConversations.insert(id)
+        }
     }
 
     var isRunning: Bool { transcripts.keys.contains { isRunning($0) } }

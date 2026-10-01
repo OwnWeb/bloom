@@ -12,14 +12,10 @@ struct ConversationSidebarRow: View {
     @FocusState private var nameFocused: Bool
 
     var body: some View {
+        let status = app.ask.status(for: chat.id)
+
         HStack(spacing: Metrics.spacing) {
-            if let status = app.ask.status(for: chat.id) {
-                WorkspaceStatusGlyph(status: status)
-            } else {
-                Image(systemName: PaneGlyph.chat)
-                    .font(Typo.label)
-                    .foregroundStyle(Palette.textTertiary)
-            }
+            WorkspaceStatusGlyph(status: status)
 
             if isRenaming {
                 TextField("Conversation name", text: $name)
@@ -88,6 +84,7 @@ struct ConversationSidebarRow: View {
             Text("The agent will stop. The transcript stays in Archived.")
         }
         .accessibilityLabel(app.ask.title(for: chat))
+        .accessibilityValue(status == .clean ? "Idle" : status.label)
     }
 
     private func commitRename() {
