@@ -15,7 +15,15 @@ private struct SidebarSectionReorder: ViewModifier {
                 guard let token = items.first,
                       let source = SidebarTopSection(dragToken: token),
                       let next = SidebarSectionOrder.moving(source, onto: section)
-                else { return }
+                else { return false }
+                order = next.rawValue
+                return true
+            } isTargeted: { targeted in
+                guard targeted else { return }
+                // There are exactly two top sections. Move the other one as soon as its drag
+                // enters this heading, so the full sections travel while the pointer is down.
+                let source: SidebarTopSection = section == .work ? .conversations : .work
+                guard let next = SidebarSectionOrder.moving(source, onto: section) else { return }
                 order = next.rawValue
             }
             .accessibilityHint("Drag onto the other section heading to change their order")

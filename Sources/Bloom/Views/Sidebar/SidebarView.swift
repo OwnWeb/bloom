@@ -219,9 +219,6 @@ struct SidebarView: View {
                 HStack {
                     Text("Conversations").bold()
                     Spacer()
-                    Image(systemName: "line.3.horizontal")
-                        .foregroundStyle(Palette.textTertiary)
-                        .accessibilityHidden(true)
                     if !app.ask.workspaceConversations.isEmpty {
                         Button("New conversation", systemImage: "plus") {
                             NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
@@ -243,9 +240,6 @@ struct SidebarView: View {
         HStack {
             Text(title).bold()
             Spacer()
-            Image(systemName: "line.3.horizontal")
-                .foregroundStyle(Palette.textTertiary)
-                .accessibilityHidden(true)
         }
         .padding(.trailing, Metrics.inset + Metrics.spacingWide)
         .reorderableSection(section, order: $storedSectionOrder)
