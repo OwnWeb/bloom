@@ -72,18 +72,6 @@ struct ConversationSidebarRow: View {
                 archive()
             }
         }
-        .confirmationDialog(
-            "Stop and archive this conversation?",
-            isPresented: $isConfirmingArchive,
-            titleVisibility: .visible
-        ) {
-            Button("Stop and Archive", role: .destructive) {
-                Task { await app.ask.close(chat.id) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("The agent will stop. The transcript stays in Archived.")
-        }
         .accessibilityLabel(app.ask.title(for: chat))
         .accessibilityValue(status == .clean ? "Idle" : status.label)
     }
@@ -104,13 +92,27 @@ struct ConversationSidebarRow: View {
         .foregroundStyle(Palette.textSecondary)
         .help("Archive conversation")
         .accessibilityLabel("Archive \(app.ask.title(for: chat))")
+        .popover(isPresented: $isConfirmingArchive, arrowEdge: .leading) {
+            ConfirmationPopover(
+                title: app.ask.isRunning(chat.id)
+                    ? "Stop and archive this conversation?" : "Archive this conversation?",
+                confirmLabel: "Archive conversation",
+                tint: Palette.controlAccent,
+                onConfirm: {
+                    isConfirmingArchive = false
+                    Task { await app.ask.close(chat.id) }
+                },
+                onCancel: { isConfirmingArchive = false }
+            ) {
+                Text(app.ask.isRunning(chat.id)
+                     ? "The agent will stop. The transcript stays in Archived."
+                     : "The transcript stays in Archived.")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private func archive() {
-        if app.ask.isRunning(chat.id) {
-            isConfirmingArchive = true
-        } else {
-            Task { await app.ask.close(chat.id) }
-        }
+        isConfirmingArchive = true
     }
 }

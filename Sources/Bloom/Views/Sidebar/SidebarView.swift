@@ -211,33 +211,24 @@ struct SidebarView: View {
                         .foregroundStyle(Palette.textSecondary)
                         .reorderableSection(.conversations, order: $storedSectionOrder)
                     Spacer()
-                    if !app.ask.workspaceConversations.isEmpty {
-                        Button("New conversation", systemImage: "plus") {
-                            NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
-                        }
-                        .labelStyle(.iconOnly)
-                        .font(Typo.label)
-                        .frame(width: Metrics.headerButton.width, height: Metrics.headerButton.height)
-                        .buttonStyle(.plain)
+                    Button("New conversation", systemImage: "plus") {
+                        NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
                     }
+                    .labelStyle(.iconOnly)
+                    .font(Typo.label)
+                    .frame(width: Metrics.headerButton.width, height: Metrics.headerButton.height)
+                    .buttonStyle(.plain)
                 }
                 .accessibilityAddTraits(.isHeader)
                 .selectionDisabled()
 
-                if app.ask.workspaceConversations.isEmpty {
-                    Button("New conversation…", systemImage: "plus") {
-                        NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
-                    }
-                    .foregroundStyle(Palette.textSecondary)
-                } else {
-                    ForEach(app.ask.workspaceConversations, id: \.id) { chat in
-                        ConversationSidebarRow(chat: chat)
-                            .tag(SidebarSelection.conversation(chat.id))
-                            .sidebarSelection(selectionStyle(for: .conversation(chat.id)))
-                    }
-                    .onMove { offsets, destination in
-                        Task { await app.ask.reorderConversations(from: offsets, to: destination) }
-                    }
+                ForEach(app.ask.workspaceConversations, id: \.id) { chat in
+                    ConversationSidebarRow(chat: chat)
+                        .tag(SidebarSelection.conversation(chat.id))
+                        .sidebarSelection(selectionStyle(for: .conversation(chat.id)))
+                }
+                .onMove { offsets, destination in
+                    Task { await app.ask.reorderConversations(from: offsets, to: destination) }
                 }
             }
         }
