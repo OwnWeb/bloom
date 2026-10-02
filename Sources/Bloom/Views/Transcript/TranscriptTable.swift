@@ -740,7 +740,12 @@ struct TranscriptTable: NSViewRepresentable {
             // Give that first proposal the real column width instead of a zero-sized frame.
             cell.setFrameSize(NSSize(width: columnWidth, height: max(Self.hair, height(of: entry))))
             cell.onMeasured = { [weak self] id, key, size in
-                self?.noted(size: size, of: key, for: id)
+                // Geometry reports arrive during SwiftUI's layout pass. `noted` asks AppKit for
+                // row rectangles, which can lay out this same table again while SwiftUI still
+                // holds its stack children. Wait until that pass has returned before asking.
+                Task { @MainActor [weak self] in
+                    self?.noted(size: size, of: key, for: id)
+                }
             }
             // **Every row in the visible rect gets one of these, and this is where a row's SwiftUI
             // graph is actually built.** It is outside the pane's own layout pass, so
