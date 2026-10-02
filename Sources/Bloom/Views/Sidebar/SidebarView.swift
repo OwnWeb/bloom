@@ -209,8 +209,8 @@ struct SidebarView: View {
                         .font(Typo.label)
                         .fontWeight(.semibold)
                         .foregroundStyle(Palette.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                         .reorderableSection(.conversations, order: $storedSectionOrder)
+                    Spacer()
                     if !app.ask.workspaceConversations.isEmpty {
                         Button("New conversation", systemImage: "plus") {
                             NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
@@ -249,10 +249,10 @@ struct SidebarView: View {
                 .font(Typo.label)
                 .fontWeight(.semibold)
                 .foregroundStyle(Palette.textSecondary)
+                .reorderableSection(section, order: $storedSectionOrder)
             Spacer()
         }
         .padding(.trailing, Metrics.inset + Metrics.spacingWide)
-        .reorderableSection(section, order: $storedSectionOrder)
         .accessibilityAddTraits(.isHeader)
     }
 
