@@ -144,6 +144,8 @@ struct ToolPaneView: View {
     private func prepareTerminal() async {
         TerminalSessionStore.shared.useStore(model.store)
         await model.ensurePort()
+        guard !Task.isCancelled else { return }
         readyTabID = tab.id
+        TerminalSplitStore.shared.requestKeyboard(in: tab.id)
     }
 }
