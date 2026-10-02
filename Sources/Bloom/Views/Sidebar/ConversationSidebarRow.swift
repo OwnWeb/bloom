@@ -9,6 +9,7 @@ struct ConversationSidebarRow: View {
     @State private var isRenaming = false
     @State private var name = ""
     @State private var isConfirmingArchive = false
+    @State private var isHovered = false
     @FocusState private var nameFocused: Bool
 
     var body: some View {
@@ -46,6 +47,10 @@ struct ConversationSidebarRow: View {
                     .accessibilityLabel("Pinned")
             }
         }
+        .modifier(SidebarRowTrailingControl(isShown: (isHovered || isConfirmingArchive) && !isRenaming) {
+            archiveButton
+        })
+        .onHover { isHovered = $0 }
         .contentShape(Rectangle())
         .contextMenu {
             Button("Rename") {
@@ -64,11 +69,7 @@ struct ConversationSidebarRow: View {
                 }
             }
             Button("Archive Conversation") {
-                if app.ask.isRunning(chat.id) {
-                    isConfirmingArchive = true
-                } else {
-                    Task { await app.ask.close(chat.id) }
-                }
+                archive()
             }
         }
         .confirmationDialog(
@@ -90,5 +91,26 @@ struct ConversationSidebarRow: View {
     private func commitRename() {
         isRenaming = false
         Task { await app.ask.rename(chat.id, title: name) }
+    }
+
+    private var archiveButton: some View {
+        Button(action: archive) {
+            Image(systemName: "archivebox")
+                .font(Typo.caption)
+                .frame(width: SidebarMetrics.rowButton, height: SidebarMetrics.rowButton)
+                .contentShape(RoundedRectangle(cornerRadius: Metrics.cornerSmall))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Palette.textSecondary)
+        .help("Archive conversation")
+        .accessibilityLabel("Archive \(app.ask.title(for: chat))")
+    }
+
+    private func archive() {
+        if app.ask.isRunning(chat.id) {
+            isConfirmingArchive = true
+        } else {
+            Task { await app.ask.close(chat.id) }
+        }
     }
 }

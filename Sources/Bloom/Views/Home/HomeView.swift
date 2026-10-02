@@ -257,6 +257,8 @@ struct HomeView: View {
     /// window that already has one. `HomeRowBackground` is painted over it.
     private var list: some View {
         List(selection: $selected) {
+            conversationRows
+
             ForEach(listing.groups) { group in
                 Section {
                     HomeGroupHeading(title: group.title)
@@ -303,7 +305,6 @@ struct HomeView: View {
                 }
             }
 
-            conversationRows
             transcriptResults
         }
         .listStyle(.inset)
@@ -510,7 +511,7 @@ struct HomeView: View {
         return candidates.filter { session in
             (filter.scope != .archived || session.archivedAt != nil)
                 && (query.isEmpty || app.ask.title(for: session).localizedCaseInsensitiveContains(query))
-        }.sorted { $0.updatedAt > $1.updatedAt }
+        }.sorted { ($0.archivedAt ?? $0.updatedAt) > ($1.archivedAt ?? $1.updatedAt) }
     }
 
     private var displayCounts: HomeScopeCounts {

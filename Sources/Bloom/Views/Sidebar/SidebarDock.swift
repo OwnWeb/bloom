@@ -32,6 +32,7 @@ struct SidebarDock: View {
 
     private func showArchive() {
         app.homeFilter.scope = .archived
+        app.homeFilter.projects = []
         app.selection = .home
     }
 }
