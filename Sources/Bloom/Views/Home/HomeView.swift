@@ -63,9 +63,6 @@ struct HomeView: View {
     /// only when `HomeView` itself is rebuilt, which is when the selection leaves Home and comes
     /// back. See `HomeListKeyboard`.
     @State private var hasClaimedKeyboard = false
-    /// The row under the pointer, held here rather than in each row, so crossing the pane lights
-    /// one row at a time and a hover invalidates the list rather than nothing at all.
-    @State private var hovered: WorkspaceID?
     /// The id of the row being renamed in place, shared across the whole list so only one field
     /// can ever be open. The same arrangement the sidebar's rows use.
     @State private var renaming: WorkspaceID?
@@ -324,27 +321,23 @@ struct HomeView: View {
     }
 
     private func workspaceRow(_ row: HomeRow) -> some View {
-        HomeListRow(
+        HomeWorkspaceListEntry(
             row: row,
             isRunning: app.isRunning(row.workspace),
             isAwaitingPermission: app.isAwaitingPermission(row.workspace),
             isStarting: app.isStarting(row.workspace),
             now: now,
             isRenaming: renaming == row.id,
+            isSelected: selected == row.id,
+            isArriving: arrival.isArriving(row.id),
+            rowInsets: Self.rowInsets,
+            onOpen: { open(row) },
             onCommitRename: { commitRename(row, to: $0) },
-            onCancelRename: { closeField(of: row) }
+            onCancelRename: { closeField(of: row) },
+            onRename: { renaming = $0 },
+            onDelete: askToDelete
         )
-        .arrivingRow(arrival.isArriving(row.id))
         .tag(row.id)
-        .simultaneousGesture(TapGesture().onEnded { open(row) })
-        .listRowInsets(Self.rowInsets)
-        .onHoverChange { hovered = $0 ? row.id : (hovered == row.id ? nil : hovered) }
-        .listRowBackground(
-            HomeRowBackground(isSelected: selected == row.id, isHovered: hovered == row.id)
-        )
-        .contextMenu {
-            HomeRowMenu(row: row, onRename: { renaming = $0 }, onDelete: askToDelete)
-        }
     }
 
     private func conversationRow(_ conversation: Session) -> some View {
