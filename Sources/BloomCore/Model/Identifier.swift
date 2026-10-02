@@ -65,6 +65,12 @@ public struct WorkspaceID: Identifier {
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }
 
+/// One dated or ordered group in Home's mixed workspace and conversation list.
+public struct HomeMixedGroupID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
 /// One chat inside a workspace. Not the agent's own session id, which is a different value with a
 /// different lifetime: see `Session.agentSessionID`.
 public struct SessionID: Identifier {
