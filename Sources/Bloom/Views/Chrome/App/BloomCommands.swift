@@ -5,6 +5,8 @@ import BloomCore
 /// Keeps keyboard-driven navigation available even when focus is inside a transcript or terminal.
 @MainActor
 struct BloomCommands: Commands {
+    /// The sidebar highlights a new row before activating its centre column. Command actions
+    /// read `shortcutModel` so a key pressed in that interval goes to the highlighted worktree.
     private let model: AppModel
 
     /// Read rather than queried, so the size items grey and ungrey as the sizes and the focus move.
@@ -126,10 +128,10 @@ struct BloomCommands: Commands {
             .disabled(model.selectedWorkspace == nil)
 
             MenuCommand(.newSession) {
-                guard let workspace = model.selectedModel else { return }
+                guard let workspace = model.shortcutModel else { return }
                 NewPane.open(.chat, in: workspace) { WorkspaceTabsStore.shared.select($0, in: workspace) }
             }
-            .disabled(model.selectedModel == nil)
+            .disabled(model.shortcutModel == nil)
 
             // The other four things that open a tab in the workspace's centre column, which until
             // now existed only as key equivalents on hidden buttons inside `SessionTabsView`. The
@@ -153,10 +155,10 @@ struct BloomCommands: Commands {
             Divider()
 
             MenuCommand(.newTerminalTab) { openPane(.terminal) }
-                .disabled(model.selectedModel == nil)
+                .disabled(model.shortcutModel == nil)
 
             MenuCommand(.newBrowserTab) { openBrowserPane() }
-                .disabled(model.selectedModel == nil)
+                .disabled(model.shortcutModel == nil)
 
             // The same key both ways, as the hidden button had it: show me the change, or give me
             // the conversation back. Enabled on any selected workspace rather than only on one
@@ -164,16 +166,16 @@ struct BloomCommands: Commands {
             // the way back out of a review and a workspace can have a review open with nothing
             // left in it.
             MenuCommand(.showChanges) {
-                guard let workspace = model.selectedModel else { return }
+                guard let workspace = model.shortcutModel else { return }
                 FileReview.toggle(in: workspace)
             }
-            .disabled(model.selectedModel == nil)
+            .disabled(model.shortcutModel == nil)
 
             MenuCommand(.reviewAllFiles) {
-                guard let workspace = model.selectedModel else { return }
+                guard let workspace = model.shortcutModel else { return }
                 FileReview.openAll(in: workspace)
             }
-            .disabled(model.selectedModel == nil)
+            .disabled(model.shortcutModel == nil)
 
             // Shift+Cmd+N, which nothing in Bloom held. It is the initial of the thing, which is
             // what the other three in this group are, and that pattern is the only reason a set
@@ -181,10 +183,10 @@ struct BloomCommands: Commands {
             // needing a workspace, because an empty note is exactly what somebody opening this is
             // about to fix.
             MenuCommand(.showNotes) {
-                guard let workspace = model.selectedModel else { return }
+                guard let workspace = model.shortcutModel else { return }
                 WorkspaceNotes.open(in: workspace)
             }
-            .disabled(model.selectedModel == nil)
+            .disabled(model.shortcutModel == nil)
 
             Divider()
 
@@ -352,7 +354,7 @@ struct BloomCommands: Commands {
             splitMenu(.splitDown, axis: .vertical, symbol: PaneSymbol.splitDown)
 
             MenuCommand(.closePane, symbol: PaneSymbol.closePane) { closeCentrePane() }
-                .disabled(model.selectedModel == nil)
+                .disabled(model.shortcutModel == nil)
 
             // The two a terminal tab's shell tree can do and nothing else in the column can. They
             // were on the AppKit menu a shell returns from `menu(for:)` and nowhere a reader can
@@ -397,13 +399,13 @@ struct BloomCommands: Commands {
             // fires, so it has to be one or the other. Here it is the menu, which greys itself out
             // when there is nothing to step through and says the keys out loud.
             MenuCommand(.fileBack) {
-                guard let workspace = model.selectedModel else { return }
+                guard let workspace = model.shortcutModel else { return }
                 SourceNavigation.shared.move(-1, in: workspace)
             }
             .disabled(fileHistory?.canGoBack != true)
 
             MenuCommand(.fileForward) {
-                guard let workspace = model.selectedModel else { return }
+                guard let workspace = model.shortcutModel else { return }
                 SourceNavigation.shared.move(1, in: workspace)
             }
             .disabled(fileHistory?.canGoForward != true)
@@ -426,10 +428,10 @@ struct BloomCommands: Commands {
             }
 
             MenuCommand(.toggleInspector) {
-                guard model.selectedModel != nil else { return }
+                guard model.shortcutModel != nil else { return }
                 model.isInspectorVisible.toggle()
             }
-            .disabled(model.selectedModel == nil)
+            .disabled(model.shortcutModel == nil)
 
             Divider()
 
@@ -667,7 +669,7 @@ struct BloomCommands: Commands {
     /// `SetupRunAlert`.
     @ViewBuilder
     private var setupItem: some View {
-        if let workspace = model.selectedModel, let offer = workspace.setupRunOffer {
+        if let workspace = model.shortcutModel, let offer = workspace.setupRunOffer {
             Button(offer.title) { SetupRunAlert.shared.ask(workspace) }
                 .disabled(!offer.isEnabled)
         }
@@ -686,7 +688,7 @@ struct BloomCommands: Commands {
     /// submenu teaches nothing. See `WorkspaceModel.refreshSettings` for when the list is read.
     @ViewBuilder
     private var runScriptsMenu: some View {
-        if let workspace = model.selectedModel, !workspace.settings.runScripts.isEmpty {
+        if let workspace = model.shortcutModel, !workspace.settings.runScripts.isEmpty {
             MenuCommandGroup(.runScripts) {
                 ForEach(workspace.settings.runScripts) { script in
                     Button(script.name) { run(script, in: workspace) }
@@ -742,7 +744,7 @@ struct BloomCommands: Commands {
                 splitRow(action, axis: axis, kind: kind)
             }
         }
-        .disabled(model.selectedModel == nil)
+        .disabled(model.shortcutModel == nil)
     }
 
     /// One kind, carrying the key when it is the kind this pane is already showing.
@@ -767,7 +769,7 @@ struct BloomCommands: Commands {
     /// `WorkspaceTabsStore` and `CenterTabStore` are both `@Observable`, so selecting another tab
     /// moves the key on its own, the way `zoom` greys itself above.
     private var sameAgainKind: PaneKind? {
-        guard let workspace = model.selectedModel else { return nil }
+        guard let workspace = model.shortcutModel else { return nil }
         let tabs = WorkspaceTabsStore.shared
         guard let tab = tabs.selectedTab(in: workspace) else { return nil }
         return PaneDuplicate.sameAgainKind(
@@ -778,7 +780,7 @@ struct BloomCommands: Commands {
     /// The same call `CenterPaneView` makes for the same row of its own menu, so the two cannot
     /// end up splitting differently.
     private func splitCentre(_ axis: SplitAxis, opening kind: PaneKind) {
-        guard let workspace = model.selectedModel else { return }
+        guard let workspace = model.shortcutModel else { return }
         let tabs = WorkspaceTabsStore.shared
         guard let tab = tabs.selectedTab(in: workspace) else { return }
         let pane = tabs.focusedPane(of: tab)
@@ -795,7 +797,7 @@ struct BloomCommands: Commands {
     /// A shell tree is the only thing in the centre column that has panes of its own to zoom or to
     /// step focus around, which is why these two items are the terminal's rather than the column's.
     private var terminalOwnerID: String? {
-        guard let workspace = model.selectedModel else { return nil }
+        guard let workspace = model.shortcutModel else { return nil }
         let tabs = WorkspaceTabsStore.shared
         guard let tab = tabs.selectedTab(in: workspace),
               case .tool(let id) = tabs.content(of: tabs.focusedPane(of: tab), in: tab),
@@ -836,7 +838,7 @@ struct BloomCommands: Commands {
     /// Greyed on a strip with nothing to move to, rather than on no workspace at all, which is
     /// the same rule Split Right follows two items above.
     private var canCycleCentreTabs: Bool {
-        guard let workspace = model.selectedModel else { return false }
+        guard let workspace = model.shortcutModel else { return false }
         return WorkspaceTabsStore.shared.entries(in: workspace).count > 1
     }
 
@@ -858,7 +860,7 @@ struct BloomCommands: Commands {
     /// `TabCycle.numbered` in the core.
     @ViewBuilder
     private var goToTabMenu: some View {
-        if let workspace = model.selectedModel {
+        if let workspace = model.shortcutModel {
             let entries = WorkspaceTabsStore.shared.entries(in: workspace)
             MenuCommandGroup(.goToTab) {
                 ForEach(TabCycle.numbered(entries), id: \.tab) { entry in
@@ -886,7 +888,7 @@ struct BloomCommands: Commands {
     /// What Cmd+W would close: the tab in front, or the pane of it the keyboard is in. See
     /// `TabClosure`, which is the rule and which the tests hold.
     private var closableTab: PaneContent? {
-        guard let workspace = model.selectedModel else { return nil }
+        guard let workspace = model.shortcutModel else { return nil }
         return closableTab(of: workspace)
     }
 
@@ -895,7 +897,7 @@ struct BloomCommands: Commands {
     /// either would be a label the next reopen throws away. See `TabRenaming` in the core, which is
     /// also what the tab's own menu asks.
     private var renamableTab: PaneContent? {
-        guard let workspace = model.selectedModel else { return nil }
+        guard let workspace = model.shortcutModel else { return nil }
         return renamableTab(of: workspace)
     }
 
@@ -922,7 +924,7 @@ struct BloomCommands: Commands {
     }
 
     private func closeSelectedTab() {
-        guard let workspace = model.selectedModel, let target = closableTab else { return }
+        guard let workspace = model.shortcutModel, let target = closableTab else { return }
         switch target {
         case .chat(let id):
             guard let session = workspace.sessions.first(where: { $0.id == id }) else { return }
@@ -937,7 +939,7 @@ struct BloomCommands: Commands {
     // MARK: - Walking a review
 
     private var fileHistory: SourceHistory? {
-        guard let workspace = model.selectedModel,
+        guard let workspace = model.shortcutModel,
               let tab = WorkspaceTabsStore.shared.selectedTab(in: workspace),
               case let .tool(id) = WorkspaceTabsStore.shared.content(
                 of: WorkspaceTabsStore.shared.focusedPane(of: tab), in: tab),
@@ -949,19 +951,19 @@ struct BloomCommands: Commands {
     /// Greyed when there is no review open or nothing changed in the worktree, which is the state
     /// the two hidden buttons expressed by not existing.
     private var canStepChangedFiles: Bool {
-        guard let workspace = model.selectedModel, !workspace.changedFiles.isEmpty else {
+        guard let workspace = model.shortcutModel, !workspace.changedFiles.isEmpty else {
             return false
         }
         return CenterTabStore.shared.review(for: workspace.workspace.id) != nil
     }
 
     private func stepChangedFile(_ delta: Int) {
-        guard let workspace = model.selectedModel else { return }
+        guard let workspace = model.shortcutModel else { return }
         FileReview.step(delta, in: workspace)
     }
 
     private func closeCentrePane() {
-        guard let workspace = model.selectedModel else { return }
+        guard let workspace = model.shortcutModel else { return }
         let tabs = WorkspaceTabsStore.shared
         guard let tab = tabs.selectedTab(in: workspace) else { return }
         tabs.close(
@@ -971,7 +973,7 @@ struct BloomCommands: Commands {
 
     /// A terminal in a new tab, placed and selected exactly as the tab strip's own `+` does it.
     private func openPane(_ kind: PaneKind) {
-        guard let workspace = model.selectedModel else { return }
+        guard let workspace = model.shortcutModel else { return }
         NewPane.open(kind, in: workspace) {
             WorkspaceTabsStore.shared.select($0, in: workspace)
         }
@@ -980,7 +982,7 @@ struct BloomCommands: Commands {
     /// A browser on the workspace's own dev server, which is what the `+` opens and what a split
     /// does not: this is the route that knows where that is. See `SessionTabsView.newBrowser`.
     private func openBrowserPane() {
-        guard let workspace = model.selectedModel else { return }
+        guard let workspace = model.shortcutModel else { return }
         Task {
             let address = await workspace.browserAddress()
             NewPane.open(.browser, in: workspace, url: address) {

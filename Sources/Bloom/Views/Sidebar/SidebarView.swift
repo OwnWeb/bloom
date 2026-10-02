@@ -415,6 +415,7 @@ struct SidebarView: View {
                 .fadesArrivals)
         }
         .onChange(of: listSelection) { _, selected in
+            app.highlightSidebarSelection(selected)
             if selected == nil { listSelection = app.selection }
         }
         .background {

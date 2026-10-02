@@ -80,6 +80,7 @@ final class AppModel {
             // sidebar row can arrive here again, and without this guard it writes defaults,
             // rebuilds the subagent rows and starts another settings read for no state change.
             guard newValue != storedSelection else { return }
+            highlightedSidebarSelection = nil
             if let id = newValue.workspaceID, id != storedSelection.workspaceID {
                 SwitchTrace.begin(workspaceID: id)
             }
@@ -113,6 +114,30 @@ final class AppModel {
     }
 
     private var storedSelection: SidebarSelection = .home
+
+    /// The row the sidebar has highlighted while its display-link activation is pending.
+    /// Menu shortcuts must follow that row, not the workspace the centre column is still showing.
+    private var highlightedSidebarSelection: SidebarSelection?
+
+    func highlightSidebarSelection(_ selection: SidebarSelection?) {
+        guard let selection, selection != storedSelection else {
+            highlightedSidebarSelection = nil
+            return
+        }
+        if let id = selection.workspaceID,
+           let workspace = workspaces.first(where: { $0.id == id }) {
+            _ = model(for: workspace)
+        }
+        highlightedSidebarSelection = selection
+    }
+
+    /// The model used by menu commands during the sidebar's brief selection animation.
+    var shortcutModel: WorkspaceModel? {
+        guard let highlightedSidebarSelection else { return selectedModel }
+        guard let id = highlightedSidebarSelection.workspaceID,
+              workspaces.contains(where: { $0.id == id }) else { return nil }
+        return workspaceModels[id]
+    }
 
     /// The current workspace column and the one immediately before it, in stable structural order.
     ///
