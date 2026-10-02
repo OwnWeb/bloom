@@ -24,7 +24,7 @@ struct BranchActionsPopover: View {
     var body: some View {
         ConfirmationPopover(
             title: "Create pull request?",
-            confirmLabel: route == .agent ? "Ask agent" : "Commit and create PR",
+            confirmLabel: "Create PR",
             tint: Palette.controlAccent,
             canConfirm: route == .agent || (model.gitHubReadiness.isUsable && !model.isRunning),
             onConfirm: {
