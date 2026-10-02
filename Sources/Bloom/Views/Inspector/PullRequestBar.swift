@@ -173,18 +173,33 @@ struct PullRequestBar: View {
         }
     }
 
-    /// Creation is the agent's job: it pushes, writes the description and calls `gh` with the
-    /// project's own conventions in context. Bloom only composes the turn.
-    private func createPullRequest() {
+    /// The agent route composes a turn. The direct route commits and publishes in BloomCore.
+    private func createPullRequest(_ route: PullRequestCreationRoute) {
         isWorking = true
         report = nil
 
         Task {
             defer { isWorking = false }
-            if let refusal = await model.requestPullRequest() {
-                report = PullRequestNotice(
-                    tone: .info, title: "Nothing was sent", message: refusal
-                )
+            switch route {
+            case .agent:
+                if let refusal = await model.requestPullRequest() {
+                    report = PullRequestNotice(
+                        tone: .info, title: "Nothing was sent", message: refusal
+                    )
+                }
+            case .direct:
+                do {
+                    let created = try await model.createPullRequestDirectly()
+                    report = PullRequestNotice(
+                        tone: .info, title: "Pull request created",
+                        message: "Opened #\(created.number) on GitHub."
+                    )
+                } catch {
+                    report = PullRequestNotice(
+                        tone: .failure, title: "Could not create the pull request",
+                        message: String(describing: error)
+                    )
+                }
             }
         }
     }

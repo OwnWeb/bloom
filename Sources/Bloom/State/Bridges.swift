@@ -5,9 +5,12 @@ import BloomCore
 /// The one place the app layer touches `GitHub`. Keeping it behind a single adapter means a
 /// change to the gh wrapper's signature is a one-file fix rather than a sweep through views.
 ///
-/// Opening a pull request and pushing are turns sent to the workspace's agent. A direct merge
-/// and marking a draft ready use the GitHub CLI without involving an agent.
+/// Pull requests can be prepared by an agent or directly through git and gh. Direct merges and
+/// marking a draft ready also use the GitHub CLI without involving an agent.
 enum GitHubBridge {
+    static func createPullRequestDirectly(for workspace: Workspace) async throws -> PullRequest {
+        try await DirectPullRequestCreation.create(for: workspace)
+    }
     static func readPullRequest(for workspace: Workspace, maxAge: Duration = .zero) async -> PullRequestRead {
         let availability = await GitHubAvailability.shared.check()
         if availability == .notInstalled {

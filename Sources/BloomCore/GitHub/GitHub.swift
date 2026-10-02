@@ -318,6 +318,23 @@ public enum GitHub {
         // read as one.
         var arguments = ["pr", "create", "--base", base, "--title", title, "--body", body]
         if draft { arguments.append("--draft") }
+        return try await createPullRequest(arguments: arguments, worktree: worktree)
+    }
+
+    /// Uses the pushed commits for the body while keeping the workspace's chosen title.
+    public static func createPullRequestFromCommits(
+        worktree: String, base: String, title: String
+    ) async throws -> PullRequest {
+        guard Git.isValidBranchName(base) else {
+            throw GitHubError("refusing to open a pull request against '\(base)': not a valid branch name")
+        }
+        let arguments = ["pr", "create", "--base", base, "--title", title, "--fill"]
+        return try await createPullRequest(arguments: arguments, worktree: worktree)
+    }
+
+    private static func createPullRequest(
+        arguments: [String], worktree: String
+    ) async throws -> PullRequest {
         try await checkGH(arguments, worktree: worktree)
 
         // Through the same retry as every other read, or a token that cannot see check runs opens

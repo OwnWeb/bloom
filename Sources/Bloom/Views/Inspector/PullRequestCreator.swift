@@ -8,8 +8,7 @@ import BloomCore
 ///
 /// On a branch with nothing on it there is no button. See `body`.
 ///
-/// Creating a pull request still sends a turn to this workspace's agent. The popover also shows
-/// the remembered merge route for when Bloom can see a pull request.
+/// The popover offers an agent turn or a direct commit, push and gh create sequence.
 ///
 /// The branch name is the part that gives way. It is given a lower layout priority than the
 /// button so a long branch truncates from the head, which keeps the readable end of it, rather
@@ -46,7 +45,7 @@ struct PullRequestCreator: View {
     /// has just been cut from a landed pull request and an empty branch nobody has done anything
     /// on, which read identically until `ContinuedBranch` gave the first of them a sentence.
     var continued: ContinuedBranch?
-    var action: () -> Void
+    var action: (PullRequestCreationRoute) -> Void
 
     @State private var isShowingBranchActions = false
 
@@ -156,7 +155,7 @@ struct PullRequestCreator: View {
         return "No pull request yet. Target \(baseBranch)."
     }
 
-    /// A single title-bar control. The popover lets the owner choose how to merge the future PR.
+    /// A single title-bar control. Its popover chooses how to create the PR now.
     private var branchActionsButton: some View {
         Button("Create PR") { isShowingBranchActions = true }
             .buttonStyle(.borderedProminent)

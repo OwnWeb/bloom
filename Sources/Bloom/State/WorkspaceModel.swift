@@ -2500,6 +2500,16 @@ final class WorkspaceModel {
         return nil
     }
 
+    func createPullRequestDirectly() async throws -> PullRequest {
+        guard !isRunning else {
+            throw GitHubError("Wait for the agent to finish before committing directly.")
+        }
+        let created = try await GitHubBridge.createPullRequestDirectly(for: workspace)
+        await refreshChanges()
+        await refreshPullRequest()
+        return created
+    }
+
     /// Asks this workspace's agent to commit what is outstanding and push the branch.
     ///
     /// The agent rather than Bloom, and the reasoning is the same one that put pull request
