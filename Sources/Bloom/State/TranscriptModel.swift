@@ -768,22 +768,9 @@ final class TranscriptModel {
             sending = delivery
         }
 
-        // And the list is taken to it, on the same frame, for the same reason the bubble is drawn
-        // before anything is awaited: what somebody just asked for should be the thing they are
-        // looking at.
-        //
-        // The bug this closes was Merge. The button composes a turn and sends it down this path,
-        // the transcript did not follow, and the request landed below the fold with the jump pill
-        // floating over the top of it: the one thing the owner had just triggered was the one
-        // thing off screen. It was never only Merge. Create pull request, Push, the continuation
-        // after a merge, a review sent with comments and a reply typed into a banner all arrive
-        // here, and a message typed into the composer while the reader was scrolled up did the
-        // same. One queue in, one rule about where the list sits.
-        //
-        // `jumpToLiveEnd` rather than a scroll of its own: it is the jump pill's own request, so
-        // this reuses the display-link glide in `TranscriptListView.goToLiveEnd`, which already
-        // asks `TranscriptMotion` whether Reduce Motion is on and jumps instead when it is.
-        jumpToLiveEnd()
+        // Sending does not move a reader who is looking at older messages. The visible delivery
+        // still appears at the live end, and the jump pill remains the explicit way to reach it.
+        // A reader already at the end keeps following through the table's existing end hold.
 
         do {
             _ = try await store.enqueueDelivery(delivery, clearingDraftMatching: submittedDraft, sourcePlan: sourcePlan)

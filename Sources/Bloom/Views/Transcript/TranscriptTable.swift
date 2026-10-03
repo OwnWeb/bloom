@@ -202,6 +202,9 @@ struct TranscriptTable: NSViewRepresentable {
     /// The text scale the rows are drawn at. Part of what the height cache is keyed on, because
     /// the same row at a different scale is a different height.
     let scale: CGFloat
+    /// Whether the rows handed to this table reach the conversation's newest row. A pane opened
+    /// on older history can be at the end of its drawn window without being at the live end.
+    var includesLiveEnd = true
     /// Exactly what a hosted row needs from the environment and nothing else. See
     /// `TranscriptRowEnvironment`, which carries why this is a named list rather than `\.self`.
     let rowEnvironment: TranscriptRowEnvironment
@@ -212,8 +215,7 @@ struct TranscriptTable: NSViewRepresentable {
     /// gesture and false when it ends.
     ///
     /// Not a debounce over "the clip view moved", which cannot tell a hand from this app's own
-    /// travel: the jump pill's glide reported itself as a scroll on its first frame and the pane's
-    /// handler stopped it, leaving the transcript a few points down with the completion never run.
+    /// placement. Programmatic movement must not release the end hold.
     /// `NSScrollView` posts `willStartLiveScroll` and `didEndLiveScroll` for user-initiated
     /// scrolling only, so this app's own movement is silent here.
     let onLiveScrollChange: @MainActor (Bool) -> Void
@@ -290,6 +292,7 @@ struct TranscriptTable: NSViewRepresentable {
         coordinator.onSettled = onSettled
         coordinator.onLiveScrollChange = onLiveScrollChange
         coordinator.onContentWillChange = onContentWillChange
+        coordinator.includesLiveEnd = includesLiveEnd
         (coordinator.tableView as? TranscriptTableView)?.quoteSelection = quoteSelection
         // Before the entries, so that a pass carrying another conversation's rows is applied to a
         // pane that has already stopped drawing.
@@ -312,6 +315,7 @@ struct TranscriptTable: NSViewRepresentable {
         }
 
         private(set) var entries: [TranscriptTableEntry] = []
+        var includesLiveEnd = true
         private var ids: [TranscriptEntryID] = []
         private var index: [TranscriptEntryID: Int] = [:]
         private var rowEnvironment: TranscriptRowEnvironment?
@@ -1200,15 +1204,10 @@ struct TranscriptTable: NSViewRepresentable {
             }
         }
 
-        /// Whether the reader is still following along, which is `ScrollEnd`'s question with a
-        /// line or two of slack, and not `TranscriptTableGeometry.isAtEnd`'s exact one.
+        /// Only a reader at the actual end follows new content. Even a small scroll upwards is a
+        /// reading position to preserve when a message is sent or another row arrives.
         private var isFollowingAlong: Bool {
-            let geometry = currentGeometry
-            return ScrollEnd.isAtEnd(
-                contentHeight: geometry.contentHeight,
-                viewportHeight: geometry.viewportHeight,
-                offset: geometry.offset
-            )
+            includesLiveEnd && currentGeometry.isAtEnd
         }
 
         // MARK: Scrolling

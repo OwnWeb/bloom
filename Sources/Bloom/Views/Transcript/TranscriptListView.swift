@@ -154,13 +154,10 @@ struct TranscriptListView: View {
     /// every frame of every scroll, and as `@State` every one of those frames would re-run this
     /// body, to store a number the body never reads.
     @State private var contentOffset = GeometryBox(0.0)
-    /// How far below the viewport the end of the conversation is, read for one thing only: how
-    /// long the jump pill's travel back to the live end should run for.
-    @State private var reachToEnd = GeometryBox(0.0)
     /// The row at the top of the pane and how far above its top the pane starts, in a box for the
-    /// reason the two above are: it moves on every frame of a scroll and nothing draws from it. It
-    /// replaces the set of visible row ids the lazy stack had to keep, because a table can simply
-    /// be asked which row is at the top.
+    /// same reason as `contentOffset`: it moves on every frame of a scroll and nothing draws from
+    /// it. It replaces the set of visible row ids the lazy stack had to keep, because a table can
+    /// simply be asked which row is at the top.
     ///
     /// Both halves, because the row alone is the top of the row: see
     /// `TranscriptPaneState.anchorDelta`. Nil until the table has a stored row to name, and never
@@ -174,10 +171,9 @@ struct TranscriptListView: View {
     /// Whether the pane is at the live end EXACTLY, which is not `geometry.isNearBottom`.
     ///
     /// **Two different questions, and one number was answering both.** `ScrollEnd.threshold` is 96
-    /// points and it answers "may an arriving row move the view", which is a question about a
-    /// reader who has nudged the wheel and is still following along. What is written down here is
-    /// "where was this person", and somebody ninety points up is somebody who scrolled up ninety
-    /// points: coming back to the live end instead is the pane deciding it knows better.
+    /// points and describes a pane near enough to the end for a setup log update. This value
+    /// records where the reader actually is: somebody ninety points up should return to that
+    /// position, and a new message should leave them there.
     /// `TranscriptAnchor.isAtEnd` is the exact test and its doc comment already draws the line.
     ///
     /// Exact, and then the two standing claims to be there, because neither of those is a reader
@@ -199,9 +195,6 @@ struct TranscriptListView: View {
     @State private var arrivalSession: SessionID?
 
     @State private var controller = TranscriptTableController()
-    /// The travel the jump pill makes. See `TranscriptLiveEndScroller`, which carries the frame
-    /// timings that put an AppKit level scroll there in place of a `withAnimation`.
-    @State private var scroller = TranscriptLiveEndScroller()
     @State private var liveEndRequest = TranscriptLiveEndRequest()
     /// What keeps the view with the newest row while a turn runs. See `TranscriptLiveEndFollower`.
     /// Nothing in this body reads it, on purpose: it writes no SwiftUI state, so following a turn
@@ -1056,6 +1049,7 @@ struct TranscriptListView: View {
             controller: controller,
             heightMemory: memory.map { transcript.heightMemory(for: $0.pane) },
             scale: fontScale,
+            includesLiveEnd: drawnWindow.end >= transcript.rows.count,
             rowEnvironment: rowEnvironment,
             onGeometryChange: { measured($0) },
             onSettled: {
@@ -1077,7 +1071,6 @@ struct TranscriptListView: View {
                 hoverHost.request = nil
                 // And a view that goes on dragging somebody somewhere after they have grabbed it
                 // is the worst thing in this file.
-                scroller.stop()
                 follower.seekLiveEnd(false)
             },
             onContentWillChange: { follower.nudge() },
@@ -1171,9 +1164,8 @@ struct TranscriptListView: View {
         .onChange(of: reduceMotion, initial: true) { _, reduced in
             follower.travels = TranscriptFollow.travels(reduceMotion: reduced)
         }
-        // Asked for by the jump pill, and by every button that composes a turn: see
-        // `TranscriptModel.submit`, which bumps this so that what somebody just asked for is the
-        // thing they are looking at.
+        // An explicit request to see the newest row, including the jump pill. Sending a message
+        // leaves the reader's current position alone.
         .onChange(of: transcript.liveEndRequests, initial: true) { _, _ in
             honourLiveEndRequest()
         }
@@ -1183,7 +1175,6 @@ struct TranscriptListView: View {
             // conversation being left rather than the one being arrived at.
             remember()
             // Nothing owed to a conversation the pane has left.
-            scroller.stop()
             follower.stop()
             controller.releaseEnd()
             didPosition = false
@@ -1367,7 +1358,6 @@ struct TranscriptListView: View {
         follower.isFrontmost = active && activeState != .inactive
         guard active else {
             remember()
-            scroller.stop()
             follower.stop()
             historyGeneration.value += 1
             isGrowing.value = false
@@ -1401,11 +1391,6 @@ struct TranscriptListView: View {
             floor: Self.bubbleFloor
         )
         if bubbleWidth.cap != cap { bubbleWidth.cap = cap }
-        reachToEnd.value = TranscriptGeometry.reach(
-            contentHeight: table.contentHeight,
-            viewportHeight: table.viewportHeight,
-            offset: table.offset
-        )
         contentOffset.value = table.offset
         let place = controller.topmostPlace
         if let place { topPlace.value = place }
@@ -1461,14 +1446,13 @@ struct TranscriptListView: View {
         }
     }
 
-    /// Hands the glide and the follower the scroll view the table is in.
+    /// Hands the follower the scroll view the table is in.
     ///
     /// This replaces the zero sized view the lazy stack had to plant inside its scroll content so
     /// that `enclosingScrollView` had something to walk up from. There is no walking up any more:
     /// the table owns its `NSScrollView` and simply says which one it is.
     private func adoptScrollView() {
         let found = controller.scrollView
-        if scroller.scrollView !== found { scroller.scrollView = found }
         if follower.scrollView !== found { follower.scrollView = found }
     }
 
@@ -1493,10 +1477,8 @@ struct TranscriptListView: View {
     /// to see. So that one is taken to the row and left there.
     ///
     /// `wasAsked` separates the reader's own request from the log moving under them. The request
-    /// is obeyed wherever they are. A flush is obeyed only while `isNearBottom` still says they
-    /// are following along, which is the same test, at the same `ScrollEnd.threshold`, that decides
-    /// whether a running turn is followed. There is one rule about dragging a reader in this
-    /// window, and this is not a second one.
+    /// is obeyed wherever they are. A flush is obeyed only while `isNearBottom` says the reader is
+    /// still close enough to follow the setup log.
     private func showSetupLogEnd(wasAsked: Bool) {
         guard transcript.rows.isEmpty else {
             // The height of a row that has just unfolded 1,381 lines of log is not known until it
@@ -1522,73 +1504,22 @@ struct TranscriptListView: View {
             transcript.liveEndRequests, isReady: arrivalSession == transcript.session.id
         ) else { return }
         opening = .liveEnd
-        if atLiveEnd.value || controller.holdsEnd || follower.isFollowing {
-            // A send at the bottom extends the existing travel. Jumping to its new destination
-            // first used to race the follower and expose the whole bubble above the composer.
-            follower.nudge()
-        } else {
-            goToLiveEnd()
-        }
+        goToLiveEnd()
     }
 
-    /// Takes the reader back to the newest row, which is what the jump pill asks for, and what
-    /// every button that composes a turn asks for through `TranscriptModel.submit`.
-    ///
-    /// **The travel is a scroll rather than a jump, and the length of it is nearly the same however
-    /// far it has to go.** See `TranscriptMotion.liveEndMove` for that argument. What belongs here
-    /// is why it is safe: the table knows where every row is, so a travel to the end costs one
-    /// arithmetic rather than realising every row between here and there, which is what made the
-    /// same movement over a `LazyVStack` a thing to be careful with.
-    ///
-    /// **And it ends by asking to BE at the end rather than by arriving there**, which is the
-    /// whole of what was wrong with the first version. The end moves while the travel is in the
-    /// air: a running turn grows the tail, the rows the travel lands among are drawn and turn out
-    /// to be taller than they were measured at, and a window that has just been moved to the tail
-    /// has not been laid out at all. Each of those leaves a scroll that was correct when it was
-    /// issued a few hundred points short, and short of the end is exactly the state the reader
-    /// pressed the pill to get out of. `goToEnd` is a standing instruction rather than a movement.
+    /// Takes the reader straight to the newest row when they press the jump pill. `goToEnd` holds
+    /// that position while the tail and newly realised rows change height.
     private func goToLiveEnd() {
-        scroller.stop()
         follower.seekLiveEnd(true)
-        // The live end has to be IN the window before anything can travel to it, and a reader far
-        // enough from the end to press this is often reading a window that does not hold it.
+        // The live end has to be in the drawn window before the table can name its position.
         if drawn.session == transcript.session.id,
            drawn.window.canGrowDown(rowCount: transcript.rows.count) {
             drawn.window = TranscriptWindow.liveEnd(rowCount: transcript.rows.count)
             drawn.rowCount = transcript.rows.count
             TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
-            // **No travel when the window moved.** The rows a glide would pass through are not in
-            // the table yet: they go in on the next pass over this body, and a travel aimed at the
-            // end of the content as it stands now is aimed at a row that is about to be somewhere
-            // else entirely. The standing instruction is what makes the arrival stick once they
-            // have landed.
-            controller.goToEnd()
-            follower.seekLiveEnd(false)
-            return
         }
-
-        switch TranscriptMotion.liveEndMove(
-            distance: reachToEnd.value, reduceMotion: reduceMotion
-        ) {
-        case .jump:
-            controller.goToEnd()
-            follower.seekLiveEnd(false)
-        case .glide(let seconds):
-            // Let go of the end first, or the instruction and the travel are two things moving the
-            // same clip view. AppKit rather than `withAnimation`: `TranscriptLiveEndScroller`
-            // carries the frame timings that settled that.
-            controller.releaseEnd()
-            guard scroller.glide(
-                seconds: seconds, completion: { [controller, follower] in
-                    controller.goToEnd()
-                    follower.seekLiveEnd(false)
-                }
-            ) else {
-                controller.goToEnd()
-                follower.seekLiveEnd(false)
-                return
-            }
-        }
+        controller.goToEnd()
+        follower.seekLiveEnd(false)
     }
 
     /// The strip of turns in the margin, clear of the pinned question above and the composer below.
@@ -1623,7 +1554,6 @@ struct TranscriptListView: View {
             ofSeqAtOrAfter: question.seq, in: rows.lazy.map(\.seq)
         ) else { return }
 
-        scroller.stop()
         follower.stop()
         controller.releaseEnd()
 
@@ -1928,9 +1858,8 @@ struct TranscriptListView: View {
     /// A group opening adds rows and closing removes them. Tell the table this is a reader-driven
     /// change so it can cross-fade those rows without applying that effect to live arrivals.
     private func toggleFold(_ firstSeq: Int) {
-        // A disclosure click is the reader taking the view. Stop any live-end travel first, then
-        // hold the clicked fold line in place while its children enter or leave below it.
-        scroller.stop()
+        // A disclosure click is the reader taking the view. Hold the clicked fold line in place
+        // while its children enter or leave below it.
         follower.stop()
         controller.willChangeFoldRows(.fold(firstSeq))
         if unfolded.contains(firstSeq) {
@@ -1945,7 +1874,6 @@ struct TranscriptListView: View {
 
     /// Open or close every action group in this completed turn, leaving its prose in place.
     private func toggleTurnFold(_ firstSeq: Int, anchor: TranscriptEntryID) {
-        scroller.stop()
         follower.stop()
         controller.willChangeFoldRows(anchor)
         if unfoldedTurns.remove(firstSeq) != nil {
