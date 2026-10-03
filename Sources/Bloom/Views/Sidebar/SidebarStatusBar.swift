@@ -10,14 +10,16 @@ struct SidebarStatusBar: View {
     @Environment(AppModel.self) private var app
 
     @Binding var filter: SidebarFilter
-    /// Raised to the sidebar so the projects submenu's New workspace posts for the create window
+    /// Raised to the sidebar so the project browser's New workspace posts for the create window
     /// through the same door every other entry point uses. See `SidebarView.presentCreate`.
     var onCreateWorkspace: (Repo) -> Void = { _ in }
+    var onSelectProject: (Repo) -> Void = { _ in }
     var onStartProject: () -> Void = {}
     /// Whether the projects the owner has hidden are in the list. A preference rather than this
     /// window's state, which is why it is `@AppStorage` here and in `SidebarView` rather than a
     /// second `@State` passed down. See `ProjectVisibility.showsHiddenKey`.
     @AppStorage(ProjectVisibility.showsHiddenKey) private var showsHiddenProjects = false
+    @AppStorage(ProjectVisibility.showsEmptyKey) private var showsEmptyProjects = false
     /// Something the pane has to say about itself, for a moment, in place of the running count.
     /// The sidebar owns both the sentence and how long it lasts. See `SidebarView.move(from:to:)`.
     var note: String?
@@ -28,6 +30,7 @@ struct SidebarStatusBar: View {
     @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.fallback.rawValue
 
     @State private var isFilterHovered = false
+    @State private var showingProjectsBrowser = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,10 +47,11 @@ struct SidebarStatusBar: View {
                     SidebarFilterMenuItems(
                         filter: $filter,
                         showsHiddenProjects: $showsHiddenProjects,
+                        showsEmptyProjects: $showsEmptyProjects,
                         hiddenCount: ProjectVisibility.hiddenCount(app.repos),
                         grouping: $storedGrouping
                     )
-                    SidebarProjectsMenu(repos: app.repos, onCreateWorkspace: onCreateWorkspace)
+                    Button("Browse projects…") { showingProjectsBrowser = true }
                     // The same words the toolbar's New menu uses, so one action is not named two
                     // ways inside one pane. See `NewMenuItems`.
                     Button("New project…", action: onStartProject)
@@ -71,6 +75,19 @@ struct SidebarStatusBar: View {
                 .onHoverChange { isFilterHovered = $0 }
                 .help("Filter the sidebar")
                 .accessibilityValue(filterValue)
+                .popover(isPresented: $showingProjectsBrowser, arrowEdge: .trailing) {
+                    SidebarProjectsBrowser(
+                        repos: app.repos,
+                        onSelect: { repo in
+                            showingProjectsBrowser = false
+                            onSelectProject(repo)
+                        },
+                        onCreateWorkspace: { repo in
+                            showingProjectsBrowser = false
+                            onCreateWorkspace(repo)
+                        }
+                    )
+                }
 
             }
             .padding(.horizontal, Metrics.spacingSmall)
@@ -92,12 +109,16 @@ struct SidebarStatusBar: View {
 
     /// Whether the pane is showing what it shows when nothing has been asked of it.
     private var isDefaultView: Bool {
-        filter == .all && !showsHiddenProjects
+        filter == .all && !showsHiddenProjects && !showsEmptyProjects
     }
 
     /// Both halves of the control, in words, since the glyph can only show one of them.
     private var filterValue: String {
-        showsHiddenProjects ? "\(filter.rawValue), hidden projects showing" : filter.rawValue
+        [filter.rawValue,
+         showsHiddenProjects ? "hidden projects showing" : nil,
+         showsEmptyProjects ? "empty projects showing" : nil]
+            .compactMap { $0 }
+            .joined(separator: ", ")
     }
 
     /// A readout, so it is set as text rather than as the filled `Chip` it used to be. A pill in a

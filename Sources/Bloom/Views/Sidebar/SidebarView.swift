@@ -43,6 +43,7 @@ struct SidebarView: View {
     /// hidden project. See `ProjectVisibility.showsHiddenKey`, which the status bar's own menu
     /// binds to the same key, so the two views cannot disagree.
     @AppStorage(ProjectVisibility.showsHiddenKey) private var showsHiddenProjects = false
+    @AppStorage(ProjectVisibility.showsEmptyKey) private var showsEmptyProjects = false
 
     /// Which shape the pane is in: projects with their workspaces, or sections by what each
     /// workspace needs. A preference for the same reason hiding a project is one, and the status
@@ -65,6 +66,7 @@ struct SidebarView: View {
     /// What the list itself thinks is selected. See the `onChange` pair below for why this is not
     /// bound straight to the model.
     @State private var listSelection: SidebarSelection?
+    @State private var projectToReveal: RepoID?
     /// Whether the list's table is the first responder, and whether its window is key. Only the
     /// edge on the selection reads these; the fill is the same either way. See
     /// `SidebarKeyboardFocus`.
@@ -150,15 +152,16 @@ struct SidebarView: View {
     /// because the chain as one expression was past what the CI runner's type checker would
     /// finish in a release build: green on this Mac, red there, three times.
     private var list: some View {
-        List(selection: $listSelection) {
-            ForEach(topSections, id: \.rawValue) { section in
-                if section == .work {
-                    workSection
-                } else {
-                    conversationsSection
+        ScrollViewReader { proxy in
+            List(selection: $listSelection) {
+                ForEach(topSections, id: \.rawValue) { section in
+                    if section == .work {
+                        workSection
+                    } else {
+                        conversationsSection
+                    }
                 }
             }
-        }
         // The native list owns row height, keyboard navigation and which row is selected. How the
         // selected row is drawn is `SidebarSelectionFill`'s, on each row, for the reason given there.
         //
@@ -169,17 +172,20 @@ struct SidebarView: View {
         // rows sideways. Reaching 28 means giving up `.listStyle(.sidebar)`, and with it the
         // selection above, keyboard navigation and the standard insets. Four points is not worth
         // that. Project rows use the list's own vertical insets too.
-        .listStyle(.sidebar)
-        .animation(reduceMotion ? nil : Motion.pane, value: storedSectionOrder)
-        .confirmation($stoppingCrew) { pending in
-            Confirmation(
-                title: "Stop \(pending.name)?",
-                message: Self.crewStopMessage,
-                confirmLabel: "Stop",
-                cancelLabel: "Keep Working"
-            )
-        } onConfirm: { pending in
-            Task { await stop(pending) }
+            .listStyle(.sidebar)
+            .animation(reduceMotion ? nil : Motion.pane, value: storedSectionOrder)
+            .confirmation($stoppingCrew) { pending in
+                Confirmation(
+                    title: "Stop \(pending.name)?",
+                    message: Self.crewStopMessage,
+                    confirmLabel: "Stop",
+                    cancelLabel: "Keep Working"
+                )
+            } onConfirm: { pending in
+                Task { await stop(pending) }
+            }
+            .onChange(of: projectToReveal) { _, _ in scrollToProject(proxy) }
+            .onChange(of: paneRows.map(\.id)) { _, _ in scrollToProject(proxy) }
         }
     }
 
@@ -335,6 +341,7 @@ struct SidebarView: View {
             SidebarStatusBar(
                 filter: $filter,
                 onCreateWorkspace: { presentCreate(in: $0) },
+                onSelectProject: revealProject,
                 onStartProject: startProject,
                 note: reorderNote?.sentence
             )
@@ -414,6 +421,7 @@ struct SidebarView: View {
             regroup(rescoped: !ProjectVisibilityMotion.filterToggle(reduceMotion: reduceMotion)
                 .fadesArrivals)
         }
+        .onChange(of: showsEmptyProjects) { _, _ in reflow() }
         .onChange(of: listSelection) { _, selected in
             app.highlightSidebarSelection(selected)
             if selected == nil { listSelection = app.selection }
@@ -731,6 +739,7 @@ struct SidebarView: View {
         case .projects:
             return SidebarPaneRow.rows(
                 groups,
+                showingEmptyProjects: showsEmptyProjects,
                 crew: app.crew(of:),
                 subagents: app.subagents(of:),
                 pending: pending(in:),
@@ -760,6 +769,24 @@ struct SidebarView: View {
                 showsSubagents: subagentDisclosure.shows
             )
         }
+    }
+
+    private func revealProject(_ repo: Repo) {
+        filter = .all
+        storedGrouping = SidebarGrouping.projects.rawValue
+        if repo.hidden { showsHiddenProjects = true }
+        if !app.workspaces.contains(where: { $0.repoID == repo.id }) {
+            showsEmptyProjects = true
+        }
+        projectToReveal = repo.id
+    }
+
+    private func scrollToProject(_ proxy: ScrollViewProxy) {
+        guard let id = projectToReveal else { return }
+        let rowID = "project:" + id.rawValue
+        guard paneRows.contains(where: { $0.id == rowID }) else { return }
+        proxy.scrollTo(rowID, anchor: .center)
+        projectToReveal = nil
     }
 
     /// What one workspace amounts to, which is the same verdict its row's mark is drawn from.
@@ -943,7 +970,7 @@ struct SidebarView: View {
     // No empty state of its own. With no projects, Home in the middle of the window already says
     // so and carries the button that starts one, and a second "No projects yet" with a second
     // Start a project button in the sidebar was the same call to action printed twice on first
-    // run. The Projects heading's `+` and the status bar's projects button are still here.
+    // run. The Projects heading's `+` and the status bar's project browser are still here.
 
     // MARK: - Actions
 
