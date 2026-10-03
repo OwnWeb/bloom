@@ -136,6 +136,9 @@ struct TranscriptListView: View {
     /// owner's 2,981 row session an upward scroll grows about eight times, so that was eight
     /// rebuilds of up to 2,981 entries each, for nothing. See `GeometryBox`.
     @State private var isGrowing = GeometryBox(false)
+    /// Separates an idle preparation pass from a later scroll-triggered growth, which uses the
+    /// same `isGrowing` flag. An old pass must not resume when that later growth sets it again.
+    @State private var historyGeneration = GeometryBox(0)
     /// Whether a reader currently has the transcript's scroll view. Idle history preparation is
     /// allowed to spend main-thread time only after that gesture has ended.
     @State private var isLiveScrolling = GeometryBox(false)
@@ -1067,6 +1070,7 @@ struct TranscriptListView: View {
                 follower.isPaused = hasHold
                 isLiveScrolling.value = hasHold
                 guard hasHold else { return }
+                historyGeneration.value += 1
                 isGrowing.value = false
                 // A card that stayed up while the content moved under it would be pointing at a
                 // chip that is no longer there.
@@ -1184,6 +1188,8 @@ struct TranscriptListView: View {
             controller.releaseEnd()
             didPosition = false
             isLiveScrolling.value = false
+            historyGeneration.value += 1
+            isGrowing.value = false
             opening = nil
             scrollNavigation.pinnedQuestion = nil
             scrollNavigation.currentTurnSeq = nil
@@ -1363,6 +1369,7 @@ struct TranscriptListView: View {
             remember()
             scroller.stop()
             follower.stop()
+            historyGeneration.value += 1
             isGrowing.value = false
             return
         }
@@ -1839,12 +1846,14 @@ struct TranscriptListView: View {
               drawn.window.canGrowUp,
               !isGrowing.value
         else { return }
+        historyGeneration.value += 1
+        let generation = historyGeneration.value
         isGrowing.value = true
         drawn.window = drawn.window.grownUp()
         TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(120))
-            isGrowing.value = false
+            if historyGeneration.value == generation { isGrowing.value = false }
         }
     }
 
@@ -1866,13 +1875,17 @@ struct TranscriptListView: View {
               arrivalSession == transcript.session.id,
               drawn.window.canGrowUp
         else { return }
+        historyGeneration.value += 1
+        let generation = historyGeneration.value
         isGrowing.value = true
         Task { @MainActor in
             // `onSettled` comes from an NSTableView delegate callback. Leave that callback before
             // changing the table's rows, or AppKit correctly diagnoses a reentrant delegate pass.
             await Task.yield()
-            while isGrowing.value,
+            while historyGeneration.value == generation,
+                  isGrowing.value,
                   isVisible.value,
+                  !isLiveScrolling.value,
                   arrivalSession == transcript.session.id,
                   drawn.session == transcript.session.id,
                   let prepared = drawn.window.preparedHistory(afterArrival: true) {
@@ -1880,7 +1893,7 @@ struct TranscriptListView: View {
                 TranscriptDrawn.note(prepared.count, session: transcript.session.id)
                 try? await Task.sleep(for: .milliseconds(180))
             }
-            isGrowing.value = false
+            if historyGeneration.value == generation { isGrowing.value = false }
         }
     }
 

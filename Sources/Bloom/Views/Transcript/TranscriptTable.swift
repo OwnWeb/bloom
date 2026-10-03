@@ -357,6 +357,10 @@ struct TranscriptTable: NSViewRepresentable {
         /// table was then told that seventeen hundred estimates had changed, and the rows that had
         /// actually reported were never told again. See `noted`.
         private var owedHeights: Set<TranscriptEntryID> = []
+        /// Measurements made by idle warming just as scrolling began. A visible row's own report
+        /// may drain `owedHeights` during the gesture, so these need a separate queue until the
+        /// clip view has actually settled.
+        private var deferredWarmHeights: Set<TranscriptEntryID> = []
         private var owedWork: Task<Void, Never>?
 
         /// **A standing instruction to be at the end of the conversation.** See
@@ -1647,6 +1651,12 @@ struct TranscriptTable: NSViewRepresentable {
                 try? await Task.sleep(for: .milliseconds(150))
                 guard !Task.isCancelled, let self, !isLiveScrolling else { return }
                 settleWork = nil
+                // A warm pass interrupted by a scroll can leave measured heights that the table
+                // has not heard yet. Apply those after movement stops, not under the reader's
+                // hand. Visible rows still report and correct their own heights during a gesture.
+                owedHeights.formUnion(deferredWarmHeights)
+                deferredWarmHeights.removeAll()
+                drainOwedHeights()
                 if isSettlingResizeAtEnd {
                     putEnd()
                     reportGeometry()
@@ -1707,7 +1717,7 @@ struct TranscriptTable: NSViewRepresentable {
         /// under them has already happened while nothing was moving.
         private func warmTheRowsAbove() async {
             guard let tableView, let scrollView, heights.isReady,
-                  let sizing = heights.measure else { return }
+                  let sizing = heights.measure, let warmingSession = shownSession else { return }
             let visible = scrollView.contentView.documentVisibleRect
             guard visible.minY > 1 else { return }
             let found = tableView.rows(in: CGRect(x: 0, y: 0, width: 1, height: visible.minY))
@@ -1735,7 +1745,8 @@ struct TranscriptTable: NSViewRepresentable {
                 var moved = IndexSet()
                 var movedIDs: Set<TranscriptEntryID> = []
                 for row in rows {
-                    guard !Task.isCancelled, !isLiveScrolling else { break }
+                    guard !Task.isCancelled, !isLiveScrolling,
+                          shownSession == warmingSession else { break }
                     guard entries.indices.contains(row) else { break }
                     let entry = entries[row]
                     let taken = heights.note(
@@ -1749,12 +1760,11 @@ struct TranscriptTable: NSViewRepresentable {
                     }
                     await Task.yield()
                 }
-                guard !moved.isEmpty else { return }
+                guard !moved.isEmpty, shownSession == warmingSession else { return }
                 // A gesture can begin after the final yield. Keep what was measured, but defer
                 // the table correction so preparation never moves the document under a hand.
                 if Task.isCancelled || isLiveScrolling {
-                    owedHeights.formUnion(movedIDs)
-                    drainOwedHeights()
+                    deferredWarmHeights.formUnion(movedIDs)
                     return
                 }
                 let wasAtEnd = isFollowingAlong
@@ -1903,6 +1913,12 @@ struct TranscriptTable: NSViewRepresentable {
             holdView = view
             guard shownSession != session else { return }
             shownSession = session
+            // Entry ids repeat across conversations. A correction queued for the one being left
+            // must not be resolved against the new conversation's rows after the switch.
+            owedWork?.cancel()
+            owedWork = nil
+            owedHeights.removeAll()
+            deferredWarmHeights.removeAll()
             viewportWork?.cancel()
             viewportWork = nil
             viewportPlace = nil
