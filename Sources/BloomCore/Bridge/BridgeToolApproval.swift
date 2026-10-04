@@ -223,8 +223,9 @@ public enum BridgeToolApproval {
         // The projects Bloom has, read from its own database. It changes nothing, and it is the
         // call a workspace agent makes before naming another project to `workspace_start`, so an
         // ask here would hang the turn that is about to hand work on, with nothing for a person
-        // to weigh: the names are the owner's own sidebar. `project_add` and `project_hide` stay
-        // off the list and off the workspace role, because they change that sidebar.
+        // to weigh: the names are the owner's own sidebar. `project_add` is offered to a
+        // workspace agent but stays off this list because it changes that sidebar.
+        // `project_hide` and `project_unhide` also stay off the workspace role.
         "project_list",
         "workspace_list",
     ]

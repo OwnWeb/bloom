@@ -18,12 +18,12 @@ import Foundation
 /// talking to a client, which is `agentSentence` instead of `sentence` and a JSON answer instead
 /// of a window.
 ///
-/// Owner only. A workspace agent works in the project it was started in, and a tool that let it
-/// register another one would let it widen its own reach without anybody deciding to.
+/// A workspace agent may register an existing repository when the owner asks it to set up work
+/// there. This changes Bloom's sidebar, so Bloom does not self-approve its permission question.
 public struct ProjectAddTool: BridgeToolHandling {
     public init() {}
 
-    public let roles: Set<BridgeRole> = [.owner]
+    public let roles: Set<BridgeRole> = [.workspace, .owner]
 
     public let tool = BridgeTool(
         name: "project_add",
