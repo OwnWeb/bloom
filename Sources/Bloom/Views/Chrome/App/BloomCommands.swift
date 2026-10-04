@@ -227,6 +227,11 @@ struct BloomCommands: Commands {
             MenuCommand(.startProject) {
                 NotificationCenter.default.post(name: .bloomNewProject, object: nil)
             }
+
+            Divider()
+
+            MenuCommand(.openWebClient) { model.openLocalWebInBrowser() }
+                .disabled(!model.localWebEnabled || model.localWebAddress == nil)
         }
 
         // The item this file used to say did not exist. Two views bind Cmd+S (the project settings

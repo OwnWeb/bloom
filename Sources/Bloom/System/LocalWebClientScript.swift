@@ -8,7 +8,7 @@ enum LocalWebClientScript {
         let token = sessionStorage.getItem('bloom-access') || '';
         let workspace = null, chat = null, lastSeq = null, earliestSeq = null, poll = null, fetching = false;
         let projectRows = [], workspaceRows = [];
-        const shown = new Set(), tools = new Map(), permissions = new Map(), history = new Map();
+        const shown = new Set(), tools = new Map(), permissions = new Map(), messageHistory = new Map();
 
         async function api(path, options = {}) {
           const response = await fetch(path, {
@@ -103,7 +103,7 @@ enum LocalWebClientScript {
           $('inspector').classList.remove('requested'); $('toggle-inspector').hidden = false;
           sessionStorage.setItem('bloom-workspace', row.id); sessionStorage.removeItem('bloom-conversation');
           $('new-chat').hidden = false;
-          shown.clear(); tools.clear(); permissions.clear(); history.clear(); clearInterval(poll); poll = null;
+          shown.clear(); tools.clear(); permissions.clear(); messageHistory.clear(); clearInterval(poll); poll = null;
           $('title').textContent = row.name; $('subtitle').textContent = `${row.project} · ${row.branch}`;
           $('messages').replaceChildren(); $('prompt').disabled = true; $('send').disabled = true;
           document.querySelectorAll('.workspace').forEach(button => {
@@ -130,7 +130,7 @@ enum LocalWebClientScript {
           collapseSidebar();
           sessionStorage.setItem('bloom-conversation', entry.id); sessionStorage.removeItem('bloom-workspace');
           $('new-chat').hidden = true;
-          shown.clear(); tools.clear(); permissions.clear(); history.clear(); clearInterval(poll); poll = null;
+          shown.clear(); tools.clear(); permissions.clear(); messageHistory.clear(); clearInterval(poll); poll = null;
           $('chats').replaceChildren();
           $('chats').hidden = true;
           $('inspector').classList.remove('open', 'requested'); $('toggle-inspector').hidden = true;
@@ -144,7 +144,7 @@ enum LocalWebClientScript {
         async function selectChat(entry) {
           chat = entry.id; lastSeq = null; earliestSeq = null;
           if (workspace) sessionStorage.setItem('bloom-chat', entry.id);
-          shown.clear(); tools.clear(); permissions.clear(); history.clear(); clearInterval(poll);
+          shown.clear(); tools.clear(); permissions.clear(); messageHistory.clear(); clearInterval(poll);
           $('title').textContent = entry.title; $('subtitle').textContent = `${entry.agent} · ${entry.state}`;
           $('messages').replaceChildren(earlierButton()); $('prompt').disabled = false; $('send').disabled = false;
           $('chat-settings').textContent = [entry.model || entry.agent, entry.effort].filter(Boolean).join(' · ');
@@ -386,11 +386,11 @@ enum LocalWebClientScript {
             const data = await api(`/api/chats/${encodeURIComponent(current)}/messages?before=${earliestSeq}`);
             if (chat !== current) return;
             if (data.schemaVersion !== 1) throw Error('Bloom was updated. Reload this page.');
-            data.messages.forEach(row => history.set(row.seq, row));
+            data.messages.forEach(row => messageHistory.set(row.seq, row));
             earliestSeq = data.firstSeq; button.hidden = !data.hasMoreEarlier;
             shown.clear(); tools.clear(); permissions.clear();
             pane.replaceChildren(button);
-            Array.from(history.values()).sort((a, b) => a.seq - b.seq).forEach(row => appendMessage(row));
+            Array.from(messageHistory.values()).sort((a, b) => a.seq - b.seq).forEach(row => appendMessage(row));
             updateDecisions(data.decisions);
             pane.scrollTop = oldTop + pane.scrollHeight - oldHeight;
           } finally { button.disabled = false; fetching = false; }
@@ -408,7 +408,7 @@ enum LocalWebClientScript {
             const pane = $('messages');
             const follow = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 100;
             $('streaming')?.remove();
-            data.messages.forEach(row => { history.set(row.seq, row); appendMessage(row); });
+            data.messages.forEach(row => { messageHistory.set(row.seq, row); appendMessage(row); });
             if (initial) {
               earliestSeq = data.firstSeq;
               $('load-earlier').hidden = !data.hasMoreEarlier;
@@ -508,7 +508,21 @@ enum LocalWebClientScript {
           catch(error) { $('login-error').textContent = error.message; }
         });
 
-        if (token) loadWorkspaces().then(() => { $('login').hidden = true; })
+        const connectTicket = new URLSearchParams(window.location.hash.slice(1)).get('connect');
+        if (connectTicket) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          fetch('/api/connect', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ticket:connectTicket}), cache:'no-store'
+          }).then(async response => {
+            if (!response.ok) throw Error(await response.text());
+            return response.json();
+          }).then(async result => {
+            token = result.token;
+            sessionStorage.setItem('bloom-access', token);
+            await loadWorkspaces(); $('login').hidden = true;
+          }).catch(error => { $('login-error').textContent = error.message; });
+        } else if (token) loadWorkspaces().then(() => { $('login').hidden = true; })
           .catch(error => { $('login-error').textContent = error.message; });
         """#
 }

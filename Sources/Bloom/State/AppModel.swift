@@ -60,6 +60,7 @@ final class AppModel {
     var localWebAddress: String?
     var localWebToken: String?
     var localWebError: String?
+    @ObservationIgnored var localWebConnectTicket: (value: String, expiresAt: Date)?
 
     private(set) var repos: [Repo] = []
     private(set) var workspaces: [Workspace] = [] {

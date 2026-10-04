@@ -2,6 +2,8 @@
 
 Bloom Dev's browser client is another view of the running Mac app. The Mac process owns the store, worktrees, agents, and permissions.
 
+Use **File > Open Bloom in Browser** or the button in Settings > Browser Access on this Mac. Bloom opens the current port with a one-use link, exchanges it for the current access code, and removes the link from the browser address bar. The manual address and code remain in Settings for other browsers.
+
 ## Shared decisions
 
 | Behaviour | Source used by both clients |
@@ -19,6 +21,6 @@ Keep new provider parsing and state rules in BloomCore. The HTTP routes should v
 
 ## Parity check for changes
 
-When a Mac change affects the sidebar, transcript, composer, or inspector, check the browser at desktop and phone widths. Verify project creation, workspace creation, chat creation, standalone conversations, prompts, file references, and changed files. Add a BloomCore projection test for each new transcript row or reference type. CI checks the embedded browser JavaScript with `node --check`. The app must also pass `make build`, `make lint`, and `make swiftlint`.
+When a Mac change affects the sidebar, transcript, composer, or inspector, check the browser at desktop and phone widths. Verify project creation, workspace creation, chat creation, standalone conversations, prompts, file references, and changed files. Add a BloomCore projection test for each new transcript row or reference type. CI parses the embedded browser JavaScript and checks the one-use connection flow. The app must also pass `make build`, `make lint`, and `make swiftlint`.
 
 The browser currently previews text and common image files, shows changed file summaries, and answers ordinary permission requests once or denies them. The Mac app still has richer native diff review, attachment staging, plan and question responses, terminal panes, and browser panes. Those should be added through shared commands or client models before claiming full feature parity.

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import BloomCore
 
@@ -15,6 +16,7 @@ extension AppModel {
             localWebServer = nil
             localWebAddress = nil
             localWebToken = nil
+            localWebConnectTicket = nil
             localWebError = nil
         }
     }
@@ -22,6 +24,7 @@ extension AppModel {
     func startLocalWebIfEnabled() {
         guard isLoaded, localWebEnabled, localWebServer == nil, store != nil else { return }
         localWebError = nil
+        localWebConnectTicket = nil
         let token = BridgeRegistry.randomToken()
         do {
             let server = try LocalWebServer(
@@ -51,6 +54,22 @@ extension AppModel {
         }
     }
 
+    /// A short-lived link for a browser opened on this Mac. The URL carries only a one-use ticket;
+    /// the long-lived access code is returned to that page after the ticket is consumed.
+    func localWebBrowserURL() -> URL? {
+        guard localWebEnabled, let address = localWebAddress,
+              var components = URLComponents(string: address) else { return nil }
+        let ticket = BridgeRegistry.randomToken()
+        localWebConnectTicket = (ticket, Date().addingTimeInterval(60))
+        components.fragment = "connect=\(ticket)"
+        return components.url
+    }
+
+    func openLocalWebInBrowser() {
+        guard let url = localWebBrowserURL() else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     private func localWebResponse(to request: LocalWebServer.Request, token: String) async -> LocalWebServer.Response {
         guard localWebEnabled, localWebToken == token else { return .text(503, "Browser access is off") }
         if request.method == "GET", request.path == "/" {
@@ -62,6 +81,15 @@ extension AppModel {
                     + "connect-src 'self'; style-src 'unsafe-inline'; img-src data:; "
                     + "base-uri 'none'; form-action 'self'"
             )
+        }
+        if request.method == "POST", request.path == "/api/connect" {
+            guard let input: WebConnectRequest = decode(request),
+                  let pending = localWebConnectTicket,
+                  pending.value == input.ticket, pending.expiresAt > Date() else {
+                return .text(401, "This browser link has expired. Open it again from Bloom Settings")
+            }
+            localWebConnectTicket = nil
+            return json(WebConnectResponse(token: token))
         }
         guard request.headers["authorization"] == "Bearer \(token)" else {
             return .text(401, "Enter the access code from Bloom Settings")
@@ -323,6 +351,9 @@ private struct WebProject: Encodable {
     let branch: String
     let accent: String
 }
+
+private struct WebConnectRequest: Decodable { let ticket: String }
+private struct WebConnectResponse: Encodable { let token: String }
 
 private struct WebProjectRequest: Decodable {
     let path: String?

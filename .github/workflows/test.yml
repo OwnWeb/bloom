@@ -108,14 +108,7 @@ jobs:
         run: ./Tools/house-rules.sh
 
       - name: Check the browser client script
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          source = Path('Sources/Bloom/System/LocalWebClientScript.swift').read_text()
-          script = source.split('= #"""', 1)[1].rsplit('"""#', 1)[0]
-          Path('/tmp/bloom-local-web-client.js').write_text(script)
-          PY
-          node --check /tmp/bloom-local-web-client.js
+        run: node Tools/check-local-web-client.mjs
 
       # And the rules that are the language's rather than ours, which is the other half.
       # `.swiftlint.yml` is tuned rather than default: the head of that file has the counts every

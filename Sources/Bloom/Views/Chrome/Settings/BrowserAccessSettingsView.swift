@@ -20,26 +20,33 @@ struct BrowserAccessSettingsView: View {
             } header: {
                 Text("This Mac")
             } footer: {
-                Text("Bloom runs the browser service on this Mac and creates a new access code each time it starts.")
+                Text("Bloom runs the browser service on this Mac. Open it here without entering an address or code.")
                     .settingsFootnote()
             }
 
             if app.localWebEnabled {
                 Section("Connect") {
                     if let address = app.localWebAddress, let token = app.localWebToken {
-                        SettingsRow("Address") {
-                            HStack {
-                                Text(address).font(Typo.codeSmall).textSelection(.enabled)
-                                Spacer()
-                                Button("Copy Address") { copy(address) }
-                            }
+                        Button("Open in Browser") {
+                            app.openLocalWebInBrowser()
                         }
-                        SettingsRow("Access code") {
-                            HStack {
-                                Text("Required to read or send messages")
-                                    .settingsFootnote()
-                                Spacer()
-                                Button("Copy Code") { copy(token) }
+                        .buttonStyle(.borderedProminent)
+
+                        DisclosureGroup("Manual connection") {
+                            SettingsRow("Address") {
+                                HStack {
+                                    Text(address).font(Typo.codeSmall).textSelection(.enabled)
+                                    Spacer()
+                                    Button("Copy Address") { copy(address) }
+                                }
+                            }
+                            SettingsRow("Access code") {
+                                HStack {
+                                    Text("Required when opening the address manually")
+                                        .settingsFootnote()
+                                    Spacer()
+                                    Button("Copy Code") { copy(token) }
+                                }
                             }
                         }
                     } else if let error = app.localWebError {
