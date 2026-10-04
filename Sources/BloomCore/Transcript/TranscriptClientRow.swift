@@ -6,6 +6,17 @@ import Foundation
 /// Rows are projected only for the requested page. A long transcript remains in the store until
 /// a client asks for its rows, just as the Mac table decodes only what is on screen.
 public struct TranscriptClientRow: Encodable, Sendable {
+    public struct FileReference: Encodable, Sendable {
+        public let label: String
+        public let path: String
+        public let line: Int
+
+        public init(label: String, path: String, line: Int = 1) {
+            self.label = label
+            self.path = path
+            self.line = line
+        }
+    }
     public enum Kind: String, Encodable, Sendable {
         case user
         case assistant
@@ -29,17 +40,19 @@ public struct TranscriptClientRow: Encodable, Sendable {
     public let html: String?
     public let detail: String
     public let chips: [String]
+    public let files: [FileReference]
     public let tint: String
     public let refID: String?
     public let parentToolUseID: String?
     public let requestID: String?
     public let isError: Bool
+    public let canAnswer: Bool
 
     private init(
         seq: Int, kind: Kind, title: String = "", text: String = "", html: String? = nil,
-        detail: String = "", chips: [String] = [], tint: String = "neutral",
+        detail: String = "", chips: [String] = [], files: [FileReference] = [], tint: String = "neutral",
         refID: String? = nil, parentToolUseID: String? = nil, requestID: String? = nil,
-        isError: Bool = false
+        isError: Bool = false, canAnswer: Bool = false
     ) {
         self.seq = seq
         self.kind = kind
@@ -48,11 +61,13 @@ public struct TranscriptClientRow: Encodable, Sendable {
         self.html = html
         self.detail = detail
         self.chips = chips
+        self.files = files
         self.tint = tint
         self.refID = refID
         self.parentToolUseID = parentToolUseID
         self.requestID = requestID
         self.isError = isError
+        self.canAnswer = canAnswer
     }
 
     public static func present(_ message: Message, worktree: String = "") -> Self? {
@@ -65,7 +80,11 @@ public struct TranscriptClientRow: Encodable, Sendable {
             if let review = ReviewTurn.split(typed) {
                 return Self(
                     seq: seq, kind: .user, text: review.message,
-                    chips: review.chips.map(\.label)
+                    chips: review.chips.map(\.label),
+                    files: review.chips.compactMap { chip in
+                        guard let path = FileChipTarget.resolve(chip.filePath, in: worktree).opens else { return nil }
+                        return FileReference(label: chip.label, path: path, line: chip.line)
+                    }
                 )
             }
             let turn = AttachmentTrailer.split(typed)
@@ -75,13 +94,18 @@ public struct TranscriptClientRow: Encodable, Sendable {
             }
             return Self(
                 seq: seq, kind: .user, text: SentTurn.withoutInstructions(turn.body),
-                chips: turn.paths.map { ($0 as NSString).lastPathComponent } + instructions
+                chips: turn.paths.map { ($0 as NSString).lastPathComponent } + instructions,
+                files: turn.paths.compactMap { path in
+                    guard let relative = FileChipTarget.resolve(path, in: worktree).opens else { return nil }
+                    return FileReference(label: (path as NSString).lastPathComponent, path: relative)
+                }
             )
         case .assistantText:
             guard case .assistantText(let block)? = event, !block.text.isEmpty else { return nil }
             return Self(
                 seq: seq, kind: .assistant, text: block.text,
                 html: MarkdownHTML.render(block.text, imagesAsAltText: true).html,
+                files: references(in: block.text, worktree: worktree),
                 parentToolUseID: block.parentToolUseID
             )
         case .thinking:
@@ -99,7 +123,12 @@ public struct TranscriptClientRow: Encodable, Sendable {
             return Self(
                 seq: seq, kind: .tool, title: presentation.label,
                 detail: presentation.detailLine,
-                chips: presentation.chips.map(\.text), tint: presentation.tint.rawValue,
+                chips: presentation.chips.map(\.text),
+                files: presentation.chips.compactMap { chip in
+                    guard case .file(let path) = chip,
+                          let relative = FileChipTarget.resolve(path, in: worktree).opens else { return nil }
+                    return FileReference(label: chip.text, path: relative)
+                }, tint: presentation.tint.rawValue,
                 refID: use.id, parentToolUseID: use.parentToolUseID
             )
         case .toolResult:
@@ -115,7 +144,7 @@ public struct TranscriptClientRow: Encodable, Sendable {
                 seq: seq, kind: .permission, title: ask.label,
                 text: ask.summary.isEmpty ? ask.reason : ask.summary,
                 detail: ask.reason, tint: "warning", refID: ask.toolUseID,
-                requestID: ask.requestID
+                requestID: ask.requestID, canAnswer: !ask.isQuestion && !ask.isPlanApproval
             )
         case .error:
             let exit = AgentExit.read(JSONValue.parse(message.payload))
@@ -144,5 +173,52 @@ public struct TranscriptClientRow: Encodable, Sendable {
                 return nil
             }
         }
+    }
+
+    private static func references(in text: String, worktree: String) -> [FileReference] {
+        func reference(_ url: URL?, label: String) -> FileReference? {
+            guard let url, let location = SourceReference.location(url),
+                  let path = FileChipTarget.resolve(location.path, in: worktree).opens else { return nil }
+            return FileReference(label: label, path: path, line: location.line)
+        }
+        func inline(_ values: [MarkdownInline]) -> [FileReference] {
+            values.flatMap { value -> [FileReference] in
+                switch value {
+                case .text(let value):
+                    return SourceReference.links(in: value).compactMap { range, url in
+                        reference(url, label: (value as NSString).substring(with: range))
+                    }
+                case .code(let value):
+                    return reference(SourceReference.url(value), label: value).map { [$0] } ?? []
+                case .link(let children, let address):
+                    let label = children.map { child -> String in
+                        switch child {
+                        case .text(let text), .code(let text): text
+                        default: ""
+                        }
+                    }.joined()
+                    return reference(SourceReference.url(address), label: label).map { [$0] } ?? inline(children)
+                case .image(let alt, let address):
+                    return reference(SourceReference.url(address), label: alt).map { [$0] } ?? []
+                case .emphasis(let children), .strong(let children), .strikethrough(let children):
+                    return inline(children)
+                case .lineBreak: return []
+                }
+            }
+        }
+        func blocks(_ values: [MarkdownBlock]) -> [FileReference] {
+            values.flatMap { block -> [FileReference] in
+                switch block {
+                case .paragraph(let values), .heading(_, let values): return inline(values)
+                case .bulletList(let items, _), .numberedList(_, let items, _): return items.flatMap(blocks)
+                case .taskList(let items): return items.flatMap { inline($0.inline) }
+                case .blockQuote(let values): return blocks(values)
+                case .table(let headers, let rows, _):
+                    return headers.flatMap(inline) + rows.flatMap { $0.flatMap(inline) }
+                case .codeBlock, .thematicBreak: return []
+                }
+            }
+        }
+        return blocks(MarkdownParser.parse(text))
     }
 }

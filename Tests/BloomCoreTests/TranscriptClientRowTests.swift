@@ -38,9 +38,32 @@ struct TranscriptClientRowTests {
         #expect(callRow?.title == "Read")
         #expect(callRow?.detail.contains("notes.md") == true)
         #expect(callRow?.refID == "toolu_1")
+        #expect(callRow?.files.first?.path == "notes.md")
         #expect(resultRow?.kind == .toolResult)
         #expect(resultRow?.refID == "toolu_1")
         #expect(resultRow?.text == "<ok>")
+    }
+
+    @Test("source references use the Mac transcript's path resolver")
+    func sourceReferences() {
+        let stored = message(
+            .assistantText,
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"See Sources/Bloom/App.swift:42 and /outside/secret.swift:3"}]}}"#
+        )
+        let row = TranscriptClientRow.present(stored, worktree: "/repo")
+        #expect(row?.files.map(\.path) == ["Sources/Bloom/App.swift"])
+        #expect(row?.files.first?.line == 42)
+    }
+
+    @Test("inline code and Markdown links expose files through the shared source rule")
+    func markdownFiles() {
+        let stored = message(
+            .assistantText,
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"Open `Sources/Bloom/App.swift` or [the parser](Sources/BloomCore/Transcript/MarkdownParser.swift#L11)."}]}}"#
+        )
+        let row = TranscriptClientRow.present(stored, worktree: "/repo")
+        #expect(row?.files.map(\.path) == ["Sources/Bloom/App.swift", "Sources/BloomCore/Transcript/MarkdownParser.swift"])
+        #expect(row?.files.last?.line == 11)
     }
 
     @Test("the browser sees attachment chips without their scratch paths in the bubble")
