@@ -1939,6 +1939,10 @@ final class TranscriptModel {
                 statusLabel = isRunning ? "Working" : nil
             }
             await refreshSession()
+            // An answer releases the question hold. Claude Code and Codex can receive the
+            // messages queued behind it during the same turn, so this is a queue trigger too.
+            // The runner emits this only after writing the answer to the provider.
+            if !isAwaitingPermission { await drain() }
 
         case .rateLimit(let raw):
             // Both backends converge on this one event, and until now it landed here and stopped.
