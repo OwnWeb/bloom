@@ -100,6 +100,7 @@ enum LocalWebClientScript {
         async function selectWorkspace(row, preferredChat = null) {
           workspace = row.id; chat = null; lastSeq = null; earliestSeq = null;
           collapseSidebar();
+          $('inspector').classList.remove('requested'); $('toggle-inspector').hidden = false;
           sessionStorage.setItem('bloom-workspace', row.id); sessionStorage.removeItem('bloom-conversation');
           $('new-chat').hidden = false;
           shown.clear(); tools.clear(); permissions.clear(); history.clear(); clearInterval(poll); poll = null;
@@ -132,7 +133,7 @@ enum LocalWebClientScript {
           shown.clear(); tools.clear(); permissions.clear(); history.clear(); clearInterval(poll); poll = null;
           $('chats').replaceChildren();
           $('chats').hidden = true;
-          $('inspector').classList.remove('open');
+          $('inspector').classList.remove('open', 'requested'); $('toggle-inspector').hidden = true;
           document.querySelectorAll('.workspace').forEach(button => button.classList.remove('selected'));
           document.querySelectorAll('.conversation').forEach(button => {
             button.classList.toggle('selected', button.dataset.conversation === entry.id);
@@ -200,7 +201,7 @@ enum LocalWebClientScript {
 
         async function openFile(file) {
           if (!workspace) return;
-          $('inspector').classList.add('open'); $('file-title').textContent = file.path;
+          $('inspector').classList.add('open', 'requested'); $('file-title').textContent = file.path;
           $('file-content').textContent = 'Loading file…';
           try {
             const result = await api(`/api/workspaces/${encodeURIComponent(workspace)}/files?path=${encodeURIComponent(file.path)}`);
@@ -452,6 +453,12 @@ enum LocalWebClientScript {
         });
         $('add-project').addEventListener('click', () => showCreate('addProject'));
         $('new-chat').addEventListener('click', () => { if (workspace) showCreate('chat'); });
+        $('toggle-inspector').addEventListener('click', () => {
+          const inspector = $('inspector');
+          if (inspector.classList.contains('requested') || window.innerWidth > 700 && inspector.classList.contains('open')) {
+            inspector.classList.remove('open', 'requested');
+          } else { inspector.classList.add('open', 'requested'); }
+        });
         $('new-conversation').addEventListener('click', async () => {
           try {
             const entry = await api('/api/conversations', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
@@ -459,7 +466,7 @@ enum LocalWebClientScript {
           } catch(error) { showError(error); }
         });
         $('cancel-create').addEventListener('click', () => $('create-dialog').close());
-        $('close-file').addEventListener('click', () => $('inspector').classList.remove('open'));
+        $('close-file').addEventListener('click', () => $('inspector').classList.remove('open', 'requested'));
         $('create-form').addEventListener('submit', async event => {
           event.preventDefault();
           const values = Object.fromEntries(new FormData(event.currentTarget));

@@ -27,6 +27,7 @@ enum LocalWebPage {
               <header class="top">
                 <div><h1 id="title">Choose a workspace</h1><p id="subtitle">Work stays on the host Mac</p></div>
                 <button id="new-chat" type="button" title="New chat in this workspace">＋</button>
+                <button id="toggle-inspector" type="button" title="Show changed files" aria-label="Show changed files">▥</button>
                 <span class="status" id="status">Local</span>
               </header>
               <nav class="tabs" id="chats" aria-label="Workspace chats"></nav>
