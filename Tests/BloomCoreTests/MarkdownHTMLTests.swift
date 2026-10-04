@@ -31,6 +31,14 @@ struct MarkdownHTMLTests {
         #expect(html.contains("<img src=\"diagrams/flow.png\" alt=\"The flow\">"))
     }
 
+    @Test("transcript images draw alternative text without fetching a URL")
+    func transcriptImage() {
+        let html = MarkdownHTML.render("![The flow](https://example.com/image.png)", imagesAsAltText: true).html
+        #expect(html.contains("The flow"))
+        #expect(!html.contains("<img"))
+        #expect(!html.contains("example.com"))
+    }
+
     @Test("a Mermaid fence becomes a diagram and says the page needs the script")
     func mermaid() {
         let rendered = MarkdownHTML.render("```mermaid\ngraph TD\n  A --> B\n```")

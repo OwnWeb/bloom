@@ -37,7 +37,7 @@ struct SettingsView: View {
                     navigationRows([.agents, .sessions, .presets, .permissions, .prompts])
                 }
                 Section("Terminal & connections") {
-                    navigationRows([.terminal, .commandLine])
+                    navigationRows([.terminal, .browserAccess, .commandLine])
                 }
             }
             .listStyle(.sidebar)
@@ -126,6 +126,7 @@ struct SettingsView: View {
         case .permissions: ApprovalSettingsView(defaults: defaultsBinding, isReady: isLoaded)
         case .prompts: PromptSettingsView()
         case .terminal: TerminalSettingsView()
+        case .browserAccess: BrowserAccessSettingsView()
         case .commandLine: CommandLineSettingsView()
         }
     }

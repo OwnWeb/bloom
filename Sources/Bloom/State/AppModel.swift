@@ -54,6 +54,13 @@ final class AppModel {
     /// start one.
     @ObservationIgnored private(set) var bridge: BridgeServer?
 
+    /// Optional browser access is local to this app instance and disabled until explicitly enabled.
+    @ObservationIgnored var localWebServer: LocalWebServer?
+    var localWebEnabled = UserDefaults.standard.bool(forKey: "localWeb.enabled")
+    var localWebAddress: String?
+    var localWebToken: String?
+    var localWebError: String?
+
     private(set) var repos: [Repo] = []
     private(set) var workspaces: [Workspace] = [] {
         didSet { updateInspectorPresentation() }
@@ -592,6 +599,7 @@ final class AppModel {
             // jumps to the workspace.
             restoreLastSelection()
             isLoaded = true
+            startLocalWebIfEnabled()
             let blocking = Int(Date().timeIntervalSince(began) * 1000)
             Log.launch.info("window usable after \(blocking, privacy: .public)ms")
             Log.launchStep("loaded")
@@ -727,6 +735,8 @@ final class AppModel {
         // held in memory precisely so nothing outlives the launch that minted it.
         bridge?.stop()
         bridge = nil
+        localWebServer?.stop()
+        localWebServer = nil
 
         let models = Array(workspaceModels.values)
         // Signal every agent first, so the SIGTERM escalations all run at the same time rather than
