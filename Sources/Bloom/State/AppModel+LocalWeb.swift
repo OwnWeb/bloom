@@ -326,6 +326,16 @@ extension AppModel {
                     )
                 })
             }
+            if parts.count == 4, parts[0] == "api", parts[1] == "chats", parts[3] == "composer" {
+                return await localWebComposerResponse(request, sessionID: SessionID(parts[2]), store: store)
+            }
+            if parts.count == 4, parts[0] == "api", parts[1] == "chats", parts[3] == "quick-prompts" {
+                return await localWebQuickPromptsResponse(request, sessionID: SessionID(parts[2]), store: store)
+            }
+            if request.method == "POST", parts.count == 4, parts[0] == "api",
+               parts[1] == "chats", parts[3] == "side-question" {
+                return await localWebSideQuestionResponse(request, sessionID: SessionID(parts[2]), store: store)
+            }
             if parts.count == 4, parts[0] == "api", parts[1] == "chats", parts[3] == "messages" {
                 let sessionID = SessionID(parts[2])
                 guard let session = try await store.session(id: sessionID),
@@ -383,6 +393,9 @@ extension AppModel {
                           let prompt = try? JSONDecoder().decode(WebPrompt.self, from: request.body),
                           !prompt.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                           prompt.text.count <= 32_000 else { return .text(400, "Enter a prompt up to 32,000 characters") }
+                    if let question = SideConversation.question(in: prompt.text) {
+                        return await localWebSideQuestion(question, sessionID: sessionID, store: store)
+                    }
                     let sent: Bool
                     if let workspace {
                         let model = model(for: workspace)

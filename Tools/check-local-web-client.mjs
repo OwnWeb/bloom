@@ -13,7 +13,8 @@ const context = createContext({
   URLSearchParams,
   document: {
     documentElement: { dataset: { devBrowser: 'false' } },
-    getElementById: () => ({ addEventListener() {} })
+    getElementById: () => ({ addEventListener() {} }),
+    querySelectorAll: () => []
   },
   sessionStorage: { getItem: () => '', removeItem() {} },
   window: {
@@ -44,7 +45,8 @@ const devContext = createContext({
   URLSearchParams,
   document: {
     documentElement: { dataset: { devBrowser: 'true' } },
-    getElementById: () => ({ addEventListener() {} })
+    getElementById: () => ({ addEventListener() {} }),
+    querySelectorAll: () => []
   },
   sessionStorage: { getItem: () => '', removeItem() {} },
   window: {
@@ -63,11 +65,26 @@ await new Promise(resolve => setImmediate(resolve));
 assert.ok(connectedDev, 'Bloom Dev did not start its local browser connection');
 
 const productionLogin = { hidden: true, addEventListener() {} };
+let composerKeydown;
+let composerSubmits = 0;
+const productionPrompt = {
+  addEventListener(name, listener) { if (name === 'keydown') composerKeydown = listener; }
+};
+const productionComposer = {
+  addEventListener() {},
+  requestSubmit() { composerSubmits += 1; }
+};
 const productionContext = createContext({
   URLSearchParams,
   document: {
     documentElement: { dataset: { devBrowser: 'false' } },
-    getElementById: id => id === 'login' ? productionLogin : { addEventListener() {} }
+    getElementById(id) {
+      if (id === 'login') return productionLogin;
+      if (id === 'prompt') return productionPrompt;
+      if (id === 'compose') return productionComposer;
+      return { addEventListener() {} };
+    },
+    querySelectorAll: () => []
   },
   sessionStorage: { getItem: () => '', removeItem() {} },
   window: {
@@ -78,3 +95,16 @@ const productionContext = createContext({
 });
 script.runInContext(productionContext);
 assert.equal(productionLogin.hidden, false, 'The regular app skipped its access-code screen');
+assert.ok(composerKeydown, 'The browser composer has no keyboard handler');
+let prevented = false;
+composerKeydown({ key: 'Enter', shiftKey: true, isComposing: false,
+  preventDefault() { prevented = true; } });
+assert.equal(composerSubmits, 0, 'Shift+Enter submitted instead of inserting a newline');
+assert.equal(prevented, false, 'Shift+Enter blocked the browser newline');
+composerKeydown({ key: 'Enter', shiftKey: false, isComposing: false, repeat: false,
+  preventDefault() { prevented = true; } });
+assert.equal(composerSubmits, 1, 'Enter did not submit the composer');
+assert.equal(prevented, true, 'Enter inserted a newline while submitting');
+composerKeydown({ key: 'Enter', shiftKey: false, isComposing: true, repeat: false,
+  preventDefault() { throw new Error('IME composition was interrupted'); } });
+assert.equal(composerSubmits, 1, 'IME composition submitted a prompt');

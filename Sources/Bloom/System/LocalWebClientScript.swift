@@ -15,7 +15,8 @@ enum LocalWebClientScript {
         const uploadsByChat = new Map(
           JSON.parse(sessionStorage.getItem('bloom-uploads') || '[]').map(([id, entries]) => [id, new Map(entries)])
         );
-        let uploading = 0;
+        let uploading = 0, sending = false, quickApplying = false;
+        let composerState = null, quickPromptRows = [];
 
         function saveComposer() {
           sessionStorage.setItem('bloom-drafts', JSON.stringify([...drafts]));
@@ -108,7 +109,7 @@ enum LocalWebClientScript {
           finally {
             uploading -= 1; $('hint').textContent = '';
             $('attach-file').disabled = !chat || uploading > 0;
-            $('send').disabled = !chat || uploading > 0;
+            $('send').disabled = !chat || uploading > 0 || sending;
           }
         }
 
@@ -126,6 +127,176 @@ enum LocalWebClientScript {
             }
             saveComposer();
           } catch(error) { showError(error); }
+        }
+
+        function composerLabel(state) {
+          const model = state.models.flatMap(section => section.options).find(item => item.value === state.model);
+          const effort = state.efforts.find(item => item.value === state.effort);
+          return `${model?.label || state.model} · ${effort?.label || state.effort}`;
+        }
+
+        function renderContext() {
+          const detail = $('context-detail'); detail.replaceChildren();
+          if (!composerState?.contextLimit) return;
+          const used = composerState.contextUsed;
+          const limit = composerState.contextLimit;
+          const percent = Math.round(100 * used / limit);
+          const heading = document.createElement('div'); heading.className = 'context-row';
+          heading.innerHTML = '<strong>Context window</strong>';
+          const value = document.createElement('span'); value.textContent = `${percent}%`; heading.append(value);
+          const track = document.createElement('div'); track.className = 'context-track';
+          const fill = document.createElement('span'); fill.style.width = `${Math.min(percent, 100)}%`; track.append(fill);
+          const numbers = document.createElement('div'); numbers.className = 'context-row';
+          const label = document.createElement('span'); label.textContent = 'In context';
+          const amount = document.createElement('span'); amount.textContent = `${used.toLocaleString()} of ${limit.toLocaleString()} tokens`;
+          numbers.append(label, amount); detail.append(heading, track, numbers);
+          const note = document.createElement('small'); note.textContent = 'Detailed allocation is not reported by the agent.';
+          detail.append(note);
+        }
+
+        function settingSelect(label, field, options, current, note = '') {
+          const row = document.createElement('label'); row.textContent = label;
+          const select = document.createElement('select'); select.dataset.field = field;
+          for (const item of options) {
+            if (item.options) {
+              const group = document.createElement('optgroup'); group.label = item.title;
+              for (const choice of item.options) {
+                const option = document.createElement('option'); option.value = choice.value;
+                option.textContent = choice.label; option.title = choice.detail || '';
+                group.append(option);
+              }
+              select.append(group);
+            } else {
+              const option = document.createElement('option');
+              option.value = String(item.value ?? item.tokens);
+              option.textContent = item.label; option.title = item.detail || '';
+              select.append(option);
+            }
+          }
+          select.value = String(current); row.append(select);
+          if (note) { const help = document.createElement('small'); help.textContent = note; row.append(help); }
+          return row;
+        }
+
+        function renderAgentFields() {
+          const fields = $('agent-fields'); fields.replaceChildren();
+          if (!composerState) return;
+          const state = composerState;
+          if (state.presets.length) fields.append(settingSelect('Preset', 'preset', [
+            {value:'',label:'Custom'}, ...state.presets.map(item => ({value:item.key,label:item.name}))
+          ], state.matchedPreset || ''));
+          fields.append(settingSelect('Model', 'model', state.models, state.model));
+          fields.append(settingSelect('Reasoning effort', 'effort', state.efforts, state.effort));
+          fields.append(settingSelect('Permissions', 'permissionMode', state.permissionModes, state.permissionMode));
+          if (state.offersInteractionMode) fields.append(settingSelect('Work mode', 'interactionMode', [
+            {value:'build',label:'Build'},
+            ...(state.planAvailable || state.interactionMode === 'plan' ? [{value:'plan',label:'Plan'}] : [])
+          ], state.interactionMode));
+          if (state.outputStyles.length) fields.append(settingSelect(
+            'Output style', 'outputStyle', state.outputStyles, state.outputStyle
+          ));
+          if (state.contextWindows.length) fields.append(settingSelect(
+            'Context window', 'contextWindow', state.contextWindows, state.contextWindow,
+            'Changing this restarts Codex for this chat. Session permissions are asked again.'
+          ));
+        }
+
+        function renderComposer() {
+          if (!composerState) return;
+          $('chat-settings').textContent = composerLabel(composerState);
+          $('agent-settings').title = `Agent settings: ${composerLabel(composerState)}`;
+          $('fast-mode').hidden = !composerState.fastAvailable;
+          $('fast-mode').setAttribute('aria-pressed', String(composerState.fastMode));
+          $('context-usage').hidden = !composerState.contextLimit;
+          if (composerState.contextLimit) {
+            const percent = Math.round(100 * composerState.contextUsed / composerState.contextLimit);
+            $('context-usage').textContent = `${percent}%`;
+            $('context-usage').title = `${percent}% of context window used`;
+          }
+          $('side-question').hidden = !composerState.canSideQuestion;
+          if ($('agent-dialog').open) renderAgentFields();
+          if ($('context-dialog').open) renderContext();
+        }
+
+        async function loadComposer(current = chat) {
+          if (!current) return;
+          const state = await api(`/api/chats/${encodeURIComponent(current)}/composer`);
+          if (chat !== current) return;
+          composerState = state; renderComposer();
+        }
+
+        async function followNewChat(id, draft = '') {
+          drafts.set(id, draft); saveComposer();
+          if (workspace) sessionStorage.setItem('bloom-chat', id);
+          else { workspace = null; chat = null; sessionStorage.setItem('bloom-conversation', id); }
+          await loadWorkspaces();
+        }
+
+        async function changeComposer(field, value) {
+          if (!chat || !composerState) return;
+          const current = chat;
+          const body = {field, draft:$('prompt').value};
+          if (field === 'fastMode') body.enabled = value;
+          else if (field === 'contextWindow') body.tokens = Number(value);
+          else body.value = value;
+          $('agent-fields').querySelectorAll('select').forEach(item => item.disabled = true);
+          $('fast-mode').disabled = true;
+          try {
+            const result = await api(`/api/chats/${encodeURIComponent(current)}/composer`, {
+              method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+            });
+            if (result.forked) {
+              $('agent-dialog').close();
+              await followNewChat(result.chatID, $('prompt').value);
+            } else await loadComposer(current);
+          } catch(error) { showError(error); await loadComposer(current); }
+          finally {
+            $('agent-fields').querySelectorAll('select').forEach(item => item.disabled = false);
+            $('fast-mode').disabled = false;
+          }
+        }
+
+        function renderQuickPrompts() {
+          const query = $('quick-search').value.trim().toLowerCase();
+          const list = $('quick-list'); list.replaceChildren();
+          for (const prompt of quickPromptRows.filter(item =>
+            `${item.name} ${item.preview}`.toLowerCase().includes(query)
+          )) {
+            const button = document.createElement('button'); button.type = 'button';
+            const name = document.createElement('strong'); name.textContent = prompt.name || prompt.preview;
+            const preview = document.createElement('small'); preview.textContent = prompt.preview;
+            button.append(name, preview);
+            button.addEventListener('click', () => applyQuickPrompt(prompt)); list.append(button);
+          }
+          if (!list.childElementCount) {
+            const empty = document.createElement('div'); empty.className = 'quick-empty';
+            empty.textContent = 'No matching quick prompts.'; list.append(empty);
+          }
+        }
+
+        async function applyQuickPrompt(prompt) {
+          if (!chat || quickApplying) return;
+          const current = chat;
+          quickApplying = true;
+          $('quick-list').querySelectorAll('button').forEach(button => button.disabled = true);
+          try {
+            const result = await api(`/api/chats/${encodeURIComponent(current)}/quick-prompts`, {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({source:prompt.source,key:prompt.key,
+                draft:$('prompt').value,caret:$('prompt').selectionStart})
+            });
+            $('quick-dialog').close();
+            if (result.chatID) { await followNewChat(result.chatID, result.draft); return; }
+            if (chat !== current) return;
+            $('prompt').value = result.draft;
+            $('prompt').selectionStart = $('prompt').selectionEnd = result.caret;
+            rememberDraft(); $('prompt').focus();
+            if (result.sent) await refresh();
+          } catch(error) { showError(error); }
+          finally {
+            quickApplying = false;
+            if ($('quick-dialog').open) $('quick-list').querySelectorAll('button').forEach(button => button.disabled = false);
+          }
         }
 
         function collapseSidebar() {
@@ -232,19 +403,24 @@ enum LocalWebClientScript {
         async function selectChat(entry) {
           rememberDraft();
           chat = entry.id; lastSeq = null; earliestSeq = null;
+          composerState = null;
           if (workspace) sessionStorage.setItem('bloom-chat', entry.id);
           shown.clear(); tools.clear(); permissions.clear(); messageHistory.clear(); clearInterval(poll);
           $('title').textContent = entry.title; $('subtitle').textContent = `${entry.agent} · ${entry.state}`;
           $('messages').replaceChildren(earlierButton()); $('prompt').disabled = false;
           $('prompt').value = drafts.get(entry.id) || '';
-          $('send').disabled = uploading > 0; $('attach-file').disabled = uploading > 0;
+          $('send').disabled = uploading > 0 || sending; $('attach-file').disabled = uploading > 0;
+          $('agent-settings').disabled = false; $('quick-prompts').disabled = false;
+          $('fast-mode').hidden = true; $('context-usage').hidden = true; $('side-question').hidden = true;
           renderUploads();
           $('chat-settings').textContent = [entry.model || entry.agent, entry.effort].filter(Boolean).join(' · ');
           $('hint').textContent = '';
           document.querySelectorAll('.chat-tab').forEach(button => {
             button.classList.toggle('selected', button.dataset.chat === entry.id);
           });
-          await refresh(); poll = setInterval(() => refresh().catch(showError), 1200);
+          await refresh();
+          loadComposer(entry.id).catch(showError);
+          poll = setInterval(() => refresh().catch(showError), 1200);
         }
 
         function prose(row) {
@@ -593,6 +769,7 @@ enum LocalWebClientScript {
             const follow = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 100;
             $('streaming')?.remove();
             data.messages.forEach(row => { messageHistory.set(row.seq, row); appendMessage(row); });
+            if (data.messages.some(row => row.kind === 'turnEnd')) loadComposer(current).catch(showError);
             if (initial) {
               earliestSeq = data.firstSeq;
               $('load-earlier').hidden = !data.hasMoreEarlier;
@@ -638,10 +815,71 @@ enum LocalWebClientScript {
         $('add-project').addEventListener('click', () => showCreate('addProject'));
         $('new-chat').addEventListener('click', () => { if (workspace) showCreate('chat'); });
         $('attach-file').addEventListener('click', () => $('file-picker').click());
+        document.querySelectorAll('[data-close]').forEach(button => {
+          button.addEventListener('click', () => $(button.dataset.close).close());
+        });
+        $('agent-settings').addEventListener('click', () => {
+          if (!chat) return;
+          $('agent-dialog').showModal();
+          $('agent-fields').textContent = composerState ? '' : 'Loading settings…';
+          if (composerState) renderAgentFields();
+          else loadComposer().catch(showError);
+        });
+        $('agent-fields').addEventListener('change', event => {
+          if (event.target.matches('select[data-field]')) {
+            if (event.target.dataset.field === 'preset' && !event.target.value) return;
+            changeComposer(event.target.dataset.field, event.target.value);
+          }
+        });
+        $('fast-mode').addEventListener('click', () => {
+          changeComposer('fastMode', !composerState?.fastMode);
+        });
+        $('context-usage').addEventListener('click', () => {
+          renderContext(); $('context-dialog').showModal();
+        });
+        $('quick-prompts').addEventListener('click', async () => {
+          if (!chat) return;
+          const current = chat;
+          $('quick-search').value = '';
+          $('quick-list').textContent = 'Loading quick prompts…';
+          $('quick-dialog').showModal();
+          try {
+            const rows = await api(`/api/chats/${encodeURIComponent(current)}/quick-prompts`);
+            if (chat !== current || !$('quick-dialog').open) return;
+            quickPromptRows = rows; renderQuickPrompts(); $('quick-search').focus();
+          } catch(error) { showError(error); }
+        });
+        $('quick-search').addEventListener('input', renderQuickPrompts);
+        $('side-question').addEventListener('click', () => {
+          $('side-prompt').value = ''; $('side-dialog').showModal(); $('side-prompt').focus();
+        });
+        $('side-prompt').addEventListener('keydown', event => {
+          if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+          event.preventDefault();
+          if (!event.repeat) $('side-form').requestSubmit();
+        });
+        $('side-form').addEventListener('submit', async event => {
+          event.preventDefault(); if (!chat) return;
+          const current = chat;
+          $('send-side-question').disabled = true;
+          try {
+            const result = await api(`/api/chats/${encodeURIComponent(current)}/side-question`, {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({question:$('side-prompt').value})
+            });
+            $('side-dialog').close(); await followNewChat(result.chatID);
+          } catch(error) { showError(error); }
+          finally { $('send-side-question').disabled = false; }
+        });
         $('file-picker').addEventListener('change', event => {
           uploadFiles(Array.from(event.target.files || [])); event.target.value = '';
         });
         $('prompt').addEventListener('input', () => rememberDraft());
+        $('prompt').addEventListener('keydown', event => {
+          if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+          event.preventDefault();
+          if (!event.repeat) $('compose').requestSubmit();
+        });
         $('prompt').addEventListener('drop', event => {
           if (!event.dataTransfer?.files.length) return;
           event.preventDefault(); uploadFiles(Array.from(event.dataTransfer.files));
@@ -689,19 +927,26 @@ enum LocalWebClientScript {
         });
 
         $('compose').addEventListener('submit', async event => {
-          event.preventDefault(); const text = $('prompt').value.trim(); if (!chat || !text || uploading) return;
+          event.preventDefault(); const text = $('prompt').value.trim();
+          if (!chat || !text || uploading || sending) return;
           const current = chat;
+          sending = true;
           $('send').disabled = true;
           try {
-            await api(`/api/chats/${encodeURIComponent(current)}/messages`, {
+            const result = await api(`/api/chats/${encodeURIComponent(current)}/messages`, {
               method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ text })
             });
+            if (result.chatID) {
+              drafts.set(current, ''); $('prompt').value = ''; saveComposer();
+              await followNewChat(result.chatID); return;
+            }
             for (const [path, upload] of uploadsByChat.get(current) || []) {
               if (text.includes(upload.token)) uploadsByChat.get(current).delete(path);
             }
             drafts.set(current, ''); saveComposer();
             if (chat === current) { $('prompt').value = ''; renderUploads(); await refresh(); }
-          } catch(error) { showError(error); } finally { $('send').disabled = uploading > 0; }
+          } catch(error) { showError(error); }
+          finally { sending = false; $('send').disabled = !chat || uploading > 0; }
         });
 
         $('login-form').addEventListener('submit', async event => {
