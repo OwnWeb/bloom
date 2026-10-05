@@ -12,6 +12,11 @@ extension AppModel {
         if enabled {
             startLocalWebIfEnabled()
         } else {
+            let unsent = localWebUploads.values.flatMap { $0 }
+            localWebUploads.removeAll()
+            Task.detached(priority: .utility) {
+                for upload in unsent { AttachmentFiles.discard(upload.attachment, workspace: upload.root) }
+            }
             localWebServer?.stop()
             localWebServer = nil
             localWebAddress = nil
@@ -169,24 +174,86 @@ extension AppModel {
                 guard let workspace = try await store.workspace(id: WorkspaceID(parts[2])), workspace.state == .active else {
                     return .text(404, "Workspace not found")
                 }
-                let components = URLComponents(string: "http://localhost\(request.target)")
-                guard let path = components?.queryItems?.first(where: { $0.name == "path" })?.value,
-                      !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains(".."),
-                      let url = ContainedPath.resolve(URL(filePath: workspace.path).appending(path: path), inside: URL(filePath: workspace.path)),
-                      let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                      values.isRegularFile == true, let size = values.fileSize else {
-                    return .text(404, "File not found inside this workspace")
+                return webFileResponse(target: request.target, root: workspace.path)
+            }
+            if request.method == "GET", parts.count == 4, parts[0] == "api",
+               parts[1] == "chats", parts[3] == "files" {
+                guard let session = try await store.session(id: SessionID(parts[2])), session.archivedAt == nil else {
+                    return .text(404, "Chat not found")
                 }
-                let imageTypes = ["png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-                                  "gif": "image/gif", "webp": "image/webp"]
-                if let mime = imageTypes[url.pathExtension.lowercased()], size <= 5_242_880,
-                   let data = try? Data(contentsOf: url) {
-                    return json(WebFile(path: path, content: nil,
-                                        imageDataURL: "data:\(mime);base64,\(data.base64EncodedString())"))
+                let root: String
+                if let workspaceID = session.workspaceID,
+                   let workspace = try await store.workspace(id: workspaceID), workspace.state == .active {
+                    root = workspace.path
+                } else if session.workspaceID == nil {
+                    let saved = try await store.setting(AskTabs.directoryKey(session.id))
+                    guard let directory = AskTabs.prepareDirectory(saved ?? "", databasePath: store.path) else {
+                        return .text(404, "Conversation folder not found")
+                    }
+                    root = directory
+                } else { return .text(404, "Chat not found") }
+                return webFileResponse(target: request.target, root: root)
+            }
+            if request.method == "POST", parts.count == 4, parts[0] == "api",
+               parts[1] == "chats", parts[3] == "attachments" {
+                let sessionID = SessionID(parts[2])
+                guard let session = try await store.session(id: sessionID), session.archivedAt == nil,
+                      request.headers["content-type"]?.hasPrefix("application/octet-stream") == true,
+                      let named = request.headers["x-bloom-filename"]?.removingPercentEncoding,
+                      !named.isEmpty, named.utf8.count <= 512,
+                      !named.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+                      !request.body.isEmpty, request.body.count <= 25 * 1_024 * 1_024 else {
+                    return .text(400, "Choose a file up to 25 MB")
                 }
-                guard size <= 1_048_576, let content = try? String(contentsOf: url, encoding: .utf8),
-                      !content.contains("\0") else { return .text(404, "Preview unavailable for this file") }
-                return json(WebFile(path: path, content: content, imageDataURL: nil))
+                let root: String
+                if let workspaceID = session.workspaceID,
+                   let workspace = try await store.workspace(id: workspaceID), workspace.state == .active {
+                    root = workspace.path
+                } else if session.workspaceID == nil {
+                    await ask.open()
+                    await ask.select(sessionID)
+                    guard let directory = ask.paneState(for: sessionID)?.directory else {
+                        return .text(404, "Conversation folder not found")
+                    }
+                    root = directory
+                } else { return .text(404, "Chat not found") }
+                let filename = PromptAttachments.safeFilename(named)
+                let bytes = request.body
+                do {
+                    let attachment = try await Task.detached(priority: .userInitiated) {
+                        let directory = FileManager.default.temporaryDirectory
+                            .appending(path: "bloom-web-upload-\(UUID().uuidString)")
+                        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                        defer { try? FileManager.default.removeItem(at: directory) }
+                        let source = directory.appending(path: filename)
+                        try bytes.write(to: source, options: .atomic)
+                        return try AttachmentFiles.attach(.file(source), workspace: root)
+                    }.value
+                    localWebUploads[sessionID, default: []].append(
+                        LocalWebUpload(attachment: attachment, root: root)
+                    )
+                    return json(WebUploadedAttachment(
+                        path: attachment.path, name: attachment.filename,
+                        token: AttachmentDraft.token(for: attachment.path)
+                    ))
+                } catch {
+                    return .text(400, error.readableMessage)
+                }
+            }
+            if request.method == "POST", parts.count == 5, parts[0] == "api",
+               parts[1] == "chats", parts[3] == "attachments", parts[4] == "remove" {
+                guard let input: WebRemoveAttachment = decode(request) else { return .text(400, "Name an attachment") }
+                let sessionID = SessionID(parts[2])
+                var uploads = localWebUploads[sessionID] ?? []
+                guard let index = uploads.firstIndex(where: { $0.attachment.path == input.path }) else {
+                    return .text(404, "Attachment not found")
+                }
+                let removed = uploads.remove(at: index)
+                localWebUploads[sessionID] = uploads
+                await Task.detached(priority: .utility) {
+                    AttachmentFiles.discard(removed.attachment, workspace: removed.root)
+                }.value
+                return json(WebAccepted(accepted: true))
             }
             if request.method == "POST", parts.count == 5, parts[0] == "api",
                parts[1] == "chats", parts[3] == "permissions" {
@@ -211,15 +278,11 @@ extension AppModel {
                 } else { return .text(404, "Chat not found") }
                 await transcript.load()
                 guard transcript.isRunning,
-                      let pending = transcript.pendingPermissionAsks.first(where: { $0.requestID == parts[4] }),
-                      !pending.isPlanApproval, !pending.isQuestion else {
+                      let pending = transcript.pendingPermissionAsks.first(where: { $0.requestID == parts[4] }) else {
                     return .text(404, "Permission request is no longer pending")
                 }
-                let decision: PermissionDecision
-                switch input.decision {
-                case "allow_once": decision = .allow(scope: .once)
-                case "deny": decision = .deny(message: "", endsTurn: false)
-                default: return .text(400, "Choose Allow once or Deny")
+                guard let decision = webPermissionDecision(input, for: pending) else {
+                    return .text(400, "This answer does not match the pending request")
                 }
                 await transcript.answer(requestID: parts[4], decision: decision)
                 return json(WebAccepted(accepted: true))
@@ -284,7 +347,11 @@ extension AppModel {
                         existingModel(for: workspaceID)?.existingTranscript(for: sessionID)?.streamingText ?? ""
                     } else { ask.transcript(for: sessionID)?.streamingText ?? "" }
                     let decisions = try await store.permissionAskDecisions(sessionID: sessionID)
-                    let worktree = workspace?.path ?? ""
+                    let savedDirectory = workspace == nil
+                        ? try await store.setting(AskTabs.directoryKey(sessionID)) : nil
+                    let worktree = workspace?.path
+                        ?? AskTabs.prepareDirectory(savedDirectory ?? "", databasePath: store.path)
+                        ?? ""
                     // Provider decoding and Markdown highlighting can walk large rows. Keep that
                     // work off the main actor that also drives the Mac transcript.
                     let (rows, streamingHTML) = await Task.detached(priority: .utility) {
@@ -317,6 +384,10 @@ extension AppModel {
                         await ask.select(sessionID)
                         sent = await ask.transcript(for: sessionID)?.submit(prompt.text) == true
                     }
+                    if sent {
+                        let named = Set(AttachmentDraft.parse(prompt.text).paths)
+                        localWebUploads[sessionID]?.removeAll { named.contains($0.attachment.path) }
+                    }
                     return sent ? json(WebAccepted(accepted: true)) : .text(503, "Bloom could not send this prompt")
                 }
             }
@@ -331,9 +402,73 @@ extension AppModel {
         return .init(body: data)
     }
 
+    private func webFileResponse(target: String, root: String) -> LocalWebServer.Response {
+        let components = URLComponents(string: "http://localhost\(target)")
+        guard let path = components?.queryItems?.first(where: { $0.name == "path" })?.value,
+              !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains(".."),
+              let url = ContainedPath.resolve(URL(filePath: root).appending(path: path), inside: URL(filePath: root)),
+              let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true, let size = values.fileSize else {
+            return .text(404, "File not found inside this conversation")
+        }
+        let imageTypes = ["png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                          "gif": "image/gif", "webp": "image/webp"]
+        if let mime = imageTypes[url.pathExtension.lowercased()], size <= 5_242_880,
+           let data = try? Data(contentsOf: url) {
+            return json(WebFile(path: path, content: nil,
+                                imageDataURL: "data:\(mime);base64,\(data.base64EncodedString())"))
+        }
+        guard size <= 1_048_576, let content = try? String(contentsOf: url, encoding: .utf8),
+              !content.contains("\0") else { return .text(404, "Preview unavailable for this file") }
+        return json(WebFile(path: path, content: content, imageDataURL: nil))
+    }
+
     private func decode<T: Decodable>(_ request: LocalWebServer.Request) -> T? {
         guard request.headers["content-type"]?.hasPrefix("application/json") == true else { return nil }
         return try? JSONDecoder().decode(T.self, from: request.body)
+    }
+
+    private func webPermissionDecision(_ input: WebPermissionAnswer, for ask: PermissionAsk) -> PermissionDecision? {
+        switch input.decision {
+        case "allow_once" where !ask.isQuestion && !ask.isPlanApproval:
+            return .allow(scope: .once)
+        case "deny" where !ask.isQuestion && !ask.isPlanApproval:
+            return .deny(message: "", endsTurn: false)
+        case "approve_plan" where ask.isPlanApproval:
+            let mode = input.mode.flatMap(PermissionMode.init(rawValue:))
+                ?? PlanApproval.implementationMode(ask.implementationMode ?? .acceptEdits)
+            guard input.mode == nil || PermissionMode(rawValue: input.mode ?? "") != nil,
+                  PlanApproval.modes.contains(mode) else { return nil }
+            return .approvePlan(mode: mode)
+        case "keep_planning" where ask.isPlanApproval:
+            return .deny(message: PlanApproval.keepPlanningMessage, endsTurn: false)
+        case "answer" where ask.isQuestion:
+            let questions = AgentQuestionnaire.questions(in: ask.input)
+            let choices = input.choices ?? [:]
+            let other = input.other ?? [:]
+            let ids = Set(questions.map(\.id))
+            guard Set(choices.keys).isSubset(of: ids), Set(other.keys).isSubset(of: ids) else { return nil }
+            var draft = AgentQuestionDraft()
+            for question in questions {
+                let selected = choices[question.id] ?? []
+                guard question.multiSelect || selected.count <= 1,
+                      Set(selected).count == selected.count,
+                      selected.allSatisfy({ label in question.options.contains { $0.label == label } }) else {
+                    return nil
+                }
+                for label in selected { draft.toggle(label, on: question) }
+                if let written = other[question.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !written.isEmpty {
+                    guard question.allowsOther, written.count <= 4_000 else { return nil }
+                    draft.writeOther(on: question)
+                    draft.other[question.id] = written
+                }
+            }
+            guard draft.isComplete(questions) else { return nil }
+            return .answer(input: AgentQuestionnaire.answered(ask.input, answers: draft.answers(to: questions)))
+        default:
+            return nil
+        }
     }
 
     private func webTool(_ name: String, arguments: [String: JSONValue], store: Store) async -> LocalWebServer.Response {
@@ -342,6 +477,11 @@ extension AppModel {
         if result.isError { return .text(400, result.text) }
         return .init(body: Data(result.text.utf8))
     }
+}
+
+struct LocalWebUpload: Sendable {
+    let attachment: PromptAttachment
+    let root: String
 }
 
 private struct WebProject: Encodable {
@@ -369,7 +509,14 @@ private struct WebWorkspaceRequest: Decodable {
 }
 
 private struct WebChatRequest: Decodable { let title: String? }
-private struct WebPermissionAnswer: Decodable { let decision: String }
+private struct WebUploadedAttachment: Encodable { let path: String; let name: String; let token: String }
+private struct WebRemoveAttachment: Decodable { let path: String }
+private struct WebPermissionAnswer: Decodable {
+    let decision: String
+    let choices: [String: [String]]?
+    let other: [String: String]?
+    let mode: String?
+}
 private struct WebFile: Encodable { let path: String; let content: String?; let imageDataURL: String? }
 private struct WebChangedFile: Encodable {
     let path: String

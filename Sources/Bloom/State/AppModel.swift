@@ -61,6 +61,7 @@ final class AppModel {
     var localWebToken: String?
     var localWebError: String?
     @ObservationIgnored var localWebConnectTicket: (value: String, expiresAt: Date)?
+    @ObservationIgnored var localWebUploads: [SessionID: [LocalWebUpload]] = [:]
 
     private(set) var repos: [Repo] = []
     private(set) var workspaces: [Workspace] = [] {

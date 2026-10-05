@@ -140,12 +140,32 @@ enum LocalWebStyle {
         .entry.permission { background:var(--sunken); }
         .permission-actions { display:flex; gap:7px; margin-top:9px; }
         .permission-actions button:not(.primary) { border:1px solid var(--border); border-radius:var(--corner); padding:6px 11px; background:var(--raised); color:var(--text); font-size:11px; }
+        .question-form { display:flex; flex-direction:column; align-items:flex-start; gap:12px; margin-top:10px; }
+        .question-form fieldset { width:100%; margin:0; padding:0; border:0; }
+        .question-form legend { margin-bottom:7px; font-weight:600; }
+        .question-header { display:block; margin-bottom:4px; color:var(--accent); font-size:10px; font-weight:650; letter-spacing:.05em; text-transform:uppercase; }
+        .question-hint { display:block; margin:-3px 0 7px; color:var(--tertiary); }
+        .question-option { display:flex; align-items:flex-start; gap:8px; padding:7px 9px; border:1px solid var(--border); border-radius:var(--corner); background:var(--raised); cursor:pointer; }
+        .question-option + .question-option { margin-top:5px; }
+        .question-option input { margin:2px 0 0; accent-color:var(--accent); }
+        .question-option small { display:block; margin-top:2px; color:var(--secondary); }
+        .question-form pre { padding:8px; overflow:auto; background:var(--surface); font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+        .question-other { display:block; margin-top:8px; color:var(--secondary); font-size:11px; }
+        .question-other input { display:block; width:100%; margin-top:4px; padding:8px; border:1px solid var(--border); border-radius:var(--corner); background:var(--surface); color:var(--text); }
         .card-title { margin-bottom:4px; font-size:12px; font-weight:650; }
         .card-note { margin-top:5px; color:var(--tertiary); font-size:11px; }
         .composer { flex:none; padding:13px max(24px,calc((100% - 930px)/2)) 17px; border-top:1px solid var(--border); background:var(--surface); }
         .composer form { display:flex; flex-direction:column; gap:6px; padding:7px; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:0 2px 12px #0001; }
         .composer textarea { width:100%; min-height:38px; max-height:180px; padding:7px 8px; border:0; outline:0; resize:vertical; background:transparent; color:var(--text); }
         .composer-bar { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:0 3px 2px 8px; color:var(--tertiary); font-size:11px; }
+        .composer-bar > div { display:flex; align-items:center; gap:8px; }
+        #attach-file { padding:2px; border:0; border-radius:5px; background:transparent; color:var(--secondary); font-size:15px; }
+        #attach-file:hover { background:var(--sunken); }
+        #attach-file:disabled { opacity:.5; cursor:default; }
+        .upload-list:empty { display:none; }
+        .upload-list { display:flex; flex-wrap:wrap; gap:5px; padding:0 8px 4px; }
+        .upload-chip { display:flex; align-items:center; gap:5px; padding:2px 5px; border:1px solid var(--border); border-radius:5px; background:var(--sunken); color:var(--secondary); font:11px ui-monospace,SFMono-Regular,Menlo,monospace; }
+        .upload-chip button { border:0; background:transparent; color:var(--secondary); font-size:13px; }
         .composer-bar .primary { width:25px; height:25px; padding:0; border-radius:50%; font-size:17px; line-height:1; }
         .primary { padding:8px 13px; border:0; border-radius:6px; background:var(--accent-fill); color:white; font-size:12px; font-weight:650; }
         .primary:disabled { opacity:.5; cursor:default; }

@@ -66,7 +66,17 @@ final class LocalWebServer: @unchecked Sendable {
         case ready(Request)
     }
 
-    private static let maximumRequestBytes = 64 * 1_024
+    /// A browser upload is held in memory until its whole body arrives. Keep the buffer bounded,
+    /// and keep ordinary JSON calls at their original, much smaller limit.
+    private static let maximumUploadBytes = 25 * 1_024 * 1_024
+    private static let maximumHeaderBytes = 16 * 1_024
+    private static let maximumRequestBytes = maximumUploadBytes + maximumHeaderBytes
+
+    /// The connection's queue is its only writer. A reference avoids copying every earlier chunk
+    /// each time another part of a large attachment arrives.
+    private final class RequestBuffer: @unchecked Sendable {
+        var bytes = Data()
+    }
     private let listener: NWListener
     private let queue = DispatchQueue(label: "be.spatie.bloom.local-web", qos: .userInitiated)
     private let handler: @Sendable (Request) async -> Response
@@ -104,7 +114,7 @@ final class LocalWebServer: @unchecked Sendable {
                 return
             }
             connection.start(queue: self.queue)
-            self.read(connection, accumulated: Data())
+            self.read(connection, buffer: RequestBuffer())
         }
         listener.start(queue: queue)
     }
@@ -113,22 +123,24 @@ final class LocalWebServer: @unchecked Sendable {
         listener.cancel()
     }
 
-    private func read(_ connection: NWConnection, accumulated: Data) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: Self.maximumRequestBytes) { [weak self] chunk, _, complete, error in
+    private func read(_ connection: NWConnection, buffer: RequestBuffer) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1_024) { [weak self] chunk, _, complete, error in
             guard let self else {
                 connection.cancel()
                 return
             }
-            let bytes = accumulated + (chunk ?? Data())
-            guard error == nil, bytes.count <= Self.maximumRequestBytes else {
+            if let chunk { buffer.bytes.append(chunk) }
+            guard error == nil, buffer.bytes.count <= Self.maximumRequestBytes else {
                 self.send(.text(413, "Request too large"), on: connection)
                 return
             }
-            switch Self.parse(bytes) {
+            switch Self.parse(buffer.bytes) {
             case .waiting where !complete:
-                self.read(connection, accumulated: bytes)
-            case .waiting, .invalid:
+                self.read(connection, buffer: buffer)
+            case .waiting:
                 self.send(.text(400, "Bad request"), on: connection)
+            case .invalid(let status):
+                self.send(.text(status, status == 413 ? "Request too large" : "Bad request"), on: connection)
             case .ready(let request):
                 Task { self.send(await self.handler(request), on: connection) }
             }
@@ -143,7 +155,10 @@ final class LocalWebServer: @unchecked Sendable {
 
     private static func parse(_ bytes: Data) -> Parsed {
         let divider = Data("\r\n\r\n".utf8)
-        guard let boundary = bytes.range(of: divider) else { return .waiting }
+        guard let boundary = bytes.range(of: divider) else {
+            return bytes.count > maximumHeaderBytes ? .invalid(413) : .waiting
+        }
+        guard boundary.lowerBound <= maximumHeaderBytes else { return .invalid(413) }
         guard let head = String(data: bytes[..<boundary.lowerBound], encoding: .utf8) else { return .invalid(400) }
         let lines = head.components(separatedBy: "\r\n")
         guard let first = lines.first else { return .invalid(400) }
@@ -158,9 +173,13 @@ final class LocalWebServer: @unchecked Sendable {
             guard headers[key] == nil else { return .invalid(400) }
             headers[key] = value
         }
+        let isUpload = parts[0] == "POST" && parts[1].hasPrefix("/api/chats/")
+            && parts[1].hasSuffix("/attachments")
+        let maximumBody = isUpload ? maximumUploadBytes : 64 * 1_024
         guard headers["transfer-encoding"] == nil,
               let length = Int(headers["content-length"] ?? "0"),
-              length >= 0, length <= maximumRequestBytes else { return .invalid(400) }
+              length >= 0 else { return .invalid(400) }
+        guard length <= maximumBody else { return .invalid(413) }
         let bodyStart = boundary.upperBound
         guard bytes.count - bodyStart >= length else { return .waiting }
         return .ready(Request(

@@ -6,6 +6,32 @@ import Foundation
 /// Rows are projected only for the requested page. A long transcript remains in the store until
 /// a client asks for its rows, just as the Mac table decodes only what is on screen.
 public struct TranscriptClientRow: Encodable, Sendable {
+    public struct Question: Encodable, Sendable {
+        public struct Option: Encodable, Sendable {
+            public let label: String
+            public let detail: String
+            public let preview: String?
+        }
+
+        public let answerKey: String
+        public let text: String
+        public let header: String
+        public let multiSelect: Bool
+        public let allowsOther: Bool
+        public let isSecret: Bool
+        public let options: [Option]
+
+        init(_ question: AgentQuestion) {
+            answerKey = question.id
+            text = question.question
+            header = question.header
+            multiSelect = question.multiSelect
+            allowsOther = question.allowsOther
+            isSecret = question.isSecret
+            options = question.options.map { Option(label: $0.label, detail: $0.description, preview: $0.preview) }
+        }
+    }
+
     public struct FileReference: Encodable, Sendable {
         public let label: String
         public let path: String
@@ -47,12 +73,14 @@ public struct TranscriptClientRow: Encodable, Sendable {
     public let requestID: String?
     public let isError: Bool
     public let canAnswer: Bool
+    public let questions: [Question]
+    public let planMode: String?
 
     private init(
         seq: Int, kind: Kind, title: String = "", text: String = "", html: String? = nil,
         detail: String = "", chips: [String] = [], files: [FileReference] = [], tint: String = "neutral",
         refID: String? = nil, parentToolUseID: String? = nil, requestID: String? = nil,
-        isError: Bool = false, canAnswer: Bool = false
+        isError: Bool = false, canAnswer: Bool = false, questions: [Question] = [], planMode: String? = nil
     ) {
         self.seq = seq
         self.kind = kind
@@ -68,6 +96,8 @@ public struct TranscriptClientRow: Encodable, Sendable {
         self.requestID = requestID
         self.isError = isError
         self.canAnswer = canAnswer
+        self.questions = questions
+        self.planMode = planMode
     }
 
     public static func present(_ message: Message, worktree: String = "") -> Self? {
@@ -88,9 +118,15 @@ public struct TranscriptClientRow: Encodable, Sendable {
                 )
             }
             let turn = AttachmentTrailer.split(typed)
-            let instructions = SentTurn.segments(in: turn.body).compactMap { segment -> String? in
+            let segments = SentTurn.segments(in: turn.body)
+            let instructions = segments.compactMap { segment -> String? in
                 if case .instructions(let block) = segment { return block.title }
                 return nil
+            }
+            let inlineFiles = segments.compactMap { segment -> FileReference? in
+                guard case .file(let path) = segment,
+                      let relative = FileChipTarget.resolve(path, in: worktree).opens else { return nil }
+                return FileReference(label: AttachmentDraft.token(for: path), path: relative)
             }
             return Self(
                 seq: seq, kind: .user, text: SentTurn.withoutInstructions(turn.body),
@@ -98,7 +134,7 @@ public struct TranscriptClientRow: Encodable, Sendable {
                 files: turn.paths.compactMap { path in
                     guard let relative = FileChipTarget.resolve(path, in: worktree).opens else { return nil }
                     return FileReference(label: (path as NSString).lastPathComponent, path: relative)
-                }
+                } + inlineFiles
             )
         case .assistantText:
             guard case .assistantText(let block)? = event, !block.text.isEmpty else { return nil }
@@ -140,11 +176,15 @@ public struct TranscriptClientRow: Encodable, Sendable {
             )
         case .permissionAsk:
             guard case .permissionAsk(let ask)? = event else { return nil }
+            let questions = ask.isQuestion ? AgentQuestionnaire.questions(in: ask.input).map(Question.init) : []
+            let planMode = ask.isPlanApproval
+                ? PlanApproval.implementationMode(ask.implementationMode ?? .acceptEdits).rawValue : nil
             return Self(
                 seq: seq, kind: .permission, title: ask.label,
                 text: ask.summary.isEmpty ? ask.reason : ask.summary,
                 detail: ask.reason, tint: "warning", refID: ask.toolUseID,
-                requestID: ask.requestID, canAnswer: !ask.isQuestion && !ask.isPlanApproval
+                requestID: ask.requestID, canAnswer: !ask.isQuestion || !questions.isEmpty,
+                questions: questions, planMode: planMode
             )
         case .error:
             let exit = AgentExit.read(JSONValue.parse(message.payload))

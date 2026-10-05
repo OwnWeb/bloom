@@ -66,6 +66,24 @@ struct TranscriptClientRowTests {
         #expect(row?.files.last?.line == 11)
     }
 
+    @Test("browser question rows carry the same choices as the Mac card")
+    func questionChoices() {
+        let stored = message(.permissionAsk, #"{"type":"control_request","request_id":"ask-1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which database?","options":[{"label":"SQLite","description":"One file"},{"label":"Postgres"}]}]}}}"#)
+        let row = TranscriptClientRow.present(stored)
+        #expect(row?.canAnswer == true)
+        #expect(row?.questions.first?.text == "Which database?")
+        #expect(row?.questions.first?.options.map(\.label) == ["SQLite", "Postgres"])
+        #expect(row?.questions.first?.options.first?.detail == "One file")
+    }
+
+    @Test("plan approval rows carry an implementation mode")
+    func planApproval() {
+        let stored = message(.permissionAsk, #"{"type":"control_request","request_id":"plan-1","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":{}}}"#)
+        let row = TranscriptClientRow.present(stored)
+        #expect(row?.canAnswer == true)
+        #expect(row?.planMode == PermissionMode.acceptEdits.rawValue)
+    }
+
     @Test("the browser sees attachment chips without their scratch paths in the bubble")
     func attachments() throws {
         let text = AttachmentTrailer.compose(
@@ -76,6 +94,16 @@ struct TranscriptClientRowTests {
         let row = TranscriptClientRow.present(stored)
         #expect(row?.text == "Please inspect this")
         #expect(row?.chips == ["chart.png"])
+    }
+
+    @Test("inline attachments remain openable in the browser transcript")
+    func inlineAttachment() throws {
+        let text = "Inspect `.bloom/attachments/ABC123/shot.png`"
+        let payload = try JSONSerialization.data(withJSONObject: ["message": ["content": [["text": text]]]])
+        let stored = Message(sessionID: .new(), seq: 1, kind: .user, payload: payload)
+        let row = TranscriptClientRow.present(stored, worktree: "/repo")
+        #expect(row?.files.first?.path == ".bloom/attachments/ABC123/shot.png")
+        #expect(row?.files.first?.label == "`.bloom/attachments/ABC123/shot.png`")
     }
 
     @Test("silent stream events do not become empty client rows")

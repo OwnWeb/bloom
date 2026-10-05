@@ -9,6 +9,18 @@ enum LocalWebClientScript {
         let workspace = null, chat = null, lastSeq = null, earliestSeq = null, poll = null, fetching = false;
         let projectRows = [], workspaceRows = [];
         const shown = new Set(), tools = new Map(), permissions = new Map(), messageHistory = new Map();
+        const drafts = new Map(JSON.parse(sessionStorage.getItem('bloom-drafts') || '[]'));
+        const uploadsByChat = new Map(
+          JSON.parse(sessionStorage.getItem('bloom-uploads') || '[]').map(([id, entries]) => [id, new Map(entries)])
+        );
+        let uploading = 0;
+
+        function saveComposer() {
+          sessionStorage.setItem('bloom-drafts', JSON.stringify([...drafts]));
+          sessionStorage.setItem('bloom-uploads', JSON.stringify(
+            [...uploadsByChat].map(([id, entries]) => [id, [...entries]])
+          ));
+        }
 
         async function api(path, options = {}) {
           const response = await fetch(path, {
@@ -41,6 +53,76 @@ enum LocalWebClientScript {
         function showError(error) {
           $('status').textContent = error.message || 'Connection lost';
           $('status').style.color = 'var(--negative)';
+        }
+
+        function rememberDraft() {
+          if (chat) { drafts.set(chat, $('prompt').value); saveComposer(); }
+        }
+
+        function renderUploads() {
+          const container = $('uploads'); container.replaceChildren();
+          for (const upload of uploadsByChat.get(chat)?.values() || []) {
+            const chip = document.createElement('span'); chip.className = 'upload-chip';
+            const label = document.createElement('span'); label.textContent = upload.name;
+            const remove = document.createElement('button'); remove.type = 'button';
+            remove.title = `Remove ${upload.name}`; remove.textContent = '×';
+            remove.addEventListener('click', () => removeUpload(upload));
+            chip.append(label, remove); container.append(chip);
+          }
+        }
+
+        function insertUpload(token, at) {
+          const field = $('prompt'); const current = field.value;
+          const offset = Math.min(at, current.length);
+          const before = current.slice(0, offset), after = current.slice(offset);
+          const lead = before && !/\s$/.test(before) ? ' ' : '';
+          const trail = after && /^\s/.test(after) ? '' : ' ';
+          field.value = before + lead + token + trail + after;
+          field.selectionStart = field.selectionEnd = offset + lead.length + token.length + trail.length;
+          drafts.set(chat, field.value); saveComposer(); field.focus();
+          return field.selectionStart;
+        }
+
+        async function uploadFiles(files) {
+          if (!chat || !files.length) return;
+          const current = chat; let offset = $('prompt').selectionStart;
+          uploading += 1; $('send').disabled = true; $('attach-file').disabled = true;
+          $('hint').textContent = 'Attaching files…';
+          try {
+            for (const file of files) {
+              if (file.size > 25 * 1024 * 1024) throw Error(`${file.name} is over the 25 MB browser limit.`);
+              const added = await api(`/api/chats/${encodeURIComponent(current)}/attachments`, {
+                method:'POST', headers:{ 'Content-Type':'application/octet-stream',
+                  'X-Bloom-Filename':encodeURIComponent(file.name || 'attachment') }, body:file
+              });
+              let held = uploadsByChat.get(current);
+              if (!held) { held = new Map(); uploadsByChat.set(current, held); }
+              held.set(added.path, added);
+              if (chat === current) { offset = insertUpload(added.token, offset); renderUploads(); }
+              else { drafts.set(current, `${drafts.get(current) || ''} ${added.token}`.trim()); saveComposer(); }
+            }
+          } catch(error) { showError(error); }
+          finally {
+            uploading -= 1; $('hint').textContent = '';
+            $('attach-file').disabled = !chat || uploading > 0;
+            $('send').disabled = !chat || uploading > 0;
+          }
+        }
+
+        async function removeUpload(upload) {
+          if (!chat) return;
+          const current = chat;
+          try {
+            await api(`/api/chats/${encodeURIComponent(current)}/attachments/remove`, {
+              method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path:upload.path})
+            });
+            uploadsByChat.get(current)?.delete(upload.path);
+            if (chat === current) {
+              $('prompt').value = $('prompt').value.split(upload.token).join('');
+              drafts.set(current, $('prompt').value); renderUploads();
+            }
+            saveComposer();
+          } catch(error) { showError(error); }
         }
 
         function collapseSidebar() {
@@ -98,6 +180,7 @@ enum LocalWebClientScript {
         }
 
         async function selectWorkspace(row, preferredChat = null) {
+          rememberDraft();
           workspace = row.id; chat = null; lastSeq = null; earliestSeq = null;
           collapseSidebar();
           $('inspector').classList.remove('requested'); $('toggle-inspector').hidden = false;
@@ -106,6 +189,7 @@ enum LocalWebClientScript {
           shown.clear(); tools.clear(); permissions.clear(); messageHistory.clear(); clearInterval(poll); poll = null;
           $('title').textContent = row.name; $('subtitle').textContent = `${row.project} · ${row.branch}`;
           $('messages').replaceChildren(); $('prompt').disabled = true; $('send').disabled = true;
+          $('attach-file').disabled = true; $('uploads').replaceChildren();
           document.querySelectorAll('.workspace').forEach(button => {
             button.classList.toggle('selected', button.dataset.workspace === row.id);
           });
@@ -126,6 +210,7 @@ enum LocalWebClientScript {
         }
 
         async function selectConversation(entry) {
+          rememberDraft();
           workspace = null; chat = null; lastSeq = null; earliestSeq = null;
           collapseSidebar();
           sessionStorage.setItem('bloom-conversation', entry.id); sessionStorage.removeItem('bloom-workspace');
@@ -142,11 +227,15 @@ enum LocalWebClientScript {
         }
 
         async function selectChat(entry) {
+          rememberDraft();
           chat = entry.id; lastSeq = null; earliestSeq = null;
           if (workspace) sessionStorage.setItem('bloom-chat', entry.id);
           shown.clear(); tools.clear(); permissions.clear(); messageHistory.clear(); clearInterval(poll);
           $('title').textContent = entry.title; $('subtitle').textContent = `${entry.agent} · ${entry.state}`;
-          $('messages').replaceChildren(earlierButton()); $('prompt').disabled = false; $('send').disabled = false;
+          $('messages').replaceChildren(earlierButton()); $('prompt').disabled = false;
+          $('prompt').value = drafts.get(entry.id) || '';
+          $('send').disabled = uploading > 0; $('attach-file').disabled = uploading > 0;
+          renderUploads();
           $('chat-settings').textContent = [entry.model || entry.agent, entry.effort].filter(Boolean).join(' · ');
           $('hint').textContent = '';
           document.querySelectorAll('.chat-tab').forEach(button => {
@@ -160,7 +249,7 @@ enum LocalWebClientScript {
           // The host renders this with MarkdownHTML, which escapes markup and filters addresses.
           if (row.html !== null && row.html !== undefined) body.innerHTML = row.html;
           else body.textContent = row.text;
-          if (workspace && row.files?.length) {
+          if (chat && row.files?.length) {
             linkReferences(body, row.files);
             for (const anchor of body.querySelectorAll('a[href]')) {
               const file = row.files.find(item => item.label === anchor.textContent);
@@ -200,14 +289,16 @@ enum LocalWebClientScript {
         }
 
         async function openFile(file) {
-          if (!workspace) return;
+          if (!chat) return;
           $('inspector').classList.add('open', 'requested'); $('file-title').textContent = file.path;
           $('file-content').textContent = 'Loading file…';
           try {
-            const result = await api(`/api/workspaces/${encodeURIComponent(workspace)}/files?path=${encodeURIComponent(file.path)}`);
+            const result = await api(`/api/chats/${encodeURIComponent(chat)}/files?path=${encodeURIComponent(file.path)}`);
             const back = document.createElement('button'); back.className = 'back-to-changes';
-            back.type = 'button'; back.textContent = '‹ Changes';
-            back.addEventListener('click', () => loadChanges(workspace).catch(showError));
+            back.type = 'button'; back.textContent = workspace ? '‹ Changes' : '‹ Close file';
+            back.addEventListener('click', () => workspace
+              ? loadChanges(workspace).catch(showError)
+              : $('inspector').classList.remove('open', 'requested'));
             if (result.imageDataURL) {
               const picture = document.createElement('img'); picture.className = 'file-image';
               picture.src = result.imageDataURL; picture.alt = file.path;
@@ -290,12 +381,93 @@ enum LocalWebClientScript {
           if (!labels?.length) return;
           const chips = document.createElement('span'); chips.className = 'chip-list';
           for (const label of labels) {
-            const file = workspace && files.find(item => item.label === label);
+            const file = chat && files.find(item => item.label === label);
             const chip = document.createElement(file ? 'button' : 'span'); chip.className = 'chip';
             chip.textContent = label; chips.append(chip);
             if (file) { chip.type = 'button'; chip.addEventListener('click', () => openFile(file)); }
           }
           element.append(chips);
+        }
+
+        async function answerPermission(row, payload, actions, note, outcome) {
+          actions.querySelectorAll('button,input').forEach(item => item.disabled = true);
+          try {
+            await api(`/api/chats/${encodeURIComponent(chat)}/permissions/${encodeURIComponent(row.requestID)}`, {
+              method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+            });
+            note.textContent = outcome; actions.remove();
+          } catch(error) {
+            showError(error);
+            actions.querySelectorAll('button,input').forEach(item => item.disabled = false);
+          }
+        }
+
+        function questionForm(row, note) {
+          const form = document.createElement('form'); form.className = 'question-form';
+          for (const [index, question] of row.questions.entries()) {
+            const group = document.createElement('fieldset'); group.dataset.question = question.answerKey;
+            const heading = document.createElement('legend');
+            if (question.header) {
+              const header = document.createElement('span'); header.className = 'question-header';
+              header.textContent = question.header; heading.append(header);
+            }
+            const questionText = document.createElement('span'); questionText.textContent = question.text;
+            heading.append(questionText);
+            group.append(heading);
+            if (question.multiSelect) {
+              const hint = document.createElement('small'); hint.className = 'question-hint';
+              hint.textContent = 'Choose as many as apply.'; group.append(hint);
+            }
+            for (const option of question.options) {
+              const label = document.createElement('label'); label.className = 'question-option';
+              const input = document.createElement('input'); input.className = 'option-input';
+              input.type = question.multiSelect ? 'checkbox' : 'radio';
+              input.name = `question-${row.seq}-${index}`; input.value = option.label;
+              const words = document.createElement('span'); words.textContent = option.label;
+              if (option.detail) {
+                const detail = document.createElement('small'); detail.textContent = option.detail; words.append(detail);
+              }
+              input.addEventListener('change', () => {
+                const other = group.querySelector('.other-answer'); if (other) other.value = '';
+                updateSend();
+              });
+              label.append(input, words); group.append(label);
+              if (option.preview) {
+                const preview = document.createElement('pre'); preview.textContent = option.preview; group.append(preview);
+              }
+            }
+            if (question.allowsOther || !question.options.length) {
+              const label = document.createElement('label'); label.className = 'question-other';
+              label.textContent = question.options.length ? 'Other answer' : 'Your answer';
+              const input = document.createElement('input'); input.className = 'other-answer';
+              input.type = question.isSecret ? 'password' : 'text';
+              input.autocomplete = 'off';
+              input.addEventListener('input', () => {
+                if (input.value.trim()) group.querySelectorAll('.option-input').forEach(choice => choice.checked = false);
+                updateSend();
+              });
+              label.append(input); group.append(label);
+            }
+            form.append(group);
+          }
+          const send = document.createElement('button'); send.className = 'primary';
+          send.textContent = 'Send answer'; send.disabled = true; form.append(send);
+          function updateSend() {
+            send.disabled = !Array.from(form.querySelectorAll('fieldset')).every(group =>
+              !!group.querySelector('.option-input:checked') || !!group.querySelector('.other-answer')?.value.trim()
+            );
+          }
+          form.addEventListener('submit', event => {
+            event.preventDefault();
+            const choices = {}, other = {};
+            for (const [index, question] of row.questions.entries()) {
+              const group = form.querySelectorAll('fieldset')[index];
+              choices[question.answerKey] = Array.from(group.querySelectorAll('.option-input:checked')).map(item => item.value);
+              other[question.answerKey] = group.querySelector('.other-answer')?.value || '';
+            }
+            answerPermission(row, {decision:'answer', choices, other}, form, note, 'Answered');
+          });
+          return form;
         }
 
         function appendMessage(row, temporary = false) {
@@ -331,30 +503,29 @@ enum LocalWebClientScript {
             details.append(summary, body); element.append(details);
           } else if (row.kind === 'permission' || row.kind === 'error') {
             const title = document.createElement('div'); title.className = 'card-title'; title.textContent = row.title;
-            const body = document.createElement('div'); body.textContent = row.text;
+            const body = document.createElement('div'); body.textContent = row.questions?.length ? '' : row.text;
             const note = document.createElement('div'); note.className = 'card-note';
             note.textContent = row.kind === 'permission' ? (row.canAnswer ? '' : 'Answer this in Bloom on the host Mac.') : row.detail;
             element.append(title, body, note); if (row.requestID) permissions.set(row.requestID, note);
             if (row.kind === 'permission' && row.canAnswer && row.requestID) {
-              const actions = document.createElement('div'); actions.className = 'permission-actions';
-              for (const [label, decision] of [['Allow once','allow_once'], ['Deny','deny']]) {
-                const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
-                if (decision === 'allow_once') button.className = 'primary';
-                button.addEventListener('click', async () => {
-                  actions.querySelectorAll('button').forEach(item => item.disabled = true);
-                  try {
-                    await api(`/api/chats/${encodeURIComponent(chat)}/permissions/${encodeURIComponent(row.requestID)}`, {
-                      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({decision})
-                    });
-                    note.textContent = decision === 'allow_once' ? 'Allowed once' : 'Denied';
-                    actions.remove();
-                  } catch(error) {
-                    showError(error); actions.querySelectorAll('button').forEach(item => item.disabled = false);
-                  }
-                });
-                actions.append(button);
+              if (row.questions?.length) {
+                element.append(questionForm(row, note));
+              } else {
+                const actions = document.createElement('div'); actions.className = 'permission-actions';
+                const options = row.planMode
+                  ? [['Approve and implement','approve_plan','Approved'], ['Keep planning','keep_planning','Still planning']]
+                  : [['Allow once','allow_once','Allowed once'], ['Deny','deny','Denied']];
+                if (row.planMode) note.textContent = `Implementation permissions: ${row.planMode}`;
+                for (const [label, decision, outcome] of options) {
+                  const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+                  if (decision === 'allow_once' || decision === 'approve_plan') button.className = 'primary';
+                  button.addEventListener('click', () => answerPermission(
+                    row, {decision, mode:row.planMode}, actions, note, outcome
+                  ));
+                  actions.append(button);
+                }
+                element.append(actions);
               }
-              element.append(actions);
             }
           } else {
             element.append(activity(row, row.kind === 'session' ? '◉' : '•'));
@@ -372,6 +543,7 @@ enum LocalWebClientScript {
             if (note) {
               note.textContent = `Answered: ${decision}`;
               note.parentElement.querySelector('.permission-actions')?.remove();
+              note.parentElement.querySelector('.question-form')?.remove();
             }
           }
         }
@@ -453,6 +625,19 @@ enum LocalWebClientScript {
         });
         $('add-project').addEventListener('click', () => showCreate('addProject'));
         $('new-chat').addEventListener('click', () => { if (workspace) showCreate('chat'); });
+        $('attach-file').addEventListener('click', () => $('file-picker').click());
+        $('file-picker').addEventListener('change', event => {
+          uploadFiles(Array.from(event.target.files || [])); event.target.value = '';
+        });
+        $('prompt').addEventListener('input', () => rememberDraft());
+        $('prompt').addEventListener('drop', event => {
+          if (!event.dataTransfer?.files.length) return;
+          event.preventDefault(); uploadFiles(Array.from(event.dataTransfer.files));
+        });
+        $('prompt').addEventListener('paste', event => {
+          if (!event.clipboardData?.files.length) return;
+          event.preventDefault(); uploadFiles(Array.from(event.clipboardData.files));
+        });
         $('toggle-inspector').addEventListener('click', () => {
           const inspector = $('inspector');
           if (inspector.classList.contains('requested') || window.innerWidth > 700 && inspector.classList.contains('open')) {
@@ -492,14 +677,19 @@ enum LocalWebClientScript {
         });
 
         $('compose').addEventListener('submit', async event => {
-          event.preventDefault(); const text = $('prompt').value.trim(); if (!chat || !text) return;
+          event.preventDefault(); const text = $('prompt').value.trim(); if (!chat || !text || uploading) return;
+          const current = chat;
           $('send').disabled = true;
           try {
-            await api(`/api/chats/${encodeURIComponent(chat)}/messages`, {
+            await api(`/api/chats/${encodeURIComponent(current)}/messages`, {
               method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ text })
             });
-            $('prompt').value = ''; await refresh();
-          } catch(error) { showError(error); } finally { $('send').disabled = false; }
+            for (const [path, upload] of uploadsByChat.get(current) || []) {
+              if (text.includes(upload.token)) uploadsByChat.get(current).delete(path);
+            }
+            drafts.set(current, ''); saveComposer();
+            if (chat === current) { $('prompt').value = ''; renderUploads(); await refresh(); }
+          } catch(error) { showError(error); } finally { $('send').disabled = uploading > 0; }
         });
 
         $('login-form').addEventListener('submit', async event => {

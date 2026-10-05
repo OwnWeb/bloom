@@ -37,7 +37,9 @@ enum LocalWebPage {
                   <div class="composer">
                     <form id="compose">
                       <textarea id="prompt" aria-label="Message" placeholder="Ask to make changes, mention files" disabled></textarea>
-                      <div class="composer-bar"><span id="chat-settings"></span><button class="primary" id="send" disabled>↑</button></div>
+                      <div class="upload-list" id="uploads"></div>
+                      <div class="composer-bar"><div><button id="attach-file" type="button" title="Attach a file" disabled>📎</button><span id="chat-settings"></span></div><button class="primary" id="send" disabled>↑</button></div>
+                      <input id="file-picker" type="file" multiple hidden>
                     </form>
                     <div class="hint" id="hint"></div>
                   </div>
