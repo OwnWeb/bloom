@@ -202,7 +202,7 @@ enum LocalWebStyle {
         .login { position:fixed; inset:0; z-index:10; display:grid; place-items:center; padding:24px; background:var(--sidebar); }
         .login[hidden] { display:none; }
         .login-card { width:min(100%,410px); padding:30px; border:1px solid var(--border); border-radius:15px; background:var(--surface); box-shadow:0 16px 45px #00000018; }
-        .login-mark { width:36px; height:36px; display:grid; place-items:center; margin-bottom:20px; border-radius:10px; background:var(--accent-fill); color:white; font:italic 27px Georgia,serif; }
+        .login-mark { display:block; width:46px; height:46px; margin:0 0 16px -5px; object-fit:contain; }
         .login-card h2 { margin:0 0 5px; font-size:19px; letter-spacing:-.02em; }
         .login-card p { margin:0 0 23px; color:var(--secondary); }
         .login-card label { display:block; margin-bottom:6px; font-size:11px; font-weight:650; }

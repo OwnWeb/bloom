@@ -33,6 +33,7 @@ extension AppModel {
         let token = BridgeRegistry.randomToken()
         do {
             let server = try LocalWebServer(
+                port: LocalWebDevelopment.enabled ? LocalWebDevelopment.port : nil,
                 handler: { [weak self] request in
                     guard let self else { return .text(503, "Bloom is closing") }
                     return await self.localWebResponse(to: request, token: token)
@@ -81,11 +82,22 @@ extension AppModel {
             let nonce = BridgeRegistry.randomToken()
             return .init(
                 contentType: "text/html; charset=utf-8",
-                body: Data(LocalWebPage.html(nonce: nonce).utf8),
+                body: Data(LocalWebPage.html(nonce: nonce, devBrowser: LocalWebDevelopment.enabled).utf8),
                 contentSecurityPolicy: "default-src 'none'; script-src 'nonce-\(nonce)'; "
-                    + "connect-src 'self'; style-src 'unsafe-inline'; img-src data:; "
+                    + "connect-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; "
                     + "base-uri 'none'; form-action 'self'"
             )
+        }
+        if request.method == "GET", request.path == "/assets/bloom-mark.svg" {
+            guard let url = Bundle.main.url(forResource: "BloomMark", withExtension: "svg"),
+                  let data = try? Data(contentsOf: url) else { return .text(404, "Bloom mark unavailable") }
+            return .init(contentType: "image/svg+xml", body: data)
+        }
+        if request.method == "POST", request.path == "/api/dev-connect" {
+            guard LocalWebDevelopment.enabled, LocalWebDevelopment.accepts(request) else {
+                return .text(404, "Not found")
+            }
+            return json(WebConnectResponse(token: token))
         }
         if request.method == "POST", request.path == "/api/connect" {
             guard let input: WebConnectRequest = decode(request),
@@ -476,6 +488,25 @@ extension AppModel {
         let result = await handler.call(MCPRequest(id: .integer(1), method: "tools/call", params: .object(arguments)), as: .owner, store: store)
         if result.isError { return .text(400, result.text) }
         return .init(body: Data(result.text.utf8))
+    }
+}
+
+/// Bloom Dev is a separate app and database. Its local browser may connect without a copied
+/// code, while another host or a reverse proxy still follows the ordinary access-code path.
+private enum LocalWebDevelopment {
+    static let port: UInt16 = 53_544
+
+    static var enabled: Bool { Bundle.main.bundleIdentifier == Store.devBundleIdentifier }
+
+    static func accepts(_ request: LocalWebServer.Request) -> Bool {
+        let localOrigin = "http://127.0.0.1:\(port)"
+        return request.headers["host"] == "127.0.0.1:\(port)"
+            && request.headers["origin"] == localOrigin
+            && request.headers["forwarded"] == nil
+            && request.headers["x-forwarded-for"] == nil
+            && request.headers["x-forwarded-host"] == nil
+            && request.headers["x-real-ip"] == nil
+            && request.body.isEmpty
     }
 }
 

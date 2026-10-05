@@ -84,12 +84,14 @@ final class LocalWebServer: @unchecked Sendable {
     private let onFailure: @Sendable (String) -> Void
 
     init(
+        port: UInt16? = nil,
         handler: @escaping @Sendable (Request) async -> Response,
         onReady: @escaping @Sendable (UInt16) -> Void,
         onFailure: @escaping @Sendable (String) -> Void
     ) throws {
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let listenerPort = port.flatMap(NWEndpoint.Port.init(rawValue:)) ?? .any
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: listenerPort)
         listener = try NWListener(using: parameters)
         self.handler = handler
         self.onReady = onReady

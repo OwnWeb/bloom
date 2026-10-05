@@ -5,6 +5,8 @@ import Foundation
 enum LocalWebClientScript {
     static let javascript = #"""
         const $ = id => document.getElementById(id);
+        const localDev = document.documentElement.dataset.devBrowser === 'true'
+          && window.location.hostname === '127.0.0.1';
         let token = sessionStorage.getItem('bloom-access') || '';
         let workspace = null, chat = null, lastSeq = null, earliestSeq = null, poll = null, fetching = false;
         let projectRows = [], workspaceRows = [];
@@ -29,7 +31,8 @@ enum LocalWebClientScript {
             cache: 'no-store'
           });
           if (response.status === 401) {
-            sessionStorage.removeItem('bloom-access'); $('login').hidden = false;
+            sessionStorage.removeItem('bloom-access');
+            if (!localDev) $('login').hidden = false;
             throw Error('Access code was not accepted.');
           }
           if (!response.ok) throw Error(await response.text());
@@ -707,6 +710,19 @@ enum LocalWebClientScript {
           catch(error) { $('login-error').textContent = error.message; }
         });
 
+        async function connectDevelopmentBrowser() {
+          try {
+            const response = await fetch('/api/dev-connect', { method:'POST', cache:'no-store' });
+            if (!response.ok) throw Error(await response.text());
+            token = (await response.json()).token;
+            sessionStorage.setItem('bloom-access', token);
+            await loadWorkspaces(); $('login').hidden = true;
+          } catch(error) {
+            $('login').hidden = false;
+            $('login-error').textContent = error.message || 'Could not connect to Bloom Dev.';
+          }
+        }
+
         const connectTicket = new URLSearchParams(window.location.hash.slice(1)).get('connect');
         if (connectTicket) {
           window.history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -720,8 +736,16 @@ enum LocalWebClientScript {
             token = result.token;
             sessionStorage.setItem('bloom-access', token);
             await loadWorkspaces(); $('login').hidden = true;
-          }).catch(error => { $('login-error').textContent = error.message; });
+          }).catch(error => {
+            if (localDev) connectDevelopmentBrowser();
+            else { $('login').hidden = false; $('login-error').textContent = error.message; }
+          });
         } else if (token) loadWorkspaces().then(() => { $('login').hidden = true; })
-          .catch(error => { $('login-error').textContent = error.message; });
+          .catch(error => {
+            if (localDev) connectDevelopmentBrowser();
+            else { $('login').hidden = false; $('login-error').textContent = error.message; }
+          });
+        else if (localDev) connectDevelopmentBrowser();
+        else $('login').hidden = false;
         """#
 }

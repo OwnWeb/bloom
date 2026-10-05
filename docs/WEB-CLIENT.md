@@ -4,6 +4,8 @@ Bloom Dev's browser client is another view of the running Mac app. The Mac proce
 
 Use **File > Open Bloom in Browser** or the button in Settings > Browser Access on this Mac. Bloom opens the current port with a one-use link, exchanges it for the current access code, and removes the link from the browser address bar. The manual address and code remain in Settings for other browsers.
 
+Bloom Dev uses `http://127.0.0.1:53544`. A browser opened at that address on the host Mac connects automatically, including after a Dev rebuild. This shortcut is limited to the Dev bundle and direct loopback requests. Browser access through another hostname still needs the code. The regular Bloom app continues to choose a port and require the code or a one-use link.
+
 ## Shared decisions
 
 | Behaviour | Source used by both clients |

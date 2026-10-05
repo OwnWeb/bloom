@@ -1,10 +1,15 @@
 import AppKit
+import BloomCore
 import SwiftUI
 
 /// Opt-in browser access to the current app instance. The access code lasts until Bloom quits or
 /// the switch is turned off, so turning it off also revokes every open browser page.
 struct BrowserAccessSettingsView: View {
     @Environment(AppModel.self) private var app
+
+    private var isDevelopmentBrowser: Bool {
+        Bundle.main.bundleIdentifier == Store.devBundleIdentifier
+    }
 
     private var enabled: Binding<Bool> {
         Binding(get: { app.localWebEnabled }, set: { app.setLocalWebEnabled($0) })
@@ -20,7 +25,9 @@ struct BrowserAccessSettingsView: View {
             } header: {
                 Text("This Mac")
             } footer: {
-                Text("Bloom runs the browser service on this Mac. Open it here without entering an address or code.")
+                Text(isDevelopmentBrowser
+                     ? "Bloom Dev opens at its local address without a code on this Mac."
+                     : "Bloom runs the browser service on this Mac. Open it here without entering an address or code.")
                     .settingsFootnote()
             }
 
@@ -42,7 +49,9 @@ struct BrowserAccessSettingsView: View {
                             }
                             SettingsRow("Access code") {
                                 HStack {
-                                    Text("Required when opening the address manually")
+                                    Text(isDevelopmentBrowser
+                                         ? "Needed when connecting through another hostname"
+                                         : "Required when opening the address manually")
                                         .settingsFootnote()
                                     Spacer()
                                     Button("Copy Code") { copy(token) }

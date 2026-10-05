@@ -3,15 +3,16 @@ import Foundation
 /// The browser shell is small. The host supplies semantic transcript rows, and the CSS draws
 /// them using the selected Bloom theme. No transcript payload is interpolated into this page.
 enum LocalWebPage {
-    @MainActor static func html(nonce: String) -> String {
+    @MainActor static func html(nonce: String, devBrowser: Bool) -> String {
         """
         <!doctype html>
-        <html lang="en">
+        <html lang="en" data-dev-browser="\(devBrowser)">
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <meta name="referrer" content="no-referrer">
           <title>Bloom</title>
+          <link rel="icon" href="/assets/bloom-mark.svg" type="image/svg+xml">
           <style>\(LocalWebStyle.css)</style>
         </head>
         <body>
@@ -90,9 +91,9 @@ enum LocalWebPage {
               </div>
             </form>
           </dialog>
-          <div class="login" id="login">
+          <div class="login" id="login" \(devBrowser ? "hidden" : "")>
             <form class="login-card" id="login-form">
-              <div class="login-mark" aria-hidden="true">b</div>
+              <img class="login-mark" src="/assets/bloom-mark.svg" alt="">
               <h2>Connect to Bloom</h2>
               <p>Find the access code in Bloom Settings under Browser Access.</p>
               <label for="code">Access code</label>
