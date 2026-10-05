@@ -331,7 +331,16 @@ enum LocalWebClientScript {
           if (workspace !== id) return;
           $('inspector').classList.add('open'); $('file-title').textContent = `Changes (${files.length})`;
           const list = document.createElement('div'); list.className = 'changes-list';
-          if (!files.length) list.textContent = 'No changes in this workspace.';
+          if (!files.length) {
+            const empty = document.createElement('div'); empty.className = 'inspector-empty';
+            const icon = document.createElement('span'); icon.className = 'inspector-empty-icon';
+            icon.setAttribute('aria-hidden', 'true'); icon.textContent = '✓';
+            const title = document.createElement('strong'); title.textContent = 'No changes yet';
+            const detail = document.createElement('span');
+            detail.textContent = 'Nothing in this workspace differs from its base branch.';
+            empty.append(icon, title, detail); $('file-content').replaceChildren(empty);
+            return;
+          }
           for (const file of files) {
             const button = document.createElement('button'); button.type = 'button'; button.className = 'change-file';
             const status = document.createElement('span'); status.textContent = file.change;
