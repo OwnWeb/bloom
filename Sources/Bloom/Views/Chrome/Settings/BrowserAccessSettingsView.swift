@@ -18,6 +18,23 @@ struct BrowserAccessSettingsView: View {
     var body: some View {
         Form {
             Section {
+                HStack(alignment: .center, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Bloom in your browser")
+                            .font(.headline)
+                        Text("Browser access is in beta. Some Mac features are still unavailable.")
+                            .settingsFootnote()
+                        Link("Setup instructions", destination: URL(string: "https://runbloom.app/browser-access")!)
+                            .linkButton()
+                    }
+                    Spacer(minLength: 4)
+                    betaStamp
+                }
+                .padding(.vertical, 8)
+                .listRowBackground(Palette.questionWash)
+            }
+
+            Section {
                 Toggle(isOn: enabled) {
                     Text("Allow browser access")
                     Text("Browse conversations and send prompts while Bloom is running.")
@@ -57,6 +74,13 @@ struct BrowserAccessSettingsView: View {
                                     Button("Copy Code") { copy(token) }
                                 }
                             }
+                            if let port = URL(string: address)?.port {
+                                SettingsRow("Tailscale") {
+                                    Button("Copy Serve Command") {
+                                        copy("tailscale serve --bg \(port)")
+                                    }
+                                }
+                            }
                         }
                     } else if let error = app.localWebError {
                         Text("Could not start browser access: \(error)")
@@ -74,5 +98,24 @@ struct BrowserAccessSettingsView: View {
     private func copy(_ value: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
+    }
+
+    private var betaStamp: some View {
+        VStack(spacing: 1) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 17, weight: .medium))
+            Text("BETA")
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .tracking(1.2)
+        }
+        .foregroundStyle(Palette.accent)
+        .frame(width: 66, height: 66)
+        .background(Palette.surface, in: Circle())
+        .overlay {
+            Circle()
+                .strokeBorder(Palette.accent.opacity(0.8), style: StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
+        }
+        .rotationEffect(.degrees(-9))
+        .accessibilityHidden(true)
     }
 }
