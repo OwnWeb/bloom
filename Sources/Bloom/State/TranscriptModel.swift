@@ -1746,6 +1746,17 @@ final class TranscriptModel {
         await handle(event)
     }
 
+    /// The append profiler needs the same row mutation as a stored arrival, without a database or
+    /// runner. Its synthetic messages never leave the disposable probe process.
+    func seedRowsForProbe(_ messages: [Message]) {
+        rows = Self.rows(from: messages)
+        presentationRevision += 1
+    }
+
+    func appendRowForProbe(_ message: Message) {
+        absorb(message)
+    }
+
     private func handle(_ event: AgentEvent) async {
         switch event {
         case .initialized:
