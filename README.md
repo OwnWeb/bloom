@@ -49,9 +49,10 @@ Useful shortcuts include Cmd+N for a new workspace, Cmd+J for a project-free con
 Cmd+P to search files in the current project workspace. See [the menu reference](docs/MENUS.md)
 for the full list.
 
-### Browser access (beta)
+### Browser access (alpha)
 
-Bloom can show conversations in a browser while the Mac app is running. The browser can send
+Browser access is in alpha and may change or be removed at any time. Bloom can show conversations
+in a browser while the Mac app is running. The browser can send
 prompts, create projects and workspaces, and inspect transcripts and file references. Some Mac
 features, including native diff review and terminal panes, are not available there yet.
 

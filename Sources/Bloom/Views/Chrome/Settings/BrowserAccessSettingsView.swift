@@ -22,13 +22,13 @@ struct BrowserAccessSettingsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Bloom in your browser")
                             .font(.headline)
-                        Text("Browser access is in beta. Some Mac features are still unavailable.")
+                        Text("Browser access is in alpha. It may change or be removed at any time. Some Mac features are still unavailable.")
                             .settingsFootnote()
                         Link("Setup instructions", destination: URL(string: "https://runbloom.app/browser-access")!)
                             .linkButton()
                     }
                     Spacer(minLength: 4)
-                    betaStamp
+                    alphaStamp
                 }
                 .padding(.vertical, 8)
                 .listRowBackground(Palette.questionWash)
@@ -100,11 +100,11 @@ struct BrowserAccessSettingsView: View {
         NSPasteboard.general.setString(value, forType: .string)
     }
 
-    private var betaStamp: some View {
+    private var alphaStamp: some View {
         VStack(spacing: 1) {
             Image(systemName: "sparkles")
                 .font(.system(size: 17, weight: .medium))
-            Text("BETA")
+            Text("ALPHA")
                 .font(.system(size: 10, weight: .heavy, design: .rounded))
                 .tracking(1.2)
         }
