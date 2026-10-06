@@ -82,11 +82,11 @@ struct ProjectAddToolTests {
         MCPRequest(id: .number(1), method: "project_add", params: .object(["path": .string(path)]))
     }
 
-    @Test("only the owner sees it, because a workspace agent has a project already")
+    @Test("the owner and workspace agents can register an existing repository")
     func roleGate() {
         let toolbox = BridgeToolbox(handlers: [ProjectAddTool()])
 
-        #expect(toolbox.tools(for: .workspace).isEmpty)
+        #expect(toolbox.tools(for: .workspace).map(\.name) == ["project_add"])
         #expect(toolbox.tools(for: .owner).map(\.name) == ["project_add"])
     }
 

@@ -131,6 +131,27 @@ struct TranscriptWindowTests {
         #expect(window.preparedHistory(afterArrival: false) == nil)
     }
 
+    @Test("live-end preparation stops at its row budget")
+    func livePreparationStaysBounded() {
+        let window = TranscriptWindow(start: 4_000, end: 5_000)
+        let prepared = window.preparedHistory(
+            afterArrival: true, maximumRows: TranscriptWindow.livePreparedLimit
+        )
+        #expect(prepared == TranscriptWindow(start: 3_800, end: 5_000))
+        #expect(prepared?.preparedHistory(
+            afterArrival: true, maximumRows: TranscriptWindow.livePreparedLimit
+        ) == nil)
+    }
+
+    @Test("returning to the live end discards only old drawn entries")
+    func liveWindowCanDropOldEntries() {
+        let window = TranscriptWindow(start: 200, end: 5_000)
+        #expect(window.keepingLatest(TranscriptWindow.livePreparedLimit)
+            == TranscriptWindow(start: 3_800, end: 5_000))
+        #expect(TranscriptWindow(start: 4_000, end: 5_000).keepingLatest(1_200)
+            == TranscriptWindow(start: 4_000, end: 5_000))
+    }
+
     @Test("idle preparation stops once the table knows the whole history")
     func idlePreparationStopsAtTheTop() {
         let whole = TranscriptWindow(start: 0, end: 2_000)

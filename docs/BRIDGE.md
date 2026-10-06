@@ -152,7 +152,7 @@ places: the listing, the dispatch and the gate.
 | --- | --- | :---: | :---: |
 | `whoami` | What this connection is: the workspace and its branch, the worktree path, the project, and whether the workspace was created by the owner or by another agent. From the owner's own client, which copy of Bloom was reached and how much it is holding | ✓ | ✓ |
 | `project_list` | Every project in the sidebar: name, path, default branch, how many workspaces it has, how many of those have an agent mid turn and how many have one stopped on a question, whether it is still where Bloom recorded it, whether it is hidden | ✓ | ✓ |
-| `project_add` | Register a git repository that **already exists** as a project | | ✓ |
+| `project_add` | Register a git repository that **already exists** as a project | ✓ | ✓ |
 | `project_hide` | Take a project out of the sidebar. A view preference and nothing more | | ✓ |
 | `project_unhide` | Put it back, in the place it already had | | ✓ |
 | `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why, and its local state. Read only | ✓ | ✓ |
@@ -415,8 +415,9 @@ repository is handed to a workspace in another: an agent in the site's project t
 belongs in the app starts it there. The owner's client must name one, because nothing else says
 which. Either way the name goes through `BridgeProjectLookup`, so both may only name a project Bloom
 already has and both are refused in the same words when it matches nothing or matches more than
-one. `project_list` is offered to a workspace agent for this reason and no other; `project_add` and
-the two hiding tools stay with the owner, because they change the owner's sidebar.
+one. `project_list` and `project_add` are offered to a workspace agent so it can register an
+existing repository before starting work there. `project_add` changes the owner's sidebar and
+therefore remains subject to the agent's permission mode. The two hiding tools stay with the owner.
 
 Naming another project changes where the worktree is cut and nothing else. The new workspace is
 still `.agent` origin with the caller as its parent, and every rule that reads parentage reads the
@@ -916,8 +917,9 @@ window is asked for anything: the depth limit, the ceiling of three and the name
 `project_list` is on it and the other project tools are not, and that is deliberate rather than an
 omission: the list is for tools an agent must be able to call while nobody is watching. A workspace
 agent reads `project_list` before naming another project to `workspace_start`, and it changes
-nothing. `project_add`, `project_hide` and `project_unhide` change the owner's sidebar and are called
-by the owner's own client, where the owner is by definition sitting there to answer.
+nothing. `project_add` changes the owner's sidebar and is offered to workspace agents, but Bloom
+does not approve its permission question for them. `project_hide` and `project_unhide` change that
+sidebar too and remain available only to the owner's own client.
 
 `quick_prompt_list` is on it and the other three quick prompt tools are not, which is the same test
 applied four times. The listing is offered to `.workspace`, so it can be called by an agent running on
