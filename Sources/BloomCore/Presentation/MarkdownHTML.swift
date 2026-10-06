@@ -16,8 +16,8 @@ public enum MarkdownHTML {
         public var hasMermaid: Bool
     }
 
-    public static func render(_ text: String) -> Rendered {
-        var writer = Writer()
+    public static func render(_ text: String, imagesAsAltText: Bool = false) -> Rendered {
+        var writer = Writer(imagesAsAltText: imagesAsAltText)
         writer.blocks(MarkdownParser.parse(text))
         return Rendered(html: writer.output, hasMermaid: writer.hasMermaid)
     }
@@ -77,6 +77,7 @@ public enum MarkdownHTML {
     }
 
     private struct Writer {
+        var imagesAsAltText: Bool
         var output = ""
         var hasMermaid = false
         var slugs: [String: Int] = [:]
@@ -89,13 +90,13 @@ public enum MarkdownHTML {
             switch block {
             case let .paragraph(inline):
                 if tight {
-                    output += MarkdownHTML.inline(inline)
+                    output += MarkdownHTML.inline(inline, imagesAsAltText: imagesAsAltText)
                 } else {
-                    output += "<p>\(MarkdownHTML.inline(inline))</p>\n"
+                    output += "<p>\(MarkdownHTML.inline(inline, imagesAsAltText: imagesAsAltText))</p>\n"
                 }
             case let .heading(level, inline):
                 let level = min(max(level, 1), 6)
-                output += "<h\(level) id=\"\(MarkdownHTML.escape(anchor(for: inline)))\">\(MarkdownHTML.inline(inline))</h\(level)>\n"
+                output += "<h\(level) id=\"\(MarkdownHTML.escape(anchor(for: inline)))\">\(MarkdownHTML.inline(inline, imagesAsAltText: imagesAsAltText))</h\(level)>\n"
             case let .codeBlock(code, language, info):
                 codeBlock(code, language: language, info: info)
             case let .bulletList(items, isTight):
@@ -111,7 +112,7 @@ public enum MarkdownHTML {
                 for item in items {
                     let checked = item.checked ? " checked" : ""
                     output += "<li class=\"task-list-item\"><input type=\"checkbox\" disabled\(checked)> "
-                    output += MarkdownHTML.inline(item.inline)
+                    output += MarkdownHTML.inline(item.inline, imagesAsAltText: imagesAsAltText)
                     output += "</li>\n"
                 }
                 output += "</ul>\n"
@@ -161,14 +162,14 @@ public enum MarkdownHTML {
             }
             output += "<table>\n<thead><tr>"
             for (column, header) in headers.enumerated() {
-                output += "<th\(style(column))>\(MarkdownHTML.inline(header))</th>"
+                output += "<th\(style(column))>\(MarkdownHTML.inline(header, imagesAsAltText: imagesAsAltText))</th>"
             }
             output += "</tr></thead>\n<tbody>\n"
             for row in rows {
                 output += "<tr>"
                 for column in headers.indices {
                     let cell = row.indices.contains(column) ? row[column] : []
-                    output += "<td\(style(column))>\(MarkdownHTML.inline(cell))</td>"
+                    output += "<td\(style(column))>\(MarkdownHTML.inline(cell, imagesAsAltText: imagesAsAltText))</td>"
                 }
                 output += "</tr>\n"
             }
@@ -184,28 +185,30 @@ public enum MarkdownHTML {
         }
     }
 
-    static func inline(_ values: [MarkdownInline]) -> String {
+    static func inline(_ values: [MarkdownInline], imagesAsAltText: Bool = false) -> String {
         var output = ""
         for value in values {
             switch value {
             case let .text(text):
                 output += escape(text)
             case let .emphasis(children):
-                output += "<em>\(inline(children))</em>"
+                output += "<em>\(inline(children, imagesAsAltText: imagesAsAltText))</em>"
             case let .strong(children):
-                output += "<strong>\(inline(children))</strong>"
+                output += "<strong>\(inline(children, imagesAsAltText: imagesAsAltText))</strong>"
             case let .strikethrough(children):
-                output += "<del>\(inline(children))</del>"
+                output += "<del>\(inline(children, imagesAsAltText: imagesAsAltText))</del>"
             case let .code(text):
                 output += "<code>\(escape(text))</code>"
             case let .link(text, url):
                 if let address = safeAddress(url) {
-                    output += "<a href=\"\(escape(address))\">\(inline(text))</a>"
+                    output += "<a href=\"\(escape(address))\">\(inline(text, imagesAsAltText: imagesAsAltText))</a>"
                 } else {
-                    output += inline(text)
+                    output += inline(text, imagesAsAltText: imagesAsAltText)
                 }
             case let .image(alt, url):
-                if let address = safeAddress(url, forImage: true) {
+                if imagesAsAltText {
+                    output += escape(alt)
+                } else if let address = safeAddress(url, forImage: true) {
                     output += "<img src=\"\(escape(address))\" alt=\"\(escape(alt))\">"
                 } else {
                     output += escape(alt)

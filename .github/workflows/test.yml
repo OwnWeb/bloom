@@ -107,6 +107,9 @@ jobs:
       - name: Check the house rules
         run: ./Tools/house-rules.sh
 
+      - name: Check the browser client script
+        run: node Tools/check-local-web-client.mjs
+
       # And the rules that are the language's rather than ours, which is the other half.
       # `.swiftlint.yml` is tuned rather than default: the head of that file has the counts every
       # disabled rule produced and why each one is off.

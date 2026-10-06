@@ -13,6 +13,22 @@ extension Store {
         ).map(Self.message(from:))
     }
 
+    /// The browser client opens at the live end, without reading a whole long transcript first.
+    public func recentMessages(sessionID: SessionID, limit: Int = 200) throws -> [Message] {
+        try db.query(
+            "SELECT * FROM messages WHERE session_id = ? ORDER BY seq DESC LIMIT ?",
+            [.text(sessionID), .int(Int64(limit))]
+        ).map(Self.message(from:)).reversed()
+    }
+
+    /// A page before the one a browser or phone client is reading, still returned oldest first.
+    public func messages(sessionID: SessionID, beforeSeq: Int, limit: Int) throws -> [Message] {
+        try db.query(
+            "SELECT * FROM messages WHERE session_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?",
+            [.text(sessionID), .int(Int64(beforeSeq)), .int(Int64(limit))]
+        ).map(Self.message(from:)).reversed()
+    }
+
     /// How many rows a chat has.
     public func messageCount(sessionID: SessionID) throws -> Int {
         Int(try db.query("SELECT COUNT(*) AS c FROM messages WHERE session_id = ?",

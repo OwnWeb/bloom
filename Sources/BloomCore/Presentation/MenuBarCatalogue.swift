@@ -54,6 +54,7 @@ public enum MenuBarCatalogue {
         // you had said anything. Which verb a target needs is worked out from the target now. See
         // `ProjectTargetVerdict`, and `StartProjectView` for the window it draws.
         MenuBarItem(.startProject, in: .file, "Start a Project…", key: .init("n", .command, .option)),
+        MenuBarItem(.openWebClient, in: .file, "Open Bloom in Browser", availability: .sometimes),
         MenuBarItem(.save, in: .file, "Save", key: .command("s"), availability: .sometimes),
 
         // MARK: Edit
@@ -187,6 +188,7 @@ public enum MenuBarAction: String, CaseIterable, Sendable {
     case renameTab
     case closeTab
     case startProject
+    case openWebClient
     case save
 
     case addSelectionToChat
