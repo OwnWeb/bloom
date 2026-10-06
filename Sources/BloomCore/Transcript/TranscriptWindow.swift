@@ -59,6 +59,10 @@ public struct TranscriptWindow: Equatable, Sendable {
     /// flick, and small enough that adding it is a layout of a few milliseconds.
     public static let chunk = 400
 
+    /// Keep a few screens of history ready at the live end. Preparing the entire session made
+    /// every new row rebuild and compare thousands of entries, even while nobody scrolled.
+    public static let livePreparedLimit = 1_200
+
     /// How many rows above a row that has to be reachable the window starts.
     ///
     /// A search result opens centred in the pane, so the rows above it have to exist or there is
@@ -104,9 +108,17 @@ public struct TranscriptWindow: Equatable, Sendable {
     /// first frame. Once that arrival is complete, however, an `NSTableView` is cheaper when its
     /// lightweight row entries arrive before the reader asks for them. Returning nil makes the
     /// caller's settle chain stop naturally when there is no history left.
-    public func preparedHistory(afterArrival arrived: Bool, by chunk: Int = chunk) -> Self? {
-        guard arrived, canGrowUp else { return nil }
-        return grownUp(by: chunk)
+    public func preparedHistory(
+        afterArrival arrived: Bool, by chunk: Int = chunk, maximumRows: Int = .max
+    ) -> Self? {
+        guard arrived, canGrowUp, count < maximumRows else { return nil }
+        return grownUp(by: min(chunk, maximumRows - count))
+    }
+
+    /// Drop old table entries after a reader returns to the live end. The model still owns every
+    /// row, and the table can grow upward again when the reader asks for that history.
+    public func keepingLatest(_ rows: Int) -> Self {
+        Self(start: max(start, end - max(0, rows)), end: end)
     }
 
     /// The window grown downward, which is what the reader approaching the bottom of an opened-on-

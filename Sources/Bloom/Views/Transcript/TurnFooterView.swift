@@ -5,7 +5,6 @@ import BloomCore
 /// The line that closes a turn: how long it took, what it changed, and the handles to do something
 /// with it.
 struct TurnFooterView: View {
-    var rows: [TranscriptRow]
     var row: TranscriptRow
     /// What the file chips show their paths relative to. See `TurnFile.display(in:)`.
     var worktree: String
@@ -308,6 +307,7 @@ struct TurnFooterView: View {
             files = known
             return
         }
+        guard let rows = transcript?.rows else { return }
         let scanned = await Task.detached(priority: .utility) { [rows, seq = row.seq] in
             TurnScan.files(rows: rows, endingAt: seq)
         }.value

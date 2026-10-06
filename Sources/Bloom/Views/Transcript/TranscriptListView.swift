@@ -732,7 +732,6 @@ struct TranscriptListView: View {
                             // message. At the live end it keeps only the tight inset, so the
                             // duration sits evenly between its own rule and the composer rule.
                             TurnFooterView(
-                                rows: rows,
                                 row: row,
                                 worktree: home.worktree,
                                 permissionMode: permissionMode,
@@ -1054,6 +1053,11 @@ struct TranscriptListView: View {
             onGeometryChange: { measured($0) },
             onSettled: {
                 remember()
+                // A hand reaching the end should finish before old rows are removed from above it.
+                Task { @MainActor in
+                    await Task.yield()
+                    trimHistoryAtLiveEnd()
+                }
                 scheduleHistoryPreparation()
             },
             onLiveScrollChange: { hasHold in
@@ -1438,6 +1442,8 @@ struct TranscriptListView: View {
             onScrolledUpChange?(measured.isFarFromEnd)
         }
 
+        trimHistoryAtLiveEnd()
+
         if table.offset < table.viewportHeight { growWindow() }
         // A scroll that ended against the bottom of a short window is a reader asking for what is
         // under it, and the geometry may not have CHANGED while they tried.
@@ -1818,7 +1824,10 @@ struct TranscriptListView: View {
                   !isLiveScrolling.value,
                   arrivalSession == transcript.session.id,
                   drawn.session == transcript.session.id,
-                  let prepared = drawn.window.preparedHistory(afterArrival: true) {
+                  let prepared = drawn.window.preparedHistory(
+                      afterArrival: true,
+                      maximumRows: atLiveEnd.value ? TranscriptWindow.livePreparedLimit : .max
+                  ) {
                 drawn.window = prepared
                 TranscriptDrawn.note(prepared.count, session: transcript.session.id)
                 try? await Task.sleep(for: .milliseconds(180))
@@ -1834,6 +1843,20 @@ struct TranscriptListView: View {
             try? await Task.sleep(for: .milliseconds(250))
             prepareHistoryWhileIdle()
         }
+    }
+
+    /// The table's height cache survives this trim. Only the row entries are released, so a new
+    /// arrival pays for the live neighbourhood while an upward scroll can still recover history.
+    private func trimHistoryAtLiveEnd() {
+        guard !isLiveScrolling.value,
+              atLiveEnd.value,
+              drawn.session == transcript.session.id,
+              drawn.window.end >= transcript.rows.count,
+              drawn.window.count > TranscriptWindow.livePreparedLimit + TranscriptWindow.chunk
+        else { return }
+        drawn.window = drawn.window.keepingLatest(TranscriptWindow.livePreparedLimit)
+        drawn.rowCount = transcript.rows.count
+        TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
     }
 
     // MARK: - Arrivals
