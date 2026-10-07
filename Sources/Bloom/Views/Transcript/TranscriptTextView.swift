@@ -207,7 +207,7 @@ struct TranscriptTextView: NSViewRepresentable {
         if view.textStorage?.isEqual(to: text) != true {
             view.textStorage?.setAttributedString(text)
             view.bubbleAlignmentWidth = nil
-            view.lastMeasurement = nil
+            view.clearMeasurements()
         }
         view.linkColor = linkColor
         // No underline at rest. The pointing hand is asked for here and set for real in
@@ -249,7 +249,7 @@ struct TranscriptTextView: NSViewRepresentable {
         // out again at 80 and wrapped: two lines of ink in a bubble one line tall, the second
         // drawn over the caption under it, and the bubble narrower than its own words. A width a
         // run has reported must be a width it fits in when it is handed it back, which only the
-        // exact proposal promises. Repeated proposals are still answered from `lastMeasurement`,
+        // exact proposal promises. Repeated proposals are answered from the measurement cache,
         // and the pane itself reflows in steps during a drag, which is where the saving is.
         let width = TranscriptTextMeasure.layoutWidth(proposed: proposed)
         // Only when it has actually moved. Whether TextKit throws its layout away on being handed
@@ -258,12 +258,13 @@ struct TranscriptTextView: NSViewRepresentable {
         // proposals a `.textSelection(.enabled)` block generates repeat the same widths. Not
         // depending on the answer costs one comparison.
         let wanted = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-        if let last = nsView.lastMeasurement,
-           last.proposedWidth == proposed,
-           last.layoutWidth == width,
-           last.alignsBubbleInk == alignsBubbleInk,
-           container.containerSize == wanted {
-            return last.size
+        if let cached = nsView.measurement(
+            proposedWidth: proposed, layoutWidth: width, alignsBubbleInk: alignsBubbleInk
+        ) {
+            if container.containerSize != wanted { container.containerSize = wanted }
+            nsView.bubbleInkOffset = cached.bubbleInkOffset
+            nsView.bubbleAlignmentWidth = alignsBubbleInk ? width : nil
+            return cached.size
         }
         if container.containerSize != wanted { container.containerSize = wanted }
         layout.ensureLayout(for: container)
@@ -285,10 +286,11 @@ struct TranscriptTextView: NSViewRepresentable {
             hasGlyphs: (nsView.textStorage?.length ?? 0) > 0
         )
         let result = CGSize(width: size.width, height: size.height)
-        nsView.lastMeasurement = LinkTextView.Measurement(
+        nsView.remember(LinkTextView.Measurement(
             proposedWidth: proposed, layoutWidth: width,
-            alignsBubbleInk: alignsBubbleInk, size: result
-        )
+            alignsBubbleInk: alignsBubbleInk, size: result,
+            bubbleInkOffset: nsView.bubbleInkOffset
+        ))
         return result
     }
 
@@ -484,11 +486,33 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
         var layoutWidth: CGFloat
         var alignsBubbleInk: Bool
         var size: CGSize
+        var bubbleInkOffset: CGFloat
     }
 
-    /// SwiftUI asks a representable for the same proposal several times in one layout pass.
-    /// TextKit's layout and widest-line scan only need to run again when its text or width moves.
-    var lastMeasurement: Measurement?
+    /// List layout alternates between zero, ideal and actual widths. Keep those answers together
+    /// so each proposal does not evict the previous one and force TextKit to typeset it again.
+    private var measurements: [Measurement] = []
+    private static let measurementLimit = 8
+
+    func clearMeasurements() { measurements.removeAll() }
+
+    func measurement(
+        proposedWidth: Double?, layoutWidth: CGFloat, alignsBubbleInk: Bool
+    ) -> Measurement? {
+        guard let index = measurements.firstIndex(where: {
+            $0.proposedWidth == proposedWidth && $0.layoutWidth == layoutWidth
+                && $0.alignsBubbleInk == alignsBubbleInk
+        }) else { return nil }
+        let answer = measurements.remove(at: index)
+        measurements.append(answer)
+        return answer
+    }
+
+    func remember(_ answer: Measurement) {
+        measurements.append(answer)
+        if measurements.count > Self.measurementLimit { measurements.removeFirst() }
+    }
+
     var bubbleAlignmentWidth: CGFloat?
     var bubbleInkOffset: CGFloat = 0 {
         didSet {
