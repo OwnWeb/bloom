@@ -79,7 +79,9 @@ public actor CodexClient {
     public static func launch(_ configuration: Configuration) -> AgentLaunch {
         var environment = configuration.environment
         if let home = configuration.codexHome, !home.isEmpty {
-            environment["CODEX_HOME"] = home
+            environment = AgentAccountEnvironment.applying(
+                kind: .codex, home: home, to: environment
+            )
         }
         // `-c` overrides belong to the `app-server` subcommand, so they follow it. Never
         // `--strict-config` beside them: it is not Claude Code's `--strict-mcp-config` but it is

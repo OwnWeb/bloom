@@ -1207,7 +1207,7 @@ final class TranscriptModel {
         // bubble claiming to have been said to an agent that was never built. It takes a database
         // that never opened, so it is close to impossible, and a message of the owner's
         // disappearing without a word is not a thing to leave resting on that.
-        guard let runner = ensureRunner() else {
+        guard let runner = await ensureRunner() else {
             await abandon(delivery, saying: "Bloom could not open an agent for this chat.")
             return false
         }
@@ -1488,7 +1488,7 @@ final class TranscriptModel {
     /// nil forever if the open in `AppModel.bootstrap` throws while `isLoaded` is set true, so a
     /// second caller of this would take the app down. There is no reason for the guarantee to be
     /// somewhere other than here.
-    private func ensureRunner() -> (any SessionRunner)? {
+    private func ensureRunner() async -> (any SessionRunner)? {
         guard !usesInteractiveTerminal else { return nil }
         guard !isWorkspaceArchiving else { return nil }
         guard let store else { return nil }
@@ -1510,13 +1510,20 @@ final class TranscriptModel {
         // minted for that workspace and the role its origin says; Ask Bloom gets the owner's own,
         // which is the same door the owner's terminal comes in through and the reason every owner
         // tool works here without one of them being written twice.
+        let profile: AgentAccountProfile?
+        do {
+            profile = try await store.accountForLaunch(session: session)
+        } catch {
+            return nil
+        }
         let bridge = workspace.map { app.bridge?.register(session: session, workspace: $0) }
             ?? app.bridge?.register(askSession: session)
         let runner = Self.makeRunner(
             session: session,
             workspacePath: cwd,
             store: store,
-            bridge: bridge
+            bridge: bridge,
+            accountHome: profile.map(store.agentAccountHome)
         )
         self.runner = runner
         runnerPreferences = preferences
@@ -1542,7 +1549,8 @@ final class TranscriptModel {
         session: Session,
         workspacePath: String,
         store: Store,
-        bridge: BridgeHandle? = nil
+        bridge: BridgeHandle? = nil,
+        accountHome: String? = nil
     ) -> any SessionRunner {
         switch session.agentKind {
         case .codex:
@@ -1550,14 +1558,16 @@ final class TranscriptModel {
                 workspacePath: workspacePath,
                 session: session,
                 store: store,
-                bridge: bridge?.attachment
+                bridge: bridge?.attachment,
+                accountHome: accountHome
             )
         case .grok:
             return GrokRunner(
                 workspacePath: workspacePath,
                 session: session,
                 store: store,
-                bridge: bridge?.attachment
+                bridge: bridge?.attachment,
+                accountHome: accountHome
             )
         // Cursor and OpenCode have no runner, and `AgentKind.canRunWorkspaces` is what stops a
         // chat ever being on one. A chat that somehow is falls back to Claude Code rather than
@@ -1568,7 +1578,8 @@ final class TranscriptModel {
                 workspacePath: workspacePath,
                 session: session,
                 store: store,
-                mcpConfigPath: bridge?.mcpConfigPath
+                mcpConfigPath: bridge?.mcpConfigPath,
+                accountHome: accountHome
             )
         }
     }

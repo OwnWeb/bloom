@@ -2,6 +2,10 @@ import AppKit
 import SwiftUI
 import BloomCore
 
+extension Notification.Name {
+    static let bloomAgentProfilesChanged = Notification.Name("bloom.agentProfilesChanged")
+}
+
 /// Connects Bloom to the agent CLIs installed on the machine.
 ///
 /// The screen is deliberately read-mostly. Detection, version reading and account facts all come
@@ -19,6 +23,11 @@ struct AgentsSettingsView: View {
     @State private var isRefreshing = false
     @State private var saveFailure: String?
     @State private var loginRequest: AgentSignInSheet.Request?
+    @State private var accountProfiles: [AgentAccountProfile] = []
+    @State private var accountName = ""
+    @State private var accountError: String?
+    @State private var accountToRemove: AgentAccountProfile?
+    @State private var showsRemoveConfirmation = false
     @State private var pathDraft = ""
     /// Which agent `pathDraft` belongs to. `selection` has already moved on by the time the
     /// change handler runs, so committing against it would file one agent's path under another.
@@ -65,6 +74,10 @@ struct AgentsSettingsView: View {
             } else if let status {
                 statusSection(status)
 
+                if selection.canRunWorkspaces {
+                    accountsSection(status)
+                }
+
                 capabilitySection
 
                 if status.connection == .notInstalled {
@@ -93,6 +106,15 @@ struct AgentsSettingsView: View {
             AgentSignInSheet(request: request) {
                 Task { await refresh() }
             }
+        }
+        .alert("Remove account?", isPresented: $showsRemoveConfirmation) {
+            Button("Remove Account", role: .destructive) {
+                guard let accountToRemove else { return }
+                Task { await removeAccount(accountToRemove) }
+            }
+            Button("Cancel", role: .cancel) { accountToRemove = nil }
+        } message: {
+            Text("Bloom will delete the local sign-in files for \(accountToRemove?.name ?? "this account"). This cannot be undone.")
         }
         .onDisappear { commitPathDraft() }
         .onChange(of: selection) { _, kind in
@@ -148,6 +170,37 @@ struct AgentsSettingsView: View {
             }
         } header: {
             Text(selection.label)
+        }
+    }
+
+    private func accountsSection(_ status: AgentStatus) -> some View {
+        Section("Additional accounts") {
+            ForEach(accountProfiles.filter { $0.kind == selection }) { profile in
+                HStack {
+                    Text(profile.name)
+                    Spacer()
+                    Button("Sign in…") { signIn(profile, status: status) }
+                        .disabled(status.executablePath == nil)
+                    Button("Remove…", role: .destructive) {
+                        accountToRemove = profile
+                        showsRemoveConfirmation = true
+                    }
+                }
+            }
+
+            HStack {
+                TextField("Account name", text: $accountName)
+                    .textFieldStyle(.roundedBorder)
+                Button("Add Account") { Task { await addAccount(status: status) } }
+                    .disabled(accountName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if let accountError {
+                Text(accountError).foregroundStyle(Palette.warning).settingsFootnote()
+            }
+
+            Text("Each account has its own CLI sign-in. Choose one for a project in Project Settings.")
+                .settingsFootnote()
         }
     }
 
@@ -300,6 +353,49 @@ struct AgentsSettingsView: View {
         )
     }
 
+    private func signIn(_ profile: AgentAccountProfile, status: AgentStatus) {
+        guard let executable = status.executablePath, let store = app.store else { return }
+        loginRequest = AgentSignInSheet.Request(
+            kind: profile.kind, executable: executable, isSwitchingAccount: false,
+            profile: profile, accountHome: store.agentAccountHome(profile)
+        )
+    }
+
+    private func addAccount(status: AgentStatus) async {
+        guard let store = app.store else { return }
+        do {
+            let profile = try await store.createAgentAccountProfile(kind: selection, name: accountName)
+            accountProfiles = try await store.agentAccountProfiles()
+            accountName = ""
+            accountError = nil
+            signIn(profile, status: status)
+            NotificationCenter.default.post(name: .bloomAgentProfilesChanged, object: nil)
+        } catch AgentAccountProfileError.duplicateName {
+            accountError = "An account with that name already exists."
+        } catch {
+            accountError = "Could not create the account."
+        }
+    }
+
+    private func removeAccount(_ profile: AgentAccountProfile) async {
+        defer { accountToRemove = nil }
+        guard let store = app.store else { return }
+        do {
+            try await store.removeAgentAccountProfile(id: profile.id)
+            accountProfiles = try await store.agentAccountProfiles()
+            accountError = nil
+            NotificationCenter.default.post(name: .bloomAgentProfilesChanged, object: nil)
+        } catch AgentAccountProfileError.inUse(let count) {
+            accountError = "This account is used by \(count) saved conversations. Remove those conversations first."
+        } catch AgentAccountProfileError.cleanupFailed(let path) {
+            accountProfiles = (try? await store.agentAccountProfiles()) ?? []
+            accountError = "Account removed, but Bloom could not delete its files at \(path)."
+            NotificationCenter.default.post(name: .bloomAgentProfilesChanged, object: nil)
+        } catch {
+            accountError = "Could not remove the account."
+        }
+    }
+
     private func chooseExecutable() {
         Task { await pickExecutable() }
     }
@@ -323,6 +419,7 @@ struct AgentsSettingsView: View {
     // MARK: - Loading
 
     private func bootstrap() async {
+        accountProfiles = (try? await app.store?.agentAccountProfiles()) ?? []
         let loaded = await loadOverrides()
         overrides = loaded
         draftKind = selection

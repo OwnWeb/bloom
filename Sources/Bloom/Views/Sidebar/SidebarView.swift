@@ -829,7 +829,7 @@ struct SidebarView: View {
             break
 
         case .project(let id, let offset):
-            let visible = groups.map(\.id)
+            let visible = SidebarReorder.visibleProjects(in: paneRows.map(\.identity))
             Task { await app.reorderProjects(id: id, visible: visible, to: offset) }
 
         case .workspace(let projectID, let offsets, let offset, let landedOutside):

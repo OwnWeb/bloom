@@ -147,6 +147,7 @@ public actor AgentRunner {
     /// stderr only ever surfaces when the process dies without a `result`, so a short tail is all
     /// that is worth holding.
     private static let stderrTailLimit = 40
+    private let accountHome: String?
 
     /// - Parameter shutdownBudget: how long a turn waits for a cancelled process to die before it
     ///   refuses. Five seconds covers SIGTERM, the three second grace period and the SIGKILL
@@ -160,6 +161,7 @@ public actor AgentRunner {
         session: Session,
         store: Store,
         mcpConfigPath: String? = nil,
+        accountHome: String? = nil,
         shutdownBudget: Duration = .seconds(5),
         makeProcess: @escaping @Sendable (AgentLaunch) -> any AgentProcessing = AgentRunner.spawn
     ) {
@@ -168,6 +170,7 @@ public actor AgentRunner {
         self.session = session
         self.store = store
         self.mcpConfigPath = mcpConfigPath
+        self.accountHome = accountHome
         self.shutdownBudget = shutdownBudget
         self.makeProcess = makeProcess
         self.grants = SessionGrants(store: store, workspaceID: session.workspaceID)
@@ -323,7 +326,9 @@ public actor AgentRunner {
                 mcpConfigPath: mcpConfigPath
             ),
             cwd: workspacePath,
-            environment: Shell.environment()
+            environment: AgentAccountEnvironment.applying(
+                kind: .claudeCode, home: accountHome, to: Shell.environment()
+            )
         )
     }
 

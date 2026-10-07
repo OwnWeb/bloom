@@ -14,6 +14,7 @@ public actor GrokRunner: SessionRunner {
 
     private let store: Store
     private let makeClient: @Sendable (GrokClient.Configuration) -> GrokClient
+    private let accountHome: String?
 
     private var session: Session
     private var client: GrokClient?
@@ -44,6 +45,7 @@ public actor GrokRunner: SessionRunner {
         session: Session,
         store: Store,
         bridge: BridgeAttachment? = nil,
+        accountHome: String? = nil,
         makeClient: @escaping @Sendable (GrokClient.Configuration) -> GrokClient = GrokRunner.spawn
     ) {
         self.workspacePath = workspacePath
@@ -51,6 +53,7 @@ public actor GrokRunner: SessionRunner {
         self.session = session
         self.store = store
         self.bridge = bridge
+        self.accountHome = accountHome
         self.makeClient = makeClient
         self.grants = SessionGrants(store: store, workspaceID: session.workspaceID)
         self.translation = GrokTranslation(context: GrokTranslation.Context(
@@ -210,6 +213,7 @@ public actor GrokRunner: SessionRunner {
         let client = makeClient(GrokClient.Configuration(
             executable: AgentCatalog.executable(for: .grok, override: stored),
             cwd: workspacePath,
+            grokHome: accountHome,
             clientName: "Bloom",
             clientVersion: Self.clientVersion,
             model: wireModel,

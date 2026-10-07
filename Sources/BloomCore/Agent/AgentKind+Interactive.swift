@@ -9,7 +9,8 @@ public extension AgentKind {
         effort: String,
         permissionMode: PermissionMode? = nil,
         resuming: String? = nil,
-        bridge: BridgeHandle? = nil
+        bridge: BridgeHandle? = nil,
+        accountHome: String? = nil
     ) -> String? {
         guard let arguments = interactiveArguments(
             prompt: prompt, sessionID: sessionID, model: model,
@@ -19,7 +20,9 @@ public extension AgentKind {
             directory: directory,
             executable: "/usr/bin/env",
             arguments: [
-                "-u", "NO_COLOR", "TERM=xterm-256color", "COLORTERM=truecolor",
+                "-u", "NO_COLOR"
+            ] + AgentAccountEnvironment.shellArguments(kind: self, home: accountHome) + [
+                "TERM=xterm-256color", "COLORTERM=truecolor",
                 "BLOOM_CLI_STATUS_FILE=\(Self.interactiveStatusURL(sessionID: sessionID).path)",
                 executableName
             ] + arguments

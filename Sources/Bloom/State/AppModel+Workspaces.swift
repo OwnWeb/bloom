@@ -322,9 +322,14 @@ extension AppModel {
         guard let store else { return ComposerControls() }
 
         let appDefaults = await AppDefaults.loadForNewSessions(from: store)
-        let repoSettings = await Task.detached(priority: .userInitiated) {
+        let loadedSettings = await Task.detached(priority: .userInitiated) {
             repo.map { SettingsLoader.load(repo: $0.path) } ?? RepoSettings()
         }.value
+        let repoSettings = if let repo {
+            try await store.applyingProjectAgentDefaults(to: loadedSettings, for: repo.id)
+        } else {
+            loadedSettings
+        }
         // The Codex list as this window last fetched it, which may well be empty here: nothing
         // waits for a fetch to start a workspace. Empty costs only the effort fallback, because
         // the backend the Models screen recorded is read without any list at all. See

@@ -792,6 +792,9 @@ struct ComposerView: View {
             repoSettings = await Task.detached(priority: .utility) {
                 SettingsLoader.load(repo: path)
             }.value
+            repoSettings = (try? await store.applyingProjectAgentDefaults(
+                to: repoSettings, for: repo.id
+            )) ?? repoSettings
         }
         guard !Task.isCancelled else { return }
 

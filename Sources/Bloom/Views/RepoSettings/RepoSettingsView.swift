@@ -13,12 +13,9 @@ import BloomCore
 /// the two windows read as one app. It was a row of tabs across the top before, then a preference
 /// toolbar in the title bar, and both of those put the choice somewhere Settings does not put it.
 ///
-/// Two kinds of setting live here and they are stored in two different places, which the screen is
-/// explicit about. The name, mark, colour and default branch are Bloom's own record and live in its
-/// database. Everything else is stated in the repository's settings files, is shared with whoever
-/// else works on it, and is written back to the file it came from. Every field that writes a file
-/// names the file underneath it, so the destination is known before Save is pressed. See
-/// `SettingsWriter` for why there is no third, invisible copy in the database.
+/// The name, mark, colour, default branch and local agent choices live in Bloom's database.
+/// Scripts, instructions and workspace setup are stated in the repository's settings files and
+/// shared with whoever else works on it. Every field that writes a file names its destination.
 struct RepoSettingsView: View {
     let repo: Repo
 
@@ -54,6 +51,13 @@ struct RepoSettingsView: View {
     /// What the last thing the Mark row did came to, when it came to nothing. Cleared as soon as
     /// something else is pressed, because it is about that press and not about the project.
     @State private var iconNotice: String?
+    @State private var accountProfiles: [AgentAccountProfile] = []
+    @State private var projectAccounts: [AgentKind: String] = [:]
+    @State private var usesProjectAgentDefault = false
+    @State private var agentModel = AppDefaults.fallbackModel
+    @State private var agentEffort = AppDefaults.fallbackEffort
+    @State private var agentKind = AppDefaults.fallbackBackend
+    @State private var agentPreferenceError: String?
     /// The name is written to the database on commit rather than on every keystroke, because each
     /// write reloads the whole sidebar and typing a name would do it once a letter.
     @FocusState private var isEditingName: Bool
@@ -112,6 +116,7 @@ struct RepoSettingsView: View {
                     case .workspaces:
                         Form {
                             branchSection
+                            agentSection
                             browserSection
                             RepoFilesToCopySection(model: model)
                         }
@@ -152,6 +157,8 @@ struct RepoSettingsView: View {
             defaultBranch = repo.defaultBranch
             branchOptions = [repo.defaultBranch]
             await model.load()
+            await loadAgentPreferences()
+            ComposerModelCatalog.shared.load()
             let context = await WorkspaceStartContext.load(repoPath: repo.path)
             let available = WorkspaceStartContext.baseBranchOptions(
                 local: context.branches,
@@ -167,6 +174,9 @@ struct RepoSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.refresh() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .bloomAgentProfilesChanged)) { _ in
+            Task { await loadAccountChoices() }
+        }
     }
 
     /// The list's selection, over a pane that is never nil.
@@ -179,6 +189,90 @@ struct RepoSettingsView: View {
         Binding(get: { pane }, set: { chosen in
             if let chosen { pane = chosen }
         })
+    }
+
+    private var agentSection: some View {
+        Section("Agents") {
+            Toggle("Override default model on this Mac", isOn: $usesProjectAgentDefault)
+            if usesProjectAgentDefault {
+                ModelAndEffortPickers(
+                    model: $agentModel, effort: $agentEffort, backend: $agentKind
+                )
+                Text("The model also chooses the agent for new conversations in this project.")
+                    .settingsFootnote()
+            }
+            Button("Save Model Choice") { Task { await saveAgentDefault() } }
+
+            ForEach(AgentKind.runnable) { kind in
+                Picker("\(kind.label) account", selection: accountBinding(for: kind)) {
+                    Text("Default account").tag("")
+                    ForEach(accountProfiles.filter { $0.kind == kind }) { profile in
+                        Text(profile.name).tag(profile.id.rawValue)
+                    }
+                }
+            }
+            Text("These choices are local to this Mac. A conversation keeps the account it first launches with.")
+                .settingsFootnote()
+            if let agentPreferenceError {
+                Text(agentPreferenceError).foregroundStyle(Palette.warning).settingsFootnote()
+            }
+        }
+    }
+
+    private func accountBinding(for kind: AgentKind) -> Binding<String> {
+        Binding(get: { projectAccounts[kind] ?? "" }, set: { selected in
+            projectAccounts[kind] = selected
+            Task {
+                do {
+                    try await app.store?.setDefaultAccount(
+                        selected.isEmpty ? nil : AgentAccountProfileID(selected),
+                        for: repo.id, kind: kind
+                    )
+                    agentPreferenceError = nil
+                } catch {
+                    agentPreferenceError = "Could not save the account choice."
+                }
+            }
+        })
+    }
+
+    private func loadAgentPreferences() async {
+        guard let store = app.store else { return }
+        await loadAccountChoices()
+        if let chosen = try? await store.projectAgentDefaults(for: repo.id) {
+            usesProjectAgentDefault = true
+            agentModel = chosen.model
+            agentEffort = chosen.effort
+            agentKind = chosen.kind
+        } else {
+            let defaults = await AppDefaults.loadForNewSessions(from: store)
+            agentModel = defaults.model
+            agentEffort = defaults.effort
+            agentKind = defaults.backend
+        }
+    }
+
+    private func loadAccountChoices() async {
+        guard let store = app.store else { return }
+        accountProfiles = (try? await store.agentAccountProfiles()) ?? []
+        for kind in AgentKind.runnable {
+            projectAccounts[kind] = (try? await store.defaultAccount(for: repo.id, kind: kind))?.rawValue ?? ""
+        }
+    }
+
+    private func saveAgentDefault() async {
+        guard let store = app.store else { return }
+        do {
+            try await store.setProjectAgentDefaults(
+                for: repo.id,
+                model: usesProjectAgentDefault ? agentModel : nil,
+                effort: usesProjectAgentDefault ? agentEffort : nil,
+                kind: usesProjectAgentDefault ? agentKind : nil
+            )
+            agentPreferenceError = nil
+        } catch {
+            agentPreferenceError = "Could not save the default model."
+        }
     }
 
     // MARK: - Project

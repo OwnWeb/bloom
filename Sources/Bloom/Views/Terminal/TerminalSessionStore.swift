@@ -28,13 +28,14 @@ final class TerminalSessionStore {
     }
 
     func prepareCLICommand(
-        for session: Session, workspace: Workspace, prompt: String, resuming: String? = nil
+        for session: Session, workspace: Workspace, prompt: String, resuming: String? = nil,
+        accountHome: String? = nil
     ) throws -> String? {
         let handle = cliBridge(for: session, workspace: workspace)
         return try session.agentKind.prepareInteractiveCommand(
             directory: workspace.path, prompt: prompt, sessionID: session.id,
             model: session.model, effort: session.effort, permissionMode: session.permissionMode,
-            resuming: resuming, bridge: handle
+            resuming: resuming, bridge: handle, accountHome: accountHome
         )
     }
 
@@ -531,11 +532,19 @@ final class TerminalSessionStore {
             if let workspace = try? await store.workspace(id: workspaceID),
                CenterTabStore.shared.terminal(for: sessionID, in: workspaceID)?.id == tab.id,
                !Task.isCancelled {
-                if let externalSession = externalSession ?? session.agentSessionID,
-                   let resume = try? prepareCLICommand(
-                       for: session, workspace: workspace, prompt: "", resuming: externalSession
-                   ) {
-                    if isPresent { await recall.rememberResume(resume, inPane: tab.id, store: store) }
+                if let externalSession = externalSession ?? session.agentSessionID {
+                    do {
+                        let accountHome = try await store.accountForLaunch(session: session)
+                            .map(store.agentAccountHome)
+                        if let resume = try prepareCLICommand(
+                            for: session, workspace: workspace, prompt: "", resuming: externalSession,
+                            accountHome: accountHome
+                        ), isPresent {
+                            await recall.rememberResume(resume, inPane: tab.id, store: store)
+                        }
+                    } catch {
+                        // A missing profile must not turn a saved CLI thread into a system login.
+                    }
                 } else {
                     _ = cliBridge(for: session, workspace: workspace)
                 }
