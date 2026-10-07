@@ -292,6 +292,15 @@ extension SidebarReorder {
         }
     }
 
+    /// The project headers in the same flat run `destination` reads. Empty projects omitted by
+    /// the pane are absent here too, so a destination offset cannot count a row that was not drawn.
+    public static func visibleProjects(in rows: [Row]) -> [RepoID] {
+        rows.compactMap { row in
+            guard case .project(let id) = row else { return nil }
+            return id
+        }
+    }
+
     /// The smallest set of writes that puts the projects in the order a header drag asked for.
     ///
     /// Ordered by `sort_order` and read back by the same, so a project whose number is already

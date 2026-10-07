@@ -58,6 +58,12 @@ public struct RepoID: Identifier {
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }
 
+/// A named, isolated CLI sign-in managed by Bloom.
+public struct AgentAccountProfileID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
 /// A worktree on disk. The id outlives the worktree: an archived workspace keeps its row, and the
 /// row is what a restore reads.
 public struct WorkspaceID: Identifier {

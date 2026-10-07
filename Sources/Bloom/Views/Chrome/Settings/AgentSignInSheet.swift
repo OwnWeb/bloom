@@ -10,7 +10,18 @@ struct AgentSignInSheet: View {
         let kind: AgentKind
         let executable: String
         let isSwitchingAccount: Bool
+        let profile: AgentAccountProfile?
+        let accountHome: String?
         let directory = AgentScratchDirectory.current()
+
+        init(kind: AgentKind, executable: String, isSwitchingAccount: Bool,
+             profile: AgentAccountProfile? = nil, accountHome: String? = nil) {
+            self.kind = kind
+            self.executable = executable
+            self.isSwitchingAccount = isSwitchingAccount
+            self.profile = profile
+            self.accountHome = accountHome
+        }
     }
 
     let request: Request
@@ -23,7 +34,7 @@ struct AgentSignInSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.gutter) {
-            Text("Sign in to \(request.kind.label)")
+            Text(request.profile.map { "Sign in to \($0.name)" } ?? "Sign in to \(request.kind.label)")
                 .font(Typo.heading)
                 .foregroundStyle(Palette.textPrimary)
 
@@ -32,7 +43,7 @@ struct AgentSignInSheet: View {
                 .foregroundStyle(Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if request.isSwitchingAccount {
+            if request.isSwitchingAccount && request.profile == nil {
                 Text("This changes the account used by \(request.kind.label) on this Mac.")
                     .settingsFootnote()
             }
@@ -68,21 +79,23 @@ struct AgentSignInSheet: View {
                     .foregroundStyle(Palette.warning)
                     .fixedSize(horizontal: false, vertical: true)
             } else if exit != nil {
-                Text("Sign-in command finished. Close this window to review your account in Settings.")
+                Text("Sign-in command finished.")
                     .font(Typo.label)
                     .foregroundStyle(Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack(spacing: Metrics.gutter) {
-                Button("Copy sign-in command") {
-                    Clipboard.copy(TerminalLaunchScript.shellCommand(
-                        directory: request.directory,
-                        executable: request.executable,
-                        arguments: request.kind.loginArguments
-                    ))
+                if request.profile == nil {
+                    Button("Copy sign-in command") {
+                        Clipboard.copy(TerminalLaunchScript.shellCommand(
+                            directory: request.directory,
+                            executable: request.executable,
+                            arguments: request.kind.loginArguments
+                        ))
+                    }
+                    .help("Run this command in your own terminal to sign in.")
                 }
-                .help("Run this command in your own terminal to sign in.")
 
                 Spacer()
 
@@ -112,6 +125,9 @@ struct AgentSignInSheet: View {
             executable: request.executable,
             arguments: request.kind.loginArguments,
             directory: request.directory,
+            environment: AgentAccountEnvironment.applying(
+                kind: request.kind, home: request.accountHome, to: Shell.environment()
+            ),
             onExit: { result in
                 exit = result
                 if result != .exited(0) {

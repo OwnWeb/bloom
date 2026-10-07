@@ -540,9 +540,13 @@ final class WorkspaceModel {
     ) async -> PaneContent? {
         guard let store, let repo = app.repo(for: workspace) else { return nil }
         let defaults = await AppDefaults.loadForNewSessions(from: store)
+        let loadedSettings = SettingsLoader.load(repo: workspace.path)
+        let repoSettings = (try? await store.applyingProjectAgentDefaults(
+            to: loadedSettings, for: repo.id
+        )) ?? loadedSettings
         let controls = suppliedControls ?? ComposerControls(
                 defaults: ComposerDefaults.resolve(
-                    repo: SettingsLoader.load(repo: workspace.path), app: defaults,
+                    repo: repoSettings, app: defaults,
                     models: ComposerModelCatalog.shared.models
                 ),
                 isFastMode: defaults.fastMode, outputStyle: defaults.outputStyle,
@@ -1312,7 +1316,7 @@ final class WorkspaceModel {
         if let cliSession, let prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             cliDelivery = try? await store?.enqueueDelivery(Delivery(targetSessionID: cliSession.id, body: prompt))
             if let terminal = CenterTabStore.shared.terminal(for: cliSession.id, in: workspace.id),
-               let command = prepareCLICommand(for: cliSession, prompt: prompt) {
+               let command = await prepareCLICommand(for: cliSession, prompt: prompt) {
                 try? await store?.setSetting(TerminalCommandMemory.key(paneID: terminal.id), command)
             }
         } else {
@@ -1447,7 +1451,7 @@ final class WorkspaceModel {
         guard !Task.isCancelled,
               let terminal = CenterTabStore.shared.terminal(for: cliSession.id, in: workspace.id),
               sessions.contains(where: { $0.id == cliSession.id }),
-              let command = prepareCLICommand(for: cliSession, prompt: prompt) else { return }
+              let command = await prepareCLICommand(for: cliSession, prompt: prompt) else { return }
         try? FileManager.default.removeItem(at: AgentKind.interactiveStatusURL(sessionID: cliSession.id))
         let terminals = TerminalSessionStore.shared
         terminals.useStore(store)
@@ -1460,10 +1464,12 @@ final class WorkspaceModel {
         pendingCLIPrompts[cliSession.id] = nil
     }
 
-    private func prepareCLICommand(for session: Session, prompt: String) -> String? {
+    private func prepareCLICommand(for session: Session, prompt: String) async -> String? {
         do {
+            let profile = try await store?.accountForLaunch(session: session)
             return try TerminalSessionStore.shared.prepareCLICommand(
-                for: session, workspace: workspace, prompt: prompt
+                for: session, workspace: workspace, prompt: prompt,
+                accountHome: profile.flatMap { store?.agentAccountHome($0) }
             )
         } catch {
             app.alert = BloomAlert(title: "Could not launch the agent", message: error.readableMessage)

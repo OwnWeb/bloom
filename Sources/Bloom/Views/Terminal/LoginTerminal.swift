@@ -24,11 +24,12 @@ final class LoginTerminalSession {
         executable: String,
         arguments: [String],
         directory: String,
+        environment: [String: String]? = nil,
         onExit: @escaping @MainActor (TerminalExit) -> Void
     ) {
         guard let path = Shell.which(executable) else { return nil }
 
-        let variables = Shell.terminalEnvironment(inheriting: Shell.environment())
+        let variables = Shell.terminalEnvironment(inheriting: environment ?? Shell.environment())
 
         label = ([executable] + arguments).joined(separator: " ")
         launch = TerminalLaunch(

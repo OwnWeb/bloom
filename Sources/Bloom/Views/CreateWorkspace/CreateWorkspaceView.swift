@@ -1041,12 +1041,15 @@ struct CreateWorkspaceView: View {
         hasSetupScript = !(context.settings.setupScript ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         isNamingAvailable = context.isNamingAvailable
+        let settings = (try? await app.store?.applyingProjectAgentDefaults(
+            to: context.settings, for: repo.id
+        )) ?? context.settings
         controls = ComposerControls(
             // The Codex list only sharpens the effort here, and the sheet's own footer is what
             // fetches it: a window opened before that call returns still gets the backend the
             // Models screen recorded, because that is stored rather than looked up.
             defaults: ComposerDefaults.resolve(
-                repo: context.settings,
+                repo: settings,
                 app: appDefaults,
                 models: ComposerModelCatalog.shared.models
             ),
