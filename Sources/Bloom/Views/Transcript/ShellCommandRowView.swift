@@ -24,7 +24,7 @@ struct ShellCommandRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: TranscriptLayout.tight) {
             HStack(alignment: .firstTextBaseline, spacing: Metrics.spacingSmall) {
-                Text("!").foregroundStyle(Palette.accent)
+                Text("!").foregroundStyle(Palette.warning)
                 Text(sent.command).foregroundStyle(Palette.textPrimary)
             }
             .font(Typo.code)

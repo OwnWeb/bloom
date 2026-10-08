@@ -104,6 +104,21 @@ struct ShellCommandTests {
         ) == nil)
     }
 
+    @Test("Elsewhere a sent command reads as what was typed: in a summary, and under Up")
+    func readsAsTyped() {
+        let message = ShellCommand.message(command: "npm test", output: .init(), ending: .exited(0))
+
+        #expect(UserTurnPrompt.summary(of: message) == "! npm test")
+        #expect(PromptRecall.prompts(from: [message]) == ["! npm test"])
+        #expect(ShellCommand.command(in: "! npm test") == "npm test")
+    }
+
+    @Test("A queued command is not offered for editing, which would hand back its tags")
+    func isNotPlainText() {
+        let message = ShellCommand.message(command: "ls", output: .init(), ending: .exited(0))
+        #expect(!PendingMessageDiscard.isPlainText(message))
+    }
+
     // MARK: - Running
 
     @Test("Lines arrive in order, stderr included, and the status is the command's own")

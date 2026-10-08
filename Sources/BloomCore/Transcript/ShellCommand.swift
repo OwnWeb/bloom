@@ -8,12 +8,17 @@ import Foundation
 /// agent gets it the same way. The agent answers it, which is the point: `! npm test` gets an
 /// explanation of the failures without a second prompt.
 public enum ShellCommand {
-    /// The command a draft asks to run, or nil when the draft is a message.
-    ///
-    /// The `!` has to be the first character, as in Claude Code, so a message that merely contains
-    /// one further in is never run. A lone `!` is nil: there is nothing to run.
+    /// Whether the composer is in shell mode, which it is from the moment the `!` is typed and
+    /// before there is a command after it, as in Claude Code. The `!` has to be the first
+    /// character, so a message that merely contains one further in is never run.
+    public static func isShellMode(_ draft: String) -> Bool {
+        draft.hasPrefix("!")
+    }
+
+    /// The command a draft asks to run, or nil when the draft is a message. A lone `!` is nil:
+    /// there is nothing to run.
     public static func command(in draft: String) -> String? {
-        guard draft.hasPrefix("!") else { return nil }
+        guard isShellMode(draft) else { return nil }
         let command = draft.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
         return command.isEmpty ? nil : command
     }
@@ -111,6 +116,9 @@ public enum ShellCommand {
         public var status: String
 
         public var succeeded: Bool { status == ProcessEnding.exited(0).sentence }
+
+        /// The command as it was typed, which is what a summary shows and what Up puts back.
+        public var typed: String { "! \(command)" }
     }
 
     /// The command a user turn carried, or nil for every turn `message` did not write. Strict, like
