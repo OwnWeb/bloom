@@ -839,11 +839,16 @@ struct TranscriptListView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     )
                 }
+                let command = ShellCommand.split(sending.body)
                 let review = ReviewTurn.split(sending.body)
                 let turn = AttachmentTrailer.split(sending.body)
                 return AnyView(
                     Group {
-                        if let review {
+                        // The same reading `TranscriptRowView` takes of the stored turn, or the
+                        // raw tags flash up until the row the CLI echoes replaces this one.
+                        if let command {
+                            ShellCommandRowView(sent: command)
+                        } else if let review {
                             UserTurnRowView(
                                 text: review.message,
                                 reviewChips: review.chips,

@@ -69,6 +69,7 @@ public enum PendingMessageDiscard {
     /// a fact about the body, where everything else here is a policy about the box.
     public static func isPlainText(_ body: String) -> Bool {
         ReviewTurn.split(body) == nil && AttachmentTrailer.split(body).paths.isEmpty
+            && ShellCommand.split(body) == nil
     }
 
     // MARK: - The question
