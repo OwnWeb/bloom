@@ -1417,6 +1417,9 @@ final class TranscriptModel {
     /// the same method. So a Codex chat's server was never signalled by anything, which is the
     /// orphaned-children bug this app already fixed once on the Claude Code side.
     func terminateNow() {
+        // A `!` command is this chat's child too, and nothing else would stop it: a dev server
+        // started from the composer would hold its port long after the chat had gone.
+        shellRunTask?.cancel()
         // `cancelTurn` rather than `stop`, and this is the reason the two are separate: Stop's
         // other half empties the queue into a composer that is going away with this chat.
         cancelTurn()
@@ -1446,6 +1449,7 @@ final class TranscriptModel {
     func shutdown() async {
         idleEvictionTask?.cancel()
         idleEvictionTask = nil
+        shellRunTask?.cancel()
         guard let runner else { return }
         terminateNow()
 
