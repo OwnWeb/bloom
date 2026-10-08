@@ -125,6 +125,7 @@ struct PendingTurnRowView: View {
     /// typed words and a count. The full text goes to the agent untouched; only the drawing of
     /// the wait is summarised, the same bargain the sent bubble makes with its chips.
     private var displayText: String {
+        if let command = ShellCommand.split(delivery.body) { return "! \(command.command)" }
         guard let review = ReviewTurn.split(delivery.body) else {
             return attachmentTurn.body
         }

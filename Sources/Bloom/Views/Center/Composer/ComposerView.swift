@@ -90,6 +90,7 @@ struct ComposerView: View {
             .help("Drag to resize. Double-click to fit the text.")
 
             ComposerPlansView(transcript: transcript, model: model, controls: controls)
+            if let model { ComposerShellRunView(transcript: transcript, model: model) }
             composer
         }
         // The chrome is whatever is left once the editor's share is taken off, so this settles on
@@ -146,7 +147,8 @@ struct ComposerView: View {
             onKey: handle(key:),
             onOpenAttachment: open(attachment:),
             onOpenCommand: open(commandPath:),
-            isFloating: true
+            isFloating: true,
+            accent: model != nil && ShellCommand.isShellMode(transcript.draft) ? Palette.warning : nil
         ) { actions in
             ComposerFooterView(
                 controls: controls,
@@ -175,7 +177,11 @@ struct ComposerView: View {
         .task(id: "planning:\(transcript.session.id):\(transcript.isRunning)") {
             if let store = app.store { await ComposerPlanningSupport.shared.refresh(from: store) }
         }
-        .onChange(of: transcript.draft) { _, _ in
+        .onChange(of: transcript.draft) { old, new in
+            if model != nil, let spaced = ShellCommand.autoSpaced(from: old, to: new) {
+                transcript.draft = spaced
+                caret = (spaced as NSString).length
+            }
             scheduleDraftSave()
         }
         .onChange(of: transcript.composerFocusRequests) { _, _ in
@@ -465,6 +471,27 @@ struct ComposerView: View {
         guard canSend else { return }
         draftSaveTask?.cancel()
 
+        // Only here, Return or Send on the box. A message from another agent or from the bridge
+        // reaches `submit` without passing through this, and a quick prompt that would send a
+        // command stops short of it in `fire`, so a command only ever runs from a key press.
+        if let command = ShellCommand.command(in: transcript.draft) {
+            guard let model else {
+                app.notice = BloomNotice(message: "Shell commands run in a workspace chat.")
+                return
+            }
+            // An attachment is a backticked path in the draft, which a shell reads as a command to
+            // run and substitute. The chip hides that, so the draft is refused rather than run.
+            guard AttachmentDraft.parse(transcript.draft, paths: attachments.map(\.path)).paths.isEmpty else {
+                app.notice = BloomNotice(message: "A shell command cannot carry attachments. Type the path instead.")
+                return
+            }
+            guard model.runShellCommand(command, from: transcript) else { return }
+            transcript.draft = ""
+            caret = 0
+            saveDraftNow()
+            return
+        }
+
         if let question = SideConversation.question(in: transcript.draft) {
             guard canOpenSideConversation, let model else {
                 app.notice = BloomNotice(message: "Use /btw in a workspace chat to open a side conversation.")
@@ -579,6 +606,9 @@ struct ComposerView: View {
             // of being left behind under a turn that answered something else. The form's own line
             // says so before the switch is turned on.
             insert(prompt)
+            // A quick prompt's text can be rewritten by an agent through the bridge, so one that
+            // makes the draft a command is left in the box for its owner to run with Return.
+            guard !ShellCommand.isShellMode(transcript.draft) else { return }
             send()
         case .composeInNewChat:
             openChat(for: prompt, sending: false)

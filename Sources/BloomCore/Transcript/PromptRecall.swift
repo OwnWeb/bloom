@@ -94,7 +94,9 @@ public struct PromptRecall: Equatable, Sendable {
         var output: [String] = []
         for text in sent {
             let presented = SentTurn.withoutInstructions(text)
-            let typed = ReviewTurn.split(presented)?.message ?? presented
+            let typed = ShellCommand.split(presented)?.typed
+                ?? ReviewTurn.split(presented)?.message
+                ?? presented
             let prompt = typed.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !prompt.isEmpty, output.last != prompt else { continue }
             output.append(prompt)

@@ -256,6 +256,11 @@ final class TranscriptModel {
     /// as a pane changes what it shows. See `PromptRecall`.
     @ObservationIgnored var promptRecall = PromptRecall()
 
+    /// The `!` command running from this chat's composer. On the session for the reason
+    /// `promptRecall` is: the composer is handed from chat to chat. See `WorkspaceModel+ShellCommands`.
+    var shellRun: ShellCommand.Run?
+    @ObservationIgnored var shellRunTask: Task<Void, Never>?
+
     /// What has been asked for on this session and has not gone yet, oldest first.
     ///
     /// Read by the transcript to draw the pending bubbles and by the drain to decide what goes
@@ -1412,6 +1417,9 @@ final class TranscriptModel {
     /// the same method. So a Codex chat's server was never signalled by anything, which is the
     /// orphaned-children bug this app already fixed once on the Claude Code side.
     func terminateNow() {
+        // A `!` command is this chat's child too, and nothing else would stop it: a dev server
+        // started from the composer would hold its port long after the chat had gone.
+        shellRunTask?.cancel()
         // `cancelTurn` rather than `stop`, and this is the reason the two are separate: Stop's
         // other half empties the queue into a composer that is going away with this chat.
         cancelTurn()
@@ -1441,6 +1449,7 @@ final class TranscriptModel {
     func shutdown() async {
         idleEvictionTask?.cancel()
         idleEvictionTask = nil
+        shellRunTask?.cancel()
         guard let runner else { return }
         terminateNow()
 
@@ -1509,7 +1518,7 @@ final class TranscriptModel {
         return runner
     }
 
-    private var usesInteractiveTerminal: Bool {
+    var usesInteractiveTerminal: Bool {
         guard let workspaceID = session.workspaceID else { return false }
         CenterTabStore.shared.load(workspaceID: workspaceID)
         return CenterTabStore.shared.terminal(for: session.id, in: workspaceID) != nil

@@ -6,8 +6,14 @@ struct ComposerBox: ViewModifier {
     @Binding var isFocused: Bool
     var isFloating = false
     var isDropTarget = false
+    /// A border that stays up whatever the focus, for a mode the box is in. Shell mode is the one.
+    var accent: Color?
     @Environment(\.controlActiveState) private var activeState
     @Environment(\.colorSchemeContrast) private var contrast
+
+    /// Enough of the accent in the glass to say the box is in another mode, little enough that the
+    /// text on it keeps its contrast.
+    private static let accentTint = 0.25
 
     private var isRingVisible: Bool { isFocused && activeState.showsFocusRing }
 
@@ -35,13 +41,13 @@ struct ComposerBox: ViewModifier {
             padded
                 // One material for the whole composer. Its controls keep their ordinary styles,
                 // and completion menus are attached outside this modifier.
-                .glassEffect(.regular, in: shape)
+                .glassEffect(.regular.tint(accent?.opacity(Self.accentTint)), in: shape)
                 .overlay {
                     shape.strokeBorder(
-                        isDropTarget ? Palette.controlAccent : focusColour,
-                        lineWidth: isDropTarget || contrast == .increased ? 2 : 0.5
+                        isDropTarget ? Palette.controlAccent : (accent ?? focusColour),
+                        lineWidth: isDropTarget || accent != nil || contrast == .increased ? 2 : 0.5
                     )
-                    .opacity(isDropTarget ? 1 : (isRingVisible ? focusOpacity : 0))
+                    .opacity(isDropTarget || accent != nil ? 1 : (isRingVisible ? focusOpacity : 0))
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 }
@@ -74,10 +80,10 @@ struct ComposerBox: ViewModifier {
 
 extension View {
     func composerBox(
-        isFocused: Binding<Bool>, isDropTarget: Bool = false, isFloating: Bool = false
+        isFocused: Binding<Bool>, isDropTarget: Bool = false, isFloating: Bool = false, accent: Color? = nil
     ) -> some View {
         modifier(ComposerBox(
-            isFocused: isFocused, isFloating: isFloating, isDropTarget: isDropTarget
+            isFocused: isFocused, isFloating: isFloating, isDropTarget: isDropTarget, accent: accent
         ))
     }
 }
