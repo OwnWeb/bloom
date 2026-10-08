@@ -282,6 +282,7 @@ struct TranscriptTextView: NSViewRepresentable {
             if container.containerSize != wanted { container.containerSize = wanted }
             nsView.bubbleInkOffset = known.bubbleInkOffset
             nsView.bubbleAlignmentWidth = alignsBubbleInk ? width : nil
+            nsView.lastAnsweredSize = known.size
             return known.size
         }
         if container.containerSize != wanted { container.containerSize = wanted }
@@ -307,6 +308,7 @@ struct TranscriptTextView: NSViewRepresentable {
         nsView.measurements.store(
             LinkTextView.Measurement(size: result, bubbleInkOffset: nsView.bubbleInkOffset), for: key
         )
+        nsView.lastAnsweredSize = result
         return result
     }
 
@@ -441,11 +443,11 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     /// `sizeThatFits` can leave the container wider than the placed frame, which drew a long
     /// pasted turn past its bubble. Only an overflowing run is laid out again.
     override func viewWillDraw() {
-        if let container = textContainer, let measured = lastMeasurement,
-           measured.size.width > bounds.width + Self.overflowTolerance {
+        if let container = textContainer, let answered = lastAnsweredSize,
+           answered.width > bounds.width + Self.overflowTolerance {
             container.containerSize = CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
-            lastMeasurement = nil
-            if measured.alignsBubbleInk, let layout = layoutManager {
+            lastAnsweredSize = nil
+            if bubbleAlignmentWidth != nil, let layout = layoutManager {
                 layout.ensureLayout(for: container)
                 bubbleInkOffset = BubbleTextAlignment.offset(layout: layout, container: container)
                 bubbleAlignmentWidth = bounds.width
@@ -559,6 +561,9 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     /// text storage is written, and it clears these; anything that ever edits the storage in place
     /// has to clear them too.
     var measurements = TranscriptTextMeasureCache<Measurement>()
+    /// The size last handed to SwiftUI, cached or typeset, which `viewWillDraw` holds the placed
+    /// frame against.
+    var lastAnsweredSize: CGSize?
     var bubbleAlignmentWidth: CGFloat?
     var bubbleInkOffset: CGFloat = 0 {
         didSet {
