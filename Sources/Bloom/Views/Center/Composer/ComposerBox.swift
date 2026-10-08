@@ -11,6 +11,10 @@ struct ComposerBox: ViewModifier {
     @Environment(\.controlActiveState) private var activeState
     @Environment(\.colorSchemeContrast) private var contrast
 
+    /// Enough of the accent in the glass to say the box is in another mode, little enough that the
+    /// text on it keeps its contrast.
+    private static let accentTint = 0.25
+
     private var isRingVisible: Bool { isFocused && activeState.showsFocusRing }
 
     private var shape: RoundedRectangle {
@@ -37,7 +41,7 @@ struct ComposerBox: ViewModifier {
             padded
                 // One material for the whole composer. Its controls keep their ordinary styles,
                 // and completion menus are attached outside this modifier.
-                .glassEffect(.regular, in: shape)
+                .glassEffect(.regular.tint(accent?.opacity(Self.accentTint)), in: shape)
                 .overlay {
                     shape.strokeBorder(
                         isDropTarget ? Palette.controlAccent : (accent ?? focusColour),

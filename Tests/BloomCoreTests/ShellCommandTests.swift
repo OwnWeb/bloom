@@ -20,6 +20,14 @@ struct ShellCommandTests {
         #expect(ShellCommand.command(in: "!   ") == nil)
     }
 
+    @Test("A `!` typed into an empty composer gets its space, and nothing else does")
+    func spacesTheBang() {
+        #expect(ShellCommand.autoSpaced(from: "", to: "!") == "! ")
+        #expect(ShellCommand.autoSpaced(from: "", to: "!ls") == nil)
+        #expect(ShellCommand.autoSpaced(from: "! ", to: "!") == nil)
+        #expect(ShellCommand.autoSpaced(from: "Hi", to: "Hi!") == nil)
+    }
+
     // MARK: - What is kept of the output
 
     @Test("Short output is kept whole")
@@ -119,65 +127,78 @@ struct ShellCommandTests {
         #expect(!PendingMessageDiscard.isPlainText(message))
     }
 
+    @Test("A command over several lines comes back whole")
+    func readsBackMultiline() {
+        let message = ShellCommand.message(command: "echo a\necho b", output: .init(), ending: .exited(0))
+        #expect(ShellCommand.split(message)?.command == "echo a\necho b")
+    }
+
     // MARK: - Running
 
-    @Test("Lines arrive in order, stderr included, and the status is the command's own")
-    @MainActor
+    @Test("Each stream keeps its own order, both arrive, and the status is the command's own")
     func runs() async {
-        let collected = Collected()
-        let ending = await ShellCommandRun.run(
-            "echo one; echo two >&2; exit 3", cwd: Self.directory, variables: [:]
-        ) { collected.lines.append($0) }
+        // Order is only promised within a stream: stdout and stderr are two pipes, read by two
+        // handlers, and which of them is drained first is the scheduler's business.
+        let result = await Self.run("echo one; echo two; echo three >&2; exit 3")
+        let lines = result.output.head
 
-        #expect(collected.lines == ["one", "two"])
-        #expect(ending == .exited(3))
+        #expect(lines.filter { $0 != "three" } == ["one", "two"])
+        #expect(Set(lines) == ["one", "two", "three"])
+        #expect(result.ending == .exited(3))
     }
 
     @Test("A command reading stdin gets end of file rather than waiting for ever")
-    @MainActor
     func closesStdin() async {
-        let collected = Collected()
-        let ending = await ShellCommandRun.run("cat; echo done", cwd: Self.directory, variables: [:]) {
-            collected.lines.append($0)
-        }
+        let result = await Self.run("cat; echo done")
 
-        #expect(collected.lines == ["done"])
-        #expect(ending == .exited(0))
+        #expect(result.output.head == ["done"])
+        #expect(result.ending == .exited(0))
     }
 
     @Test("The workspace's variables arrive and provider credentials do not")
-    @MainActor
     func crossesCredentialBoundary() async throws {
         let credential = try #require(ProviderCredentialEnvironment.prohibitedNames.min())
-        let collected = Collected()
-        _ = await ShellCommandRun.run(
+        let result = await Self.run(
             "echo \"$BLOOM_SHELL_TEST\"; echo \"${\(credential):-absent}\"",
-            cwd: Self.directory,
             variables: ["BLOOM_SHELL_TEST": "workspace", credential: "secret"]
-        ) { collected.lines.append($0) }
+        )
 
-        #expect(collected.lines == ["workspace", "absent"])
+        #expect(result.output.head == ["workspace", "absent"])
     }
 
-    @Test("Cancelling stops the command")
-    @MainActor
+    @Test("Cancelling stops the command, and the first line is shown without waiting for a second")
     func stops() async {
         let (started, signal) = AsyncStream.makeStream(of: Void.self)
-        let run = Task { @MainActor in
-            await ShellCommandRun.run("echo started; exec sleep 600", cwd: Self.directory, variables: [:]) { _ in
-                signal.yield()
-            }
+        let run = Task {
+            await ShellCommandRun.run(
+                "echo started; exec sleep 600", cwd: Self.directory, variables: [:], shell: "/bin/sh"
+            ) { _ in signal.yield() }
         }
         for await _ in started { break }
         run.cancel()
 
-        #expect(await run.value == .signalled(SIGTERM))
+        #expect(await run.value.ending == .signalled(SIGTERM))
+    }
+
+    @Test("Cancelled before it starts, nothing is run")
+    func stopsBeforeStarting() async throws {
+        let marker = FileManager.default.temporaryDirectory.appending(path: "bloom-shell-\(UUID())").path
+        let run = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await Self.run("touch '\(marker)'")
+        }
+
+        #expect(await run.value.ending == .signalled(SIGTERM))
+        #expect(!FileManager.default.fileExists(atPath: marker))
     }
 
     private static let directory = FileManager.default.temporaryDirectory.path
 
-    @MainActor
-    private final class Collected {
-        var lines: [String] = []
+    /// `/bin/sh` rather than the user's shell, so a suite run under fish, or a zsh whose
+    /// `.zshenv` exports something, asserts the same thing as anywhere else.
+    private static func run(
+        _ command: String, variables: [String: String] = [:]
+    ) async -> (ending: ProcessEnding, output: ShellCommand.Output) {
+        await ShellCommandRun.run(command, cwd: directory, variables: variables, shell: "/bin/sh") { _ in }
     }
 }
