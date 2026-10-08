@@ -159,7 +159,8 @@ public enum GitLab: ForgeClient {
     /// Merges exactly what the owner confirmed. `--sha` holds GitLab to the head that was shown,
     /// and `--auto-merge=false` stops glab from merging later, once the pipeline passes.
     public static func mergePullRequest(
-        _ expected: PullRequest, into base: String, method: GitHub.MergeMethod, worktree: String
+        _ expected: PullRequest, into base: String, method: GitHub.MergeMethod,
+        squashMessage: SquashCommitMessage? = nil, worktree: String
     ) async throws -> DirectMergeOutcome {
         let (head, expectedBase) = try await DirectMergeCheck.confirmed(expected, base: base, worktree: worktree)
         guard let project = await project(in: worktree) else { throw notAProject }
@@ -172,7 +173,7 @@ public enum GitLab: ForgeClient {
             mergeHead = try await rebase(number, confirmedHead: head, in: project, worktree: worktree)
         }
         var arguments = ["mr", "merge", String(number), "--yes", "--auto-merge=false", "--sha", mergeHead]
-        if method == .squash { arguments.append("--squash") }
+        if method == .squash { arguments += ["--squash"] + (squashMessage?.glabMergeArguments ?? []) }
         arguments += ["-R", project.webURL]
         let result = try await run(arguments, cwd: worktree, timeout: mergeTimeout)
         let after = try? await snapshot(number: number, in: project, worktree: worktree).pullRequest

@@ -26,6 +26,28 @@ struct GitLabDirectTests {
         }
     }
 
+    @Test("a squash passes the worded message to glab, any other method leaves it out")
+    func passesTheSquashMessage() async throws {
+        let repo = try await featureRepo()
+        defer { repo.cleanUp() }
+        let head = try await Git.headSHA(of: repo.path)
+        let message = SquashCommitMessage(subject: "Ship it", body: "Why")
+
+        for method in [GitHub.MergeMethod.squash, .merge] {
+            let glab = MergeGlab(head: head)
+            _ = try await GitLab.$commandOverride.withValue({ arguments, _ in
+                await glab.execute(arguments)
+            }) {
+                try await GitLab.mergePullRequest(
+                    expected(head: head), into: "main", method: method, squashMessage: message, worktree: repo.path
+                )
+            }
+            let flags = method == .squash ? ["--squash", "--squash-message=Ship it\n\nWhy"] : []
+            let merge = ["mr", "merge", "42", "--yes", "--auto-merge=false", "--sha", head] + flags + ["-R", project]
+            #expect(await glab.merges == [merge])
+        }
+    }
+
     @Test("a rebase runs first, and the rebased head is what gets merged")
     func rebasesThenMerges() async throws {
         let repo = try await featureRepo()

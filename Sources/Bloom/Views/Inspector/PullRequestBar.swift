@@ -341,7 +341,7 @@ struct PullRequestBar: View {
 
     /// The confirmation chose how to execute the merge. The direct path stays in the model,
     /// keeping subprocesses out of the view and reporting gh's or glab's answer beside the inspector.
-    private func merge(_ method: GitHub.MergeMethod, execution: MergeExecution) {
+    private func merge(_ method: GitHub.MergeMethod, execution: MergeExecution, squashMessage: SquashCommitMessage?) {
         guard let pullRequest = model.pullRequest else { return }
         isWorking = true
         report = nil
@@ -350,14 +350,16 @@ struct PullRequestBar: View {
             defer { isWorking = false }
             switch execution {
             case .agent:
-                if let refusal = await model.requestMerge(pullRequest, method: method) {
+                if let refusal = await model.requestMerge(pullRequest, method: method, squashMessage: squashMessage) {
                     report = PullRequestNotice(
                         tone: .info, title: "Nothing was sent", message: refusal
                     )
                 }
             case .direct:
                 do {
-                    let outcome = try await model.mergePullRequestDirectly(pullRequest, method: method)
+                    let outcome = try await model.mergePullRequestDirectly(
+                        pullRequest, method: method, squashMessage: squashMessage
+                    )
                     let forge = pullRequest.forge
                     let reference = forge.reference(pullRequest.number)
                     let message: String

@@ -16,7 +16,8 @@ public protocol ForgeClient {
     static func checkoutPullRequest(number: Int, into worktree: String, localBranch: String) async throws
     static func createPullRequestFromCommits(worktree: String, base: String, title: String) async throws -> PullRequest
     static func mergePullRequest(
-        _ expected: PullRequest, into base: String, method: GitHub.MergeMethod, worktree: String
+        _ expected: PullRequest, into base: String, method: GitHub.MergeMethod,
+        squashMessage: SquashCommitMessage?, worktree: String
     ) async throws -> DirectMergeOutcome
 }
 
@@ -78,8 +79,11 @@ public enum GitHubForge: ForgeClient {
     }
 
     public static func mergePullRequest(
-        _ expected: PullRequest, into base: String, method: GitHub.MergeMethod, worktree: String
+        _ expected: PullRequest, into base: String, method: GitHub.MergeMethod,
+        squashMessage: SquashCommitMessage?, worktree: String
     ) async throws -> DirectMergeOutcome {
-        try await GitHub.mergePullRequest(expected, into: base, method: method, worktree: worktree)
+        try await GitHub.mergePullRequest(
+            expected, into: base, method: method, squashMessage: squashMessage, worktree: worktree
+        )
     }
 }

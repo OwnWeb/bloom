@@ -56,7 +56,7 @@ agent's steps are `GitLabInstructions`; the direct ones are in `GitLab`:
 | Direct route | Call |
 |---|---|
 | Create | `glab mr create --source-branch <branch> --target-branch <base> --title <title> --description <commits> --yes -R <project URL>`, after Bloom commits and pushes |
-| Merge | `glab mr merge <iid> --yes --auto-merge=false --sha <head> [--squash] -R <project URL>` |
+| Merge | `glab mr merge <iid> --yes --auto-merge=false --sha <head> [--squash [--squash-message=<message>]] -R <project URL>` |
 | Rebase merge | `glab mr rebase <iid>` first, then the merge above at the new head |
 
 Without `--auto-merge=false` glab sets "merge when the pipeline succeeds" instead of merging.

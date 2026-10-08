@@ -51,10 +51,11 @@ enum GitHubBridge {
     }
 
     static func mergePullRequest(
-        _ pullRequest: PullRequest, base: String, method: GitHub.MergeMethod, worktree: String
+        _ pullRequest: PullRequest, base: String, method: GitHub.MergeMethod,
+        squashMessage: SquashCommitMessage?, worktree: String
     ) async throws -> DirectMergeOutcome {
         try await ForgeResolver.client(of: pullRequest.forge).mergePullRequest(
-            pullRequest, into: base, method: method, worktree: worktree
+            pullRequest, into: base, method: method, squashMessage: squashMessage, worktree: worktree
         )
     }
 

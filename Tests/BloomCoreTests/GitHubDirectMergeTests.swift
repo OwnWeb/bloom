@@ -25,6 +25,30 @@ struct GitHubDirectMergeTests {
         #expect(try await Git.headSHA(of: repo.path) == head)
     }
 
+    @Test("a squash passes the worded message, any other method leaves it out")
+    func passesTheSquashMessage() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        try await Shell.check("git", ["checkout", "-q", "-b", "feature"], cwd: repo.path)
+        let head = try await Git.headSHA(of: repo.path)
+        let message = SquashCommitMessage(subject: "Ship it", body: "Why")
+
+        for method in [GitHub.MergeMethod.squash, .merge] {
+            let gh = MergeGH(head: head)
+            _ = try await GitHub.$commandOverride.withValue({ arguments, _ in
+                await gh.execute(arguments)
+            }) {
+                try await GitHub.mergePullRequest(
+                    expected(head: head), into: "main", method: method, squashMessage: message, worktree: repo.path
+                )
+            }
+            let flags = method == .squash ? ["--subject=Ship it", "--body=Why"] : []
+            #expect(await gh.mergeArguments == [
+                "pr", "merge", "42", method.flag, "--match-head-commit", head,
+            ] + flags)
+        }
+    }
+
     @Test("a newly pushed head refuses the direct merge")
     func refusesChangedHead() async throws {
         let repo = try await TempRepo()

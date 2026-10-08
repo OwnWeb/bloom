@@ -15,8 +15,14 @@ struct MergeConfirmationPopover: View {
     /// that answers are one colour. It was `Palette.positive` for every state, which put a green
     /// button under an amber "Checks running" one and made the popover read as a second decision.
     let tint: Color
-    let onConfirm: () -> Void
+    /// The squash commit message, or nil for any other method or one left as proposed.
+    let onConfirm: (SquashCommitMessage?) -> Void
     let onCancel: () -> Void
+
+    @State private var subject = ""
+    @State private var messageBody = ""
+
+    private var proposed: SquashCommitMessage { .proposed(for: pullRequest) }
 
     var body: some View {
         ConfirmationPopover(
@@ -24,7 +30,10 @@ struct MergeConfirmationPopover: View {
             confirmLabel: execution == .direct ? method.label : "Ask agent to merge",
             tint: tint,
             canConfirm: canMerge && (execution == .agent || canMergeDirectly),
-            onConfirm: onConfirm,
+            onConfirm: {
+                let message = SquashCommitMessage(subject: subject, body: messageBody)
+                onConfirm(method == .squash ? message.edited(from: proposed) : nil)
+            },
             onCancel: onCancel,
             width: 380
         ) {
@@ -34,6 +43,17 @@ struct MergeConfirmationPopover: View {
                 }
             }
             .pickerStyle(.radioGroup)
+
+            if method == .squash {
+                VStack(alignment: .leading, spacing: Metrics.spacingTight) {
+                    TextField("Commit subject", text: $subject)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Commit body, empty for \(pullRequest.forge.name)'s own", text: $messageBody, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(3...8)
+                }
+                .onAppear { subject = proposed.subject }
+            }
 
             ForEach(pullRequest.mergeWarnings(base: pullRequest.baseBranch ?? baseBranch, local: localWork), id: \.self) { warning in
                 Text(warning)
