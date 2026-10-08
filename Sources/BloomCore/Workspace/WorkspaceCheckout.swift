@@ -463,13 +463,14 @@ public enum WorkspaceCheckoutResolver {
     /// The whole of it, including the gh call. Lives here rather than in the sheet so the sheet is
     /// left drawing a text field and reading an answer.
     public static func resolve(_ text: String, repoPath: String) async -> WorkspaceCheckoutResolution {
-        let slug = await GitHub.repositorySlug(repoPath: repoPath)
+        let forge = await ForgeResolver.client(for: repoPath)
+        let slug = await forge.repositorySlug(repoPath: repoPath)
         if let problem = problem(with: text, in: slug) { return .failure(problem) }
         guard let reference = WorkspaceCheckoutPlan.parseReference(text) else {
             return .failure("That is not a pull request number or URL.")
         }
         do {
-            let summary = try await GitHub.pullRequestSummary(
+            let summary = try await forge.pullRequestSummary(
                 number: reference.number, repoPath: repoPath
             )
             return .checkout(.pullRequest(summary))
