@@ -82,11 +82,12 @@ struct HomeScopeTests {
     /// The default leads, because a strip whose first chip is one nobody wants selected reads as a
     /// strip you have to correct. Its two subsets follow it, then the other half of the machine,
     /// then the widest net.
-    @Test("Live leads the browsing chips and All closes them")
-    func liveLeadsTheStrip() {
-        // Two, not five. See `offered`: the three that went were each a true fact drawn as a
-        // control nobody pressed, and `needsYou` is the one to bring back if it is missed.
-        #expect(HomeScope.offered(searching: false) == [.all, .archived])
+    @Test("the browsing chips are All, Active and Archived, in that order")
+    func activeSitsBetweenAllAndArchived() {
+        // Three, not five. See `offered`: `needsYou` and `running` were each a true fact drawn as
+        // a control nobody pressed, and `needsYou` is the one to bring back if it is missed.
+        #expect(HomeScope.offered(searching: false) == [.all, .live, .archived])
+        #expect(HomeScope.live.label(searching: false) == "Active")
         #expect(HomeScope.offered(searching: true).first == .all)
     }
 
@@ -188,15 +189,16 @@ struct HomeScopeTests {
         var counts = HomeScopeCounts()
         counts.live = 3
         counts.archived = 17
-        // Only the two chips whose number is a size. Live's three is a state, and the list under
-        // the strip already says it.
+        // Only the chips whose number is a size. Needs you and Running are states, and the list
+        // under the strip already says them.
         #expect(counts.badge(of: .archived, searching: false) == 17)
         #expect(counts.badge(of: .all, searching: false) == 20)
-        #expect(counts.badge(of: .live, searching: false) == nil)
+        #expect(counts.badge(of: .live, searching: false) == 3)
         #expect(counts.badge(of: .needsYou, searching: false) == nil)
         #expect(counts.badge(of: .running, searching: false) == nil)
-        // And the two that do keep a number still drop it at nought.
+        // And the three that do keep a number still drop it at nought.
         #expect(HomeScopeCounts().badge(of: .all, searching: false) == nil)
+        #expect(HomeScopeCounts().badge(of: .live, searching: false) == nil)
         #expect(HomeScopeCounts().badge(of: .archived, searching: false) == nil)
     }
 
