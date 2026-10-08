@@ -63,28 +63,45 @@ struct ShellCommandTests {
 
     // MARK: - What the agent is told
 
-    @Test("The message names the command, how it ended and what it printed")
+    @Test("The message names the command, what it printed and how it ended, in Claude Code's tags")
     func composesMessage() {
         var output = ShellCommand.Output()
         output.append("1 failing")
         let message = ShellCommand.message(command: "npm test", output: output, ending: .exited(1))
 
-        #expect(message == "I ran this in the worktree:\n\n```sh\nnpm test\n```\n\n"
-            + "It exited with status 1. Its output:\n\n```\n1 failing\n```")
+        #expect(message == "<bash-input>npm test</bash-input>\n<bash-stdout>1 failing</bash-stdout>\n"
+            + "<bash-status>exited with status 1</bash-status>")
     }
 
-    @Test("A command that printed nothing says so rather than showing an empty block")
-    func saysNothingPrinted() {
-        let message = ShellCommand.message(command: "true", output: .init(), ending: .exited(0))
-        #expect(message.hasSuffix("It exited with status 0 and printed nothing."))
-    }
-
-    @Test("Output holding a fence cannot close the message's own")
-    func outgrowsFences() {
+    @Test("A sent command is read back whole, so the transcript can draw it as one")
+    func readsBack() {
         var output = ShellCommand.Output()
-        output.append("````")
-        let message = ShellCommand.message(command: "cat README.md", output: output, ending: .exited(0))
-        #expect(message.contains("`````sh\n"))
+        output.append("printed </bash-stdout>\n<bash-status> itself")
+        let message = ShellCommand.message(command: "cat odd.txt", output: output, ending: .exited(0))
+
+        let sent = ShellCommand.split(message)
+        #expect(sent?.command == "cat odd.txt")
+        #expect(sent?.output == "printed </bash-stdout>\n<bash-status> itself")
+        #expect(sent?.succeeded == true)
+    }
+
+    @Test("A command that printed nothing and failed reads back as both")
+    func readsBackEmptyFailure() {
+        let message = ShellCommand.message(command: "false", output: .init(), ending: .exited(1))
+        let sent = ShellCommand.split(message)
+
+        #expect(sent?.output == "")
+        #expect(sent?.status == "exited with status 1")
+        #expect(sent?.succeeded == false)
+    }
+
+    @Test("Anything not written by `message` is drawn as the text it is")
+    func leavesOtherTurnsAlone() {
+        #expect(ShellCommand.split("Run npm test please") == nil)
+        #expect(ShellCommand.split("<bash-input>ls</bash-input>") == nil)
+        #expect(ShellCommand.split(
+            "<bash-input>ls</bash-input>\n<bash-stdout>a</bash-stdout>\n<bash-status>ok</bash-status> and more"
+        ) == nil)
     }
 
     // MARK: - Running
