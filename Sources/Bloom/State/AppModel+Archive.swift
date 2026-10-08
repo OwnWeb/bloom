@@ -1,3 +1,4 @@
+import Foundation
 import BloomCore
 
 /// Archiving a workspace, undoing that, reading what has been archived, and bringing one back.
@@ -14,6 +15,21 @@ import BloomCore
 /// one rule, asked here and never asked in reverse. `hideFromSidebar`, `stopHidingFromSidebar` and
 /// `forgetWorkspace` live in `AppModel.swift`, next to the properties they are the only writer
 /// of, and they are what this file reaches for instead of writing those lists itself.
+
+/// An archive that stopped on its script, with everything needed to run it again without the
+/// script. Carries the arguments rather than reading them back out of the model, for the reason
+/// `confirmArchive` gives: a dismissal clears whatever the model was holding.
+struct ScriptFailureRequest: Identifiable, Equatable {
+    let id = UUID()
+    let workspace: Workspace
+    let deleteBranch: Bool?
+    let force: Bool
+    let report: WorkspaceSafetyReport?
+    let hazards: ArchiveHazards
+    let failure: ArchiveScriptFailure
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+}
 
 extension AppModel {
 
@@ -339,6 +355,47 @@ extension AppModel {
         )
     }
 
+    /// Offers the way out of a failed archive script, or says so in an alert where nobody is
+    /// sitting in front of a dialog (an archive an agent asked for).
+    private func reportScriptFailure(
+        _ error: WorkspaceError,
+        workspace: Workspace,
+        deleteBranch: Bool?,
+        force: Bool,
+        report: WorkspaceSafetyReport?,
+        hazards: ArchiveHazards,
+        allowsConfirmation: Bool
+    ) -> WorkspaceArchiveOutcome {
+        guard let failure = ArchiveScriptFailure(error, workspaceName: workspace.name) else {
+            return .refused(error.readableMessage)
+        }
+        if allowsConfirmation {
+            pendingScriptFailure = ScriptFailureRequest(
+                workspace: workspace, deleteBranch: deleteBranch, force: force,
+                report: report, hazards: hazards, failure: failure
+            )
+        } else {
+            alert = BloomAlert(title: failure.title, message: failure.message)
+        }
+        return .refused("The archive script failed. Its worktree and branch were kept. Check Bloom's dialog for the script output.")
+    }
+
+    /// The owner has read the script's failure and archived without it. Takes the request as an
+    /// argument for the reason `confirmArchive` does.
+    func archiveAnyway(_ request: ScriptFailureRequest) async {
+        guard let repo = repo(for: request.workspace) else { return }
+        await performArchive(
+            request.workspace,
+            repo: repo,
+            deleteBranch: request.deleteBranch,
+            force: request.force,
+            report: request.report,
+            hazards: request.hazards,
+            skipArchiveScript: true,
+            presentConfirmation: nil
+        )
+    }
+
     func checkArchive(_ request: ArchiveRequest) async -> ArchiveRequest {
         var checked = request
         guard let manager, let repo = repo(for: request.workspace) else {
@@ -384,6 +441,7 @@ extension AppModel {
         force: Bool,
         report: WorkspaceSafetyReport?,
         hazards: ArchiveHazards,
+        skipArchiveScript: Bool = false,
         allowsConfirmation: Bool = true,
         presentConfirmation: ((ArchiveRequest) -> Void)?
     ) async -> WorkspaceArchiveOutcome {
@@ -446,7 +504,8 @@ extension AppModel {
                 repo: repo,
                 deleteBranch: deleteBranch,
                 force: force,
-                isPullRequestMerged: hazards.isPullRequestMerged
+                isPullRequestMerged: hazards.isPullRequestMerged,
+                skipArchiveScript: skipArchiveScript
             )
             // Asked again, and the same question, for a window that arrived back on this
             // workspace while git worked. Nothing in the app does that today, because the row is
@@ -488,25 +547,13 @@ extension AppModel {
         } catch let error as WorkspaceError {
             await undoOptimisticArchive(workspace)
             switch error {
-            case .archiveScriptFailed(let status, let output):
+            case .archiveScriptFailed, .archiveScriptIncomplete:
                 Log.archive.error(
-                    "the archive script for \(workspace.name, privacy: .public) exited \(status), so nothing was removed"
+                    "the archive script for \(workspace.name, privacy: .public) did not succeed, so nothing was removed"
                 )
-                // Worth its own wording: the manager stops before removing anything, so the user
-                // needs to hear that the worktree is still there rather than fear the worst. It
-                // does not claim the workspace is untouched, because the agent went first: see
-                // the teardown above.
-                //
-                // Titled without the workspace name. Names here are whole sentences, and a title
-                // built from one wraps to three lines of bold text that reads as the warning
-                // itself. The name goes in the message, which has room for it.
-                alert = BloomAlert(
-                    title: "The archive script failed",
-                    message: "\u{201C}\(workspace.name)\u{201D} is still here: its worktree and "
-                        + "its branch are untouched. Any agent it was running has been stopped.\n\n"
-                        + "The script exited with status \(status).\n\n"
-                        // The tail is where a script says why it gave up.
-                        + String(output.trimmingCharacters(in: .whitespacesAndNewlines).suffix(1_000))
+                return reportScriptFailure(
+                    error, workspace: workspace, deleteBranch: deleteBranch, force: force,
+                    report: report, hazards: hazards, allowsConfirmation: allowsConfirmation
                 )
             case .unsafeToArchive(let fresh):
                 Log.archive.notice(
@@ -533,7 +580,6 @@ extension AppModel {
                 )
                 return .refused(await reportArchiveFailure(error, workspace: workspace))
             }
-            return .refused("The archive script failed. Its worktree and branch were kept. Check Bloom's alert for the script output.")
         } catch {
             await undoOptimisticArchive(workspace)
             Log.archive.error(

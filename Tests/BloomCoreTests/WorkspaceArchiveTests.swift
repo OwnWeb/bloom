@@ -102,6 +102,34 @@ struct WorkspaceArchiveTests {
         #expect(try await manager.store.workspace(id: workspace.id)?.state != .archived)
     }
 
+    @Test("skipping the archive script archives a workspace whose script fails")
+    func skippingTheArchiveScriptArchivesAnyway() async throws {
+        let (repo, registered, manager, workspace) = try await makeWorkspace(settings: """
+        [scripts]
+        archive = 'exit 9'
+        """)
+        defer { repo.cleanUp() }
+
+        try await manager.archive(
+            workspace: workspace, repo: registered, deleteBranch: false, skipArchiveScript: true
+        )
+        #expect(!FileManager.default.fileExists(atPath: workspace.path))
+        #expect(try await manager.store.workspace(id: workspace.id)?.state == .archived)
+    }
+
+    @Test("a failed archive script is described with what archiving anyway leaves behind")
+    func scriptFailureWording() throws {
+        let failure = try #require(ArchiveScriptFailure(
+            .archiveScriptFailed(status: 2, output: "make: *** [drop-databases] Error 255\n"),
+            workspaceName: "Fix login"
+        ))
+        #expect(failure.message.contains("\u{201C}Fix login\u{201D} is still here"))
+        #expect(failure.message.contains("status 2"))
+        #expect(failure.message.contains("Error 255"))
+        #expect(failure.message.contains("will be left behind"))
+        #expect(ArchiveScriptFailure(.projectFolderMissing, workspaceName: "Fix login") == nil)
+    }
+
     /// The archive script used to be handed `BLOOM_PORT=0`, whatever block the workspace was
     /// actually holding. A teardown script's job is to undo what the setup script did, and half
     /// of what a setup script does is bound to that port: the container publishing it, the
