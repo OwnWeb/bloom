@@ -20,6 +20,17 @@ extension WorkspaceModel {
         forge == .gitLab ? .ready : GitHubAvailability.shared.state
     }
 
+    /// Raises the GitLab sign in sheet for this workspace's host, installing glab first if needed.
+    func signInToGitLab() async {
+        let access = GitHubAvailability.State(await GitLab.access(in: workspace.path))
+        guard access != .ready else {
+            await refreshPullRequest()
+            return
+        }
+        let host = await GitLab.host(in: workspace.path)
+        GitHubSignIn.shared.presentGitLab(directory: workspace.path, host: host, access: access)
+    }
+
     /// gh's readiness, asked afresh, or ready on GitLab. For the Checks tab's poll.
     func checksReadiness() async -> GitHubAvailability.State {
         forge = await ForgeResolver.forge(for: workspace.path)

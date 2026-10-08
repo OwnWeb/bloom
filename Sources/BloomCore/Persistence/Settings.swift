@@ -39,6 +39,7 @@ public enum SettingsKey: String, Sendable, Hashable, CaseIterable {
     case filesToCopy = "file_include_globs"
     case branchPrefix = "git.branch_prefix"
     case deleteBranchOnArchive = "git.delete_branch_on_archive"
+    case forge = "git.forge"
     case mergeInstructions = "instructions.merge"
     case conflictInstructions = "instructions.fix_conflicts"
     case browserURL = "browser.url"
@@ -318,6 +319,9 @@ public enum SettingsLoader {
             case "github_username":
                 settings.branchPrefix = GitHubIdentity.cachedUsername
                 note(.branchPrefix)
+            case "gitlab_username":
+                settings.branchPrefix = GitLabIdentity.username(forRepo: repo)
+                note(.branchPrefix)
             case "none":
                 settings.branchPrefix = nil
                 note(.branchPrefix)
@@ -327,6 +331,7 @@ public enum SettingsLoader {
         }
         if let forge = toml["git.forge"]?.stringValue.flatMap(Forge.init(rawValue:)) {
             settings.forge = forge
+            note(.forge)
         }
         if let delete = toml["git.delete_branch_on_archive"]?.boolValue {
             settings.deleteBranchOnArchive = delete
