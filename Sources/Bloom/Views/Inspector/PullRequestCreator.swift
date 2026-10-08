@@ -35,6 +35,7 @@ struct PullRequestCreator: View {
     /// workspace with no worktree on this Mac, which is also one that is never in the dark.
     var worktree: String
     var github: GitHubAvailability.State
+    var forge: Forge = .gitHub
     /// Whether this branch has anything on it at all. A worktree identical to its base has nothing
     /// to open a pull request for, and Bloom knows that for free, so it says so here rather than
     /// spending a whole agent turn on the agent finding out.
@@ -153,13 +154,13 @@ struct PullRequestCreator: View {
         if let note = branchActions.note { return note }
         if !hasChanges, !hasReadChanges { return "Comparing with \(baseBranch)…" }
         guard hasChanges else { return ContinuedBranch.line(on: branch, continued: continued) }
-        return "No pull request yet. Target \(baseBranch)."
+        return "No \(forge.request) yet. Target \(baseBranch)."
     }
 
     /// Explicit so the button reads from the shared semantic token. See
     /// `PullRequestSummary.mergeButton` for the one case where a state colour replaces it.
     private var createButton: some View {
-        Button("Create pull request", systemImage: "arrow.triangle.pull", action: action)
+        Button("Create \(forge.request)", systemImage: "arrow.triangle.pull", action: action)
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.roundedRectangle(radius: Metrics.corner))
             .tint(Palette.controlAccent)
@@ -175,7 +176,7 @@ struct PullRequestCreator: View {
         if let reason = branchActions.reason { return reason }
         // No path named. There are two, the project's own and Bloom's copy of the default, and
         // which one is in play is not something a tooltip should be teaching anybody.
-        return "Ask this workspace's agent to push the branch and open a pull request against "
-            + "\(baseBranch), following this project's pull request instructions."
+        return "Ask this workspace's agent to push the branch and open a \(forge.request) against "
+            + "\(baseBranch), following this project's \(forge.request) instructions."
     }
 }

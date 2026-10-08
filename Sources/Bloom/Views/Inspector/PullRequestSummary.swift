@@ -78,7 +78,7 @@ struct PullRequestSummary: View {
         // the part the reader is trying to read. A right click costs no width at all, and it is
         // where a link is asked for everywhere else on this system.
         .contextMenu {
-            Button("Open on GitHub") { GitHubBridge.open(pullRequest.url) }
+            Button("Open on \(pullRequest.forge.name)") { GitHubBridge.open(pullRequest.url) }
             Button("Copy link", action: copyLink)
             if let url = URL(string: pullRequest.url) {
                 // A submenu of this menu rather than a picker that replaces it, which is where
@@ -109,7 +109,8 @@ struct PullRequestSummary: View {
                 number: pullRequest.number,
                 title: pullRequest.title,
                 url: pullRequest.url,
-                tint: tint
+                tint: tint,
+                forge: pullRequest.forge
             )
             if pullRequest.isDraft { draftChip }
         }
@@ -126,7 +127,7 @@ struct PullRequestSummary: View {
     /// is the other thing about this pull request that is simply true.
     private var draftChip: some View {
         Chip(text: "Draft", tint: Palette.textSecondary, background: Palette.hover)
-            .help("This pull request is still a draft, so it cannot be merged.")
+            .help("This \(pullRequest.forge.request) is still a draft, so it cannot be merged.")
             .accessibilityLabel("Draft")
     }
 
@@ -444,7 +445,7 @@ struct PullRequestSummary: View {
             .fixedSize()
             .help(
                 branchActions.reason
-                    ?? "Mark #\(pullRequest.number) ready for review on GitHub."
+                    ?? "Mark \(pullRequest.forge.reference(pullRequest.number)) ready for review on \(pullRequest.forge.name)."
             )
     }
 

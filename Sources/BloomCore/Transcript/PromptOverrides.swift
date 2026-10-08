@@ -18,6 +18,12 @@ public struct PromptOverrides: @unchecked Sendable {
         keyPrefix + id.rawValue
     }
 
+    /// GitLab's overrides live apart, so a GitHub template saying `gh pr merge` never reaches a
+    /// GitLab project.
+    public static func key(for id: PromptID, forge: Forge) -> String {
+        forge == .gitHub ? key(for: id) : keyPrefix + "gitLab." + id.rawValue
+    }
+
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
@@ -51,6 +57,15 @@ public struct PromptOverrides: @unchecked Sendable {
         let override = stored(for: id) ?? ""
         guard !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return PromptRegistry.definition(for: id).defaultTemplate
+        }
+        return override
+    }
+
+    public func template(for id: PromptID, forge: Forge) -> String {
+        guard forge == .gitLab else { return template(for: id) }
+        let override = defaults.string(forKey: Self.key(for: id, forge: forge)) ?? ""
+        guard !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return GitLabInstructions.defaultTemplate(for: id) ?? PromptRegistry.definition(for: id).defaultTemplate
         }
         return override
     }
