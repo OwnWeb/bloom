@@ -319,6 +319,9 @@ public enum SettingsLoader {
             case "github_username":
                 settings.branchPrefix = GitHubIdentity.cachedUsername
                 note(.branchPrefix)
+            case "gitlab_username":
+                settings.branchPrefix = GitLabIdentity.username(forRepo: repo)
+                note(.branchPrefix)
             case "none":
                 settings.branchPrefix = nil
                 note(.branchPrefix)
