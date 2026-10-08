@@ -121,18 +121,30 @@ extension LinkTextView {
 
     /// Native text selection tracks inside one text container. Track this answer's containers
     /// together so a drag can leave a paragraph, pass a code toolbar, and continue into a table.
-    func trackAnswerSelection(with event: NSEvent, selection: TranscriptTextSelection) -> Bool {
+    /// A drag that leaves the answer altogether is handed to the conversation's selection, which
+    /// is also what tracks a bubble, since a bubble belongs to no answer.
+    func trackAnswerSelection(with event: NSEvent, selection: TranscriptTextSelection?) -> Bool {
         guard let window else { return false }
         window.makeFirstResponder(self)
         let offset = selectionOffset(at: event.locationInWindow)
         let granularity: NSSelectionGranularity = event.clickCount >= 3 ? .selectByParagraph
             : event.clickCount == 2 ? .selectByWord : .selectByCharacter
         let initial = selectionRange(forProposedRange: NSRange(location: offset, length: 0), granularity: granularity)
-        selection.begin(in: self, offset: initial.location, extending: event.modifierFlags.contains(.shift))
-        selection.extend(to: self, offset: NSMaxRange(initial))
+        if let selection {
+            selection.begin(in: self, offset: initial.location, extending: event.modifierFlags.contains(.shift))
+            selection.extend(to: self, offset: NSMaxRange(initial))
+        } else {
+            setSelectedRange(initial)
+        }
+        conversationSelection?.beginDrag(in: self, offset: initial.location)
         var latest = event
         var dragged = false
-        while self.window === window {
+        // Found once, before the drag moves anything. The view the press landed in is recycled by
+        // the table as soon as it scrolls away, and a loop that asked this view for its window or
+        // its scroll view on every pass ended the drag the moment that happened: the selection
+        // scrolled for a screen and then stopped, with the button still held.
+        let scrollView = enclosingVerticalScrollView
+        while window.isVisible {
             let next = window.nextEvent(
                 matching: [.leftMouseDragged, .leftMouseUp],
                 until: Date(timeIntervalSinceNow: 0.05), inMode: .eventTracking, dequeue: true
@@ -143,18 +155,33 @@ extension LinkTextView {
             }
             guard latest.type == .leftMouseDragged else { continue }
             dragged = true
-            // Use the transcript's vertical scroll view, including when this text is inside a
+            // The transcript's vertical scroll view, including when this text is inside a
             // horizontally scrolling code fence. Repeating at the edge also scrolls a held drag.
-            var ancestor: NSView? = self
-            while let current = ancestor {
-                if let scroll = current as? NSScrollView, scroll.hasVerticalScroller {
-                    _ = scroll.contentView.autoscroll(with: latest)
-                    break
-                }
-                ancestor = current.superview
+            _ = scrollView?.contentView.autoscroll(with: latest)
+            let point = latest.locationInWindow
+            if conversationSelection?.drag(to: point) == true { continue }
+            if let selection {
+                selection.extend(at: point)
+            } else {
+                extendSelection(from: initial, to: point)
             }
-            selection.extend(at: latest.locationInWindow)
         }
         return dragged
+    }
+
+    private var enclosingVerticalScrollView: NSScrollView? {
+        var ancestor: NSView? = self
+        while let current = ancestor {
+            if let scroll = current as? NSScrollView, scroll.hasVerticalScroller { return scroll }
+            ancestor = current.superview
+        }
+        return nil
+    }
+
+    /// A bubble is one text view, so dragging inside it only has to join the press to the pointer.
+    private func extendSelection(from initial: NSRange, to windowPoint: NSPoint) {
+        let offset = selectionOffset(at: windowPoint)
+        let start = min(initial.location, offset)
+        setSelectedRange(NSRange(location: start, length: max(NSMaxRange(initial), offset) - start))
     }
 }

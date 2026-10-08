@@ -113,6 +113,8 @@ struct FileChipHover: Equatable, Sendable {
 struct TranscriptTextView: NSViewRepresentable {
     var text: NSAttributedString
     @Environment(\.transcriptTextSelection) private var selection
+    @Environment(\.transcriptConversationSelection) private var conversation
+    @Environment(\.transcriptEntryID) private var entryID
     /// The ink a link is drawn in when the pointer is elsewhere. The underline is not part of it:
     /// see `LinkTextView.hovered`.
     var linkColor: NSColor
@@ -194,6 +196,7 @@ struct TranscriptTextView: NSViewRepresentable {
 
     static func dismantleNSView(_ view: LinkTextView, coordinator: Coordinator) {
         view.answerSelection?.unregister(view)
+        view.conversationSelection?.unregister(view)
     }
 
     private func apply(to view: LinkTextView) {
@@ -204,11 +207,18 @@ struct TranscriptTextView: NSViewRepresentable {
             view.answerSelection = selection
             selection?.register(view)
         }
+        view.entryID = entryID
+        if view.conversationSelection !== conversation {
+            view.conversationSelection?.unregister(view)
+            view.conversationSelection = conversation
+            conversation?.register(view)
+        }
         if view.textStorage?.isEqual(to: text) != true {
             view.textStorage?.setAttributedString(text)
             view.bubbleAlignmentWidth = nil
             view.lastMeasurement = nil
         }
+        conversation?.adopt(view)
         view.linkColor = linkColor
         // No underline at rest. The pointing hand is asked for here and set for real in
         // `LinkTextView.pointer`: this dictionary only reaches the screen through the cursor
@@ -346,7 +356,8 @@ struct TranscriptTextView: NSViewRepresentable {
         init(actions: TranscriptLinkActions) { self.actions = actions }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard let view = notification.object as? LinkTextView else { return }
+            guard let view = notification.object as? LinkTextView,
+                  view.conversationSelection?.isApplying != true else { return }
             view.answerSelection?.nativeSelectionChanged(in: view)
         }
 
@@ -412,6 +423,10 @@ private final class TranscriptLayoutManager: NSLayoutManager {
 /// The text view itself: hover, and the menu over a link.
 final class LinkTextView: NSTextView, HoverQuickLookSource {
     weak var answerSelection: TranscriptTextSelection?
+    weak var conversationSelection: TranscriptConversationSelection?
+    /// The table entry this text is drawn in, which orders it among the rows of the conversation.
+    var entryID: TranscriptEntryID?
+    var rowSeq: Int? { entryID?.selectionOrder }
     var copyPrefix = ""
     var copySeparatorBefore = "\n\n"
 
@@ -435,20 +450,30 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     /// that far over one without a glyph crossing the edge.
     private static let overflowTolerance: CGFloat = 0.5
 
+    /// Whether whoever has the keyboard is selecting this view's text along with its own.
+    private var isSelectedWithTheKeyboardOwner: Bool {
+        guard let window, window.isKeyWindow else { return false }
+        let owner = window.firstResponder
+        if let conversationSelection, conversationSelection.isActive, conversationSelection.owns(owner) {
+            return owner !== self
+        }
+        guard let owner = owner as? LinkTextView, owner !== self, let answerSelection else { return false }
+        return owner.answerSelection === answerSelection
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         // AppKit highlights only the first responder in the active colour. The other paragraphs
         // in one answer looked deselected even though Copy included them. Draw their selection
-        // with the same ink while the answer owns the keyboard.
-        guard let answerSelection, let window, window.isKeyWindow,
-              let owner = window.firstResponder as? LinkTextView,
-              owner !== self, owner.answerSelection === answerSelection,
+        // with the same ink while the answer, or the whole conversation, owns the keyboard.
+        guard isSelectedWithTheKeyboardOwner,
               let layout = layoutManager, let container = textContainer else { return }
         let range = selectedRange()
         guard range.length > 0 else { return }
         let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         let origin = textContainerOrigin
-        NSColor.selectedTextBackgroundColor.setFill()
+        let fill = selectedTextAttributes[.backgroundColor] as? NSColor ?? .selectedTextBackgroundColor
+        fill.setFill()
         layout.enumerateEnclosingRects(
             forGlyphRange: glyphs, withinSelectedGlyphRange: glyphs, in: container
         ) { rect, _ in
@@ -459,33 +484,48 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned, let selection = answerSelection {
-            // Resignation happens before AppKit installs the next responder. A click in another
-            // block of this answer keeps the selection; leaving the answer clears every block.
-            Task { @MainActor [weak self, weak selection] in
-                guard let self, let selection,
-                      (window?.firstResponder as? LinkTextView)?.answerSelection !== selection else { return }
-                selection.clear()
+        guard resigned, answerSelection != nil || conversationSelection != nil else { return resigned }
+        // Resignation happens before AppKit installs the next responder. A click in another
+        // block of this answer keeps the selection; leaving the answer clears every block. While
+        // the conversation holds a selection the table has taken the keyboard, which is not
+        // leaving it.
+        Task { @MainActor [weak self, weak answerSelection, weak conversationSelection] in
+            guard let self else { return }
+            if let conversationSelection, conversationSelection.isActive {
+                if !conversationSelection.owns(window?.firstResponder) { conversationSelection.cancel() }
+                return
             }
+            let next = window?.firstResponder as? LinkTextView
+            if let answerSelection, next?.answerSelection !== answerSelection { answerSelection.clear() }
         }
         return resigned
     }
 
     override func selectAll(_ sender: Any?) {
-        guard let answerSelection else { super.selectAll(sender); return }
-        answerSelection.selectAll()
+        if let conversationSelection {
+            conversationSelection.selectAll()
+        } else if let answerSelection {
+            answerSelection.selectAll()
+        } else {
+            super.selectAll(sender)
+        }
     }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
-        if item.action == #selector(copy(_:)), let answerSelection {
-            return !answerSelection.selectedText.isEmpty
-        }
+        guard item.action == #selector(copy(_:)) else { return super.validateUserInterfaceItem(item) }
+        if let everything = conversationSelection?.selectedText { return !everything.isEmpty }
+        if let answerSelection { return !answerSelection.selectedText.isEmpty }
         return super.validateUserInterfaceItem(item)
     }
 
     override func copy(_ sender: Any?) {
-        guard let answerSelection else { super.copy(sender); return }
-        TranscriptLink.copy(answerSelection.selectedText)
+        if let everything = conversationSelection?.selectedText {
+            TranscriptLink.copy(everything)
+        } else if let answerSelection {
+            TranscriptLink.copy(answerSelection.selectedText)
+        } else {
+            super.copy(sender)
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -615,10 +655,11 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     /// short line reports the last character on it, so without the bounds test a click in the
     /// white space beside a one-line turn would open its file.
     override func mouseDown(with event: NSEvent) {
+        conversationSelection?.cancel()
         guard let chip = fileChip(at: convert(event.locationInWindow, from: nil)),
               let path = chip.subject.path
         else {
-            if let answerSelection {
+            if answerSelection != nil || conversationSelection != nil {
                 let point = convert(event.locationInWindow, from: nil)
                 let url = link(at: point)
                 let dragged = trackAnswerSelection(with: event, selection: answerSelection)
@@ -735,6 +776,10 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     ) -> Bool {
         guard type == .string, let storage = textStorage else {
             return super.writeSelection(to: pasteboard, type: type)
+        }
+        if let everything = conversationSelection?.selectedText {
+            pasteboard.setString(everything, forType: .string)
+            return true
         }
         if let answerSelection {
             pasteboard.setString(answerSelection.selectedText, forType: .string)

@@ -125,6 +125,8 @@ struct TranscriptListView: View {
     /// clipped by the pane. Only `TranscriptHoverOverlay` reads it, so a hover never re-runs this
     /// body. See `TranscriptHoverHost`.
     @State private var hoverHost = TranscriptHoverHost()
+    /// Select All across every row, and the copy it answers. See `TranscriptConversationSelection`.
+    @State private var conversationSelection = TranscriptConversationSelection()
     @State private var didPosition = false
     @State private var showsSetup = false
     /// Whether the window has grown in the last moment, which is the throttle on `growWindow`.
@@ -425,6 +427,7 @@ struct TranscriptListView: View {
             app: app,
             hoverHost: hoverHost,
             bubbleWidth: bubbleWidth,
+            conversation: conversationSelection,
             linkActions: linkActions,
             fontScale: fontScale,
             chatFont: chatFont,
@@ -1120,6 +1123,16 @@ struct TranscriptListView: View {
         // settle to fire on.
         .onDisappear { setColumnActive(false) }
         .background { WorkspaceColumnActivitySignal(changed: setColumnActive) }
+        .onChange(of: transcript.session.id, initial: true) { _, _ in
+            conversationSelection.cancel()
+            conversationSelection.text = { [model = self.transcript] slice in
+                ConversationText.text(of: model.rows.lazy.map {
+                    TurnAnswer.Row(
+                        seq: $0.seq, kind: $0.kind, payload: $0.payload, isNested: $0.parentToolUseID != nil
+                    )
+                }, in: slice)
+            }
+        }
         .onChange(of: transcript.presentationRevision, initial: true) { _, _ in
             updatePinnedQuestion()
             position()
