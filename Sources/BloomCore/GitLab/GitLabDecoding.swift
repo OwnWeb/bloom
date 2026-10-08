@@ -8,6 +8,7 @@ enum GitLabDecoding {
             let id: Int
             /// The project the pipeline ran in, which for a merge request from a fork is the fork.
             let projectId: Int?
+            let status: String?
         }
 
         struct Author: Decodable {
