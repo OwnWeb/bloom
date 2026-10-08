@@ -3,7 +3,7 @@ import Foundation
 /// The glab boundary, read as `PullRequest` and `CheckRun`.
 ///
 /// Reads use `glab api` on the versioned REST API with the host and project named, rather than
-/// glab's own JSON and remote guessing. No cache yet: a read is two or three small calls.
+/// glab's own JSON and remote guessing. `GitLabReads` shares what can be shared.
 public enum GitLab: ForgeClient {
     @TaskLocal static var commandOverride: (@Sendable ([String], String?) async throws -> ShellResult)?
 
@@ -39,7 +39,9 @@ public enum GitLab: ForgeClient {
     }
 
     public static func pullRequest(for workspace: Workspace, maxAge: Duration) async throws -> PullRequest? {
-        try await snapshot(for: workspace)?.pullRequest
+        try await GitLabReads.shared.snapshot(for: readKey(workspace), maxAge: maxAge) {
+            try await snapshot(for: workspace)
+        }?.pullRequest
     }
 
     public static func pullRequest(forBranch branch: String, worktree: String) async throws -> PullRequest? {
@@ -52,7 +54,12 @@ public enum GitLab: ForgeClient {
     }
 
     public static func checks(for workspace: Workspace) async throws -> [CheckRun]? {
-        try await snapshot(for: workspace)?.runs ?? []
+        let found = try await GitLabReads.shared.snapshot(for: readKey(workspace), maxAge: .zero) {
+            try await snapshot(for: workspace)
+        }
+        // Nil when the jobs could not be read, as on GitHub, so the tab says so.
+        guard let found else { return [] }
+        return found.pullRequest.checks == .unavailable ? nil : found.runs
     }
 
     public static func markReadyForReview(_ pullRequest: PullRequest, worktree: String) async throws {
@@ -115,7 +122,12 @@ public enum GitLab: ForgeClient {
 
     // MARK: Reading one merge request
 
-    struct Snapshot {
+    /// A worktree whose branch changed is asking a different question.
+    private static func readKey(_ workspace: Workspace) -> String {
+        "\(workspace.path)\n\(workspace.branch)"
+    }
+
+    struct Snapshot: Sendable {
         let pullRequest: PullRequest
         let runs: [CheckRun]
     }
@@ -151,6 +163,10 @@ public enum GitLab: ForgeClient {
             return Snapshot(pullRequest: GitLabDecoding.pullRequest(payload, runs: []), runs: [])
         }
         let pipelineProject = pipeline.projectId.map(String.init) ?? project.apiID
+        let pipelineKey = "\(project.host)/\(pipelineProject)/\(pipeline.id)"
+        if let runs = await GitLabReads.shared.jobs(of: pipelineKey, status: pipeline.status) {
+            return Snapshot(pullRequest: GitLabDecoding.pullRequest(payload, runs: runs), runs: runs)
+        }
         // An unreadable pipeline (a private fork) means unknown checks, not no merge request.
         guard let jobs = try? await check(
             api(project.host, "projects/\(pipelineProject)/pipelines/\(pipeline.id)/jobs?per_page=\(jobLimit)"),
@@ -158,6 +174,7 @@ public enum GitLab: ForgeClient {
         ), let runs = try? GitLabDecoding.jobs(from: Data(jobs.stdout.utf8)) else {
             return Snapshot(pullRequest: GitLabDecoding.pullRequest(payload, runs: nil), runs: [])
         }
+        await GitLabReads.shared.remember(runs, of: pipelineKey, status: pipeline.status)
         return Snapshot(pullRequest: GitLabDecoding.pullRequest(payload, runs: runs), runs: runs)
     }
 
@@ -200,8 +217,14 @@ public enum GitLab: ForgeClient {
     }
 
     static func project(in directory: String) async -> GitLabProject? {
+        guard let config = Git.repositoryPaths(in: directory).map({ ($0.commonDirectory as NSString).appendingPathComponent("config") })
+        else { return nil }
+        let written = (try? FileManager.default.attributesOfItem(atPath: config))?[.modificationDate] as? Date
+        if let known = await GitLabReads.shared.project(in: directory, configWritten: written) { return known }
         let context = try? await Git.repositoryContext(in: directory)
-        return GitLabProject(remote: context?.baseRemoteURL)
+        let project = GitLabProject(remote: context?.baseRemoteURL)
+        await GitLabReads.shared.store(project, in: directory, configWritten: written)
+        return project
     }
 
     private static let notAProject = GitHubError("This repository has no GitLab remote Bloom can read.")
