@@ -16,7 +16,7 @@ struct GitLabDecodingTests {
         #expect(pullRequest.reviewDecision == "REVIEW_REQUIRED")
         #expect(pullRequest.blockers == [.approvalRequired])
         #expect(pullRequest.checks == .failing)
-        #expect(pullRequest.checksSummary == "1 required check failed")
+        #expect(pullRequest.checksSummary == "1 required job failed")
         #expect(pullRequest.status.text == "Waiting for approval")
         #expect(pullRequest.status.canMerge == false)
         #expect(pullRequest.status.blockedReason == "This merge request needs an approval first.")
@@ -38,7 +38,7 @@ struct GitLabDecodingTests {
         #expect(pullRequest.closedAt != nil)
         #expect(pullRequest.blockers.isEmpty)
         #expect(pullRequest.status.blockedReason == "This merge request is already merged.")
-        #expect(WorkspaceStatus.merged.summary(pullRequest: pullRequest) == "Merged, merge request !4015: No checks")
+        #expect(WorkspaceStatus.merged.summary(pullRequest: pullRequest) == "Merged, merge request !4015: No jobs")
     }
 
     @Test("unresolved threads block the merge")

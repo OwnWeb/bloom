@@ -67,6 +67,28 @@ public enum GitLabInstructions {
         }
     }
 
+    /// A tool as an agent in a GitLab workspace is told about it: the same tool and schema, with
+    /// every description in GitLab's words. Field names, such as `include_github`, do not move.
+    public static func listing(of tool: BridgeTool) -> JSONValue {
+        describedForGitLab(tool.listing)
+    }
+
+    private static func describedForGitLab(_ value: JSONValue, key: String? = nil) -> JSONValue {
+        switch value {
+        case .string(let text) where key == "description":
+            return .string(translate([
+                // `#123` stays: it works on both forges, and a start may target a GitHub project.
+                ("`gh pr merge`", "`glab mr merge`"), ("gh call", "glab call"),
+            ].reduce(text) { $0.replacingOccurrences(of: $1.0, with: $1.1) }))
+        case .object(let fields):
+            return .object(fields.reduce(into: [:]) { $0[$1.key] = describedForGitLab($1.value, key: $1.key) })
+        case .array(let items):
+            return .array(items.map { describedForGitLab($0) })
+        default:
+            return value
+        }
+    }
+
     static func translate(_ text: String) -> String {
         [
             ("Pull request #", "Merge request !"), ("pull request #", "merge request !"),

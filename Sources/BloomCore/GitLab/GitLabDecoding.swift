@@ -8,6 +8,7 @@ enum GitLabDecoding {
             let id: Int
             /// The project the pipeline ran in, which for a merge request from a fork is the fork.
             let projectId: Int?
+            let status: String?
         }
 
         struct Author: Decodable {
@@ -58,7 +59,9 @@ enum GitLabDecoding {
     static func pullRequest(_ payload: MergeRequestPayload, runs: [CheckRun]?) -> PullRequest {
         let detailed = payload.detailedMergeStatus ?? ""
         let state = state(payload.state)
-        let (checks, summary) = runs.map(GitHub.rollup) ?? (.unavailable, GitHub.checksUnavailableSummary)
+        let (checks, rollup) = runs.map(GitHub.rollup) ?? (.unavailable, "Pipeline unavailable")
+        // GitLab's word for a check run is a job.
+        let summary = rollup.replacingOccurrences(of: "check", with: "job")
         return PullRequest(
             number: payload.iid ?? 0,
             title: payload.title ?? "",

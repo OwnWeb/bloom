@@ -71,7 +71,7 @@ struct PullRequestBadge: View {
         // control reports as `AXUnknown` and reads as a label rather than as something to press.
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Pull request \(number), \(title)")
+        .accessibilityLabel("\(forge.request.capitalizedFirst) \(number), \(title)")
         .accessibilityHint("Opens on \(forge.name)")
         .help("Open \(forge.reference(number)) on \(forge.name): \(title)")
     }
