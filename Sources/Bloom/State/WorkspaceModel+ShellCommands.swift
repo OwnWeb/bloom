@@ -27,19 +27,23 @@ extension WorkspaceModel {
         let cwd = transcript.cwd
         transcript.shellRun = ShellCommand.Run(command: command)
         transcript.shellRunTask = Task { @MainActor [weak transcript, app] in
-            let ending = await ShellCommandRun.run(command, cwd: cwd, variables: variables) { line in
-                transcript?.shellRun?.output.append(line)
+            let (ending, output) = await ShellCommandRun.run(command, cwd: cwd, variables: variables) { output in
+                transcript?.shellRun?.output = output
             }
             guard let transcript else { return }
-            let output = transcript.shellRun?.output ?? ShellCommand.Output()
             transcript.shellRun = nil
             transcript.shellRunTask = nil
-            // Stopped by hand is somebody changing their mind, so nothing goes to the agent.
+            // Stopped by hand is somebody changing their mind, so nothing goes to the agent. So is
+            // the chat being closed or archived under it, which cancels this in `terminateNow`.
             guard !Task.isCancelled else {
                 app.notice = BloomNotice(message: "The command was stopped. Nothing was sent to the agent.")
                 return
             }
-            _ = await transcript.submit(ShellCommand.message(command: command, output: output, ending: ending))
+            let message = ShellCommand.message(command: command, output: output, ending: ending)
+            guard await transcript.submit(message) else {
+                app.notice = BloomNotice(message: "The command finished, but its output could not be sent to the agent.")
+                return
+            }
         }
         return true
     }
