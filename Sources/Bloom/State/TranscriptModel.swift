@@ -454,6 +454,28 @@ final class TranscriptModel {
         await loader.run { [self] in await read(from: store) }
     }
 
+    /// Reconcile persisted rows while this pane is visible. The runner's event pump normally
+    /// presents them first, but a missed presentation notification must not leave a saved answer
+    /// invisible until Bloom is restarted. Store changes are coalesced and this reader caps its
+    /// own reads while a provider writes many rows in a turn.
+    func watchStoredRows(when shouldRead: @escaping @MainActor () -> Bool) async {
+        guard let store else { return }
+        var changes = store.changes(of: [.messages]).makeAsyncIterator()
+        await load()
+        guard !Task.isCancelled else { return }
+        if shouldRead() { await appendLatestMessages() }
+        while await changes.next() != nil {
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            guard !Task.isCancelled else { return }
+            if shouldRead() { await appendLatestMessages() }
+        }
+    }
+
+    func reconcileStoredRows() async {
+        await load()
+        await appendLatestMessages()
+    }
+
     /// The read itself, reached only through `loader`.
     ///
     /// The rows are built into a list off to one side and put on the model in one assignment at the

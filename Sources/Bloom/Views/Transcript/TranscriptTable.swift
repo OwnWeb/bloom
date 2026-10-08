@@ -176,6 +176,14 @@ final class TranscriptTableController {
 final class TranscriptScrollView: NSScrollView {
     var willResizeViewport: (() -> Void)?
     var didResizeViewport: (() -> Void)?
+    var onUserWheel: (() -> Void)?
+
+    override func scrollWheel(with event: NSEvent) {
+        // Some mice never send live-scroll notifications. Claim the gesture before AppKit moves
+        // the clip view, while the old end hold can still be released without a competing snap.
+        if event.scrollingDeltaY != 0 || event.scrollingDeltaX != 0 { onUserWheel?() }
+        super.scrollWheel(with: event)
+    }
 
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
@@ -453,6 +461,7 @@ struct TranscriptTable: NSViewRepresentable {
             if let scroll = scroll as? TranscriptScrollView {
                 scroll.willResizeViewport = { [weak self] in self?.viewportWillResize() }
                 scroll.didResizeViewport = { [weak self] in self?.viewportDidResize() }
+                scroll.onUserWheel = { [weak self] in self?.wheelScrolled() }
             }
             scroll.contentView.postsBoundsChangedNotifications = true
             scroll.postsFrameChangedNotifications = true
@@ -1189,6 +1198,10 @@ struct TranscriptTable: NSViewRepresentable {
         private func keepPlace(
             wasAtEnd: Bool, anchor: (id: TranscriptEntryID, delta: CGFloat)?
         ) {
+            // A new row or a late height report can arrive between two wheel events. The
+            // reader's gesture owns the clip view until it ends, including while AppKit is
+            // correcting the document height underneath it.
+            guard !isLiveScrolling else { return }
             switch TranscriptAnchor.place(
                 holdsEnd: holdsEnd,
                 wasAtEnd: wasAtEnd,
@@ -1571,6 +1584,13 @@ struct TranscriptTable: NSViewRepresentable {
             aimingElsewhere()
             reaimWork?.cancel()
             onLiveScrollChange?(true)
+        }
+
+        private func wheelScrolled() {
+            lastLiveScroll = CACurrentMediaTime()
+            guard !isLiveScrolling else { return }
+            liveScrollBegan()
+            watchForQuiet()
         }
 
         /// Belt to the braces above. AppKit posts this for every step of a user-initiated scroll,
