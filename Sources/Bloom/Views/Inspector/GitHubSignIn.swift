@@ -74,6 +74,14 @@ final class GitHubSignIn {
         run(directory: directory) {}
     }
 
+    /// glab's state for this directory's host, with the accounts read again once it is ready, so a
+    /// sign in shows in Agents and in `gitlab_username` without a relaunch.
+    func gitLabAccess(in directory: String) async -> GitHubAvailability.State {
+        let state = GitHubAvailability.State(await GitLab.access(in: directory))
+        if state == .ready { await GitLabIdentity.resolve(force: true) }
+        return state
+    }
+
     /// The GitLab sheet, for a read that failed because glab is missing or signed out.
     func presentGitLab(directory: String, host: String?, access: GitHubAvailability.State) {
         pending = nil

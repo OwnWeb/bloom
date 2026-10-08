@@ -320,7 +320,7 @@ struct GitHubSignInSheet: View {
 
     private func currentAccess() async -> GitHubAvailability.State {
         guard request.forge == .gitLab else { return await GitHubAvailability.shared.check(force: true) }
-        return GitHubAvailability.State(await GitLab.access(in: request.directory))
+        return await GitHubSignIn.shared.gitLabAccess(in: request.directory)
     }
 }
 

@@ -137,18 +137,14 @@ public struct SetupProbe: Sendable {
 
     // MARK: - GitLab
 
-    /// Signed in to any host is ready: glab exits non-zero when one of several hosts is not.
+    /// Signed in to any host is ready. See `GitLabIdentity.signedIn` for why host by host.
     private func gitLabOutcome() async -> SetupOutcome {
         guard Shell.which("glab") != nil else { return .missing }
-        let result = try? await Shell.run("glab", ["auth", "status"], timeout: .seconds(20))
-        return Self.gitLabOutcome(status: result.map { $0.stdout + $0.stderr } ?? "")
+        return Self.gitLabOutcome(signedIn: await GitLabIdentity.signedIn().usernames)
     }
 
-    static func gitLabOutcome(status: String) -> SetupOutcome {
-        let hosts = status.components(separatedBy: .newlines).compactMap { line -> String? in
-            guard let range = line.range(of: "Logged in to ") else { return nil }
-            return line[range.upperBound...].split(separator: " ").first.map(String.init)
-        }
+    static func gitLabOutcome(signedIn: [String: String]) -> SetupOutcome {
+        let hosts = signedIn.keys.sorted()
         return hosts.isEmpty ? .needsSignIn(detail: nil) : .ready(detail: "Signed in to \(hosts.joined(separator: ", "))")
     }
 }

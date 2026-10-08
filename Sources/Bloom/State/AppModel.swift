@@ -473,6 +473,15 @@ final class AppModel {
     private(set) var lastQuotaAskAt: Date?
     private(set) var isAskingForQuotas = false
     private var identityTask: Task<Void, Never>?
+
+    /// GitLab accounts once the launch's identity lookup has finished, which can be after a
+    /// settings pane has already opened.
+    func gitLabAccounts() async -> [String: String] {
+        await identityTask?.value
+        // Read again on every visit: a sign in may have happened in a terminal since launch.
+        if GitLab.isInstalled { await GitLabIdentity.resolve(force: true) }
+        return GitLabIdentity.usernames
+    }
     /// The launch sweep for project icons. Not private, because the work it does is in
     /// `AppModel+ProjectIcons.swift`, and outside observation because nothing draws from it.
     @ObservationIgnored var iconSearchTask: Task<Void, Never>?
@@ -586,7 +595,10 @@ final class AppModel {
 
         // Held so quitting takes it with us: it is a `gh` subprocess with a ten second timeout,
         // and `Shell.run` terminates the child when its task is cancelled.
-        identityTask = Task { await GitHubIdentity.resolve() }
+        identityTask = Task {
+            await GitHubIdentity.resolve()
+            await GitLabIdentity.resolve()
+        }
         startBackgroundRefresh()
         startObservingStore()
         startObservingSessions()
