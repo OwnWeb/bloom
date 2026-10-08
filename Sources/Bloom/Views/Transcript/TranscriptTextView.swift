@@ -415,6 +415,26 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     var copyPrefix = ""
     var copySeparatorBefore = "\n\n"
 
+    /// `sizeThatFits` can leave the container wider than the placed frame, which drew a long
+    /// pasted turn past its bubble. Only an overflowing run is laid out again.
+    override func viewWillDraw() {
+        if let container = textContainer, let measured = lastMeasurement,
+           measured.size.width > bounds.width + Self.overflowTolerance {
+            container.containerSize = CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
+            lastMeasurement = nil
+            if measured.alignsBubbleInk, let layout = layoutManager {
+                layout.ensureLayout(for: container)
+                bubbleInkOffset = BubbleTextAlignment.offset(layout: layout, container: container)
+                bubbleAlignmentWidth = bounds.width
+            }
+        }
+        super.viewWillDraw()
+    }
+
+    /// Frames land on half points on a Retina display, and a reported width rounded up can sit
+    /// that far over one without a glyph crossing the edge.
+    private static let overflowTolerance: CGFloat = 0.5
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         // AppKit highlights only the first responder in the active colour. The other paragraphs
