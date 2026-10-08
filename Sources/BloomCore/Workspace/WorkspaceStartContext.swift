@@ -179,11 +179,12 @@ public struct WorkspaceCheckoutOptions: Sendable {
             )
         }
 
-        let access = await GitHub.access()
+        let forge = await ForgeResolver.client(for: repoPath)
+        let access = await forge.access()
         guard access == .ready else { return options(access: access) }
 
         do {
-            return options(pullRequests: try await GitHub.openPullRequests(repoPath: repoPath))
+            return options(pullRequests: try await forge.openPullRequests(repoPath: repoPath))
         } catch {
             return options(failure: error.readableMessage)
         }
