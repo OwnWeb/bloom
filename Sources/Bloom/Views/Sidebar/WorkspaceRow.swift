@@ -445,11 +445,10 @@ struct SidebarRowTrailingControl<Control: View>: ViewModifier {
 
     /// The mask that clears the ground under the controls while they are shown.
     ///
-    /// A full rectangle at rest, so it changes nothing, with an eraser over the trailing edge
-    /// that fades in with the controls: opaque behind the buttons themselves, thinning to nothing
-    /// over `controlsFade` more points. `destinationOut` inside a `compositingGroup` is what
-    /// punches alpha OUT of a mask that is otherwise solid; the obvious alternative, two mask
-    /// shapes switched by the hover, cannot animate between its states.
+    /// A full rectangle at rest, so it changes nothing. On hover the last button-width is clear,
+    /// with a short fade leading into it. Drawing the mask's alpha directly avoids the
+    /// `destinationOut` compositing group, which could leave a list row entirely blank until hover
+    /// caused SwiftUI to redraw it.
     ///
     /// A mask on the content rather than a plate behind the controls, because the row does not
     /// know what it is sitting on: the accent fill when selected with the keyboard, the quiet
@@ -457,24 +456,16 @@ struct SidebarRowTrailingControl<Control: View>: ViewModifier {
     /// the true ground, whichever that is, so the buttons stand on the same fill as the rest of
     /// the row.
     private var trailingYield: some View {
-        Rectangle()
-            .overlay(alignment: .trailing) {
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(
-                            color: .black,
-                            location: Self.controlsFade / (Self.controlsFade + Self.controlsWidth)
-                        ),
-                        .init(color: .black, location: 1),
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(width: Self.controlsFade + Self.controlsWidth)
-                .blendMode(.destinationOut)
-                .opacity(isShown ? 1 : 0)
-            }
-            .compositingGroup()
+        HStack(spacing: 0) {
+            Rectangle()
+            LinearGradient(
+                colors: [.white, isShown ? .clear : .white],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: Self.controlsFade)
+            Color.white.opacity(isShown ? 0 : 1)
+                .frame(width: Self.controlsWidth)
+        }
     }
 }
