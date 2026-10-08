@@ -9,6 +9,9 @@ import BloomCore
 /// Marking a draft ready for review needs no interpretation, so it runs directly through gh.
 enum GitHubBridge {
     static func readPullRequest(for workspace: Workspace, maxAge: Duration = .zero) async -> PullRequestRead {
+        guard await ForgeResolver.forge(for: workspace.path) == .gitHub else {
+            return await GitLab.readPullRequest(for: workspace, maxAge: maxAge)
+        }
         let availability = await GitHubAvailability.shared.check()
         if availability == .notInstalled {
             return .unavailable(GitHubReadFailure(reason: .unavailable, message: "Install the GitHub CLI to refresh pull requests."))
@@ -39,14 +42,14 @@ enum GitHubBridge {
     }
 
     static func markReadyForReview(_ pullRequest: PullRequest, worktree: String) async throws {
-        try await GitHub.markReadyForReview(pullRequest, worktree: worktree)
+        try await ForgeResolver.client(for: worktree).markReadyForReview(pullRequest, worktree: worktree)
     }
 
     /// Nil when GitHub refused this token the check runs. A failed read is still an empty list,
     /// as it always was, because `try?` would flatten it into that nil.
     static func checks(for workspace: Workspace) async -> [CheckRun]? {
         do {
-            return try await GitHub.checks(for: workspace)
+            return try await ForgeResolver.client(for: workspace.path).checks(for: workspace)
         } catch {
             return []
         }

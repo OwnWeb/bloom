@@ -107,6 +107,7 @@ struct PullRequestBar: View {
                 onMarkReadyForReview: { markReadyForReview(pullRequest) },
                 onPush: push,
                 onFixConflicts: { fixConflicts(on: pullRequest) },
+                onRebase: { rebase(pullRequest) },
                 onContinue: { carryOn(after: pullRequest) },
                 onArchive: archive,
                 archiveRequest: $pendingArchive,
@@ -120,6 +121,7 @@ struct PullRequestBar: View {
                 branchActions: branchActions,
                 worktree: model.workspace.path,
                 github: model.gitHubReadiness,
+                forge: model.forge,
                 hasChanges: hasChanges,
                 hasReadChanges: model.hasReadChanges,
                 continued: model.continued,
@@ -243,6 +245,19 @@ struct PullRequestBar: View {
                 report = PullRequestNotice(
                     tone: .info, title: "Nothing was sent", message: refusal
                 )
+            }
+        }
+    }
+
+    /// Hands GitLab's rebase to the agent, the way Fix merge conflicts hands over a conflict.
+    private func rebase(_ pullRequest: PullRequest) {
+        isWorking = true
+        report = nil
+
+        Task {
+            defer { isWorking = false }
+            if let refusal = await model.requestRebase(pullRequest) {
+                report = PullRequestNotice(tone: .info, title: "Nothing was sent", message: refusal)
             }
         }
     }
