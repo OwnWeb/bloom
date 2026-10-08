@@ -814,29 +814,15 @@ struct TranscriptTable: NSViewRepresentable {
             )))
         }
 
-        /// The one thing a row is hosted in to be measured, kept rather than built per row. See
-        /// `measure(_:at:)`, which carries why keeping it is safe now and was not before. Lazy, so
-        /// a coordinator that never measures never builds one.
-        private lazy var sizer = NSHostingController(rootView: AnyView(EmptyView()))
-
         /// **What this row comes to at this width, asked of a hosting controller.**
         ///
-        /// It was a fresh `NSHostingView` per row, with a required width constraint,
-        /// `layoutSubtreeIfNeeded()` and `fittingSize`. The comment beside it said a reused
-        /// hosting view "does not reliably forget the row before", and that is a description of
-        /// `fittingSize` rather than of reuse: `fittingSize` is the Auto Layout engine's answer for
-        /// the view as it stands, so a reused view hands back whatever the last solve left in it.
-        /// `sizeThatFits(in:)` takes a PROPOSAL and answers for the content it has been handed, so
-        /// there is nothing left over to forget and the controller can be kept. It is also the
-        /// supported width-constrained measurement, where `fittingSize` under a constraint is a
-        /// solver result that happens to agree.
+        /// Give each row its own controller. The reused controller replaced its root view for
+        /// every measurement, including between yields in idle history preparation. Crash reports
+        /// from macOS 27 show SwiftUI releasing stack layout children during a later graph flush.
+        /// Keeping a row's graph stable for its whole lifetime removes that source of invalidation.
         ///
-        /// Timed on this Mac against the owner's session: 0.270ms a row for the fresh view, 0.103ms
-        /// for this. Nothing else about the measurement moves. `HostedRow` is untouched, because
-        /// the measuring copy and the drawing copy passing through identical modifiers is the whole
-        /// reason that type exists; `.id` is added here, which the drawing copy already had, so the
-        /// two are now closer rather than further apart, and it is what tells SwiftUI that the next
-        /// row is a different view rather than this one changing.
+        /// `sizeThatFits(in:)` still takes a width proposal, and `HostedRow` still gives the
+        /// measuring and drawing copies the same layout modifiers.
         ///
         /// The width is still `columnWidth`, carried in through `TranscriptRowHeights.measure`,
         /// which is the TABLE's width and not the clip view's. See `columnWidth`, which carries
@@ -852,11 +838,10 @@ struct TranscriptTable: NSViewRepresentable {
             // The one place a row is hosted to measure it, so the one place worth counting. See
             // `TranscriptHoldCensus`.
             TranscriptHoldCensus.measured()
-            sizer.rootView = AnyView(
+            let sizer = NSHostingController(rootView: AnyView(
                 HostedRow(content: entry.content(), report: { _ in }, fills: false)
-                    .id(entry.id)
                     .transcriptRowEnvironment(rowEnvironment)
-            )
+            ))
             // Unconstrained downwards, which is what `fills: false` is for: the measuring copy
             // takes its own ideal height rather than filling a row it has not been given.
             let height = sizer.sizeThatFits(
