@@ -80,19 +80,21 @@ struct AgentsSettingsView: View {
                     }
                 }
 
-                Section("GitLab") {
-                    let accounts = gitLabAccounts.sorted { $0.key < $1.key }
-                    if accounts.isEmpty {
-                        SettingsRow("Account") {
-                            Text("Not signed in with glab")
-                                .foregroundStyle(Palette.textSecondary)
+                if GitLab.isInstalled {
+                    Section("GitLab") {
+                        let accounts = gitLabAccounts.sorted { $0.key < $1.key }
+                        if accounts.isEmpty {
+                            SettingsRow("Account") {
+                                Text("Not signed in with glab")
+                                    .foregroundStyle(Palette.textSecondary)
+                            }
                         }
-                    }
-                    ForEach(accounts, id: \.key) { host, username in
-                        SettingsRow(host) {
-                            Text(username)
-                                .foregroundStyle(Palette.textSecondary)
-                                .textSelection(.enabled)
+                        ForEach(accounts, id: \.key) { host, username in
+                            SettingsRow(host) {
+                                Text(username)
+                                    .foregroundStyle(Palette.textSecondary)
+                                    .textSelection(.enabled)
+                            }
                         }
                     }
                 }

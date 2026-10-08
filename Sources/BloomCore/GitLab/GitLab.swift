@@ -188,6 +188,12 @@ public enum GitLab: ForgeClient {
 
     // MARK: Running glab
 
+    /// Whether glab is on this Mac: a walk of the PATH, no process. Settings show GitLab's rows only
+    /// then, so somebody without it sees what they saw before.
+    public static var isInstalled: Bool {
+        commandOverride != nil || Shell.which("glab") != nil
+    }
+
     /// The GitLab host this repository's base remote is on, for signing in to it.
     public static func host(in directory: String) async -> String? {
         await project(in: directory)?.host
