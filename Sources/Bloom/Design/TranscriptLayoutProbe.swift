@@ -58,6 +58,7 @@ enum TranscriptLayoutProbe {
             scale: ChatTextSize.defaultChoice.scale,
             rowEnvironment: TranscriptRowEnvironment(
                 app: app, hoverHost: TranscriptHoverHost(), bubbleWidth: TranscriptBubbleWidth(),
+                conversation: TranscriptConversationSelection(),
                 linkActions: TranscriptLinkActions(), fontScale: ChatTextSize.defaultChoice.scale,
                 chatFont: .standard, lineHeight: .defaultChoice, reduceMotion: true
             ),

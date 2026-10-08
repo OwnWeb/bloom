@@ -23,6 +23,8 @@ import SwiftUI
 ///
 /// - `app` for `ToolRowHeader`, `UserTurnRowView`, `ReviewTurnChips` and `WorkspaceEventsView`,
 ///   each of which asks the model something about the workspace the row belongs to.
+/// - `conversation`, the one selection every text view in the transcript joins when Select All is
+///   pressed. An identity like the two objects below.
 /// - `hoverHost` and `bubbleWidth`, the two objects above. Identities, never values, so handing
 ///   them down costs a row nothing: see the headers of both.
 /// - `linkActions` for what a link inside a row's markdown does when it is pressed or chosen from
@@ -47,6 +49,7 @@ struct TranscriptRowEnvironment: Equatable {
     let app: AppModel
     let hoverHost: TranscriptHoverHost
     let bubbleWidth: TranscriptBubbleWidth
+    let conversation: TranscriptConversationSelection
     let linkActions: TranscriptLinkActions
     let fontScale: CGFloat
     let chatFont: ChatFont
@@ -63,6 +66,7 @@ struct TranscriptRowEnvironment: Equatable {
         lhs.app === rhs.app
             && lhs.hoverHost === rhs.hoverHost
             && lhs.bubbleWidth === rhs.bubbleWidth
+            && lhs.conversation === rhs.conversation
             && lhs.linkActions == rhs.linkActions
             && lhs.fontScale == rhs.fontScale
             && lhs.chatFont == rhs.chatFont
@@ -104,6 +108,7 @@ extension View {
         environment(values.app)
             .environment(\.transcriptHoverHost, values.hoverHost)
             .environment(\.transcriptBubbleWidth, values.bubbleWidth)
+            .environment(\.transcriptConversationSelection, values.conversation)
             .markdownLinkActions(values.linkActions)
             .environment(\.fontScale, values.fontScale)
             .environment(\.chatFont, values.chatFont)
