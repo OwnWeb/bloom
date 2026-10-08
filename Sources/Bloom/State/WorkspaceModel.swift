@@ -2637,6 +2637,22 @@ final class WorkspaceModel {
         return nil
     }
 
+    /// Asks the agent to have GitLab rebase the merge request onto its target, and nothing more.
+    func requestRebase(_ pullRequest: PullRequest) async -> String? {
+        guard let session = await sessionForPullRequest(titledIfNew: "Rebase") else {
+            return "Could not open a session in \(workspace.name) to send the request to."
+        }
+        let reference = pullRequest.forge.reference(pullRequest.number)
+        let text = "GitLab will not merge \(reference) until it is rebased onto \(workspace.baseBranch). "
+            + "Run `glab mr rebase \(pullRequest.number)` from this worktree and wait for it to finish, "
+            + "then bring this worktree up to date with `git pull --rebase origin \(workspace.branch)`, so it does not hold the "
+            + "commits from before the rebase. If GitLab or git reports a conflict, stop and say so. "
+            + "Do not merge \(reference) and do not force push."
+        activeSessionID = session.id
+        await transcript(for: session).submit(text)
+        return nil
+    }
+
     /// The turn that goes down the wire, with the instructions named in it.
     ///
     /// The path goes in the sentence that asks for it, which is where every other file Bloom sends

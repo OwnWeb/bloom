@@ -60,6 +60,8 @@ public struct PullRequestStatus: Sendable, Hashable {
         /// cannot do. The strip used to draw Merge here, beside a red band saying the branch
         /// conflicts, and pressing it asked the agent to run a command GitHub had already refused.
         case fixConflicts
+        /// GitLab requires the branch rebased onto its target before it will merge.
+        case rebase
     }
 
     // A running agent is not one of the reasons in here: everything in this type is what GitHub
@@ -246,7 +248,8 @@ public extension PullRequest {
                 text: blocker.text,
                 detail: checksDetail,
                 canMerge: false,
-                blockedReason: blocker.reason
+                blockedReason: blocker.reason,
+                remedy: blocker == .needsRebase ? .rebase : .merge
             )
         }
 

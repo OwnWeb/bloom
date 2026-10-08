@@ -188,6 +188,11 @@ public enum GitLab: ForgeClient {
 
     // MARK: Running glab
 
+    /// The GitLab host this repository's base remote is on, for signing in to it.
+    public static func host(in directory: String) async -> String? {
+        await project(in: directory)?.host
+    }
+
     static func project(in directory: String) async -> GitLabProject? {
         let context = try? await Git.repositoryContext(in: directory)
         return GitLabProject(remote: context?.baseRemoteURL)

@@ -41,6 +41,7 @@ struct PullRequestSummary: View {
     var onPush: () -> Void
     /// Asks the workspace's agent to bring the base branch in and resolve the conflicts with it.
     var onFixConflicts: () -> Void
+    var onRebase: () -> Void = {}
     /// Carries a merged workspace on to a fresh branch, in place. See `continueButton`.
     var onContinue: () -> Void
     /// Archives, through the app's ordinary archive with all its checks intact.
@@ -277,6 +278,7 @@ struct PullRequestSummary: View {
         case .merge: mergeControl
         case .markReadyForReview: markReadyForReviewButton
         case .fixConflicts: fixConflictsButton
+        case .rebase: rebaseButton
         case .commitAndPush, .push: pushButton
         }
     }
@@ -498,6 +500,21 @@ struct PullRequestSummary: View {
                     ?? "Ask this workspace's agent to bring \(baseBranch) into this worktree and "
                         + "resolve the conflicts here. Nothing is pushed and #\(pullRequest.number)"
                         + " is not merged."
+            )
+    }
+
+    private var rebaseButton: some View {
+        Button("Rebase", systemImage: "arrow.triangle.branch", action: onRebase)
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.roundedRectangle(radius: Metrics.corner))
+            .tint(status.tone.fill)
+            .controlSize(.regular)
+            .labelStyle(.titleAndIcon)
+            .fixedSize()
+            .help(
+                branchActions.reason
+                    ?? "Ask this workspace's agent to have GitLab rebase \(pullRequest.forge.reference(pullRequest.number)) "
+                        + "onto \(baseBranch). Nothing is merged."
             )
     }
 
