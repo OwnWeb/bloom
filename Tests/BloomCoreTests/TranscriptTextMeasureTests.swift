@@ -188,4 +188,20 @@ struct TranscriptTextMeasureTests {
             }
         }
     }
+
+    /// `TranscriptTextMeasureCache` keys on the proposal rather than the layout width because
+    /// `size` reads the proposal. This is where that matters: zero and a hair share a layout width
+    /// and get different answers whenever a word is wider than a hair.
+    @Test("zero and a hair are laid out alike and answered differently")
+    func zeroAndHairDiffer() {
+        #expect(TranscriptTextMeasure.layoutWidth(proposed: 0) == TranscriptTextMeasure.layoutWidth(proposed: 1))
+        let zero = TranscriptTextMeasure.size(
+            widestLine: 48, usedHeight: 64, proposed: 0, lineHeight: 16, hasGlyphs: true
+        )
+        let hair = TranscriptTextMeasure.size(
+            widestLine: 48, usedHeight: 64, proposed: 1, lineHeight: 16, hasGlyphs: true
+        )
+        #expect(zero.width == 48)
+        #expect(hair.width == 1)
+    }
 }
