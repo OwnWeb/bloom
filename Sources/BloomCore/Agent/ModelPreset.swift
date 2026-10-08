@@ -312,11 +312,22 @@ public extension AppDefaults {
     }
 
     /// What a brand new session inherits: the Settings defaults, with the default preset over
-    /// them when there is one. Settings itself reads `load`, so the screen keeps showing and
-    /// saving its own values rather than the preset's.
-    static func loadForNewSessions(from store: Store) async -> AppDefaults {
+    /// them when there is one, and otherwise the last model chosen in a footer. Settings itself
+    /// reads `load`, so the screen keeps showing and saving its own values rather than these.
+    ///
+    /// A last choice the account cannot run is skipped rather than applied, so the next layer down
+    /// answers instead of a chat opening on a model that refuses it. See `ModelAvailability`.
+    static func loadForNewSessions(
+        from store: Store,
+        models: [AgentKind: [AgentModel]] = [:]
+    ) async -> AppDefaults {
         let defaults = await load(from: store)
-        guard let preset = await ModelPresetList.load(from: store).defaultPreset else { return defaults }
-        return defaults.applying(preset)
+        if let preset = await ModelPresetList.load(from: store).defaultPreset {
+            return defaults.applying(preset)
+        }
+        guard let last = await LastModelChoice.load(from: store),
+              ModelAvailability.isUsable(model: last.model, on: last.backend, models: models)
+        else { return defaults }
+        return defaults.applying(last)
     }
 }

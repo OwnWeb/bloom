@@ -315,6 +315,7 @@ struct ComposerView: View {
     /// Writes the footer's choices back where a conversation keeps them: the four that are columns
     /// go on the session row, and fast mode and the output style go in the store's key value table.
     private func apply(controls new: ComposerControls) {
+        app.rememberModelChoice(from: controls, to: new)
 
         if new.codexFastMode != codexFastMode {
             codexFastMode = new.codexFastMode
@@ -813,7 +814,9 @@ struct ComposerView: View {
         let wasPrepared = (try? await store.setting(appliedKey)) == "1"
         guard !wasPrepared, transcript.session.agentSessionID == nil else { return }
 
-        let appDefaults = await AppDefaults.loadForNewSessions(from: store)
+        let appDefaults = await AppDefaults.loadForNewSessions(
+            from: store, models: ComposerModelCatalog.shared.models
+        )
 
         // Off the main actor because it reads up to six files from disk.
         var repoSettings = RepoSettings()

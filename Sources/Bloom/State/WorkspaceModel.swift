@@ -539,7 +539,9 @@ final class WorkspaceModel {
         usesCLI suppliedCLIChoice: Bool?
     ) async -> PaneContent? {
         guard let store, let repo = app.repo(for: workspace) else { return nil }
-        let defaults = await AppDefaults.loadForNewSessions(from: store)
+        let defaults = await AppDefaults.loadForNewSessions(
+            from: store, models: ComposerModelCatalog.shared.models
+        )
         let controls = suppliedControls ?? ComposerControls(
                 defaults: ComposerDefaults.resolve(
                     repo: SettingsLoader.load(repo: workspace.path), app: defaults,
