@@ -315,14 +315,14 @@ struct PullRequestBar: View {
     ///
     /// So there is nothing to report here on success. What used to be a `WorkspaceEvent` row is
     /// now the turn itself, a few points to the left, said in the agent's own words.
-    private func merge(_ method: GitHub.MergeMethod) {
+    private func merge(_ method: GitHub.MergeMethod, message: SquashCommitMessage?) {
         guard let pullRequest = model.pullRequest else { return }
         isWorking = true
         report = nil
 
         Task {
             defer { isWorking = false }
-            if let refusal = await model.requestMerge(pullRequest, method: method) {
+            if let refusal = await model.requestMerge(pullRequest, method: method, squashMessage: message) {
                 report = PullRequestNotice(
                     tone: .info, title: "Nothing was sent", message: refusal
                 )

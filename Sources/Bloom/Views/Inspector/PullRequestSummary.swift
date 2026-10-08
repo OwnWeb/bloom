@@ -35,7 +35,7 @@ struct PullRequestSummary: View {
     /// Changes the method in force. It never merges, which is the whole difference between this
     /// and `onMerge`.
     var onChooseMergeMethod: (GitHub.MergeMethod) -> Void
-    var onMerge: (GitHub.MergeMethod) -> Void
+    var onMerge: (GitHub.MergeMethod, SquashCommitMessage?) -> Void
     var onMarkReadyForReview: () -> Void
     /// Hands the outstanding work to the workspace's agent to commit and push.
     var onPush: () -> Void
@@ -225,9 +225,9 @@ struct PullRequestSummary: View {
                         deletesBranch: Self.deletesBranch,
                         canMerge: canConfirmMerge,
                         tint: status.tone.fill,
-                        onConfirm: {
+                        onConfirm: { message in
                             pendingMerge = nil
-                            onMerge(method)
+                            onMerge(method, message)
                         },
                         onCancel: { pendingMerge = nil }
                     )
