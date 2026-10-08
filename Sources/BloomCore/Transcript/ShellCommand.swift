@@ -93,22 +93,48 @@ public enum ShellCommand {
     }
 
     /// The message the agent receives once the command has finished.
+    ///
+    /// In the tags Claude Code itself writes for a `!` command, which Claude models already read as
+    /// "the user ran this", and which any other agent reads as plainly as prose. They are also what
+    /// lets `split` find the turn again without guessing, so the transcript can draw it as a
+    /// command rather than as the text the agent was given.
     public static func message(command: String, output: Output, ending: ProcessEnding) -> String {
-        let fence = fence(enclosing: command + output.text)
-        let ran = "I ran this in the worktree:\n\n\(fence)sh\n\(command)\n\(fence)\n\nIt \(ending.sentence)"
-        guard !output.isEmpty else { return ran + " and printed nothing." }
-        return ran + ". Its output:\n\n\(fence)\n\(output.text)\n\(fence)"
+        "\(Tag.input)\(command)\(Tag.inputEnd)\n\(Tag.output)\(output.text)\(Tag.outputEnd)\n"
+            + "\(Tag.status)\(ending.sentence)\(Tag.statusEnd)"
     }
 
-    /// A Markdown fence longer than any run of backticks inside it, so output that prints a fence of
-    /// its own cannot close this one early.
-    static func fence(enclosing text: String) -> String {
-        var longest = 0
-        var current = 0
-        for character in text {
-            current = character == "`" ? current + 1 : 0
-            longest = max(longest, current)
-        }
-        return String(repeating: "`", count: max(3, longest + 1))
+    /// A sent command, read back out of the message `message` wrote.
+    public struct Sent: Sendable, Equatable {
+        public var command: String
+        public var output: String
+        /// How it ended, in `ProcessEnding.sentence`'s words.
+        public var status: String
+
+        public var succeeded: Bool { status == ProcessEnding.exited(0).sentence }
+    }
+
+    /// The command a user turn carried, or nil for every turn `message` did not write. Strict, like
+    /// `ReviewTurn.split`: anything not exactly that shape is drawn as the text it is. The output is
+    /// read up to the last closing tag, so output that prints the tag itself is kept whole.
+    public static func split(_ text: String) -> Sent? {
+        guard text.hasPrefix(Tag.input), text.hasSuffix(Tag.statusEnd),
+              let inputEnd = text.range(of: Tag.inputEnd + "\n" + Tag.output),
+              let outputEnd = text.range(of: Tag.outputEnd + "\n" + Tag.status, options: .backwards),
+              inputEnd.upperBound <= outputEnd.lowerBound
+        else { return nil }
+        return Sent(
+            command: String(text[text.index(text.startIndex, offsetBy: Tag.input.count)..<inputEnd.lowerBound]),
+            output: String(text[inputEnd.upperBound..<outputEnd.lowerBound]),
+            status: String(text[outputEnd.upperBound...].dropLast(Tag.statusEnd.count))
+        )
+    }
+
+    private enum Tag {
+        static let input = "<bash-input>"
+        static let inputEnd = "</bash-input>"
+        static let output = "<bash-stdout>"
+        static let outputEnd = "</bash-stdout>"
+        static let status = "<bash-status>"
+        static let statusEnd = "</bash-status>"
     }
 }
