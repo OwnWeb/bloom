@@ -393,7 +393,7 @@ public struct WorkspaceMergeTool: BridgeToolHandling {
             ) else {
                 // gh answered and there is nothing, but only if gh could answer at all. Asked
                 // second because it costs a subprocess and the common case never needs it.
-                let access = await forge.access()
+                let access = await forge.access(in: workspace.path)
                 return access == .ready ? .noPullRequest : .unavailable(access)
             }
             let local = try? await Git.localWork(worktree: workspace.path)
@@ -401,7 +401,7 @@ public struct WorkspaceMergeTool: BridgeToolHandling {
         } catch {
             // gh threw. Which of the two it is decides the advice, so it is asked rather than
             // assumed: an unusable gh is permanent and a failed call usually is not.
-            let access = await forge.access()
+            let access = await forge.access(in: workspace.path)
             return access == .ready ? .failed(plainly(error)) : .unavailable(access)
         }
     }

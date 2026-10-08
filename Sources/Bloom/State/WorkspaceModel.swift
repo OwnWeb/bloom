@@ -203,6 +203,8 @@ final class WorkspaceModel {
     }
 
     var isLoadingPullRequest = false
+    /// Which forge this workspace's repository answered to on the last refresh.
+    var forge: Forge = .gitHub
     /// Whether any refresh has come back for this workspace this launch, whatever it said.
     ///
     /// Not the same question as `pullRequest != nil`, and that is the whole point: "this branch
@@ -2392,6 +2394,8 @@ final class WorkspaceModel {
         ) {
             isLoadingPullRequest = true
         }
+        // Before the read is awaited, so the supersession guard below still has nothing after it.
+        forge = await ForgeResolver.forge(for: asked.path)
 
         let read = await task.value
 

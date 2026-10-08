@@ -180,7 +180,7 @@ public struct WorkspaceCheckoutOptions: Sendable {
         }
 
         let forge = await ForgeResolver.client(for: repoPath)
-        let access = await forge.access()
+        let access = await forge.access(in: repoPath)
         guard access == .ready else { return options(access: access) }
 
         do {

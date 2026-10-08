@@ -202,7 +202,7 @@ public extension PullRequest {
                 tone: .merged,
                 text: "Merged",
                 canMerge: false,
-                blockedReason: "This pull request is already merged."
+                blockedReason: "This \(forge.request) is already merged."
             )
         }
         if isClosed {
@@ -210,7 +210,7 @@ public extension PullRequest {
                 tone: .neutral,
                 text: "Closed",
                 canMerge: false,
-                blockedReason: "This pull request was closed without merging."
+                blockedReason: "This \(forge.request) was closed without merging."
             )
         }
         // Conflicts outrank the check rollup: green checks on a branch that cannot be applied to
@@ -236,8 +236,17 @@ public extension PullRequest {
                 text: "Draft",
                 detail: checksDetail,
                 canMerge: false,
-                blockedReason: "This pull request is still a draft.",
+                blockedReason: "This \(forge.request) is still a draft.",
                 remedy: .markReadyForReview
+            )
+        }
+        if let blocker = blockers.first {
+            return PullRequestStatus(
+                tone: blocker == .checking ? .neutral : .warning,
+                text: blocker.text,
+                detail: checksDetail,
+                canMerge: false,
+                blockedReason: blocker.reason
             )
         }
 
@@ -247,16 +256,16 @@ public extension PullRequest {
     }
 
     func mergeConfirmationTitle(base: String) -> String {
-        "Merge #\(number) into \(base)?"
+        "Merge \(forge.reference(number)) into \(base)?"
     }
 
     var mergeConfirmationMessage: String {
-        "Your agent will merge this pull request in the chat, where you can follow its progress."
+        "Your agent will merge this \(forge.request) in the chat, where you can follow its progress."
     }
 
     func mergeBranchDeletionMessage(deletesBranch: Bool) -> String? {
         guard deletesBranch, !branch.isEmpty else { return nil }
-        return "After merging, \(branch) will be deleted on GitHub. Your local branch stays."
+        return "After merging, \(branch) will be deleted on \(forge.name). Your local branch stays."
     }
 
     /// These warnings precede the explanation so a merge of older work or a failing check
@@ -265,7 +274,7 @@ public extension PullRequest {
         var warnings: [String] = []
         if let local, local.isAhead {
             warnings.append(
-                "GitHub does not have everything in this worktree: "
+                "\(forge.name) does not have everything in this worktree: "
                     + Self.localDetail(local)
                     + ". None of that is part of what is merged, and the agent is told to leave it"
                     + " alone rather than commit it first."
@@ -273,7 +282,7 @@ public extension PullRequest {
         }
         if checks == .failing { warnings.append(checksSummary) }
         if checks == .unavailable {
-            warnings.append("Bloom could not read this pull request's checks, so it cannot say whether they passed.")
+            warnings.append("Bloom could not read this \(forge.request)'s checks, so it cannot say whether they passed.")
         }
         if hasConflicts { warnings.append("This branch conflicts with \(base).") }
         return warnings

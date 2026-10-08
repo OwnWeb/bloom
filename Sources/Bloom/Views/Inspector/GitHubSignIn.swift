@@ -49,6 +49,11 @@ final class GitHubSignIn {
     /// cannot be undone may be handed to this.
     func run(directory: String, action: @escaping @MainActor () -> Void) {
         Task {
+            // A GitLab project never needs gh, and says what glab needs through its own reads.
+            guard await ForgeResolver.forge(for: directory) == .gitHub else {
+                action()
+                return
+            }
             let state = await GitHubAvailability.shared.check()
             guard state != .ready else {
                 action()

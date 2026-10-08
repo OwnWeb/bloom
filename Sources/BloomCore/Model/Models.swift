@@ -668,6 +668,10 @@ public struct PullRequest: Sendable, Hashable, Codable {
     /// A pull request that ended before the workspace asking about it was created belongs to an
     /// earlier life of that name. See `PullRequestOwnership`.
     public var closedAt: Date?
+    /// Which server answered. Every value built before there was a second forge is GitHub's.
+    public var forge: Forge
+    /// Why the server will refuse a merge that nothing else here explains. Always empty on GitHub.
+    public var blockers: [MergeBlocker]
 
     public init(
         number: Int,
@@ -680,7 +684,9 @@ public struct PullRequest: Sendable, Hashable, Codable {
         checksSummary: String = "",
         reviewDecision: String? = nil,
         branch: String = "",
-        closedAt: Date? = nil
+        closedAt: Date? = nil,
+        forge: Forge = .gitHub,
+        blockers: [MergeBlocker] = []
     ) {
         self.number = number
         self.title = title
@@ -693,6 +699,8 @@ public struct PullRequest: Sendable, Hashable, Codable {
         self.reviewDecision = reviewDecision
         self.branch = branch
         self.closedAt = closedAt
+        self.forge = forge
+        self.blockers = blockers
     }
 }
 

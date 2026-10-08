@@ -186,7 +186,8 @@ public enum WorkspaceStatus: String, Sendable, Hashable, CaseIterable, Codable {
         }
         guard describesPullRequest, let pullRequest else { return label }
 
-        var text = "\(label), pull request #\(pullRequest.number)"
+        let forge = pullRequest.forge
+        var text = "\(label), \(forge.request) \(forge.reference(pullRequest.number))"
         if let detail = detail(pullRequest: pullRequest) { text += ": \(detail)" }
         return text
     }
