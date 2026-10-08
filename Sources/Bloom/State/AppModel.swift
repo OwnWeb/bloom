@@ -835,6 +835,9 @@ final class AppModel {
             for workspace in workspaces {
                 CenterTabStore.shared.load(workspaceID: workspace.id)
                 if let existing = workspaceModels[workspace.id], existing.workspace != workspace {
+                    if existing.workspace.path != workspace.path {
+                        existing.invalidateFileTree(keepListing: false)
+                    }
                     existing.workspace = workspace
                 }
             }
@@ -1082,7 +1085,7 @@ final class AppModel {
         await model.refreshChanges(.quiet)
     }
 
-    /// What the file system watcher saw, turned into workspaces the next tick has to ask git about.
+    /// What the file system watcher saw, turned into workspaces whose diff and file tree changed.
     ///
     /// Paths rather than ids come back, because a watcher has no idea what a workspace is. A path
     /// that matches nothing is dropped, which is what happens for the moment between a worktree
@@ -1091,6 +1094,7 @@ final class AppModel {
         let changed = workspaces.filter { paths.contains($0.path) }.map(\.id)
         guard !changed.isEmpty else { return }
         diffInvalidations.record(Set(changed))
+        for id in changed { workspaceModels[id]?.invalidateFileTree() }
     }
 
     /// - Returns: the workspaces this pass actually asked git about.

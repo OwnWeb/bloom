@@ -1336,6 +1336,9 @@ struct TranscriptListView: View {
             SwitchTrace.mark("transcript.history", workspace: transcript.workspace?.id)
             SwitchTrace.markOnScreen("transcript.history", workspace: transcript.workspace?.id)
         }
+        .task(id: transcript.session.id) {
+            await transcript.watchStoredRows { isVisible.value }
+        }
         // Deleting a queued message asks first, in the app's own confirmation. On the list rather
         // than on the row, so the question survives its row leaving, which is exactly what happens
         // when the queue moves while it is open.
@@ -1357,6 +1360,7 @@ struct TranscriptListView: View {
     /// A retained column stays in the hierarchy while another workspace is in front. Preserve its
     /// table, but stop everything whose only owner is a visible reader.
     private func setColumnActive(_ active: Bool) {
+        let wasActive = isVisible.value
         isVisible.value = active
         controller.setColumnActive(active)
         follower.isFrontmost = active && activeState != .inactive
@@ -1367,6 +1371,7 @@ struct TranscriptListView: View {
             isGrowing.value = false
             return
         }
+        if !wasActive { Task { await transcript.reconcileStoredRows() } }
         follower.nudge()
         scheduleHistoryPreparation()
     }

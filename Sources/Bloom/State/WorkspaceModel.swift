@@ -2186,7 +2186,7 @@ final class WorkspaceModel {
 
     // MARK: - The worktree listing
 
-    /// Every directory's children, for the All files tab, built once per workspace per launch.
+    /// Every directory's children, for the All files tab, cached until the worktree changes.
     ///
     /// It lives here rather than in the view for two reasons, and the second one is a bug rather
     /// than a cost. The cost: `git ls-files` on a large worktree is a subprocess and tens of
@@ -2198,15 +2198,34 @@ final class WorkspaceModel {
     /// Whether the listing has been read at all, so the tab can tell "nothing tracked" apart from
     /// "nobody has looked yet".
     private(set) var hasReadFileTree = false
+    private(set) var fileTreeRevision = 0
+    private var fileTreeLoadedRevision = -1
     private var fileTreeTask: Task<Void, Never>?
 
-    /// - Parameter force: read it again even though it has been read. For a refresh the user asked
-    ///   for; an arrival never forces, which is the whole point.
+    func invalidateFileTree(keepListing: Bool = true) {
+        guard hasReadFileTree || fileTreeTask != nil else { return }
+        if !keepListing {
+            fileTree = [:]
+            hasReadFileTree = false
+        }
+        fileTreeRevision += 1
+    }
+
+    /// - Parameter force: read it again even though the current revision has been read, for a
+    ///   refresh the user asked for. File system changes advance the revision instead.
     func refreshFileTree(force: Bool = false) async {
-        if hasReadFileTree, !force { return }
-        if let fileTreeTask, !force { return await fileTreeTask.value }
+        guard !Task.isCancelled else { return }
+        if hasReadFileTree, fileTreeLoadedRevision == fileTreeRevision, !force { return }
+        if let fileTreeTask, !force {
+            await fileTreeTask.value
+            if !Task.isCancelled, fileTreeLoadedRevision != fileTreeRevision {
+                await refreshFileTree()
+            }
+            return
+        }
 
         fileTreeTask?.cancel()
+        let revision = fileTreeRevision
         let worktree = workspace.path
         let task = Task { [weak self] in
             let index = await Task.detached(priority: .userInitiated) {
@@ -2238,8 +2257,13 @@ final class WorkspaceModel {
                 )
             }.value
             guard let self, !Task.isCancelled else { return }
+            guard workspace.path == worktree else {
+                fileTreeTask = nil
+                return
+            }
             if fileTree != index { fileTree = index }
             hasReadFileTree = true
+            fileTreeLoadedRevision = revision
             fileTreeTask = nil
         }
         fileTreeTask = task
