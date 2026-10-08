@@ -59,6 +59,7 @@ public struct SetupProbe: Sendable {
         case .git: await SetupCheck(tool: tool, outcome: gitOutcome())
         case .claudeCode, .codex, .grok: await SetupCheck(tool: tool, outcome: agentOutcome(tool))
         case .gitHub: await SetupCheck(tool: tool, outcome: gitHubOutcome())
+        case .gitLab: await SetupCheck(tool: tool, outcome: gitLabOutcome())
         }
     }
 
@@ -132,5 +133,22 @@ public struct SetupProbe: Sendable {
         case .signedOut: return .needsSignIn(detail: nil)
         case .ready: return .ready(detail: "Signed in")
         }
+    }
+
+    // MARK: - GitLab
+
+    /// Signed in to any host is ready: glab exits non-zero when one of several hosts is not.
+    private func gitLabOutcome() async -> SetupOutcome {
+        guard Shell.which("glab") != nil else { return .missing }
+        let result = try? await Shell.run("glab", ["auth", "status"], timeout: .seconds(20))
+        return Self.gitLabOutcome(status: result.map { $0.stdout + $0.stderr } ?? "")
+    }
+
+    static func gitLabOutcome(status: String) -> SetupOutcome {
+        let hosts = status.components(separatedBy: .newlines).compactMap { line -> String? in
+            guard let range = line.range(of: "Logged in to ") else { return nil }
+            return line[range.upperBound...].split(separator: " ").first.map(String.init)
+        }
+        return hosts.isEmpty ? .needsSignIn(detail: nil) : .ready(detail: "Signed in to \(hosts.joined(separator: ", "))")
     }
 }
