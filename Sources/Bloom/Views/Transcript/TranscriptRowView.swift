@@ -111,7 +111,9 @@ struct TranscriptRowView: View, Equatable {
             // Nothing is taken out for the instructions Bloom appends. They stay in the text and
             // the bubble draws each of them as a chip where it sits: see `SentTurn`, and the row
             // this used to hand a separate string to.
-            if let review = ReviewTurn.split(typed) {
+            if let command = ShellCommand.split(typed) {
+                ShellCommandRowView(sent: command)
+            } else if let review = ReviewTurn.split(typed) {
                 UserTurnRowView(
                     text: review.message,
                     reviewChips: review.chips,
