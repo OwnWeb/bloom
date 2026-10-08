@@ -15,6 +15,13 @@ public enum ShellCommand {
         draft.hasPrefix("!")
     }
 
+    /// What the draft becomes when a `!` is typed into an empty composer: the `!` and a space, so
+    /// the command is typed where Claude Code would put it. Nil for every other edit, including a
+    /// paste that starts with `!` and a backspace over the space, which would otherwise come back.
+    public static func autoSpaced(from old: String, to new: String) -> String? {
+        old.isEmpty && new == "!" ? "! " : nil
+    }
+
     /// The command a draft asks to run, or nil when the draft is a message. A lone `!` is nil:
     /// there is nothing to run.
     public static func command(in draft: String) -> String? {
