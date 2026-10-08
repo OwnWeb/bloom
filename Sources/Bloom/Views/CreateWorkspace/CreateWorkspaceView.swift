@@ -570,7 +570,10 @@ struct CreateWorkspaceView: View {
         ) { actions in
             ComposerFooterView(
                 controls: controls,
-                onChange: { controls = $0 },
+                onChange: { new in
+                    app.rememberModelChoice(from: controls, to: new)
+                    controls = new
+                },
                 canSend: canCreate,
                 intent: .create,
                 // This window's width is fixed and was chosen for this row with its words on, so
@@ -937,7 +940,9 @@ struct CreateWorkspaceView: View {
         let path = repo.path
         var appDefaults = AppDefaults()
         if let store = app.store {
-            appDefaults = await AppDefaults.loadForNewSessions(from: store)
+            appDefaults = await AppDefaults.loadForNewSessions(
+                from: store, models: ComposerModelCatalog.shared.models
+            )
         }
 
         // The gathering and both branch decisions live in the core, where the suite can reach
