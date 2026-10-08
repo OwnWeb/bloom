@@ -147,7 +147,8 @@ struct ComposerView: View {
             onKey: handle(key:),
             onOpenAttachment: open(attachment:),
             onOpenCommand: open(commandPath:),
-            isFloating: true
+            isFloating: true,
+            accent: model != nil && ShellCommand.isShellMode(transcript.draft) ? Palette.warning : nil
         ) { actions in
             ComposerFooterView(
                 controls: controls,
