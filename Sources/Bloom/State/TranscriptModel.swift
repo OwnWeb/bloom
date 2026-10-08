@@ -256,6 +256,11 @@ final class TranscriptModel {
     /// as a pane changes what it shows. See `PromptRecall`.
     @ObservationIgnored var promptRecall = PromptRecall()
 
+    /// The `!` command running from this chat's composer. On the session for the reason
+    /// `promptRecall` is: the composer is handed from chat to chat. See `WorkspaceModel+ShellCommands`.
+    var shellRun: ShellCommand.Run?
+    @ObservationIgnored var shellRunTask: Task<Void, Never>?
+
     /// What has been asked for on this session and has not gone yet, oldest first.
     ///
     /// Read by the transcript to draw the pending bubbles and by the drain to decide what goes
@@ -1509,7 +1514,7 @@ final class TranscriptModel {
         return runner
     }
 
-    private var usesInteractiveTerminal: Bool {
+    var usesInteractiveTerminal: Bool {
         guard let workspaceID = session.workspaceID else { return false }
         CenterTabStore.shared.load(workspaceID: workspaceID)
         return CenterTabStore.shared.terminal(for: session.id, in: workspaceID) != nil

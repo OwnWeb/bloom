@@ -171,7 +171,7 @@ public enum CheckFailureHandoff {
         return String(line[line.index(after: space)...])
     }
 
-    private static func stripAnsi(_ line: String) -> String {
+    static func stripAnsi(_ line: String) -> String {
         guard line.contains("\u{1B}") else { return line }
         var out = ""
         var scanning = false

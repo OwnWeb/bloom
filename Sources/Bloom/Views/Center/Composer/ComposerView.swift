@@ -90,6 +90,7 @@ struct ComposerView: View {
             .help("Drag to resize. Double-click to fit the text.")
 
             ComposerPlansView(transcript: transcript, model: model, controls: controls)
+            if let model { ComposerShellRunView(transcript: transcript, model: model) }
             composer
         }
         // The chrome is whatever is left once the editor's share is taken off, so this settles on
@@ -464,6 +465,20 @@ struct ComposerView: View {
     private func send() {
         guard canSend else { return }
         draftSaveTask?.cancel()
+
+        // Only here, the path of a draft somebody typed. A message from another agent or from the
+        // bridge reaches `submit` without passing through this, so it can never run a command.
+        if let command = ShellCommand.command(in: transcript.draft) {
+            guard let model else {
+                app.notice = BloomNotice(message: "Shell commands run in a workspace chat.")
+                return
+            }
+            guard model.runShellCommand(command, from: transcript) else { return }
+            transcript.draft = ""
+            caret = 0
+            saveDraftNow()
+            return
+        }
 
         if let question = SideConversation.question(in: transcript.draft) {
             guard canOpenSideConversation, let model else {
