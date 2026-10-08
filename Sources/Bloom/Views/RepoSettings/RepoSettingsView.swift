@@ -477,6 +477,12 @@ struct RepoSettingsView: View {
                 Text("Delete the branch when a workspace is archived")
                 Text("Archiving always removes the worktree. Turn this on to remove its branch too.")
             }
+
+            Picker("Hosted on", selection: $model.draft.forge) {
+                Text("Detect from the remote").tag(Forge?.none)
+                Text("GitHub").tag(Forge?.some(.gitHub))
+                Text("GitLab").tag(Forge?.some(.gitLab))
+            }
         } header: {
             Text("Branches")
         }
