@@ -7,12 +7,14 @@ struct ComposerBox: ViewModifier {
     var isFloating = false
     /// Tints the box while a file is being dragged towards it. See `ComposerDropHint`.
     var dropHint: ComposerDropHint?
+    /// A border that stays up whatever the focus, for a mode the box is in. Shell mode is the one.
+    var accent: Color?
     @Environment(\.controlActiveState) private var activeState
     @Environment(\.colorSchemeContrast) private var contrast
 
-    /// Enough of the accent in the glass to say a file let go now will be attached here, little
-    /// enough that the text on it keeps its contrast.
-    private static let dropTint = 0.25
+    /// Enough of the accent in the glass to say the box is in another mode, little enough that the
+    /// text on it keeps its contrast.
+    private static let accentTint = 0.25
 
     private var isDropTarget: Bool { dropHint?.isShown == true }
 
@@ -43,12 +45,15 @@ struct ComposerBox: ViewModifier {
                 // One material for the whole composer. Its controls keep their ordinary styles,
                 // and completion menus are attached outside this modifier.
                 .glassEffect(
-                    .regular.tint(isDropTarget ? Palette.accent.opacity(Self.dropTint) : nil),
+                    .regular.tint((accent ?? (isDropTarget ? Palette.accent : nil))?.opacity(Self.accentTint)),
                     in: shape
                 )
                 .overlay {
-                    shape.strokeBorder(focusColour, lineWidth: contrast == .increased ? 2 : 0.5)
-                    .opacity(isRingVisible ? focusOpacity : 0)
+                    shape.strokeBorder(
+                        accent ?? focusColour,
+                        lineWidth: accent != nil || contrast == .increased ? 2 : 0.5
+                    )
+                    .opacity(accent != nil ? 1 : (isRingVisible ? focusOpacity : 0))
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 }
@@ -60,7 +65,7 @@ struct ComposerBox: ViewModifier {
                 }
                 .overlay {
                     if isDropTarget {
-                        shape.fill(Palette.accent.opacity(Self.dropTint)).allowsHitTesting(false)
+                        shape.fill(Palette.accent.opacity(Self.accentTint)).allowsHitTesting(false)
                     }
                 }
                 .overlay {
@@ -83,8 +88,16 @@ struct ComposerBox: ViewModifier {
 
 extension View {
     func composerBox(
-        isFocused: Binding<Bool>, dropHint: ComposerDropHint? = nil, isFloating: Bool = false
+        isFocused: Binding<Bool>,
+        dropHint: ComposerDropHint? = nil,
+        isFloating: Bool = false,
+        accent: Color? = nil
     ) -> some View {
-        modifier(ComposerBox(isFocused: isFocused, isFloating: isFloating, dropHint: dropHint))
+        modifier(ComposerBox(
+            isFocused: isFocused,
+            isFloating: isFloating,
+            dropHint: dropHint,
+            accent: accent
+        ))
     }
 }

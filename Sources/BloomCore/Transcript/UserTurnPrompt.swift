@@ -27,7 +27,9 @@ public enum UserTurnPrompt {
     public static func summary(of text: String, limit: Int = summaryLimit) -> String? {
         let presented = SentTurn.withoutInstructions(text)
         let visible: String
-        if let review = ReviewTurn.split(presented) {
+        if let command = ShellCommand.split(presented) {
+            visible = command.typed
+        } else if let review = ReviewTurn.split(presented) {
             visible = if review.message.isEmpty {
                 Counted.of(review.chips.count, "review comment")
             } else {

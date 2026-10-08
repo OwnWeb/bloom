@@ -34,10 +34,10 @@ struct ComposerShellRunView: View {
                 }
             }
             .padding(Metrics.spacingSmall)
-        } else if ShellCommand.command(in: transcript.draft) != nil {
-            Text("Runs in the worktree. The agent gets the output when it finishes.")
+        } else if ShellCommand.isShellMode(transcript.draft) {
+            Text("! for shell mode. Runs in the worktree, and the agent gets the output when it finishes.")
                 .font(Typo.caption)
-                .foregroundStyle(Palette.textSecondary)
+                .foregroundStyle(Palette.warning)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Metrics.spacingSmall)
         }
