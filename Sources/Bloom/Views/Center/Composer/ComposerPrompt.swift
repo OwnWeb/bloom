@@ -59,6 +59,8 @@ struct ComposerPrompt<Footer: View>: View {
     /// before a workspace exists retain the chip's external-editor fallback.
     var onOpenCommand: (@MainActor (String) -> Void)?
     var isFloating = false
+    /// See `ComposerBox.accent`.
+    var accent: Color?
     /// The footer, handed what it can ask this view to write into the draft. Passed in rather than
     /// reached for, because everything an attachment and a quick prompt do lives here and the
     /// footer is only the buttons. See `ComposerPromptActions`.
@@ -170,7 +172,8 @@ struct ComposerPrompt<Footer: View>: View {
         .composerBox(
             isFocused: $isFocused,
             isDropTarget: isDropTarget,
-            isFloating: isFloating
+            isFloating: isFloating,
+            accent: accent
         )
         // The editor takes the drops that land on the text itself; this takes the ones that land
         // on the chips, the footer and the padding, which is most of the box.
