@@ -71,8 +71,9 @@ struct MergeSplitButton: View {
         // captured. The label is re-read on every rebuild. So the button said "Rebase and merge"
         // over a menu still ticking Squash: two ages of one value, which is the exact fault this
         // control exists to remove. Giving it the value's identity makes a changed method a new
-        // control, so there is no older closure left to evaluate.
-        .id(method)
+        // control, so there is no older closure left to evaluate. `canMerge` is part of it too:
+        // the hosted button kept its disabled look after a pipeline turned green.
+        .id("\(method.rawValue).\(canMerge)")
     }
 
     private var styled: some View {
