@@ -100,6 +100,8 @@ public struct RepoSettings: Sendable, Hashable {
     /// `http://localhost:$BLOOM_PORT/admin`. A workspace whose setup script wrote an address of
     /// its own beats this. See `WorkspaceBrowserURL`, which holds both and the order between them.
     public var browserURL: String?
+    /// `git.forge`, overruling detection. See `ForgeRouting`.
+    public var forge: Forge?
     /// Set by a file inside the repository. Ranks ABOVE the app-level defaults, because pinning
     /// a model in a project's own settings is a deliberate statement about that project.
     public var defaultModel: String?
@@ -322,6 +324,9 @@ public enum SettingsLoader {
             default:
                 break
             }
+        }
+        if let forge = toml["git.forge"]?.stringValue.flatMap(Forge.init(rawValue:)) {
+            settings.forge = forge
         }
         if let delete = toml["git.delete_branch_on_archive"]?.boolValue {
             settings.deleteBranchOnArchive = delete
