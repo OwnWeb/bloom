@@ -20,6 +20,12 @@ extension WorkspaceModel {
         forge == .gitLab ? .ready : GitHubAvailability.shared.state
     }
 
+    /// gh's readiness, asked afresh, or ready on GitLab. For the Checks tab's poll.
+    func checksReadiness() async -> GitHubAvailability.State {
+        forge = await ForgeResolver.forge(for: workspace.path)
+        return forge == .gitLab ? .ready : await GitHubAvailability.shared.check()
+    }
+
     func continueAfterMerge(_ pullRequest: PullRequest) async -> AppModel.ContinuationOutcome {
         await app.continueAfterMerge(workspace, pullRequest: pullRequest)
     }

@@ -849,7 +849,8 @@ struct CreateWorkspaceView: View {
             pullRequests: checkoutOptions.pullRequests,
             branches: checkoutOptions.branches,
             baseBranches: branchOptions,
-            defaultBranch: repo?.defaultBranch ?? ""
+            defaultBranch: repo?.defaultBranch ?? "",
+            forge: checkoutOptions.forge
         )
     }
 

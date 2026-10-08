@@ -120,6 +120,7 @@ struct PullRequestBar: View {
                 branchActions: branchActions,
                 worktree: model.workspace.path,
                 github: model.gitHubReadiness,
+                forge: model.forge,
                 hasChanges: hasChanges,
                 hasReadChanges: model.hasReadChanges,
                 continued: model.continued,
