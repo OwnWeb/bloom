@@ -21,6 +21,14 @@ public enum Forge: String, Sendable, Hashable, Codable {
         }
     }
 
+    /// What the checks are called: GitLab shows a merge request's pipeline and its jobs.
+    public var checks: String {
+        switch self {
+        case .gitHub: "Checks"
+        case .gitLab: "Pipeline"
+        }
+    }
+
     /// `#12` on GitHub, `!12` on GitLab, where `#12` is an issue.
     public func reference(_ number: Int) -> String {
         switch self {

@@ -309,17 +309,17 @@ public extension PullRequest {
     /// to be fixed before the second one matters.
     private var openHeadline: String {
         switch checks {
-        case .failing: return "Checks failing"
+        case .failing: return "\(forge.checks) failing"
         // The headline has to agree with the line under it. `GitHub.rollup` tells a queued check
         // from a running one and says which in the summary, so a headline fixed at "Checks
         // running" would sit over the words "1 check queued". The summary is read back rather
         // than recomputed because `rollup` is its only writer and `PullRequest` carries no
         // rollup nodes to ask again. `WorkspaceStatusTests` pins the two lines together, in both
         // vocabularies, so a change to one of them fails rather than drifting.
-        case .pending: return checksSummary.hasSuffix("queued") ? "Checks queued" : "Checks running"
+        case .pending: return "\(forge.checks) \(checksSummary.hasSuffix("queued") ? "queued" : "running")"
         // Ahead of the review, because the review falls through to "Ready to merge", and that is
         // the claim nobody can make about checks nobody could read.
-        case .unavailable: return GitHub.checksUnavailableSummary
+        case .unavailable: return forge == .gitHub ? GitHub.checksUnavailableSummary : "Pipeline unavailable"
         case .passing, .none: break
         }
         switch reviewDecision?.uppercased() {
@@ -333,7 +333,10 @@ public extension PullRequest {
     /// "No checks" under "Ready to merge" reads as something missing rather than as a fact.
     private var checksDetail: String? {
         // The headline already says the summary, so the line under it says why.
-        if checks == .unavailable { return "GitHub did not let this token read check runs" }
+        if checks == .unavailable {
+            return forge == .gitHub
+                ? "GitHub did not let this token read check runs" : "GitLab did not let this token read the pipeline's jobs"
+        }
         guard checks != .none, !checksSummary.isEmpty else { return nil }
         return checksSummary
     }
