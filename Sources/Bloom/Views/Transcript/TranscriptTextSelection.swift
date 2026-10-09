@@ -132,7 +132,7 @@ extension LinkTextView {
         selection.extend(to: self, offset: NSMaxRange(initial))
         var latest = event
         var dragged = false
-        while self.window === window {
+        while self.window === window, window.isKeyWindow {
             let next = window.nextEvent(
                 matching: [.leftMouseDragged, .leftMouseUp],
                 until: Date(timeIntervalSinceNow: 0.05), inMode: .eventTracking, dequeue: true
@@ -140,6 +140,11 @@ extension LinkTextView {
             if let next {
                 if next.type == .leftMouseUp { break }
                 latest = next
+            } else if NSEvent.pressedMouseButtons & 1 == 0 {
+                // A mouse-up can be lost when the gesture is interrupted. Without this escape,
+                // the tracking loop keeps requesting only drag and mouse-up events, leaving every
+                // later click in the window unhandled until Bloom quits.
+                break
             }
             guard latest.type == .leftMouseDragged else { continue }
             dragged = true
