@@ -58,6 +58,35 @@ struct ForgeRoutingTests {
         #expect(await ForgeResolver.forge(for: repo.path) == .gitLab)
     }
 
+    @Test("only hosts beside a GitHub remote can make a repository ambiguous", arguments: [
+        (hosts: ["github.com", "gitlab.com"], others: Set(["gitlab.com"])),
+        (hosts: ["github-work", "git.example.fr"], others: Set(["git.example.fr"])),
+        (hosts: ["gitlab.com", "git.example.fr"], others: Set<String>()),
+        (hosts: ["github.com"], others: Set<String>()),
+    ])
+    func hostsBesideGitHub(hosts: [String], others: Set<String>) {
+        #expect(ForgeRouting.hostsBesideGitHub(hosts) == others)
+    }
+
+    @Test("a repository on both forges asks once, and the answer stays on this machine", .tags(.git))
+    func choice() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        try await Shell.check("git", ["remote", "add", "origin", "git@gitlab.com:group/app.git"], cwd: repo.path)
+        try await Shell.check("git", ["remote", "add", "mirror", "git@github.com:acme/app.git"], cwd: repo.path)
+        let glabInstalled: @Sendable ([String], String?) async throws -> ShellResult = { _, _ in ShellResult(status: 1, stdout: "", stderr: "") }
+        let asked = await GitLab.$commandOverride.withValue(glabInstalled) { await ForgeResolver.offersBoth(repo.path) }
+        #expect(asked)
+        #expect(await ForgeResolver.forge(for: repo.path) == .gitHub)
+
+        try ForgeResolver.remember(.gitLab, for: repo.path)
+        #expect(await ForgeResolver.forge(for: repo.path) == .gitLab)
+        let askedAgain = await GitLab.$commandOverride.withValue(glabInstalled) { await ForgeResolver.offersBoth(repo.path) }
+        #expect(askedAgain == false)
+        #expect(FileManager.default.fileExists(atPath: "\(repo.path)/.bloom/settings.local.toml"))
+        #expect(FileManager.default.fileExists(atPath: "\(repo.path)/.bloom/settings.toml") == false)
+    }
+
     @Test("remote addresses are read from git's config file without git")
     func remoteURLs() {
         let config = "[remote \"origin\"]\n\turl = git@github.com:acme/app.git\n\tpushurl = x\n[remote \"up\"]\n\turl=\"https://gitlab.com/g/a\"\n"

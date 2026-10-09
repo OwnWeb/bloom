@@ -21,6 +21,12 @@ It never changes the verdict or its sentence.
 | Another host, `glab` installed and `glab auth status --hostname <host>` succeeds | GitLab |
 | Anything else, including no remote | GitHub |
 
+A project added with a GitHub remote and a GitLab one (gitlab.com, or a host `glab` is signed in
+to) and no `git.forge` is asked which forge it uses. The answer is written as `git.forge` to
+`.bloom/settings.local.toml` in the project's checkout, which every workspace reads: remotes are
+this machine's git config, so the answer is not committed for the team. "Decide later" leaves the
+table above in charge.
+
 The answer is cached per directory until git's config or a settings file is written. Where the
 config file's own text settles it, which is every GitHub remote and every machine without `glab`,
 no process runs at all. The `glab` probe runs at most once per host at a time, a yes is kept for
