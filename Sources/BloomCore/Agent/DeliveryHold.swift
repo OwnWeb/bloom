@@ -36,6 +36,11 @@ public enum DeliveryHold: Equatable, Sendable, CaseIterable {
     /// The worktree's setup script is still running. Nothing may be said to an agent in a
     /// worktree that has not finished being built.
     case setup
+    /// A `!` command typed into this chat is still running. What is typed after it was typed
+    /// knowing it had been run, so it waits for the output to reach the agent first: sent at once,
+    /// "then cherry-pick" was answered by an agent that had not heard the build was under way, and
+    /// offered to start it. See `ShellCommand`.
+    case command
     /// The agent has stopped on a permission question. Writing a user line into a turn that is
     /// blocked on an answer is the mid-turn injection every backend is unhappy about.
     case question
@@ -70,10 +75,12 @@ public enum DeliveryHold: Equatable, Sendable, CaseIterable {
     /// `.none` for Claude Code would have told that tool a busy workspace was quiet.
     public static func of(
         isRunningSetup: Bool,
+        isRunningCommand: Bool = false,
         isTurnRunning: Bool,
         isAwaitingQuestion: Bool
     ) -> DeliveryHold {
         if isRunningSetup { return .setup }
+        if isRunningCommand { return .command }
         if isAwaitingQuestion { return .question }
         if isTurnRunning { return .turn }
         return .none
@@ -94,7 +101,7 @@ public enum DeliveryHold: Equatable, Sendable, CaseIterable {
         switch self {
         case .none: true
         case .turn: agent.acceptsMidTurnMessage
-        case .setup, .question: false
+        case .setup, .command, .question: false
         }
     }
 
@@ -119,6 +126,7 @@ public enum DeliveryHold: Equatable, Sendable, CaseIterable {
         guard !allowsDelivery(on: agent) else { return nil }
         switch self {
         case .setup: return "Goes as soon as setup finishes."
+        case .command: return "Goes after the command's output."
         case .question: return "Goes once you have answered the question above."
         case .turn: return "Goes when this turn ends."
         case .none: return nil

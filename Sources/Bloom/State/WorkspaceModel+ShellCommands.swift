@@ -1,4 +1,5 @@
 import BloomCore
+import Foundation
 
 /// Running a `!` command typed into one of this workspace's chats, and handing its output to the
 /// agent once it has finished. Here rather than on the transcript because the command gets the
@@ -25,6 +26,7 @@ extension WorkspaceModel {
             variables = manager.environment(for: workspace, repo: repo, port: port)
         }
         let cwd = transcript.cwd
+        let startedAt = Date()
         transcript.shellRun = ShellCommand.Run(command: command)
         transcript.shellRunTask = Task { @MainActor [weak transcript, app] in
             let (ending, output) = await ShellCommandRun.run(command, cwd: cwd, variables: variables) { output in
@@ -40,15 +42,11 @@ extension WorkspaceModel {
                 return
             }
             let message = ShellCommand.message(command: command, output: output, ending: ending)
-            guard await transcript.submit(message) else {
+            guard await transcript.submit(message, queuedAt: startedAt) else {
                 app.notice = BloomNotice(message: "The command finished, but its output could not be sent to the agent.")
                 return
             }
         }
         return true
-    }
-
-    func stopShellCommand(in transcript: TranscriptModel) {
-        transcript.shellRunTask?.cancel()
     }
 }
