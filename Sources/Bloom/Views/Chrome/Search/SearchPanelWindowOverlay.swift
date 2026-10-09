@@ -62,8 +62,8 @@ import BloomCore
 /// The cost is one gesture: a press in the title bar while the panel is up dismisses rather than
 /// starting a window drag, because the drag is a mouse-down and the dismissal takes it. The next
 /// press drags the window normally, which is the same bargain every other click outside makes.
-/// Nothing is swallowed while the panel is closed: the host hit tests to nothing at all then, so
-/// the window under it behaves exactly as it did before this file existed.
+/// Nothing is swallowed while the panel is closed: the host is removed, and its hit test also
+/// answers nothing during the closing transition.
 struct SearchPanelWindowOverlay: View {
     let app: AppModel
     let panel: SearchPanelModel
@@ -210,12 +210,8 @@ final class SearchPanelOverlayHost: NSHostingView<SearchPanelWindowOverlay> {
     /// read 72 by 26 at six points of padding and 66 by 20 at three, on every capture, first time.
     private static let trafficLightPadding: CGFloat = 3
 
-    /// Nothing at all while the panel is closed.
-    ///
-    /// This view is installed once and left in the window, because taking it out and putting it
-    /// back is a chance to land in the wrong place in the subview order. So it has to be honestly
-    /// invisible to the pointer the rest of the time: without this, a permanently installed sheet
-    /// of glass over the whole window would eat every click in the app.
+    /// Nothing at all while the panel is closed, including the interval before its host is removed
+    /// from the window. `SearchPanelOverlay` installs it above the other views on each opening.
     ///
     /// The traffic lights are the second nil, and the head of `SearchPanelWindowOverlay` says why.
     override func hitTest(_ point: NSPoint) -> NSView? {
