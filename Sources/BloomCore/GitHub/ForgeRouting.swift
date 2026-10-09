@@ -29,6 +29,13 @@ public enum ForgeRouting {
     static func isGitLabCom(_ host: String) -> Bool {
         host == "gitlab.com" || host.hasSuffix(".gitlab.com")
     }
+
+    /// The hosts beside a GitHub remote that could make the repository GitLab's as well. Empty
+    /// without a GitHub remote, because then `decide` answers without anybody being asked.
+    static func hostsBesideGitHub(_ hosts: [String]) -> Set<String> {
+        guard hosts.contains(where: isGitHub) else { return [] }
+        return Set(hosts.filter { !isGitHub($0) })
+    }
 }
 
 /// `ForgeRouting` applied to a directory, remembered until git's config or a settings file changes.
@@ -62,13 +69,44 @@ public enum ForgeResolver {
         if hosts.contains(where: ForgeRouting.isGitHub) { return .gitHub }
         if !hosts.contains(where: ForgeRouting.isGitLabCom), GlabSignIn.isInstalled() == false { return .gitHub }
 
-        let config = (try? await Git.repositoryConfiguration(in: directory)) ?? [:]
         let context = try? await Git.repositoryContext(in: directory)
-        let remotes = config.filter { $0.key.hasPrefix("remote.") && $0.key.hasSuffix(".url") }.map(\.value)
+        let remotes = await configuredRemoteURLs(in: directory)
         switch ForgeRouting.decide(declared: nil, baseRemoteURL: context?.baseRemoteURL, remoteURLs: remotes) {
         case .forge(let decided): return decided
         case .askGlab(let host): return await GlabSignIn.shared.isSignedIn(to: host) ? .gitLab : .gitHub
         }
+    }
+
+    /// Whether a repository has remotes on both forges and no `git.forge` settling it. `decide`
+    /// would quietly pick GitHub there, which is wrong for a GitLab project mirrored to GitHub,
+    /// so the owner is asked instead and the answer goes through `remember`. Never without glab:
+    /// GitLab is no answer there, and the settings screen hides the choice for the same reason.
+    public static func offersBoth(_ directory: String) async -> Bool {
+        guard GlabSignIn.isInstalled() else { return false }
+        let checkout = mainCheckout(Git.repositoryPaths(in: directory)) ?? directory
+        guard SettingsLoader.load(repo: checkout).forge == nil else { return false }
+        let hosts = await configuredRemoteURLs(in: directory).compactMap { GitHub.repositoryHost($0) }
+        let others = ForgeRouting.hostsBesideGitHub(hosts)
+        if others.contains(where: ForgeRouting.isGitLabCom) { return true }
+        for host in others where await GlabSignIn.shared.isSignedIn(to: host) { return true }
+        return false
+    }
+
+    /// Writes the owner's answer to `.bloom/settings.local.toml` in the project's own checkout,
+    /// which `forge(for:)` reads for every workspace. Not the shared file: remotes are this
+    /// machine's git config, so a teammate with only the GitHub remote must not inherit it.
+    public static func remember(_ forge: Forge, for directory: String) throws {
+        let checkout = mainCheckout(Git.repositoryPaths(in: directory)) ?? directory
+        let path = (checkout as NSString).appendingPathComponent(".bloom/settings.local.toml")
+        var document = SettingsDocument(contentsOf: path)
+        SettingsWriter.apply(.forge(forge), to: &document)
+        SettingsWriter.prepareFolder(for: path, repo: checkout)
+        try document.write(to: path)
+    }
+
+    private static func configuredRemoteURLs(in directory: String) async -> [String] {
+        let config = (try? await Git.repositoryConfiguration(in: directory)) ?? [:]
+        return config.filter { $0.key.hasPrefix("remote.") && $0.key.hasSuffix(".url") }.map(\.value)
     }
 
     /// The `url = ` values of a git config file, without git. Includes and `insteadOf` are not

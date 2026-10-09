@@ -34,6 +34,8 @@ extension AppModel {
         case .alreadyRepository(let root):
             guard let repo = await addKnownRepository(at: root) else { return nil }
             if focusing { await focus(repo) }
+            // Not awaited: a glab probe to a host behind a VPN that is down takes seconds.
+            Task { if await ForgeResolver.offersBoth(repo.path) { forgeQuestion = repo } }
             return repo
 
         case .refuse(let refusal):
@@ -111,6 +113,15 @@ extension AppModel {
             surface: surface,
             identityProblem: identityProblem
         ))
+    }
+
+    /// The answer to `forgeQuestion`, kept for every workspace of the project.
+    func chooseForge(_ forge: Forge, for repo: Repo) {
+        do {
+            try ForgeResolver.remember(forge, for: repo.path)
+        } catch {
+            alert = BloomAlert(title: "Could not save the forge", message: error.readableMessage)
+        }
     }
 
     /// Called by `ProjectSetupSheet` once the folder really is a repository.
