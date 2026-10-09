@@ -10,6 +10,9 @@ import BloomCore
 /// scroll. Each draft is its own user defaults key, written on every change and removed once it
 /// is attached or discarded, so a keystroke writes one string rather than every draft there is.
 ///
+/// What was last attached is kept beside it, under a key of its own, because the block goes on
+/// showing the reader's version once it has been sent until they ask for the original back.
+///
 /// One box per block, for `PromptAttachmentStore`'s reason: a dictionary is one observed property,
 /// and a keystroke in one fence would rebuild every fence on screen.
 @MainActor
@@ -18,7 +21,10 @@ final class CodeBlockDraftStore {
 
     @Observable
     final class Draft {
+        /// The edit in progress, nil when the block is not being edited.
         var text: String?
+        /// The version last attached to a message, nil while the block shows the agent's code.
+        var attached: String?
     }
 
     private var drafts: [String: Draft] = [:]
@@ -31,18 +37,29 @@ final class CodeBlockDraftStore {
         if let held = drafts[key] { return held }
         let made = Draft()
         made.text = UserDefaults.standard.string(forKey: Self.defaultsKey(key))
+        made.attached = UserDefaults.standard.string(forKey: Self.attachedKey(key))
         drafts[key] = made
         return made
     }
 
     func set(_ text: String?, for key: String) {
         draft(for: key).text = text
+        Self.write(text, to: Self.defaultsKey(key))
+    }
+
+    func setAttached(_ text: String?, for key: String) {
+        draft(for: key).attached = text
+        Self.write(text, to: Self.attachedKey(key))
+    }
+
+    private static func write(_ text: String?, to defaultsKey: String) {
         if let text {
-            UserDefaults.standard.set(text, forKey: Self.defaultsKey(key))
+            UserDefaults.standard.set(text, forKey: defaultsKey)
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.defaultsKey(key))
+            UserDefaults.standard.removeObject(forKey: defaultsKey)
         }
     }
 
     private static func defaultsKey(_ key: String) -> String { "transcript.codeBlockDraft.\(key)" }
+    private static func attachedKey(_ key: String) -> String { "transcript.codeBlockAttached.\(key)" }
 }

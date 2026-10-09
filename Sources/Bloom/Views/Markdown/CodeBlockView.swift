@@ -36,8 +36,9 @@ public struct CodeBlockView: View {
     }
 
     public var body: some View {
+        let shown = shownCode
         let prepared = CodeBlockPreparationCache.prepared(
-            code: code, language: language, isStreaming: isStreaming
+            code: shown, language: language, isStreaming: isStreaming && shown == code
         )
         let visibleCount = showsAllLines ? prepared.lines.count : min(prepared.lines.count, Self.lineCap)
 
@@ -48,7 +49,7 @@ public struct CodeBlockView: View {
                 Text(Self.displayName(for: language))
                     .font(Typo.caption)
                     .foregroundStyle(Palette.codeGutter)
-                if let draft, draft != code {
+                if let edited, edited != code {
                     Picker("Version", selection: $showsOriginal) {
                         Text("Original").tag(true)
                         Text("Edited").tag(false)
@@ -57,7 +58,9 @@ public struct CodeBlockView: View {
                 }
                 Spacer(minLength: MarkdownMetrics.blockGap)
                 editControls
-                CopyButton(text: draft ?? code, title: "Copy code", size: MarkdownMetrics.iconButton)
+                CopyButton(
+                    text: showsEditor ? draft ?? shown : shown, title: "Copy code", size: MarkdownMetrics.iconButton
+                )
             }
             .padding(.horizontal, MarkdownMetrics.blockGap)
             .padding(.vertical, Metrics.spacing)
@@ -122,17 +125,22 @@ public struct CodeBlockView: View {
     @ViewBuilder
     private var editControls: some View {
         if let attach = linkActions.attachEditedCode, !isStreaming {
+            let base = attached ?? code
             if let draft {
                 iconButton("xmark", ink: Palette.textTertiary, title: "Discard edits") {
-                    if draft == code { setDraft(nil) } else { confirmsDiscard = true }
+                    if draft == base { setDraft(nil) } else { confirmsDiscard = true }
                 }
                 .discardConfirmation(
                     isPresented: $confirmsDiscard,
                     title: "Discard your edits?",
-                    message: { "The changes you made to this code block will be lost." },
+                    message: {
+                        attached == nil
+                            ? "The changes you made to this code block will be lost."
+                            : "The changes since you last attached this code block will be lost."
+                    },
                     onConfirm: { setDraft(nil) }
                 )
-                let canAttach = draft != code && !isAttaching
+                let canAttach = draft != base && !isAttaching
                 iconButton(
                     "checkmark",
                     ink: canAttach ? Palette.positive : Palette.textTertiary,
@@ -144,13 +152,27 @@ public struct CodeBlockView: View {
                         // Cleared only once it has arrived: a failed attach keeps the edit.
                         guard await attach(draft, EditedCodeBlock.filename(info: info, language: language))
                         else { return }
+                        setAttached(draft == code ? nil : draft)
                         setDraft(nil)
                     }
                 }
                 .disabled(!canAttach)
             } else {
                 iconButton("pencil", ink: Palette.textTertiary, title: "Edit and attach to your next message") {
-                    setDraft(code)
+                    setDraft(base)
+                }
+                if attached != nil {
+                    iconButton("arrow.uturn.backward", ink: Palette.textTertiary, title: "Back to the original") {
+                        confirmsDiscard = true
+                    }
+                    .discardConfirmation(
+                        isPresented: $confirmsDiscard,
+                        title: "Back to the original?",
+                        message: {
+                            "Your edited version will no longer be shown here. What you already attached stays in the message."
+                        },
+                        onConfirm: { setAttached(nil) }
+                    )
                 }
             }
         }
@@ -178,6 +200,19 @@ public struct CodeBlockView: View {
         draftKey.flatMap { CodeBlockDraftStore.shared.draft(for: $0).text }
     }
 
+    /// The version last attached to a message, which the block goes on showing once it is sent.
+    private var attached: String? {
+        draftKey.flatMap { CodeBlockDraftStore.shared.draft(for: $0).attached }
+    }
+
+    /// What the Edited segment stands for: the edit in progress, or else the version attached.
+    private var edited: String? { draft ?? attached }
+
+    /// What the read-only surface shows: the agent's code, or the attached version over it.
+    private var shownCode: String {
+        showsOriginal ? code : attached ?? code
+    }
+
     /// The editor, unless there is no draft or the reader asked to see the agent's code beside it.
     private var showsEditor: Bool {
         guard let draft else { return false }
@@ -197,6 +232,12 @@ public struct CodeBlockView: View {
         if text == nil { showsOriginal = false }
         guard let draftKey else { return }
         CodeBlockDraftStore.shared.set(text, for: draftKey)
+    }
+
+    private func setAttached(_ text: String?) {
+        if text == nil { showsOriginal = false }
+        guard let draftKey else { return }
+        CodeBlockDraftStore.shared.setAttached(text, for: draftKey)
     }
 
     /// The visible lines as one `AttributedString`, highlighting and all.
