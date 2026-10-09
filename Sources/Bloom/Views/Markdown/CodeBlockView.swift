@@ -131,7 +131,7 @@ public struct CodeBlockView: View {
         if let attach = linkActions.attachEditedCode, !isStreaming {
             if let draft = versions.draft {
                 iconButton("xmark", ink: Palette.textTertiary, title: "Discard edits") {
-                    if versions.discardLosesWork { confirmsDiscard = true } else { update { $0.discard() } }
+                    if versions.hasUnattachedChanges { confirmsDiscard = true } else { update { $0.discard() } }
                 }
                 .discardConfirmation(
                     isPresented: $confirmsDiscard,
@@ -143,7 +143,7 @@ public struct CodeBlockView: View {
                     },
                     onConfirm: { update { $0.discard() } }
                 )
-                let canAttach = versions.canAttach && !isAttaching
+                let canAttach = versions.hasUnattachedChanges && !isAttaching
                 iconButton(
                     "checkmark",
                     ink: canAttach ? Palette.positive : Palette.textTertiary,

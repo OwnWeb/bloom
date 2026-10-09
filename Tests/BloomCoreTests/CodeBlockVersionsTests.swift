@@ -8,8 +8,7 @@ struct CodeBlockVersionsTests {
         var versions = CodeBlockVersions(original: "a")
         versions.edit()
         #expect(versions.draft == "a")
-        #expect(!versions.canAttach)
-        #expect(!versions.discardLosesWork)
+        #expect(!versions.hasUnattachedChanges)
         #expect(!versions.hasEdits)
         #expect(versions.showsEditor(original: true))
     }
@@ -19,8 +18,7 @@ struct CodeBlockVersionsTests {
         var versions = CodeBlockVersions(original: "a")
         versions.edit()
         versions.draft = "b"
-        #expect(versions.canAttach)
-        #expect(versions.discardLosesWork)
+        #expect(versions.hasUnattachedChanges)
         #expect(!versions.showsEditor(original: true))
 
         versions.attach()
@@ -31,7 +29,7 @@ struct CodeBlockVersionsTests {
 
         versions.edit()
         #expect(versions.draft == "b")
-        #expect(!versions.canAttach)
+        #expect(!versions.hasUnattachedChanges)
 
         versions.draft = "c"
         versions.discard()
@@ -47,7 +45,7 @@ struct CodeBlockVersionsTests {
         versions = CodeBlockVersions(original: "a", attached: "b")
         versions.edit()
         versions.draft = "a"
-        #expect(versions.canAttach)
+        #expect(versions.hasUnattachedChanges)
         versions.attach()
         #expect(versions == CodeBlockVersions(original: "a"))
     }

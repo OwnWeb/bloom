@@ -29,12 +29,10 @@ public struct CodeBlockVersions: Equatable, Sendable {
     /// Whether there is a version of the reader's to set beside the original.
     public var hasEdits: Bool { (draft ?? attached).map { $0 != original } ?? false }
 
-    /// Only an edit that changed something since the last attach, so the same file is not
-    /// attached twice.
-    public var canAttach: Bool { draft.map { $0 != base } ?? false }
-
-    /// Whether discarding the edit would lose any of the reader's typing, and so must be asked.
-    public var discardLosesWork: Bool { draft.map { $0 != base } ?? false }
+    /// Whether the edit changed anything since the last attach. It is what makes attaching worth
+    /// doing, so the same file is not attached twice, and what makes discarding worth asking
+    /// about, because it is the typing that would be lost.
+    public var hasUnattachedChanges: Bool { draft.map { $0 != base } ?? false }
 
     /// The editor, unless the reader is glancing at the original.
     public func showsEditor(original showsOriginal: Bool) -> Bool {
