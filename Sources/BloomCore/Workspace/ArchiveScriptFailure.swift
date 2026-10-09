@@ -11,6 +11,7 @@ import Foundation
 public struct ArchiveScriptFailure: Equatable, Sendable {
     public let title = "The archive script failed"
     public let confirmLabel = "Archive Anyway"
+    public let retryLabel = "Retry"
     public let cancelLabel = "Keep Workspace"
     public let message: String
 

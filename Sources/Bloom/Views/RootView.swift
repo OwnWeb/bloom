@@ -189,10 +189,13 @@ struct RootView: View {
                     title: request.failure.title,
                     message: request.failure.message,
                     confirmLabel: request.failure.confirmLabel,
-                    cancelLabel: request.failure.cancelLabel
+                    cancelLabel: request.failure.cancelLabel,
+                    alternativeLabel: request.failure.retryLabel
                 )
             } onConfirm: { request in
                 Task { await app.archiveAnyway(request) }
+            } onAlternative: { request in
+                Task { await app.retryArchive(request) }
             }
             // A single OK that does nothing but dismiss, which `errorAlert` says why it leaves to
             // the system rather than spelling out.

@@ -12,6 +12,8 @@ struct ConfirmationSheet: View {
     let confirmation: Confirmation
     let onConfirm: () -> Void
     let onCancel: () -> Void
+    /// Shown only when the question has a third answer, such as trying a failed step again.
+    var onAlternative: (() -> Void)?
 
     /// Which button the keyboard is on. It starts on the safe one, and `Keys` says why that is
     /// not a detail.
@@ -61,6 +63,7 @@ struct ConfirmationSheet: View {
         case .standard:
             VStack(spacing: Layout.betweenButtons) {
                 confirmButton
+                alternativeButton
                 cancelButton
             }
             .padding(.horizontal, Layout.buttonInset)
@@ -100,6 +103,17 @@ struct ConfirmationSheet: View {
         .foregroundStyle(confirmation.tone.color)
         .background(Capsule().fill(confirmation.tone.color.opacity(Layout.plateTint)))
         .focused($focus, equals: .confirm)
+    }
+
+    @ViewBuilder
+    private var alternativeButton: some View {
+        if let label = confirmation.alternativeLabel, let onAlternative {
+            Button { onAlternative() } label: {
+                Text(label).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+        }
     }
 
     /// The answer that changes nothing, and the one Escape is wired to.
@@ -249,6 +263,8 @@ struct Confirmation: Equatable, Sendable {
     var cancelLabel: String
     var tone: ConfirmationTone = .destructive
     var layout: ConfirmationLayout = .standard
+    /// A third answer between confirming and cancelling. Drawn by the standard layout only.
+    var alternativeLabel: String?
 }
 
 enum ConfirmationLayout: Equatable, Sendable {
@@ -301,6 +317,7 @@ extension View {
         _ item: Binding<Item?>,
         _ question: @escaping (Item) -> Confirmation,
         onConfirm: @escaping (Item) -> Void,
+        onAlternative: ((Item) -> Void)? = nil,
         onCancel: @escaping () -> Void = {}
     ) -> some View {
         sheet(isPresented: item.isPresent()) {
@@ -314,6 +331,12 @@ extension View {
                     onCancel: {
                         item.wrappedValue = nil
                         onCancel()
+                    },
+                    onAlternative: onAlternative.map { alternative in
+                        {
+                            item.wrappedValue = nil
+                            alternative(value)
+                        }
                     }
                 )
             }
