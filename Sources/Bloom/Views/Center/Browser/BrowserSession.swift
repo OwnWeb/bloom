@@ -138,6 +138,7 @@ final class BrowserSession {
         let configuration = WKWebViewConfiguration()
         Self.enableDeveloperExtras(on: configuration.preferences)
         webView = BrowserPageWebView(frame: .zero, configuration: configuration)
+        Self.keepPageFromTakingKeyboard(webView)
         webView.allowsBackForwardNavigationGestures = true
         pageView.attach(webView)
         // A dev server is the whole point of this tab, and one that is still booting answers with
@@ -662,6 +663,26 @@ final class BrowserSession {
             return
         }
         preferences.setValue(true, forKey: "developerExtrasEnabled")
+    }
+
+    /// Stops page script from moving the window's keyboard into the page.
+    ///
+    /// **WebKit makes the web view first responder when the page calls `focus()`**, which an
+    /// agent's `browser_click`, `browser_fill` and `browser_press` on an element all do, and so
+    /// does a page with an `autofocus` field. With the pane on screen beside a chat, the reader's next keys went into
+    /// the page instead of the composer. Refusing in `becomeFirstResponder` was tried first and
+    /// is worse: `NSWindow.makeFirstResponder` has already asked the composer to resign by then,
+    /// so the keys went nowhere at all. This setting stops WebKit asking the window in the first
+    /// place. A click or a Tab into the page is AppKit's doing rather than WebKit's, so the reader
+    /// still reaches the page, and the DOM keeps its own focus, so the agent's fill and press land.
+    /// Submitting the address bar used to rely on the page taking the keyboard as it loaded, so it
+    /// now hands it over itself.
+    ///
+    /// No public spelling, so KVC, asked first for the reason `enableDeveloperExtras` gives.
+    private static func keepPageFromTakingKeyboard(_ webView: WKWebView) {
+        guard webView.responds(to: NSSelectorFromString("_setShouldSuppressFirstResponderChanges:"))
+        else { return }
+        webView.setValue(true, forKey: "shouldSuppressFirstResponderChanges")
     }
 
     /// The key WebKit remembers the inspector's last attachment in, and it is WebKit's own: it
