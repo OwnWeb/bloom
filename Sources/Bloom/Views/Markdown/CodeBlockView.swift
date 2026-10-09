@@ -10,21 +10,37 @@ public struct CodeBlockView: View {
 
     private let code: String
     private let language: Language
+    /// The fence's opening line after the backticks, which is where a file name lives when the
+    /// agent gave one.
+    private let info: String
     @State private var showsAllLines = false
+    @State private var confirmsDiscard = false
+    /// Whether an edited fence is showing the agent's code rather than the reader's. A glance,
+    /// not a mode worth keeping, so `@State` is enough here where the draft itself is not.
+    @State private var showsOriginal = false
+    /// An attach in flight. The draft is frozen until it lands, so a second press cannot attach
+    /// it twice and nothing typed meanwhile is wiped by the clear that follows.
+    @State private var isAttaching = false
     @Environment(\.transcriptTextSelection) private var selection
+    @Environment(\.markdownLinkActions) private var linkActions
+    @Environment(\.transcriptEntryID) private var entryID
 
     /// Whether the answer this fence belongs to is still arriving, which decides which cache the
     /// preparation goes through. See `CodeBlockPreparationCache`.
     @Environment(\.markdownIsStreaming) private var isStreaming
 
-    public init(code: String, language: Language) {
+    public init(code: String, language: Language, info: String = "") {
         self.code = code
         self.language = language
+        self.info = info
     }
 
     public var body: some View {
+        let versions = versions
+        let showsEditor = versions.showsEditor(original: showsOriginal)
+        let shown = versions.shown(original: showsOriginal)
         let prepared = CodeBlockPreparationCache.prepared(
-            code: code, language: language, isStreaming: isStreaming
+            code: shown, language: language, isStreaming: isStreaming && shown == code
         )
         let visibleCount = showsAllLines ? prepared.lines.count : min(prepared.lines.count, Self.lineCap)
 
@@ -35,36 +51,41 @@ public struct CodeBlockView: View {
                 Text(Self.displayName(for: language))
                     .font(Typo.caption)
                     .foregroundStyle(Palette.codeGutter)
+                if versions.hasEdits {
+                    Picker("Version", selection: $showsOriginal) {
+                        Text("Original").tag(true)
+                        Text("Edited").tag(false)
+                    }
+                    .compactSegmented()
+                }
                 Spacer(minLength: MarkdownMetrics.blockGap)
-                CopyButton(text: code, title: "Copy code", size: MarkdownMetrics.iconButton)
+                editControls(versions)
+                CopyButton(
+                    text: showsEditor ? versions.draft ?? shown : shown,
+                    title: "Copy code",
+                    size: MarkdownMetrics.iconButton
+                )
             }
             .padding(.horizontal, MarkdownMetrics.blockGap)
             .padding(.vertical, Metrics.spacing)
 
             Hairline()
 
-            ScrollView(.horizontal) {
-                if selection != nil {
-                    TranscriptTextView(
-                        text: nativeHighlighted(prepared, upTo: visibleCount),
-                        linkColor: Palette.linkNSColor
-                    )
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(MarkdownMetrics.blockGap)
-                } else {
-                    Text(highlighted(prepared, upTo: visibleCount))
-                        .font(CodeMetrics.measuredFont)
-                        .lineSpacing(CodeMetrics.rowSpacing)
-                        .foregroundStyle(Palette.codeForeground)
-                        .textSelection(.enabled)
-                        .padding(MarkdownMetrics.blockGap)
-                }
+            if showsEditor {
+                ScriptEditor(
+                    text: Binding { self.versions.draft ?? "" } set: { text in update { $0.draft = text } },
+                    language: language,
+                    isEditable: !isAttaching
+                )
+                    .padding(Metrics.spacing)
+            } else {
+                reader(prepared, upTo: visibleCount)
             }
 
             // No `!showsAllLines`: an opened fence keeps the control, now reading the other way.
             // A fence unfolded once could not be folded again, and two thousand lines is a lot of
             // pane to have put between the reader and whatever they were scrolling towards.
-            if prepared.lines.count > Self.lineCap {
+            if !showsEditor, prepared.lines.count > Self.lineCap {
                 Hairline()
                 Button(TextFold.title(isExpanded: showsAllLines, lines: prepared.lines.count)) {
                     showsAllLines.toggle()
@@ -81,6 +102,127 @@ public struct CodeBlockView: View {
             RoundedRectangle(cornerRadius: Metrics.corner)
                 .strokeBorder(Palette.border, lineWidth: Metrics.outline)
         }
+    }
+
+    private func reader(_ prepared: CodeBlockPreparation, upTo visibleCount: Int) -> some View {
+        ScrollView(.horizontal) {
+            if selection != nil {
+                TranscriptTextView(
+                    text: nativeHighlighted(prepared, upTo: visibleCount),
+                    linkColor: Palette.linkNSColor
+                )
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(MarkdownMetrics.blockGap)
+            } else {
+                Text(highlighted(prepared, upTo: visibleCount))
+                    .font(CodeMetrics.measuredFont)
+                    .lineSpacing(CodeMetrics.rowSpacing)
+                    .foregroundStyle(Palette.codeForeground)
+                    .textSelection(.enabled)
+                    .padding(MarkdownMetrics.blockGap)
+            }
+        }
+    }
+
+    /// A pencil while reading, Cancel and Attach while editing. Not offered on a fence still
+    /// streaming, whose code is about to change under the edit, nor where nothing can receive it.
+    @ViewBuilder
+    private func editControls(_ versions: CodeBlockVersions) -> some View {
+        if let attach = linkActions.attachEditedCode, !isStreaming {
+            if let draft = versions.draft {
+                iconButton("xmark", ink: Palette.textTertiary, title: "Discard edits") {
+                    if versions.hasUnattachedChanges { confirmsDiscard = true } else { update { $0.discard() } }
+                }
+                .discardConfirmation(
+                    isPresented: $confirmsDiscard,
+                    title: "Discard your edits?",
+                    message: {
+                        versions.attached == nil
+                            ? "The changes you made to this code block will be lost."
+                            : "The changes since you last attached this code block will be lost."
+                    },
+                    onConfirm: { update { $0.discard() } }
+                )
+                let canAttach = versions.hasUnattachedChanges && !isAttaching
+                iconButton(
+                    "checkmark",
+                    ink: canAttach ? Palette.positive : Palette.textTertiary,
+                    title: "Attach the edited code to your next message"
+                ) {
+                    isAttaching = true
+                    Task {
+                        defer { isAttaching = false }
+                        // Kept until it has arrived: a failed attach leaves the edit where it was.
+                        guard await attach(draft, EditedCodeBlock.filename(info: info, language: language))
+                        else { return }
+                        update { $0.attach() }
+                    }
+                }
+                .disabled(!canAttach)
+            } else {
+                iconButton("pencil", ink: Palette.textTertiary, title: "Edit and attach to your next message") {
+                    update { $0.edit() }
+                }
+                if versions.attached != nil {
+                    iconButton("arrow.uturn.backward", ink: Palette.textTertiary, title: "Back to the original") {
+                        confirmsDiscard = true
+                    }
+                    .discardConfirmation(
+                        isPresented: $confirmsDiscard,
+                        title: "Back to the original?",
+                        message: {
+                            "Your edited version will no longer be shown here. What you already attached stays in the message."
+                        },
+                        onConfirm: { update { $0.revert() } }
+                    )
+                }
+            }
+        }
+    }
+
+    /// The header's icon buttons, drawn in the square `CopyButton` sits in beside them.
+    private func iconButton(
+        _ symbol: String, ink: Color, title: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(Typo.caption)
+                .foregroundStyle(ink)
+                .frame(width: MarkdownMetrics.iconButton, height: MarkdownMetrics.iconButton)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+    }
+
+    /// The agent's code with the reader's versions over it. Those are held by
+    /// `CodeBlockDraftStore`, never by the fence: see there.
+    private var versions: CodeBlockVersions {
+        let held = draftKey.map { CodeBlockDraftStore.shared.draft(for: $0) }
+        return CodeBlockVersions(original: code, draft: held?.text, attached: held?.attached)
+    }
+
+    private var draftKey: String? {
+        linkActions.session.map {
+            EditedCodeBlock.draftKey(
+                session: $0.rawValue, entry: entryID.map(String.init(describing:)) ?? "-", code: code
+            )
+        }
+    }
+
+    /// Applies one of `CodeBlockVersions`'s moves and writes back what it changed. Every move
+    /// brings the reader's own version back in front, so a pencil pressed while glancing at the
+    /// original opens the editor rather than an edit nobody can see.
+    private func update(_ change: (inout CodeBlockVersions) -> Void) {
+        let before = versions
+        var after = before
+        change(&after)
+        showsOriginal = false
+        guard let draftKey else { return }
+        let store = CodeBlockDraftStore.shared
+        if after.draft != before.draft { store.set(after.draft, for: draftKey) }
+        if after.attached != before.attached { store.setAttached(after.attached, for: draftKey) }
     }
 
     /// The visible lines as one `AttributedString`, highlighting and all.

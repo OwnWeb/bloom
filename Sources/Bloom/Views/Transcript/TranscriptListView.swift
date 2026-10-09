@@ -398,7 +398,9 @@ struct TranscriptListView: View {
     /// is not a change: see `TranscriptRowEnvironment`, which is what carries it to the rows.
     private var linkActions: TranscriptLinkActions {
         TranscriptLink.actions(
-            for: transcript.workspace.flatMap { app.existingModel(for: $0.id) }, pane: memory?.pane
+            for: transcript.workspace.flatMap { app.existingModel(for: $0.id) },
+            pane: memory?.pane,
+            session: transcript.session.id
         )
     }
 

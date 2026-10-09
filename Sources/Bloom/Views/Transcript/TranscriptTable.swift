@@ -817,6 +817,9 @@ struct TranscriptTable: NSViewRepresentable {
                 HostedRow(content: entry.content(), report: { _ in }, fills: false)
                     .id(entry.id)
                     .transcriptRowEnvironment(rowEnvironment)
+                    // As the drawn row has it, so a code block with an edit open measures as the
+                    // editor it will be drawn as rather than as the code under it.
+                    .environment(\.transcriptEntryID, entry.id)
             )
             // Unconstrained downwards, which is what `fills: false` is for: the measuring copy
             // takes its own ideal height rather than filling a row it has not been given.
@@ -2259,6 +2262,13 @@ private struct HostedRow: View {
     }
 }
 
+extension EnvironmentValues {
+    /// Which row of the table a view is drawn in, for a view that keeps something per row: an
+    /// edited code block keys its draft on it, so the same snippet repeated in two answers is two
+    /// blocks rather than one.
+    @Entry var transcriptEntryID: TranscriptEntryID?
+}
+
 /// The one root type every cell's hosting view holds.
 ///
 /// **`NSHostingView<AnyView>` was a different underlying type per row kind.** `entry.content()` is
@@ -2290,6 +2300,7 @@ private struct TranscriptCellRoot: View {
                 // `onAppear` fire for the arrival settle. See `HostedRow`.
                 .id(id)
                 .transcriptRowEnvironment(environment)
+                .environment(\.transcriptEntryID, id)
         }
     }
 }

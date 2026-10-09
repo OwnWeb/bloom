@@ -223,8 +223,8 @@ private struct MarkdownBlockView: View {
             // wall of bold sentences and no structure at all.
             inlineText(inline, rung: Self.headingFont(level), color: foreground)
                 .padding(.top, isFirst ? 0 : MarkdownMetrics.headingLead)
-        case let .codeBlock(code, language, _):
-            CodeBlockView(code: code, language: language)
+        case let .codeBlock(code, language, info):
+            CodeBlockView(code: code, language: language, info: info)
         case let .bulletList(items, tight):
             list(items: items, start: nil, tight: tight)
         case let .numberedList(start, items, tight):

@@ -363,8 +363,8 @@ extension TranscriptLinkActions {
         copy.previewFile = preview
         // The identity moves with the closure, or a bubble that can open a file would compare
         // equal to the list's value that cannot, and the environment would never see the change.
-        if case let .workspace(id, pane) = identity {
-            copy.identity = .workspaceOpeningFiles(id, pane: pane)
+        if case let .workspace(id, pane, session) = identity {
+            copy.identity = .workspaceOpeningFiles(id, pane: pane, session: session)
         }
         return copy
     }
