@@ -54,14 +54,15 @@ public enum EditedCodeBlock {
         return safe.isEmpty ? nil : safe
     }
 
-    /// Which block a draft belongs to: the conversation and the code itself. Two fences holding
-    /// the same code in one conversation share a draft, which is the price of a key every copy of
-    /// a row can compute, the one hosted to measure it included. Hashed so the key stays short
-    /// whatever the fence holds, and SHA-256 rather than `hashValue`, which changes on every
-    /// launch and would orphan every draft a relaunch was meant to keep.
-    public static func draftKey(session: String, code: String) -> String {
+    /// Which block a draft belongs to: the conversation, the row, and the code itself. The row
+    /// because an agent repeats a command or a snippet from one answer to the next, and an edit of
+    /// one of them is not an edit of all of them; the code because a row can hold several fences
+    /// and nothing else tells them apart. Hashed so the key stays short whatever the fence holds,
+    /// and SHA-256 rather than `hashValue`, which changes on every launch and would orphan every
+    /// draft a relaunch was meant to keep.
+    public static func draftKey(session: String, entry: String, code: String) -> String {
         let digest = SHA256.hash(data: Data(code.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
-        return "\(session)/\(digest)"
+        return "\(session)/\(entry)/\(digest)"
     }
 
     /// The inverse of `Language.detect(path:)`, which is what the test holds it to.

@@ -818,6 +818,9 @@ struct TranscriptTable: NSViewRepresentable {
                 HostedRow(content: entry.content(), report: { _ in }, fills: false)
                     .id(entry.id)
                     .transcriptRowEnvironment(rowEnvironment)
+                    // As the drawn row has it, so a code block with an edit open measures as the
+                    // editor it will be drawn as rather than as the code under it.
+                    .environment(\.transcriptEntryID, entry.id)
             )
             // Unconstrained downwards, which is what `fills: false` is for: the measuring copy
             // takes its own ideal height rather than filling a row it has not been given.
