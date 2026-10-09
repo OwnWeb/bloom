@@ -20,11 +20,11 @@ struct EditedCodeBlockTests {
         }
     }
 
-    @Test("A draft's key is the same on every launch, and tells two fences of one row apart")
+    @Test("A draft's key is the same on every launch, and tells two fences of one conversation apart")
     func draftKey() {
-        let key = EditedCodeBlock.draftKey(session: "s1", entry: "row(4)", code: "let a = 1")
-        #expect(key == "s1/row(4)/2c07d877ba5b1548307d0bbc")
-        #expect(EditedCodeBlock.draftKey(session: "s1", entry: "row(4)", code: "let b = 2") != key)
+        let key = EditedCodeBlock.draftKey(session: "s1", code: "let a = 1")
+        #expect(key == "s1/2c07d877ba5b1548307d0bbc")
+        #expect(EditedCodeBlock.draftKey(session: "s1", code: "let b = 2") != key)
     }
 
     @Test("A fence that names its file is attached under that name", arguments: [

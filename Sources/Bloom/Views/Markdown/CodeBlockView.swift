@@ -23,7 +23,6 @@ public struct CodeBlockView: View {
     @State private var isAttaching = false
     @Environment(\.transcriptTextSelection) private var selection
     @Environment(\.markdownLinkActions) private var linkActions
-    @Environment(\.transcriptEntryID) private var entryID
 
     /// Whether the answer this fence belongs to is still arriving, which decides which cache the
     /// preparation goes through. See `CodeBlockPreparationCache`.
@@ -204,11 +203,7 @@ public struct CodeBlockView: View {
     }
 
     private var draftKey: String? {
-        linkActions.session.map {
-            EditedCodeBlock.draftKey(
-                session: $0.rawValue, entry: entryID.map(String.init(describing:)) ?? "-", code: code
-            )
-        }
+        linkActions.session.map { EditedCodeBlock.draftKey(session: $0.rawValue, code: code) }
     }
 
     /// Applies one of `CodeBlockVersions`'s moves and writes back what it changed. Every move
