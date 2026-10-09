@@ -64,7 +64,7 @@ public struct CodeBlockView: View {
 
             Hairline()
 
-            if let draft, !(showsOriginal && draft != code) {
+            if showsEditor {
                 ScriptEditor(
                     text: Binding { self.draft ?? "" } set: { setDraft($0) },
                     language: language,
@@ -78,7 +78,7 @@ public struct CodeBlockView: View {
             // No `!showsAllLines`: an opened fence keeps the control, now reading the other way.
             // A fence unfolded once could not be folded again, and two thousand lines is a lot of
             // pane to have put between the reader and whatever they were scrolling towards.
-            if draft == nil, prepared.lines.count > Self.lineCap {
+            if !showsEditor, prepared.lines.count > Self.lineCap {
                 Hairline()
                 Button(TextFold.title(isExpanded: showsAllLines, lines: prepared.lines.count)) {
                     showsAllLines.toggle()
@@ -176,6 +176,12 @@ public struct CodeBlockView: View {
     /// Held by `CodeBlockDraftStore`, never by the fence: see there.
     private var draft: String? {
         draftKey.flatMap { CodeBlockDraftStore.shared.draft(for: $0).text }
+    }
+
+    /// The editor, unless there is no draft or the reader asked to see the agent's code beside it.
+    private var showsEditor: Bool {
+        guard let draft else { return false }
+        return !(showsOriginal && draft != code)
     }
 
     private var draftKey: String? {
