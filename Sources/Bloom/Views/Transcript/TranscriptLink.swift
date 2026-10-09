@@ -310,7 +310,7 @@ enum TranscriptLink {
             attachEditedCode: model.flatMap { model in
                 session.map { session in
                     { @MainActor @Sendable code, filename in
-                        attachEdited(code, named: filename, to: model, session: session)
+                        await attachEdited(code, named: filename, to: model, session: session)
                     }
                 }
             }
@@ -318,19 +318,20 @@ enum TranscriptLink {
     }
 
     /// Through `ComposerHandoff`, the door a CI log and a browser screenshot already use, so the
-    /// edited fence is a chip like any pasted file.
+    /// edited fence is a chip like any pasted file. Answers whether it arrived, because the fence
+    /// keeps the reader's draft until it has.
     @MainActor
     private static func attachEdited(
         _ code: String, named filename: String, to model: WorkspaceModel, session: SessionID
-    ) {
-        Task {
-            let outcome = await ComposerHandoff.attach(
-                [.text(code, named: filename)],
-                to: model, sessionID: session
-            )
-            guard let failure = outcome.failure else { return }
+    ) async -> Bool {
+        let outcome = await ComposerHandoff.attach(
+            [.text(code, named: filename)],
+            to: model, sessionID: session
+        )
+        if let failure = outcome.failure {
             model.app.alert = BloomAlert(title: "The edited code was not attached", message: failure)
         }
+        return !outcome.paths.isEmpty
     }
 
     // MARK: Opening

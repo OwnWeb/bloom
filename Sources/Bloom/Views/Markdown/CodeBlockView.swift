@@ -14,10 +14,10 @@ public struct CodeBlockView: View {
     /// agent gave one.
     private let info: String
     @State private var showsAllLines = false
-    /// The reader's copy of the fence while it is being edited, nil when it is only being read.
-    @State private var draft: String?
+    @State private var confirmsDiscard = false
     @Environment(\.transcriptTextSelection) private var selection
     @Environment(\.markdownLinkActions) private var linkActions
+    @Environment(\.transcriptEntryID) private var entryID
 
     /// Whether the answer this fence belongs to is still arriving, which decides which cache the
     /// preparation goes through. See `CodeBlockPreparationCache`.
@@ -51,8 +51,8 @@ public struct CodeBlockView: View {
 
             Hairline()
 
-            if let draft {
-                ScriptEditor(text: Binding($draft) ?? .constant(draft), language: language)
+            if draft != nil {
+                ScriptEditor(text: Binding { draft ?? "" } set: { setDraft($0) }, language: language)
                     .padding(Metrics.spacing)
             } else {
                 reader(prepared, upTo: visibleCount)
@@ -106,19 +106,31 @@ public struct CodeBlockView: View {
     private var editControls: some View {
         if let attach = linkActions.attachEditedCode, !isStreaming {
             if let draft {
-                Button("Cancel") { self.draft = nil }
-                    .linkButton(Palette.textSecondary)
-                    .font(Typo.caption)
+                Button("Discard") {
+                    if draft == code { setDraft(nil) } else { confirmsDiscard = true }
+                }
+                .linkButton(Palette.textSecondary)
+                .font(Typo.caption)
+                .discardConfirmation(
+                    isPresented: $confirmsDiscard,
+                    title: "Discard your edits?",
+                    message: { "The changes you made to this code block will be lost." },
+                    onConfirm: { setDraft(nil) }
+                )
                 Button("Attach") {
-                    attach(draft, EditedCodeBlock.filename(info: info, language: language))
-                    self.draft = nil
+                    Task {
+                        // Cleared only once it has arrived: a failed attach keeps the edit.
+                        guard await attach(draft, EditedCodeBlock.filename(info: info, language: language))
+                        else { return }
+                        setDraft(nil)
+                    }
                 }
                 .linkButton()
                 .font(Typo.caption)
                 .disabled(draft == code)
                 .help("Attach the edited code to your next message")
             } else {
-                Button { draft = code } label: {
+                Button { setDraft(code) } label: {
                     Image(systemName: "pencil")
                         .font(Typo.caption)
                         .foregroundStyle(Palette.textTertiary)
@@ -130,6 +142,21 @@ public struct CodeBlockView: View {
                 .accessibilityLabel("Edit code")
             }
         }
+    }
+
+    /// The reader's copy of the fence while it is being edited, nil when it is only being read.
+    /// Held by `CodeBlockDraftStore`, never by the fence: see there.
+    private var draft: String? {
+        draftKey.flatMap { CodeBlockDraftStore.shared.draft(for: $0).text }
+    }
+
+    private var draftKey: String? {
+        linkActions.session.map { CodeBlockDraftStore.key(session: $0, entry: entryID, code: code) }
+    }
+
+    private func setDraft(_ text: String?) {
+        guard let draftKey else { return }
+        CodeBlockDraftStore.shared.set(text, for: draftKey)
     }
 
     /// The visible lines as one `AttributedString`, highlighting and all.

@@ -68,9 +68,17 @@ struct TranscriptLinkActions: Sendable, Equatable {
 
     var previewSource: @MainActor @Sendable (URL) -> URL? = { _ in nil }
     /// Puts a code block the reader edited into its own conversation's composer as an attachment,
-    /// under the name given. Nil where there is no conversation to attach to, and the fence then
-    /// offers no edit button at all.
-    var attachEditedCode: (@MainActor @Sendable (_ code: String, _ filename: String) -> Void)?
+    /// under the name given, answering whether it arrived. Nil where there is no conversation to
+    /// attach to, and the fence then offers no edit button at all.
+    var attachEditedCode: (@MainActor @Sendable (_ code: String, _ filename: String) async -> Bool)?
+
+    /// The conversation these actions belong to, which keys a code block's draft.
+    var session: SessionID? {
+        switch identity {
+        case .inert: nil
+        case .workspace(_, _, let session), .workspaceOpeningFiles(_, _, let session): session
+        }
+    }
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.identity == rhs.identity }
 }
