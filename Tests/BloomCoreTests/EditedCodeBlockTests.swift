@@ -31,7 +31,9 @@ struct EditedCodeBlockTests {
         #expect(EditedCodeBlock.filename(info: info, language: .plainText) == expected)
     }
 
-    @Test("A fence with no name falls back to the dated one", arguments: ["", "swift", "js {1,3}", "sh title=\"..\""])
+    @Test("A fence with no name falls back to the dated one", arguments: [
+        "", "swift", "js {1,3}", "sh title=\"..\"", "sh highlight_name=x.sh", "sh foo/..",
+    ])
     func unnamed(info: String) throws {
         let utc = try #require(TimeZone(identifier: "UTC"))
         let date = Date(timeIntervalSince1970: 1_791_532_744)

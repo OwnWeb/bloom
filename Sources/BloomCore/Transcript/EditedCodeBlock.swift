@@ -31,13 +31,16 @@ public enum EditedCodeBlock {
     }
 
     static func named(in info: String) -> String? {
-        let keyed = /(?:title|file|filename|path|name)=(?:"([^"]*)"|'([^']*)'|(\S+))/
+        let keyed = /(?:^|\s)(?:title|file|filename|path|name)=(?:"([^"]*)"|'([^']*)'|(\S+))/
         let candidate: Substring? = if let match = info.firstMatch(of: keyed) {
             match.1 ?? match.2 ?? match.3
         } else {
             // A bare word after the language is a name only when it looks like one, so
-            // ```` ```js {1,3} ```` is not attached as `{1,3}`.
-            info.split(whereSeparator: \.isWhitespace).dropFirst().first { $0.contains(".") }
+            // ```` ```js {1,3} ```` is not attached as `{1,3}`, nor an attribute nobody named as
+            // the file as `highlight_name=x.sh`.
+            info.split(whereSeparator: \.isWhitespace).dropFirst().first {
+                $0.contains(".") && !$0.contains("=")
+            }
         }
         guard let candidate else { return nil }
 

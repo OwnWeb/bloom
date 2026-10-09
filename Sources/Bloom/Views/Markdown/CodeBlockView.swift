@@ -52,7 +52,7 @@ public struct CodeBlockView: View {
             Hairline()
 
             if let draft {
-                ScriptEditor(text: Binding { draft } set: { self.draft = $0 }, language: language)
+                ScriptEditor(text: Binding($draft) ?? .constant(draft), language: language)
                     .padding(Metrics.spacing)
             } else {
                 reader(prepared, upTo: visibleCount)

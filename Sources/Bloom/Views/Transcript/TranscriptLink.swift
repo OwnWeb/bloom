@@ -272,9 +272,11 @@ enum TranscriptLink {
     /// a right click in a pane does not move the focus to it and splitting the other half of a
     /// tab would be the one thing the reader did not ask for.
     @MainActor
-    static func actions(for model: WorkspaceModel?, pane: String? = nil) -> TranscriptLinkActions {
+    static func actions(
+        for model: WorkspaceModel?, pane: String? = nil, session: SessionID? = nil
+    ) -> TranscriptLinkActions {
         TranscriptLinkActions(
-            identity: .workspace(model?.workspace.id, pane: pane),
+            identity: .workspace(model?.workspace.id, pane: pane, session: session),
             open: { url, target in
                 if let location = SourceReference.location(url), let model {
                     FileReview.open(location: location, in: model)
@@ -305,8 +307,12 @@ enum TranscriptLink {
                 let target = FileChipTarget.resolve(location.path, in: model.workspace.path)
                 return PromptAttachment.sent(path: target.path).url(in: target.worktree)
             },
-            attachEditedCode: model.map { model in
-                { @MainActor @Sendable code, filename in attachEdited(code, named: filename, to: model) }
+            attachEditedCode: model.flatMap { model in
+                session.map { session in
+                    { @MainActor @Sendable code, filename in
+                        attachEdited(code, named: filename, to: model, session: session)
+                    }
+                }
             }
         )
     }
@@ -314,11 +320,13 @@ enum TranscriptLink {
     /// Through `ComposerHandoff`, the door a CI log and a browser screenshot already use, so the
     /// edited fence is a chip like any pasted file.
     @MainActor
-    private static func attachEdited(_ code: String, named filename: String, to model: WorkspaceModel) {
+    private static func attachEdited(
+        _ code: String, named filename: String, to model: WorkspaceModel, session: SessionID
+    ) {
         Task {
             let outcome = await ComposerHandoff.attach(
                 [.text(code, named: filename)],
-                to: model
+                to: model, sessionID: session
             )
             guard let failure = outcome.failure else { return }
             model.app.alert = BloomAlert(title: "The edited code was not attached", message: failure)

@@ -33,10 +33,12 @@ struct TranscriptLinkActions: Sendable, Equatable {
     enum Identity: Hashable, Sendable {
         /// The default value, which does nothing at all.
         case inert
-        case workspace(WorkspaceID?, pane: String?)
+        /// The session is part of it because an edited code block is attached to the conversation
+        /// it was edited in, and a pane switching conversations keeps its name.
+        case workspace(WorkspaceID?, pane: String?, session: SessionID?)
         /// The same, with a file chip's door added. Its own case because a value that can open a
         /// file must never compare equal to one that cannot.
-        case workspaceOpeningFiles(WorkspaceID?, pane: String?)
+        case workspaceOpeningFiles(WorkspaceID?, pane: String?, session: SessionID?)
     }
 
     var identity: Identity = .inert
@@ -65,9 +67,9 @@ struct TranscriptLinkActions: Sendable, Equatable {
     var previewFile: @MainActor @Sendable (String) -> URL? = { _ in nil }
 
     var previewSource: @MainActor @Sendable (URL) -> URL? = { _ in nil }
-    /// Puts a code block the reader edited into the composer as an attachment, under the name
-    /// given. Nil where there is no workspace to attach to, and the fence then offers no edit
-    /// button at all.
+    /// Puts a code block the reader edited into its own conversation's composer as an attachment,
+    /// under the name given. Nil where there is no conversation to attach to, and the fence then
+    /// offers no edit button at all.
     var attachEditedCode: (@MainActor @Sendable (_ code: String, _ filename: String) -> Void)?
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.identity == rhs.identity }
