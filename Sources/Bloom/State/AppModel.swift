@@ -250,7 +250,12 @@ final class AppModel {
     var pendingScriptFailure: ScriptFailureRequest?
     /// A project just added with remotes on both GitHub and GitLab. RootView asks which one it
     /// uses. See `ForgeResolver.offersBoth`.
-    var forgeQuestion: Repo?
+    var forgeQuestion: Repo? {
+        // A dialog dismissed without its buttons must still let `askForgeIfBoth` return.
+        didSet { if forgeQuestion == nil { Task { self.answerForgeQuestion(nil) } } }
+    }
+    /// Resumed once `forgeQuestion` is answered, so the create window can wait for it.
+    @ObservationIgnored var forgeQuestionAnswered: CheckedContinuation<Void, Never>?
     /// The transcript half of a search, one row per workspace. Held here rather than in `HomeView`
     /// for the same reason `homeFilter` is: the pane is destroyed and rebuilt every time the
     /// selection leaves Home, and a result list that had to be fetched again on the way back would
