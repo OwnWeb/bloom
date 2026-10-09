@@ -36,7 +36,9 @@ public struct CodeBlockView: View {
     }
 
     public var body: some View {
-        let shown = shownCode
+        let versions = versions
+        let showsEditor = versions.showsEditor(original: showsOriginal)
+        let shown = versions.shown(original: showsOriginal)
         let prepared = CodeBlockPreparationCache.prepared(
             code: shown, language: language, isStreaming: isStreaming && shown == code
         )
@@ -49,7 +51,7 @@ public struct CodeBlockView: View {
                 Text(Self.displayName(for: language))
                     .font(Typo.caption)
                     .foregroundStyle(Palette.codeGutter)
-                if let edited, edited != code {
+                if versions.hasEdits {
                     Picker("Version", selection: $showsOriginal) {
                         Text("Original").tag(true)
                         Text("Edited").tag(false)
@@ -57,9 +59,11 @@ public struct CodeBlockView: View {
                     .compactSegmented()
                 }
                 Spacer(minLength: MarkdownMetrics.blockGap)
-                editControls
+                editControls(versions)
                 CopyButton(
-                    text: showsEditor ? draft ?? shown : shown, title: "Copy code", size: MarkdownMetrics.iconButton
+                    text: showsEditor ? versions.draft ?? shown : shown,
+                    title: "Copy code",
+                    size: MarkdownMetrics.iconButton
                 )
             }
             .padding(.horizontal, MarkdownMetrics.blockGap)
@@ -69,7 +73,7 @@ public struct CodeBlockView: View {
 
             if showsEditor {
                 ScriptEditor(
-                    text: Binding { self.draft ?? "" } set: { setDraft($0) },
+                    text: Binding { self.versions.draft ?? "" } set: { text in update { $0.draft = text } },
                     language: language,
                     isEditable: !isAttaching
                 )
@@ -123,24 +127,23 @@ public struct CodeBlockView: View {
     /// A pencil while reading, Cancel and Attach while editing. Not offered on a fence still
     /// streaming, whose code is about to change under the edit, nor where nothing can receive it.
     @ViewBuilder
-    private var editControls: some View {
+    private func editControls(_ versions: CodeBlockVersions) -> some View {
         if let attach = linkActions.attachEditedCode, !isStreaming {
-            let base = attached ?? code
-            if let draft {
+            if let draft = versions.draft {
                 iconButton("xmark", ink: Palette.textTertiary, title: "Discard edits") {
-                    if draft == base { setDraft(nil) } else { confirmsDiscard = true }
+                    if versions.discardLosesWork { confirmsDiscard = true } else { update { $0.discard() } }
                 }
                 .discardConfirmation(
                     isPresented: $confirmsDiscard,
                     title: "Discard your edits?",
                     message: {
-                        attached == nil
+                        versions.attached == nil
                             ? "The changes you made to this code block will be lost."
                             : "The changes since you last attached this code block will be lost."
                     },
-                    onConfirm: { setDraft(nil) }
+                    onConfirm: { update { $0.discard() } }
                 )
-                let canAttach = draft != base && !isAttaching
+                let canAttach = versions.canAttach && !isAttaching
                 iconButton(
                     "checkmark",
                     ink: canAttach ? Palette.positive : Palette.textTertiary,
@@ -149,19 +152,18 @@ public struct CodeBlockView: View {
                     isAttaching = true
                     Task {
                         defer { isAttaching = false }
-                        // Cleared only once it has arrived: a failed attach keeps the edit.
+                        // Kept until it has arrived: a failed attach leaves the edit where it was.
                         guard await attach(draft, EditedCodeBlock.filename(info: info, language: language))
                         else { return }
-                        setAttached(draft == code ? nil : draft)
-                        setDraft(nil)
+                        update { $0.attach() }
                     }
                 }
                 .disabled(!canAttach)
             } else {
                 iconButton("pencil", ink: Palette.textTertiary, title: "Edit and attach to your next message") {
-                    setDraft(base)
+                    update { $0.edit() }
                 }
-                if attached != nil {
+                if versions.attached != nil {
                     iconButton("arrow.uturn.backward", ink: Palette.textTertiary, title: "Back to the original") {
                         confirmsDiscard = true
                     }
@@ -171,7 +173,7 @@ public struct CodeBlockView: View {
                         message: {
                             "Your edited version will no longer be shown here. What you already attached stays in the message."
                         },
-                        onConfirm: { setAttached(nil) }
+                        onConfirm: { update { $0.revert() } }
                     )
                 }
             }
@@ -194,29 +196,11 @@ public struct CodeBlockView: View {
         .accessibilityLabel(title)
     }
 
-    /// The reader's copy of the fence while it is being edited, nil when it is only being read.
-    /// Held by `CodeBlockDraftStore`, never by the fence: see there.
-    private var draft: String? {
-        draftKey.flatMap { CodeBlockDraftStore.shared.draft(for: $0).text }
-    }
-
-    /// The version last attached to a message, which the block goes on showing once it is sent.
-    private var attached: String? {
-        draftKey.flatMap { CodeBlockDraftStore.shared.draft(for: $0).attached }
-    }
-
-    /// What the Edited segment stands for: the edit in progress, or else the version attached.
-    private var edited: String? { draft ?? attached }
-
-    /// What the read-only surface shows: the agent's code, or the attached version over it.
-    private var shownCode: String {
-        showsOriginal ? code : attached ?? code
-    }
-
-    /// The editor, unless there is no draft or the reader asked to see the agent's code beside it.
-    private var showsEditor: Bool {
-        guard let draft else { return false }
-        return !(showsOriginal && draft != code)
+    /// The agent's code with the reader's versions over it. Those are held by
+    /// `CodeBlockDraftStore`, never by the fence: see there.
+    private var versions: CodeBlockVersions {
+        let held = draftKey.map { CodeBlockDraftStore.shared.draft(for: $0) }
+        return CodeBlockVersions(original: code, draft: held?.text, attached: held?.attached)
     }
 
     private var draftKey: String? {
@@ -227,17 +211,18 @@ public struct CodeBlockView: View {
         }
     }
 
-    private func setDraft(_ text: String?) {
-        // A finished edit leaves the next one opening on the reader's own text.
-        if text == nil { showsOriginal = false }
+    /// Applies one of `CodeBlockVersions`'s moves and writes back what it changed. Every move
+    /// brings the reader's own version back in front, so a pencil pressed while glancing at the
+    /// original opens the editor rather than an edit nobody can see.
+    private func update(_ change: (inout CodeBlockVersions) -> Void) {
+        let before = versions
+        var after = before
+        change(&after)
+        showsOriginal = false
         guard let draftKey else { return }
-        CodeBlockDraftStore.shared.set(text, for: draftKey)
-    }
-
-    private func setAttached(_ text: String?) {
-        if text == nil { showsOriginal = false }
-        guard let draftKey else { return }
-        CodeBlockDraftStore.shared.setAttached(text, for: draftKey)
+        let store = CodeBlockDraftStore.shared
+        if after.draft != before.draft { store.set(after.draft, for: draftKey) }
+        if after.attached != before.attached { store.setAttached(after.attached, for: draftKey) }
     }
 
     /// The visible lines as one `AttributedString`, highlighting and all.
