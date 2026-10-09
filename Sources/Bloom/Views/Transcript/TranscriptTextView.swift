@@ -65,6 +65,10 @@ struct TranscriptLinkActions: Sendable, Equatable {
     var previewFile: @MainActor @Sendable (String) -> URL? = { _ in nil }
 
     var previewSource: @MainActor @Sendable (URL) -> URL? = { _ in nil }
+    /// Puts a code block the reader edited into the composer as an attachment, under the name
+    /// given. Nil where there is no workspace to attach to, and the fence then offers no edit
+    /// button at all.
+    var attachEditedCode: (@MainActor @Sendable (_ code: String, _ filename: String) -> Void)?
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.identity == rhs.identity }
 }

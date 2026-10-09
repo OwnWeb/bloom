@@ -304,8 +304,25 @@ enum TranscriptLink {
                 guard let location = SourceReference.location(url), let model else { return nil }
                 let target = FileChipTarget.resolve(location.path, in: model.workspace.path)
                 return PromptAttachment.sent(path: target.path).url(in: target.worktree)
+            },
+            attachEditedCode: model.map { model in
+                { @MainActor @Sendable code, filename in attachEdited(code, named: filename, to: model) }
             }
         )
+    }
+
+    /// Through `ComposerHandoff`, the door a CI log and a browser screenshot already use, so the
+    /// edited fence is a chip like any pasted file.
+    @MainActor
+    private static func attachEdited(_ code: String, named filename: String, to model: WorkspaceModel) {
+        Task {
+            let outcome = await ComposerHandoff.attach(
+                [.text(code, named: filename)],
+                to: model
+            )
+            guard let failure = outcome.failure else { return }
+            model.app.alert = BloomAlert(title: "The edited code was not attached", message: failure)
+        }
     }
 
     // MARK: Opening

@@ -10,16 +10,23 @@ public struct CodeBlockView: View {
 
     private let code: String
     private let language: Language
+    /// The fence's opening line after the backticks, which is where a file name lives when the
+    /// agent gave one.
+    private let info: String
     @State private var showsAllLines = false
+    /// The reader's copy of the fence while it is being edited, nil when it is only being read.
+    @State private var draft: String?
     @Environment(\.transcriptTextSelection) private var selection
+    @Environment(\.markdownLinkActions) private var linkActions
 
     /// Whether the answer this fence belongs to is still arriving, which decides which cache the
     /// preparation goes through. See `CodeBlockPreparationCache`.
     @Environment(\.markdownIsStreaming) private var isStreaming
 
-    public init(code: String, language: Language) {
+    public init(code: String, language: Language, info: String = "") {
         self.code = code
         self.language = language
+        self.info = info
     }
 
     public var body: some View {
@@ -36,35 +43,25 @@ public struct CodeBlockView: View {
                     .font(Typo.caption)
                     .foregroundStyle(Palette.codeGutter)
                 Spacer(minLength: MarkdownMetrics.blockGap)
-                CopyButton(text: code, title: "Copy code", size: MarkdownMetrics.iconButton)
+                editControls
+                CopyButton(text: draft ?? code, title: "Copy code", size: MarkdownMetrics.iconButton)
             }
             .padding(.horizontal, MarkdownMetrics.blockGap)
             .padding(.vertical, Metrics.spacing)
 
             Hairline()
 
-            ScrollView(.horizontal) {
-                if selection != nil {
-                    TranscriptTextView(
-                        text: nativeHighlighted(prepared, upTo: visibleCount),
-                        linkColor: Palette.linkNSColor
-                    )
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(MarkdownMetrics.blockGap)
-                } else {
-                    Text(highlighted(prepared, upTo: visibleCount))
-                        .font(CodeMetrics.measuredFont)
-                        .lineSpacing(CodeMetrics.rowSpacing)
-                        .foregroundStyle(Palette.codeForeground)
-                        .textSelection(.enabled)
-                        .padding(MarkdownMetrics.blockGap)
-                }
+            if let draft {
+                ScriptEditor(text: Binding { draft } set: { self.draft = $0 }, language: language)
+                    .padding(Metrics.spacing)
+            } else {
+                reader(prepared, upTo: visibleCount)
             }
 
             // No `!showsAllLines`: an opened fence keeps the control, now reading the other way.
             // A fence unfolded once could not be folded again, and two thousand lines is a lot of
             // pane to have put between the reader and whatever they were scrolling towards.
-            if prepared.lines.count > Self.lineCap {
+            if draft == nil, prepared.lines.count > Self.lineCap {
                 Hairline()
                 Button(TextFold.title(isExpanded: showsAllLines, lines: prepared.lines.count)) {
                     showsAllLines.toggle()
@@ -80,6 +77,58 @@ public struct CodeBlockView: View {
         .overlay {
             RoundedRectangle(cornerRadius: Metrics.corner)
                 .strokeBorder(Palette.border, lineWidth: Metrics.outline)
+        }
+    }
+
+    private func reader(_ prepared: CodeBlockPreparation, upTo visibleCount: Int) -> some View {
+        ScrollView(.horizontal) {
+            if selection != nil {
+                TranscriptTextView(
+                    text: nativeHighlighted(prepared, upTo: visibleCount),
+                    linkColor: Palette.linkNSColor
+                )
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(MarkdownMetrics.blockGap)
+            } else {
+                Text(highlighted(prepared, upTo: visibleCount))
+                    .font(CodeMetrics.measuredFont)
+                    .lineSpacing(CodeMetrics.rowSpacing)
+                    .foregroundStyle(Palette.codeForeground)
+                    .textSelection(.enabled)
+                    .padding(MarkdownMetrics.blockGap)
+            }
+        }
+    }
+
+    /// A pencil while reading, Cancel and Attach while editing. Not offered on a fence still
+    /// streaming, whose code is about to change under the edit, nor where nothing can receive it.
+    @ViewBuilder
+    private var editControls: some View {
+        if let attach = linkActions.attachEditedCode, !isStreaming {
+            if let draft {
+                Button("Cancel") { self.draft = nil }
+                    .linkButton(Palette.textSecondary)
+                    .font(Typo.caption)
+                Button("Attach") {
+                    attach(draft, EditedCodeBlock.filename(info: info, language: language))
+                    self.draft = nil
+                }
+                .linkButton()
+                .font(Typo.caption)
+                .disabled(draft == code)
+                .help("Attach the edited code to your next message")
+            } else {
+                Button { draft = code } label: {
+                    Image(systemName: "pencil")
+                        .font(Typo.caption)
+                        .foregroundStyle(Palette.textTertiary)
+                        .frame(width: MarkdownMetrics.iconButton, height: MarkdownMetrics.iconButton)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Edit and attach to your next message")
+                .accessibilityLabel("Edit code")
+            }
         }
     }
 
