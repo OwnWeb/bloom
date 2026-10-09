@@ -248,6 +248,9 @@ final class AppModel {
     /// Non-nil after an archive script failed, while the owner decides between keeping the
     /// workspace and archiving it without the script. RootView presents it.
     var pendingScriptFailure: ScriptFailureRequest?
+    /// A project just added with remotes on both GitHub and GitLab. RootView asks which one it
+    /// uses. See `ForgeResolver.offersBoth`.
+    var forgeQuestion: Repo?
     /// The transcript half of a search, one row per workspace. Held here rather than in `HomeView`
     /// for the same reason `homeFilter` is: the pane is destroyed and rebuilt every time the
     /// selection leaves Home, and a result list that had to be fetched again on the way back would
