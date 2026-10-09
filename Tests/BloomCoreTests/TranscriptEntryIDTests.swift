@@ -29,6 +29,7 @@ struct TranscriptEntryIDTests {
         #expect(TranscriptEntryID.streaming.redrawsItself)
         #expect(TranscriptEntryID.setup.redrawsItself)
         #expect(TranscriptEntryID.sending.redrawsItself)
+        #expect(TranscriptEntryID.shellRun.redrawsItself)
         #expect(TranscriptEntryID.pending(DeliveryID("d1")).redrawsItself)
     }
 

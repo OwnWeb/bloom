@@ -214,6 +214,14 @@ public enum WorkspaceMergeTrouble: Sendable, Equatable {
                 something untrue. Wait for the turn to finish, check with workspace_list that \
                 nothing is agent_running, then ask again.
                 """
+        case .command:
+            // Not reached today: the hold this tool reads comes from the store, and a `!` command
+            // is the composer's, which the store does not know about. Worded for when it is.
+            return """
+                Bloom will not ask for a merge in '\(workspace)' because the owner is running a \
+                command in its chat, and anything said there waits for that command's output. \
+                Wait for it to finish, then ask again.
+                """
         case .none:
             // Unreachable: `.none` is what lets a send through. Said plainly rather than left to a
             // default, so widening `DeliveryHold` is a compile error here rather than a sentence
