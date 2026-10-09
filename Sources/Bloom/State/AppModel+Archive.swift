@@ -383,6 +383,16 @@ extension AppModel {
     /// The owner has read the script's failure and archived without it. Takes the request as an
     /// argument for the reason `confirmArchive` does.
     func archiveAnyway(_ request: ScriptFailureRequest) async {
+        await rerunArchive(request, skipArchiveScript: true)
+    }
+
+    /// Runs the script again, for a failure that was the machine's rather than the script's, such
+    /// as Docker not running yet. A second failure raises the same dialog again.
+    func retryArchive(_ request: ScriptFailureRequest) async {
+        await rerunArchive(request, skipArchiveScript: false)
+    }
+
+    private func rerunArchive(_ request: ScriptFailureRequest, skipArchiveScript: Bool) async {
         guard let repo = repo(for: request.workspace) else { return }
         await performArchive(
             request.workspace,
@@ -391,7 +401,7 @@ extension AppModel {
             force: request.force,
             report: request.report,
             hazards: request.hazards,
-            skipArchiveScript: true,
+            skipArchiveScript: skipArchiveScript,
             presentConfirmation: nil
         )
     }

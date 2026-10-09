@@ -127,6 +127,7 @@ struct WorkspaceArchiveTests {
         #expect(failure.message.contains("status 2"))
         #expect(failure.message.contains("Error 255"))
         #expect(failure.message.contains("will be left behind"))
+        #expect(failure.retryLabel == "Retry")
         #expect(ArchiveScriptFailure(.projectFolderMissing, workspaceName: "Fix login") == nil)
     }
 
