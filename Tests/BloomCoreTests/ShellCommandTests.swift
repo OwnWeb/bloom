@@ -133,6 +133,38 @@ struct ShellCommandTests {
         #expect(ShellCommand.split(message)?.command == "echo a\necho b")
     }
 
+    // MARK: - What waits for it
+
+    @Test("A running command holds the queue on every backend, behind setup and ahead of the rest")
+    func holdsTheQueue() {
+        let held = DeliveryHold.of(
+            isRunningSetup: false, isRunningCommand: true, isTurnRunning: true, isAwaitingQuestion: true
+        )
+        #expect(held == .command)
+        let settingUp = DeliveryHold.of(
+            isRunningSetup: true, isRunningCommand: true, isTurnRunning: false, isAwaitingQuestion: false
+        )
+        #expect(settingUp == .setup)
+        for agent in AgentKind.allCases {
+            #expect(!DeliveryHold.command.allowsDelivery(on: agent))
+            #expect(DeliveryHold.command.sentence(on: agent) != nil)
+            #expect(!Delivery.goesImmediately(behind: [], hold: .command, on: agent))
+        }
+    }
+
+    @Test("The output goes ahead of what was typed while the command ran")
+    func queuesAheadOfWhatFollowed() async throws {
+        let store = try makeTestStore("shell-order")
+        let session = try await store.upsert(AskConversation.newSession())
+        let startedAt = Date(timeIntervalSinceNow: -60)
+        try await store.enqueueDelivery(Delivery(targetSessionID: session.id, body: "then cherry-pick"))
+        let output = ShellCommand.message(command: "make dev-fast", output: .init(), ending: .exited(0))
+        try await store.enqueueDelivery(Delivery(targetSessionID: session.id, body: output, createdAt: startedAt))
+
+        let queue = try await store.pendingDeliveries(sessionID: session.id)
+        #expect(queue.map(\.body) == [output, "then cherry-pick"])
+    }
+
     // MARK: - Running
 
     @Test("Each stream keeps its own order, both arrive, and the status is the command's own")

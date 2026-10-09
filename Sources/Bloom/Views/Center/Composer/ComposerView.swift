@@ -90,7 +90,7 @@ struct ComposerView: View {
             .help("Drag to resize. Double-click to fit the text.")
 
             ComposerPlansView(transcript: transcript, model: model, controls: controls)
-            if let model { ComposerShellRunView(transcript: transcript, model: model) }
+            if model != nil { ComposerShellModeHint(draft: transcript.draft) }
             composer
         }
         // The chrome is whatever is left once the editor's share is taken off, so this settles on
