@@ -219,8 +219,7 @@ struct BrowserTabView: View {
             submit: {
                 session.load(address)
                 isAddressFocused = false
-                // Handed over by hand, as Safari does, because the page can no longer take the
-                // keyboard itself. See `BrowserSession.keepPageFromTakingKeyboard`.
+                // The page can no longer take it itself. See `keepPageFromTakingKeyboard`.
                 session.webView.window?.makeFirstResponder(session.webView)
             }
         )
