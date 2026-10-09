@@ -15,6 +15,9 @@ public struct CodeBlockView: View {
     private let info: String
     @State private var showsAllLines = false
     @State private var confirmsDiscard = false
+    /// Whether an edited fence is showing the agent's code rather than the reader's. A glance,
+    /// not a mode worth keeping, so `@State` is enough here where the draft itself is not.
+    @State private var showsOriginal = false
     /// An attach in flight. The draft is frozen until it lands, so a second press cannot attach
     /// it twice and nothing typed meanwhile is wiped by the clear that follows.
     @State private var isAttaching = false
@@ -45,6 +48,13 @@ public struct CodeBlockView: View {
                 Text(Self.displayName(for: language))
                     .font(Typo.caption)
                     .foregroundStyle(Palette.codeGutter)
+                if let draft, draft != code {
+                    Picker("Version", selection: $showsOriginal) {
+                        Text("Original").tag(true)
+                        Text("Edited").tag(false)
+                    }
+                    .compactSegmented()
+                }
                 Spacer(minLength: MarkdownMetrics.blockGap)
                 editControls
                 CopyButton(text: draft ?? code, title: "Copy code", size: MarkdownMetrics.iconButton)
@@ -54,9 +64,9 @@ public struct CodeBlockView: View {
 
             Hairline()
 
-            if draft != nil {
+            if let draft, !(showsOriginal && draft != code) {
                 ScriptEditor(
-                    text: Binding { draft ?? "" } set: { setDraft($0) },
+                    text: Binding { self.draft ?? "" } set: { setDraft($0) },
                     language: language,
                     isEditable: !isAttaching
                 )
@@ -113,18 +123,21 @@ public struct CodeBlockView: View {
     private var editControls: some View {
         if let attach = linkActions.attachEditedCode, !isStreaming {
             if let draft {
-                Button("Discard") {
+                iconButton("xmark", ink: Palette.textTertiary, title: "Discard edits") {
                     if draft == code { setDraft(nil) } else { confirmsDiscard = true }
                 }
-                .linkButton(Palette.textSecondary)
-                .font(Typo.caption)
                 .discardConfirmation(
                     isPresented: $confirmsDiscard,
                     title: "Discard your edits?",
                     message: { "The changes you made to this code block will be lost." },
                     onConfirm: { setDraft(nil) }
                 )
-                Button("Attach") {
+                let canAttach = draft != code && !isAttaching
+                iconButton(
+                    "checkmark",
+                    ink: canAttach ? Palette.positive : Palette.textTertiary,
+                    title: "Attach the edited code to your next message"
+                ) {
                     isAttaching = true
                     Task {
                         defer { isAttaching = false }
@@ -134,23 +147,29 @@ public struct CodeBlockView: View {
                         setDraft(nil)
                     }
                 }
-                .linkButton()
-                .font(Typo.caption)
-                .disabled(draft == code || isAttaching)
-                .help("Attach the edited code to your next message")
+                .disabled(!canAttach)
             } else {
-                Button { setDraft(code) } label: {
-                    Image(systemName: "pencil")
-                        .font(Typo.caption)
-                        .foregroundStyle(Palette.textTertiary)
-                        .frame(width: MarkdownMetrics.iconButton, height: MarkdownMetrics.iconButton)
-                        .contentShape(Rectangle())
+                iconButton("pencil", ink: Palette.textTertiary, title: "Edit and attach to your next message") {
+                    setDraft(code)
                 }
-                .buttonStyle(.plain)
-                .help("Edit and attach to your next message")
-                .accessibilityLabel("Edit code")
             }
         }
+    }
+
+    /// The header's icon buttons, drawn in the square `CopyButton` sits in beside them.
+    private func iconButton(
+        _ symbol: String, ink: Color, title: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(Typo.caption)
+                .foregroundStyle(ink)
+                .frame(width: MarkdownMetrics.iconButton, height: MarkdownMetrics.iconButton)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
     }
 
     /// The reader's copy of the fence while it is being edited, nil when it is only being read.
@@ -168,6 +187,8 @@ public struct CodeBlockView: View {
     }
 
     private func setDraft(_ text: String?) {
+        // A finished edit leaves the next one opening on the reader's own text.
+        if text == nil { showsOriginal = false }
         guard let draftKey else { return }
         CodeBlockDraftStore.shared.set(text, for: draftKey)
     }
