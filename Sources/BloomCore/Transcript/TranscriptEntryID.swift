@@ -37,6 +37,9 @@ public enum TranscriptEntryID: Hashable, Sendable, CustomStringConvertible {
     case sending
     /// The per-token tail of a running turn.
     case streaming
+    /// A `!` command running from the composer, drawn where its output will land: after what has
+    /// been said and before what is queued behind it. See `ShellCommand`.
+    case shellRun
     /// A queued message, waiting to be sent.
     case pending(DeliveryID)
     /// Breathing room after all content, including streaming output and queued messages.
@@ -73,7 +76,7 @@ public enum TranscriptEntryID: Hashable, Sendable, CustomStringConvertible {
     public var redrawsItself: Bool {
         switch self {
         case .row, .fold, .turnFold, .bottomSpacing: false
-        case .setup, .sending, .streaming, .pending: true
+        case .setup, .sending, .streaming, .shellRun, .pending: true
         }
     }
 
@@ -85,6 +88,7 @@ public enum TranscriptEntryID: Hashable, Sendable, CustomStringConvertible {
         case .turnFold(let seq): "turnFold.\(seq)"
         case .sending: "sending"
         case .streaming: "streaming"
+        case .shellRun: "shellRun"
         case .pending(let id): "pending.\(id)"
         case .bottomSpacing: "bottomSpacing"
         }
