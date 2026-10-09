@@ -159,9 +159,9 @@ struct RootView: View {
                 titleVisibility: .visible,
                 presenting: app.forgeQuestion
             ) { repo in
-                Button(Forge.gitLab.name) { app.chooseForge(.gitLab, for: repo) }
-                Button(Forge.gitHub.name) { app.chooseForge(.gitHub, for: repo) }
-                Button("Not now", role: .cancel) {}
+                Button(Forge.gitLab.name) { app.answerForgeQuestion(.gitLab, for: repo) }
+                Button(Forge.gitHub.name) { app.answerForgeQuestion(.gitHub, for: repo) }
+                Button("Not now", role: .cancel) { app.answerForgeQuestion(nil) }
             } message: { repo in
                 Text("\(repo.name) has remotes on GitHub and GitLab. Every workspace of the project will use the one you choose, and you can change it in the project settings. Until you choose, Bloom uses GitHub.")
             }
