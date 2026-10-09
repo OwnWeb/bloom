@@ -256,7 +256,8 @@ final class TranscriptModel {
     /// as a pane changes what it shows. See `PromptRecall`.
     @ObservationIgnored var promptRecall = PromptRecall()
 
-    /// The `!` command running from this chat's composer. On the session for the reason
+    /// The `!` command running from this chat's composer, which holds the queue while it runs (see
+    /// `DeliveryHold.command`). On the session for the reason
     /// `promptRecall` is: the composer is handed from chat to chat. See `WorkspaceModel+ShellCommands`.
     var shellRun: ShellCommand.Run?
     @ObservationIgnored var shellRunTask: Task<Void, Never>?
@@ -704,8 +705,11 @@ final class TranscriptModel {
     /// in: as a sent bubble if nothing is holding the queue, as a pending one if something is. See
     /// `sending`.
     @discardableResult
+    /// `queuedAt` places the message in the queue, which is ordered by it. A `!` command's output
+    /// passes the time the command started, so what was typed while it ran goes after it.
     func submit(_ text: String, clearingDraft sourceDraft: String? = nil,
-                interactionMode: InteractionMode? = nil, sourcePlan: PlanArtefact? = nil) async -> Bool {
+                interactionMode: InteractionMode? = nil, sourcePlan: PlanArtefact? = nil,
+                queuedAt: Date = Date()) async -> Bool {
         guard !isWorkspaceArchiving else { return false }
         // Anything said to the chat supersedes a continuation waiting on the allowance, including
         // the continuation itself, which disarms before it gets here.
@@ -728,7 +732,10 @@ final class TranscriptModel {
         // Built here rather than inside the enqueue, so the row that goes in the table and the
         // bubble that goes on screen are one object with one id. Drawn twice under two ids is the
         // duplicate that would appear the moment the queue was read back.
-        let delivery = Delivery(targetSessionID: session.id, body: body, interactionMode: interactionMode ?? session.interactionMode)
+        let delivery = Delivery(
+            targetSessionID: session.id, body: body, createdAt: queuedAt,
+            interactionMode: interactionMode ?? session.interactionMode
+        )
         // Ask Bloom is the only transcript with no workspace, and the only one named this way.
         if workspace == nil {
             let id = session.id
@@ -822,6 +829,7 @@ final class TranscriptModel {
         let model = workspace.flatMap { app.existingModel(for: $0.id) }
         return DeliveryHold.of(
             isRunningSetup: model?.isRunningSetup ?? false,
+            isRunningCommand: shellRun != nil,
             isTurnRunning: isRunning,
             isAwaitingQuestion: isAwaitingPermission
         )
