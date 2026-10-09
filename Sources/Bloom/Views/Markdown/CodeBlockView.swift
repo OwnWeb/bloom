@@ -15,6 +15,9 @@ public struct CodeBlockView: View {
     private let info: String
     @State private var showsAllLines = false
     @State private var confirmsDiscard = false
+    /// An attach in flight. The draft is frozen until it lands, so a second press cannot attach
+    /// it twice and nothing typed meanwhile is wiped by the clear that follows.
+    @State private var isAttaching = false
     @Environment(\.transcriptTextSelection) private var selection
     @Environment(\.markdownLinkActions) private var linkActions
     @Environment(\.transcriptEntryID) private var entryID
@@ -52,7 +55,11 @@ public struct CodeBlockView: View {
             Hairline()
 
             if draft != nil {
-                ScriptEditor(text: Binding { draft ?? "" } set: { setDraft($0) }, language: language)
+                ScriptEditor(
+                    text: Binding { draft ?? "" } set: { setDraft($0) },
+                    language: language,
+                    isEditable: !isAttaching
+                )
                     .padding(Metrics.spacing)
             } else {
                 reader(prepared, upTo: visibleCount)
@@ -118,7 +125,9 @@ public struct CodeBlockView: View {
                     onConfirm: { setDraft(nil) }
                 )
                 Button("Attach") {
+                    isAttaching = true
                     Task {
+                        defer { isAttaching = false }
                         // Cleared only once it has arrived: a failed attach keeps the edit.
                         guard await attach(draft, EditedCodeBlock.filename(info: info, language: language))
                         else { return }
@@ -127,7 +136,7 @@ public struct CodeBlockView: View {
                 }
                 .linkButton()
                 .font(Typo.caption)
-                .disabled(draft == code)
+                .disabled(draft == code || isAttaching)
                 .help("Attach the edited code to your next message")
             } else {
                 Button { setDraft(code) } label: {
@@ -151,7 +160,11 @@ public struct CodeBlockView: View {
     }
 
     private var draftKey: String? {
-        linkActions.session.map { CodeBlockDraftStore.key(session: $0, entry: entryID, code: code) }
+        linkActions.session.map {
+            EditedCodeBlock.draftKey(
+                session: $0.rawValue, entry: entryID.map(String.init(describing:)) ?? "-", code: code
+            )
+        }
     }
 
     private func setDraft(_ text: String?) {

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// A fence from an agent's answer, edited in the transcript and handed back as an attachment.
 ///
@@ -51,6 +52,15 @@ public enum EditedCodeBlock {
         safe = safe.trimmingCharacters(in: .whitespaces)
         while safe.hasPrefix(".") { safe.removeFirst() }
         return safe.isEmpty ? nil : safe
+    }
+
+    /// Which block a draft belongs to: the conversation, the row, and the code itself, because a
+    /// row can hold several fences and nothing else tells them apart. Hashed so the key stays
+    /// short whatever the fence holds, and SHA-256 rather than `hashValue`, which changes on every
+    /// launch and would orphan every draft a relaunch was meant to keep.
+    public static func draftKey(session: String, entry: String, code: String) -> String {
+        let digest = SHA256.hash(data: Data(code.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        return "\(session)/\(entry)/\(digest)"
     }
 
     /// The inverse of `Language.detect(path:)`, which is what the test holds it to.
