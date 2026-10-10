@@ -17,7 +17,7 @@ struct WorkspaceRouterOption: View {
                 Text("Choose the model automatically")
                     .font(Typo.bodyEmphasis)
                     .foregroundStyle(Palette.textPrimary)
-                Text("A light model reads this message, not your code, and picks the model and effort before the conversation starts. Picking a model above turns this off.")
+                Text("A light model reads this message and picks the model and effort before the conversation starts. Picking a model above turns this off.")
                     .font(Typo.caption)
                     .foregroundStyle(Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

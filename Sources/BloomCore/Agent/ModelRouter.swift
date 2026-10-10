@@ -116,12 +116,15 @@ public struct ModelRouter: Sendable {
         )
         let ask = self.ask
         let waitLimit = self.waitLimit
+        // The task, not the rendered prompt: the built-in template is a page of instructions on
+        // its own, so a blank task would still render to a full turn about nothing.
+        let hasTask = !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         return AsyncStream { continuation in
             let worker = Task {
                 var progress = ModelRouterProgress()
                 // A task with nothing in it asks nothing, rather than sending a blank turn.
-                if !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if hasTask {
                     do {
                         for try await signal in ask(request) {
                             let changed = progress.ingest(signal)

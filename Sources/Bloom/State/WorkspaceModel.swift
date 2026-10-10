@@ -1467,6 +1467,10 @@ final class WorkspaceModel {
         // first. Nothing is passed in: the opening prompt is already in the queue, and so is
         // anything typed into the composer since. See `enqueueOpening`.
         await transcript(for: session).drain()
+        // The route has nothing left to say once the first message has gone. Let go of it, so the
+        // card over the chat stops watching every row the conversation adds for the rest of the
+        // workspace's life.
+        if openingRoute?.isSettled == true { openingRoute = nil }
     }
 
     private func launchCLI(_ cliSession: Session, prompt: String, repo: Repo) async {

@@ -12,7 +12,7 @@ Longer documents, pointed at rather than repeated here: `README.md` for what the
 protocol as measured, `docs/GROK.md` for Grok's ACP over stdio, `docs/PROTOCOL.md` for Claude Code's stream-json,
 `docs/AGENTS-INTEGRATION.md` for how agent CLIs are detected, `docs/BRIDGE.md` for the MCP
 bridge an agent calls back in through and which callers may call what, `docs/ROUTER.md` for the
-automatic router that has Claude Haiku pick a new workspace's model and effort, `docs/PLAN.md` for what was
+automatic router that has a light model pick a new workspace's model and effort, `docs/PLAN.md` for what was
 built and in what order, `docs/start-from.html` for the design note the create sheet's source picker
 was drawn from, which is a page to open in a browser rather than to read here.
 

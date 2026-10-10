@@ -11,8 +11,9 @@ import Foundation
 /// **What it can and cannot promise.** ACP has no system prompt and no switch for "no tools", and
 /// Grok loads the owner's own MCP servers whatever the session is given. So the session is in plan
 /// mode, in an empty scratch directory, every permission it asks for is refused, and the
-/// instructions travel at the head of the prompt. That is less than `ClaudeRouterAsk` promises,
-/// and the router's settings say so.
+/// instructions travel at the head of the prompt. Plan is the strictest mode `PermissionMode` can
+/// send, and it is a research mode: Grok may still read a file without asking, which is less than
+/// `ClaudeRouterAsk` promises and more than nothing. The router's settings say so.
 public enum GrokRouterAsk {
     public typealias MakeClient = @Sendable (GrokClient.Configuration) -> GrokClient
 

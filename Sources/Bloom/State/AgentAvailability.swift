@@ -37,9 +37,14 @@ final class AgentAvailability {
     static let staleAfter: TimeInterval = 300
 
     /// Called once the database is open, from the same place `ComposerModelCatalog` is configured.
+    ///
+    /// Detects at launch only when the router is on. Detection runs every agent's `--version` and
+    /// reads their sign-in files, and the router is the only reader of the answer and is off by
+    /// default; turning it on, opening the create window with it on, and the Agents pane all
+    /// detect when it matters.
     func configure(store: Store) {
         self.store = store
-        refresh()
+        if ModelRouterPreferences().isEnabled { refresh() }
     }
 
     /// Detects again, with the overrides as the store has them now.

@@ -26,7 +26,7 @@ struct RouterSettingsSection: View {
         Section {
             Toggle(isOn: $isEnabled) {
                 Text("Choose the model for each new workspace")
-                Text("A light model reads the first message, without accessing your code, and picks a model and reasoning effort for it before the conversation starts.")
+                Text("A light model reads the first message and picks a model and reasoning effort for it before the conversation starts. What each agent can reach while it reads is below.")
             }
 
             if isEnabled {

@@ -13,8 +13,15 @@ import Observation
 ///
 /// **It holds the queue, not the setup.** The opening message joins the chat's queue as it always
 /// has and the setup script runs as it always has. What waits is the drain: `TranscriptModel`
-/// reads `holds(_:)` and leaves the queue where it is until this has settled, and settling drains
-/// it, because the route arriving is the moment the first message may go if setup is already done.
+/// reads `holds(_:)` and leaves the queue where it is until this has settled, and
+/// `WorkspaceModel.runSetupThenSend` awaits `settled()` before its own drain, so the first message
+/// goes once both setup and the route are behind it.
+///
+/// **Settling does not drain, and it did.** A drain from here ran whenever the answer came, and an
+/// answer can come before the setup script has even started: a signed out analyser fails in a
+/// second, and `DeliveryHold.setup` only holds once the script is running. The opening message
+/// then went out beside `composer install`, which is the race the queue exists to stop. The one
+/// drain that follows setup is the one that knows setup is over.
 ///
 /// Not a case of `DeliveryHold`, although it reads like one. A hold there is a fact the bridge's
 /// tools read off the stored rows, and this lives only in memory for a few seconds after Create:
@@ -110,10 +117,6 @@ final class OpeningRoute {
             }
             self.route = answer
             self.isSettled = true
-            // The fourth moment a queue is meant to move, beside the three `drain` names: the
-            // route is the last thing the opening message was waiting for whenever setup finished
-            // first. Harmless when setup is still running, since the drain reads that hold too.
-            await transcript?.drain()
         }
     }
 
@@ -133,9 +136,14 @@ final class OpeningRoute {
     }
 
     /// The workspace is going away, or never arrived. Stops the process and the applying both.
+    ///
+    /// Settled as well as stopped, with no route. An archive can be refused after it has stopped
+    /// everything, and the workspace then lives on: left unsettled, `holds(_:)` would keep its
+    /// first chat's queue shut for good, under a card that spins with nothing behind it.
     func cancel() {
         asking?.cancel()
         applying?.cancel()
+        isSettled = true
     }
 
     /// Whether this chat's queue has to wait for the router.

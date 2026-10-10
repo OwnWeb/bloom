@@ -37,8 +37,8 @@ extension AppModel {
     /// between the worktree being cut and the opening turn being handed over, because that is the
     /// only moment at which the destination exists and nothing is reading the prompt yet.
     ///
-    /// `routesModel` is the create window's router checkbox: whether Claude Haiku chooses the first
-    /// chat's model and effort before its opening message goes. See `OpeningRoute`.
+    /// `routesModel` is the create window's router checkbox: whether a light model chooses the
+    /// first chat's model and effort before its opening message goes. See `OpeningRoute`.
     @discardableResult
     func createWorkspace(
         in repo: Repo,

@@ -8,10 +8,13 @@ import Foundation
 /// catalogue already open for a single question and close behind them.
 ///
 /// **What it can and cannot promise.** Unlike Claude Code, Codex has no switch for "no tools at
-/// all", and the owner's own MCP servers start with it. So the thread is read-only, approval is
-/// never asked, it stands in an empty scratch directory with nothing to read, and any approval
-/// the server asks for anyway is declined. That is less than `ClaudeRouterAsk` promises, and the
-/// router's settings say so.
+/// all", and the owner's own MCP servers start with it. So the thread is read-only, in an empty
+/// scratch directory, and on the `untrusted` approval policy, which asks about nearly every command
+/// including reads (see `CodexRunner.approvalPolicy`); every question it asks is declined. Not
+/// `never`, which was this file's first answer and the wrong one: `docs/CODEX.md` measured that a
+/// read-only sandbox runs reads and commands without a single question, so `never` let the
+/// analyser `cat` any file the owner can read, by absolute path, whatever folder it stood in. That
+/// is still less than `ClaudeRouterAsk` promises, and the router's settings say so.
 ///
 /// No output schema is sent, because the typed `turn/start` has none and nothing in this tree has
 /// measured whether the server takes one. The prompt asks for the JSON in words, and
@@ -37,7 +40,7 @@ public enum CodexRouterAsk {
                     let thread = try await client.startThread(
                         cwd: request.cwd,
                         model: model,
-                        approvalPolicy: .never,
+                        approvalPolicy: .untrusted,
                         sandbox: .readOnly,
                         developerInstructions: request.systemPrompt
                     )
@@ -46,7 +49,7 @@ public enum CodexRouterAsk {
                         input: [.text(request.prompt)],
                         model: model,
                         effort: request.analyser.effort,
-                        approvalPolicy: .never,
+                        approvalPolicy: .untrusted,
                         sandboxPolicy: CodexRouterAsk.readOnlyPolicy
                     )
                     var decoder = Decoder(threadID: thread.id)

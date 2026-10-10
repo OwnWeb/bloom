@@ -892,8 +892,9 @@ final class TranscriptModel {
         guard !isReconcilingPresentation else { return }
         guard !history.isCapturing, !history.isFinalisingTurn, !(history.hasActiveTurn && !isRunning) else { return }
         guard !isWorkspaceArchiving, !wasStoppedByHand, store != nil else { return }
-        // The opening message is not to run on a model the router is about to replace. Settling
-        // the route drains again, so nothing is left behind by returning here.
+        // The opening message is not to run on a model the router is about to replace.
+        // `WorkspaceModel.runSetupThenSend` drains once the route has settled, so nothing is left
+        // behind by returning here.
         guard !isAwaitingOpeningRoute else { return }
         guard drainState.begin() else { return }
         var allowRepeat = true

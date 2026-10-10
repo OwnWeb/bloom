@@ -18,7 +18,8 @@ Create ──▶ AppModel.startWorkspace
                   ├─ route.settle(into:in:) joins the question to the new chat
                   ├─ opening message queued (pending bubble: "Goes once a model has been chosen.")
                   ├─ setup script runs, as before
-                  └─ await route.settled()  answer written with updatePreferences, then drain
+                  └─ await route.settled()  answer written with updatePreferences, then the
+                                            one drain, after setup, as it always was
 ```
 
 The analyser is asked before the worktree exists, so most of its wait is spent behind git and the
@@ -55,11 +56,17 @@ suggestion: Haiku on Claude Code, the newest reduced model (`mini`, `nano`) on C
 | Agent | Adapter | How it is kept away from the code |
 |---|---|---|
 | Claude Code | `ClaudeRouterAsk`: `claude -p`, stream-json, `--json-schema` | no tools at all, no MCP, safe mode, no session saved, empty folder |
-| Codex | `CodexRouterAsk`: one thread on a short-lived app-server | read-only sandbox, approval never, approvals declined, empty folder |
+| Codex | `CodexRouterAsk`: one thread on a short-lived app-server | read-only sandbox, `untrusted` approvals all declined, empty folder |
 | Grok | `GrokRouterAsk`: one prompt on a short-lived ACP connection | plan mode, permissions refused, empty folder |
 
 Codex and Grok cannot be run with no tools at all, and both start the owner's own MCP servers.
-Settings says so. Neither has an output schema Bloom has measured, so the prompt asks for the JSON in
+Settings says so, and the card only says "not your code" for Claude Code.
+
+Codex is on `untrusted` rather than `never` because `docs/CODEX.md` measured a read-only sandbox
+running reads and commands without a single question: under `never` an analyser could read any
+file the owner can by absolute path. `untrusted` asks about nearly every command, reads included,
+and every question is declined. Grok's plan mode is the strictest mode Bloom can send it, and it is
+a research mode, so Grok may still read a file without asking. Neither has an output schema Bloom has measured, so the prompt asks for the JSON in
 words and `ModelRouterProgress` reads it out of the answer's text.
 
 ## Which model the chat gets

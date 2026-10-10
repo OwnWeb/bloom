@@ -200,6 +200,17 @@ struct ClaudeRouterAskTests {
         let last = try #require(await collect(router, task: "   ").last)
         #expect(launches.value == 0)
         #expect(last.phase == .failed)
+
+        // With the built-in template too, which renders a page of instructions around nothing.
+        var seen: [ModelRouterProgress] = []
+        for await step in router.progress(
+            task: " \n ", project: "Bloom",
+            template: PromptRegistry.definition(for: .routeTask).defaultTemplate, analyser: haiku
+        ) {
+            seen.append(step)
+        }
+        #expect(launches.value == 0)
+        #expect(seen.last?.phase == .failed)
     }
 
     @Test("an answer only in the result text is still found", .tags(.agentProtocol))

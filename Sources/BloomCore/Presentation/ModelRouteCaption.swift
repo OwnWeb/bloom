@@ -3,7 +3,7 @@ import Foundation
 /// What the router's card says, and whether it is drawn at all.
 ///
 /// The card sits over the top of a new workspace's conversation from the moment Create is pressed
-/// until the first message goes: a spinner while Claude Haiku reads the task, its thinking under
+/// until the first message goes: a spinner while the analyser reads the task, its thinking under
 /// the spinner as it is written, and then the model and effort it settled on. Every sentence on it
 /// is here rather than in the view, so the suite can hold them to the house rules and to saying
 /// something true in each of the four states.
@@ -32,10 +32,19 @@ public enum ModelRouteCaption {
     }
 
     /// - Parameter analyser: the model reading the task, by the name its list gives it.
-    public static func detail(route: ModelRoute?, isSettled: Bool, wasSkipped: Bool, analyser: String) -> String {
+    /// - Parameter readsOnlyTheMessage: true only for Claude Code, the one agent that can be run
+    ///   with no tools at all. The others are kept from the code rather than unable to reach it,
+    ///   and the card does not say more than is true. See `safetyNote(for:)`.
+    public static func detail(
+        route: ModelRoute?,
+        isSettled: Bool,
+        wasSkipped: Bool,
+        analyser: String,
+        readsOnlyTheMessage: Bool = true
+    ) -> String {
         guard isSettled else {
-            return "\(analyser) is reading your message, not your code. The conversation starts "
-                + "once it has chosen."
+            let reading = readsOnlyTheMessage ? "your message, not your code" : "your message"
+            return "\(analyser) is reading \(reading). The conversation starts once it has chosen."
         }
         guard let route else {
             return wasSkipped
@@ -93,11 +102,13 @@ public enum ModelRouteCaption {
         case .claudeCode:
             return "Claude Code reads the task with every tool switched off, in an empty folder."
         case .codex:
-            return "Codex reads the task read-only, in an empty folder, with every approval refused. "
-                + "It cannot be run with no tools at all, and starts your own MCP servers."
+            return "Codex reads the task in a read-only sandbox, in an empty folder, and every "
+                + "command it asks to run is refused. It cannot be run with no tools at all, and "
+                + "starts your own MCP servers."
         case .grok:
-            return "Grok reads the task in plan mode, in an empty folder, with every permission refused. "
-                + "It cannot be run with no tools at all, and starts your own MCP servers."
+            return "Grok reads the task in plan mode, in an empty folder, and every permission it "
+                + "asks for is refused. Plan mode can still read files without asking, and Grok "
+                + "starts your own MCP servers."
         case .cursor, .openCode:
             return "\(kind.label) cannot read tasks for the router."
         }

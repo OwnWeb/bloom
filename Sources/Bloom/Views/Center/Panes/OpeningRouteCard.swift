@@ -73,7 +73,8 @@ struct OpeningRouteCard: View {
 
             Text(ModelRouteCaption.detail(
                 route: route.route, isSettled: route.isSettled, wasSkipped: route.wasSkipped,
-                analyser: route.analyser.name
+                analyser: route.analyser.name,
+                readsOnlyTheMessage: route.analyser.kind == .claudeCode
             ))
             .font(Typo.caption)
             .foregroundStyle(Palette.textSecondary)
