@@ -1,78 +1,123 @@
 # The automatic router
 
 Off by default. Settings, Models, Automatic router turns it on. With it on, a new workspace's first
-chat does not start on whatever model the window happened to be set to: Claude Haiku reads the
-task first and Bloom picks the model and reasoning effort from what it says.
+chat does not start on whatever model the window happened to be set to: a light model reads the
+task first, and Bloom picks the model and reasoning effort from what it says.
+
+It works on every agent Bloom runs a chat on (Claude Code, Codex, Grok) and only with agents that
+are signed in. It never moves a chat to another agent: a Codex chat is routed among Codex models.
 
 ## What happens when Create is pressed
 
 ```
 Create ──▶ AppModel.startWorkspace
-             ├─ OpeningRoute(...)           claude -p --model haiku, streaming, starts now
-             ├─ WorkspaceManager.start      worktree cut, session row written
+             ├─ openingRouter(for:)        who reads the task, and with which table
+             ├─ OpeningRoute(...)          the analyser starts reading now, streaming
+             ├─ WorkspaceManager.start     worktree cut, session row written
              └─ startSetupThenSend(route:)
-                  ├─ route.settle(into:)    joins the question to the new chat
+                  ├─ route.settle(into:in:) joins the question to the new chat
                   ├─ opening message queued (pending bubble: "Goes once a model has been chosen.")
                   ├─ setup script runs, as before
                   └─ await route.settled()  answer written with updatePreferences, then drain
 ```
 
-The router is asked before the worktree exists, so the eight to seventeen seconds the namer
-measured for the same invocation are mostly spent behind git and the setup script. Only the
-opening message waits; nothing else about the workspace does.
+The analyser is asked before the worktree exists, so most of its wait is spent behind git and the
+setup script. Only the opening message waits; nothing else about the workspace does.
 
-While it waits, a card over the top of the conversation shows a spinner, Haiku's thinking as it is
-written, and a Skip button. Once settled it says what was chosen and why, until the first row of
-the conversation arrives.
+While it waits, a card over the top of the conversation shows a spinner, the analyser's thinking as
+it is written, and a Skip button. Once settled it says what was chosen and why, until the first row
+of the conversation arrives.
 
-## Decisions, and where they live
+## Signed in, not just installed
 
-| Question | Answer | Where |
+"Connected" is `AgentStatus.Connection.connected`: the CLI is found and an account is configured.
+Claude Code: `~/.claude.json` or `ANTHROPIC_API_KEY`. Codex: `~/.codex/auth.json`. Grok:
+`~/.grok/auth.json` or `XAI_API_KEY`. The check is local, so an expired token still counts, and the
+call then fails like any other failure: the chat keeps what the window was set to. Cursor and
+OpenCode are never connected, because Bloom does not read their accounts and has no runner for them.
+
+`AgentAvailability` holds the answer for the app. It detects at launch, takes over whatever the
+Agents pane detects, and the create window asks again when the last answer is five minutes old.
+
+## Who reads the task
+
+`RouterAnalyser.resolve`, in the core:
+
+1. A named agent, from Settings, while it is signed in.
+2. Otherwise the chat's own agent, while it is signed in.
+3. Otherwise the first signed in agent, in the order Claude Code, Codex, Grok.
+4. Otherwise nobody, and the create window offers no checkbox.
+
+On that agent, the model the owner chose in Settings while the list still offers it, otherwise the
+suggestion: Haiku on Claude Code, the newest reduced model (`mini`, `nano`) on Codex, the newest
+`fast` or `mini` model on Grok. The effort is the lightest that still thinks: `low` before `minimal`.
+
+| Agent | Adapter | How it is kept away from the code |
 |---|---|---|
-| Does this workspace ask? | Bloom chat, Claude Code, something written, not Carry On, setting on, checkbox on | `ModelRouting.shouldRoute` |
-| What does Haiku answer? | One of five rungs and a one sentence reason, forced by `--json-schema` | `ModelRouter.jsonSchema` |
-| Which model is that? | A fixed table, never a model id from the model | `ModelRouterTable.standard` |
-| What if the account lacks it? | The model the window was set to stays | `ModelRouting.route` |
-| What if the effort does not fit? | The model's own default effort, or none for Haiku | `ModelRouting.route` |
-| Who wins, a hand pick or the router? | The hand pick: choosing a model or effort in the footer unticks the box | `ModelRouting.takesOver` |
-| What does the card say? | Every sentence | `ModelRouteCaption` |
+| Claude Code | `ClaudeRouterAsk`: `claude -p`, stream-json, `--json-schema` | no tools at all, no MCP, safe mode, no session saved, empty folder |
+| Codex | `CodexRouterAsk`: one thread on a short-lived app-server | read-only sandbox, approval never, approvals declined, empty folder |
+| Grok | `GrokRouterAsk`: one prompt on a short-lived ACP connection | plan mode, permissions refused, empty folder |
 
-The table:
+Codex and Grok cannot be run with no tools at all, and both start the owner's own MCP servers.
+Settings says so. Neither has an output schema Bloom has measured, so the prompt asks for the JSON in
+words and `ModelRouterProgress` reads it out of the answer's text.
 
-| Rung | Model | Effort |
+## Which model the chat gets
+
+The analyser answers one of five rungs and a reason. It never names a model.
+
+| Rung | Claude Code | Codex and Grok |
 |---|---|---|
-| trivial | haiku | low |
-| simple | sonnet | medium |
-| moderate | sonnet | high |
-| complex | opus | high |
-| deep | opus | extra high |
+| trivial | haiku, low | light model, low |
+| simple | sonnet, medium | light model, medium |
+| moderate | sonnet, high | full model, medium |
+| complex | opus, high | full model, high |
+| deep | opus, extra high | full model, extra high, else high |
 
-`max` is on no rung on purpose: it can turn a quick answer into a quarter of an hour, and that
-should be somebody's decision rather than a classifier's.
+Claude Code's table is written down (`ModelRouterTable.standard`), because its aliases always
+resolve. Codex's and Grok's are read off the list each agent last answered with
+(`ModelRouterTable.suggested`), the light model being the newest reduced one and the full model the
+most capable. An account with no light model runs every rung on the full one. `max` and `ultra` are
+on no rung: they can turn a quick answer into a quarter of an hour, and that should be somebody's
+decision rather than a classifier's.
 
-## Why the model is never asked for a model
+Every rung can be changed in Settings, per agent, and Reset puts it back on the suggestion. Only the
+changed rungs are stored, so a suggestion goes on improving as the lists do.
 
-Haiku cannot know which models this account has or what the owner is willing to pay for, and a
-model id it invented would reach the CLI one step later, where a first turn fails with "There's
-an issue with the selected model" and nobody is watching. A fixed vocabulary in and a fixed table
-out is what lets the suite pin the route down.
+`ModelRouting.route` then narrows:
+
+- Claude Code: the owner's own variant of the same family is kept (`opus[1m]` stays `opus[1m]`), and
+  a family the account does not offer keeps the window's model.
+- Codex and Grok: an id the list no longer offers keeps the window's model.
+- An effort the model does not take lands on the model's own default, and a model with no levels
+  is sent none.
+
+## Who wins
+
+A model or effort picked by hand in the window: picking one unticks the router's checkbox. The
+checkbox can be ticked again to hand the choice back.
 
 ## Why the hold is not a `DeliveryHold`
 
 `DeliveryHold` is read off stored rows by the bridge's tools as well as by the transcript. The
-router's wait lives in memory for a few seconds after Create and cannot outlive the process that
-is having it, so `TranscriptModel` asks `OpeningRoute.holds(_:)` beside the hold instead of
-widening the enum.
+router's wait lives in memory for a few seconds after Create and cannot outlive the process that is
+having it, so `TranscriptModel` asks `OpeningRoute.holds(_:)` beside the hold instead of widening
+the enum.
 
 ## The prompt
 
-Editable in Settings, Prompts, as "Choose a model for a new workspace". It may change how tasks
-are sorted; it cannot change the rungs, which the schema holds to the five above.
+Editable in Settings, Prompts, as "Choose a model for a new workspace". It may change how tasks are
+sorted; it cannot change the rungs. On Claude Code a schema holds them to the five above, and on
+Codex and Grok an answer naming any other rung is no answer at all.
+
+## Not measured yet
+
+- Whether Codex sends reasoning deltas without a `summary` setting on the turn, and whether its
+  app-server takes `ephemeral` on `thread/start` and `outputSchema` on `turn/start`. Until then a
+  router thread can appear in Codex's own history, and the card may show only its spinner.
+- Whether Grok sends thought chunks at a low effort.
 
 ## Not done yet
 
-- The table is fixed. Making it editable is a Settings pane and a stored value, no new logic.
-- Only the create window routes. A `bloom://` link, the Services menu and a Shortcut have no
-  window to draw the card in, and the bridge and Carry On name their own controls.
-- Fable is in no rung. Adding it to `deep` is one line, once it is offered to every account the
-  router might run on: `ModelRouting.route` already falls back when a family is missing.
+- Only the create window routes. A `bloom://` link, the Services menu and a Shortcut have no window
+  to draw the card in, and the bridge and Carry On name their own controls.
