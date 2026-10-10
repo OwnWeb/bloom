@@ -31,9 +31,10 @@ public enum ModelRouteCaption {
         return "\(model) \u{00B7} \(effortLabel(route.effort)) effort"
     }
 
-    public static func detail(route: ModelRoute?, isSettled: Bool, wasSkipped: Bool) -> String {
+    /// - Parameter analyser: the model reading the task, by the name its list gives it.
+    public static func detail(route: ModelRoute?, isSettled: Bool, wasSkipped: Bool, analyser: String) -> String {
         guard isSettled else {
-            return "Claude Haiku is reading your message, not your code. The conversation starts "
+            return "\(analyser) is reading your message, not your code. The conversation starts "
                 + "once it has chosen."
         }
         guard let route else {
@@ -68,14 +69,37 @@ public enum ModelRouteCaption {
         return "\u{2026}" + String(tail[start...])
     }
 
-    /// The table, in a sentence, for the footnote under the setting.
+    /// A table, in a sentence, for the footnote under the setting.
     public static func tableSummary(_ table: ModelRouterTable = .standard) -> String {
-        let rungs = TaskComplexity.allCases.map { rung in
+        let rungs = TaskComplexity.allCases.compactMap { rung -> String? in
             let choice = table.choice(for: rung)
+            guard !choice.model.isEmpty else { return nil }
             let effort = choice.effort.isEmpty ? "" : ", \(effortLabel(choice.effort).lowercased())"
             return "\(rung.label): \(ModelLabel.readable(choice.model))\(effort)"
         }
-        return rungs.joined(separator: ". ") + ". A model or effort picked by hand in the new "
-            + "workspace window always wins."
+        guard !rungs.isEmpty else { return "" }
+        return rungs.joined(separator: ". ") + "."
+    }
+
+    /// What the create window says under its checkbox: who will read the task.
+    public static func analyserNote(_ analyser: RouterAnalyser) -> String {
+        "Read by \(analyser.name), on \(analyser.kind.label)."
+    }
+
+    /// What Settings says about an agent the analyser runs on, since the three cannot promise the
+    /// same thing. See `ClaudeRouterAsk`, `CodexRouterAsk` and `GrokRouterAsk`.
+    public static func safetyNote(for kind: AgentKind) -> String {
+        switch kind {
+        case .claudeCode:
+            return "Claude Code reads the task with every tool switched off, in an empty folder."
+        case .codex:
+            return "Codex reads the task read-only, in an empty folder, with every approval refused. "
+                + "It cannot be run with no tools at all, and starts your own MCP servers."
+        case .grok:
+            return "Grok reads the task in plan mode, in an empty folder, with every permission refused. "
+                + "It cannot be run with no tools at all, and starts your own MCP servers."
+        case .cursor, .openCode:
+            return "\(kind.label) cannot read tasks for the router."
+        }
     }
 }

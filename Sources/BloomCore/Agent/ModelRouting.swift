@@ -30,59 +30,6 @@ public enum TaskComplexity: String, Sendable, Hashable, CaseIterable, Codable {
     }
 }
 
-/// A model and a reasoning effort, in the words the `claude` CLI takes them.
-public struct ModelRouteChoice: Sendable, Hashable {
-    public var model: String
-    public var effort: String
-
-    public init(model: String, effort: String) {
-        self.model = model
-        self.effort = effort
-    }
-}
-
-/// Which model and effort each rung of `TaskComplexity` runs on.
-///
-/// **The router never names a model, and that is the design.** Haiku is asked one question it can
-/// answer from the text alone, how much the task asks, and this table turns the answer into a
-/// model. Asking it for a model id instead would hand it two things it cannot know: which models
-/// this account has, and what the owner is prepared to pay for. It would also put a hallucinated
-/// id one step from the CLI, where a first turn fails with "There's an issue with the selected
-/// model" and nobody is watching. A fixed vocabulary in and a fixed table out is what makes the
-/// route something the suite can pin down.
-///
-/// The three family aliases rather than versioned ids, because the CLI resolves an alias to
-/// whatever that family's current build is: the table does not go stale when a model ships.
-public struct ModelRouterTable: Sendable, Hashable {
-    public var choices: [TaskComplexity: ModelRouteChoice]
-
-    public init(choices: [TaskComplexity: ModelRouteChoice]) {
-        self.choices = choices
-    }
-
-    /// The table Bloom ships.
-    ///
-    /// Two rungs share Sonnet and two share Opus, with the effort telling them apart, because the
-    /// step from one model to the next is the expensive one and the effort is the cheap knob. Max
-    /// is on no rung: it is the one level that can turn a quick answer into a quarter of an hour,
-    /// and choosing that should be somebody's decision rather than a classifier's.
-    public static let standard = ModelRouterTable(choices: [
-        .trivial: ModelRouteChoice(model: "haiku", effort: "low"),
-        .simple: ModelRouteChoice(model: "sonnet", effort: "medium"),
-        .moderate: ModelRouteChoice(model: "sonnet", effort: "high"),
-        .complex: ModelRouteChoice(model: "opus", effort: "high"),
-        .deep: ModelRouteChoice(model: "opus", effort: "xhigh"),
-    ])
-
-    /// Total, so a table missing a rung can never leave a chat on no model at all: the built-in
-    /// choice for that rung stands in, and the app's own fallback behind that.
-    public func choice(for complexity: TaskComplexity) -> ModelRouteChoice {
-        choices[complexity]
-            ?? Self.standard.choices[complexity]
-            ?? ModelRouteChoice(model: AppDefaults.fallbackModel, effort: AppDefaults.fallbackEffort)
-    }
-}
-
 /// What the router said, once Bloom has decided it is usable. Nothing builds one of these from
 /// raw model output except `ModelRouting.answer(from:)`.
 public struct ModelRouterAnswer: Sendable, Hashable {
@@ -127,30 +74,31 @@ public enum ModelRouting {
     /// - Parameter isEnabled: the setting, and the create window's own checkbox under it. The
     ///   window turns its checkbox off the moment a model or an effort is picked by hand, so a
     ///   choice somebody made is never overruled by a classifier. See `takesOver`.
-    /// - Parameter isAgentAvailable: whether the CLI that would answer is installed.
+    /// - Parameter hasAnalyser: whether any connected agent can read the task. See
+    ///   `RouterAnalyser.resolve`, which is what answers it.
     /// - Parameter mode: only a Bloom chat. A CLI chat runs in a terminal with its own picker, and
     ///   a terminal or browser workspace has no turn to route.
-    /// - Parameter backend: only Claude Code, because the table speaks Claude models. A Codex chat
-    ///   handed `sonnet` would be a chat on a model its backend has never heard of.
-    /// - Parameter prompt: empty gives the router nothing to read.
+    /// - Parameter backend: an agent Bloom can run a chat on. The route never changes it: the
+    ///   table it is routed with is that agent's own, so a Codex chat is never handed `sonnet`.
+    /// - Parameter prompt: empty gives the analyser nothing to read.
     /// - Parameter isResuming: Carry On picks up a conversation under the settings it was had
     ///   under, and a resumed thread is not a new task.
     public static func shouldRoute(
         isEnabled: Bool,
-        isAgentAvailable: Bool,
+        hasAnalyser: Bool,
         mode: WorkspaceStartMode,
         backend: AgentKind,
         prompt: String,
         isResuming: Bool
     ) -> Bool {
-        guard isEnabled, isAgentAvailable, !isResuming else { return false }
-        guard offers(isEnabled: true, mode: mode, backend: backend) else { return false }
+        guard isEnabled, !isResuming else { return false }
+        guard offers(isEnabled: true, hasAnalyser: hasAnalyser, mode: mode, backend: backend) else { return false }
         return !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Whether the create window shows the router's checkbox at all.
-    public static func offers(isEnabled: Bool, mode: WorkspaceStartMode, backend: AgentKind) -> Bool {
-        isEnabled && mode == .chat && backend == .claudeCode
+    public static func offers(isEnabled: Bool, hasAnalyser: Bool, mode: WorkspaceStartMode, backend: AgentKind) -> Bool {
+        isEnabled && hasAnalyser && mode == .chat && backend.canRunWorkspaces
     }
 
     /// Whether a change made in the create window's footer takes the model back from the router.
@@ -209,49 +157,62 @@ public enum ModelRouting {
 
     // MARK: - Turning it into a model
 
-    /// The route for an answer, given what the chat was going to run on and what the account has.
+    /// The route for an answer, given what the chat was going to run on and what its agent has.
     ///
-    /// - Parameter current: the model the chat was created with. Kept outright when it is the same
-    ///   family as the table's choice, because the owner's own variant is a choice the alias would
-    ///   throw away: somebody on `opus[1m]` routed to `opus` would lose a million tokens of context
-    ///   to a decision about effort.
-    /// - Parameter models: what Claude Code's model list last answered, empty when it has not been
-    ///   asked. It only ever narrows: a family the account does not offer keeps `current`, and an
+    /// - Parameter table: the chat's own agent's table. See `ModelRouterSettings.table(for:models:)`.
+    /// - Parameter backend: the chat's agent, which the route never changes.
+    /// - Parameter current: the model the chat was created with. On Claude Code it is kept outright
+    ///   when it is the same family as the table's choice, because the owner's own variant is a
+    ///   choice the alias would throw away: somebody on `opus[1m]` routed to `opus` would lose a
+    ///   million tokens of context to a decision about effort.
+    /// - Parameter models: what the agent's model list last answered, empty when it has not been
+    ///   asked. It only ever narrows: a model the account does not offer keeps `current`, and an
     ///   effort the chosen model does not take lands on the one it does.
     public static func route(
         _ answer: ModelRouterAnswer,
         table: ModelRouterTable = .standard,
+        backend: AgentKind = .claudeCode,
         current: String,
         models: [AgentModel] = []
     ) -> ModelRoute {
         let choice = table.choice(for: answer.complexity)
-        let model = chosenModel(choice.model, current: current, models: models)
+        let model = chosenModel(choice.model, backend: backend, current: current, models: models)
         return ModelRoute(
             complexity: answer.complexity,
             model: model,
-            effort: chosenEffort(choice.effort, model: model, models: models),
+            effort: chosenEffort(choice.effort, model: model, backend: backend, models: models),
             reason: answer.reason
         )
     }
 
-    static func chosenModel(_ wanted: String, current: String, models: [AgentModel]) -> String {
+    static func chosenModel(_ wanted: String, backend: AgentKind, current: String, models: [AgentModel]) -> String {
+        // A rung the table does not have.
+        guard !wanted.isEmpty else { return current }
+        let offered = models.filter { !$0.hidden }
+
+        guard backend == .claudeCode else {
+            // Codex and Grok ids are exact. One the list has stopped offering, which is a table
+            // stored before a model was retired, keeps what the chat already had.
+            if !offered.isEmpty, !offered.contains(where: { $0.id == wanted }) { return current }
+            return wanted
+        }
+
         guard let wantedFamily = family(of: wanted) else { return wanted }
         if family(of: current) == wantedFamily { return current }
 
         // A list that has answered and has nothing of this family is an account that cannot run
         // it. Staying where the chat already was is the one answer that is certain to start.
-        let offered = models.filter { !$0.hidden }
         if !offered.isEmpty, !offered.contains(where: { family(of: $0.id) == wantedFamily }) {
             return current
         }
         return wanted
     }
 
-    static func chosenEffort(_ wanted: String, model: String, models: [AgentModel]) -> String {
-        let modelFamily = family(of: model)
+    static func chosenEffort(_ wanted: String, model: String, backend: AgentKind, models: [AgentModel]) -> String {
+        let modelFamily = backend == .claudeCode ? family(of: model) : nil
         let entry = models.first { $0.id == model }
             ?? models.first { modelFamily != nil && family(of: $0.id) == modelFamily }
-        // Not listed, or no list: the table's own level, which the CLI takes for every family.
+        // Not listed, or no list: the table's own level.
         guard let entry else { return wanted }
         // Listed with no levels at all is a model that takes no effort, which is Haiku today.
         // `ClaudeModel.agentModel` says the same thing by giving it an empty default.
@@ -268,29 +229,4 @@ public enum ModelRouting {
     }
 
     private static let families = ["opus", "sonnet", "haiku", "fable"]
-}
-
-/// Whether new workspaces ask the router, as a preference.
-///
-/// **Off by default, which is the opposite of the namer's answer, and the difference is the
-/// point.** Naming changes a label; routing changes which model does the work, what it costs, and
-/// how long the first turn takes to start, since the opening message waits for the answer. That
-/// is a trade somebody should opt into knowing it is being made.
-///
-/// `@unchecked Sendable` for the reason `WorkspaceNamingPreferences` gives: `UserDefaults` is
-/// thread safe and not annotated, and there is no other state here.
-public struct ModelRouterPreferences: @unchecked Sendable {
-    public static let key = "router.workspaces"
-    public static let fallback = false
-
-    private let defaults: UserDefaults
-
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-    }
-
-    public var isEnabled: Bool {
-        get { defaults.object(forKey: Self.key) as? Bool ?? Self.fallback }
-        nonmutating set { defaults.set(newValue, forKey: Self.key) }
-    }
 }

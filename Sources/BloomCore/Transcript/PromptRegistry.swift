@@ -549,11 +549,13 @@ public enum PromptRegistry {
 
     /// The other prompt that does not go to the workspace's own agent.
     ///
-    /// Answered by Claude Haiku through `ModelRouter`, a `claude -p` with every tool off, and only
-    /// when the automatic router is on. It asks for a rung of `TaskComplexity` and never for a
-    /// model: `ModelRouterTable` turns the rung into one, so an edited prompt can change how tasks
-    /// are sorted but can never name a model this account does not have. The structured output's
-    /// schema holds the rungs to the five below, whatever this text says.
+    /// Answered by a light model through `ModelRouter`, on whichever connected agent
+    /// `RouterAnalyser` chose, and only when the automatic router is on. It asks for a rung of
+    /// `TaskComplexity` and never for a model: `ModelRouterTable` turns the rung into one, so an
+    /// edited prompt can change how tasks are sorted but can never name a model this account does
+    /// not have. On Claude Code a schema holds the rungs to the five below whatever this text says;
+    /// on Codex and Grok the JSON is asked for in words, and an answer naming any other rung is no
+    /// answer at all. See `ModelRouting.answer(from:)`.
     static let routeTask = PromptDefinition(
         id: .routeTask,
         title: "Choose a model for a new workspace",
@@ -584,6 +586,10 @@ public enum PromptRegistry {
 
         When it sits between two, choose the higher one. Give the reason in one short sentence, \
         in the language the task is written in.
+
+        Answer with only this JSON object, and nothing before or after it:
+
+        {"complexity": "<one of the five above>", "reason": "<one short sentence>"}
 
         ## Task
 
