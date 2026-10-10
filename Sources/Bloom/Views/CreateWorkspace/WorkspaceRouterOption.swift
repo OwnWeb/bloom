@@ -8,6 +8,8 @@ import SwiftUI
 /// that row with its words on, and a seventh control would put every label back on the glyph rung.
 struct WorkspaceRouterOption: View {
     @Binding var isEnabled: Bool
+    /// Who will read the task, in a line. See `ModelRouteCaption.analyserNote`.
+    var note: String
 
     var body: some View {
         Toggle(isOn: $isEnabled) {
@@ -15,10 +17,13 @@ struct WorkspaceRouterOption: View {
                 Text("Choose the model automatically")
                     .font(Typo.bodyEmphasis)
                     .foregroundStyle(Palette.textPrimary)
-                Text("Claude Haiku reads this message, not your code, and picks the model and effort before the conversation starts. Picking a model above turns this off.")
+                Text("A light model reads this message, not your code, and picks the model and effort before the conversation starts. Picking a model above turns this off.")
                     .font(Typo.caption)
                     .foregroundStyle(Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(note)
+                    .font(Typo.caption)
+                    .foregroundStyle(Palette.textTertiary)
             }
         }
         .toggleStyle(.checkbox)

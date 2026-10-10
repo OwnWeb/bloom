@@ -345,6 +345,9 @@ struct AgentsSettingsView: View {
     private func read(from catalog: AgentCatalog) async {
         let found = await catalog.statuses()
         statuses = Dictionary(found.map { ($0.kind, $0) }, uniquingKeysWith: { _, latest in latest })
+        // What this pane has just seen is what the router should believe too: a sign in, a sign
+        // out or a new path here is the moment the create window's answer changes.
+        AgentAvailability.shared.adopt(statuses: found, overrides: overrides)
     }
 
     private func loadOverrides() async -> [AgentKind: String] {

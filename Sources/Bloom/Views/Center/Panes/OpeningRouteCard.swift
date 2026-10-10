@@ -3,7 +3,7 @@ import BloomCore
 
 /// The automatic router at work, over the top of the conversation it is choosing a model for.
 ///
-/// A spinner while Claude Haiku reads the task, its thinking under the spinner as it is written,
+/// A spinner while the analyser reads the task, its thinking under the spinner as it is written,
 /// and then the model and effort it settled on, until the first message goes. Every word and the
 /// rule for whether the card is drawn at all are `ModelRouteCaption`'s, in the core.
 ///
@@ -72,7 +72,8 @@ struct OpeningRouteCard: View {
             }
 
             Text(ModelRouteCaption.detail(
-                route: route.route, isSettled: route.isSettled, wasSkipped: route.wasSkipped
+                route: route.route, isSettled: route.isSettled, wasSkipped: route.wasSkipped,
+                analyser: route.analyser.name
             ))
             .font(Typo.caption)
             .foregroundStyle(Palette.textSecondary)
@@ -89,7 +90,7 @@ struct OpeningRouteCard: View {
                         .foregroundStyle(Palette.textTertiary)
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel("Claude Haiku is thinking: \(reasoning)")
+                        .accessibilityLabel("\(route.analyser.name) is thinking: \(reasoning)")
                 }
             }
         }

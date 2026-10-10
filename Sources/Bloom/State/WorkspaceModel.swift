@@ -1323,7 +1323,7 @@ final class WorkspaceModel {
         if let route {
             if cliSession == nil, let session = activeSession {
                 openingRoute = route
-                route.settle(into: transcript(for: session))
+                route.settle(into: transcript(for: session), in: self)
             } else {
                 route.cancel()
             }

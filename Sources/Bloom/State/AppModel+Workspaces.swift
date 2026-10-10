@@ -146,16 +146,17 @@ extension AppModel {
             effectiveControls.agentKind = agentKind
         }
 
-        // Asked now, before anything is claimed or cut, so Claude Haiku reads the task while git
+        // Asked now, before anything is claimed or cut, so the analyser reads the task while git
         // makes the worktree and the setup script runs rather than after them. The answer is
         // joined to the chat in `startSetupThenSend` and holds only the opening message, never
-        // the worktree. Whether to ask at all is `ModelRouting.shouldRoute`, in the core.
+        // the worktree. Whether to ask at all is `ModelRouting.shouldRoute`, in the core, and who
+        // asks and with which table is `openingRouter`. Short circuited, so a workspace created
+        // with the router off reads no preference and decodes no table for it.
+        let router = routesModel ? openingRouter(for: effectiveControls.agentKind) : nil
         let route: OpeningRoute?
-        if ModelRouting.shouldRoute(
+        if let router, ModelRouting.shouldRoute(
             isEnabled: routesModel,
-            // Short circuited, so a workspace created with the router off never looks for a
-            // binary on the PATH for it.
-            isAgentAvailable: routesModel && ModelRouter.isAvailable,
+            hasAnalyser: true,
             mode: opensWith,
             backend: effectiveControls.agentKind,
             prompt: spoken,
@@ -165,7 +166,10 @@ extension AppModel {
                 task: spoken,
                 project: repo.name,
                 controls: effectiveControls,
-                models: ComposerModelCatalog.shared.models[.claudeCode] ?? []
+                analyser: router.analyser,
+                executable: AgentAvailability.shared.executable(for: router.analyser.kind),
+                table: router.table,
+                models: ComposerModelCatalog.shared.models[effectiveControls.agentKind] ?? []
             )
         } else {
             route = nil

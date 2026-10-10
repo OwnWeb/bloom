@@ -76,9 +76,11 @@ struct CreateWorkspaceView: View {
     @State private var runSetupScript = true
     @State private var isLoading = false
 
-    /// Whether the automatic router is switched on in Settings, read once per project load like
-    /// the setup script above, so the body does not go to `UserDefaults` on every pass.
+    /// Whether the automatic router is switched on in Settings, and how it is set up, read once per
+    /// project load like the setup script above, so the body does not go to `UserDefaults` on
+    /// every pass.
     @State private var isRouterEnabled = false
+    @State private var routerSettings = ModelRouterSettings()
     /// This workspace's own answer to the router: on when the setting is, and off the moment a
     /// model or an effort is picked by hand in the footer. See `ModelRouting.takesOver`.
     @State private var routesModel = false
@@ -219,10 +221,19 @@ struct CreateWorkspaceView: View {
 
     private var offersName: Bool { checkout == nil }
 
+    /// Who would read the task for the agent the footer is on, or nil when nothing signed in can,
+    /// or that agent has no table yet. See `AppModel.openingRouter`.
+    private var router: AppModel.OpeningRouter? {
+        guard isRouterEnabled else { return nil }
+        return app.openingRouter(for: controls.agentKind, settings: routerSettings)
+    }
+
     /// Whether the router's checkbox is drawn. The rule is `ModelRouting.offers`, in the core: a
-    /// Bloom chat on Claude Code, with the setting on.
+    /// Bloom chat on an agent Bloom runs, with the setting on and somebody signed in to read it.
     private var offersRouting: Bool {
-        ModelRouting.offers(isEnabled: isRouterEnabled, mode: mode, backend: controls.agentKind)
+        ModelRouting.offers(
+            isEnabled: isRouterEnabled, hasAnalyser: router != nil, mode: mode, backend: controls.agentKind
+        )
     }
 
     var body: some View {
@@ -241,8 +252,11 @@ struct CreateWorkspaceView: View {
                         .padding(.horizontal, Metrics.gutter)
                         .padding(.bottom, Metrics.spacingWide)
                 }
-                if offersRouting {
-                    WorkspaceRouterOption(isEnabled: $routesModel)
+                if offersRouting, let router {
+                    WorkspaceRouterOption(
+                        isEnabled: $routesModel,
+                        note: ModelRouteCaption.analyserNote(router.analyser)
+                    )
                         .disabled(isLoading)
                         .padding(.horizontal, Metrics.gutter)
                         .padding(.bottom, Metrics.spacingWide)
@@ -985,8 +999,13 @@ struct CreateWorkspaceView: View {
         hasSetupScript = !(context.settings.setupScript ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         isNamingAvailable = context.isNamingAvailable
-        isRouterEnabled = ModelRouterPreferences().isEnabled
+        let routerPreferences = ModelRouterPreferences()
+        isRouterEnabled = routerPreferences.isEnabled
+        routerSettings = routerPreferences.settings
         routesModel = isRouterEnabled
+        // Who is signed in decides who can read the task, and the last answer may be from before
+        // somebody signed in or out in a terminal.
+        if isRouterEnabled { AgentAvailability.shared.refreshIfStale() }
         controls = ComposerControls(
             // The Codex list only sharpens the effort here, and the sheet's own footer is what
             // fetches it: a window opened before that call returns still gets the backend the
