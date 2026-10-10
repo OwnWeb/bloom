@@ -13,6 +13,7 @@ public enum PromptID: String, Sendable, Hashable, CaseIterable, Codable {
     case carryOnArchived
     case review
     case nameWorkspace
+    case routeTask
 }
 
 /// A substitution a prompt may use, and the one line of help shown beside it in Settings.
@@ -63,7 +64,7 @@ public struct PromptDefinition: Sendable, Hashable, Identifiable {
 public enum PromptRegistry {
     public static let all: [PromptDefinition] = [
         createPullRequest, pushLocalWork, mergePullRequest, fixConflicts, continueAfterMerge,
-        carryOnArchived, review, nameWorkspace,
+        carryOnArchived, review, nameWorkspace, routeTask,
     ]
 
     public static func definition(for id: PromptID) -> PromptDefinition {
@@ -143,6 +144,13 @@ public enum PromptRegistry {
 
     /// The names the workspace-naming prompt may use.
     public enum NameWorkspace {
+        public static let task = "task"
+        public static let project = "project"
+    }
+
+    /// The names the routing prompt may use. The same two as naming, because it reads the same
+    /// sentence for a different answer.
+    public enum RouteTask {
         public static let task = "task"
         public static let project = "project"
     }
@@ -496,7 +504,8 @@ public enum PromptRegistry {
         """
     )
 
-    /// The one prompt here that does not go to the workspace's own agent.
+    /// One of the two prompts here that do not go to the workspace's own agent; `routeTask` is the
+    /// other.
     ///
     /// It is answered by a separate, short-lived `claude -p` process with every tool switched off
     /// and the default system prompt replaced, because naming a task needs none of the context
@@ -531,6 +540,50 @@ public enum PromptRegistry {
         in the words someone would use out loud. Never start it with "Task" or "Workspace".
         - branch: lowercase, words joined by hyphens, at most four words, letters, digits and \
         hyphens only, no slashes and no prefix.
+
+        ## Task
+
+        {{task}}
+        """
+    )
+
+    /// The other prompt that does not go to the workspace's own agent.
+    ///
+    /// Answered by Claude Haiku through `ModelRouter`, a `claude -p` with every tool off, and only
+    /// when the automatic router is on. It asks for a rung of `TaskComplexity` and never for a
+    /// model: `ModelRouterTable` turns the rung into one, so an edited prompt can change how tasks
+    /// are sorted but can never name a model this account does not have. The structured output's
+    /// schema holds the rungs to the five below, whatever this text says.
+    static let routeTask = PromptDefinition(
+        id: .routeTask,
+        title: "Choose a model for a new workspace",
+        summary: """
+        Sent when a workspace is created with the automatic router on, to judge how much the task \
+        asks before the first message goes.
+        """,
+        variables: [
+            PromptVariable(
+                name: RouteTask.task,
+                summary: "The first thing you asked this workspace for."
+            ),
+            PromptVariable(name: RouteTask.project, summary: "The project it was created in."),
+        ],
+        defaultTemplate: """
+        Judge how much this coding task asks of the model that will do it.
+
+        Project: {{project}}
+
+        Choose one complexity:
+
+        - trivial: a typo, a rename, a one line configuration change, or a question about one file.
+        - simple: a small change in one or two files with an obvious approach.
+        - moderate: an ordinary feature or bug fix across a handful of files.
+        - complex: work across many files, a refactor, or a bug whose cause is not known yet.
+        - deep: architecture, concurrency, security, performance or a migration, where a wrong \
+        turn is expensive.
+
+        When it sits between two, choose the higher one. Give the reason in one short sentence, \
+        in the language the task is written in.
 
         ## Task
 

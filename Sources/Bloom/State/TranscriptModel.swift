@@ -830,6 +830,7 @@ final class TranscriptModel {
     /// question the moment a running turn stopped holding the queue on two of the four backends:
     /// the tooltip went on offering to queue a message that was about to go straight out.
     var queuesNextMessage: Bool {
+        if isAwaitingOpeningRoute { return true }
         if history.isCapturing || history.isFinalisingTurn || (history.hasActiveTurn && !isRunning) { return true }
         if isRunning, session.interactionMode != activeInteractionMode { return true }
         return !Delivery.goesImmediately(
@@ -850,7 +851,23 @@ final class TranscriptModel {
         if isRunning, let mode = pendingDeliveries.first?.interactionMode, mode != activeInteractionMode {
             return "Goes when this turn ends."
         }
+        // Setup is usually the longer of the two waits, so it keeps its own sentence while it
+        // runs, and the router's takes over only when it is the last thing left.
+        if isAwaitingOpeningRoute, deliveryHold != .setup { return ModelRouting.holdSentence }
         return deliveryHold.sentence(on: session.agentKind)
+    }
+
+    /// Whether this chat's first turn is waiting for the automatic router to choose its model.
+    ///
+    /// Read off the workspace's own model, like the setup half of `deliveryHold`, and for the same
+    /// reason: only that model holds the question, and a second copy here would be a second thing
+    /// to get wrong. False for every chat but the first one of a workspace created with the router
+    /// on, and false for that one too once the route has settled. See `OpeningRoute`.
+    var isAwaitingOpeningRoute: Bool {
+        guard let workspace, let route = app.existingModel(for: workspace.id)?.openingRoute else {
+            return false
+        }
+        return route.holds(session.id)
     }
 
     /// Hands the queue to the agent, from the front, for as long as it is allowed to go.
@@ -875,6 +892,9 @@ final class TranscriptModel {
         guard !isReconcilingPresentation else { return }
         guard !history.isCapturing, !history.isFinalisingTurn, !(history.hasActiveTurn && !isRunning) else { return }
         guard !isWorkspaceArchiving, !wasStoppedByHand, store != nil else { return }
+        // The opening message is not to run on a model the router is about to replace. Settling
+        // the route drains again, so nothing is left behind by returning here.
+        guard !isAwaitingOpeningRoute else { return }
         guard drainState.begin() else { return }
         var allowRepeat = true
         defer { finishDrain(allowRepeat: allowRepeat) }

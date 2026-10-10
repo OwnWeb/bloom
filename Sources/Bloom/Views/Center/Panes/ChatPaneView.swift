@@ -75,6 +75,14 @@ struct ChatPaneView: View {
                 .padding(.bottom, room.clearance)
                 .allowsHitTesting(false)
         }
+        // The automatic router choosing this chat's model, from Create until the first message
+        // goes. Only the route's own chat draws it: a second chat opened beside the first in the
+        // same workspace is not waiting for anything. See `OpeningRouteCard`.
+        .overlay(alignment: .top) {
+            if let route = model.openingRoute, route.sessionID == transcript.session.id {
+                OpeningRouteCard(route: route, transcript: transcript)
+            }
+        }
         .overlay(alignment: .bottom) {
             ComposerDock(
                 showsJumpToNewest: isTranscriptScrolledUp,

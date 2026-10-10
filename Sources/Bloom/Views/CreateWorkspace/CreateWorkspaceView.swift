@@ -76,6 +76,13 @@ struct CreateWorkspaceView: View {
     @State private var runSetupScript = true
     @State private var isLoading = false
 
+    /// Whether the automatic router is switched on in Settings, read once per project load like
+    /// the setup script above, so the body does not go to `UserDefaults` on every pass.
+    @State private var isRouterEnabled = false
+    /// This workspace's own answer to the router: on when the setting is, and off the moment a
+    /// model or an effort is picked by hand in the footer. See `ModelRouting.takesOver`.
+    @State private var routesModel = false
+
     /// Whether a model will be asked to name this workspace, which decides what the window may
     /// honestly promise about the branch. Both halves are settled off the main actor in `load`,
     /// because one of them looks for a binary on the PATH.
@@ -212,6 +219,12 @@ struct CreateWorkspaceView: View {
 
     private var offersName: Bool { checkout == nil }
 
+    /// Whether the router's checkbox is drawn. The rule is `ModelRouting.offers`, in the core: a
+    /// Bloom chat on Claude Code, with the setting on.
+    private var offersRouting: Bool {
+        ModelRouting.offers(isEnabled: isRouterEnabled, mode: mode, backend: controls.agentKind)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -224,6 +237,12 @@ struct CreateWorkspaceView: View {
                 composer
                 if hasSetupScript {
                     WorkspaceSetupOption(isEnabled: $runSetupScript)
+                        .disabled(isLoading)
+                        .padding(.horizontal, Metrics.gutter)
+                        .padding(.bottom, Metrics.spacingWide)
+                }
+                if offersRouting {
+                    WorkspaceRouterOption(isEnabled: $routesModel)
                         .disabled(isLoading)
                         .padding(.horizontal, Metrics.gutter)
                         .padding(.bottom, Metrics.spacingWide)
@@ -570,7 +589,12 @@ struct CreateWorkspaceView: View {
         ) { actions in
             ComposerFooterView(
                 controls: controls,
-                onChange: { controls = $0 },
+                onChange: { next in
+                    // A model or an effort chosen here is a decision, and the router does not
+                    // overrule one. The checkbox can be ticked again to hand it back.
+                    if ModelRouting.takesOver(from: controls, to: next) { routesModel = false }
+                    controls = next
+                },
                 canSend: canCreate,
                 intent: .create,
                 // This window's width is fixed and was chosen for this row with its words on, so
@@ -961,6 +985,8 @@ struct CreateWorkspaceView: View {
         hasSetupScript = !(context.settings.setupScript ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         isNamingAvailable = context.isNamingAvailable
+        isRouterEnabled = ModelRouterPreferences().isEnabled
+        routesModel = isRouterEnabled
         controls = ComposerControls(
             // The Codex list only sharpens the effort here, and the sheet's own footer is what
             // fetches it: a window opened before that call returns still gets the backend the
@@ -1178,6 +1204,7 @@ struct CreateWorkspaceView: View {
         let source = checkout
         let chosenControls = controls
         let shouldRunSetup = runSetupScript
+        let shouldRoute = routesModel && offersRouting
 
         // A file can be moved or deleted between being attached and Create being pressed, and
         // naming a path that is not there only teaches the agent that Bloom lies about paths.
@@ -1205,7 +1232,8 @@ struct CreateWorkspaceView: View {
                 controls: chosenControls,
                 staged: staged,
                 checkout: source,
-                runSetupScript: shouldRunSetup
+                runSetupScript: shouldRunSetup,
+                routesModel: shouldRoute
             )
             // Whatever survived is in the worktree now, and whatever did not was never going to be.
             AttachmentStaging.discard(draftID: handedOver)

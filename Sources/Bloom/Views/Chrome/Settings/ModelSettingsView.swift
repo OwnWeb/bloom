@@ -6,6 +6,10 @@ struct ModelSettingsView: View {
     @Environment(AppModel.self) private var app
     @Binding var defaults: AppDefaults
     @State private var outputStyles = ComposerOutputStyleCatalog()
+    /// Its own preference rather than a field of `AppDefaults`, for the reason the naming switch
+    /// in General is: it is about how Bloom asks, not about what a session starts on, and nothing
+    /// in a repository's settings file can speak to it. See `ModelRouterPreferences`.
+    @State private var routesWorkspaces = ModelRouterPreferences().isEnabled
 
     var body: some View {
         Form {
@@ -34,6 +38,21 @@ struct ModelSettingsView: View {
                             .settingsFootnote()
                     }
                 }
+            }
+
+            Section {
+                Toggle(isOn: $routesWorkspaces) {
+                    Text("Choose the model for each new workspace")
+                    Text("Claude Haiku reads the first message, without accessing your code, and picks a model and reasoning effort for it before the conversation starts.")
+                }
+                .onChange(of: routesWorkspaces) { _, value in
+                    ModelRouterPreferences().isEnabled = value
+                }
+            } header: {
+                Text("Automatic router")
+            } footer: {
+                Text(ModelRouteCaption.tableSummary())
+                    .settingsFootnote()
             }
 
             Section("New session behaviour") {

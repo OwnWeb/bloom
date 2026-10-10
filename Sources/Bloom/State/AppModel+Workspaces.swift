@@ -36,6 +36,9 @@ extension AppModel {
     /// `staged` are attachments written before this worktree existed. They are moved into it here,
     /// between the worktree being cut and the opening turn being handed over, because that is the
     /// only moment at which the destination exists and nothing is reading the prompt yet.
+    ///
+    /// `routesModel` is the create window's router checkbox: whether Claude Haiku chooses the first
+    /// chat's model and effort before its opening message goes. See `OpeningRoute`.
     @discardableResult
     func createWorkspace(
         in repo: Repo,
@@ -46,13 +49,14 @@ extension AppModel {
         controls: ComposerControls? = nil,
         staged: StagedAttachments? = nil,
         checkout: WorkspaceCheckout? = nil,
-        runSetupScript: Bool = true
+        runSetupScript: Bool = true,
+        routesModel: Bool = false
     ) async -> Workspace? {
         do {
             return try await startWorkspace(
                 in: repo, prompt: prompt, baseBranch: baseBranch, opensWith: opensWith,
                 branch: branch, controls: controls, staged: staged, checkout: checkout,
-                runSetupScript: runSetupScript
+                runSetupScript: runSetupScript, routesModel: routesModel
             )
         } catch {
             // Diagnosed rather than reported. `error.readableMessage` on a `ShellError` is the git
@@ -99,7 +103,11 @@ extension AppModel {
         /// A thread on the chosen backend for the new chat to pick up. Only `carryOn` passes one.
         /// See `WorkspaceStartRequest.resuming`.
         resuming: String? = nil,
-        runSetupScript: Bool = true
+        runSetupScript: Bool = true,
+        /// Whether the automatic router chooses the first chat's model. Only the create window
+        /// passes true: every other route either names its own controls, as the bridge and Carry
+        /// On do, or has no window to show the router's card in. See `OpeningRoute`.
+        routesModel: Bool = false
     ) async throws -> Workspace {
         guard let manager else { throw AppNotReady.stillStartingUp }
         isCreatingWorkspace = true
@@ -136,6 +144,31 @@ extension AppModel {
                 effectiveControls.permissionMode = .auto
             }
             effectiveControls.agentKind = agentKind
+        }
+
+        // Asked now, before anything is claimed or cut, so Claude Haiku reads the task while git
+        // makes the worktree and the setup script runs rather than after them. The answer is
+        // joined to the chat in `startSetupThenSend` and holds only the opening message, never
+        // the worktree. Whether to ask at all is `ModelRouting.shouldRoute`, in the core.
+        let route: OpeningRoute?
+        if ModelRouting.shouldRoute(
+            isEnabled: routesModel,
+            // Short circuited, so a workspace created with the router off never looks for a
+            // binary on the PATH for it.
+            isAgentAvailable: routesModel && ModelRouter.isAvailable,
+            mode: opensWith,
+            backend: effectiveControls.agentKind,
+            prompt: spoken,
+            isResuming: resuming != nil
+        ) {
+            route = OpeningRoute(
+                task: spoken,
+                project: repo.name,
+                controls: effectiveControls,
+                models: ComposerModelCatalog.shared.models[.claudeCode] ?? []
+            )
+        } else {
+            route = nil
         }
 
         // Whether to ask a model for a name at all. Read here rather than inside the closure
@@ -267,6 +300,8 @@ extension AppModel {
             // The only way out with the row still up. Everything past this line has a stored
             // workspace behind it, and `reload` retires the pending row against that.
             forgetPending(id)
+            // And the only way out with the router still asking about a chat that will not exist.
+            route?.cancel()
             throw error
         }
 
@@ -308,7 +343,7 @@ extension AppModel {
 
         // The persisted setup state carries the creation choice. The opening prompt still goes
         // through the same queue when setup is skipped, including in a chat workspace.
-        await model(for: started.workspace).startSetupThenSend(prompt: opening, repo: repo)
+        await model(for: started.workspace).startSetupThenSend(prompt: opening, repo: repo, route: route)
         return started.workspace
     }
 
