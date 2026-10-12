@@ -15,6 +15,8 @@ struct ShellCommandRowView: View {
     /// How it ended, or nil while it is still running.
     var status: String?
     var succeeded = true
+    /// Sent during a turn and waiting for it to end. See `ShellCommand.waitsForTurn`.
+    var isWaiting = false
     var onStop: (() -> Void)?
 
     /// About a screenful of a test run's summary. The rest is one click away.
@@ -32,6 +34,7 @@ struct ShellCommandRowView: View {
     init(running run: ShellCommand.Run, onStop: @escaping () -> Void) {
         command = run.command
         output = run.output.recent(Self.collapsedLines).joined(separator: "\n")
+        isWaiting = run.isWaiting
         self.onStop = onStop
     }
 
@@ -51,14 +54,22 @@ struct ShellCommandRowView: View {
                 Text("!").foregroundStyle(Palette.warning)
                 Text(command).foregroundStyle(Palette.textPrimary)
                 if isRunning {
-                    ProgressView().controlSize(.small)
+                    if !isWaiting { ProgressView().controlSize(.small) }
                     if let onStop {
-                        Button("Stop", action: onStop)
-                            .help("Stop the command. Nothing is sent to the agent.")
+                        Button(isWaiting ? "Remove" : "Stop", action: onStop)
+                            .help(isWaiting
+                                ? "Take the command out without running it."
+                                : "Stop the command. Nothing is sent to the agent.")
                     }
                 }
             }
             .font(Typo.code)
+
+            if isWaiting {
+                Text("Runs when this turn ends.")
+                    .font(Typo.caption)
+                    .foregroundStyle(Palette.textSecondary)
+            }
 
             if !(isRunning && lines.isEmpty) {
                 HStack(alignment: .firstTextBaseline, spacing: Metrics.spacingSmall) {
