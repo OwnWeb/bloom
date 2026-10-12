@@ -538,7 +538,9 @@ final class WorkspaceModel {
     func createChat(
         title: String?,
         controls suppliedControls: ComposerControls?,
-        usesCLI suppliedCLIChoice: Bool?
+        usesCLI suppliedCLIChoice: Bool?,
+        message: String? = nil,
+        messageSender: String? = nil
     ) async -> PaneContent? {
         guard let store, let repo = app.repo(for: workspace) else { return nil }
         let defaults = await AppDefaults.loadForNewSessions(
@@ -557,9 +559,11 @@ final class WorkspaceModel {
                 codexContextWindow: defaults.codexContextWindow
             )
         guard let session = await createSession(title: title, controls: controls) else { return nil }
-        let usesCLI = suppliedCLIChoice ?? defaults.terminalChat
-        guard WorkspaceStartMode.chat(usesCLI: usesCLI, agent: controls.agentKind).cliAgentKind != nil
-        else { return .chat(session.id) }
+        let usesCLI = message == nil && (suppliedCLIChoice ?? defaults.terminalChat)
+        guard WorkspaceStartMode.chat(usesCLI: usesCLI, agent: controls.agentKind).cliAgentKind != nil else {
+            await send(message, from: messageSender, toNew: session)
+            return .chat(session.id)
+        }
         CenterTabStore.shared.add(
             kind: .terminal, workspaceID: workspace.id,
             title: title ?? session.agentKind.label, agentSessionID: session.id
@@ -567,6 +571,22 @@ final class WorkspaceModel {
         pendingCLILaunches.insert(session.id)
         await launchCLI(session, prompt: "", repo: repo)
         return .chat(session.id)
+    }
+
+    /// Through the queue, as `enqueueOpening` does, so nothing typed meanwhile gets in front. An
+    /// agent's message is headed with its chat, and sent unwrapped so a slash command runs.
+    private func send(_ message: String?, from sender: String?, toNew session: Session) async {
+        guard let message, let store else { return }
+        let delivery = sender.map {
+            Delivery(
+                targetSessionID: session.id, sourceWorkspaceID: workspace.id, kind: .message,
+                crew: CrewMessage.opening(from: $0, text: message)
+            )
+        } ?? Delivery(targetSessionID: session.id, body: message)
+        _ = try? await store.enqueueDelivery(delivery)
+        let transcript = transcript(for: session)
+        await transcript.refreshQueue()
+        await transcript.drain()
     }
 
     /// Retires the old runner only after its replacement has been saved successfully.

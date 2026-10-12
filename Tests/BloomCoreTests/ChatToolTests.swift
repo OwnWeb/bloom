@@ -165,6 +165,72 @@ struct ChatToolTests {
         ])
     }
 
+    @Test("create carries an agent's first message headed, in its permission mode, beside no working chat")
+    func createWithMessage() async throws {
+        let store = try makeTestStore("chat-create-message")
+        let (workspace, current, identity) = try await seed(store)
+        let (release, _) = try await other(store)
+        let recorder = ChatMutationRecorder(workspace: workspace)
+        let tool = ChatCreateTool { workspaceID, order in
+            await recorder.create(workspaceID: workspaceID, order: order)
+        }
+        var calling = current
+        calling.state = .running
+        calling.permissionMode = .acceptEdits
+        _ = try await store.upsert(calling)
+
+        let own = await tool.call(request(["message": .string("  /mr \n")]), as: identity, store: store)
+        let owner = await tool.call(
+            request(["workspace": .string("Release"), "message": .string("Tag it.")]), as: .owner, store: store
+        )
+        let elsewhere = await tool.call(
+            request(["workspace": .string("Release"), "message": .string("Tag it.")]), as: identity, store: store
+        )
+        let escalated = await tool.call(
+            request(["message": .string("/mr"), "permission_mode": .string("bypassPermissions")]),
+            as: identity, store: store
+        )
+        let sameMode = await tool.call(
+            request(["message": .string("/mr"), "permission_mode": .string("acceptEdits")]),
+            as: identity, store: store
+        )
+        let stranger = BridgeIdentity(sessionID: .new(), workspaceID: workspace.id, role: .workspace)
+        let orphan = await tool.call(request(["message": .string("/mr")]), as: stranger, store: store)
+        let tooLong = String(repeating: "a", count: WorkspaceSayTool.maximumLength + 1)
+        let overlong = await tool.call(request(["message": .string(tooLong)]), as: identity, store: store)
+        var working = Session(workspaceID: workspace.id, title: "Working")
+        working.state = .running
+        _ = try await store.upsert(working)
+        let terminal = await tool.call(
+            request(["message": .string("/mr"), "terminal_chat": .bool(true)]), as: identity, store: store
+        )
+        let beside = await tool.call(request(["message": .string("/mr")]), as: identity, store: store)
+
+        #expect(!own.isError, "\(own.text)")
+        #expect(!owner.isError, "\(owner.text)")
+        #expect(elsewhere.isError)
+        #expect(elsewhere.text.contains("workspace_say"))
+        #expect(!sameMode.isError, "\(sameMode.text)")
+        #expect(orphan.isError)
+        #expect(orphan.text.contains("no longer has the chat asking"))
+        #expect(escalated.isError)
+        #expect(escalated.text.contains("acceptEdits"))
+        #expect(overlong.isError)
+        #expect(terminal.isError)
+        #expect(terminal.text.contains("terminal_chat"))
+        #expect(beside.isError)
+        #expect(beside.text.contains("Another chat in this workspace is working"))
+        #expect(await recorder.created == [
+            .init(workspaceID: workspace.id, order: ChatCreateOrder(
+                permissionMode: .acceptEdits, message: "/mr", messageSender: "Current"
+            )),
+            .init(workspaceID: release.id, order: ChatCreateOrder(message: "Tag it.")),
+            .init(workspaceID: workspace.id, order: ChatCreateOrder(
+                permissionMode: .acceptEdits, message: "/mr", messageSender: "Current"
+            )),
+        ])
+    }
+
     @Test("create rejects malformed composer choices before asking the app")
     func createOptionRefusals() async throws {
         let store = try makeTestStore("chat-create-option-refusals")

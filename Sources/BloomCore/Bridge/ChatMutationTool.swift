@@ -57,12 +57,16 @@ public struct ChatCreateOrder: Sendable, Equatable {
     public let agent: AgentKind?
     public let model: String?
     public let effort: String?
-    public let permissionMode: PermissionMode?
+    public internal(set) var permissionMode: PermissionMode?
     public let interactionMode: InteractionMode?
     public let fastMode: Bool?
     public let outputStyle: String?
     public let contextWindow: Int?
     public let terminalChat: Bool?
+    /// Sent unwrapped, so a slash command in it runs as one.
+    public let message: String?
+    /// The chat that asked for `message`, shown above it. Nil for the owner's own client.
+    public internal(set) var messageSender: String?
 
     public init(
         title: String? = nil,
@@ -74,7 +78,9 @@ public struct ChatCreateOrder: Sendable, Equatable {
         fastMode: Bool? = nil,
         outputStyle: String? = nil,
         contextWindow: Int? = nil,
-        terminalChat: Bool? = nil
+        terminalChat: Bool? = nil,
+        message: String? = nil,
+        messageSender: String? = nil
     ) {
         self.title = title
         self.agent = agent
@@ -86,6 +92,8 @@ public struct ChatCreateOrder: Sendable, Equatable {
         self.outputStyle = outputStyle
         self.contextWindow = contextWindow
         self.terminalChat = terminalChat
+        self.message = message
+        self.messageSender = messageSender
     }
 }
 
@@ -159,7 +167,12 @@ public struct ChatCreateTool: BridgeToolHandling {
             agent, model, reasoning effort, permission mode, work mode, fast mode, output style \
             and Codex context window, plus whether the chat runs in a visible terminal. The new \
             chat becomes the workspace's active destination. \
-            For a handover, close the old chat next, then workspace_say starts work in the new one.
+            Pass 'message' to start a turn in the new chat with it, as though the owner had typed \
+            it, so a slash command runs. Only in your own workspace, and only while no other \
+            chat there is working, in your own permission mode, headed with your chat's name: a \
+            message to another workspace goes through workspace_say. \
+            A chat started with a message is never terminal-backed. \
+            For a handover, close the old chat next.
 
             Without 'workspace' it adds the chat to your own workspace. Pass a workspace id from \
             workspace_list, or a name no other active workspace shares, to add it somewhere else. \
@@ -233,6 +246,12 @@ public struct ChatCreateTool: BridgeToolHandling {
                         "Whether to run the agent in a visible terminal-backed chat. Omit it to use the app default."
                     ),
                 ]),
+                "message": .object([
+                    "type": .string("string"),
+                    "description": .string(
+                        "The first message, which starts a turn in the new chat. Your own workspace only."
+                    ),
+                ]),
             ]),
             "required": .array([]),
             "additionalProperties": .bool(false),
@@ -240,7 +259,7 @@ public struct ChatCreateTool: BridgeToolHandling {
     )
 
     public func call(_ request: MCPRequest, as identity: BridgeIdentity, store: Store) async -> BridgeToolResult {
-        let order: ChatCreateOrder
+        var order: ChatCreateOrder
         switch Self.order(from: request) {
         case .failure(let refusal): return .failure(refusal.sentence)
         case .success(let parsed): order = parsed
@@ -255,6 +274,13 @@ public struct ChatCreateTool: BridgeToolHandling {
                 target = resolved
             }
             let workspaceID = target.workspaceID
+            if order.message != nil, identity.role != .owner {
+                let sessions = try await store.sessions(workspaceID: workspaceID)
+                switch Self.messageOrder(order, from: identity, into: workspaceID, among: sessions) {
+                case .failure(let refusal): return .failure(refusal.sentence)
+                case .success(let headed): order = headed
+                }
+            }
 
             switch await create(workspaceID, order) {
             case .created(let summary):
@@ -265,6 +291,41 @@ public struct ChatCreateTool: BridgeToolHandling {
         } catch {
             return .failure("Bloom could not create the chat: \(error.localizedDescription)")
         }
+    }
+
+    /// A self-approved turn needs brakes, as `agent_start` and `workspace_say` have: the caller's
+    /// own workspace and permission mode, and one working chat beside it at a time, so a handover
+    /// passes and a fan-out or an escalation does not.
+    static func messageOrder(
+        _ order: ChatCreateOrder, from identity: BridgeIdentity, into workspaceID: WorkspaceID, among sessions: [Session]
+    ) -> Result<ChatCreateOrder, PaneRefusal> {
+        guard workspaceID == identity.workspaceID else {
+            return .failure(PaneRefusal(
+                "chat_create sends a 'message' only in your own workspace. Create the chat without it, then use workspace_say."
+            ))
+        }
+        guard let caller = sessions.first(where: { $0.id == identity.sessionID }) else {
+            return .failure(PaneRefusal("Bloom no longer has the chat asking, so it started no turn for it."))
+        }
+        if let asked = order.permissionMode, asked != caller.permissionMode {
+            return .failure(PaneRefusal(
+                "With a 'message', the new chat runs in your own permission mode, "
+                    + "'\(caller.permissionMode.rawValue)'. Leave 'permission_mode' out."
+            ))
+        }
+        let busy = sessions.contains {
+            $0.id != caller.id && $0.parentSessionID == nil && $0.sideConversationParentID == nil && $0.state.isMidTurn
+        }
+        guard !busy else {
+            return .failure(PaneRefusal(
+                "Another chat in this workspace is working or waiting for an answer, so chat_create did "
+                    + "not start a turn in a new one. Wait for it to finish, or create the chat without 'message'."
+            ))
+        }
+        var headed = order
+        headed.permissionMode = caller.permissionMode
+        headed.messageSender = ChatListTool.title(of: caller)
+        return .success(headed)
     }
 
     private static func order(from request: MCPRequest) -> Result<ChatCreateOrder, PaneRefusal> {
@@ -287,6 +348,19 @@ public struct ChatCreateTool: BridgeToolHandling {
         switch text(request, key: "output_style") {
         case .failure(let refusal): return .failure(refusal)
         case .success(let value): outputStyle = value
+        }
+        let message: String?
+        switch text(request, key: "message") {
+        case .failure where request.stringParam("message") != nil:
+            return .failure(PaneRefusal("'message' cannot be blank. Leave it out to send nothing."))
+        case .failure(let refusal): return .failure(refusal)
+        case .success(let value): message = value
+        }
+        if let message, message.count > WorkspaceSayTool.maximumLength {
+            return .failure(PaneRefusal(
+                "'message' is \(message.count) characters and chat_create takes up to "
+                    + "\(WorkspaceSayTool.maximumLength)."
+            ))
         }
 
         var agent: AgentKind?
@@ -339,6 +413,10 @@ public struct ChatCreateTool: BridgeToolHandling {
         case .bool(let value): terminalChat = value
         default: return .failure(PaneRefusal("'terminal_chat' must be true or false."))
         }
+        // A terminal chat reads as idle until its process is polled, which the brake cannot see.
+        if message != nil, terminalChat == true {
+            return .failure(PaneRefusal("'message' starts a turn in Bloom's own chat, so leave 'terminal_chat' out."))
+        }
 
         return .success(ChatCreateOrder(
             title: title,
@@ -350,7 +428,8 @@ public struct ChatCreateTool: BridgeToolHandling {
             fastMode: fastMode,
             outputStyle: outputStyle,
             contextWindow: contextWindow,
-            terminalChat: terminalChat
+            terminalChat: terminalChat,
+            message: message
         ))
     }
 

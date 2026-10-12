@@ -344,7 +344,9 @@ extension AppModel {
             inheriting: inherited
         )
 
-        if let permission = order.permissionMode {
+        // An agent's message carries the caller's mode, which may need its counterpart here.
+        if let permission = order.messageSender == nil
+            ? order.permissionMode : order.permissionMode?.nearest(on: controls.agentKind) {
             guard controls.availablePermissionModes.contains(permission) else {
                 throw BridgeAgentControlFailure.unsupportedPermission(permission, agent: controls.agentKind)
             }
@@ -556,7 +558,9 @@ extension AppModel {
         guard let content = await model.createChat(
             title: order.title,
             controls: controls,
-            usesCLI: order.terminalChat
+            usesCLI: order.terminalChat,
+            message: order.message,
+            messageSender: order.messageSender
         ),
               case .chat(let sessionID) = content,
               let session = model.sessions.first(where: { $0.id == sessionID }) else {

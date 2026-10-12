@@ -20,6 +20,8 @@ public struct CrewMessage: Sendable, Equatable, Codable {
     public enum Event: String, Sendable, Codable {
         /// The first row of a subagent's own chat: the task it was started with.
         case brief
+        /// The first row of a chat another chat opened with `chat_create`.
+        case opening
         /// Another agent said something to this one.
         case said
         /// Bloom reporting that an agent's turn ended. Not an agent talking.
@@ -101,6 +103,11 @@ public struct CrewMessage: Sendable, Equatable, Codable {
         CrewMessage(
             event: .brief, sender: .orchestrator, from: orchestrator, text: task, sent: task
         )
+    }
+
+    /// What another chat opened this one with. Unwrapped like a brief, so a slash command runs.
+    public static func opening(from chat: String, text: String) -> CrewMessage {
+        CrewMessage(event: .opening, sender: .orchestrator, from: chat, text: text, sent: text)
     }
 
     /// Bloom telling an orchestrator that one of its subagents has stopped, carrying what that
