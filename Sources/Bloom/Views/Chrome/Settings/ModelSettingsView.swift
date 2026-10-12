@@ -36,6 +36,10 @@ struct ModelSettingsView: View {
                 }
             }
 
+            // Its own preferences rather than `AppDefaults`: it is about how Bloom asks, not what a session
+            // starts on.
+            RouterSettingsSection()
+
             Section("New session behaviour") {
                 Picker("Open new chats in", selection: $defaults.terminalChat) {
                     Text("Bloom chat").tag(false)

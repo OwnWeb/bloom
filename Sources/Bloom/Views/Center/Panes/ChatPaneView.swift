@@ -63,11 +63,19 @@ struct ChatPaneView: View {
     }
 
     var body: some View {
-        TranscriptView(
-            transcript: transcript,
-            isRunningSetup: model.isRunningSetup,
-            memory: model.transcriptMemory(pane: pane)
-        ) { isTranscriptScrolledUp = $0 }
+        VStack(spacing: 0) {
+            // Above the transcript rather than over it, so it pushes the setup log down. See
+            // `OpeningRouteCard`.
+            if let route = model.openingRoute, route.sessionID == transcript.session.id {
+                OpeningRouteCard(route: route, transcript: transcript) { model.openingRoute = nil }
+            }
+
+            TranscriptView(
+                transcript: transcript,
+                isRunningSetup: model.isRunningSetup,
+                memory: model.transcriptMemory(pane: pane)
+            ) { isTranscriptScrolledUp = $0 }
+        }
         .environment(\.composerRoom, room)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay {

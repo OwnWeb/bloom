@@ -69,6 +69,8 @@ struct ComposerFooterView: View, Equatable {
     var showsAgentControls: Bool = true
     var usesCLIChat: Binding<Bool>?
     var supportsCLIChat: Bool = true
+    /// Nil where Auto is not offered. See `ComposerSettingsPicker.autoModel`.
+    var autoModel: Binding<Bool>?
     /// Identifies the owner of the callbacks when the row is compared across parent updates.
     var actionIdentity: ObjectIdentifier?
 
@@ -91,6 +93,7 @@ struct ComposerFooterView: View, Equatable {
             && lhs.showsAgentControls == rhs.showsAgentControls
             && (lhs.usesCLIChat != nil) == (rhs.usesCLIChat != nil)
             && lhs.supportsCLIChat == rhs.supportsCLIChat
+            && lhs.autoModel?.wrappedValue == rhs.autoModel?.wrappedValue
             && lhs.actionIdentity == rhs.actionIdentity
     }
 
@@ -290,7 +293,8 @@ struct ComposerFooterView: View, Equatable {
                     onOutputStyle: { id in edit { $0.outputStyle = id } },
                     onPermissionMode: selectPermissionMode,
                     onContextWindow: { tokens in edit { $0.codexContextWindow = tokens } },
-                    onInteractionMode: { mode in edit { $0.interactionMode = mode } }
+                    onInteractionMode: { mode in edit { $0.interactionMode = mode } },
+                    autoModel: autoModel
                 )
 
                 ComposerFastModeToggle(

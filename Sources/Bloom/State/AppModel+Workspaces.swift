@@ -47,13 +47,14 @@ extension AppModel {
         staged: StagedAttachments? = nil,
         checkout: WorkspaceCheckout? = nil,
         runSetupScript: Bool = true,
-        kind: WorkspaceKind = .worktree
+        kind: WorkspaceKind = .worktree,
+        routesModel: Bool = false
     ) async -> Workspace? {
         do {
             return try await startWorkspace(
                 in: repo, prompt: prompt, baseBranch: baseBranch, opensWith: opensWith,
                 branch: branch, controls: controls, staged: staged, checkout: checkout,
-                runSetupScript: runSetupScript, kind: kind
+                runSetupScript: runSetupScript, kind: kind, routesModel: routesModel
             )
         } catch {
             // Diagnosed rather than reported. `error.readableMessage` on a `ShellError` is the git
@@ -103,7 +104,10 @@ extension AppModel {
         runSetupScript: Bool = true,
         /// A worktree, or the project's own checkout. The second arrives named and is never set
         /// up or renamed: see `WorkspaceKind`.
-        kind: WorkspaceKind = .worktree
+        kind: WorkspaceKind = .worktree,
+        /// Whether the automatic router chooses the first chat's model. Only the create window passes
+        /// true, since nothing else has a window to show the router's card in. See `OpeningRoute`.
+        routesModel: Bool = false
     ) async throws -> Workspace {
         guard let manager else { throw AppNotReady.stillStartingUp }
         // Settled first, so every naming decision below sees a supplied name and stands aside:
@@ -143,6 +147,31 @@ extension AppModel {
                 effectiveControls.permissionMode = .auto
             }
             effectiveControls.agentKind = agentKind
+        }
+
+        // Asked before the worktree is cut, so the analyser reads while git and the setup script run.
+        // Short circuited, so a workspace created with the router off decodes no table.
+        let router = routesModel ? openingRouter(for: effectiveControls.agentKind) : nil
+        let route: OpeningRoute?
+        if let router, ModelRouting.shouldRoute(
+            isEnabled: routesModel,
+            hasAnalyser: true,
+            mode: opensWith,
+            backend: effectiveControls.agentKind,
+            prompt: spoken,
+            isResuming: resuming != nil
+        ) {
+            route = OpeningRoute(
+                task: spoken,
+                project: repo.name,
+                controls: effectiveControls,
+                analyser: router.analyser,
+                executable: AgentAvailability.shared.executable(for: router.analyser.kind),
+                table: router.table,
+                models: ComposerModelCatalog.shared.models[effectiveControls.agentKind] ?? []
+            )
+        } else {
+            route = nil
         }
 
         // Whether to ask a model for a name at all. Read here rather than inside the closure
@@ -275,6 +304,8 @@ extension AppModel {
             // The only way out with the row still up. Everything past this line has a stored
             // workspace behind it, and `reload` retires the pending row against that.
             forgetPending(id)
+            // And the only way out with the router still asking about a chat that will not exist.
+            route?.cancel()
             throw error
         }
 
@@ -316,7 +347,7 @@ extension AppModel {
 
         // The persisted setup state carries the creation choice. The opening prompt still goes
         // through the same queue when setup is skipped, including in a chat workspace.
-        await model(for: started.workspace).startSetupThenSend(prompt: opening, repo: repo)
+        await model(for: started.workspace).startSetupThenSend(prompt: opening, repo: repo, route: route)
         return started.workspace
     }
 
