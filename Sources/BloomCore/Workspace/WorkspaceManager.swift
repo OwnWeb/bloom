@@ -736,6 +736,8 @@ public struct WorkspaceManager: Sendable {
     /// once the branch is gone commits nothing else points at are unreachable. So unless the
     /// caller passes `force`, this refuses up front and throws a report of what is at stake,
     /// before it has touched anything.
+    /// - Parameter skipArchiveScript: Only for an owner who has been shown the script fail and
+    ///   chose to archive anyway. `force` does not imply it, see the ordering tests.
     /// - Parameter isPullRequestMerged: GitHub's own answer for this branch, when the caller has
     ///   one. Nothing here can ask: `gh` lives above this layer and a report that shelled out to
     ///   the network would make every archive wait on it. Passing it in is what stops a squash
@@ -746,6 +748,7 @@ public struct WorkspaceManager: Sendable {
         deleteBranch: Bool? = nil,
         force: Bool = false,
         isPullRequestMerged: Bool = false,
+        skipArchiveScript: Bool = false,
         archiveScriptTimeout: Duration = WorkspaceManager.archiveScriptTimeout
     ) async throws {
         // Already archived, so there is nothing here to wind down. Everything below this line acts
@@ -796,7 +799,7 @@ public struct WorkspaceManager: Sendable {
         // reason a missing setup script does not stop a workspace being created.
         let archiveRuns: Bool
         switch archiveLaunch {
-        case .executable, .source: archiveRuns = true
+        case .executable, .source: archiveRuns = !skipArchiveScript
         case .missing, nil: archiveRuns = false
         }
         if let archiveLaunch, archiveRuns,

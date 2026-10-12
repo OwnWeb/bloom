@@ -184,6 +184,19 @@ struct RootView: View {
             } onConfirm: { request in
                 request.model.runSetupAgain()
             }
+            .confirmation($app.pendingScriptFailure) { request in
+                Confirmation(
+                    title: request.failure.title,
+                    message: request.failure.message,
+                    confirmLabel: request.failure.confirmLabel,
+                    cancelLabel: request.failure.cancelLabel,
+                    alternativeLabel: request.failure.retryLabel
+                )
+            } onConfirm: { request in
+                Task { await app.archiveAnyway(request) }
+            } onAlternative: { request in
+                Task { await app.retryArchive(request) }
+            }
             // A single OK that does nothing but dismiss, which `errorAlert` says why it leaves to
             // the system rather than spelling out.
             .errorAlert(item: $app.alert) { $0.title } message: { $0.message }
