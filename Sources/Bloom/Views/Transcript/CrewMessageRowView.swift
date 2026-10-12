@@ -47,7 +47,7 @@ struct CrewMessageRowView: View {
 
     @ViewBuilder private var content: some View {
         switch message.event {
-        case .said, .brief, .relayed: spoken
+        case .said, .brief, .opening, .relayed: spoken
         case .stopped, .failed, .cancelled, .workspaceDone: fact
         }
     }
@@ -104,6 +104,7 @@ struct CrewMessageRowView: View {
         switch message.event {
         case .said: "said"
         case .brief: "started you with"
+        case .opening: "asked"
         // Drawn by `WorkspaceMessageRowView` instead, which names the workspace. Answered here so
         // the switch stays exhaustive.
         case .relayed: "said"
