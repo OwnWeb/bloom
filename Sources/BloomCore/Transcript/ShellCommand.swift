@@ -30,14 +30,32 @@ public enum ShellCommand {
         return command.isEmpty ? nil : command
     }
 
-    /// A command running from a chat's composer, and what it has printed so far.
+    /// A command sent from a chat's composer, and what it has printed so far.
     public struct Run: Sendable, Equatable {
         public var command: String
+        /// When Return was pressed, which is where its output goes in the queue: ahead of anything
+        /// typed after it, whether it ran at once or waited for a turn.
+        public var queuedAt: Date
+        /// Sent during a turn and not started yet. See `waitsForTurn`.
+        public var isWaiting: Bool
         public var output = Output()
 
-        public init(command: String) {
+        public init(command: String, queuedAt: Date = Date(), isWaiting: Bool = false) {
             self.command = command
+            self.queuedAt = queuedAt
+            self.isWaiting = isWaiting
         }
+    }
+
+    /// Whether a command sent now waits for the agent's turn to end before it runs.
+    ///
+    /// Claude Code's rule, from its documentation: "Commands and shell commands: Claude Code holds
+    /// them until the turn ends, then runs them one at a time". Run at once instead, a command and
+    /// an agent work in the same worktree without either knowing about the other: the agent can
+    /// start the build the command is already running, or edit the files it is reading. A turn
+    /// stopped on a permission question has not ended, so that waits too.
+    public static func waitsForTurn(isTurnRunning: Bool, isAwaitingQuestion: Bool) -> Bool {
+        isTurnRunning || isAwaitingQuestion
     }
 
     /// What a command printed, kept from both ends as it arrives.
