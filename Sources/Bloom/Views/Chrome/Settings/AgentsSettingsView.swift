@@ -345,6 +345,8 @@ struct AgentsSettingsView: View {
     private func read(from catalog: AgentCatalog) async {
         let found = await catalog.statuses()
         statuses = Dictionary(found.map { ($0.kind, $0) }, uniquingKeysWith: { _, latest in latest })
+        // A sign in, sign out or new path seen here is what the router should believe too.
+        AgentAvailability.shared.adopt(statuses: found, overrides: overrides)
     }
 
     private func loadOverrides() async -> [AgentKind: String] {

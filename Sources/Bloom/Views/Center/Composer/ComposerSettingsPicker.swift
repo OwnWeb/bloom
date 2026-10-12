@@ -24,6 +24,8 @@ struct ComposerSettingsPicker: View {
     var onPermissionMode: @MainActor (String) -> Void
     var onContextWindow: @MainActor (Int) -> Void
     var onInteractionMode: @MainActor (InteractionMode) -> Void = { _ in }
+    /// Nil where the router cannot choose: only the create window offers Auto. See `OpeningRoute`.
+    var autoModel: Binding<Bool>?
 
     @Environment(AppModel.self) private var app
     @Environment(\.openSettings) private var openSettings
@@ -67,7 +69,8 @@ struct ComposerSettingsPicker: View {
                 onPermissionMode: onPermissionMode,
                 onContextWindow: onContextWindow,
                 onInteractionMode: onInteractionMode,
-                onSavePreset: savePreset
+                onSavePreset: savePreset,
+                autoModel: autoModel
             )
             .environment(\.fontScale, 1)
         }
@@ -76,13 +79,24 @@ struct ComposerSettingsPicker: View {
 
     private func presetMenu(matched: ModelPreset?) -> some View {
         Menu {
+            if let autoModel {
+                Toggle(isOn: autoModel) {
+                    Text(ComposerSettingsPanel.autoLabel)
+                    Text(ComposerSettingsPanel.autoSummary)
+                }
+                Divider()
+            }
+
             Section("Presets") {
                 ForEach(library.presets) { preset in
                     // A toggle rather than a button, because the tick is the menu's to draw
                     // and a toggle is what asks for it. See `ComposerOptionMenu.rows`.
                     Toggle(isOn: Binding(
-                        get: { matched?.id == preset.id },
-                        set: { _ in MainActor.assumeIsolated { onPreset(preset) } }
+                        get: { autoModel?.wrappedValue != true && matched?.id == preset.id },
+                        set: { _ in MainActor.assumeIsolated {
+                            autoModel?.wrappedValue = false
+                            onPreset(preset)
+                        } }
                     )) {
                         Text(preset.name)
                         Text(presetSummary(preset))
@@ -136,6 +150,7 @@ struct ComposerSettingsPicker: View {
     /// The preset's name when the composer is set to one, and otherwise the two choices that say
     /// most about what a turn costs. The dot beside a one-off is drawn by the label.
     private func label(matched: ModelPreset?) -> String {
+        if autoModel?.wrappedValue == true { return ComposerSettingsPanel.autoLabel }
         if let matched { return matched.name }
         return "\(modelLabel) · \(effortLabel)"
     }
@@ -172,6 +187,14 @@ private struct ComposerSettingsPanel: View {
     var onContextWindow: @MainActor (Int) -> Void
     var onInteractionMode: @MainActor (InteractionMode) -> Void = { _ in }
     var onSavePreset: @MainActor (String) -> Void
+    var autoModel: Binding<Bool>?
+
+    static let autoLabel = "Auto"
+    static let autoSummary = "A light model reads the message and picks the model and reasoning"
+    /// No model or effort id has a space in it.
+    private static let autoTag = "bloom auto"
+
+    private var isAuto: Bool { autoModel?.wrappedValue == true }
 
     /// The name being typed for a new preset, or nil while the row shows its button.
     @State private var presetName: String?
@@ -184,7 +207,12 @@ private struct ComposerSettingsPanel: View {
             VStack(alignment: .leading, spacing: Metrics.spacing) {
                 settingRow("Model") { modelPicker }
                 settingRow("Reasoning") {
-                    optionPicker("Reasoning", selection: controls.effort, options: efforts, onSelect: onEffort)
+                    optionPicker(
+                        "Reasoning",
+                        selection: isAuto ? Self.autoTag : controls.effort,
+                        options: withAuto(efforts),
+                        onSelect: { id in choose(id, then: onEffort) }
+                    )
                 }
 
                 if controls.offersOutputStyle {
@@ -275,6 +303,10 @@ private struct ComposerSettingsPanel: View {
 
     private var modelPicker: some View {
         Picker("Model", selection: modelBinding) {
+            if autoModel != nil {
+                Text(Self.autoLabel).tag(Self.autoTag)
+                Divider()
+            }
             ForEach(models) { section in
                 Section(section.title) {
                     ForEach(section.options) { option in
@@ -326,7 +358,22 @@ private struct ComposerSettingsPanel: View {
     }
 
     private var modelBinding: Binding<String> {
-        Binding(get: { controls.model }, set: { id in MainActor.assumeIsolated { onModel(id) } })
+        Binding(
+            get: { isAuto ? Self.autoTag : controls.model },
+            set: { id in MainActor.assumeIsolated { choose(id, then: onModel) } }
+        )
+    }
+
+    /// Picking a value by hand turns Auto off even when the value is unchanged: the pick is the decision.
+    private func choose(_ id: String, then select: @MainActor (String) -> Void) {
+        guard let autoModel else { return select(id) }
+        autoModel.wrappedValue = id == Self.autoTag
+        if id != Self.autoTag { select(id) }
+    }
+
+    private func withAuto(_ options: [ComposerOption]) -> [ComposerOption] {
+        guard autoModel != nil else { return options }
+        return [ComposerOption(id: Self.autoTag, label: Self.autoLabel)] + options
     }
 
     /// "Save as preset…", which becomes a name field in place, or a line saying which preset these

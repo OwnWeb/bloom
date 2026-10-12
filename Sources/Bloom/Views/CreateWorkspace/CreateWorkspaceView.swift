@@ -76,6 +76,12 @@ struct CreateWorkspaceView: View {
     @State private var runSetupScript = true
     @State private var isLoading = false
 
+    /// Read once per project load, so the body does not go to `UserDefaults` on every pass.
+    @State private var isRouterEnabled = false
+    @State private var routerSettings = ModelRouterSettings()
+    /// The Auto entry: on when the setting is, off once a model or effort is picked by hand.
+    @State private var routesModel = false
+
     /// Whether a model will be asked to name this workspace, which decides what the window may
     /// honestly promise about the branch. Both halves are settled off the main actor in `load`,
     /// because one of them looks for a binary on the PATH.
@@ -211,6 +217,18 @@ struct CreateWorkspaceView: View {
     }
 
     private var offersName: Bool { checkout == nil }
+
+    /// See `AppModel.openingRouter`.
+    private var router: AppModel.OpeningRouter? {
+        guard isRouterEnabled else { return nil }
+        return app.openingRouter(for: controls.agentKind, settings: routerSettings)
+    }
+
+    private var offersRouting: Bool {
+        ModelRouting.offers(
+            isEnabled: isRouterEnabled, hasAnalyser: router != nil, mode: mode, backend: controls.agentKind
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -570,7 +588,11 @@ struct CreateWorkspaceView: View {
         ) { actions in
             ComposerFooterView(
                 controls: controls,
-                onChange: { controls = $0 },
+                onChange: { next in
+                    // A model or effort chosen by hand is a decision the router does not overrule.
+                    if ModelRouting.takesOver(from: controls, to: next) { routesModel = false }
+                    controls = next
+                },
                 canSend: canCreate,
                 intent: .create,
                 // This window's width is fixed and was chosen for this row with its words on, so
@@ -590,7 +612,8 @@ struct CreateWorkspaceView: View {
                     get: { usesCLIChat && defaultCLIMode != nil },
                     set: { usesCLIChat = $0 }
                 ),
-                supportsCLIChat: defaultCLIMode != nil
+                supportsCLIChat: defaultCLIMode != nil,
+                autoModel: offersRouting ? $routesModel : nil
             )
         }
     }
@@ -961,6 +984,12 @@ struct CreateWorkspaceView: View {
         hasSetupScript = !(context.settings.setupScript ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         isNamingAvailable = context.isNamingAvailable
+        let routerPreferences = ModelRouterPreferences()
+        isRouterEnabled = routerPreferences.isEnabled
+        routerSettings = routerPreferences.settings
+        routesModel = isRouterEnabled
+        // Someone may have signed in or out in a terminal since the last answer.
+        if isRouterEnabled { AgentAvailability.shared.refreshIfStale() }
         controls = ComposerControls(
             // The Codex list only sharpens the effort here, and the sheet's own footer is what
             // fetches it: a window opened before that call returns still gets the backend the
@@ -1178,6 +1207,7 @@ struct CreateWorkspaceView: View {
         let source = checkout
         let chosenControls = controls
         let shouldRunSetup = runSetupScript
+        let shouldRoute = routesModel && offersRouting
 
         // A file can be moved or deleted between being attached and Create being pressed, and
         // naming a path that is not there only teaches the agent that Bloom lies about paths.
@@ -1205,7 +1235,8 @@ struct CreateWorkspaceView: View {
                 controls: chosenControls,
                 staged: staged,
                 checkout: source,
-                runSetupScript: shouldRunSetup
+                runSetupScript: shouldRunSetup,
+                routesModel: shouldRoute
             )
             // Whatever survived is in the worktree now, and whatever did not was never going to be.
             AttachmentStaging.discard(draftID: handedOver)
