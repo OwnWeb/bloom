@@ -86,10 +86,13 @@ public struct ComposerDefaults: Equatable {
             running: running,
             models: models
         )
-        // A model the signed in account cannot run is never the answer, whichever layer named it.
-        // Everything that pinned a model is set aside and the built-ins answer instead, because a
-        // chat that opens on a model the server refuses is worse than one on a plainer default.
-        guard ModelAvailability.isUsable(model: resolved.model, on: resolved.kind, models: models) else {
+        // A new chat must not start on a Codex model absent from the account's list. A Codex chat
+        // already running on an unknown id keeps its backend: discovery cannot move that chat to
+        // Claude Code just because the list changed after it opened.
+        let keepsRunningCodex = running == .codex && resolved.kind == .codex
+        guard keepsRunningCodex || ModelAvailability.isUsable(
+            model: resolved.model, on: resolved.kind, models: models
+        ) else {
             return resolve(
                 repo: repo.withoutModelPins(),
                 app: app.withBuiltInModel(),
