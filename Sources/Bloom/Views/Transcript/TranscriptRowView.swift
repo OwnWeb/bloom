@@ -51,6 +51,8 @@ struct TranscriptRowView: View, Equatable {
             && lhs.row.permissionDecision == rhs.row.permissionDecision
             && lhs.row.permissionNote == rhs.row.permissionNote
             && lhs.projectName == rhs.projectName
+            && lhs.routeNote == rhs.routeNote
+            && lhs.routeChoices == rhs.routeChoices
             // Both are the list's answer about the message above this one, so neither is visible
             // in the row and both change without anything on the row changing.
     }
@@ -82,6 +84,10 @@ struct TranscriptRowView: View, Equatable {
     /// Answering a permission question. Never a user turn: it writes a control response that
     /// unblocks a turn already in flight.
     var onAnswer: (String, PermissionDecision) -> Void = { _, _ in }
+    /// Only on a session start row. See `SessionStartRowView`.
+    var routeNote: ModelRouteNote?
+    var routeChoices: [ModelRoute]?
+    var onReroute: (ModelRoute) -> Void = { _ in }
 
     var body: some View {
         content
@@ -237,7 +243,7 @@ struct TranscriptRowView: View, Equatable {
 
         case .system:
             if let info = initInfo {
-                SessionStartRowView(info: info)
+                SessionStartRowView(info: info, route: routeNote, routeChoices: routeChoices, onReroute: onReroute)
             } else if let wake = backgroundWake {
                 BackgroundWakeRowView(wake: wake)
             } else if let compaction {
