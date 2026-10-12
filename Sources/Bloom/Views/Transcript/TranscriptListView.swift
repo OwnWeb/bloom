@@ -903,7 +903,7 @@ struct TranscriptListView: View {
             }
         ))
 
-        // A `!` command while it runs, between what has been said and what is queued behind it,
+        // A `!` command while it waits or runs, between what has been said and what is queued behind it,
         // which is where its output will land. Always in the list and drawing nothing when there
         // is none, like the singletons above, so a command starting is not an insertion.
         let shellRun = transcript.shellRun
@@ -913,6 +913,7 @@ struct TranscriptListView: View {
                 $0.combine("shellRun")
                 $0.combine(transcript.session.id)
                 $0.combine(shellRun?.command)
+                $0.combine(shellRun?.isWaiting)
                 // Moves with every snapshot of the output, which arrives at most every 100ms, so
                 // the cell is measured again as it grows.
                 $0.combine(shellRun.map { $0.output.head.count + $0.output.tail.count + $0.output.droppedLines })
@@ -921,7 +922,7 @@ struct TranscriptListView: View {
             content: {
                 guard let shellRun else { return AnyView(EmptyView()) }
                 return AnyView(
-                    ShellCommandRowView(running: shellRun) { transcript.shellRunTask?.cancel() }
+                    ShellCommandRowView(running: shellRun) { transcript.stopShellCommand() }
                         .padding(.horizontal, TranscriptLayout.inset)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 )

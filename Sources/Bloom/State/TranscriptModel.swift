@@ -279,6 +279,31 @@ final class TranscriptModel {
     var shellRun: ShellCommand.Run?
     @ObservationIgnored var shellRunTask: Task<Void, Never>?
 
+    /// Starts a `!` command that was waiting for the turn to end, once it has, and once the turn's
+    /// file changes have been recorded, so the command's own changes are not filed under the turn.
+    ///
+    /// **A Stop starts it too**, at once rather than after the stopped turn's file changes are
+    /// recorded, which is not what Stop does to queued messages. That is Claude
+    /// Code's rule ("Press Esc to interrupt the turn... Claude Code keeps what you queued and sends
+    /// it right away"), and a command differs from a message here: it costs nothing to run, and
+    /// handing it back to the composer would put `! command` in front of the messages Stop also
+    /// hands back, turning all of them into one command.
+    func startWaitingShellCommand() {
+        guard shellRun?.isWaiting == true, !isRunning, !isAwaitingPermission,
+              !history.isCapturing, !history.isFinalisingTurn, !isWorkspaceArchiving,
+              let workspace, let model = app.existingModel(for: workspace.id) else { return }
+        model.startShellCommand(in: self)
+    }
+
+    /// Stop on a running command, or Remove on a waiting one.
+    func stopShellCommand() {
+        guard let task = shellRunTask else {
+            shellRun = nil
+            return
+        }
+        task.cancel()
+    }
+
     /// What has been asked for on this session and has not gone yet, oldest first.
     ///
     /// Read by the transcript to draw the pending bubbles and by the drain to decide what goes
@@ -925,6 +950,7 @@ final class TranscriptModel {
         guard !usesInteractiveTerminal else { return }
         guard !isReconcilingPresentation else { return }
         guard !history.isCapturing, !history.isFinalisingTurn, !(history.hasActiveTurn && !isRunning) else { return }
+        startWaitingShellCommand()
         guard !isWorkspaceArchiving, !wasStoppedByHand, store != nil else { return }
         guard drainState.begin() else { return }
         var allowRepeat = true
@@ -1423,6 +1449,7 @@ final class TranscriptModel {
     func stop() {
         steering = nil
         cancelTurn()
+        startWaitingShellCommand()
 
         // **And the queue comes back with it.** Not draining after a Stop was right about the
         // messages not going and wrong about what became of them: they sat under the transcript
@@ -1951,6 +1978,9 @@ final class TranscriptModel {
             // as it was. Stop's own answer is not here at all, because it has already run: the
             // queue was handed back to the composer on the frame the button was pressed.
             history.isFinalisingTurn = false
+            // Before the drain's own guards, because a Stop keeps the drain away and does not keep
+            // a waiting command away. See `startWaitingShellCommand`.
+            startWaitingShellCommand()
             if !isReconcilingPresentation, let steered = steering {
                 steering = nil
                 wasStoppedByHand = false
