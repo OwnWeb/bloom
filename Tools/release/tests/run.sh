@@ -71,7 +71,7 @@ echo "version.sh"
 
 eval "$("$TOOLS/version.sh" v1.4.0)"
 expect_equal "a plain tag is a stable release" "$version $channel $prerelease" "1.4.0 stable 0"
-expect_equal "the build number continues after the history reset" "$build" "$((2132 + $(git rev-list --count HEAD)))"
+expect_equal "the build number continues after the history reset" "$build" "$((2220 + $(git rev-list --count HEAD)))"
 
 eval "$("$TOOLS/version.sh" v1.4.0-beta.1)"
 expect_equal "a semver prerelease tag goes to the beta channel" "$version $channel $prerelease" "1.4.0-beta.1 beta 1"

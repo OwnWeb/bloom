@@ -73,7 +73,7 @@ you ticked the box on. Either one puts the item on Sparkle's `beta` channel,
 which nobody sees unless the app asks for that channel.
 
 The version in the bundle comes from the tag, not from `Resources/Info.plist`.
-The build number is 2132 plus the number of commits reachable from the tag. The
+The build number is 2220 plus the number of commits reachable from the tag. The
 offset preserves update order after the repository history was reset. Sparkle
 compares that number, which is why the workflow checks out with full history.
 

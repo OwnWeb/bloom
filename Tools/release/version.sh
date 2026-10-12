@@ -17,7 +17,7 @@
 #            thing on the release page can never disagree.
 #
 #   build    CFBundleVersion, the one Sparkle compares. The repository was
-#            restarted after build 2132. Add that number to the commits in the
+#            restarted after build 2220. Add that number to the commits in the
 #            new history so every future release can update installed copies.
 #            A shallow clone counts wrong, so this refuses to guess and fails.
 #
@@ -69,7 +69,7 @@ if [ -z "$BUILD_COUNT" ] || [ "$BUILD_COUNT" = "0" ]; then
   exit 1
 fi
 
-BUILD=$((2132 + BUILD_COUNT))
+BUILD=$((2220 + BUILD_COUNT))
 
 echo "version=$VERSION"
 echo "build=$BUILD"
