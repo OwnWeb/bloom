@@ -7,34 +7,49 @@ extension View {
     }
 }
 
-/// Time belongs to the message, not the hosting cell. This survives the instant-to-saved handoff
-/// and ignores the table's animation-free layout transaction. Only these drawing attributes tick;
-/// the supplied content is not rebuilt or re-parsed by the timeline closure.
+/// Fades a reply in as it starts to stream. Time belongs to the message, not the hosting cell, so
+/// a new view for an arrival already under way picks up where it is and survives the handoff from
+/// the streaming slot to the stored row.
+///
+/// One structure and one explicit animation. This was an `if let` around a
+/// `TimelineView(.animation)`, which could rebuild the whole reply on its second token while its
+/// markdown `VStack` was growing, and crashed inside SwiftUI's stack layout. Explicit, as in
+/// `ArrivingRow`, because the cell root clears implicit animation.
 private struct MessageArrivalEffect: ViewModifier {
     let arrival: MessageArrival?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var finishedArrival: MessageArrival?
+
+    /// Taken once, when this view is made. Reduce Motion is applied in `settle`, because the
+    /// environment cannot be read here.
+    @State private var opacity: Double
+
+    init(arrival: MessageArrival?) {
+        self.arrival = arrival
+        _opacity = State(initialValue: Self.opacity(of: arrival, at: Date()))
+    }
 
     func body(content: Content) -> some View {
-        // Sent bubbles enter through the composer's occlusion as the transcript scrolls.
-        // A second fade, scale and offset on the row made that one movement look disconnected.
-        if let arrival, arrival.style == .reply {
-            let finished = finishedArrival == arrival
-            TimelineView(.animation(paused: finished || reduceMotion)) { context in
-                let pose = finished ? .settled : arrival.pose(at: context.date, reduceMotion: reduceMotion)
-                content
-                    .opacity(pose.opacity)
-                    .scaleEffect(pose.scale, anchor: .bottomTrailing)
-                    .offset(y: pose.rise)
-            }
-            .task(id: arrival) {
-                let remaining = arrival.remaining(at: Date())
-                if remaining > 0 { try? await Task.sleep(for: .seconds(remaining)) }
-                guard !Task.isCancelled else { return }
-                finishedArrival = arrival
-            }
-        } else {
-            content
+        content
+            .opacity(opacity)
+            .onChange(of: arrival, initial: true) { _, arrival in settle(arrival) }
+    }
+
+    private func settle(_ arrival: MessageArrival?) {
+        // Text the reader can already see is not faded again.
+        guard opacity < 1 else { return }
+        let remaining = arrival?.remaining(at: Date()) ?? 0
+        guard arrival?.style == .reply, !reduceMotion, remaining > 0 else {
+            opacity = 1
+            return
         }
+        // The cubic ease out `MessageArrival.pose` describes.
+        withAnimation(.timingCurve(0.33, 1, 0.68, 1, duration: remaining)) { opacity = 1 }
+    }
+
+    /// Only a reply fades. Sent bubbles already move in behind the composer, and a second fade
+    /// made that look disconnected.
+    private static func opacity(of arrival: MessageArrival?, at date: Date) -> Double {
+        guard let arrival, arrival.style == .reply else { return 1 }
+        return arrival.pose(at: date, reduceMotion: false).opacity
     }
 }
