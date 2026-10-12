@@ -491,6 +491,10 @@ struct TranscriptListView: View {
         )
         let lastVisibleRow = drawnRows.last(where: { !TranscriptNoise.isHidden($0) })
         let lastVisibleSeq = lastVisibleRow?.seq
+        // Once per pass, and into each key below: the cell is only rebuilt when its key changes,
+        // so a Change worked out inside it stayed on screen after it stopped applying.
+        let routePlacement = transcript.routePlacement
+        let offeredChoices = routePlacement.offer == nil ? nil : transcript.routeChoices()
         let hasCompletedTurn = drawnRange.upperBound == rows.count && sending == nil
             && lastVisibleRow.map { transcript.isCurrentTurnResult($0) } == true
         // The group the loop is inside, so its line is emitted once, and the indices of its
@@ -644,6 +648,10 @@ struct TranscriptListView: View {
 
         for index in drawnRows.indices {
             let row = drawnRows[index]
+            // Session starts are noise, except the one carrying the Auto router's choice and Change.
+            let routeNote = routePlacement.notes[row.seq]
+            let drawsNothing = routeNote == nil
+                && TranscriptRowInk.drawsNothing(kind: row.kind, payload: row.payload)
             if let disclosure = turnDisclosures[index] {
                 out.append(turnFoldEntry(
                     firstSeq: row.seq,
@@ -708,15 +716,14 @@ struct TranscriptListView: View {
                 // Skip completed actions individually so a pending command stays visible even
                 // when later commands have finished. Empty stream rows need no table entry either.
                 if !hiddenIndices.isEmpty,
-                   hiddenIndices.contains(index)
-                    || TranscriptRowInk.drawsNothing(kind: row.kind, payload: row.payload) { continue }
+                   hiddenIndices.contains(index) || drawsNothing { continue }
             }
             // A subagent's row, which the call that started it stands for. See "A subagent is one
             // row" in `TranscriptFold`, which also says what stays.
             if folds.absorbs(
                 index: index, seq: row.seq, parent: row.parentToolUseID, revealed: revealed
             ) { continue }
-            guard !TranscriptNoise.isHidden(row) else { continue }
+            guard routeNote != nil || !TranscriptNoise.isHidden(row) else { continue }
             // How much work the subagent this call started has done. In the key below, so a child
             // landing redraws this row where it stands instead of putting a row in the list.
             let subagentActions = row.kind == .toolUse ? folds.actions(underCall: row.refID) : nil
@@ -738,7 +745,10 @@ struct TranscriptListView: View {
             // is built rather than baked in as this runs, and putting it in the key would rebuild
             // the cell again a fifth of a second later when the answer expired, throwing away the
             // settle it is meant to be showing. See `TranscriptArrivals`.
+            let routeChoices = routePlacement.offer?.sessionStartSeq == row.seq ? offeredChoices : nil
             let key = TranscriptContentKey {
+                $0.combine(routeNote)
+                $0.combine(routeChoices)
                 $0.combine(row.id)
                 $0.combine(row.seq)
                 $0.combine(row.kind)
@@ -764,7 +774,7 @@ struct TranscriptListView: View {
             let settles = TranscriptMotion.fadesOnArrival(row.kind)
             // What this row is worth before anybody draws it. Sixty per cent of a session draws
             // nothing, and the mean is a bad answer for every one of them: see `TranscriptRowInk`.
-            let blank = TranscriptRowInk.drawsNothing(kind: row.kind, payload: row.payload)
+            let blank = drawsNothing
             // Which cluster of heights this row is in, which is what every row above the reader is
             // drawn at until it is looked at. Free, and from the kind alone, for the reason the
             // line above is here rather than inside the closure. See `TranscriptRowShape`.
@@ -824,6 +834,11 @@ struct TranscriptListView: View {
                             onToggle: { toggle(row.seq) },
                             onAnswer: { requestID, decision in
                                 Task { await transcript.answer(requestID: requestID, decision: decision) }
+                            },
+                            routeNote: routeNote,
+                            routeChoices: routeChoices,
+                            onReroute: { route in
+                                Task { await transcript.rerunOpening(on: route) }
                             }
                         )
                         // The arriving animation belongs to the bubble, not the earlier work.

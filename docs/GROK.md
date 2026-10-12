@@ -11,6 +11,10 @@ stdio` instead, which is ACP JSON-RPC, the same class of protocol as Codex's app
 grok agent [--always-approve] [--model <id>] [--reasoning-effort <level>] --no-leader stdio
 ```
 
+The automatic router asks Grok one question through the same `grok agent` and ACP, not through the
+headless mode, because the headless mode answers a permission question only by approving it. See
+`GrokRouterAsk` and `docs/ROUTER.md`.
+
 `--no-leader` is load-bearing. Without it a Bloom chat can attach to the owner's interactive TUI
 leader. `GROK_DISABLE_AUTOUPDATER=1` is set in the child environment so update banners cannot
 land on stdout.

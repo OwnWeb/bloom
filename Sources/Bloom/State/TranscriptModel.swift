@@ -96,6 +96,8 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
     }
 }
 
+extension TranscriptRow: ModelRouteNoteRow {}
+
 /// The state behind one session's transcript: the rows, whether the agent is running, and the
 /// partial text currently streaming in.
 @MainActor
@@ -747,6 +749,49 @@ final class TranscriptModel {
         await refreshSession()
     }
 
+    // MARK: - The router's note
+
+    /// See `ModelRouteNote`.
+    func record(_ note: ModelRouteNote) async {
+        guard let store else { return }
+        _ = try? await store.appendNext(sessionID: session.id, kind: .notice, payload: note.payload)
+        await appendLatestMessages()
+    }
+
+    /// Which session start row carries which note, and where Change is offered. See
+    /// `ModelRouteNote.placement`.
+    var routePlacement: ModelRouteNote.Placement {
+        ModelRouteNote.placement(in: rows, isQueueEmpty: pendingDeliveries.isEmpty)
+    }
+
+    /// The rungs Change offers, read from the table in Settings.
+    func routeChoices() -> [ModelRoute]? {
+        guard let table = ModelRouterPreferences().settings.table(for: session.agentKind, models: agentModels)
+        else { return nil }
+        return ModelRouteNote.choices(
+            table: table, backend: session.agentKind, current: session.model, models: agentModels
+        )
+    }
+
+    /// `cancelTurn` rather than `stop`, because Stop hands the queue back to the composer and would
+    /// pull the opening message back out of the queue it is about to join.
+    func rerunOpening(on route: ModelRoute) async {
+        guard let opening = routePlacement.offer?.opening else { return }
+        if isRunning { cancelTurn() }
+        await updatePreferences(model: route.model, effort: route.effort)
+        // The strip reads the workspace's copy, as `ComposerSessionEditor.apply` does.
+        if let model = workspace.flatMap({ app.existingModel(for: $0.id) }),
+           let index = model.sessions.firstIndex(where: { $0.id == session.id }) {
+            model.sessions[index] = session
+        }
+        await record(ModelRouteNote(route: route, analyser: nil))
+        await submit(opening)
+    }
+
+    private var agentModels: [AgentModel] {
+        ComposerModelCatalog.shared.models[session.agentKind] ?? []
+    }
+
     /// Asks the list to go back to the newest row.
     ///
     /// The live end rather than a row, and that is the whole of what changed here. This used to
@@ -906,6 +951,7 @@ final class TranscriptModel {
     /// question the moment a running turn stopped holding the queue on two of the four backends:
     /// the tooltip went on offering to queue a message that was about to go straight out.
     var queuesNextMessage: Bool {
+        if isAwaitingOpeningRoute { return true }
         if history.isCapturing || history.isFinalisingTurn || (history.hasActiveTurn && !isRunning) { return true }
         if isRunning, session.interactionMode != activeInteractionMode { return true }
         return !Delivery.goesImmediately(
@@ -926,7 +972,18 @@ final class TranscriptModel {
         if isRunning, let mode = pendingDeliveries.first?.interactionMode, mode != activeInteractionMode {
             return "Goes when this turn ends."
         }
+        // Setup is usually the longer wait, so the router's sentence shows only once setup is done.
+        if isAwaitingOpeningRoute, deliveryHold != .setup { return ModelRouting.holdSentence }
         return deliveryHold.sentence(on: session.agentKind)
+    }
+
+    /// Read off the workspace's model, like the setup half of `deliveryHold`, so only one thing holds
+    /// the question. See `OpeningRoute`.
+    var isAwaitingOpeningRoute: Bool {
+        guard let workspace, let route = app.existingModel(for: workspace.id)?.openingRoute else {
+            return false
+        }
+        return route.holds(session.id)
     }
 
     /// Hands the queue to the agent, from the front, for as long as it is allowed to go.
@@ -952,6 +1009,8 @@ final class TranscriptModel {
         guard !history.isCapturing, !history.isFinalisingTurn, !(history.hasActiveTurn && !isRunning) else { return }
         startWaitingShellCommand()
         guard !isWorkspaceArchiving, !wasStoppedByHand, store != nil else { return }
+        // `WorkspaceModel.runSetupThenSend` drains once the route settles, so nothing is left behind.
+        guard !isAwaitingOpeningRoute else { return }
         guard drainState.begin() else { return }
         var allowRepeat = true
         defer { finishDrain(allowRepeat: allowRepeat) }
