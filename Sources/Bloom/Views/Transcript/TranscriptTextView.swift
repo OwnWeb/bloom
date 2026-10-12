@@ -207,7 +207,7 @@ struct TranscriptTextView: NSViewRepresentable {
         if view.textStorage?.isEqual(to: text) != true {
             view.textStorage?.setAttributedString(text)
             view.bubbleAlignmentWidth = nil
-            view.lastMeasurement = nil
+            view.measurements.removeAll()
         }
         view.linkColor = linkColor
         // No underline at rest. The pointing hand is asked for here and set for real in
@@ -249,7 +249,7 @@ struct TranscriptTextView: NSViewRepresentable {
         // out again at 80 and wrapped: two lines of ink in a bubble one line tall, the second
         // drawn over the caption under it, and the bubble narrower than its own words. A width a
         // run has reported must be a width it fits in when it is handed it back, which only the
-        // exact proposal promises. Repeated proposals are still answered from `lastMeasurement`,
+        // exact proposal promises. Repeated proposals are still answered from `measurements`,
         // and the pane itself reflows in steps during a drag, which is where the saving is.
         let width = TranscriptTextMeasure.layoutWidth(proposed: proposed)
         // Only when it has actually moved. Whether TextKit throws its layout away on being handed
@@ -258,12 +258,21 @@ struct TranscriptTextView: NSViewRepresentable {
         // proposals a `.textSelection(.enabled)` block generates repeat the same widths. Not
         // depending on the answer costs one comparison.
         let wanted = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-        if let last = nsView.lastMeasurement,
-           last.proposedWidth == proposed,
-           last.layoutWidth == width,
-           last.alignsBubbleInk == alignsBubbleInk,
-           container.containerSize == wanted {
-            return last.size
+        let key = TranscriptTextMeasureCache<LinkTextView.Measurement>.Key(
+            proposed: proposed, alignsBubbleInk: alignsBubbleInk
+        )
+        // **An answer already given is given again without typesetting**, whichever question came
+        // in between. See `TranscriptTextMeasureCache` for the multi-second switches this was.
+        //
+        // The container still follows the question, exactly as it did when every question was
+        // typeset, because the view draws at whatever width it was last asked about. Setting a
+        // container's size only marks the layout stale, so TextKit lays the run out when it is next
+        // drawn or hit tested, at the width the pass left it at, instead of once per question.
+        if let known = nsView.measurements.value(for: key) {
+            if container.containerSize != wanted { container.containerSize = wanted }
+            nsView.bubbleInkOffset = known.bubbleInkOffset
+            nsView.bubbleAlignmentWidth = alignsBubbleInk ? width : nil
+            return known.size
         }
         if container.containerSize != wanted { container.containerSize = wanted }
         layout.ensureLayout(for: container)
@@ -285,9 +294,8 @@ struct TranscriptTextView: NSViewRepresentable {
             hasGlyphs: (nsView.textStorage?.length ?? 0) > 0
         )
         let result = CGSize(width: size.width, height: size.height)
-        nsView.lastMeasurement = LinkTextView.Measurement(
-            proposedWidth: proposed, layoutWidth: width,
-            alignsBubbleInk: alignsBubbleInk, size: result
+        nsView.measurements.store(
+            LinkTextView.Measurement(size: result, bubbleInkOffset: nsView.bubbleInkOffset), for: key
         )
         return result
     }
@@ -479,16 +487,18 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
         return actions.previewSource(url)
     }
 
+    /// One answer this run has given: its size, and where its ink sat in a bubble at that width.
     struct Measurement {
-        var proposedWidth: Double?
-        var layoutWidth: CGFloat
-        var alignsBubbleInk: Bool
         var size: CGSize
+        var bubbleInkOffset: CGFloat
     }
 
-    /// SwiftUI asks a representable for the same proposal several times in one layout pass.
-    /// TextKit's layout and widest-line scan only need to run again when its text or width moves.
-    var lastMeasurement: Measurement?
+    /// SwiftUI asks a representable the same questions several times in one layout pass, at
+    /// several widths. TextKit's layout and widest-line scan only need to run again when the text
+    /// changes or a width is asked that has not been asked before. `apply` is the only place the
+    /// text storage is written, and it clears these; anything that ever edits the storage in place
+    /// has to clear them too.
+    var measurements = TranscriptTextMeasureCache<Measurement>()
     var bubbleAlignmentWidth: CGFloat?
     var bubbleInkOffset: CGFloat = 0 {
         didSet {
