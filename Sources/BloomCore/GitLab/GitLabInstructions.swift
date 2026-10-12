@@ -55,7 +55,7 @@ public enum GitLabInstructions {
                 + "It is on the branch {{branch}}."
         case .createPullRequest, .pushLocalWork, .fixConflicts, .continueAfterMerge:
             translate(PromptRegistry.definition(for: id).defaultTemplate)
-        case .carryOnArchived, .review, .nameWorkspace:
+        case .carryOnArchived, .review, .nameWorkspace, .routeTask:
             nil
         }
     }

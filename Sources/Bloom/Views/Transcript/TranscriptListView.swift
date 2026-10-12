@@ -492,6 +492,10 @@ struct TranscriptListView: View {
         )
         let lastVisibleRow = drawnRows.last(where: { !TranscriptNoise.isHidden($0) })
         let lastVisibleSeq = lastVisibleRow?.seq
+        // Once per pass, and into each key below: the cell is only rebuilt when its key changes,
+        // so a Change worked out inside it stayed on screen after it stopped applying.
+        let routePlacement = transcript.routePlacement
+        let offeredChoices = routePlacement.offer == nil ? nil : transcript.routeChoices()
         let hasCompletedTurn = drawnRange.upperBound == rows.count && sending == nil
             && lastVisibleRow.map { transcript.isCurrentTurnResult($0) } == true
         // The group the loop is inside, so its line is emitted once, and the indices of its
@@ -695,7 +699,11 @@ struct TranscriptListView: View {
             // is built rather than baked in as this runs, and putting it in the key would rebuild
             // the cell again a fifth of a second later when the answer expired, throwing away the
             // settle it is meant to be showing. See `TranscriptArrivals`.
+            let routeNote = routePlacement.notes[row.seq]
+            let routeChoices = routePlacement.offer?.sessionStartSeq == row.seq ? offeredChoices : nil
             let key = TranscriptContentKey {
+                $0.combine(routeNote)
+                $0.combine(routeChoices)
                 $0.combine(row.id)
                 $0.combine(row.seq)
                 $0.combine(row.kind)
@@ -778,6 +786,11 @@ struct TranscriptListView: View {
                             onToggle: { toggle(row.seq) },
                             onAnswer: { requestID, decision in
                                 Task { await transcript.answer(requestID: requestID, decision: decision) }
+                            },
+                            routeNote: routeNote,
+                            routeChoices: routeChoices,
+                            onReroute: { route in
+                                Task { await transcript.rerunOpening(on: route) }
                             }
                         )
                         // The arriving animation belongs to the bubble, not the earlier work.

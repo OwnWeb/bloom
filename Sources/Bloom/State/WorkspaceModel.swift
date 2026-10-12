@@ -390,6 +390,9 @@ final class WorkspaceModel {
     @ObservationIgnored private var setupRunTask: Task<Bool, Never>?
     /// Set by `stopSetup`, so a run the reader stopped is not announced as a failed setup.
     @ObservationIgnored private var setupWasStopped = false
+    /// The router's answer for the first chat, in memory only, so nil for any workspace this launch
+    /// did not create with the router on. See `OpeningRoute`.
+    var openingRoute: OpeningRoute?
 
     init(workspace: Workspace, app: AppModel) {
         self.workspace = workspace
@@ -1268,6 +1271,8 @@ final class WorkspaceModel {
     func stopEverything() {
         for state in sideConversations.values { state.task?.cancel() }
         for transcript in transcripts.values { transcript.terminateNow() }
+        // A router still thinking for a workspace on its way out is a process thinking for nobody.
+        openingRoute?.cancel()
         setupTask?.cancel()
         setupTask = nil
         arrivalTask?.cancel()
@@ -1303,6 +1308,7 @@ final class WorkspaceModel {
     /// than only asking them to leave.
     func shutdown() async {
         for state in sideConversations.values { state.task?.cancel() }
+        openingRoute?.cancel()
         setupTask?.cancel()
         setupTask = nil
         // Nilled like the three above: a cancelled refresh returns through its
@@ -1331,9 +1337,19 @@ final class WorkspaceModel {
     /// route from anything typed while the script was going, and the two raced: the owner opened a
     /// workspace with "list the technologies used", typed "test" a moment later, and got "test"
     /// answered first. See `Delivery` and `TranscriptModel.submit`.
-    func startSetupThenSend(prompt: String?, repo: Repo) async {
+    func startSetupThenSend(prompt: String?, repo: Repo, route: OpeningRoute? = nil) async {
         let cliSession = activeSession.flatMap { session in
             CenterTabStore.shared.terminal(for: session.id, in: workspace.id).map { _ in session }
+        }
+        // Joined before the opening message is queued, so the pending bubble shows the router's caption
+        // from its first frame. A terminal chat has its own picker, so the router never applies there.
+        if let route {
+            if cliSession == nil, let session = activeSession {
+                openingRoute = route
+                route.settle(into: transcript(for: session), in: self)
+            } else {
+                route.cancel()
+            }
         }
         if let cliSession { pendingCLIPrompts[cliSession.id] = prompt }
         let cliDelivery: Delivery?
@@ -1462,6 +1478,10 @@ final class WorkspaceModel {
             await launchCLI(cliSession, prompt: cliPrompt ?? "", repo: repo)
             return
         }
+        // Awaited before `activeSession` is read: a session read first is the pre-route row, which
+        // `transcript(for:)` wrote back over the routed one, running the turn on the window's model.
+        await openingRoute?.settled()
+        guard !Task.isCancelled else { return }
         guard let session = activeSession,
               CenterTabStore.shared.terminal(for: session.id, in: workspace.id) == nil else { return }
         // The worktree is built, so whatever was asked for while it was being built may go, oldest

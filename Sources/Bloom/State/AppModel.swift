@@ -560,6 +560,8 @@ final class AppModel {
             Log.launchStep("store open")
             self.store = store
             ComposerModelCatalog.shared.configure(store: store)
+            // For the automatic router; in the background, so nothing at launch waits for it.
+            AgentAvailability.shared.configure(store: store)
             self.manager = WorkspaceManager(store: store)
             try await store.resetRunningSessions()
             try await store.recoverDeliveryClaims()
