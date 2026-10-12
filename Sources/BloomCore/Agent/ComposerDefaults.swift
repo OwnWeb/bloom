@@ -86,6 +86,18 @@ public struct ComposerDefaults: Equatable {
             running: running,
             models: models
         )
+        // A model the signed in account cannot run is never the answer, whichever layer named it.
+        // Everything that pinned a model is set aside and the built-ins answer instead, because a
+        // chat that opens on a model the server refuses is worse than one on a plainer default.
+        guard ModelAvailability.isUsable(model: resolved.model, on: resolved.kind, models: models) else {
+            return resolve(
+                repo: repo.withoutModelPins(),
+                app: app.withBuiltInModel(),
+                hasWorktree: hasWorktree,
+                running: running,
+                models: models
+            )
+        }
         return ComposerDefaults(
             // `resolved.model` rather than the string the file held. A settings file has to name a
             // model for either CLI in one key, so it can write the backend in front of it, and
@@ -116,5 +128,28 @@ public struct ComposerDefaults: Equatable {
             }
         }
         return fallback
+    }
+}
+
+private extension RepoSettings {
+    func withoutModelPins() -> RepoSettings {
+        var next = self
+        next.defaultModel = nil
+        next.defaultEffort = nil
+        next.homeDefaultModel = nil
+        next.homeDefaultEffort = nil
+        return next
+    }
+}
+
+private extension AppDefaults {
+    func withBuiltInModel() -> AppDefaults {
+        var next = self
+        next.model = AppDefaults.fallbackModel
+        next.storedModel = nil
+        next.effort = AppDefaults.fallbackEffort
+        next.storedEffort = nil
+        next.backend = AppDefaults.fallbackBackend
+        return next
     }
 }
