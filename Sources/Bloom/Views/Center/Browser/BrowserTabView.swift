@@ -219,6 +219,8 @@ struct BrowserTabView: View {
             submit: {
                 session.load(address)
                 isAddressFocused = false
+                // The page can no longer take it itself. See `keepPageFromTakingKeyboard`.
+                session.webView.window?.makeFirstResponder(session.webView)
             }
         )
     }

@@ -138,6 +138,7 @@ final class BrowserSession {
         let configuration = WKWebViewConfiguration()
         Self.enableDeveloperExtras(on: configuration.preferences)
         webView = BrowserPageWebView(frame: .zero, configuration: configuration)
+        Self.keepPageFromTakingKeyboard(webView)
         webView.allowsBackForwardNavigationGestures = true
         pageView.attach(webView)
         // A dev server is the whole point of this tab, and one that is still booting answers with
@@ -662,6 +663,15 @@ final class BrowserSession {
             return
         }
         preferences.setValue(true, forKey: "developerExtrasEnabled")
+    }
+
+    /// Page `focus()`, which every agent click and fill triggers, made WebKit take the window's
+    /// keyboard from the composer. Refusing in `becomeFirstResponder` is too late: the composer
+    /// has already resigned. Private setting, reached by KVC as in `enableDeveloperExtras`.
+    private static func keepPageFromTakingKeyboard(_ webView: WKWebView) {
+        guard webView.responds(to: NSSelectorFromString("_setShouldSuppressFirstResponderChanges:"))
+        else { return }
+        webView.setValue(true, forKey: "shouldSuppressFirstResponderChanges")
     }
 
     /// The key WebKit remembers the inspector's last attachment in, and it is WebKit's own: it
