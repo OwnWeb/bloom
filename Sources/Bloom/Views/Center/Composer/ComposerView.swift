@@ -90,7 +90,14 @@ struct ComposerView: View {
             .help("Drag to resize. Double-click to fit the text.")
 
             ComposerPlansView(transcript: transcript, model: model, controls: controls)
-            if model != nil { ComposerShellModeHint(draft: transcript.draft) }
+            if model != nil {
+                ComposerShellModeHint(
+                    draft: transcript.draft,
+                    waitsForTurn: ShellCommand.waitsForTurn(
+                        isTurnRunning: transcript.isRunning, isAwaitingQuestion: transcript.isAwaitingPermission
+                    )
+                )
+            }
             composer
         }
         // The chrome is whatever is left once the editor's share is taken off, so this settles on

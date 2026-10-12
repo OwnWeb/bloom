@@ -152,6 +152,13 @@ struct ShellCommandTests {
         }
     }
 
+    @Test("A command sent during a turn, or while it waits on a question, waits for it to end")
+    func waitsForTheTurn() {
+        #expect(ShellCommand.waitsForTurn(isTurnRunning: true, isAwaitingQuestion: false))
+        #expect(ShellCommand.waitsForTurn(isTurnRunning: false, isAwaitingQuestion: true))
+        #expect(!ShellCommand.waitsForTurn(isTurnRunning: false, isAwaitingQuestion: false))
+    }
+
     @Test("The output goes ahead of what was typed while the command ran")
     func queuesAheadOfWhatFollowed() async throws {
         let store = try makeTestStore("shell-order")
