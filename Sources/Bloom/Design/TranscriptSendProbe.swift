@@ -42,6 +42,7 @@ enum TranscriptSendProbe {
         follower.onRest = { controller.goToEnd() }
         let environment = TranscriptRowEnvironment(
             app: AppModel(), hoverHost: TranscriptHoverHost(), bubbleWidth: TranscriptBubbleWidth(),
+            conversation: TranscriptConversationSelection(),
             linkActions: TranscriptLinkActions(), fontScale: 1, chatFont: .standard,
             lineHeight: .defaultChoice, reduceMotion: false
         )

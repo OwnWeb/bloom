@@ -11,9 +11,37 @@ final class TranscriptTableView: NSTableView {
     /// composer to reply in, which is an archived workspace. See `SelectionToChat`.
     var quoteSelection: (@MainActor (String) -> Void)?
 
+    /// What Select All and a drag across rows select. While it holds anything the table has the
+    /// keyboard, because the text view the selection began in is usually recycled before Copy is
+    /// pressed. See `TranscriptConversationSelection`.
+    var conversation: TranscriptConversationSelection? {
+        didSet { conversation?.responder = self }
+    }
+
     /// The table has been laid out at a new width, and the rows on screen are owed heights for it.
     /// See `TranscriptTable.Coordinator.widthChanged`.
     var didChangeWidth: (@MainActor () -> Void)?
+
+    override func selectAll(_ sender: Any?) {
+        guard let conversation else { super.selectAll(sender); return }
+        conversation.selectAll()
+    }
+
+    @objc func copy(_ sender: Any?) {
+        guard let text = conversation?.selectedText else { return }
+        TranscriptLink.copy(text)
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        guard item.action == #selector(copy(_:)) else { return super.validateUserInterfaceItem(item) }
+        return conversation?.selectedText?.isEmpty == false
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { conversation?.cancel() }
+        return resigned
+    }
 
     private var isAligningRows = false
     private var alignmentWork: Task<Void, Never>?

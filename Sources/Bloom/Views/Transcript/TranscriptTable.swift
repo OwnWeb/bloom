@@ -288,6 +288,7 @@ struct TranscriptTable: NSViewRepresentable {
         coordinator.onLiveScrollChange = onLiveScrollChange
         coordinator.onContentWillChange = onContentWillChange
         (coordinator.tableView as? TranscriptTableView)?.quoteSelection = quoteSelection
+        (coordinator.tableView as? TranscriptTableView)?.conversation = rowEnvironment.conversation
         // Before the entries, so that a pass carrying another conversation's rows is applied to a
         // pane that has already stopped drawing.
         coordinator.showing(session: session, in: nsView)
@@ -2290,6 +2291,7 @@ private struct TranscriptCellRoot: View {
                 // `onAppear` fire for the arrival settle. See `HostedRow`.
                 .id(id)
                 .transcriptRowEnvironment(environment)
+                .environment(\.transcriptEntryID, id)
         }
     }
 }
