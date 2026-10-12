@@ -6,10 +6,14 @@ import BloomCore
 /// rather than here. See `ShellCommandRowView` and `ShellCommand`.
 struct ComposerShellModeHint: View {
     var draft: String
+    /// Whether the command would wait for the agent's turn to end. See `ShellCommand.waitsForTurn`.
+    var waitsForTurn: Bool
 
     var body: some View {
         if ShellCommand.isShellMode(draft) {
-            Text("! for shell mode. Runs in the worktree, and the agent gets the output when it finishes.")
+            Text(waitsForTurn
+                ? "! for shell mode. Runs in the worktree when this turn ends, and the agent gets the output."
+                : "! for shell mode. Runs in the worktree, and the agent gets the output when it finishes.")
                 .font(Typo.caption)
                 .foregroundStyle(Palette.warning)
                 .frame(maxWidth: .infinity, alignment: .leading)
