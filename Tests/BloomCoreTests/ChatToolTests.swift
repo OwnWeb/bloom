@@ -223,12 +223,12 @@ struct ChatToolTests {
         #expect(await recorder.created == [
             .init(workspaceID: workspace.id, order: ChatCreateOrder(
                 permissionMode: .acceptEdits, interactionMode: .build,
-                message: "/mr", messageSender: "Current"
+                message: "/mr", messageSender: "Current", messageSenderAgent: .claudeCode
             )),
             .init(workspaceID: release.id, order: ChatCreateOrder(message: "Tag it.")),
             .init(workspaceID: workspace.id, order: ChatCreateOrder(
                 permissionMode: .acceptEdits, interactionMode: .build,
-                message: "/mr", messageSender: "Current"
+                message: "/mr", messageSender: "Current", messageSenderAgent: .claudeCode
             )),
         ])
     }
@@ -265,13 +265,38 @@ struct ChatToolTests {
         #expect(await recorder.created == [
             .init(workspaceID: workspace.id, order: ChatCreateOrder(
                 permissionMode: .acceptEdits, interactionMode: .plan,
-                message: "Review this", messageSender: "Current"
+                message: "Review this", messageSender: "Current", messageSenderAgent: .codex
             )),
             .init(workspaceID: workspace.id, order: ChatCreateOrder(
                 permissionMode: .acceptEdits, interactionMode: .plan,
-                message: "Review this", messageSender: "Current"
+                message: "Review this", messageSender: "Current", messageSenderAgent: .codex
             )),
         ])
+    }
+
+    @Test("an agent's message stays read only on another agent, and keeps its modes on its own")
+    func messageModesAcrossAgents() {
+        func order(_ permission: PermissionMode, _ interaction: InteractionMode, from agent: AgentKind) -> ChatCreateOrder {
+            ChatCreateOrder(
+                permissionMode: permission, interactionMode: interaction, message: "Go",
+                messageSender: "Planner", messageSenderAgent: agent
+            )
+        }
+        let codexPlan = order(.acceptEdits, .plan, from: .codex)
+        let codexReadOnly = order(.auto, .build, from: .codex)
+        let codexApproval = order(.acceptEdits, .build, from: .codex)
+        let claudePlan = order(.plan, .build, from: .claudeCode)
+        let claudeAuto = order(.auto, .build, from: .claudeCode)
+        let ownerOrder = ChatCreateOrder(permissionMode: .plan, interactionMode: .build)
+
+        #expect(codexPlan.modes(on: .claudeCode) == (.plan, .build))
+        #expect(codexReadOnly.modes(on: .claudeCode) == (.plan, .build))
+        #expect(codexReadOnly.modes(on: .codex) == (.auto, .build))
+        #expect(codexApproval.modes(on: .grok) == (.acceptEdits, .build))
+        #expect(claudePlan.modes(on: .codex) == (.auto, .plan))
+        #expect(claudeAuto.modes(on: .codex) == (.auto, .build))
+        #expect(claudeAuto.modes(on: .grok) == (.auto, .build))
+        #expect(ownerOrder.modes(on: .codex) == (.plan, .build))
     }
 
     @Test("create rejects malformed composer choices before asking the app")

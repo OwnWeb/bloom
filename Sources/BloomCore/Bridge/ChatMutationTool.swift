@@ -67,6 +67,8 @@ public struct ChatCreateOrder: Sendable, Equatable {
     public let message: String?
     /// The chat that asked for `message`, shown above it. Nil for the owner's own client.
     public internal(set) var messageSender: String?
+    /// The asking chat's agent, which says what its modes mean.
+    public internal(set) var messageSenderAgent: AgentKind?
 
     public init(
         title: String? = nil,
@@ -80,7 +82,8 @@ public struct ChatCreateOrder: Sendable, Equatable {
         contextWindow: Int? = nil,
         terminalChat: Bool? = nil,
         message: String? = nil,
-        messageSender: String? = nil
+        messageSender: String? = nil,
+        messageSenderAgent: AgentKind? = nil
     ) {
         self.title = title
         self.agent = agent
@@ -94,6 +97,21 @@ public struct ChatCreateOrder: Sendable, Equatable {
         self.terminalChat = terminalChat
         self.message = message
         self.messageSender = messageSender
+        self.messageSenderAgent = messageSenderAgent
+    }
+}
+
+extension ChatCreateOrder {
+    /// An agent's message runs in its caller's modes on the new chat's agent. A caller that may not
+    /// write stays so: Codex holds that as Plan or Read only (its `.auto`), the others as Plan.
+    public func modes(on agent: AgentKind) -> (permission: PermissionMode?, interaction: InteractionMode?) {
+        guard let sender = messageSenderAgent, sender != agent else { return (permissionMode, interactionMode) }
+        let readOnly = permissionMode == .plan || interactionMode == .plan
+            || (sender == .codex && permissionMode == .auto)
+        if InteractionMode.supports(agent) {
+            return (readOnly ? .auto : permissionMode?.nearest(on: agent), readOnly ? .plan : .build)
+        }
+        return (readOnly ? .plan : permissionMode?.nearest(on: agent), .build)
     }
 }
 
@@ -332,6 +350,7 @@ public struct ChatCreateTool: BridgeToolHandling {
         headed.permissionMode = caller.permissionMode
         headed.interactionMode = caller.interactionMode
         headed.messageSender = ChatListTool.title(of: caller)
+        headed.messageSenderAgent = caller.agentKind
         return .success(headed)
     }
 
