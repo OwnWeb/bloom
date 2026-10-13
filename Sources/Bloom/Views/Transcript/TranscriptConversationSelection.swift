@@ -278,13 +278,6 @@ final class TranscriptConversationSelection {
     private func nearestView(to point: NSPoint) -> LinkTextView? {
         members.allObjects
             .filter { $0.window != nil && $0.rowSeq != nil }
-            .min { Self.distance(point, from: $0) < Self.distance(point, from: $1) }
-    }
-
-    private static func distance(_ point: NSPoint, from view: NSView) -> CGFloat {
-        let rect = view.convert(view.bounds, to: nil)
-        let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
-        let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
-        return dx * dx + dy * dy
+            .min { $0.squaredDistance(fromWindowPoint: point) < $1.squaredDistance(fromWindowPoint: point) }
     }
 }

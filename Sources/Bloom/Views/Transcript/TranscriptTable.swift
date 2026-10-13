@@ -2336,6 +2336,7 @@ private struct TranscriptCellRoot: View {
     var body: some View {
         if let content, let id, let environment {
             HostedRow(content: content, report: { size in report?(size) })
+                .selectsTranscriptTextWhenDragged()
                 // A recycled cell is handed an unrelated row, and without an identity SwiftUI
                 // treats that as the same view changing rather than a different view arriving,
                 // which is what gives it something to animate between. It is also what makes
