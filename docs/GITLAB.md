@@ -28,7 +28,8 @@ this machine's git config, so the answer is not committed for the team. "Not now
 table above stays in charge, so GitHub, and the question comes back the next time the folder is
 added.
 
-The answer is cached per directory until git's config or a settings file is written. Where the
+The answer is cached per directory until git's config or a settings file is written, or for five
+minutes when it is GitHub only because `glab` said no. Where the
 config file's own text settles it, which is every GitHub remote and every machine without `glab`,
 no process runs at all. The `glab` probe runs at most once per host at a time, a yes is kept for
 the launch and a no for five minutes.

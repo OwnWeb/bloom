@@ -38,7 +38,8 @@ public enum ForgeRouting {
     }
 }
 
-/// `ForgeRouting` applied to a directory, remembered until git's config or a settings file changes.
+/// `ForgeRouting` applied to a directory, remembered until git's config or a settings file changes,
+/// or for as long as a glab refusal lasts when that refusal is what made it GitHub.
 public enum ForgeResolver {
     private static let resolutions = ForgeResolutions()
 
@@ -60,24 +61,30 @@ public enum ForgeResolver {
         let fingerprint = fingerprint(of: [configPath].compactMap { $0 } + SettingsLoader.candidatePaths(repo: checkout))
         if let known = await resolutions.forge(for: directory, fingerprint: fingerprint) { return known }
 
-        let forge = await resolve(directory: directory, checkout: checkout, configPath: configPath)
-        await resolutions.store(forge, for: directory, fingerprint: fingerprint)
+        let (forge, lasting) = await resolve(directory: directory, checkout: checkout, configPath: configPath)
+        // GitHub because glab said no is kept no longer than that no: a VPN that was down comes back.
+        let expiry = lasting ? nil : ContinuousClock.now + GlabSignIn.refusalLifetime
+        await resolutions.store(forge, for: directory, fingerprint: fingerprint, expiry: expiry)
         return forge
     }
 
-    private static func resolve(directory: String, checkout: String, configPath: String?) async -> Forge {
-        if let declared = SettingsLoader.load(repo: checkout).forge { return declared }
+    private static func resolve(
+        directory: String, checkout: String, configPath: String?
+    ) async -> (forge: Forge, lasting: Bool) {
+        if let declared = SettingsLoader.load(repo: checkout).forge { return (declared, true) }
         // Settled from the config file's text where possible, so a GitHub user pays no process.
         let written = configPath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? ""
         let hosts = remoteURLs(in: written).compactMap { GitHub.repositoryHost($0) }
-        if hosts.contains(where: ForgeRouting.isGitHub) { return .gitHub }
-        if !hosts.contains(where: ForgeRouting.isGitLabCom), GlabSignIn.isInstalled() == false { return .gitHub }
+        if hosts.contains(where: ForgeRouting.isGitHub) { return (.gitHub, true) }
+        if !hosts.contains(where: ForgeRouting.isGitLabCom), GlabSignIn.isInstalled() == false { return (.gitHub, true) }
 
         let context = try? await Git.repositoryContext(in: directory)
         let remotes = await configuredRemoteURLs(in: directory)
         switch ForgeRouting.decide(declared: nil, baseRemoteURL: context?.baseRemoteURL, remoteURLs: remotes) {
-        case .forge(let decided): return decided
-        case .askGlab(let host): return await GlabSignIn.shared.isSignedIn(to: host) ? .gitLab : .gitHub
+        case .forge(let decided): return (decided, true)
+        case .askGlab(let host):
+            let signedIn = await GlabSignIn.shared.isSignedIn(to: host)
+            return (signedIn ? .gitLab : .gitHub, signedIn)
         }
     }
 
@@ -135,15 +142,16 @@ public enum ForgeResolver {
 }
 
 private actor ForgeResolutions {
-    private var entries: [String: (fingerprint: [Date?], forge: Forge)] = [:]
+    private var entries: [String: (fingerprint: [Date?], forge: Forge, expiry: ContinuousClock.Instant?)] = [:]
 
     func forge(for directory: String, fingerprint: [Date?]) -> Forge? {
-        guard let entry = entries[directory], entry.fingerprint == fingerprint else { return nil }
+        guard let entry = entries[directory], entry.fingerprint == fingerprint,
+              entry.expiry.map({ ContinuousClock.now < $0 }) ?? true else { return nil }
         return entry.forge
     }
 
-    func store(_ forge: Forge, for directory: String, fingerprint: [Date?]) {
-        entries[directory] = (fingerprint, forge)
+    func store(_ forge: Forge, for directory: String, fingerprint: [Date?], expiry: ContinuousClock.Instant?) {
+        entries[directory] = (fingerprint, forge, expiry)
     }
 }
 
@@ -152,7 +160,7 @@ private actor ForgeResolutions {
 actor GlabSignIn {
     static let shared = GlabSignIn()
     private static let timeout = Duration.seconds(10)
-    private static let refusalLifetime = Duration.seconds(300)
+    static let refusalLifetime = Duration.seconds(300)
 
     private var answers: [String: (signedIn: Bool, at: ContinuousClock.Instant)] = [:]
     private var probes: [String: Task<Bool, Never>] = [:]
