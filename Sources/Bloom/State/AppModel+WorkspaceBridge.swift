@@ -340,15 +340,14 @@ extension AppModel {
             inheriting: inherited
         )
 
-        // An agent's message carries the caller's mode, which may need its counterpart here.
-        if let permission = order.messageSender == nil
-            ? order.permissionMode : order.permissionMode?.nearest(on: controls.agentKind) {
+        let modes = order.modes(on: controls.agentKind)
+        if let permission = modes.permission {
             guard controls.availablePermissionModes.contains(permission) else {
                 throw BridgeAgentControlFailure.unsupportedPermission(permission, agent: controls.agentKind)
             }
             controls.permissionMode = permission
         }
-        if let interaction = order.interactionMode {
+        if let interaction = modes.interaction {
             guard interaction.nearest(on: controls.agentKind) == interaction else {
                 throw BridgeAgentControlFailure.unsupportedInteraction(interaction, agent: controls.agentKind)
             }
