@@ -34,6 +34,8 @@ extension AppModel {
         case .alreadyRepository(let root):
             guard let repo = await addKnownRepository(at: root) else { return nil }
             if focusing { await focus(repo) }
+            // Not awaited: a glab probe to a host behind a VPN that is down takes seconds.
+            Task { await askForgeIfBoth(repo) }
             return repo
 
         case .refuse(let refusal):
@@ -111,6 +113,30 @@ extension AppModel {
             surface: surface,
             identityProblem: identityProblem
         ))
+    }
+
+    /// Asks which forge `repo` uses when its remotes are on both, and returns once it is answered.
+    func askForgeIfBoth(_ repo: Repo) async {
+        guard forgeQuestion == nil, await ForgeResolver.offersBoth(repo.path), forgeQuestion == nil
+        else { return }
+        await withCheckedContinuation { answered in
+            forgeQuestionAnswered = answered
+            forgeQuestion = repo
+        }
+    }
+
+    /// The answer to `forgeQuestion`, kept for every workspace of the project. `nil` is Not now.
+    func answerForgeQuestion(_ forge: Forge?, for repo: Repo? = nil) {
+        if let forge, let repo {
+            do {
+                try ForgeResolver.remember(forge, for: repo.path)
+            } catch {
+                alert = BloomAlert(title: "Could not save the forge", message: error.readableMessage)
+            }
+        }
+        let answered = forgeQuestionAnswered
+        forgeQuestionAnswered = nil
+        answered?.resume()
     }
 
     /// Called by `ProjectSetupSheet` once the folder really is a repository.

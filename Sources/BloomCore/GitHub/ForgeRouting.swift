@@ -29,9 +29,17 @@ public enum ForgeRouting {
     static func isGitLabCom(_ host: String) -> Bool {
         host == "gitlab.com" || host.hasSuffix(".gitlab.com")
     }
+
+    /// The hosts beside a GitHub remote that could make the repository GitLab's as well. Empty
+    /// without a GitHub remote, because then `decide` answers without anybody being asked.
+    static func hostsBesideGitHub(_ hosts: [String]) -> Set<String> {
+        guard hosts.contains(where: isGitHub) else { return [] }
+        return Set(hosts.filter { !isGitHub($0) })
+    }
 }
 
-/// `ForgeRouting` applied to a directory, remembered until git's config or a settings file changes.
+/// `ForgeRouting` applied to a directory, remembered until git's config or a settings file changes,
+/// or for as long as a glab refusal lasts when that refusal is what made it GitHub.
 public enum ForgeResolver {
     private static let resolutions = ForgeResolutions()
 
@@ -53,26 +61,63 @@ public enum ForgeResolver {
         let fingerprint = fingerprint(of: [configPath].compactMap { $0 } + SettingsLoader.candidatePaths(repo: checkout))
         if let known = await resolutions.forge(for: directory, fingerprint: fingerprint) { return known }
 
-        let forge = await resolve(directory: directory, checkout: checkout, configPath: configPath)
-        await resolutions.store(forge, for: directory, fingerprint: fingerprint)
+        let (forge, lasting) = await resolve(directory: directory, checkout: checkout, configPath: configPath)
+        // GitHub because glab said no is kept no longer than that no: a VPN that was down comes back.
+        let expiry = lasting ? nil : ContinuousClock.now + GlabSignIn.refusalLifetime
+        await resolutions.store(forge, for: directory, fingerprint: fingerprint, expiry: expiry)
         return forge
     }
 
-    private static func resolve(directory: String, checkout: String, configPath: String?) async -> Forge {
-        if let declared = SettingsLoader.load(repo: checkout).forge { return declared }
+    private static func resolve(
+        directory: String, checkout: String, configPath: String?
+    ) async -> (forge: Forge, lasting: Bool) {
+        if let declared = SettingsLoader.load(repo: checkout).forge { return (declared, true) }
         // Settled from the config file's text where possible, so a GitHub user pays no process.
         let written = configPath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? ""
         let hosts = remoteURLs(in: written).compactMap { GitHub.repositoryHost($0) }
-        if hosts.contains(where: ForgeRouting.isGitHub) { return .gitHub }
-        if !hosts.contains(where: ForgeRouting.isGitLabCom), GlabSignIn.isInstalled() == false { return .gitHub }
+        if hosts.contains(where: ForgeRouting.isGitHub) { return (.gitHub, true) }
+        if !hosts.contains(where: ForgeRouting.isGitLabCom), GlabSignIn.isInstalled() == false { return (.gitHub, true) }
 
-        let config = (try? await Git.repositoryConfiguration(in: directory)) ?? [:]
         let context = try? await Git.repositoryContext(in: directory)
-        let remotes = config.filter { $0.key.hasPrefix("remote.") && $0.key.hasSuffix(".url") }.map(\.value)
+        let remotes = await configuredRemoteURLs(in: directory)
         switch ForgeRouting.decide(declared: nil, baseRemoteURL: context?.baseRemoteURL, remoteURLs: remotes) {
-        case .forge(let decided): return decided
-        case .askGlab(let host): return await GlabSignIn.shared.isSignedIn(to: host) ? .gitLab : .gitHub
+        case .forge(let decided): return (decided, true)
+        case .askGlab(let host):
+            let signedIn = await GlabSignIn.shared.isSignedIn(to: host)
+            return (signedIn ? .gitLab : .gitHub, signedIn)
         }
+    }
+
+    /// Whether a repository has remotes on both forges and no `git.forge` settling it. `decide`
+    /// would quietly pick GitHub there, which is wrong for a GitLab project mirrored to GitHub,
+    /// so the owner is asked instead and the answer goes through `remember`. Never without glab:
+    /// GitLab is no answer there, and the settings screen hides the choice for the same reason.
+    public static func offersBoth(_ directory: String) async -> Bool {
+        guard GlabSignIn.isInstalled() else { return false }
+        let checkout = mainCheckout(Git.repositoryPaths(in: directory)) ?? directory
+        guard SettingsLoader.load(repo: checkout).forge == nil else { return false }
+        let hosts = await configuredRemoteURLs(in: directory).compactMap { GitHub.repositoryHost($0) }
+        let others = ForgeRouting.hostsBesideGitHub(hosts)
+        if others.contains(where: ForgeRouting.isGitLabCom) { return true }
+        for host in others where await GlabSignIn.shared.isSignedIn(to: host) { return true }
+        return false
+    }
+
+    /// Writes the owner's answer to `.bloom/settings.local.toml` in the project's own checkout,
+    /// which `forge(for:)` reads for every workspace. Not the shared file: remotes are this
+    /// machine's git config, so a teammate with only the GitHub remote must not inherit it.
+    public static func remember(_ forge: Forge, for directory: String) throws {
+        let checkout = mainCheckout(Git.repositoryPaths(in: directory)) ?? directory
+        let path = (checkout as NSString).appendingPathComponent(".bloom/settings.local.toml")
+        var document = SettingsDocument(contentsOf: path)
+        SettingsWriter.apply(.forge(forge), to: &document)
+        SettingsWriter.prepareFolder(for: path, repo: checkout)
+        try document.write(to: path)
+    }
+
+    private static func configuredRemoteURLs(in directory: String) async -> [String] {
+        let config = (try? await Git.repositoryConfiguration(in: directory)) ?? [:]
+        return config.filter { $0.key.hasPrefix("remote.") && $0.key.hasSuffix(".url") }.map(\.value)
     }
 
     /// The `url = ` values of a git config file, without git. Includes and `insteadOf` are not
@@ -97,15 +142,16 @@ public enum ForgeResolver {
 }
 
 private actor ForgeResolutions {
-    private var entries: [String: (fingerprint: [Date?], forge: Forge)] = [:]
+    private var entries: [String: (fingerprint: [Date?], forge: Forge, expiry: ContinuousClock.Instant?)] = [:]
 
     func forge(for directory: String, fingerprint: [Date?]) -> Forge? {
-        guard let entry = entries[directory], entry.fingerprint == fingerprint else { return nil }
+        guard let entry = entries[directory], entry.fingerprint == fingerprint,
+              entry.expiry.map({ ContinuousClock.now < $0 }) ?? true else { return nil }
         return entry.forge
     }
 
-    func store(_ forge: Forge, for directory: String, fingerprint: [Date?]) {
-        entries[directory] = (fingerprint, forge)
+    func store(_ forge: Forge, for directory: String, fingerprint: [Date?], expiry: ContinuousClock.Instant?) {
+        entries[directory] = (fingerprint, forge, expiry)
     }
 }
 
@@ -114,7 +160,7 @@ private actor ForgeResolutions {
 actor GlabSignIn {
     static let shared = GlabSignIn()
     private static let timeout = Duration.seconds(10)
-    private static let refusalLifetime = Duration.seconds(300)
+    static let refusalLifetime = Duration.seconds(300)
 
     private var answers: [String: (signedIn: Bool, at: ContinuousClock.Instant)] = [:]
     private var probes: [String: Task<Bool, Never>] = [:]
