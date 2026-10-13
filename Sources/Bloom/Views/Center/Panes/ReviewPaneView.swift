@@ -126,6 +126,10 @@ struct ReviewPaneView: View {
                 navigationRevision: tab.reviewNavigationRevision
             )
                 .id(model.workspace.id)
+        } else if isPresent, !model.diffScope.isHistorical,
+                  DocumentPreview.kind(path: tab.path) == .svg {
+            model.filePane(path: tab.path)
+                .id(tab.path)
         } else if isPresent, !model.diffScope.isHistorical, FileMediaView.isImage(path: tab.path) {
             FileMediaView(
                 worktree: Self.isAbsolute(tab.path) ? "/" : model.workspace.path,
