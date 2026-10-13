@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Whether the sidebar's table holds the keyboard in the key window, for the edge on its selection.
+/// Whether the sidebar's table holds the keyboard in the key window, and a guard against its
+/// native accent selection drawing.
 ///
 /// **Read from AppKit, because neither SwiftUI signal says it.** `backgroundProminence` inside a row
 /// under a `listRowBackground` does not follow the table's focus, and `@FocusState` on the list

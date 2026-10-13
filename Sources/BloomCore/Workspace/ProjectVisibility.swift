@@ -48,6 +48,9 @@ public enum ProjectVisibility {
     /// same reason `DiffLayoutSetting` exists in the app target.
     public static let showsHiddenKey = "sidebar.showsHiddenProjects"
 
+    /// Whether project headers with no workspaces are kept in the sidebar's project grouping.
+    public static let showsEmptyKey = "sidebar.showsEmptyProjects"
+
     /// The projects to draw, in the order they were handed over.
     public static func listed(_ repos: [Repo], showingHidden: Bool) -> [Repo] {
         showingHidden ? repos : repos.filter { !$0.hidden }

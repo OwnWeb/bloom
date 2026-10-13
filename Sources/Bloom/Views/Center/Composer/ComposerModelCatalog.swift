@@ -61,6 +61,13 @@ final class ComposerModelCatalog {
         }
     }
 
+    /// Browser settings need a complete model menu in one response, not a snapshot taken while
+    /// the same catalogue is still fetching the backend lists.
+    func loadReady() async {
+        load()
+        while let task = loadTask { await task.value }
+    }
+
     func refresh() {
         loadTask?.cancel()
         loadGeneration = UUID()

@@ -40,7 +40,7 @@ enum WelcomeLayoutProbe {
             window.isReleasedWhenClosed = false
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
-            window.contentViewController = host
+            window.contentViewController = WelcomeContentController(host: host)
             await settle(window)
             let greetingHeight = window.frame.height
 

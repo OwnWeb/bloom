@@ -8,12 +8,6 @@ import BloomCore
 /// next is `TabCycle` in the core.
 extension AppModel {
     func cycleCentreTab(by offset: Int) {
-        if isAskInFront {
-            if let next = TabCycle.next(from: ask.selectedID, in: ask.sessions.map(\.id), offset: offset) {
-                Task { await ask.select(next) }
-            }
-            return
-        }
         guard let workspace = selectedModel else { return }
         WorkspaceTabsStore.shared.selectNextTab(offset: offset, in: workspace)
     }

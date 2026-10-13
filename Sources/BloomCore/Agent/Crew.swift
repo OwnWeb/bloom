@@ -27,7 +27,7 @@ import Foundation
 public enum Crew {
     /// How many subagents may be running in one workspace at once.
     ///
-    /// Ten, on the same reasoning as the eight running children a parent may have and the six
+    /// Ten, on the same reasoning as the running child limit a parent has and the six
     /// starts in fifteen minutes the owner's own client gets: not a safety limit, a number that
     /// makes somebody notice at ten rather than at thirty. It was three, which is what a person
     /// splitting work by hand reaches for, and it turned out to be the wrong shape for the thing

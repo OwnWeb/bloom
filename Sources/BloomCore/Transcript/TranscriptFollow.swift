@@ -3,7 +3,7 @@ import Foundation
 /// How the transcript keeps up with content arriving at the live end.
 ///
 /// **This is about the reader who is already at the end.** Somebody who has scrolled up to read
-/// something is nobody's business but their own: `ScrollEnd` says who is at the end, the jump pill
+/// something is nobody's business but their own: the table checks the exact end, the jump pill
 /// says there is more below, and nothing here ever moves a view that somebody else has taken. That
 /// one rule is what makes the rest of this safe.
 ///
@@ -42,7 +42,7 @@ import Foundation
 /// its own. Content growing steadily at `r` points a second leaves the view `r * timeConstant`
 /// points behind, so at a fifth of a second per line of prose the view trails by a couple of
 /// points, and it would take growth of well over a thousand points a second to trail by the
-/// `ScrollEnd.threshold` that would put the jump pill up. Nothing an agent prints does that.
+/// `ScrollEnd.threshold` used for near-end behavior. Nothing an agent prints does that.
 public enum TranscriptFollow {
     /// How far back the view is put when content lands under a reader who is at the end, in
     /// points, and therefore how much travel there is to watch.
@@ -71,8 +71,8 @@ public enum TranscriptFollow {
     /// animation".
     ///
     /// Nearly a tenth of a second instead, which puts an ordinary row's travel at about a quarter
-    /// of a second and a full take-back at about the same as the jump pill's glide. Longer than
-    /// this and the view is visibly behind the words, which is the failure in the other direction.
+    /// of a second, including for a full take-back. Longer than this and the view is visibly
+    /// behind the words, which is the failure in the other direction.
     public static let timeConstant: Double = 0.09
 
     /// Within this many points the travel is over. Half a point is under a pixel on every display

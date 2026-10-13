@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import BloomCore
 
 /// One bare glyph in the browser pane's bar.
@@ -40,16 +41,17 @@ struct BrowserToolbarButton: View {
 /// no stock component for any of it, and `BrowserToolbar` says why: the toolbar, the joined pair
 /// and the search item are all `NSWindow`'s, and this is a pane inside a split inside a tab.
 ///
-/// **The pair and the field are real glass.** It was refused once on the grounds that glass
-/// samples an arbitrary web page, and that was wrong: `BrowserTabView` is a `VStack(spacing: 0)`,
-/// so this bar sits above the page rather than over it. What the two shapes sample is the bar's
-/// own `surfaceSunken`, which is ours.
+/// **The pair and the field are real glass.** The page stays below the bar so its first lines are
+/// never hidden. Once it scrolls, a blurred reflection of its top edge colours this bar.
 ///
 /// Camera and Share use the same circular treatment. Their glyphs still use `.accessoryBar` for
 /// the native hover and pressed states. The camera is on that side because with Reload inside the
 /// field, what is left on the right is the pair that takes this page elsewhere.
 struct BrowserToolbarView: View {
     var toolbar: BrowserToolbar
+    var isPageScrolled = false
+    var scrollEdgeImage: NSImage?
+    @Environment(\.colorScheme) private var colorScheme
     /// What the field shows, which is not where the page is. See `BrowserTabView.address`.
     @Binding var address: String
     /// The field's focus state when a caller wants to drive it.
@@ -101,11 +103,22 @@ struct BrowserToolbarView: View {
         }
         .padding(.horizontal, Metrics.spacingSmall)
         .frame(height: Metrics.barHeight)
-        // The bar itself is a colour and not glass. What is behind it is `Palette.surface`, one
-        // flat fill, so the material would resolve to a colour Bloom already has a name for, and
-        // it would lift the ground the two shapes above sample. Its bottom edge also meets the
-        // page's top edge, where a ground that moves reads as a seam rather than as material.
-        .background(Palette.surfaceSunken)
+        .background {
+            if isPageScrolled, let scrollEdgeImage {
+                GeometryReader { geometry in
+                    Image(nsImage: scrollEdgeImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .scaleEffect(y: -1)
+                        .blur(radius: 10)
+                        .overlay(Palette.surfaceSunken.opacity(colorScheme == .dark ? 0.8 : 0.58))
+                        .clipped()
+                }
+            } else {
+                Palette.surfaceSunken
+            }
+        }
     }
 
     /// Navigation stays together, including the action that refreshes the current page.

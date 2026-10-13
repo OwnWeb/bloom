@@ -851,11 +851,17 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
         for offered in actions.items(url) {
             menu.addItem(item(offered.title, url: url, target: offered.target))
         }
-        if let file = actions.previewSource(url), QuickLookTarget.url(for: file.path) != nil {
-            let preview = NSMenuItem(title: "Quick Look", action: #selector(previewSource(_:)), keyEquivalent: "")
-            preview.target = self
-            preview.represent(file)
-            menu.addItem(preview)
+        if let file = actions.previewSource(url) {
+            if QuickLookTarget.url(for: file.path) != nil {
+                let preview = NSMenuItem(title: "Quick Look", action: #selector(previewSource(_:)), keyEquivalent: "")
+                preview.target = self
+                preview.represent(file)
+                menu.addItem(preview)
+            }
+            let reveal = NSMenuItem(title: "Show in Finder", action: #selector(showSourceInFinder(_:)), keyEquivalent: "")
+            reveal.target = self
+            reveal.represent(file)
+            menu.addItem(reveal)
         }
         menu.addItem(.separator())
         let copy = NSMenuItem(title: "Copy Link", action: #selector(copyLink(_:)), keyEquivalent: "")
@@ -863,6 +869,16 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
         copy.represent(url)
         menu.addItem(copy)
         return menu
+    }
+
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        // NSTextView disables actions it does not recognise, even when a custom menu item names
+        // this view as its target. The link is attached to the item when the menu is built.
+        if menuItem.action == #selector(copyLink(_:))
+            || menuItem.action == #selector(showSourceInFinder(_:)) {
+            return menuItem.represented(URL.self) != nil
+        }
+        return super.validateMenuItem(menuItem)
     }
 
     private func item(_ title: String, url: URL, target: TranscriptLinkTarget) -> NSMenuItem {
@@ -889,6 +905,11 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     @objc private func previewSource(_ sender: NSMenuItem) {
         guard let url = sender.represented(URL.self) else { return }
         HoverQuickLookController.shared.show(url, in: window)
+    }
+
+    @objc private func showSourceInFinder(_ sender: NSMenuItem) {
+        guard let url = sender.represented(URL.self) else { return }
+        Reveal.inFinder(url.path)
     }
 
     @objc private func copyLink(_ sender: NSMenuItem) {

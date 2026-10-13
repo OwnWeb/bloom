@@ -1,7 +1,7 @@
 import SwiftUI
 import BloomCore
 
-/// The centre pane when nothing is selected: every workspace on this Mac, newest first.
+/// The centre pane when nothing is selected: workspaces and conversations, newest first.
 ///
 /// **Why a flat list and not the grid of project blocks this replaced.** Grouping Home by project
 /// duplicated the sidebar, which is two hundred points to the left, always on screen, and already
@@ -35,7 +35,11 @@ struct HomeView: View {
     /// the sidebar cannot show a worktree that no longer exists. Home is the one screen that has
     /// to be able to look at them, so it asks `AppModel` for them, once, rather than per row.
     @State private var archived: [Workspace] = []
+    @State private var archivedConversations: [Session] = []
+    @State private var deletingConversation: Session?
+    @State private var archivingConversation: Session?
     @State private var listing = HomeListing.empty
+    @State private var mixedGroups: [HomeMixedGroup] = []
     /// The list's own selection, not the app's. Writing to `app.selection` would navigate away
     /// from Home, so arrowing down the list would open every workspace it passed.
     @State private var selected: WorkspaceID?
@@ -59,9 +63,6 @@ struct HomeView: View {
     /// only when `HomeView` itself is rebuilt, which is when the selection leaves Home and comes
     /// back. See `HomeListKeyboard`.
     @State private var hasClaimedKeyboard = false
-    /// The row under the pointer, held here rather than in each row, so crossing the pane lights
-    /// one row at a time and a hover invalidates the list rather than nothing at all.
-    @State private var hovered: WorkspaceID?
     /// The id of the row being renamed in place, shared across the whole list so only one field
     /// can ever be open. The same arrangement the sidebar's rows use.
     @State private var renaming: WorkspaceID?
@@ -108,7 +109,7 @@ struct HomeView: View {
             if hasAnyWorkspace {
                 HomeBar(
                     repos: app.repos,
-                    counts: listing.counts,
+                    counts: displayCounts,
                     isSearching: listing.isSearching,
                     filter: $app.homeFilter
                 )
@@ -146,6 +147,10 @@ struct HomeView: View {
             archived = await app.archivedWorkspaces()
             await loadFootprints()
         }
+        .task(id: app.ask.archiveRevision) {
+            archivedConversations = await app.ask.archivedConversations()
+        }
+        .task { await app.ask.open() }
         .task { await keepAgesCurrent() }
         // The one irreversible act in the app, so it counts what would go rather than asking "are
         // you sure" over an unnamed quantity.
@@ -160,9 +165,47 @@ struct HomeView: View {
         } onConfirm: { deletion in
             Task { await delete(deletion) }
         }
+        .confirmationDialog(
+            "Delete this conversation?",
+            isPresented: Binding(
+                get: { deletingConversation != nil },
+                set: { if !$0 { deletingConversation = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let conversation = deletingConversation {
+                Button("Delete Conversation", role: .destructive) {
+                    Task { await app.ask.deleteArchived(conversation.id) }
+                    deletingConversation = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { deletingConversation = nil }
+        } message: {
+            Text("The transcript will be removed. Files in its folder are removed when no other conversation uses them.")
+        }
+        .confirmationDialog(
+            "Archive this conversation?",
+            isPresented: Binding(
+                get: { archivingConversation != nil },
+                set: { if !$0 { archivingConversation = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let conversation = archivingConversation {
+                Button("Archive Conversation") {
+                    Task { await app.ask.close(conversation.id) }
+                    archivingConversation = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { archivingConversation = nil }
+        } message: {
+            Text("The conversation stays available in Archived. A running agent will stop.")
+        }
         .onChange(of: app.workspaces, initial: true) { _, _ in rebuild() }
         .onChange(of: app.repos) { _, _ in rebuild() }
         .onChange(of: archived) { _, _ in rebuild() }
+        .onChange(of: archivedConversations) { _, _ in rebuild() }
+        .onChange(of: app.ask.workspaceConversations) { _, _ in rebuild() }
         // The two halves of the running state, watched separately because they move separately:
         // a turn starting and a turn stopping to ask are different moments, and both change what
         // the "Needs you" and "Running" chips count.
@@ -193,7 +236,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let empty = emptyState {
+        if let empty = emptyState, mixedGroups.isEmpty {
             empty
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -202,59 +245,29 @@ struct HomeView: View {
     }
 
     /// A real `List`, so the rows come with the things a hand-built stack never gets right: arrow
-    /// key navigation between rows and row recycling, which is what keeps five hundred workspaces
-    /// from being five hundred live views.
+    /// key navigation between rows and row recycling, which keeps hundreds of records from
+    /// being hundreds of live views.
     ///
     /// The date headings are ordinary rows rather than `Section` headers. As headers they pinned
     /// to the top and the rows slid underneath them, which reads as an index keeping your place in
-    /// a long document; this is a flat list of workspaces and there is no place to keep.
+    /// a long document; this is a flat list of work and conversations.
     ///
     /// The one thing it is NOT allowed to bring is its own selection fill. Under `.listStyle(.inset)`
     /// that is a full bleed bar of the system accent, which was a third selection treatment in a
     /// window that already has one. `HomeRowBackground` is painted over it.
     private var list: some View {
         List(selection: $selected) {
-            ForEach(listing.groups) { group in
+            ForEach(mixedGroups) { group in
                 Section {
                     HomeGroupHeading(title: group.title)
                         .listRowInsets(Self.rowInsets)
                         .listRowBackground(Color.clear)
                         .selectionDisabled()
 
-                    ForEach(group.rows) { row in
-                        HomeListRow(
-                            row: row,
-                            isRunning: app.isRunning(row.workspace),
-                            isAwaitingPermission: app.isAwaitingPermission(row.workspace),
-                            isStarting: app.isStarting(row.workspace),
-                            now: now,
-                            isRenaming: renaming == row.id,
-                            onCommitRename: { commitRename(row, to: $0) },
-                            onCancelRename: { closeField(of: row) }
-                        )
-                        // Innermost, on the drawing alone. Everything below this line is what the
-                        // list is told about the row, and a row that is fading in is still
-                        // selectable, clickable and right clickable throughout.
-                        .arrivingRow(arrival.isArriving(row.id))
-                        .tag(row.id)
-                        // Simultaneous rather than `onTapGesture`, so the list still takes the
-                        // click for itself: it is what moves the keyboard into the table, and
-                        // without it the arrow keys have no way of ever reaching these rows.
-                        .simultaneousGesture(TapGesture().onEnded { open(row) })
-                        .listRowInsets(Self.rowInsets)
-                        // Home's rows answered to the pointer with nothing at all: no tint under
-                        // it, and no menu on a right click, while the identical row in the sidebar
-                        // two hundred points to the left had both. See `HomeRowBackground` for why
-                        // the fill is drawn here rather than left to the list.
-                        .onHoverChange { hovered = $0 ? row.id : (hovered == row.id ? nil : hovered) }
-                        .listRowBackground(
-                            HomeRowBackground(
-                                isSelected: selected == row.id,
-                                isHovered: hovered == row.id
-                            )
-                        )
-                        .contextMenu {
-                            HomeRowMenu(row: row, onRename: { renaming = $0 }, onDelete: askToDelete)
+                    ForEach(group.items) { item in
+                        switch item {
+                        case .workspace(let row): workspaceRow(row)
+                        case .conversation(let conversation): conversationRow(conversation)
                         }
                     }
                 }
@@ -305,6 +318,37 @@ struct HomeView: View {
                 Task { await app.archive(row.workspace) }
             }
         }
+    }
+
+    private func workspaceRow(_ row: HomeRow) -> some View {
+        HomeWorkspaceListEntry(
+            row: row,
+            isRunning: app.isRunning(row.workspace),
+            isAwaitingPermission: app.isAwaitingPermission(row.workspace),
+            isStarting: app.isStarting(row.workspace),
+            now: now,
+            isRenaming: renaming == row.id,
+            isSelected: selected == row.id,
+            isArriving: arrival.isArriving(row.id),
+            rowInsets: Self.rowInsets,
+            onOpen: { open(row) },
+            onCommitRename: { commitRename(row, to: $0) },
+            onCancelRename: { closeField(of: row) },
+            onRename: { renaming = $0 },
+            onDelete: askToDelete
+        )
+        .tag(row.id)
+    }
+
+    private func conversationRow(_ conversation: Session) -> some View {
+        HomeConversationRow(
+            conversation: conversation,
+            onArchive: { archivingConversation = conversation },
+            onDelete: { deletingConversation = conversation }
+        )
+        .listRowInsets(Self.rowInsets)
+        .listRowBackground(Color.clear)
+        .selectionDisabled()
     }
 
     /// The second kind of result: workspaces whose transcript matched, with the best few lines
@@ -374,7 +418,8 @@ struct HomeView: View {
             listing: listing,
             filter: filter,
             projects: app.repos.count,
-            database: databaseSize
+            database: databaseSize,
+            conversationCount: homeConversations.count
         )
     }
 
@@ -391,6 +436,33 @@ struct HomeView: View {
 
     private var hasAnyWorkspace: Bool {
         !app.workspaces.isEmpty || !archived.isEmpty
+            || !app.ask.workspaceConversations.isEmpty || !archivedConversations.isEmpty
+    }
+
+    private var homeConversations: [Session] {
+        guard filter.projects.isEmpty, filter.scope != .transcripts else { return [] }
+        let candidates = app.ask.workspaceConversations + archivedConversations
+        let query = filter.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidates.filter { session in
+            (filter.scope != .archived || session.archivedAt != nil)
+                && (query.isEmpty || app.ask.title(for: session).localizedCaseInsensitiveContains(query))
+        }
+    }
+
+    private var displayCounts: HomeScopeCounts {
+        var counts = listing.counts
+        guard filter.projects.isEmpty else { return counts }
+        let query = filter.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        for conversation in app.ask.workspaceConversations + archivedConversations
+        where query.isEmpty || app.ask.title(for: conversation).localizedCaseInsensitiveContains(query) {
+            if !query.isEmpty { counts.workspaces += 1 }
+            if conversation.archivedAt == nil {
+                counts.live += 1
+            } else {
+                counts.archived += 1
+            }
+        }
+        return counts
     }
 
     // MARK: - Empty
@@ -416,9 +488,9 @@ struct HomeView: View {
     @ViewBuilder
     private var emptyState: (some View)? {
         if let state = HomeEmptyState.resolve(
-            hasProjects: !app.repos.isEmpty,
+            hasProjects: !app.repos.isEmpty || hasAnyWorkspace,
             hasAnyWorkspace: hasAnyWorkspace,
-            isListEmpty: listing.isEmpty,
+            isListEmpty: listing.transcripts.isEmpty && mixedGroups.isEmpty,
             query: filter.query,
             scope: filter.scope,
             hasProjectFilter: !filter.projects.isEmpty,
@@ -488,6 +560,12 @@ struct HomeView: View {
                 running: app.runningWorkspaceIDs, waiting: app.waitingWorkspaceIDs
             ),
             footprints: footprints,
+            now: stamp
+        )
+        mixedGroups = HomeMixedList.build(
+            listing: listing,
+            conversations: homeConversations,
+            filter: filter,
             now: stamp
         )
         // Every row in the list, flattened out of its date heading. Which heading a row is filed

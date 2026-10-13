@@ -11,17 +11,15 @@ import BloomCore
 /// ## Two sections, because there are two nouns
 ///
 /// The picker narrows WORKSPACES by their state, which is what this control has always done. The
-/// toggle decides whether hidden PROJECTS are in the list, which is a different noun, so it goes
-/// under a heading of its own rather than as a fourth row of the picker. Conductor puts the same
-/// switch at the foot of its project list as a permanent row; the owner asked for it in the filter
-/// instead, and a labelled section is what stops it reading as a fourth kind of workspace.
+/// toggles decide which PROJECTS are in the list, which is a different noun, so they go under a
+/// heading of their own rather than as rows of the workspace picker.
 ///
-/// The toggle is a switch and not another picker row on purpose. The picker is one choice out of
-/// three and only one of them can be true; showing hidden projects is orthogonal to all three,
-/// and a tick that is not part of the same either/or has to look different from one that is.
+/// The toggles are switches and not picker rows on purpose. The picker is one choice out of
+/// three and only one of them can be true; showing hidden or empty projects is independent of it.
 struct SidebarFilterMenuItems: View {
     @Binding var filter: SidebarFilter
     @Binding var showsHiddenProjects: Bool
+    @Binding var showsEmptyProjects: Bool
     /// How many projects are hidden right now, which the toggle says out loud. Passed in rather
     /// than read from the model, so the probe can photograph the menu for any number.
     var hiddenCount: Int
@@ -58,10 +56,17 @@ struct SidebarFilterMenuItems: View {
         // tick in the column an image would go in, so a `systemImage` here is simply not drawn.
         // The picker rows above keep theirs, because a picker draws both.
         Section("Projects") {
+            Button("Show all projects in sidebar") {
+                filter = .all
+                grouping = SidebarGrouping.projects.rawValue
+                showsHiddenProjects = true
+                showsEmptyProjects = true
+            }
             Toggle(
                 ProjectVisibility.toggleTitle(hiddenCount: hiddenCount),
                 isOn: $showsHiddenProjects
             )
+            Toggle("Show projects without workspaces", isOn: $showsEmptyProjects)
         }
     }
 }

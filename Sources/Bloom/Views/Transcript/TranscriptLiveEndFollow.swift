@@ -11,11 +11,9 @@ import SwiftUI
 ///
 /// ## Why this is not a `withAnimation` on the scroll position
 ///
-/// For the reason `TranscriptLiveEndScroller`'s header measures, and a second one on top of it:
-/// this runs while a turn streams, so a state write per frame would re-run the list's body and
-/// rebuild every realised row with it. Nothing here writes any SwiftUI state. It reads two heights
-/// off AppKit and sets an origin, and the transcript's geometry callback picks the result up as if
-/// the reader had scrolled there themselves.
+/// A state write per frame would rebuild the list's body while a turn streams. Nothing here writes
+/// SwiftUI state. It reads two heights off AppKit and sets an origin, and the transcript's geometry
+/// callback picks the result up as if the reader had scrolled there themselves.
 ///
 /// ## The take-back, and why it is the shape of the thing
 ///
@@ -60,8 +58,8 @@ final class TranscriptLiveEndFollower {
     /// Whether the reader has hold of the view. Anything that is not an idle scroll phase.
     var isPaused = false { didSet { refresh() } }
 
-    /// An explicit glide owns the clip view until it lands. Streaming nudges must not start a
-    /// second display link, or reclaim the bottom before that glide has finished.
+    /// An explicit jump owns the clip view while the table moves its drawn window. Streaming
+    /// nudges must not reclaim the bottom until that placement has finished.
     private(set) var isSeekingLiveEnd = false
 
     func seekLiveEnd(_ seeking: Bool) {
@@ -261,7 +259,7 @@ final class TranscriptLiveEndFollower {
         guard wants, let scrollView, let document = scrollView.documentView else { return endLink() }
         // Flipped is what every scroll view in this app is, SwiftUI's included, but it is
         // asked rather than assumed: unflipped, the end of the document is at the origin and
-        // everything below would be aimed the wrong way. See `TranscriptLiveEndScroller`.
+        // everything below would be aimed the wrong way.
         guard document.isFlipped else { return endLink() }
 
         let clip = scrollView.contentView

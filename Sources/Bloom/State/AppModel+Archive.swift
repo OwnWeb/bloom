@@ -734,26 +734,48 @@ extension AppModel {
     /// a worktree from a menu item, with no safety report in front of it, which is the one thing
     /// this app is careful never to do.
     func restore(_ workspace: Workspace) async {
-        guard let manager else { return }
-        guard let repo = repo(for: workspace) else {
-            alert = BloomAlert(
-                title: "Could not bring \(workspace.name) back",
-                message: "Its project is no longer in Bloom, so there is no repository to cut a "
-                    + "worktree from. Add the project again and try once more."
-            )
-            return
+        switch await restoreWorkspaceForBridge(workspace) {
+        case .restored:
+            selection = .workspace(workspace.id)
+        case .refused(let reason):
+            alert = BloomAlert(title: "Could not bring \(workspace.name) back", message: reason)
         }
-        guard !restoring.contains(workspace.id) else { return }
+    }
 
+    /// The bridge and Restore button share the rebuild. An MCP call must not move the window
+    /// away from what the owner is reading, so only the button's caller selects the result.
+    func restoreWorkspaceForBridge(_ workspace: Workspace) async -> WorkspaceRestoreToolOutcome {
+        guard let manager, let store else {
+            return .refused("Bloom is still starting up. Try again in a moment.")
+        }
+        guard !restoring.contains(workspace.id) else {
+            return .refused("This workspace is already being restored. Check workspace_list shortly.")
+        }
         restoring.insert(workspace.id)
         defer { restoring.remove(workspace.id) }
 
+        let current: Workspace
         do {
-            let outcome = try await manager.restore(workspace: workspace, repo: repo)
+            guard let found = try await store.workspace(id: workspace.id) else {
+                return .refused("This workspace is no longer in Bloom. Refresh workspace_list.")
+            }
+            current = found
+        } catch {
+            return .refused("Bloom could not read this workspace. Try again shortly.")
+        }
+        guard current.state == .archived else {
+            return .refused("This workspace is active already. Refresh workspace_list.")
+        }
+        guard let repo = repo(for: current) else {
+            return .refused("Its project is no longer in Bloom, so there is no repository to cut a "
+                + "worktree from. Add the project again and try once more.")
+        }
+
+        do {
+            let outcome = try await manager.restore(workspace: current, repo: repo)
             // The other half of the pair: this workspace has left the archived list.
             invalidateArchived()
             await reload()
-            selection = .workspace(outcome.workspace.id)
             Log.archive.info("restored \(workspace.name, privacy: .public)")
 
             if let from = outcome.relocatedFrom {
@@ -767,6 +789,7 @@ extension AppModel {
                     dismissal: .untilDismissed
                 )
             }
+            return .restored(path: outcome.workspace.path, relocatedFrom: outcome.relocatedFrom)
         } catch {
             Log.archive.error(
                 "could not restore \(workspace.name, privacy: .public): \(error.readableMessage, privacy: .public)"
@@ -782,10 +805,7 @@ extension AppModel {
                 project: repo.name,
                 projectPath: repo.path
             )
-            alert = BloomAlert(
-                title: "Could not bring \(workspace.name) back",
-                message: trouble.sentence
-            )
+            return .refused(trouble.sentence)
         }
     }
 }

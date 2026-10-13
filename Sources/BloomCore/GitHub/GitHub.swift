@@ -61,6 +61,14 @@ public struct GitHubError: Error, Sendable, CustomStringConvertible {
     public var description: String { message }
 }
 
+public enum DirectMergeOutcome: Sendable, Equatable {
+    case merged
+    /// gh accepted the command, but a fresh read still reports the pull request open.
+    case acceptedButOpen
+    /// gh accepted the command, but the follow-up status read failed.
+    case acceptedUnverified
+}
+
 private struct PullRequestPayload: Decodable {
     let number: Int?
     let title: String?
@@ -71,10 +79,18 @@ private struct PullRequestPayload: Decodable {
     let mergeStateStatus: String?
     let reviewDecision: String?
     let headRefName: String?
+    let baseRefName: String?
+    let headRevision: String?
     let statusCheckRollup: [CheckPayload]?
     /// When the pull request stopped being open. GitHub sets it for merged as well as closed, and
     /// leaves it null while the pull request is open, so one field answers both.
     let closedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case number, title, url, state, isDraft, mergeable, mergeStateStatus, reviewDecision
+        case headRefName, baseRefName, statusCheckRollup, closedAt
+        case headRevision = "headRefOid"
+    }
 }
 
 /// The two fields choosing between several pull requests on one head name needs.
@@ -188,6 +204,7 @@ public enum GitHub {
     private static let unreadableChecks = UnreadableChecks()
     private static let fieldList = [
         "number", "title", "url", "state", "isDraft", "mergeable",
+        "baseRefName", "headRefOid",
         "mergeStateStatus", "reviewDecision", "headRefName", "statusCheckRollup",
         // Read for one reason: telling a pull request that ended before this workspace was
         // started apart from this workspace's own. See `PullRequestOwnership`.
@@ -301,6 +318,23 @@ public enum GitHub {
         // read as one.
         var arguments = ["pr", "create", "--base", base, "--title", title, "--body", body]
         if draft { arguments.append("--draft") }
+        return try await createPullRequest(arguments: arguments, worktree: worktree)
+    }
+
+    /// Uses the pushed commits for the body while keeping the workspace's chosen title.
+    public static func createPullRequestFromCommits(
+        worktree: String, base: String, title: String
+    ) async throws -> PullRequest {
+        guard Git.isValidBranchName(base) else {
+            throw GitHubError("refusing to open a pull request against '\(base)': not a valid branch name")
+        }
+        let arguments = ["pr", "create", "--base", base, "--title", title, "--fill"]
+        return try await createPullRequest(arguments: arguments, worktree: worktree)
+    }
+
+    private static func createPullRequest(
+        arguments: [String], worktree: String
+    ) async throws -> PullRequest {
         try await checkGH(arguments, worktree: worktree)
 
         // Through the same retry as every other read, or a token that cannot see check runs opens
@@ -354,14 +388,70 @@ public enum GitHub {
         return whole.stdout
     }
 
-    // Merging is not here, and its absence is the point.
-    //
-    // `gh pr merge` used to run from this file, followed by an explicit
-    // `git push --delete -- origin refs/heads/<branch>`, because `--delete-branch` makes gh check
-    // out the base branch and a worktree cannot check out the branch the main copy is standing on.
-    // Both commands now live in `MergeInstructions`, in the words the turn hands the workspace's
-    // agent, and everything that was known about them here is written down there. There is one
-    // way to merge a pull request in this app and it goes through the transcript.
+    /// Merge exactly the pull request and head commit the owner confirmed, with no override or
+    /// automatic merge flag. GitHub may put a repository with a merge queue into that queue.
+    /// The result says whether it has actually landed, rather than calling a queued request done.
+    public static func mergePullRequest(
+        _ expected: PullRequest, into base: String, method: MergeMethod, worktree: String
+    ) async throws -> DirectMergeOutcome {
+        guard expected.number > 0, !expected.url.isEmpty,
+              let expectedHead = expected.headRevision, Self.isCommitID(expectedHead),
+              let expectedBase = expected.baseBranch, !expectedBase.isEmpty else {
+            throw GitHubError("Refresh the pull request before merging directly.")
+        }
+        if !expected.branch.isEmpty,
+           try await Git.currentBranch(of: worktree) != expected.branch {
+            throw GitHubError("This worktree is no longer on the pull request's branch.")
+        }
+
+        let local = try await Git.localWork(worktree: worktree)
+        guard !local.isAhead else {
+            throw GitHubError("This worktree has changes or commits GitHub has not got. Commit and push them, or choose the agent route after reviewing the warning.")
+        }
+        guard try await Git.headSHA(of: worktree) == expectedHead else {
+            throw GitHubError("This checkout is not at the pull request's head commit. Refresh or update it before merging directly.")
+        }
+
+        let context = try await Git.repositoryContext(in: worktree, baseBranch: base)
+        guard expectedBase == context.baseBranch else {
+            throw GitHubError("The pull request targets \(expectedBase), not \(context.baseBranch). Refresh it before merging.")
+        }
+        guard let current = try await snapshot(
+            forNumber: expected.number, worktree: worktree, maxAge: .zero
+        )?.pullRequest else {
+            throw GitHubError("GitHub no longer has pull request #\(expected.number).")
+        }
+        guard current.url == expected.url, current.branch == expected.branch,
+              current.baseBranch == expectedBase, current.headRevision == expectedHead else {
+            throw GitHubError("The pull request changed since it was shown. Refresh it before merging.")
+        }
+        guard current.isOpen, current.status.canMerge else {
+            throw GitHubError(current.status.blockedReason ?? "This pull request can no longer be merged.")
+        }
+
+        let arguments = [
+            "pr", "merge", String(expected.number), method.flag,
+            "--match-head-commit", expectedHead,
+        ]
+        let result = try await run("gh", arguments, cwd: worktree, timeout: .seconds(60))
+        if !result.ok {
+            if let after = try? await snapshot(
+                forNumber: expected.number, worktree: worktree, maxAge: .zero
+            )?.pullRequest, after.isMerged { return .merged }
+            throw shellError(arguments: arguments, result: result)
+        }
+
+        guard let after = try? await snapshot(
+            forNumber: expected.number, worktree: worktree, maxAge: .zero
+        )?.pullRequest else { return .acceptedUnverified }
+        return after.isMerged ? .merged : .acceptedButOpen
+    }
+
+    private static func isCommitID(_ value: String) -> Bool {
+        (value.count == 40 || value.count == 64) && value.utf8.allSatisfy {
+            (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0)
+        }
+    }
 
     /// Pushes the current HEAD to `branch` on its configured publication remote.
     ///
@@ -668,6 +758,8 @@ public enum GitHub {
                 checksSummary: summary,
                 reviewDecision: payload.reviewDecision,
                 branch: payload.headRefName ?? "",
+                baseBranch: payload.baseRefName,
+                headRevision: payload.headRevision,
                 closedAt: parseDate(payload.closedAt)
             ),
             runs: runs

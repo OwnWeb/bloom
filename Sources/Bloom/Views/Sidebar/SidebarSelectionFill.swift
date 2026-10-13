@@ -19,12 +19,9 @@ import BloomCore
 /// it was not reliable on its own, so the table's own drawing is switched off as well: see
 /// `SidebarKeyboardFocus`.
 ///
-/// The keyboard is shown with an edge, not a colour. The fill is identical in both selected
-/// states, so nothing about the report can come back, and the edge is what says the arrow keys are
-/// pointed at this pane.
+/// The fill is identical whether or not the list holds the keyboard. A focus outline around the
+/// selected row was too prominent in the sidebar, so focus adds no second mark.
 struct SidebarSelectionFill: View {
-    var style: SidebarSelectionStyle
-
     /// Ink at an alpha rather than an opaque step, because the pane is glass over the window's blue
     /// wash: `Palette.selected` composited to within a few units of what was under it and the
     /// selected workspace had a fill nobody could see. Measured in `114a389d`, where nine percent
@@ -41,14 +38,8 @@ struct SidebarSelectionFill: View {
     static let inset: CGFloat = 10
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)
-        shape
+        RoundedRectangle(cornerRadius: Metrics.corner, style: .continuous)
             .fill(Self.fill)
-            .overlay {
-                if style.drawsKeyboardEdge {
-                    shape.strokeBorder(Palette.textTertiaryOnGlass, lineWidth: Metrics.hairline)
-                }
-            }
             .padding(.horizontal, Self.inset)
     }
 }
@@ -66,7 +57,7 @@ extension View {
     func sidebarSelection(_ style: SidebarSelectionStyle) -> some View {
         listRowBackground(Group {
             if style.drawsFill {
-                SidebarSelectionFill(style: style)
+                SidebarSelectionFill()
             }
         })
         .environment(\.backgroundProminence, .standard)

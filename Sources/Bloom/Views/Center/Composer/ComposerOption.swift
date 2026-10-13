@@ -18,6 +18,7 @@ struct ComposerOption: Identifiable, Hashable {
         ComposerOption(id: "fable", label: "Fable 5.1"),
         ComposerOption(id: "opus", label: "Opus 5.5"),
         ComposerOption(id: "sonnet", label: "Sonnet 5"),
+        ComposerOption(id: "claude-sonnet-5-5", label: "Sonnet 5.5"),
         ComposerOption(id: "haiku", label: "Haiku 4.5"),
     ]
 

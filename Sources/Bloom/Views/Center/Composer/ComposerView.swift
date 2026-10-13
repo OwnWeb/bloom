@@ -795,12 +795,14 @@ struct ComposerView: View {
             repoSettings = await Task.detached(priority: .utility) {
                 SettingsLoader.load(repo: path)
             }.value
+            repoSettings = (try? await store.applyingProjectAgentDefaults(
+                to: repoSettings, for: repo.id
+            )) ?? repoSettings
         }
         guard !Task.isCancelled else { return }
 
-        // A chat with no worktree does not inherit the owner's permission mode, and that is the
-        // whole of decision two: the default is Full access, and this is the one conversation in
-        // Bloom that sits above every project. See `ComposerDefaults.resolve`.
+        // Ask Bloom uses the same permission preference as workspace chats. Its working directory
+        // and the permission menu explain the wider reach a mode may have without a worktree.
         let resolved = ComposerDefaults.resolve(
             repo: repoSettings,
             app: appDefaults,

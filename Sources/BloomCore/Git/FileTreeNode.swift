@@ -34,13 +34,18 @@ public struct FileTreeNode: Identifiable, Hashable, Sendable {
         var children: [String: Set<FileTreeNode>] = [:]
 
         for path in paths where !path.isEmpty {
-            let components = path.components(separatedBy: "/")
+            // A trailing slash is an explicit directory, including one with no files below it.
+            // Git names files; the worktree directory walk adds these entries.
+            let explicitDirectory = path.hasSuffix("/")
+            var components = path.components(separatedBy: "/")
+            if explicitDirectory { components.removeLast() }
+            guard !components.isEmpty, components.allSatisfy({ !$0.isEmpty }) else { continue }
             var parent = ""
             for (offset, component) in components.enumerated() {
                 let isLast = offset == components.count - 1
                 let full = parent.isEmpty ? component : parent + "/" + component
                 children[parent, default: []].insert(
-                    FileTreeNode(name: component, path: full, isDirectory: !isLast)
+                    FileTreeNode(name: component, path: full, isDirectory: !isLast || explicitDirectory)
                 )
                 if isLast { break }
                 parent = full

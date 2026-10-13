@@ -124,6 +124,10 @@ extension AppModel {
                 guard let self else { return .refused("Bloom is still starting up.") }
                 return await self.archiveWorkspaceForBridge(order)
             },
+            WorkspaceRestoreTool { [weak self] workspace in
+                guard let self else { return .refused("Bloom is still starting up.") }
+                return await self.restoreWorkspaceForBridge(workspace)
+            },
             WorkspaceMergeTool { [weak self] workspace, pullRequest, method in
                 guard let self else {
                     return .refused("Bloom is still starting up. Try again in a moment.")

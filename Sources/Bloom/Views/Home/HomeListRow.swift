@@ -392,6 +392,50 @@ struct HomeListRow: View {
     }
 }
 
+/// The list interaction around a workspace row. Hover is local so scrolling under a stationary
+/// pointer updates one row instead of rebuilding Home's entire list at every row boundary.
+struct HomeWorkspaceListEntry: View {
+    let row: HomeRow
+    let isRunning: Bool
+    let isAwaitingPermission: Bool
+    let isStarting: Bool
+    let now: Date
+    let isRenaming: Bool
+    let isSelected: Bool
+    let isArriving: Bool
+    let rowInsets: EdgeInsets
+    let onOpen: () -> Void
+    let onCommitRename: (String) -> Void
+    let onCancelRename: () -> Void
+    let onRename: (WorkspaceID) -> Void
+    let onDelete: (Workspace) -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HomeListRow(
+            row: row,
+            isRunning: isRunning,
+            isAwaitingPermission: isAwaitingPermission,
+            isStarting: isStarting,
+            now: now,
+            isRenaming: isRenaming,
+            onCommitRename: onCommitRename,
+            onCancelRename: onCancelRename
+        )
+        .arrivingRow(isArriving)
+        .simultaneousGesture(TapGesture().onEnded { onOpen() })
+        .listRowInsets(rowInsets)
+        .onHoverChange { isHovered = $0 }
+        .listRowBackground(
+            HomeRowBackground(isSelected: isSelected, isHovered: isHovered)
+        )
+        .contextMenu {
+            HomeRowMenu(row: row, onRename: onRename, onDelete: onDelete)
+        }
+    }
+}
+
 /// What a Home row is filled with: nothing at rest, the hover tint under the pointer, the quiet
 /// selection grey when it is the selected row.
 ///

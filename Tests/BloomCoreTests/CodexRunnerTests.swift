@@ -195,7 +195,7 @@ private func eventually(
         #expect(stored?.state == .running)
     }
 
-    @Test("Ask Bloom sends host instructions when starting and resuming Codex",
+    @Test("project-free conversations send no forced host prompt",
           arguments: [false, true], [false, true])
     func askBloomInstructions(hasWorkspace: Bool, resumed: Bool) async throws {
         let store = try makeTestStore("codex-ask-instructions")
@@ -214,8 +214,7 @@ private func eventually(
 
         let method = resumed ? "thread/resume" : "thread/start"
         let frame = try #require(box.process.sentFrame { $0["method"]?.stringValue == method })
-        #expect(frame["params"]?["developerInstructions"]?.stringValue ==
-                (hasWorkspace ? nil : AskConversation.instructions))
+        #expect(frame["params"]?["developerInstructions"]?.stringValue == nil)
         #expect(frame["params"]?["baseInstructions"] == nil)
         await runner.shutdown()
     }

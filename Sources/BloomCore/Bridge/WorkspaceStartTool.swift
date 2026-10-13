@@ -211,15 +211,18 @@ public typealias PullRequestCheckoutResolving =
 /// The argument that two identical asks a minute apart from a person are two asks is an argument
 /// about the Create sheet, where each of them is a press; here neither of them is.
 public struct WorkspaceStartTool: BridgeToolHandling {
+    private let preferences: WorkspaceStartPreferences
     private let start: WorkspaceStarting
     private let resolvePullRequest: PullRequestCheckoutResolving
 
     public init(
+        preferences: WorkspaceStartPreferences = .init(),
         start: @escaping WorkspaceStarting,
         resolvePullRequest: @escaping PullRequestCheckoutResolving = {
             await WorkspaceCheckoutResolver.resolve($0, repoPath: $1)
         }
     ) {
+        self.preferences = preferences
         self.start = start
         self.resolvePullRequest = resolvePullRequest
     }
@@ -234,10 +237,9 @@ public struct WorkspaceStartTool: BridgeToolHandling {
 
             Name the project to start it in with 'project', giving the name or the path that \
             project_list reports. Bloom only starts workspaces in repositories it already has, so \
-            a project that is not on that list has to be registered with project_add first, which \
-            only the owner can do. If you are \
-            yourself running inside a Bloom workspace, leave 'project' out to start it in the \
-            project you are already in, or name another project to hand the work to that \
+            a project that is not on that list has to be registered with project_add first. \
+            If you are yourself running inside a Bloom workspace, leave 'project' out to start \
+            it in the project you are already in, or name another project to hand the work to that \
             repository instead. The new workspace is still counted as one you started.
 
             Use it when a task splits into parts that do not need to see each other's edits, and \
@@ -666,7 +668,9 @@ public struct WorkspaceStartTool: BridgeToolHandling {
     func overAllowance(
         _ origin: WorkspaceOrigin, store: Store, now: Date = Date()
     ) async throws -> String? {
-        let allowance = WorkspaceStartAllowance.of(origin)
+        let allowance = WorkspaceStartAllowance.of(
+            origin, maximumChildren: preferences.maximumChildren
+        )
 
         switch allowance {
         case .unlimited:

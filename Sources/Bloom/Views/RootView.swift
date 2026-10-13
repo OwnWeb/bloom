@@ -76,7 +76,8 @@ struct RootView: View {
             .sheet(item: createWorkspaceRequest) { request in
                 CreateWorkspaceView(
                     initialRepo: app.repos.first { $0.id == request.repoID },
-                    pullRequestRevision: request.pullRequestRevision
+                    pullRequestRevision: request.pullRequestRevision,
+                    startsAsConversation: request.startsAsConversation || app.repos.isEmpty
                 )
             }
             // Send Feedback and Submit a Prompt, raised from the Help menu. Here rather than at the
@@ -294,17 +295,14 @@ struct RootView: View {
         }
         // The post is still the one door every control goes through. Presentation stays here so
         // every entry point updates the same sheet and repeated asks preserve its draft.
-        // File, New Ask Bloom Conversation adds a conversation and keeps the existing ones, and
-        // opens the panel to show it.
-        .onReceive(NotificationCenter.default.publisher(for: .bloomNewAskConversation)) { _ in
-            AskPanelModel.shared.open(app: app)
-            Task { await app.ask.newConversation() }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .bloomNewWorkspace)) { note in
             presentCreateWorkspace(
                 in: note.object as? Repo,
                 asksForPullRequest: note.userInfo?[Notification.bloomPullRequestKey] as? Bool == true
             )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .bloomNewConversationWorkspace)) { _ in
+            presentCreateWorkspace(in: nil, asksForPullRequest: false, startsAsConversation: true)
         }
         // Makes the workspace the create sheet's terminal mode makes, for a capture run, which
         // cannot choose a mode or press a button. It goes through `createWorkspace` exactly as that
@@ -329,10 +327,13 @@ struct RootView: View {
 
     /// Presents the sheet on the named project, or on the project most recently started in.
     /// An ask made while the sheet is already up updates that one request and keeps its draft.
-    private func presentCreateWorkspace(in repo: Repo?, asksForPullRequest: Bool) {
+    private func presentCreateWorkspace(
+        in repo: Repo?, asksForPullRequest: Bool, startsAsConversation: Bool = false
+    ) {
         if createWorkspacePresentation.request != nil {
             createWorkspacePresentation.present(
-                repoID: repo?.id, asksForPullRequest: asksForPullRequest
+                repoID: repo?.id, asksForPullRequest: asksForPullRequest,
+                startsAsConversation: startsAsConversation
             )
             return
         }
@@ -341,6 +342,13 @@ struct RootView: View {
         if let repo {
             createWorkspacePresentation.present(
                 repoID: repo.id, asksForPullRequest: asksForPullRequest
+            )
+            return
+        }
+
+        if startsAsConversation || app.repos.isEmpty {
+            createWorkspacePresentation.present(
+                repoID: nil, startsAsConversation: true
             )
             return
         }
@@ -465,10 +473,7 @@ extension Notification.Name {
     /// has selected, and because the four have always behaved identically by going through one
     /// door. See `presentCreateWorkspace`.
     static let bloomNewWorkspace = Notification.Name("bloom.newWorkspace")
-    /// File, New Ask Bloom Conversation. The same act the toolbar's glyph performs, posted rather
-    /// than called, because `RootView` owns the flag that raises it and starting fresh archives
-    /// the conversation it replaces: one writer, whichever control was pressed.
-    static let bloomNewAskConversation = Notification.Name("bloom.newAskConversation")
+    static let bloomNewConversationWorkspace = Notification.Name("bloom.newConversationWorkspace")
     /// Opens the window that starts a project. A notification for the same reason the create
     /// window is opened by one: the sidebar's `+`, Home's empty state, the toolbar and a
     /// `Commands` body can none of them reach `openWindow`, and this is where the receiver that

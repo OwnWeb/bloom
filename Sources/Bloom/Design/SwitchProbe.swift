@@ -81,6 +81,7 @@ enum SwitchProbe {
         let ticker = Ticker(view: contentView)
         ticker.start()
         SwitchTrace.isEnabled = true
+        harness.markStarted()
 
         var runs: [JSONValue] = []
 
@@ -115,6 +116,19 @@ enum SwitchProbe {
                 runs.append(.object(run.merging(labels) { current, _ in current }))
                 try? await Task.sleep(for: .milliseconds(800))
             }
+        }
+
+        // A focused performance run ends here. The position, rapid-switch and background-update
+        // checks below answer separate correctness questions and extend a timed run by minutes.
+        if ProbeHarness.isPresent("--switch-timing-only") {
+            SwitchTrace.isEnabled = false
+            ticker.stop()
+            harness.write(.object([
+                "driver": .string(driver),
+                "order": .strings(order.map(\.rawValue)),
+                "runs": .array(runs),
+            ].merging(harness.conditions(window: window)) { mine, _ in mine }))
+            exit(0)
         }
 
         // Whether a reader who was NOT at the live end is put back where they were, which is the
@@ -154,6 +168,7 @@ enum SwitchProbe {
             return [:]
         }
         ticker.beginRun()
+        let cpuBefore = ProbeHarness.mainThreadCPUSeconds()
         // Which pane's layout the freeze is in. `FrameProbe` uses the same counters for the same
         // reason: "the window stood still for 300ms" is not an answer until it says which of the
         // two columns stood still.
@@ -203,6 +218,7 @@ enum SwitchProbe {
             "panePasses": .map(PaneLayoutTiming.timeline()),
             "transcriptHold": .map(TranscriptHoldCensus.summary()),
             "worstFrameMs": .number(ticker.intervalsMs.max() ?? 0),
+            "mainThreadCpuMs": .number((ProbeHarness.mainThreadCPUSeconds() - cpuBefore) * 1_000),
         ]
     }
 

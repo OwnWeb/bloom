@@ -327,4 +327,15 @@ struct HomeSummaryTests {
     func nothingSaysNothing() {
         #expect(HomeList.summary(listing: .empty, filter: HomeFilter(), projects: 0).isEmpty)
     }
+
+    @Test("project-free conversations count in Home without inventing a project")
+    func conversationsInHome() {
+        #expect(HomeList.summary(
+            listing: .empty, filter: HomeFilter(), projects: 0, conversationCount: 2
+        ) == "2 conversations")
+        #expect(HomeList.summary(
+            listing: .empty, filter: HomeFilter(scope: .archived), projects: 0,
+            conversationCount: 1
+        ) == "1 archived conversation")
+    }
 }

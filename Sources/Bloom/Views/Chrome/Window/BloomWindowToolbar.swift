@@ -42,6 +42,12 @@ struct BloomWindowToolbar: ToolbarContent {
                 NewTabMenu(model: workspace)
             }
         }
+        if case .conversation(let id) = app.selection,
+           let state = app.ask.paneState(for: id) {
+            ToolbarItem(placement: .primaryAction) {
+                ConversationNewTabMenu(state: state)
+            }
+        }
 
         if app.isInspectorPresented || app.selectedWorkspace != nil {
             ToolbarItem(placement: .primaryAction) {

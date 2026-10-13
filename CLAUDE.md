@@ -324,16 +324,17 @@ have to, and names the file and line.
 The owner is sitting at this Mac, working, while you run. Anything that takes focus, moves the
 pointer, opens or closes a window, launches or quits an application, or puts a window in front of
 what he is reading is an interruption to a person, not a step in a task. **Ask before doing any of
-it.**
+it, except for restarting Bloom Dev as described below.**
 
 Needs permission every time: launching an app in a way that activates it (`open -g` does not, and
 is the one to reach for), `NSApp.activate` or anything that makes a process frontmost, quitting or
-signalling any application, sending a keystroke or a click or any synthetic event, capturing or
-recording the **display**, changing a system setting including the appearance, and opening a
-browser or an editor.
+signalling an application other than Bloom Dev, sending a keystroke or a click or any synthetic
+event, capturing or recording the **display**, changing a system setting including the appearance,
+and opening a browser or an editor.
 
 Needs no permission: offscreen rendering, anything headless, and capturing **your own** window by
-its window id after opening it with `open -g`.
+its window id after opening it with `open -g`. Agents may quit and relaunch Bloom Dev as needed for
+development. Relaunch it with `open -g` so it does not take focus.
 
 If a piece of work cannot be verified without one of these, say so and stop. An honest "I could
 not photograph this" is a better outcome than an interruption, and it is what several agents have
@@ -356,7 +357,7 @@ existing dev data, and restart only the dev copy. Fast mode cannot be combined w
 
 For agent verification without installation or launch, use
 `./Tools/dev-build.sh --fast --no-install`. To install without restarting, use
-`./Tools/dev-build.sh --fast --no-launch`. Restarting the dev app still needs authorisation.
+`./Tools/dev-build.sh --fast --no-launch`.
 See `.claude/skills/bloom-dev-build/SKILL.md` for the full workflow.
 
 **Bloom Dev has its own identity:** bundle id `be.spatie.bloom.dev`, and with it its own

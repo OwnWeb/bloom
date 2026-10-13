@@ -11,7 +11,9 @@ import Foundation
 /// So the order is derived from the names, which is the only thing here that says anything about
 /// capability. Three rules, in this order:
 ///
-/// 1. **Version, descending.** `gpt-5.6` above `gpt-5.5` above `gpt-5.4`. Parsed as numbers rather
+/// 1. **GPT-6 family, then version.** Astra remains above Sol even though `gpt-6.1-sol` has a
+///    newer minor number; OpenAI calls Astra the most capable model and Sol the lower-cost option.
+///    Within a family, `gpt-5.6` above `gpt-5.5` above `gpt-5.4`. Parsed as numbers rather
 ///    than compared as text, because `gpt-5.10` sorts below `gpt-5.9` as a string and above it as
 ///    a version, and the string answer is wrong. A major with no minor after it is that major and
 ///    zero, which is how `gpt-6-astra` came to lead the list the day it appeared without anything
@@ -37,6 +39,9 @@ public enum CodexModelRank {
             .sorted { left, right in
                 let a = key(left.element)
                 let b = key(right.element)
+                if a.version.major == 6, b.version.major == 6, a.family != b.family {
+                    return a.family < b.family
+                }
                 if a.version != b.version { return a.version.isAbove(b.version) }
                 if a.isReduced != b.isReduced { return !a.isReduced }
                 // The arrival index, which is what makes this stable rather than merely sorted.
@@ -45,8 +50,19 @@ public enum CodexModelRank {
             .map(\.element)
     }
 
-    static func key(_ model: CodexModel) -> (version: Version, isReduced: Bool) {
-        (version(of: model.id), isReduced(model.id))
+    static func key(_ model: CodexModel) -> (version: Version, family: Int, isReduced: Bool) {
+        let words = model.id.lowercased().split { !$0.isLetter && !$0.isNumber }
+        let family: Int
+        if words.contains("astra") {
+            family = 0
+        } else if words.contains("sol") {
+            family = 1
+        } else if words.contains("luna") {
+            family = 2
+        } else {
+            family = 3
+        }
+        return (version(of: model.id), family, isReduced(model.id))
     }
 
     /// A version as its parts rather than as one number, which is the whole point.
