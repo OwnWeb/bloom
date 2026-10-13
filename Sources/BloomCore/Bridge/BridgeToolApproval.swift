@@ -184,7 +184,7 @@ public enum BridgeToolApproval {
         "chat_read",
         // These three are the cross-workspace handover tools. Creation uses the target project's
         // defaults or explicit composer choices and adds a visible, restorable chat; a first
-        // message starts a turn only in the caller's own workspace and permission mode, beside no
+        // message starts a turn only in the caller's own workspace, permission and work modes, beside no
         // other working chat, which is `ChatCreateTool.messageOrder`. Closing
         // refuses a turn in flight and the last top-level chat, and keeps the transcript in
         // Recently Closed. Renaming changes only its visible label and returns the previous one.
