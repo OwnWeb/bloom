@@ -123,6 +123,7 @@ struct PullRequestBar: View {
                 branchActions: branchActions,
                 worktree: model.workspace.path,
                 github: model.gitHubReadiness,
+                forge: model.forge,
                 hasChanges: hasChanges,
                 hasReadChanges: model.hasReadChanges,
                 continued: model.continued,
@@ -190,13 +191,14 @@ struct PullRequestBar: View {
             case .direct:
                 do {
                     let created = try await model.createPullRequestDirectly()
+                    let forge = created.forge
                     report = PullRequestNotice(
-                        tone: .info, title: "Pull request created",
-                        message: "Opened #\(created.number) on GitHub."
+                        tone: .info, title: "\(forge.titledRequest) created",
+                        message: "Opened \(forge.reference(created.number)) on \(forge.name)."
                     )
                 } catch {
                     report = PullRequestNotice(
-                        tone: .failure, title: "Could not create the pull request",
+                        tone: .failure, title: "Could not create the \(model.forge.request)",
                         message: String(describing: error)
                     )
                 }
@@ -324,7 +326,7 @@ struct PullRequestBar: View {
     }
 
     /// The confirmation chose how to execute the merge. The direct path stays in the model,
-    /// keeping subprocesses out of the view and reporting gh's answer beside the inspector.
+    /// keeping subprocesses out of the view and reporting gh's or glab's answer beside the inspector.
     private func merge(_ method: GitHub.MergeMethod, execution: MergeExecution) {
         guard let pullRequest = model.pullRequest else { return }
         isWorking = true
@@ -342,23 +344,25 @@ struct PullRequestBar: View {
             case .direct:
                 do {
                     let outcome = try await model.mergePullRequestDirectly(pullRequest, method: method)
+                    let forge = pullRequest.forge
+                    let reference = forge.reference(pullRequest.number)
                     let message: String
                     switch outcome {
                     case .merged:
-                        message = "#\(pullRequest.number) merged. Bloom did not delete the branch or change this checkout."
+                        message = "\(reference) merged. Bloom did not delete the branch or change this checkout."
                     case .acceptedButOpen:
-                        message = "#\(pullRequest.number) is still open, possibly waiting in a merge queue."
+                        message = "\(reference) is still open, possibly waiting in a merge queue."
                     case .acceptedUnverified:
-                        message = "gh accepted the command, but Bloom could not verify #\(pullRequest.number)'s final status."
+                        message = "\(forge.cli) accepted the command, but Bloom could not verify \(reference)'s final status."
                     }
                     report = PullRequestNotice(
                         tone: .info,
-                        title: outcome == .merged ? "Merged on GitHub" : "GitHub accepted the merge",
+                        title: outcome == .merged ? "Merged on \(forge.name)" : "\(forge.name) accepted the merge",
                         message: message
                     )
                 } catch {
                     report = PullRequestNotice(
-                        tone: .failure, title: "Could not merge on GitHub",
+                        tone: .failure, title: "Could not merge on \(pullRequest.forge.name)",
                         message: String(describing: error)
                     )
                 }

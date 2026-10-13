@@ -33,7 +33,7 @@ struct GitHubStoredValueTests {
         ])
         #expect(GitHub.MergeMethod.allCases.map(\.rawValue) == ["merge", "squash", "rebase"])
         #expect(MergeExecution.allCases.map(\.rawValue) == ["direct", "agent"])
-        #expect(MergeExecution.allCases.map(\.label) == ["Merge with GitHub CLI", "Ask agent to merge"])
+        #expect(MergeExecution.allCases.map { $0.label(on: .gitHub) } == ["Merge with GitHub CLI", "Ask agent to merge"])
         let checks: [PullRequest.Checks] = [.none, .pending, .passing, .failing, .unavailable]
         #expect(checks.map(\.rawValue) == ["none", "pending", "passing", "failing", "unavailable"])
     }

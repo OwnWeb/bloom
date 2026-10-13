@@ -11,8 +11,13 @@ public enum GitLab: ForgeClient {
     /// Checking out fetches objects, so it gets what `gh pr checkout` gets.
     private static let checkoutTimeout = Duration.seconds(120)
     private static let logTimeout = Duration.seconds(90)
+    /// What `gh pr merge` and `gh pr create` get.
+    private static let mergeTimeout = Duration.seconds(60)
+    /// `glab mr rebase` polls until GitLab is done; this caps a rebase that never is.
+    private static let rebaseTimeout = Duration.seconds(120)
     private static let candidateLimit = 20
     private static let jobLimit = 100
+    private static let commitLimit = 100
     private static let listLimit = 30
 
     public static func access(in directory: String) async -> GitHubAccess {
@@ -111,6 +116,121 @@ public enum GitLab: ForgeClient {
             ["mr", "checkout", String(number), "--branch", localBranch, "-R", project.webURL],
             cwd: worktree, timeout: checkoutTimeout
         )
+    }
+
+    // MARK: Creating and merging directly
+
+    /// The workspace's title, and the pushed commits for the description, as `gh pr create --fill`
+    /// does. Not glab's own `--fill`, which pushes again to a remote of its choosing.
+    public static func createPullRequestFromCommits(
+        worktree: String, base: String, title: String
+    ) async throws -> PullRequest {
+        guard Git.isValidBranchName(base) else {
+            throw GitHubError("refusing to open a merge request against '\(base)': not a valid branch name")
+        }
+        guard let project = await project(in: worktree) else { throw notAProject }
+        let context = try await Git.repositoryContext(in: worktree, baseBranch: base)
+        let log = try await Git.check(
+            ["log", "--reverse", "--format=%s%x1f%b%x1e", "\(context.baseTrackingRef ?? base)..HEAD", "--"],
+            in: worktree
+        )
+        var arguments = [
+            "mr", "create", "--source-branch", context.publishBranch, "--target-branch", base,
+            "--title", title, "--description", description(fromCommits: commits(fromLog: log.stdout)),
+            "--yes", "-R", project.webURL,
+        ]
+        if let fork = GitLabProject(remote: context.publishRemoteURL), fork != project {
+            arguments += ["--head", fork.webURL]
+        }
+        let created = try await check(arguments, cwd: worktree, timeout: mergeTimeout)
+        guard let number = mergeRequestNumber(in: created.stdout) else {
+            throw GitHubError("glab did not say which merge request it opened.")
+        }
+        return try await snapshot(number: number, in: project, worktree: worktree).pullRequest
+    }
+
+    /// Merges exactly what the owner confirmed. `--sha` holds GitLab to the head that was shown,
+    /// and `--auto-merge=false` stops glab from merging later, once the pipeline passes.
+    public static func mergePullRequest(
+        _ expected: PullRequest, into base: String, method: GitHub.MergeMethod, worktree: String
+    ) async throws -> DirectMergeOutcome {
+        let (head, expectedBase) = try await DirectMergeCheck.confirmed(expected, base: base, worktree: worktree)
+        guard let project = await project(in: worktree) else { throw notAProject }
+        let number = expected.number
+        let current = try await snapshot(number: number, in: project, worktree: worktree).pullRequest
+        try DirectMergeCheck.verify(current, against: expected, head: head, base: expectedBase)
+
+        var mergeHead = head
+        if method == .rebase {
+            mergeHead = try await rebase(number, confirmedHead: head, in: project, worktree: worktree)
+        }
+        var arguments = ["mr", "merge", String(number), "--yes", "--auto-merge=false", "--sha", mergeHead]
+        if method == .squash { arguments.append("--squash") }
+        arguments += ["-R", project.webURL]
+        let result = try await run(arguments, cwd: worktree, timeout: mergeTimeout)
+        let after = try? await snapshot(number: number, in: project, worktree: worktree).pullRequest
+        guard result.ok else {
+            if after?.isMerged == true { return .merged }
+            let refusal = result.stderr.isEmpty ? result.stdout : result.stderr
+            guard method != .rebase else {
+                throw GitHubError("GitLab rebased \(Forge.gitLab.reference(number)) but did not merge it: \(refusal)")
+            }
+            throw ShellError(command: "glab " + arguments.joined(separator: " "), status: result.status, stderr: refusal)
+        }
+        guard let after else { return .acceptedUnverified }
+        return after.isMerged ? .merged : .acceptedButOpen
+    }
+
+    /// glab's `--rebase` rebases, then GitLab refuses the `--sha` it was given. So the rebase runs
+    /// first, and its new head is merged only if it replayed the confirmed commits and nothing else.
+    private static func rebase(
+        _ number: Int, confirmedHead: String, in project: GitLabProject, worktree: String
+    ) async throws -> String {
+        let confirmed = try await commits(of: number, in: project, worktree: worktree)
+        guard confirmed.contains(where: { $0.sha == confirmedHead }) else {
+            throw GitHubError("The merge request changed since it was shown. Refresh it before merging.")
+        }
+        try await check(["mr", "rebase", String(number), "-R", project.webURL], cwd: worktree, timeout: rebaseTimeout)
+        let rebased = try await snapshot(number: number, in: project, worktree: worktree).pullRequest
+        let replayed = try await commits(of: number, in: project, worktree: worktree)
+        guard let head = rebased.headRevision, replayed.contains(where: { $0.sha == head }),
+              replayed.map(\.title) == confirmed.map(\.title) else {
+            throw GitHubError("GitLab rebased \(Forge.gitLab.reference(number)), but its commits are not the ones confirmed. Nothing was merged.")
+        }
+        return head
+    }
+
+    private static func commits(
+        of number: Int, in project: GitLabProject, worktree: String
+    ) async throws -> [GitLabDecoding.CommitPayload] {
+        let result = try await check(
+            api(project.host, "projects/\(project.apiID)/merge_requests/\(number)/commits?per_page=\(commitLimit)"),
+            cwd: worktree
+        )
+        return try GitLabDecoding.commits(from: Data(result.stdout.utf8))
+    }
+
+    /// One commit's own body, or the subjects of several, oldest first: `gh pr create --fill`.
+    static func description(fromCommits commits: [(subject: String, body: String)]) -> String {
+        if commits.count == 1 { return commits[0].body.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return commits.map { "- \($0.subject)" }.joined(separator: "\n")
+    }
+
+    /// `git log --format=%s%x1f%b%x1e` read back into subjects and bodies.
+    static func commits(fromLog output: String) -> [(subject: String, body: String)] {
+        output.split(separator: "\u{1e}").compactMap { record in
+            let fields = record.split(separator: "\u{1f}", maxSplits: 1, omittingEmptySubsequences: false)
+            let subject = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !subject.isEmpty else { return nil }
+            return (subject, fields.count > 1 ? String(fields[1]) : "")
+        }
+    }
+
+    /// The number at the end of the merge request URL glab prints once it has opened one.
+    static func mergeRequestNumber(in output: String) -> Int? {
+        guard let range = output.range(of: #"/-/merge_requests/(\d+)"#, options: [.regularExpression, .backwards])
+        else { return nil }
+        return Int(output[range].split(separator: "/").last ?? "")
     }
 
     // MARK: Reading one merge request
