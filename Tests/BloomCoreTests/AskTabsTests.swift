@@ -28,6 +28,25 @@ struct AskTabsTests {
         #expect(AskTabs.selectionAfterClosing(first.id, selected: first.id, sessions: [first]) == nil)
     }
 
+    @Test func unreadConversationsRequireAnUnseenFinishedTurn() async throws {
+        let store = try makeTestStore("ask-unread-conversations")
+        let chat = try await store.createAskConversation(directory: "/first")
+        _ = try await store.createAskConversation(directory: "/second")
+
+        try await store.appendNext(sessionID: chat.id, kind: .user, payload: Data("hello".utf8))
+        #expect(try await store.unreadProjectFreeConversationIDs().isEmpty)
+
+        try await store.appendNext(sessionID: chat.id, kind: .result, payload: Data("{}".utf8))
+        #expect(try await store.unreadProjectFreeConversationIDs() == Set([chat.id]))
+
+        try await store.updateLastReadSeq(sessionID: chat.id, seq: 1)
+        #expect(try await store.unreadProjectFreeConversationIDs().isEmpty)
+
+        try await store.appendNext(sessionID: chat.id, kind: .result, payload: Data("{}".utf8))
+        _ = try await store.closeAskConversation(id: chat.id, selected: chat.id)
+        #expect(try await store.unreadProjectFreeConversationIDs().isEmpty)
+    }
+
     @Test func replacingOneTabPreservesItsLocationAndNeighbours() async throws {
         let store = try makeTestStore("ask-replace-tab")
         let first = try await store.createAskConversation(directory: "/first")
@@ -37,6 +56,25 @@ struct AskTabsTests {
         #expect(try await store.setting(AskTabs.directoryKey(replacement.id)) == "/first")
         #expect(try await store.sessionsWithoutWorkspace().map(\.id) == [replacement.id, second.id])
         #expect(try await store.session(id: first.id)?.archivedAt != nil)
+    }
+
+    @Test func replacementCanUseItsOwnDirectory() async throws {
+        let store = try makeTestStore("conversation-replacement-directory")
+        let first = try await store.createAskConversation(directory: "/first")
+        let nextID = SessionID.new()
+        let directory = AskConversation.workspaceDirectory(
+            besideDatabaseAt: store.path, id: nextID
+        )
+        let replacement = try await store.replaceAskConversation(
+            id: first.id, controls: ComposerControls(
+                session: first, isFastMode: false, outputStyle: OutputStyle.defaultName
+            ),
+            nextID: nextID, replacementDirectory: directory
+        )
+
+        #expect(replacement.id == nextID)
+        #expect(try await store.setting(AskTabs.directoryKey(first.id)) == "/first")
+        #expect(try await store.setting(AskTabs.directoryKey(nextID)) == directory)
     }
 
     @Test func missingCustomDirectoryDoesNotFallBack() throws {
@@ -69,6 +107,51 @@ struct AskTabsTests {
         #expect(try await store.setting(ComposerControls.fastModeKey(sessionID: chat.id)) == "1")
         #expect(try await store.setting(CodexSpeed.key(sessionID: chat.id)) == "0")
         #expect(try await store.setting(ComposerControls.outputStyleKey(sessionID: chat.id)) == "Concise")
+    }
+
+    @Test func projectFreeConversationCanBeArchivedRestoredAndDeleted() async throws {
+        let store = try makeTestStore("conversation-workspace-lifecycle")
+        let conversation = try await store.createAskConversation(
+            directory: "/conversations", draft: "keep this", title: "A loose conversation"
+        )
+        try await store.append(Message(
+            sessionID: conversation.id, seq: 0, kind: .user, payload: Data("Hello".utf8)
+        ))
+        let neighbour = try await store.createAskConversation(directory: "/another")
+
+        #expect(conversation.workspaceID == nil)
+        #expect(conversation.title == "A loose conversation")
+        #expect(try await store.projectFreeSessionsWithHistory().contains(conversation.id))
+        #expect(try await store.deleteArchivedConversation(id: conversation.id) == false)
+
+        _ = try await store.closeAskConversation(id: conversation.id, selected: conversation.id)
+        #expect(try await store.sessionsWithoutWorkspace().map(\.id) == [neighbour.id])
+        #expect(try await store.sessionsWithoutWorkspace(includeArchived: true).map(\.id) == [conversation.id])
+
+        let restored = try #require(await store.restoreConversation(id: conversation.id))
+        #expect(restored.archivedAt == nil)
+        #expect(try await store.setting(AskTabs.selectionKey) == conversation.id.rawValue)
+        #expect(try await store.draft(sessionID: conversation.id) == "keep this")
+        #expect(try await store.messageCount(sessionID: conversation.id) == 1)
+        #expect(try await store.restoreConversation(id: conversation.id) == nil)
+
+        _ = try await store.closeAskConversation(id: conversation.id, selected: conversation.id)
+        #expect(try await store.deleteArchivedConversation(id: conversation.id))
+        #expect(try await store.session(id: conversation.id) == nil)
+        #expect(try await store.messageCount(sessionID: conversation.id) == 0)
+        #expect(try await store.session(id: neighbour.id) != nil)
+    }
+
+    @Test func legacyTitleDoesNotHideAnArchivedDraft() async throws {
+        let store = try makeTestStore("legacy-conversation-draft")
+        let old = try await store.createAskConversation(
+            directory: "/old", draft: "saved words", title: "Ask Bloom"
+        )
+        _ = try await store.createAskConversation(directory: "/next")
+        _ = try await store.closeAskConversation(id: old.id, selected: old.id)
+
+        #expect(AskConversation.isBlank(old))
+        #expect(try await store.projectFreeSessionsWithHistory(includeArchived: true).contains(old.id))
     }
 
     @Test func legacyConversationKeepsItsOriginalDirectoryWhenReplaced() async throws {

@@ -60,6 +60,10 @@ struct DetailColumn: View {
             HomeView()
         case .workspace:
             EmptyView()
+        case .conversation(let id):
+            ConversationColumnView(sessionID: id)
+        case .archivedConversation(let id):
+            ArchivedConversationView(sessionID: id)
         case .crew(let workspaceID, let sessionID):
             crew(sessionID, in: workspaceID)
         case .subagent(let workspaceID, let subagentID):

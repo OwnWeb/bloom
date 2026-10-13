@@ -75,14 +75,10 @@ if [ ! -x "$VENV/bin/dmgbuild" ]; then
 fi
 
 echo "==> rendering the background"
-"$CHROME" --headless --disable-gpu --hide-scrollbars \
-  --screenshot="$WORK/bg-660.png" --window-size=660,400 \
-  "file://$TOOLS/background.html" 2>/dev/null
-"$CHROME" --headless --disable-gpu --hide-scrollbars \
-  --screenshot="$WORK/bg-1320.png" --window-size=660,400 --force-device-scale-factor=2 \
-  "file://$TOOLS/background.html" 2>/dev/null
-# stderr stays connected: a Chrome render that silently produced nothing shows
-# up here as tiffutil naming the missing file, which is the only clue there is.
+# Chrome 154 can finish writing a PNG and then remain open indefinitely on macOS.
+# The helper checks the complete image and stops its isolated browser process.
+python3 "$TOOLS/render-background.py" "$CHROME" "$TOOLS/background.html" "$WORK/bg-660.png" 1
+python3 "$TOOLS/render-background.py" "$CHROME" "$TOOLS/background.html" "$WORK/bg-1320.png" 2
 tiffutil -cathidpicheck "$WORK/bg-660.png" "$WORK/bg-1320.png" \
   -out "$WORK/background.tiff" >/dev/null
 

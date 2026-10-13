@@ -115,27 +115,29 @@ struct PermissionAskRowView: View {
     // MARK: Parts
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: TranscriptLayout.glyphGap) {
-            // The same raised hand the sidebar mark and the menu bar strip use.
-            Image(systemName: "hand.raised.fill")
-                .font(Typo.caption)
-                .imageScale(.small)
-                .foregroundStyle(isOpen ? Palette.warning : Palette.textTertiary)
-                .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: Metrics.spacingSmall) {
+            HStack(alignment: .firstTextBaseline, spacing: TranscriptLayout.glyphGap) {
+                // The same raised hand the sidebar mark and the menu bar strip use.
+                Image(systemName: "hand.raised.fill")
+                    .font(Typo.caption)
+                    .imageScale(.small)
+                    .foregroundStyle(isOpen ? Palette.warning : Palette.textTertiary)
+                    .accessibilityHidden(true)
 
-            Text(title)
-                .font(Typo.labelEmphasis)
-                .foregroundStyle(Palette.textPrimary)
-
-            Spacer(minLength: TranscriptLayout.glyphGap)
+                Text(title)
+                    .font(Typo.labelEmphasis)
+                    .foregroundStyle(Palette.textPrimary)
+            }
 
             if !ask.reason.isEmpty {
-                // The CLI's own sentence, not Bloom's paraphrase of it.
+                // The CLI's own sentence, not Bloom's paraphrase of it, on a line of its own and
+                // never cut: a hook or classifier reason is a whole sentence saying why the call
+                // needs a person, and cut in the middle it says nothing.
                 Text(ask.reason)
                     .font(Typo.caption)
                     .foregroundStyle(Palette.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

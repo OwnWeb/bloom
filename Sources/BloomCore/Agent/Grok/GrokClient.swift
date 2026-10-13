@@ -58,7 +58,9 @@ public actor GrokClient {
         var environment = configuration.environment
         environment["GROK_DISABLE_AUTOUPDATER"] = "1"
         if let home = configuration.grokHome, !home.isEmpty {
-            environment["GROK_HOME"] = home
+            environment = AgentAccountEnvironment.applying(
+                kind: .grok, home: home, to: environment
+            )
         }
         var arguments: [String] = ["agent"]
         if configuration.alwaysApprove { arguments.append("--always-approve") }

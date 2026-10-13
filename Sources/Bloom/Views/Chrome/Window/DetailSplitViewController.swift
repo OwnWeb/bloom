@@ -227,6 +227,10 @@ final class DetailSplitViewController: NSSplitViewController {
     /// Those frames must not reopen the title-bar band after the app has hidden the pane.
     private var isInspectorPresented = false
     private var isUpdating = false
+    /// AppKit can choose a new divider position when an item is expanded after showing a
+    /// conversation. Keep the width that was on screen before the collapse.
+    private var inspectorWidthBeforeCollapse: CGFloat?
+    private var needsInspectorWidthRestore = false
     private var collapseObservation: NSKeyValueObservation?
     var onInspectorPresentationChanged: ((Bool) -> Void)?
 
@@ -370,6 +374,7 @@ final class DetailSplitViewController: NSSplitViewController {
     /// A drag or a resize. Never a slide: the pane is where it is, and the title bar should follow
     /// it this frame rather than a quarter of a second from now.
     @objc private func paneFrameChanged() {
+        if needsInspectorWidthRestore { restoreInspectorWidth() }
         // AppKit can shrink the item's container while its hosted view keeps its minimum width.
         // The header follows the part still visible, including a drag that clips it to zero.
         let visibleWidth = inspectorHost.view.visibleRect.width
@@ -419,12 +424,19 @@ final class DetailSplitViewController: NSSplitViewController {
             paneFrameChanged()
             return
         }
+        if shouldCollapse {
+            inspectorWidthBeforeCollapse = inspectorHost.view.frame.width
+        }
         if !shouldCollapse { makeRoomForInspector(animated: animated) }
         // The animated setter runs a layout pass on every frame of the transition, and layout churn
         // is the condition this window has crashed under, so Reduce Motion turns it off rather than
         // merely shortening it.
         guard animated else {
             inspectorItem.isCollapsed = shouldCollapse
+            if !shouldCollapse {
+                needsInspectorWidthRestore = inspectorWidthBeforeCollapse != nil
+                restoreInspectorWidth()
+            }
             publishInspectorWidth(collapsed: shouldCollapse, sliding: false)
             return
         }
@@ -453,7 +465,28 @@ final class DetailSplitViewController: NSSplitViewController {
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             inspectorItem.animator().isCollapsed = shouldCollapse
             publishInspectorWidth(collapsed: shouldCollapse, sliding: true)
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                if !shouldCollapse {
+                    self?.needsInspectorWidthRestore = self?.inspectorWidthBeforeCollapse != nil
+                    self?.restoreInspectorWidth()
+                }
+            }
         }
+    }
+
+    private func restoreInspectorWidth() {
+        guard needsInspectorWidthRestore, isInspectorPresented, !inspectorItem.isCollapsed,
+              let width = inspectorWidthBeforeCollapse else { return }
+        needsInspectorWidthRestore = false
+        splitView.layoutSubtreeIfNeeded()
+        let available = splitView.bounds.width - Self.detailMinimum - splitView.dividerThickness
+        guard available >= Self.inspectorMinimum else {
+            needsInspectorWidthRestore = true
+            return
+        }
+        let restored = min(max(width, Self.inspectorMinimum), min(available, Self.inspectorMaximum))
+        splitView.setPosition(splitView.bounds.width - restored - splitView.dividerThickness, ofDividerAt: 0)
     }
 
     /// Widens the window, if it has to be widened, for a pane that is about to arrive in it.

@@ -309,6 +309,7 @@ struct ComposerView: View {
     /// Writes the footer's choices back where a conversation keeps them: the four that are columns
     /// go on the session row, and fast mode and the output style go in the store's key value table.
     private func apply(controls new: ComposerControls) {
+        app.rememberModelChoice(from: controls, to: new)
 
         if new.codexFastMode != codexFastMode {
             codexFastMode = new.codexFastMode
@@ -783,7 +784,9 @@ struct ComposerView: View {
         let wasPrepared = (try? await store.setting(appliedKey)) == "1"
         guard !wasPrepared, transcript.session.agentSessionID == nil else { return }
 
-        let appDefaults = await AppDefaults.loadForNewSessions(from: store)
+        let appDefaults = await AppDefaults.loadForNewSessions(
+            from: store, models: ComposerModelCatalog.shared.models
+        )
 
         // Off the main actor because it reads up to six files from disk.
         var repoSettings = RepoSettings()
@@ -792,12 +795,14 @@ struct ComposerView: View {
             repoSettings = await Task.detached(priority: .utility) {
                 SettingsLoader.load(repo: path)
             }.value
+            repoSettings = (try? await store.applyingProjectAgentDefaults(
+                to: repoSettings, for: repo.id
+            )) ?? repoSettings
         }
         guard !Task.isCancelled else { return }
 
-        // A chat with no worktree does not inherit the owner's permission mode, and that is the
-        // whole of decision two: the default is Full access, and this is the one conversation in
-        // Bloom that sits above every project. See `ComposerDefaults.resolve`.
+        // Ask Bloom uses the same permission preference as workspace chats. Its working directory
+        // and the permission menu explain the wider reach a mode may have without a worktree.
         let resolved = ComposerDefaults.resolve(
             repo: repoSettings,
             app: appDefaults,

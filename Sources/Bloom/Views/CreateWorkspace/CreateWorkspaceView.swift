@@ -26,9 +26,18 @@ struct CreateWorkspaceView: View {
     var initialRepo: Repo?
     /// Incremented for every File ▸ New Workspace from Pull Request request while this sheet is up.
     var pullRequestRevision: UInt64 = 0
+    var startsAsConversation = false
+
+    init(initialRepo: Repo?, pullRequestRevision: UInt64 = 0, startsAsConversation: Bool = false) {
+        self.initialRepo = initialRepo
+        self.pullRequestRevision = pullRequestRevision
+        self.startsAsConversation = startsAsConversation
+        _isConversation = State(initialValue: startsAsConversation)
+    }
 
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var repoID: RepoID?
     /// The picker's Recent section, newest first. See `RecentProjects`.
@@ -87,6 +96,7 @@ struct CreateWorkspaceView: View {
     @State private var draftID = PromptAttachments.newShortID()
 
     @State private var selectedMode: WorkspaceStartMode = .chat
+    @State private var isConversation = false
     @State private var usesCLIChat = false
     @State private var loadedChatPreference = false
 
@@ -155,7 +165,8 @@ struct CreateWorkspaceView: View {
     }
 
     private var mode: WorkspaceStartMode {
-        selectedMode == .chat
+        if isConversation { return .chat }
+        return selectedMode == .chat
             ? WorkspaceStartMode.chat(usesCLI: usesCLIChat, agent: controls.agentKind) : selectedMode
     }
 
@@ -180,7 +191,12 @@ struct CreateWorkspaceView: View {
     /// two ways to finish and only one of them used what had been typed. The mode answers it
     /// first, so there is nothing left to disagree about.
     private var canCreate: Bool {
-        WorkspaceStartPlan.canStart(
+        if isConversation {
+            return WorkspaceStartPlan.canStartConversation(
+                prompt: spokenPrompt, isBusy: app.isCreatingWorkspace || isLoading
+            )
+        }
+        return WorkspaceStartPlan.canStart(
             hasProject: repo != nil,
             prompt: task,
             hasCheckout: checkout != nil,
@@ -198,16 +214,22 @@ struct CreateWorkspaceView: View {
     /// workspace will be called instead.
     /// One line saying what pressing Create actually does.
     ///
-    /// The sheet asked for a task and a branch and never said what it would make, so somebody
-    /// meeting Bloom read "New workspace" and had to infer that a workspace is a worktree on disk.
-    /// It names the two things that happen and nothing else: the checkout, and the setup script
-    /// where the project has one. No worktree jargon, because a person who knows the word does not
-    /// need the sentence and a person who does not is not helped by it.
+    /// The project route says what it creates on disk. The conversation route only needs to say
+    /// that it has no repository behind it; naming each thing it does not create repeated the
+    /// choice in the segmented control and made the shorter route wordier than the project one.
     private var consequence: some View {
-        Text("Creates a separate copy of the project on this Mac, on its own branch.")
-            .font(Typo.caption)
-            .foregroundStyle(Palette.textTertiary)
-            .fixedSize(horizontal: false, vertical: true)
+        Group {
+            if isConversation {
+                Text("A plain conversation without a repository.")
+                    .transition(.opacity)
+            } else {
+                Text("Creates a separate copy of the project on this Mac, on its own branch.")
+                    .transition(.opacity)
+            }
+        }
+        .font(Typo.caption)
+        .foregroundStyle(Palette.textTertiary)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var offersName: Bool { checkout == nil }
@@ -217,16 +239,17 @@ struct CreateWorkspaceView: View {
             header
             Hairline()
 
-            if app.repos.isEmpty {
+            if app.repos.isEmpty && !isConversation {
                 noProjects
                     .padding(Metrics.gutter)
             } else {
                 composer
-                if hasSetupScript {
+                if hasSetupScript && !isConversation {
                     WorkspaceSetupOption(isEnabled: $runSetupScript)
                         .disabled(isLoading)
                         .padding(.horizontal, Metrics.gutter)
                         .padding(.bottom, Metrics.spacingWide)
+                        .transition(.opacity)
                 }
             }
         }
@@ -236,7 +259,7 @@ struct CreateWorkspaceView: View {
         // every open (the first pass writes `repoID`, which fired the onChange), and a load left
         // in flight when the project changed could land another project's branches on this one's
         // window. `.task(id:)` cancels the stale load; `load` checks before writing.
-        .task(id: repoID) { await load() }
+        .task(id: isConversation ? nil : repoID) { await load() }
         // The empty state's "Choose a folder" adds a project while this window is open, and the
         // load above resolved the project once, to nothing, before there was one. Picking it here
         // is what turns the empty state into the composer for the project that was just added
@@ -253,6 +276,16 @@ struct CreateWorkspaceView: View {
         .onChange(of: initialRepo?.id) { _, repoID in
             guard let repoID else { return }
             self.repoID = repoID
+            isConversation = false
+        }
+        .onChange(of: startsAsConversation) { _, value in
+            isConversation = value
+        }
+        .onChange(of: isConversation) { _, value in
+            if value {
+                selectedMode = .chat
+                focusTheBox()
+            }
         }
         // A request made while this sheet is already up keeps the sheet and its draft, and moves
         // the keyboard to the pull-request reference field once for that request.
@@ -283,10 +316,14 @@ struct CreateWorkspaceView: View {
                 .font(Typo.heading)
                 .foregroundStyle(Palette.textPrimary)
 
-            projectControl
+            if !isConversation {
+                projectControl
+                    .transition(.opacity)
+            }
 
-            if repo != nil {
+            if repo != nil && !isConversation {
                 sourceControl
+                    .transition(.opacity)
             }
 
             Spacer(minLength: 0)
@@ -453,26 +490,30 @@ struct CreateWorkspaceView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: Metrics.gutter) {
-            modePicker
+            workspaceKindPicker
+            if !isConversation {
+                modePicker
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
 
-            if isEnteringReference {
+            if isEnteringReference && !isConversation {
                 referenceField
             }
 
-            if let referenceProblem {
+            if let referenceProblem, !isConversation {
                 Text(referenceProblem)
                     .font(Typo.caption)
                     .foregroundStyle(Palette.negative)
             }
 
-            if let heldProblem {
+            if let heldProblem, !isConversation {
                 Text(heldProblem)
                     .font(Typo.caption)
                     .foregroundStyle(Palette.negative)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let carryOn {
+            if let carryOn, !isConversation {
                 HStack(spacing: Metrics.spacingSmall) {
                     Text(carryOn.sentence)
                         .font(Typo.caption)
@@ -487,6 +528,7 @@ struct CreateWorkspaceView: View {
                 Text(heading)
                     .font(Typo.title)
                     .foregroundStyle(Palette.textPrimary)
+                    .transition(.opacity)
             }
 
             switch mode {
@@ -498,13 +540,41 @@ struct CreateWorkspaceView: View {
             }
 
             consequence
-            statusRow
+            if !isConversation {
+                statusRow
+                    .transition(.opacity)
+            }
         }
         .padding(Metrics.gutter)
     }
 
+    private var workspaceKindPicker: some View {
+        Picker("Workspace type", selection: conversationBinding) {
+            Text("Project").tag(false)
+            Text("Conversation").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .disabled(app.repos.isEmpty)
+        .accessibilityLabel("Workspace type")
+    }
+
+    private var conversationBinding: Binding<Bool> {
+        Binding(
+            get: { isConversation },
+            set: { value in
+                guard value != isConversation else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                    if value { selectedMode = .chat }
+                    isConversation = value
+                }
+            }
+        )
+    }
+
     private var modePicker: some View {
-        Picker("Start with", selection: modeBinding) {
+        Picker("First tab", selection: modeBinding) {
             Text("Chat").tag(WorkspaceStartMode.chat)
             Text("Terminal").tag(WorkspaceStartMode.terminal)
             Text("Browser").tag(WorkspaceStartMode.browser)
@@ -513,7 +583,7 @@ struct CreateWorkspaceView: View {
         .labelsHidden()
         .fixedSize()
         .tint(Palette.controlAccent)
-        .accessibilityLabel("Start with")
+        .accessibilityLabel("First tab")
         .help(defaultCLIMode == nil
               ? "CLI chat supports Claude and Codex. Choose either as your default agent to use it."
               : "Chat and CLI chat use your default agent configuration")
@@ -558,11 +628,15 @@ struct CreateWorkspaceView: View {
             text: $prompt,
             caret: $caret,
             isFocused: $isFocused,
-            mentionRoot: repo?.path ?? NSHomeDirectory(),
+            mentionRoot: isConversation ? stagingDirectory : (repo?.path ?? stagingDirectory),
             attachmentRoot: stagingDirectory,
             attachmentKey: draftID,
-            placeholder: "Describe the task, @mention files, run /commands",
-            accessibilityLabel: "What do you want to work on?",
+            placeholder: isConversation
+                ? "What would you like to talk about?"
+                : "Describe the task, @mention files, run /commands",
+            accessibilityLabel: isConversation
+                ? "What would you like to talk about?"
+                : "What do you want to work on?",
             editorHeight: editorHeight,
             onContentHeightChange: { contentHeight = $0 },
             onKey: handle(key:),
@@ -570,7 +644,10 @@ struct CreateWorkspaceView: View {
         ) { actions in
             ComposerFooterView(
                 controls: controls,
-                onChange: { controls = $0 },
+                onChange: { new in
+                    app.rememberModelChoice(from: controls, to: new)
+                    controls = new
+                },
                 canSend: canCreate,
                 intent: .create,
                 // This window's width is fixed and was chosen for this row with its words on, so
@@ -696,6 +773,7 @@ struct CreateWorkspaceView: View {
     /// genuinely optional there and the question says so rather than demanding a sentence the
     /// button no longer requires.
     private var heading: String? {
+        if isConversation { return nil }
         guard mode.runsAnAgent else {
             // The noun the segmented control was clicked with, in lower case. Stated again here it
             // would be a second list of the same words, and the heading would go on saying
@@ -905,6 +983,11 @@ struct CreateWorkspaceView: View {
     // MARK: - Actions
 
     private func load() async {
+        if isConversation {
+            controls = (try? await app.resolvedControls(for: nil)) ?? ComposerControls()
+            focusTheBox()
+            return
+        }
         if repoID == nil {
             // Writing `repoID` restarts this task for the resolved project, so the listing below
             // runs once per project rather than once on open and again on the change.
@@ -937,7 +1020,9 @@ struct CreateWorkspaceView: View {
         let path = repo.path
         var appDefaults = AppDefaults()
         if let store = app.store {
-            appDefaults = await AppDefaults.loadForNewSessions(from: store)
+            appDefaults = await AppDefaults.loadForNewSessions(
+                from: store, models: ComposerModelCatalog.shared.models
+            )
         }
 
         // The gathering and both branch decisions live in the core, where the suite can reach
@@ -961,12 +1046,15 @@ struct CreateWorkspaceView: View {
         hasSetupScript = !(context.settings.setupScript ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         isNamingAvailable = context.isNamingAvailable
+        let settings = (try? await app.store?.applyingProjectAgentDefaults(
+            to: context.settings, for: repo.id
+        )) ?? context.settings
         controls = ComposerControls(
             // The Codex list only sharpens the effort here, and the sheet's own footer is what
             // fetches it: a window opened before that call returns still gets the backend the
             // Models screen recorded, because that is stored rather than looked up.
             defaults: ComposerDefaults.resolve(
-                repo: context.settings,
+                repo: settings,
                 app: appDefaults,
                 models: ComposerModelCatalog.shared.models
             ),
@@ -1162,9 +1250,11 @@ struct CreateWorkspaceView: View {
     /// separates them is `opensWith`, which decides whether an opening turn is ever sent and which
     /// tab the workspace is first shown on.
     private func create() {
-        guard let repo, canCreate else { return }
+        guard canCreate else { return }
 
         let chosen = mode
+        let conversation = isConversation
+        let selectedRepo = repo
         // The draft as it was written, files and all, and deliberately not `task`. `task` is
         // `spokenPrompt` in chat mode, which is the sentence with every attachment taken back out
         // of it: the right answer for the name, the branch and the Create button, and the wrong
@@ -1174,7 +1264,7 @@ struct CreateWorkspaceView: View {
         let text = WorkspaceStartAttachments.handover(
             isChatWorkspace: chosen.runsAnAgent, draft: prompt, name: typedName
         )
-        let base = baseBranch.isEmpty ? repo.defaultBranch : baseBranch
+        let base = baseBranch.isEmpty ? selectedRepo?.defaultBranch : baseBranch
         let source = checkout
         let chosenControls = controls
         let shouldRunSetup = runSetupScript
@@ -1197,16 +1287,22 @@ struct CreateWorkspaceView: View {
         dismiss()
 
         Task {
-            await app.createWorkspace(
-                in: repo,
-                prompt: text,
-                baseBranch: base,
-                opensWith: chosen,
-                controls: chosenControls,
-                staged: staged,
-                checkout: source,
-                runSetupScript: shouldRunSetup
-            )
+            if conversation {
+                await app.ask.startWorkspaceConversation(
+                    prompt: text, controls: chosenControls, staged: staged
+                )
+            } else if let selectedRepo {
+                await app.createWorkspace(
+                    in: selectedRepo,
+                    prompt: text,
+                    baseBranch: base,
+                    opensWith: chosen,
+                    controls: chosenControls,
+                    staged: staged,
+                    checkout: source,
+                    runSetupScript: shouldRunSetup
+                )
+            }
             // Whatever survived is in the worktree now, and whatever did not was never going to be.
             AttachmentStaging.discard(draftID: handedOver)
         }

@@ -1,68 +1,51 @@
 import Foundation
 
-/// The chat that belongs to Bloom rather than to a workspace: what it is called, where it runs,
-/// and what it is allowed to assume.
+/// Shared rules for a conversation that has no project or Git worktree.
 ///
-/// Everything the conversation itself needs already exists. `BridgeIdentity.owner` is a caller in
-/// no workspace, `BridgeOwnerToken` is the credential that outlives a relaunch, and eleven owner
-/// tools already list projects, list workspaces with their checks, register a repository and cut a
-/// worktree. This type is the four decisions that were left: the directory, the mode, the name and
-/// the words.
+/// The former Ask Bloom panel used the same persisted sessions. Its directory and title remain
+/// readable so existing conversations appear in the new sidebar section with their history.
 public enum AskConversation {
-    /// What the chat is called, in the sidebar and on its row.
-    public static let title = "Ask Bloom"
+    /// The placeholder title for a conversation that has not been used yet.
+    public static let title = "New conversation"
+    public static let legacyTitle = "Ask Bloom"
 
-    /// Without host context, Ask Bloom picked an installed Conductor skill to create workspaces.
-    /// Both backends receive these instructions when starting or resuming an Ask conversation.
-    public static let instructions = """
-    You are Ask Bloom, running inside the Bloom macOS app. Bloom manages the user's projects, \
-    workspaces and agent conversations. This conversation belongs to Bloom and has no workspace \
-    of its own.
+    public static let placeholder = "Ask anything…"
 
-    When the user asks to create, open, inspect or manage projects or workspaces, use Bloom by \
-    default unless they explicitly name another app. Use the connected Bloom MCP tools. Discover \
-    them with tool search if needed: project_list and workspace_list find existing work, \
-    project_add registers a repository, and workspace_start creates a workspace and starts its \
-    agent with the supplied prompt. Include any requested exploration or implementation in that \
-    opening prompt, and let Bloom choose its configured workspace directory.
+    /// The directory for new project-free conversations. Older sessions retain their saved
+    /// directory, which may be the former Ask directory or one the owner chose in Settings.
+    public static func workspaceDirectory(
+        besideDatabaseAt databasePath: String, id: SessionID
+    ) -> String {
+        let container = (databasePath as NSString).deletingLastPathComponent
+        let root = (container as NSString).appendingPathComponent("Conversations")
+        return (root as NSString).appendingPathComponent(id.rawValue)
+    }
 
-    Do not select Conductor or another workspace manager merely because its skill is installed \
-    or mentioned in past context. If Bloom's tools are unavailable or fail, report the problem \
-    instead of silently creating workspaces elsewhere. Follow the current permission mode and \
-    any approval requests from the tools.
-    """
+    public static func prepareWorkspaceDirectory(
+        besideDatabaseAt databasePath: String, id: SessionID
+    ) -> String? {
+        let path = workspaceDirectory(besideDatabaseAt: databasePath, id: id)
+        do {
+            try FileManager.default.createDirectory(
+                atPath: path,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            return path
+        } catch {
+            return nil
+        }
+    }
 
-    /// The placeholder in the composer. It says what this chat is for, because a chat with no
-    /// worktree looks exactly like a chat with one until you ask it something it cannot do.
-    public static let placeholder = "Ask about your projects and workspaces, or ask for one"
-
-    /// The mode it opens on, and it is deliberately not the app's default.
+    /// The legacy working directory for conversations made before the sidebar flow.
+    /// Each existing session keeps the directory stored under its id. See `AskTabs`.
     ///
-    /// **The default is Full access.** `AppDefaults.fallbackPermissionMode` is
-    /// `bypassPermissions`, and the Models tab can pin anything over it, so this chat inheriting
-    /// the owner's default would have meant an agent above every project running whatever it liked
-    /// without asking. That default is a reasonable one for a worktree, which is a copy: the
-    /// argument for it is that a session which stops before its first command is a session somebody
-    /// has to sit and watch. Neither half of that argument holds here, because there is no worktree
-    /// and because the owner is by definition sitting in front of this conversation.
-    ///
-    /// `acceptEdits` would be no better and is not the middle ground it sounds like: there is no
-    /// worktree for an accepted edit to be in, so what it accepts is edits anywhere the agent can
-    /// reach. So the mode is the narrowest one there is, and the composer still offers the others
-    /// for the day somebody wants one. `ComposerDefaults.resolve` is what stops the owner's
-    /// default landing on this chat the first time it is opened.
-    public static let permissionMode = PermissionMode.auto
-
-    /// The fallback working directory, used until the owner chooses a folder in Settings.
-    /// Each conversation keeps the directory it started in. See `AskTabs`.
-    ///
-    /// **This is a permission decision rather than a tidiness one**, and it is the second lock
-    /// rather than the first. `permissionMode` above is what stops this chat opening on the mode
-    /// the owner's other chats open on; this is what makes the mode it does open on mean something.
+    /// **This is a permission decision rather than a tidiness one.** These chats follow the owner's
+    /// default permission mode, so its working directory still needs a deliberate boundary.
     /// A chat started in the owner's home directory would treat every file in it as inside the
-    /// working directory, which is the one place a mode stops asking about. An empty directory of
-    /// its own makes every filesystem reach a reach *outside* it, which is a reach that asks, and
-    /// it pushes the agent towards the bridge tools instead, which are the audited surface.
+    /// working directory. With a mode that asks before leaving that directory, an empty one keeps
+    /// those reaches visible and pushes the agent towards the audited bridge tools. Full access
+    /// still means full access, as the permission picker explains.
     ///
     /// Beside the database rather than at a fixed path, for the reason `BridgeOwnerToken.beside`
     /// gives: `Store.databaseDirectoryName` is the one rule that decides which copy of Bloom a
@@ -95,42 +78,13 @@ public enum AskConversation {
         }
     }
 
-    /// What this conversation opens on, given the mode its row was last left holding.
-    ///
-    /// Nil means leave the row alone.
-    ///
-    /// **The lock has to be reapplied, or it holds exactly once.** `ComposerDefaults.resolve`
-    /// settles a chat's mode the first time it is opened and never again, and the composer's
-    /// picker writes the owner's choice onto the row. So a Full access chosen once to get
-    /// something done would have been what this conversation opened on for ever after, which is
-    /// the state the mode exists to prevent, arrived at quietly.
-    ///
-    /// The answer is not to take the picker away. A mode chosen mid-conversation was chosen by
-    /// somebody sitting in front of the conversation with the facts on the screen, and overruling
-    /// that while they watch would be a control that does not work. What expires is not the choice
-    /// but the presence behind it: a launch later, the agent that choice was made for is gone and
-    /// so is the memory of making it, and the mode would go on governing everything asked
-    /// tomorrow. This is the same reasoning `Store.resetRunningSessions` and
-    /// `abandonPendingPermissionAsks` are built on, which is that a launch boundary ends what a
-    /// person's presence justified.
-    ///
-    /// So: honoured for the rest of the launch, back to the narrowest mode on the next one, and
-    /// the permission menu's own footnote says so before the choice is made. See
-    /// `ComposerControls.permissionModeNote`.
-    public static func modeOnOpening(
-        stored: PermissionMode,
-        isFirstOpenSinceLaunch: Bool
-    ) -> PermissionMode? {
-        guard isFirstOpenSinceLaunch, stored != permissionMode else { return nil }
-        return permissionMode
-    }
-
-    /// A brand new Ask chat, with no workspace behind it.
-    public static func newSession(sortOrder: Int = 0) -> Session {
+    /// A brand new chat, with no project worktree behind it.
+    public static func newSession(id: SessionID = .new(), sortOrder: Int = 0) -> Session {
         Session(
+            id: id,
             workspaceID: nil,
             title: title,
-            permissionMode: permissionMode,
+            permissionMode: AppDefaults.fallbackPermissionMode,
             sortOrder: sortOrder
         )
     }
@@ -143,21 +97,17 @@ public enum AskConversation {
     /// opens by listing its own limits reads as an apology for existing. The limits are real and
     /// they are said where they change a decision, which is the permission menu's footnote.
     ///
-    /// So this says what to ask it for, in the order somebody would want it: start something, find
-    /// out where everything stands, then go to the thing you found.
-    public static let emptyHeading = "Ask Bloom anything about your work"
+    /// It starts with an open invitation, since the conversation can be about any topic.
+    public static let emptyHeading = "Start a conversation"
     public static let emptyDetail =
-        "Start a new project or a workspace, ask what is running and what needs you, "
-        + "find the workspace with the failing checks, and open it."
+        "Ask a question, explore an idea, or keep a discussion going without a project."
 
     /// The title a conversation takes from its first message, or nil when it already has one.
     ///
-    /// Every conversation is made as "Ask Bloom", so a rail of them read "Ask Bloom" down the whole
-    /// column. The first line of the first thing asked is what a person would call it, and it is
-    /// there the moment the message is sent, with no model to wait on. A title somebody typed is
-    /// never overwritten, because only the default is replaced.
+    /// Both the current placeholder and the old Ask Bloom title take their name from the first
+    /// message. A title somebody typed is never overwritten.
     public static func automaticTitle(current: String, prompt: String) -> String? {
-        guard current == title else { return nil }
+        guard current == title || current == legacyTitle else { return nil }
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return Git.title(from: trimmed, maxLength: 40)
@@ -165,24 +115,19 @@ public enum AskConversation {
 
     /// Whether a conversation has never been used: never named, never started.
     ///
-    /// The rail leaves these out. Closing the last conversation leaves a blank one behind so the
-    /// panel keeps a composer to type into, and a rail with one "Ask Bloom" row in it after you
-    /// closed everything looked like the close had not worked.
+    /// The sidebar leaves these out. Closing the last conversation can leave a blank session
+    /// behind, and a row for it would make the archive look as if it had failed.
     public static func isBlank(_ session: Session) -> Bool {
-        session.title == title && session.agentSessionID == nil
+        (session.title == title || session.title == legacyTitle) && session.agentSessionID == nil
     }
 
     /// What the empty pane offers to send in one click, under `suggestionsHeading`.
     ///
-    /// Each is a whole question, answered with nothing else typed: a chip that needs finishing is
-    /// a chip that makes somebody click, then type, then send, which is the clicking around the
-    /// owner asked this pane to stop. Every one is something the bridge's tools can actually do.
-    public static let suggestionsHeading = "Try asking Bloom:"
+    /// Each suggestion is a complete prompt, ready to send.
+    public static let suggestionsHeading = "Try asking:"
     public static let suggestions = [
-        "What needs my attention right now?",
-        "Which workspaces have failing checks?",
-        "What is running at the moment?",
-        "Which workspaces did I touch yesterday?",
-        "Archive the workspaces whose pull requests are merged",
+        "Help me think through an idea",
+        "Summarise this document",
+        "Draft an outline for a post",
     ]
 }

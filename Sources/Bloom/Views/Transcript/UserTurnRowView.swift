@@ -74,10 +74,13 @@ struct UserTurnRowView: View {
     /// moment it arrives. Nil for every bubble nobody is pointing at, which is what keeps the
     /// probe below and the timer beside it off every other row in the transcript.
     @State private var hovered: FileChipHover?
+    @State private var isBubbleHovered = false
     /// Where the sentence is in the window, read only while a pill in it is under the pointer. See
     /// `chipProbe`.
     @State private var textFrame: CGRect = .zero
     @State private var hoverTask: Task<Void, Never>?
+    /// Whether the pointer is anywhere on this row, which is when the copy control shows itself.
+    @State private var isPointerOnRow = false
     /// The card this bubble put up, if it is still up. Recorded rather than recomputed, exactly as
     /// `ToolRowHeader` records its own: what has to be taken down is what was PUT up, and the
     /// pointer crossing from one chip to the next raises the second before the first is told it
@@ -111,47 +114,85 @@ struct UserTurnRowView: View {
 
     private var side: HorizontalEdge { .trailing }
 
+    /// The square the copy control is drawn and hit in, the same one the agent's answers use.
+    private static let copyControlSize: CGFloat = 18
+
+    /// Drawn in the empty margin beside the bubble as an overlay, which takes no width: the
+    /// bubble's cap is measured by the list, and a control that shared the row's width would wrap
+    /// the text differently from the height the table was told.
+    @ViewBuilder
+    private var copyControl: some View {
+        if !text.isEmpty {
+            CopyButton(
+                text: text,
+                title: "Copy this message",
+                isVisible: isPointerOnRow,
+                size: Self.copyControlSize,
+                imageScale: .small
+            )
+            .offset(x: -(Self.copyControlSize + Metrics.spacingSmall))
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             if side == .trailing { Spacer(minLength: Self.inset) }
 
-            VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
-                CappedWidth(width: maxWidth) {
-                    bubble.padding(Self.padding)
+            HStack(alignment: .top, spacing: 0) {
+                if !copyText.isEmpty {
+                    CopyButton(
+                        text: copyText,
+                        title: "Copy this prompt",
+                        isVisible: isBubbleHovered,
+                        size: 18,
+                        imageScale: .small
+                    )
+                    .padding(.trailing, TranscriptLayout.tight)
+                    .padding(.top, Self.padding.top)
                 }
-                .padding(.bottom, OutgoingBubbleShape.tailDrop)
-                .background(
-                    background,
-                    in: OutgoingBubbleShape(cornerRadius: Self.corner, tail: side)
-                )
-                // No stroke around the fill. A border on a filled shape is a control's outline,
-                // and the fill already separates the turn from the ground in both appearances.
-                //
-                // Everything inside is told it is sitting on the accent fill, which is the same
-                // signal a selected sidebar row sends. `Chip`, `DiffStatLabel`, `RepoIcon` and
-                // `AttachmentChip` all read it and swap to the variant that survives the inversion,
-                // so a chip inside a user turn needs no knowledge of this view.
-                .environment(\.isOnEmphasizedSelection, true)
-                // And that the ground under them is dark, which on a light page it now is.
-                //
-                // This is not a stylistic flourish, it is what makes the text selectable in any
-                // useful sense. Selecting text paints `selectedTextBackgroundColor` BEHIND the glyphs
-                // and leaves the foreground exactly as it was: on the light ramp that colour is a pale
-                // blue, so dragging over a white sentence on this fill wrote it in white on near white
-                // and the selection was unreadable while it was being made. Measured off a probe of
-                // this exact bubble: the highlight comes out #BAD6FB and white on it is 1.5 to 1.
-                //
-                // Naming the scheme resolves every appearance-dependent colour inside the bubble on
-                // the dark ramp. The claim is honest rather than a trick: this bubble IS a dark
-                // surface whatever the page around it is doing. AppKit cannot read it, which is why
-                // the text view below is handed `Palette.bubbleTextSelection` as well.
-                .environment(\.colorScheme, .dark)
+
+                VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
+                    CappedWidth(width: maxWidth) {
+                        bubble.padding(Self.padding)
+                    }
+                    .padding(.bottom, OutgoingBubbleShape.tailDrop)
+                    .background(
+                        background,
+                        in: OutgoingBubbleShape(cornerRadius: Self.corner, tail: side)
+                    )
+                    // No stroke around the fill. A border on a filled shape is a control's outline,
+                    // and the fill already separates the turn from the ground in both appearances.
+                    //
+                    // Everything inside is told it is sitting on the accent fill, which is the same
+                    // signal a selected sidebar row sends. `Chip`, `DiffStatLabel`, `RepoIcon` and
+                    // `AttachmentChip` all read it and swap to the variant that survives the inversion,
+                    // so a chip inside a user turn needs no knowledge of this view.
+                    .environment(\.isOnEmphasizedSelection, true)
+                    // And that the ground under them is dark, which on a light page it now is.
+                    //
+                    // This is not a stylistic flourish, it is what makes the text selectable in any
+                    // useful sense. Selecting text paints `selectedTextBackgroundColor` BEHIND the glyphs
+                    // and leaves the foreground exactly as it was: on the light ramp that colour is a pale
+                    // blue, so dragging over a white sentence on this fill wrote it in white on near white
+                    // and the selection was unreadable while it was being made. Measured off a probe of
+                    // this exact bubble: the highlight comes out #BAD6FB and white on it is 1.5 to 1.
+                    //
+                    // Naming the scheme resolves every appearance-dependent colour inside the bubble on
+                    // the dark ramp. The claim is honest rather than a trick: this bubble IS a dark
+                    // surface whatever the page around it is doing. AppKit cannot read it, which is why
+                    // the text view below is handed `Palette.bubbleTextSelection` as well.
+                    .environment(\.colorScheme, .dark)
+                    .overlay(alignment: .bottomLeading) { copyControl }
+                }
             }
+            .contentShape(Rectangle())
+            .onHover { isBubbleHovered = $0 }
 
             if side == .leading { Spacer(minLength: Self.inset) }
         }
         .padding(.horizontal, TranscriptLayout.inset)
         .padding(.vertical, TranscriptLayout.inset)
+        .onHover { isPointerOnRow = $0 }
         .onChange(of: hovered) { _, chip in
             hoverTask?.cancel()
             guard let chip else {
@@ -172,6 +213,8 @@ struct UserTurnRowView: View {
             withdraw()
         }
     }
+
+    private var copyText: String { SentTurn.withoutInstructions(text) }
 
     /// The words and then the files, which is the order they were written in and the order the
     /// composer showed them in, except that up there the chips sat above the text because that is
@@ -363,8 +406,8 @@ extension TranscriptLinkActions {
         copy.previewFile = preview
         // The identity moves with the closure, or a bubble that can open a file would compare
         // equal to the list's value that cannot, and the environment would never see the change.
-        if case let .workspace(id, pane) = identity {
-            copy.identity = .workspaceOpeningFiles(id, pane: pane)
+        if case let .workspace(id, pane, session) = identity {
+            copy.identity = .workspaceOpeningFiles(id, pane: pane, session: session)
         }
         return copy
     }

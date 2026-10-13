@@ -73,3 +73,30 @@ final class WelcomeHostingController: NSHostingController<AnyView> {
         return CGSize(width: contentWidth, height: ceil(measured.height))
     }
 }
+
+/// Keep the hosting view inside an ordinary content view. When it is the window's content view,
+/// SwiftUI can run `NSHostingView.updateAnimatedWindowSize` during AppKit's layout pass even with
+/// `sizingOptions = []`. On macOS 26.0 that path resizes the window, invalidates the hosting view's
+/// safe area, and raises an exception for updating constraints during layout. The welcome window
+/// is sized by `WelcomeHostingController` on a later turn instead.
+@MainActor
+final class WelcomeContentController: NSViewController {
+    private let host: WelcomeHostingController
+
+    init(host: WelcomeHostingController) {
+        self.host = host
+        super.init(nibName: nil, bundle: nil)
+        addChild(host)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not decoded from a nib") }
+
+    override func loadView() {
+        let content = NSView()
+        host.view.frame = content.bounds
+        host.view.autoresizingMask = [.width, .height]
+        content.addSubview(host.view)
+        view = content
+    }
+}

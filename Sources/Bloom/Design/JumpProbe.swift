@@ -8,14 +8,9 @@ import BloomCore
 ///
 /// The sixth of the family, and the only one that is not about frame times. The others ask what a
 /// gesture COST; this one asks whether a gesture DID WHAT IT SAID, because the bug it was written
-/// for was not slow, it was wrong. The jump pill scrolled one frame, that frame posted
-/// `boundsDidChange`, the coordinator read its own write as the reader taking hold, and the glide
-/// stopped itself at nothing. With Reduce Motion on it worked, because that path jumps rather than
-/// glides, which is exactly the kind of fault that survives a hand test: whoever checks it once,
-/// in the wrong accessibility setting, comes away satisfied.
-///
-/// `TranscriptModel.submit` bumps the same counter, so "the chat does not scroll down when I say
-/// something" was the same bug wearing different clothes. Both are covered here.
+/// for was not slow, it was wrong. The jump pill once scrolled one frame, that frame posted
+/// `boundsDidChange`, and the glide stopped short. The pill now places the table at its end
+/// immediately, and this probe checks that the placement remains correct as heights change.
 ///
 ///     Bloom --jump-probe /tmp/jump.json --jump-workspace <id>
 ///           [--jump-settle 2500] [--window-size 1440x900]
@@ -42,10 +37,8 @@ enum JumpProbe {
 
     /// How long a jump is given before it is judged, in milliseconds.
     ///
-    /// Generous on purpose. The glide is a display link over a fixed duration, and the standing
-    /// instruction it hands over to is re-asserted on the next run loop turn and again on every
-    /// height correction, so the honest question is where the view came to rest rather than where
-    /// it was a frame after the request.
+    /// Generous on purpose. The standing instruction is re-asserted on the next run loop turn and
+    /// again on every height correction, so this checks that the instant placement stays put.
     private static var settle: Duration {
         .milliseconds(ProbeHarness.count("--jump-settle", or: 2_500))
     }

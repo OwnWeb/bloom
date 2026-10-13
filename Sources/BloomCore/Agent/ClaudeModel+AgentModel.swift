@@ -19,10 +19,29 @@ extension ClaudeModel {
     }
 }
 
+extension Array where Element == ClaudeModel {
+    /// Claude Code can lag a newly released model even while its full id works with `--model`.
+    /// Keep the explicit Sonnet 5.5 choice until the CLI lists it or resolves `sonnet` to it.
+    public var agentModels: [AgentModel] {
+        guard !isEmpty else { return [] }
+        var mapped = map(\.agentModel)
+        if !contains(where: { $0.id == "claude-sonnet-5-5" || $0.resolvedModel == "claude-sonnet-5-5" }) {
+            mapped.append(AgentModel(
+                id: "claude-sonnet-5-5", displayName: "Sonnet 5.5",
+                supportedEfforts: ["low", "medium", "high", "xhigh", "max"].map {
+                    AgentModelEffort(id: $0, label: CodexReasoningEffort(id: $0).label)
+                },
+                defaultEffort: "medium"
+            ))
+        }
+        return mapped
+    }
+}
+
 extension AgentModelSource {
     public static func claude(_ catalog: ClaudeModelCatalog = .shared) -> AgentModelSource {
         AgentModelSource(
-            models: { try await catalog.models().map(\.agentModel) },
+            models: { try await catalog.models().agentModels },
             invalidate: {}
         )
     }

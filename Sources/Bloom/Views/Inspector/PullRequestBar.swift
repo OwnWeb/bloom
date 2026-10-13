@@ -102,7 +102,9 @@ struct PullRequestBar: View {
                 isWorking: isWorking,
                 branchActions: branchActions,
                 mergeMethod: model.mergeMethod,
+                mergeExecution: model.mergeExecution,
                 onChooseMergeMethod: chooseMergeMethod,
+                onChooseMergeExecution: { model.chooseMergeExecution($0) },
                 onMerge: merge,
                 onMarkReadyForReview: { markReadyForReview(pullRequest) },
                 onPush: push,
@@ -114,6 +116,7 @@ struct PullRequestBar: View {
             )
         } else {
             PullRequestCreator(
+                model: model,
                 branch: model.workspace.branch,
                 baseBranch: model.workspace.baseBranch,
                 isWorking: isWorking || model.isLoadingPullRequest,
@@ -160,6 +163,7 @@ struct PullRequestBar: View {
         // project and not to this workspace: picking Rebase in one of a project's worktrees has
         // to be what the band says in the next one, and switching workspace is what starts this.
         await model.loadMergeMethod()
+        await model.loadMergeExecution()
 
         var maxAge = PullRequestPolling.arrivalMaxAge
         while !Task.isCancelled {
@@ -169,18 +173,33 @@ struct PullRequestBar: View {
         }
     }
 
-    /// Creation is the agent's job: it pushes, writes the description and calls `gh` with the
-    /// project's own conventions in context. Bloom only composes the turn.
-    private func createPullRequest() {
+    /// The agent route composes a turn. The direct route commits and publishes in BloomCore.
+    private func createPullRequest(_ route: PullRequestCreationRoute) {
         isWorking = true
         report = nil
 
         Task {
             defer { isWorking = false }
-            if let refusal = await model.requestPullRequest() {
-                report = PullRequestNotice(
-                    tone: .info, title: "Nothing was sent", message: refusal
-                )
+            switch route {
+            case .agent:
+                if let refusal = await model.requestPullRequest() {
+                    report = PullRequestNotice(
+                        tone: .info, title: "Nothing was sent", message: refusal
+                    )
+                }
+            case .direct:
+                do {
+                    let created = try await model.createPullRequestDirectly()
+                    report = PullRequestNotice(
+                        tone: .info, title: "Pull request created",
+                        message: "Opened #\(created.number) on GitHub."
+                    )
+                } catch {
+                    report = PullRequestNotice(
+                        tone: .failure, title: "Could not create the pull request",
+                        message: String(describing: error)
+                    )
+                }
             }
         }
     }
@@ -304,28 +323,45 @@ struct PullRequestBar: View {
         pendingArchive = request
     }
 
-    /// Hands the merge to the agent, the same way Create pull request and Commit and push do.
-    ///
-    /// Nothing here runs `gh`, and that is the change this whole file was rewritten for. Bloom used
-    /// to merge over the network from this function and report the outcome into a notice, which
-    /// left it with one thing to say about the case that happens most: GitHub refused, and the
-    /// person needed a conversation rather than a red box. Now the request goes down the composer's
-    /// own path, the commands run in the transcript under the permission mode the person set, and
-    /// the strip notices the merge on its next refresh like any other change on GitHub.
-    ///
-    /// So there is nothing to report here on success. What used to be a `WorkspaceEvent` row is
-    /// now the turn itself, a few points to the left, said in the agent's own words.
-    private func merge(_ method: GitHub.MergeMethod) {
+    /// The confirmation chose how to execute the merge. The direct path stays in the model,
+    /// keeping subprocesses out of the view and reporting gh's answer beside the inspector.
+    private func merge(_ method: GitHub.MergeMethod, execution: MergeExecution) {
         guard let pullRequest = model.pullRequest else { return }
         isWorking = true
         report = nil
 
         Task {
             defer { isWorking = false }
-            if let refusal = await model.requestMerge(pullRequest, method: method) {
-                report = PullRequestNotice(
-                    tone: .info, title: "Nothing was sent", message: refusal
-                )
+            switch execution {
+            case .agent:
+                if let refusal = await model.requestMerge(pullRequest, method: method) {
+                    report = PullRequestNotice(
+                        tone: .info, title: "Nothing was sent", message: refusal
+                    )
+                }
+            case .direct:
+                do {
+                    let outcome = try await model.mergePullRequestDirectly(pullRequest, method: method)
+                    let message: String
+                    switch outcome {
+                    case .merged:
+                        message = "#\(pullRequest.number) merged. Bloom did not delete the branch or change this checkout."
+                    case .acceptedButOpen:
+                        message = "#\(pullRequest.number) is still open, possibly waiting in a merge queue."
+                    case .acceptedUnverified:
+                        message = "gh accepted the command, but Bloom could not verify #\(pullRequest.number)'s final status."
+                    }
+                    report = PullRequestNotice(
+                        tone: .info,
+                        title: outcome == .merged ? "Merged on GitHub" : "GitHub accepted the merge",
+                        message: message
+                    )
+                } catch {
+                    report = PullRequestNotice(
+                        tone: .failure, title: "Could not merge on GitHub",
+                        message: String(describing: error)
+                    )
+                }
             }
         }
     }

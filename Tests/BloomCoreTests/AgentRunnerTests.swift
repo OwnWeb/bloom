@@ -157,13 +157,13 @@ private final class ProcessRecorder: @unchecked Sendable {
 /// travels inside `--settings`, which is documented and takes a JSON string as well as a path.
 @Suite("AgentRunner argv", .tags(.agentProtocol), .scratchDirectory)
 struct AgentRunnerArgvTests {
-    @Test("Ask Bloom receives host instructions on new and resumed conversations",
+    @Test("project-free conversations use no forced host prompt",
           arguments: [false, true], [false, true])
     func askBloomInstructions(hasWorkspace: Bool, resumed: Bool) {
         let session = Session(workspaceID: hasWorkspace ? WorkspaceID("w") : nil)
         let argv = AgentRunner.argv(session: session, resume: resumed ? "existing-chat" : nil)
 
-        #expect(value(of: "--append-system-prompt", in: argv) == (hasWorkspace ? nil : AskConversation.instructions))
+        #expect(value(of: "--append-system-prompt", in: argv) == nil)
         #expect(!argv.contains("--system-prompt"))
         #expect(value(of: "--resume", in: argv) == (resumed ? "existing-chat" : nil))
     }

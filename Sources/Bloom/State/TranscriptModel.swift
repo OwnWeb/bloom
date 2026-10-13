@@ -143,6 +143,23 @@ final class TranscriptModel {
     @ObservationIgnored private var foldCache = TranscriptFoldCache()
     @ObservationIgnored private var turnFoldCache = TranscriptTurnFoldCache()
     @ObservationIgnored private var questionIndex = PinnedQuestionIndex()
+    /// A tab switch destroys its table, but it should not discard rows already measured at this
+    /// pane's width. Kept per pane because two split panes can draw this chat at different widths.
+    /// Old split pane ids are expendable, so the cache is bounded even after many rearrangements.
+    private let heightMemories: NSCache<NSString, TranscriptHeightMemory> = {
+        let cache = NSCache<NSString, TranscriptHeightMemory>()
+        cache.countLimit = 8
+        return cache
+    }()
+
+    func heightMemory(for pane: String) -> TranscriptHeightMemory {
+        let key = pane as NSString
+        if let remembered = heightMemories.object(forKey: key) { return remembered }
+        let remembered = TranscriptHeightMemory()
+        heightMemories.setObject(remembered, forKey: key)
+        return remembered
+    }
+
     /// Tool calls that arrived moments ago, by call id, which fold before their result is back.
     /// See `TranscriptFold.freshCall`. Told through `presentationRevision`, like the cache above.
     @ObservationIgnored private var freshCalls: Set<String> = []
@@ -437,6 +454,28 @@ final class TranscriptModel {
         await loader.run { [self] in await read(from: store) }
     }
 
+    /// Reconcile persisted rows while this pane is visible. The runner's event pump normally
+    /// presents them first, but a missed presentation notification must not leave a saved answer
+    /// invisible until Bloom is restarted. Store changes are coalesced and this reader caps its
+    /// own reads while a provider writes many rows in a turn.
+    func watchStoredRows(when shouldRead: @escaping @MainActor () -> Bool) async {
+        guard let store else { return }
+        var changes = store.changes(of: [.messages]).makeAsyncIterator()
+        await load()
+        guard !Task.isCancelled else { return }
+        if shouldRead() { await appendLatestMessages() }
+        while await changes.next() != nil {
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            guard !Task.isCancelled else { return }
+            if shouldRead() { await appendLatestMessages() }
+        }
+    }
+
+    func reconcileStoredRows() async {
+        await load()
+        await appendLatestMessages()
+    }
+
     /// The read itself, reached only through `loader`.
     ///
     /// The rows are built into a list off to one side and put on the model in one assignment at the
@@ -452,6 +491,11 @@ final class TranscriptModel {
         // Read once for the whole session rather than per row: a transcript can hold thousands of
         // rows and at most a handful of them are questions.
         let decisions = (try? await store.permissionAskDecisions(sessionID: session.id)) ?? [:]
+
+        // These reads do not depend on the row fold. Start them while that fold runs off the main
+        // actor, so opening a long conversation does not wait for three more store round trips
+        // after its rows are ready.
+        async let opening = loadOpening(from: store)
 
         // Off the main actor, and not for tidiness. The fold below is the one place in the app
         // that JSON-parses a whole session in one go: `ParentProbe.parentToolUseID` materialises
@@ -505,13 +549,20 @@ final class TranscriptModel {
         SwitchTrace.mark("transcript.rows.built", workspace: workspace?.id)
         SwitchTrace.markOnScreen("transcript.rows.built", workspace: workspace?.id)
 
+        await opening
+        isLoaded = true
+    }
+
+    private func loadOpening(from store: Store) async {
         draft = (try? await store.draft(sessionID: session.id)) ?? ""
+        SwitchTrace.mark("transcript.draft.loaded", workspace: workspace?.id)
         // Read, and deliberately not drained. A message queued before the last quit must not
         // start a paid turn on a Mac nobody is sitting at, so it is shown as pending and goes with
         // the owner's next message. See `DeliveryHold.none`.
         await refreshQueue()
+        SwitchTrace.mark("transcript.queue.loaded", workspace: workspace?.id)
         await history.load(store: store, sessionID: session.id)
-        isLoaded = true
+        SwitchTrace.mark("transcript.checkpoints.loaded", workspace: workspace?.id)
     }
 
     /// Folds a stored message into the row list, pairing tool results onto their tool call.
@@ -739,22 +790,9 @@ final class TranscriptModel {
             sending = delivery
         }
 
-        // And the list is taken to it, on the same frame, for the same reason the bubble is drawn
-        // before anything is awaited: what somebody just asked for should be the thing they are
-        // looking at.
-        //
-        // The bug this closes was Merge. The button composes a turn and sends it down this path,
-        // the transcript did not follow, and the request landed below the fold with the jump pill
-        // floating over the top of it: the one thing the owner had just triggered was the one
-        // thing off screen. It was never only Merge. Create pull request, Push, the continuation
-        // after a merge, a review sent with comments and a reply typed into a banner all arrive
-        // here, and a message typed into the composer while the reader was scrolled up did the
-        // same. One queue in, one rule about where the list sits.
-        //
-        // `jumpToLiveEnd` rather than a scroll of its own: it is the jump pill's own request, so
-        // this reuses the display-link glide in `TranscriptListView.goToLiveEnd`, which already
-        // asks `TranscriptMotion` whether Reduce Motion is on and jumps instead when it is.
-        jumpToLiveEnd()
+        // Sending does not move a reader who is looking at older messages. The visible delivery
+        // still appears at the live end, and the jump pill remains the explicit way to reach it.
+        // A reader already at the end keeps following through the table's existing end hold.
 
         do {
             _ = try await store.enqueueDelivery(delivery, clearingDraftMatching: submittedDraft, sourcePlan: sourcePlan)
@@ -1191,7 +1229,7 @@ final class TranscriptModel {
         // bubble claiming to have been said to an agent that was never built. It takes a database
         // that never opened, so it is close to impossible, and a message of the owner's
         // disappearing without a word is not a thing to leave resting on that.
-        guard let runner = ensureRunner() else {
+        guard let runner = await ensureRunner() else {
             await abandon(delivery, saying: "Bloom could not open an agent for this chat.")
             return false
         }
@@ -1472,7 +1510,7 @@ final class TranscriptModel {
     /// nil forever if the open in `AppModel.bootstrap` throws while `isLoaded` is set true, so a
     /// second caller of this would take the app down. There is no reason for the guarantee to be
     /// somewhere other than here.
-    private func ensureRunner() -> (any SessionRunner)? {
+    private func ensureRunner() async -> (any SessionRunner)? {
         guard !usesInteractiveTerminal else { return nil }
         guard !isWorkspaceArchiving else { return nil }
         guard let store else { return nil }
@@ -1494,13 +1532,20 @@ final class TranscriptModel {
         // minted for that workspace and the role its origin says; Ask Bloom gets the owner's own,
         // which is the same door the owner's terminal comes in through and the reason every owner
         // tool works here without one of them being written twice.
+        let profile: AgentAccountProfile?
+        do {
+            profile = try await store.accountForLaunch(session: session)
+        } catch {
+            return nil
+        }
         let bridge = workspace.map { app.bridge?.register(session: session, workspace: $0) }
             ?? app.bridge?.register(askSession: session)
         let runner = Self.makeRunner(
             session: session,
             workspacePath: cwd,
             store: store,
-            bridge: bridge
+            bridge: bridge,
+            accountHome: profile.map(store.agentAccountHome)
         )
         self.runner = runner
         runnerPreferences = preferences
@@ -1526,7 +1571,8 @@ final class TranscriptModel {
         session: Session,
         workspacePath: String,
         store: Store,
-        bridge: BridgeHandle? = nil
+        bridge: BridgeHandle? = nil,
+        accountHome: String? = nil
     ) -> any SessionRunner {
         switch session.agentKind {
         case .codex:
@@ -1534,14 +1580,16 @@ final class TranscriptModel {
                 workspacePath: workspacePath,
                 session: session,
                 store: store,
-                bridge: bridge?.attachment
+                bridge: bridge?.attachment,
+                accountHome: accountHome
             )
         case .grok:
             return GrokRunner(
                 workspacePath: workspacePath,
                 session: session,
                 store: store,
-                bridge: bridge?.attachment
+                bridge: bridge?.attachment,
+                accountHome: accountHome
             )
         // Cursor and OpenCode have no runner, and `AgentKind.canRunWorkspaces` is what stops a
         // chat ever being on one. A chat that somehow is falls back to Claude Code rather than
@@ -1552,7 +1600,8 @@ final class TranscriptModel {
                 workspacePath: workspacePath,
                 session: session,
                 store: store,
-                mcpConfigPath: bridge?.mcpConfigPath
+                mcpConfigPath: bridge?.mcpConfigPath,
+                accountHome: accountHome
             )
         }
     }
@@ -1728,6 +1777,17 @@ final class TranscriptModel {
     /// events into a transcript would be a second writer on state that has exactly one.
     func acceptForProbe(_ event: AgentEvent) async {
         await handle(event)
+    }
+
+    /// The append profiler needs the same row mutation as a stored arrival, without a database or
+    /// runner. Its synthetic messages never leave the disposable probe process.
+    func seedRowsForProbe(_ messages: [Message]) {
+        rows = Self.rows(from: messages)
+        presentationRevision += 1
+    }
+
+    func appendRowForProbe(_ message: Message) {
+        absorb(message)
     }
 
     private func handle(_ event: AgentEvent) async {
@@ -1923,6 +1983,10 @@ final class TranscriptModel {
                 statusLabel = isRunning ? "Working" : nil
             }
             await refreshSession()
+            // An answer releases the question hold. Claude Code and Codex can receive the
+            // messages queued behind it during the same turn, so this is a queue trigger too.
+            // The runner emits this only after writing the answer to the provider.
+            if !isAwaitingPermission { await drain() }
 
         case .rateLimit(let raw):
             // Both backends converge on this one event, and until now it landed here and stopped.
@@ -2252,9 +2316,13 @@ final class TranscriptModel {
 
     private func notifyFinished(result: AgentResult) async {
         guard let store else { return }
-        // Every line below is about a worktree: an unread mark on a sidebar row, a workspace model
-        // to refresh, a banner naming where the turn finished. A chat with none is a chat the
-        // owner is looking at, so there is nothing to mark and nobody to tell.
+        if workspace == nil {
+            let wasViewed = app.selection == .conversation(session.id)
+            if wasViewed { await markAllRead() }
+            app.ask.noteTurnFinished(session.id, wasViewed: wasViewed)
+            return
+        }
+        // The remaining work is about a worktree: its unread mark, model and notification.
         guard let workspace, let workspaceNow else { return }
         try? await store.touch(
             workspaceID: workspace.id, unread: app.selection.workspaceID != workspace.id

@@ -28,12 +28,17 @@ struct FileMediaView: View {
             Hairline()
 
             GeometryReader { proxy in
-                AttachmentPreview(
-                    url: url,
-                    maxWidth: max(proxy.size.width - Metrics.pane * 2, 1),
-                    maxHeight: max(proxy.size.height - Metrics.pane * 2, 1)
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if Self.isImage(path: path) {
+                    Button { ImageLightbox.open(url) } label: {
+                        preview(in: proxy.size)
+                    }
+                    .buttonStyle(.plain)
+                    .help("View \(filename) at full size")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    preview(in: proxy.size)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
         .background(Palette.surface)
@@ -65,6 +70,18 @@ struct FileMediaView: View {
     }
 
     private var filename: String { (path as NSString).lastPathComponent }
+
+    private func preview(in size: CGSize) -> some View {
+        AttachmentPreview(
+            url: url,
+            maxWidth: max(size.width - Metrics.pane * 2, 1),
+            maxHeight: max(size.height - Metrics.pane * 2, 1)
+        )
+    }
+
+    static func isImage(path: String) -> Bool {
+        UTType(filenameExtension: (path as NSString).pathExtension)?.conforms(to: .image) == true
+    }
 
     /// Whether a path is one of these rather than one for `FilePreview`.
     ///

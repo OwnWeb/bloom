@@ -66,6 +66,14 @@ struct SidebarSelectionTests {
         #expect(Set<SidebarSelection>([.workspace(workspace), .archived(workspace)]).count == 2)
     }
 
+    @Test("a project-free conversation never acquires workspace controls")
+    func conversationCarriesNoWorkspace() {
+        let id = SessionID("loose")
+        #expect(SidebarSelection.conversation(id).workspaceID == nil)
+        #expect(SidebarSelection.archivedConversation(id).workspaceID == nil)
+        #expect(SidebarSelection.conversation(id) != .archivedConversation(id))
+    }
+
     /// The same claim the subagent test above makes, and it has to be made twice because these are
     /// two different things: a crew member is a stored chat that outlives the turn that started
     /// it, and the terminal, the diff, the inspector and the composer are all still about the

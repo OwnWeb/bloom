@@ -3,9 +3,9 @@ import BloomCore
 
 /// The whole worktree, not just what changed.
 ///
-/// `git ls-files` is asked once and turned into a directory index. Rows are then produced only
-/// for directories the user actually opened, so a repository with fifty thousand files costs one
-/// subprocess and a handful of views rather than a tree of fifty thousand nodes.
+/// `git ls-files` is asked on first open and after file system changes, then turned into a
+/// directory index. Rows are produced only for directories the user actually opened, so a
+/// repository with fifty thousand files draws a handful of views rather than a whole tree.
 struct FileTreeView: View {
     let model: WorkspaceModel
 
@@ -15,6 +15,8 @@ struct FileTreeView: View {
     /// **A live filter never writes to this**, which is what lets a filter be typed and deleted
     /// without costing somebody the place they had opened their way down to. See `filterOpen`.
     @State private var expanded: Set<String> = []
+    @State private var loadedWorkspace: WorkspaceID?
+    @State private var loadedPath: String?
     @State private var selection: String?
     @State private var revealPath: String?
 
@@ -60,6 +62,7 @@ struct FileTreeView: View {
     private struct LoadID: Hashable {
         var workspaceID: WorkspaceID
         var workspacePath: String?
+        var revision: Int
     }
 
     var body: some View {
@@ -69,18 +72,26 @@ struct FileTreeView: View {
     /// Reading the listing, and the two watches that come off the workspace itself.
     private var loading: some View {
         stack
-        .task(id: LoadID(workspaceID: model.workspace.id, workspacePath: model.workspace.path)) {
-            // Nothing is thrown away first. A workspace whose listing has already been read draws
-            // it on the frame it arrives on, and this returns without a subprocess.
-            expanded = Set(UserDefaults.standard.stringArray(forKey: expansionKey) ?? [])
-            selection = nil
-            revealPath = nil
-            // The filter goes with the workspace it was typed at. Carrying it across would show
-            // the next worktree already narrowed by a word nobody typed at it.
-            query = ""
+        .task(id: LoadID(
+            workspaceID: model.workspace.id,
+            workspacePath: model.workspace.path,
+            revision: model.fileTreeRevision
+        )) {
+            // Keep the previous listing on screen while a changed worktree is read again.
+            let switching = loadedWorkspace != model.workspace.id || loadedPath != model.workspace.path
+            if switching {
+                expanded = Set(UserDefaults.standard.stringArray(forKey: expansionKey) ?? [])
+                selection = nil
+                revealPath = nil
+                // The filter goes with the workspace it was typed at.
+                query = ""
+                loadedWorkspace = model.workspace.id
+                loadedPath = model.workspace.path
+            }
             await model.refreshFileTree()
             guard !Task.isCancelled else { return }
-            if let path = model.activeReviewPath, let ancestors = FileTreeNode.ancestors(of: path, in: model.fileTree) {
+            if switching, let path = model.activeReviewPath,
+               let ancestors = FileTreeNode.ancestors(of: path, in: model.fileTree) {
                 expanded.formUnion(ancestors)
                 rebuildRows()
                 selection = path

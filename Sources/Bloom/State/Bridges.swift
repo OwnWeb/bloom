@@ -5,9 +5,12 @@ import BloomCore
 /// The one place the app layer touches `GitHub`. Keeping it behind a single adapter means a
 /// change to the gh wrapper's signature is a one-file fix rather than a sweep through views.
 ///
-/// Opening a pull request, pushing a branch and merging are turns sent to the workspace's agent.
-/// Marking a draft ready for review needs no interpretation, so it runs directly through gh.
+/// Pull requests can be prepared by an agent or directly through git and gh. Direct merges and
+/// marking a draft ready also use the GitHub CLI without involving an agent.
 enum GitHubBridge {
+    static func createPullRequestDirectly(for workspace: Workspace) async throws -> PullRequest {
+        try await DirectPullRequestCreation.create(for: workspace)
+    }
     static func readPullRequest(for workspace: Workspace, maxAge: Duration = .zero) async -> PullRequestRead {
         let availability = await GitHubAvailability.shared.check()
         if availability == .notInstalled {
@@ -40,6 +43,12 @@ enum GitHubBridge {
 
     static func markReadyForReview(_ pullRequest: PullRequest, worktree: String) async throws {
         try await GitHub.markReadyForReview(pullRequest, worktree: worktree)
+    }
+
+    static func mergePullRequest(
+        _ pullRequest: PullRequest, base: String, method: GitHub.MergeMethod, worktree: String
+    ) async throws -> DirectMergeOutcome {
+        try await GitHub.mergePullRequest(pullRequest, into: base, method: method, worktree: worktree)
     }
 
     /// Nil when GitHub refused this token the check runs. A failed read is still an empty list,

@@ -217,6 +217,8 @@ final class WorkspaceModel {
     /// the same repository are two copies of this property and the store is the one answer between
     /// them. See `MergeMethodChoice`, which holds the scope argument and the key.
     private(set) var mergeMethod = MergeMethodChoice.fallback
+    private(set) var mergeExecution = MergeExecutionChoice.fallback
+    @ObservationIgnored private var mergeExecutionSaveTask: Task<Void, Never>?
     /// What the last press on the pull request strip left to say, drawn at the top of the
     /// inspector column.
     ///
@@ -537,10 +539,16 @@ final class WorkspaceModel {
         usesCLI suppliedCLIChoice: Bool?
     ) async -> PaneContent? {
         guard let store, let repo = app.repo(for: workspace) else { return nil }
-        let defaults = await AppDefaults.loadForNewSessions(from: store)
+        let defaults = await AppDefaults.loadForNewSessions(
+            from: store, models: ComposerModelCatalog.shared.models
+        )
+        let loadedSettings = SettingsLoader.load(repo: workspace.path)
+        let repoSettings = (try? await store.applyingProjectAgentDefaults(
+            to: loadedSettings, for: repo.id
+        )) ?? loadedSettings
         let controls = suppliedControls ?? ComposerControls(
                 defaults: ComposerDefaults.resolve(
-                    repo: SettingsLoader.load(repo: workspace.path), app: defaults,
+                    repo: repoSettings, app: defaults,
                     models: ComposerModelCatalog.shared.models
                 ),
                 isFastMode: defaults.fastMode, outputStyle: defaults.outputStyle,
@@ -1310,7 +1318,7 @@ final class WorkspaceModel {
         if let cliSession, let prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             cliDelivery = try? await store?.enqueueDelivery(Delivery(targetSessionID: cliSession.id, body: prompt))
             if let terminal = CenterTabStore.shared.terminal(for: cliSession.id, in: workspace.id),
-               let command = prepareCLICommand(for: cliSession, prompt: prompt) {
+               let command = await prepareCLICommand(for: cliSession, prompt: prompt) {
                 try? await store?.setSetting(TerminalCommandMemory.key(paneID: terminal.id), command)
             }
         } else {
@@ -1445,23 +1453,25 @@ final class WorkspaceModel {
         guard !Task.isCancelled,
               let terminal = CenterTabStore.shared.terminal(for: cliSession.id, in: workspace.id),
               sessions.contains(where: { $0.id == cliSession.id }),
-              let command = prepareCLICommand(for: cliSession, prompt: prompt) else { return }
+              let command = await prepareCLICommand(for: cliSession, prompt: prompt) else { return }
         try? FileManager.default.removeItem(at: AgentKind.interactiveStatusURL(sessionID: cliSession.id))
         let terminals = TerminalSessionStore.shared
         terminals.useStore(store)
         terminals.run(command, inPaneID: terminal.id)
         _ = terminals.terminal(
             for: TerminalTab(id: TerminalTabID(terminal.id), workspaceID: workspace.id, title: terminal.title),
-            workspace: workspace, repo: repo, port: port, directory: terminal.directory
+            owner: .workspace(workspace, repo, port: port), directory: terminal.directory
         )
         pendingCLILaunches.remove(cliSession.id)
         pendingCLIPrompts[cliSession.id] = nil
     }
 
-    private func prepareCLICommand(for session: Session, prompt: String) -> String? {
+    private func prepareCLICommand(for session: Session, prompt: String) async -> String? {
         do {
+            let profile = try await store?.accountForLaunch(session: session)
             return try TerminalSessionStore.shared.prepareCLICommand(
-                for: session, workspace: workspace, prompt: prompt
+                for: session, workspace: workspace, prompt: prompt,
+                accountHome: profile.flatMap { store?.agentAccountHome($0) }
             )
         } catch {
             app.alert = BloomAlert(title: "Could not launch the agent", message: error.readableMessage)
@@ -2178,7 +2188,7 @@ final class WorkspaceModel {
 
     // MARK: - The worktree listing
 
-    /// Every directory's children, for the All files tab, built once per workspace per launch.
+    /// Every directory's children, for the All files tab, cached until the worktree changes.
     ///
     /// It lives here rather than in the view for two reasons, and the second one is a bug rather
     /// than a cost. The cost: `git ls-files` on a large worktree is a subprocess and tens of
@@ -2190,15 +2200,34 @@ final class WorkspaceModel {
     /// Whether the listing has been read at all, so the tab can tell "nothing tracked" apart from
     /// "nobody has looked yet".
     private(set) var hasReadFileTree = false
+    private(set) var fileTreeRevision = 0
+    private var fileTreeLoadedRevision = -1
     private var fileTreeTask: Task<Void, Never>?
 
-    /// - Parameter force: read it again even though it has been read. For a refresh the user asked
-    ///   for; an arrival never forces, which is the whole point.
+    func invalidateFileTree(keepListing: Bool = true) {
+        guard hasReadFileTree || fileTreeTask != nil else { return }
+        if !keepListing {
+            fileTree = [:]
+            hasReadFileTree = false
+        }
+        fileTreeRevision += 1
+    }
+
+    /// - Parameter force: read it again even though the current revision has been read, for a
+    ///   refresh the user asked for. File system changes advance the revision instead.
     func refreshFileTree(force: Bool = false) async {
-        if hasReadFileTree, !force { return }
-        if let fileTreeTask, !force { return await fileTreeTask.value }
+        guard !Task.isCancelled else { return }
+        if hasReadFileTree, fileTreeLoadedRevision == fileTreeRevision, !force { return }
+        if let fileTreeTask, !force {
+            await fileTreeTask.value
+            if !Task.isCancelled, fileTreeLoadedRevision != fileTreeRevision {
+                await refreshFileTree()
+            }
+            return
+        }
 
         fileTreeTask?.cancel()
+        let revision = fileTreeRevision
         let worktree = workspace.path
         let task = Task { [weak self] in
             let index = await Task.detached(priority: .userInitiated) {
@@ -2212,15 +2241,31 @@ final class WorkspaceModel {
                 let deleted = try? await Shell.run(
                     "git", ["ls-files", "--deleted"], cwd: worktree, timeout: .seconds(30)
                 )
+                // All files includes ignored build output and local configuration as well as
+                // tracked and ordinary untracked files. Git still omits its own internal .git
+                // directory, which is not a worktree file.
+                let ignored = try? await Shell.run(
+                    "git", ["ls-files", "--others", "--ignored", "--exclude-standard"],
+                    cwd: worktree, timeout: .seconds(30)
+                )
+                let directories = FileTreeDirectoryListing.paths(in: worktree)
                 // Indexed off the main thread as well as read there. Forty thousand paths turned
                 // into a dictionary is not a subprocess, but it is not free either, and the main
                 // thread is what the switch is waiting on.
                 let missing = Set(deleted?.lines ?? [])
-                return FileTreeNode.index((result?.lines ?? []).filter { !missing.contains($0) })
+                return FileTreeNode.index(
+                    ((result?.lines ?? []) + (ignored?.lines ?? [])).filter { !missing.contains($0) }
+                        + directories
+                )
             }.value
             guard let self, !Task.isCancelled else { return }
+            guard workspace.path == worktree else {
+                fileTreeTask = nil
+                return
+            }
             if fileTree != index { fileTree = index }
             hasReadFileTree = true
+            fileTreeLoadedRevision = revision
             fileTreeTask = nil
         }
         fileTreeTask = task
@@ -2375,6 +2420,23 @@ final class WorkspaceModel {
         await MergeMethodChoice.save(method, repoID: workspace.repoID, to: store)
     }
 
+    func loadMergeExecution() async {
+        await mergeExecutionSaveTask?.value
+        guard let store else { return }
+        mergeExecution = await MergeExecutionChoice.load(repoID: workspace.repoID, from: store)
+    }
+
+    func chooseMergeExecution(_ choice: MergeExecution) {
+        mergeExecution = choice
+        guard let store else { return }
+        let previous = mergeExecutionSaveTask
+        let repoID = workspace.repoID
+        mergeExecutionSaveTask = Task {
+            await previous?.value
+            await MergeExecutionChoice.save(choice, repoID: repoID, to: store)
+        }
+    }
+
     /// - Parameter maxAge: how old a cached answer may be. Zero always asks GitHub.
     func refreshPullRequest(maxAge: Duration = .zero) async {
         pullRequestTask?.cancel()
@@ -2470,6 +2532,16 @@ final class WorkspaceModel {
         return nil
     }
 
+    func createPullRequestDirectly() async throws -> PullRequest {
+        guard !isRunning else {
+            throw GitHubError("Wait for the agent to finish before committing directly.")
+        }
+        let created = try await GitHubBridge.createPullRequestDirectly(for: workspace)
+        await refreshChanges()
+        await refreshPullRequest()
+        return created
+    }
+
     /// Asks this workspace's agent to commit what is outstanding and push the branch.
     ///
     /// The agent rather than Bloom, and the reasoning is the same one that put pull request
@@ -2554,6 +2626,16 @@ final class WorkspaceModel {
         activeSessionID = session.id
         await transcript(for: session).submit(text)
         return nil
+    }
+
+    func mergePullRequestDirectly(
+        _ pullRequest: PullRequest, method: GitHub.MergeMethod
+    ) async throws -> DirectMergeOutcome {
+        let outcome = try await GitHubBridge.mergePullRequest(
+            pullRequest, base: workspace.baseBranch, method: method, worktree: workspace.path
+        )
+        await refreshPullRequest()
+        return outcome
     }
 
     /// One of Bloom's own turns about landing a branch, with Bloom's rules under it and the

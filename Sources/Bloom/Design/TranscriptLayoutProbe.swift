@@ -55,9 +55,11 @@ enum TranscriptLayoutProbe {
         entries.append(.bottomSpacing)
         let view = TranscriptTable(
             entries: entries, session: SessionID("layout-probe"), controller: controller,
+            heightMemory: nil,
             scale: ChatTextSize.defaultChoice.scale,
             rowEnvironment: TranscriptRowEnvironment(
                 app: app, hoverHost: TranscriptHoverHost(), bubbleWidth: TranscriptBubbleWidth(),
+                conversation: TranscriptConversationSelection(),
                 linkActions: TranscriptLinkActions(), fontScale: ChatTextSize.defaultChoice.scale,
                 chatFont: .standard, lineHeight: .defaultChoice, reduceMotion: true
             ),

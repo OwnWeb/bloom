@@ -1,5 +1,4 @@
-import SwiftUI
-import BloomCore
+import Foundation
 
 /// Turns one Codex thread item into the single line a collapsed transcript row shows.
 ///
@@ -236,29 +235,5 @@ enum CodexItemPresenter {
 
     static func firstLine(of text: String) -> String {
         text.components(separatedBy: .newlines).first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
-    }
-}
-
-// MARK: - Routing
-
-/// Which presenter draws a call.
-///
-/// One call site rather than a decision spread through the transcript views, and the switch is on
-/// the row's own payload rather than on the session, so a transcript loaded from the database
-/// draws correctly before anything has looked up which backend the chat is on.
-///
-/// The rows themselves are shared and need no change: `ToolRowView`, `ExpandableRow`,
-/// `DetailCodeBlock` and `ToolResultView` all draw a `ToolPresentation` and do not care where it
-/// came from.
-enum TranscriptPresenter {
-    static func present(_ use: AgentToolUse, worktree: String = "") -> ToolPresentation {
-        CodexItemPresenter.present(use, worktree: worktree) ?? ToolPresenter.present(use, worktree: worktree)
-    }
-
-    static func present(name: String, input: JSONValue, worktree: String = "") -> ToolPresentation {
-        if let item = CodexTranslation.item(in: input) {
-            return CodexItemPresenter.present(item, worktree: worktree)
-        }
-        return ToolPresenter.present(name: name, input: input, worktree: worktree)
     }
 }

@@ -20,6 +20,7 @@ struct ClaudeModelListTests {
         #expect(models.first?.efforts == ["low", "medium", "high", "xhigh", "max"])
         #expect(models.last?.efforts == [], "a model with no effort levels offers none")
         #expect(models.map(\.isDefault) == [true, false, false, false], "`default` marks the model it resolves to")
+        #expect(models[2].resolvedModel == "claude-sonnet-5")
         #expect(models.first?.supportsFastMode == true)
     }
 

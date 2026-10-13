@@ -15,6 +15,10 @@ import BloomCore
 /// lined up to avoid. An agent writes fenced code in most answers of any length, so this was most
 /// answers.
 ///
+/// **And then it went back to plain text, for a reason that outranks the jump.** Every crash of
+/// one shape inside SwiftUI's stack layout landed while a long answer was streaming through
+/// `MarkdownView`. `ProseRowView.prose` carries the evidence; the jump described above is the price.
+///
 /// The reason it was plain `Text` was cost, and that was worth measuring rather than assuming.
 /// A release build parses a finished 2KB answer in 1.1ms and a 10KB one in 2.9ms; the worst single
 /// delta over a whole 10KB stream measured 2.7ms, well inside a frame, and the parser was written

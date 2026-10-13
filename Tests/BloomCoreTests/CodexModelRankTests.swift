@@ -78,6 +78,14 @@ struct CodexModelRankTests {
         #expect(ordered.map(\.id) == ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra"])
     }
 
+    @Test("Astra stays above the newer Sol release")
+    func astraAboveSol() {
+        let ordered = CodexModelRank.ordered([
+            model("gpt-6-sol"), model("gpt-6.1-sol"), model("gpt-6-astra"), model("gpt-6-luna"),
+        ])
+        #expect(ordered.map(\.id) == ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"])
+    }
+
     /// `isReduced` matches whole words, so a name that merely contains the letters is not demoted.
     @Test("a word inside another word is not a size")
     func wordBoundary() {

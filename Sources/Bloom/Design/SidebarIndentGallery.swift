@@ -117,6 +117,7 @@ struct SidebarIndentGallery: View {
     private func header(count: Int) -> some View {
         RepoHeaderRow(
             repo: Self.repo,
+            isFirstProject: true,
             hasUnreadWork: count > 0,
             workspaceCount: count,
             onCreateWorkspace: { _ in }

@@ -2,7 +2,7 @@ import Testing
 @testable import BloomCore
 
 /// The sidebar's selection, which turned solid blue when the owner switched back to Bloom with the
-/// list holding the keyboard. The fill must be the same in every state; only the edge may change.
+/// list holding the keyboard. The fill must be the same in every state.
 @Suite("How the sidebar draws its selection")
 struct SidebarSelectionStyleTests {
     @Test("a row that is not selected draws nothing, whatever has the keyboard")
@@ -14,7 +14,6 @@ struct SidebarSelectionStyleTests {
                 )
                 #expect(style == .unselected)
                 #expect(!style.drawsFill)
-                #expect(!style.drawsKeyboardEdge)
             }
         }
     }
@@ -26,11 +25,10 @@ struct SidebarSelectionStyleTests {
         )
         #expect(style == .resting)
         #expect(style.drawsFill)
-        #expect(!style.drawsKeyboardEdge)
     }
 
     /// The state the owner was in before switching back: the table still first responder, in a
-    /// window that was not key. The arrow keys move nothing there, so no edge.
+    /// window that was not key. The arrow keys move nothing there.
     @Test("a list holding the keyboard in a window that is not key rests")
     func backgroundWindow() {
         let style = SidebarSelectionStyle.resolve(
@@ -40,8 +38,8 @@ struct SidebarSelectionStyleTests {
     }
 
     /// The report itself: the window becomes key again with the list holding the keyboard. The row
-    /// keeps the fill it had a moment earlier and gains only the edge.
-    @Test("switching back keeps the same fill and adds only the edge")
+    /// keeps the fill it had a moment earlier, with no added outline.
+    @Test("switching back keeps the same fill")
     func switchingBack() {
         let before = SidebarSelectionStyle.resolve(
             isSelected: true, listHasKeyboard: true, windowIsKey: false
@@ -51,6 +49,5 @@ struct SidebarSelectionStyleTests {
         )
         #expect(after == .keyboard)
         #expect(before.drawsFill == after.drawsFill)
-        #expect(after.drawsKeyboardEdge)
     }
 }

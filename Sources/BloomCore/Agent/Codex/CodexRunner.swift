@@ -19,6 +19,7 @@ public actor CodexRunner: SessionRunner {
 
     private let store: Store
     private let makeClient: @Sendable (CodexClient.Configuration) -> CodexClient
+    private let accountHome: String?
 
     private var session: Session
     private var client: CodexClient?
@@ -81,6 +82,7 @@ public actor CodexRunner: SessionRunner {
         session: Session,
         store: Store,
         bridge: BridgeAttachment? = nil,
+        accountHome: String? = nil,
         makeClient: @escaping @Sendable (CodexClient.Configuration) -> CodexClient = CodexRunner.spawn
     ) {
         self.workspacePath = workspacePath
@@ -88,6 +90,7 @@ public actor CodexRunner: SessionRunner {
         self.session = session
         self.store = store
         self.bridge = bridge
+        self.accountHome = accountHome
         self.makeClient = makeClient
         self.grants = SessionGrants(store: store, workspaceID: session.workspaceID)
         self.translation = CodexTranslation(context: CodexTranslation.Context(
@@ -447,6 +450,7 @@ public actor CodexRunner: SessionRunner {
         let client = makeClient(CodexClient.Configuration(
             executable: AgentCatalog.executable(for: .codex, override: stored),
             cwd: workspacePath,
+            codexHome: accountHome,
             clientName: "Bloom",
             clientVersion: Self.clientVersion,
             bridge: bridge,
@@ -475,11 +479,10 @@ public actor CodexRunner: SessionRunner {
         if let threadID { return threadID }
 
         let sandbox = Self.sandboxMode(for: session.permissionMode)
-        let instructions = session.workspaceID == nil ? AskConversation.instructions : nil
         let handle: CodexThreadHandle
         if let stored = session.agentSessionID, !stored.isEmpty {
             handle = try await client.resumeThread(
-                stored, cwd: workspacePath, sandbox: sandbox, developerInstructions: instructions
+                stored, cwd: workspacePath, sandbox: sandbox, developerInstructions: nil
             )
         } else {
             handle = try await client.startThread(
@@ -488,7 +491,7 @@ public actor CodexRunner: SessionRunner {
                 approvalPolicy: Self.approvalPolicy(for: session.permissionMode),
                 sandbox: sandbox,
                 approvalsReviewer: Self.approvalsReviewer(for: session.permissionMode),
-                developerInstructions: instructions
+                developerInstructions: nil
             )
         }
 

@@ -83,6 +83,7 @@ struct BloomApp: App {
         // resize. It is how somebody finally watches the transcript go blank. See `ComposerProbe`.
         if ComposerProbe.isRequested { ComposerProbe.schedule() }
         if TranscriptLayoutProbe.isRequested { TranscriptLayoutProbe.schedule() }
+        if TranscriptAppendProbe.isRequested { TranscriptAppendProbe.schedule() }
         if CommentFocusProbe.isRequested { CommentFocusProbe.schedule() }
         if MessageArrivalProbe.isRequested { MessageArrivalProbe.schedule() }
         if ArchiveFailureProbe.isRequested { ArchiveFailureProbe.schedule() }

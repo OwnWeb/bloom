@@ -197,7 +197,9 @@ extension BrowserSession {
     /// handlers strongly, and a closed tab should not be keeping a listener alive.
     func stopListeningToConsole() {
         guard consoleLog.isListening else { return }
-        webView.configuration.userContentController.removeAllScriptMessageHandlers()
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: BrowserConsoleScript.handlerName, contentWorld: .page
+        )
     }
 }
 

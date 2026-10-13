@@ -14,7 +14,7 @@ import Foundation
 ///
 /// Bloom is on both ends of this question. It wrote the tool, it minted the token the caller is
 /// using, it knows which workspace is asking, and it enforces every limit itself: the handler refuses
-/// a caller whose workspace was itself agent-started, and eight running children is the ceiling. There is nothing for a person to
+/// a caller whose workspace was itself agent-started, and running children have a configurable ceiling. There is nothing for a person to
 /// weigh that Bloom has not already decided, and the ask carries no information a person could
 /// act on beyond "an agent would like to use Bloom".
 ///
@@ -104,6 +104,10 @@ public enum BridgeToolApproval {
     public static let selfApproved: Set<String> = [
         "whoami",
         "workspace_start",
+        // A restore rebuilds an archived worktree from its surviving branch. It never writes
+        // over an occupied path, and the archived record remains if rebuilding fails. An owner
+        // who asked for it should not have to answer a second question for Bloom's own tool.
+        "workspace_restore",
         // Both add something the reader can see and close, in the workspace whose agent is
         // asking and nowhere else. Nothing is destroyed and nothing is hidden, which is a very
         // different weight from `workspace_merge`, which is deliberately not on this list.
@@ -219,8 +223,9 @@ public enum BridgeToolApproval {
         // The projects Bloom has, read from its own database. It changes nothing, and it is the
         // call a workspace agent makes before naming another project to `workspace_start`, so an
         // ask here would hang the turn that is about to hand work on, with nothing for a person
-        // to weigh: the names are the owner's own sidebar. `project_add` and `project_hide` stay
-        // off the list and off the workspace role, because they change that sidebar.
+        // to weigh: the names are the owner's own sidebar. `project_add` is offered to a
+        // workspace agent but stays off this list because it changes that sidebar.
+        // `project_hide` and `project_unhide` also stay off the workspace role.
         "project_list",
         "workspace_list",
     ]

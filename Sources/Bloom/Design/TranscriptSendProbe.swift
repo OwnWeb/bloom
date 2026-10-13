@@ -42,6 +42,7 @@ enum TranscriptSendProbe {
         follower.onRest = { controller.goToEnd() }
         let environment = TranscriptRowEnvironment(
             app: AppModel(), hoverHost: TranscriptHoverHost(), bubbleWidth: TranscriptBubbleWidth(),
+            conversation: TranscriptConversationSelection(),
             linkActions: TranscriptLinkActions(), fontScale: 1, chatFont: .standard,
             lineHeight: .defaultChoice, reduceMotion: false
         )
@@ -102,6 +103,7 @@ enum TranscriptSendProbe {
         func root(phase: Int) -> TranscriptTable {
             TranscriptTable(
                 entries: entries(phase: phase), session: SessionID("send-probe"), controller: controller,
+                heightMemory: nil,
                 scale: 1, rowEnvironment: environment, onGeometryChange: { _ in }, onSettled: {},
                 onLiveScrollChange: { follower.isPaused = $0 }, onContentWillChange: { follower.nudge() }
             )

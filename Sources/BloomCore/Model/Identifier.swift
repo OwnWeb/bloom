@@ -58,9 +58,21 @@ public struct RepoID: Identifier {
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }
 
+/// A named, isolated CLI sign-in managed by Bloom.
+public struct AgentAccountProfileID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
 /// A worktree on disk. The id outlives the worktree: an archived workspace keeps its row, and the
 /// row is what a restore reads.
 public struct WorkspaceID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
+/// One dated or ordered group in Home's mixed workspace and conversation list.
+public struct HomeMixedGroupID: Identifier {
     public let rawValue: String
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }
@@ -75,6 +87,12 @@ public struct SessionID: Identifier {
 /// One terminal tab inside a workspace. Doubles as the tmux window name, so it is written into a
 /// shell command and has to stay something a shell will accept.
 public struct TerminalTabID: Identifier {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+}
+
+/// A pane in a project-free conversation. Its first pane also names the tab containing it.
+public struct ConversationPaneID: Identifier {
     public let rawValue: String
     public init(_ rawValue: String) { self.rawValue = rawValue }
 }

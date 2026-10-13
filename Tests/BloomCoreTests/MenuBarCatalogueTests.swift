@@ -93,6 +93,14 @@ struct MenuBarCatalogueTests {
         #expect(!MenuBarCatalogue.commands.contains(where: { $0.title.contains("Add Project") }))
     }
 
+    @Test("opening the browser client is a direct File command")
+    func browserClientCommand() {
+        let item = MenuBarCatalogue[.openWebClient]
+        #expect(item.menu == .file)
+        #expect(item.title == "Open Bloom in Browser")
+        #expect(item.key == nil)
+    }
+
     /// The two splits are the only items whose key lives on a submenu row, because they are the
     /// only submenus with a "same again" row for it to sit on. Anything else marked this way would
     /// be a key drawn beside an item AppKit never fires.

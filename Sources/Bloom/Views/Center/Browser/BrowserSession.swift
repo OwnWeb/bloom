@@ -39,6 +39,10 @@ final class BrowserSession {
     private(set) var canGoBack = false
     private(set) var canGoForward = false
     private(set) var isLoading = false
+    private(set) var isPageScrolled = false
+    private(set) var scrollEdgeImage: NSImage?
+    @ObservationIgnored private var scrollEdgeCapture: Task<Void, Never>?
+    @ObservationIgnored private var scrollEdgeNeedsCapture = false
     /// How far the fetch in flight has got, rounded to hundredths.
     ///
     /// Rounded because WebKit reports this continuously and every write redraws the pane. A
@@ -68,6 +72,7 @@ final class BrowserSession {
 
     @ObservationIgnored private let navigation = NavigationObserver()
     @ObservationIgnored private let ui = BrowserUIObserver()
+    @ObservationIgnored private let scrollObserver = BrowserScrollObserver()
 
     /// What this pane can ask the window around it for, which the session cannot do itself. Set by
     /// the pane drawing it, on every update. See `BrowserPaneHost`.
@@ -137,7 +142,19 @@ final class BrowserSession {
         Self.preferInspectorDocked()
         let configuration = WKWebViewConfiguration()
         Self.enableDeveloperExtras(on: configuration.preferences)
+        configuration.userContentController.add(
+            scrollObserver, contentWorld: .defaultClient, name: BrowserScrollObserver.handlerName
+        )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: BrowserScrollObserver.script,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true,
+                in: .defaultClient
+            )
+        )
         webView = BrowserPageWebView(frame: .zero, configuration: configuration)
+        Self.keepPageFromTakingKeyboard(webView)
         webView.allowsBackForwardNavigationGestures = true
         pageView.attach(webView)
         // A dev server is the whole point of this tab, and one that is still booting answers with
@@ -145,6 +162,7 @@ final class BrowserSession {
         // page keeps that moment from flashing white in a dark window.
         webView.underPageBackgroundColor = NSColor(Palette.surface)
         navigation.owner = self
+        scrollObserver.owner = self
         webView.navigationDelegate = navigation
         ui.owner = self
         webView.uiDelegate = ui
@@ -182,6 +200,45 @@ final class BrowserSession {
         currentURL = BrowserAddress.url(from: url)
         page = BrowserTabTitle.BrowserPage(address: displayAddress)
         load(url)
+    }
+
+    func setPageScrollOffset(_ offset: Double) {
+        guard offset > 0 else {
+            isPageScrolled = false
+            scrollEdgeImage = nil
+            scrollEdgeNeedsCapture = false
+            return
+        }
+        isPageScrolled = true
+        captureScrollEdge()
+    }
+
+    /// WebKit does not expose a live material surface for a toolbar outside its view. A narrow
+    /// snapshot gives the bar the colours passing immediately below it without moving the page
+    /// behind the controls and hiding the page's first line at rest.
+    func captureScrollEdge() {
+        guard isPageScrolled, webView.window != nil,
+              webView.bounds.width > 0, webView.bounds.height > 0 else { return }
+        guard scrollEdgeCapture == nil else {
+            scrollEdgeNeedsCapture = true
+            return
+        }
+        scrollEdgeCapture = Task { [weak self] in
+            guard let self else { return }
+            repeat {
+                scrollEdgeNeedsCapture = false
+                let configuration = WKSnapshotConfiguration()
+                configuration.rect = CGRect(
+                    x: 0, y: 0, width: webView.bounds.width,
+                    height: min(Metrics.barHeight, webView.bounds.height)
+                )
+                if let image = try? await webView.takeSnapshot(configuration: configuration),
+                   isPageScrolled {
+                    scrollEdgeImage = image
+                }
+            } while scrollEdgeNeedsCapture && isPageScrolled
+            scrollEdgeCapture = nil
+        }
     }
 
     /// Points the tab at whatever the user typed. Anything that cannot be read as an address is
@@ -662,6 +719,15 @@ final class BrowserSession {
             return
         }
         preferences.setValue(true, forKey: "developerExtrasEnabled")
+    }
+
+    /// Page `focus()`, which every agent click and fill triggers, made WebKit take the window's
+    /// keyboard from the composer. Refusing in `becomeFirstResponder` is too late: the composer
+    /// has already resigned. Private setting, reached by KVC as in `enableDeveloperExtras`.
+    private static func keepPageFromTakingKeyboard(_ webView: WKWebView) {
+        guard webView.responds(to: NSSelectorFromString("_setShouldSuppressFirstResponderChanges:"))
+        else { return }
+        webView.setValue(true, forKey: "shouldSuppressFirstResponderChanges")
     }
 
     /// The key WebKit remembers the inspector's last attachment in, and it is WebKit's own: it

@@ -25,7 +25,7 @@ extension WorkspaceModel {
         if let sessionID = tab.agentSessionID, pendingCLILaunches.contains(sessionID) {
             TerminalView(
                 tab: TerminalTab(id: TerminalTabID(tab.id), workspaceID: workspace.id, title: tab.title),
-                workspace: workspace, repo: repo, port: port,
+                owner: .workspace(workspace, repo, port: port),
                 output: (sessions.first { $0.id == sessionID }?.agentKind ?? .claudeCode)
                     .interactiveSetupOutput(prompt: pendingCLIPrompts[sessionID], log: setupOutput)
             )

@@ -188,5 +188,8 @@ struct BrowserWebView: NSViewRepresentable {
         session.webView.underPageBackgroundColor = NSColor(Palette.surface)
         session.webView.paneMenu = paneMenu
         session.host = host
+        if session.isPageScrolled && session.scrollEdgeImage == nil {
+            session.captureScrollEdge()
+        }
     }
 }

@@ -41,9 +41,9 @@ changes merely to try them locally. Fast mode cannot be combined with a revision
    `xcode-select -p` and `xcrun swift --version` when setup is uncertain. Signing is ad hoc by default;
    no release certificate or notarisation credentials are needed. Running App Intents through
    Shortcuts requires a real signing identity.
-3. Run the selected command. Only restart the dev app when authorised. `make dev-fast` and
-   `make dev` both quit and relaunch the dev copy. `--no-launch` still replaces the installed bundle;
-   an already running copy does not switch to the new code until restarted.
+3. Run the selected command. Bloom Dev may be restarted as needed, as described in `CLAUDE.md`.
+   `make dev-fast` and `make dev` both quit and relaunch the dev copy. `--no-launch` still replaces
+   the installed bundle; an already running copy does not switch to the new code until restarted.
 4. Verify the bundle at the path printed by the script. With `--no-install`, use that build path;
    otherwise use `~/Applications/Bloom Dev.app`. Check its `Contents/Info.plist` and signature:
    - `CFBundleIdentifier` is `be.spatie.bloom.dev`.

@@ -35,7 +35,7 @@ public enum WorkspaceMergeHandoff: Sendable, Equatable {
     case refused(String)
 }
 
-/// Asking a workspace's agent to merge, as the strip's Merge button does it.
+/// Asking a workspace's agent to merge, as the strip's agent-guided choice does it.
 ///
 /// Injected for the same reason `WorkspaceStarting` is: everything that turns a request into a
 /// turn lives in the main-actor UI graph, and a bridge handler runs off it on a background task
@@ -58,9 +58,8 @@ public typealias WorkspaceMergeRequesting =
 /// is merged", "Bloom cannot undo this". A tool reading `can_merge: true` skipped the only
 /// protective part of the whole arrangement.
 ///
-/// Bloom does not merge any more. `GitHub.merge` and `deleteRemoteBranch` are gone. Merging is a
-/// prompt composed from `PromptRegistry.mergePullRequest`, sent into the workspace's chat, and run
-/// by the agent under the owner's eyes. That is what makes a tool possible.
+/// This tool only composes the agent route through `PromptRegistry.mergePullRequest`. The window
+/// also offers a direct gh route behind its own confirmation, which an MCP caller cannot press.
 ///
 /// ## The old objection did not evaporate, it moved, and here is where
 ///
@@ -117,8 +116,8 @@ public struct WorkspaceMergeTool: BridgeToolHandling {
         description: """
             Ask a workspace's own agent to merge its pull request.
 
-            This does not merge anything. It composes the request Bloom's own Merge button \
-            composes, with the project's merge instructions attached, and sends it into that \
+            This does not merge anything. It composes the request Bloom's agent-guided merge \
+            choice composes, with the project's merge instructions attached, and sends it into that \
             workspace's chat as an ordinary message. The agent runs `gh pr merge` there, in front \
             of the owner, under whatever permission mode they set, and can say what GitHub \
             answered if it refuses.
@@ -131,7 +130,7 @@ public struct WorkspaceMergeTool: BridgeToolHandling {
             It refuses a pull request GitHub will not take, a worktree holding work GitHub has not \
             got, and a workspace whose agent is busy. When it refuses, do not run `gh pr merge` \
             yourself and do not ask another agent to. Merging publishes to a server other people \
-            share, and Bloom only does it where the owner can watch it happen.
+            share, and this tool only asks the workspace's own agent to do it.
 
             Name the workspace by the id workspace_list reports, not by its name. It squash merges \
             unless you say otherwise.

@@ -99,6 +99,12 @@ final class TerminalSplitStore {
         apply(layout, to: ownerID, movingFocus: false)
     }
 
+    /// A tab has come to the front. Its selected shell should receive the keyboard even when
+    /// SwiftUI reused the terminal host and `viewDidMoveToWindow` will not run again.
+    func requestKeyboard(in ownerID: String) {
+        focusRequests[ownerID] = focusRequest(for: ownerID) + 1
+    }
+
     /// False when there is no pane that way, which lets the same keystroke fall through to the
     /// app menu, where Cmd+Option+Up and Cmd+Option+Down step through workspaces.
     func moveFocus(_ direction: SplitDirection, in ownerID: String) -> Bool {

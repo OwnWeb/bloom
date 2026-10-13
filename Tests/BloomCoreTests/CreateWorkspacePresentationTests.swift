@@ -50,4 +50,24 @@ import Testing
         #expect(reopened.id != first.id)
         #expect(reopened.pullRequestRevision == 0)
     }
+
+    @Test func projectAskTakesAnOpenConversationSheetBackToProject() throws {
+        var presentation = CreateWorkspacePresentation()
+        presentation.present(repoID: nil, startsAsConversation: true)
+        #expect(try #require(presentation.request).startsAsConversation)
+
+        presentation.present(repoID: RepoID("project"))
+        let moved = try #require(presentation.request)
+        #expect(moved.repoID == RepoID("project"))
+        #expect(!moved.startsAsConversation)
+    }
+
+    @Test func genericWorkspaceAskRestoresProjectDefaultInOpenSheet() throws {
+        var presentation = CreateWorkspacePresentation()
+        presentation.present(repoID: RepoID("project"), startsAsConversation: true)
+
+        presentation.present(repoID: nil)
+        let request = try #require(presentation.request)
+        #expect(!request.startsAsConversation)
+    }
 }

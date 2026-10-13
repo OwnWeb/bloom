@@ -5,13 +5,12 @@ import BloomCore
 /// existing Add to Chat meaning everywhere else.
 extension AppModel {
     var browserLocationTarget: String? {
-        guard !isAskInFront, let workspace = selectedModel else { return nil }
+        guard let workspace = selectedModel else { return nil }
         return visibleBrowserTarget(in: workspace)
     }
 
     /// The browser in the selected tab.
     var browserReloadTarget: String? {
-        guard !isAskInFront else { return nil }
         guard let workspace = selectedModel else { return nil }
         return visibleBrowserTarget(in: workspace)
     }

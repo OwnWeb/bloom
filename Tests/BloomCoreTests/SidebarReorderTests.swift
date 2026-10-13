@@ -418,6 +418,24 @@ struct SidebarReorderTests {
         ])
     }
 
+    @Test("Project drops count only headers actually drawn in the sidebar")
+    func projectMoveWithOmittedEmptyProject() {
+        let repos = [repo("a", order: 0), repo("empty", order: 1), repo("b", order: 2)]
+        let rows: [SidebarReorder.Row] = [
+            .project(RepoID("a")), .workspace(id: WorkspaceID("w"), projectID: RepoID("a")),
+            .project(RepoID("b")),
+        ]
+        let drawn = SidebarReorder.visibleProjects(in: rows)
+        #expect(drawn == [RepoID("a"), RepoID("b")])
+        let changes = SidebarReorder.move(
+            projects: repos, visible: drawn, id: RepoID("a"), to: 2
+        )
+        #expect(changes == [
+            SidebarReorder.ProjectChange(id: RepoID("b"), sortOrder: 0),
+            SidebarReorder.ProjectChange(id: RepoID("a"), sortOrder: 2),
+        ])
+    }
+
     @Test("A drop beside the same visible project does not move it past hidden projects")
     func projectMoveBesideItselfWithHiddenProjects() {
         let repos = [repo("hidden", order: 0), repo("a", order: 1), repo("b", order: 2)]

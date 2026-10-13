@@ -8,11 +8,18 @@ import Foundation
 struct WorkspaceStartAllowanceTests {
     @Test("who asked decides which brake applies")
     func brakePerOrigin() {
+        #expect(WorkspaceStartAllowance.maximumChildren == 20)
         #expect(WorkspaceStartAllowance.of(.user) == .unlimited)
         #expect(
             WorkspaceStartAllowance
                 .of(.agent(parentWorkspaceID: WorkspaceID("w1"), spawnToolUseID: "t1"))
                 == .running(limit: WorkspaceStartAllowance.maximumChildren)
+        )
+        #expect(
+            WorkspaceStartAllowance.of(
+                .agent(parentWorkspaceID: WorkspaceID("w1"), spawnToolUseID: "t1"),
+                maximumChildren: 35
+            ) == .running(limit: 35)
         )
         #expect(
             WorkspaceStartAllowance.of(.ownerClient(spawnToolUseID: "t1"))
@@ -21,6 +28,20 @@ struct WorkspaceStartAllowanceTests {
                     window: WorkspaceStartAllowance.ownerWindow
                 )
         )
+    }
+
+    @Test("agent workspace preference defaults to twenty and persists a chosen ceiling")
+    func agentWorkspacePreference() throws {
+        let domain = "WorkspaceStartAllowanceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let preferences = WorkspaceStartPreferences(defaults: defaults)
+
+        #expect(preferences.maximumChildren == 20)
+        preferences.maximumChildren = 35
+        #expect(WorkspaceStartPreferences(defaults: defaults).maximumChildren == 35)
+        preferences.maximumChildren = 0
+        #expect(preferences.maximumChildren == 1)
     }
 
     /// The sheet is not an oversight. One human gesture per workspace is the brake, so nothing
