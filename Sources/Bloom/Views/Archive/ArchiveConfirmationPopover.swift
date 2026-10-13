@@ -10,6 +10,7 @@ struct ArchiveConfirmationPopover: View {
 
     @Environment(AppModel.self) private var app
     @State private var checkedRequest: ArchiveRequest?
+    @State private var uncheckedRevealRequest: UUID?
     @FocusState private var focusedButton: ButtonFocus?
 
     private enum ButtonFocus: Hashable { case cancel, archive }
@@ -17,6 +18,10 @@ struct ArchiveConfirmationPopover: View {
     private var currentRequest: ArchiveRequest {
         guard let checkedRequest, checkedRequest.id == request.id else { return request }
         return checkedRequest
+    }
+
+    private var isWaitingForCheck: Bool {
+        currentRequest.isChecking && uncheckedRevealRequest != request.id
     }
 
     var body: some View {
@@ -59,16 +64,16 @@ struct ArchiveConfirmationPopover: View {
                 .focused($focusedButton, equals: .cancel)
                 .keyboardShortcut(.cancelAction)
                 Button {
-                    guard canConfirm else { return }
+                    guard canConfirm, !isWaitingForCheck else { return }
                     onConfirm(currentRequest)
                 } label: {
-                    Text(currentRequest.confirmLabel)
+                    Text(isWaitingForCheck ? "Checking..." : currentRequest.confirmLabel)
                         .frame(width: 196)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(tint)
                 .focused($focusedButton, equals: .archive)
-                .disabled(!canConfirm)
+                .disabled(!canConfirm || isWaitingForCheck)
             }
         }
         .environment(\.backgroundProminence, .standard)
@@ -83,6 +88,14 @@ struct ArchiveConfirmationPopover: View {
             let checked = await app.checkArchive(request)
             guard !Task.isCancelled else { return }
             checkedRequest = checked
+        }
+        .task(id: request.id) {
+            guard request.isChecking else { return }
+            // Brief checks should never flash "Archive anyway". A slow check still offers the
+            // existing explicit choice to archive before git has answered.
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, currentRequest.isChecking else { return }
+            uncheckedRevealRequest = request.id
         }
     }
 

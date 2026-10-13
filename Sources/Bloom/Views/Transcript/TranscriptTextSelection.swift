@@ -144,7 +144,7 @@ extension LinkTextView {
         // its scroll view on every pass ended the drag the moment that happened: the selection
         // scrolled for a screen and then stopped, with the button still held.
         let scrollView = enclosingVerticalScrollView
-        while window.isVisible {
+        while window.isVisible && window.isKeyWindow {
             let next = window.nextEvent(
                 matching: [.leftMouseDragged, .leftMouseUp],
                 until: Date(timeIntervalSinceNow: 0.05), inMode: .eventTracking, dequeue: true
@@ -152,6 +152,11 @@ extension LinkTextView {
             if let next {
                 if next.type == .leftMouseUp { break }
                 latest = next
+            } else if NSEvent.pressedMouseButtons & 1 == 0 {
+                // A mouse-up can be lost when the gesture is interrupted. Without this escape,
+                // the tracking loop keeps requesting only drag and mouse-up events, leaving every
+                // later click in the window unhandled until Bloom quits.
+                break
             }
             guard latest.type == .leftMouseDragged else { continue }
             dragged = true

@@ -6,8 +6,8 @@ import BloomCore
 ///
 /// **The panel is not drawn from here any more.** It used to be an `.overlay` on the window's
 /// split view, which is why it dimmed the centre column and left the inspector, the title bar and
-/// everything in them alone. It is an `NSHostingView` over the whole window now, installed once
-/// and left in place, and `SearchPanelWindowOverlay` is where the whole of that decision is
+/// everything in them alone. It is an `NSHostingView` over the whole window while search is open,
+/// and `SearchPanelWindowOverlay` is where the whole of that decision is
 /// written down. What is left here is the installation and the wiring, which need a view.
 ///
 /// **The window is dimmed and it does not move.** Spotlight and Raycast float over the screen;
@@ -25,19 +25,19 @@ struct SearchPanelOverlay: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(WindowAccessor(window: $window))
-            .onChange(of: window, initial: true) { _, _ in install() }
+            .onChange(of: window, initial: true) { _, _ in syncHost() }
             // Home's list must not take the keyboard off a field somebody is typing in, and this
             // is the flag it reads. The panel's field is a field in the window exactly as the
             // toolbar's was. See `HomeListKeyboard`.
-            .onChange(of: panel.isOpen) { _, open in
-                app.isSearchFieldFocused = open || AskPanelModel.shared.isOpen
-                if open { raise() }
+            .onChange(of: panel.isOpen, initial: true) { _, open in
+                app.isSearchFieldFocused = open
+                syncHost()
             }
-            // Ask Bloom's panel is drawn by the same host. Home's list must leave the keyboard
-            // alone while it is up for the same reason: its composer is a field somebody types in.
-            .onChange(of: AskPanelModel.shared.isOpen) { _, open in
-                app.isSearchFieldFocused = open || panel.isOpen
-                if open { raise() }
+            .onDisappear {
+                // The host is a sibling of SwiftUI's content view, so SwiftUI cannot remove it
+                // when this modifier leaves the window.
+                host?.removeFromSuperview()
+                host = nil
             }
             // The list is rebuilt when its inputs move rather than while drawing, which is the
             // same rule Home's `rebuild` keeps and for the same reason: it runs over every
@@ -52,17 +52,26 @@ struct SearchPanelOverlay: ViewModifier {
             .onChange(of: app.waitingWorkspaceIDs) { _, _ in panel.rebuild(app: app) }
     }
 
-    /// Adds the overlay to the window's frame view, above the content view and above the title
-    /// bar, once.
+    /// Keeps the overlay in the window only while search is open.
     ///
     /// `contentView.superview` rather than the content view itself. The content view of a SwiftUI
     /// scene is a hosting view whose subviews SwiftUI owns and reorders; a sibling of it is
     /// nobody's to reorder, and it is also the only ground that reaches over the toolbar and the
-    /// title bar accessory. The autoresizing mask is what keeps it the size of the window through
-    /// a resize, a zoom and a full screen, and `SearchPanelOverlayHost` measures the traffic
-    /// lights off each of those moves.
-    private func install() {
-        guard host == nil, let window, let frame = window.contentView?.superview else { return }
+    /// title bar accessory. Removing the host when search closes also removes its full-window hit
+    /// target. If its rendered state and AppKit hit testing disagree, an invisible host cannot
+    /// keep blocking controls throughout the window.
+    /// The autoresizing mask keeps the host sized through resize, zoom and full screen changes.
+    private func syncHost() {
+        guard panel.isOpen, let window, let frame = window.contentView?.superview else {
+            host?.removeFromSuperview()
+            host = nil
+            return
+        }
+        if let host, host.superview === frame {
+            frame.addSubview(host, positioned: .above, relativeTo: nil)
+            return
+        }
+        host?.removeFromSuperview()
         let view = SearchPanelOverlayHost(
             rootView: SearchPanelWindowOverlay(app: app, panel: panel)
         )
@@ -70,17 +79,6 @@ struct SearchPanelOverlay: ViewModifier {
         view.autoresizingMask = [.width, .height]
         frame.addSubview(view, positioned: .above, relativeTo: nil)
         host = view
-    }
-
-    /// Puts it back on top when the panel opens.
-    ///
-    /// Not belt and braces. The frame view is AppKit's own and it adds views to it: a toolbar
-    /// arriving, a title bar accessory being added or a full screen transition all touch that
-    /// subview list, and any of them can end up above a view added before them. Asking once, on
-    /// the one event that matters, costs nothing and cannot be got wrong later.
-    private func raise() {
-        guard let host, let frame = host.superview else { return }
-        frame.addSubview(host, positioned: .above, relativeTo: nil)
     }
 }
 

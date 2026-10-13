@@ -23,6 +23,7 @@ import BloomCore
 /// already said.
 struct RepoHeaderRow: View {
     var repo: Repo
+    var isFirstProject: Bool
     /// Whether any of this project's workspaces has a finished turn nobody has read.
     ///
     /// Passed in rather than derived from the rows, because the rows are what the filter is
@@ -46,8 +47,9 @@ struct RepoHeaderRow: View {
     /// Lights the `+` only while the pointer is over the button itself.
     @State private var isCreateHovered = false
 
-    /// The list supplies the row's insets. Extra padding around the button makes the
-    /// project taller than the workspace rows and offsets its content inside the right-click outline.
+    /// The list supplies the row's insets. Later projects get room above the whole header to
+    /// separate them from the previous workspaces. The Projects heading already gives the first
+    /// project enough room.
     var body: some View {
         header
             // A hidden project the owner has asked to see is drawn exactly where it would be, at
@@ -124,6 +126,7 @@ struct RepoHeaderRow: View {
             .onHoverChange { isCreateHovered = $0 }
             .help("New workspace in \(repo.name)")
         }
+        .padding(.top, isFirstProject ? 0 : Metrics.inset)
         .contentShape(Rectangle())
         // Every item and the reasoning for the shape is `ProjectMenuItems`, beside the workspace
         // row's own menu, so a menu can be photographed rather than only read.

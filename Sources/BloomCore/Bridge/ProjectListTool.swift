@@ -9,8 +9,9 @@ import Foundation
 /// could act in no other, so the names and paths of every other repository were information it had
 /// no use for. That stopped being true when `workspace_start` let a workspace agent name another
 /// project to hand work to, and a tool that takes a project name from a caller who cannot find out
-/// the names is a tool that gets guessed at. The rest of the project tools stay with the owner:
-/// adding a repository and hiding one are the owner's decisions about the sidebar, not an agent's.
+/// the names is a tool that gets guessed at. A workspace agent may also register an existing
+/// repository with `project_add` when the owner asks it to work there. The hiding tools remain
+/// owner only.
 ///
 /// Read only, and it says so in the description because that is what the model weighs before
 /// deciding whether the call is worth making.

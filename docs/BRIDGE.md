@@ -85,8 +85,8 @@ workspace agent has is implicitly scoped to the worktree it is sitting in and th
 sitting in none.
 
 **Two clients come in on it, and neither is a special case of the other.** One is the owner's own
-terminal, holding the token the welcome window's command line step or Settings > Command Line handed them. The other is Ask Bloom, the
-conversation inside the app that belongs to no workspace: `BridgeServer.register(askSession:)`
+terminal, holding the token the welcome window's command line step or Settings > Command Line handed them. The other is a project-free
+conversation inside the app: `BridgeServer.register(askSession:)`
 attaches it to the same standalone token rather than minting one, because the definition above is
 exactly what that chat is, and a fourth role or an invented workspace would have been the only
 other ways to say so. It follows that regenerating the token from Settings cuts both off, which is
@@ -119,8 +119,9 @@ registrations from shadowing each other and did nothing about an agent holding b
 
 The test is the shim's working directory, read from the peer process on the socket. A CLI starts
 its stdio MCP servers where it is running, and Bloom runs a workspace agent in its worktree, so an
-owner shim started by a workspace agent is sitting in a worktree. Ask Bloom's shim runs in
-`Application Support/Bloom/Ask`, and a terminal the owner opened anywhere else is anywhere else.
+owner shim started by a workspace agent is sitting in a worktree. A project-free conversation's
+shim runs in `Application Support/Bloom/Conversations/<session-id>` (or the former `Ask` directory
+for an older session), and a terminal the owner opened anywhere else is anywhere else.
 An environment marker was the obvious signal and the wrong one: Codex hands an MCP server a short
 allow list of variables rather than its own environment, so nothing Bloom set on the agent would
 reach the shim. The owner running their own `claude` inside a worktree is refused too, with a
@@ -151,13 +152,14 @@ places: the listing, the dispatch and the gate.
 | --- | --- | :---: | :---: |
 | `whoami` | What this connection is: the workspace and its branch, the worktree path, the project, and whether the workspace was created by the owner or by another agent. From the owner's own client, which copy of Bloom was reached and how much it is holding | ✓ | ✓ |
 | `project_list` | Every project in the sidebar: name, path, default branch, how many workspaces it has, how many of those have an agent mid turn and how many have one stopped on a question, whether it is still where Bloom recorded it, whether it is hidden | ✓ | ✓ |
-| `project_add` | Register a git repository that **already exists** as a project | | ✓ |
+| `project_add` | Register a git repository that **already exists** as a project | ✓ | ✓ |
 | `project_hide` | Take a project out of the sidebar. A view preference and nothing more | | ✓ |
 | `project_unhide` | Put it back, in the place it already had | | ✓ |
 | `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why, and its local state. Read only | ✓ | ✓ |
 | `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. Optional `model` and `effort` choose the first chat's exact controls; either omitted value inherits the caller or Bloom's default. A workspace agent starts it in its own project, or in another one it names. With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
 | `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own by default, or any workspace named out loud by name or id; the owner must name one | ✓ | ✓ |
 | `workspace_archive` | Archive a workspace through normal safety checks, keeping its branch and history. For a workspace agent, its own once the turn asking for it has ended, or one it started, by id and at once; any of them, named out loud and at once, for the owner | ✓ | ✓ |
+| `workspace_restore` | Rebuild an archived workspace's worktree from its surviving branch, returning it to the active list. Takes its exact id from `workspace_list` with `include_archived: true` | | ✓ |
 | `workspace_merge` | Ask a workspace's own agent to merge its pull request | | ✓ |
 | `workspace_say` | Put a message in another workspace's chat, with the owner's authority, headed with the workspace, project and chat it came from. The owner can delete it from the receiving chat while it is queued. With `notify_when_done`, Bloom tells the calling chat once when the turn it caused finishes, fails or blocks on the owner. Refused past thirty messages to one workspace in ten minutes, or for the same words twice in that window, except from the owner's own client | ✓ | ✓ |
 | `reveal` | Point Bloom's window at one workspace, or at Home narrowed by project, scope and search. Navigation and nothing else: it creates nothing and archives nothing | | ✓ |
@@ -379,6 +381,11 @@ and the refusal reaches the owner as a notice, because by then there is no agent
 first check, made during the call, excuses only the asking chat's own running turn, and never its
 queue. See `WorkspaceArchiveSafety`, which is the one place both checks are written.
 
+`workspace_restore` uses the same rebuild as the Restore button, but leaves the window selection
+alone. It refuses a workspace that is already active or whose branch no longer exists locally or
+on the remote. If the previous path is occupied, it uses a free path and reports the relocation.
+Restoring does not run the setup script or recreate files lost when the workspace was archived.
+
 Nothing a rename touches is on disk. `workspace_rename` writes one column of one row: the branch,
 the worktree, the pull request and the directory keep the names they have. That is worth saying out
 loud in the tool's own description as well, because a model asked to "rename this workspace" that
@@ -408,8 +415,9 @@ repository is handed to a workspace in another: an agent in the site's project t
 belongs in the app starts it there. The owner's client must name one, because nothing else says
 which. Either way the name goes through `BridgeProjectLookup`, so both may only name a project Bloom
 already has and both are refused in the same words when it matches nothing or matches more than
-one. `project_list` is offered to a workspace agent for this reason and no other; `project_add` and
-the two hiding tools stay with the owner, because they change the owner's sidebar.
+one. `project_list` and `project_add` are offered to a workspace agent so it can register an
+existing repository before starting work there. `project_add` changes the owner's sidebar and
+therefore remains subject to the agent's permission mode. The two hiding tools stay with the owner.
 
 Naming another project changes where the worktree is cut and nothing else. The new workspace is
 still `.agent` origin with the caller as its parent, and every rule that reads parentage reads the
@@ -909,8 +917,9 @@ window is asked for anything: the depth limit, the ceiling of three and the name
 `project_list` is on it and the other project tools are not, and that is deliberate rather than an
 omission: the list is for tools an agent must be able to call while nobody is watching. A workspace
 agent reads `project_list` before naming another project to `workspace_start`, and it changes
-nothing. `project_add`, `project_hide` and `project_unhide` change the owner's sidebar and are called
-by the owner's own client, where the owner is by definition sitting there to answer.
+nothing. `project_add` changes the owner's sidebar and is offered to workspace agents, but Bloom
+does not approve its permission question for them. `project_hide` and `project_unhide` change that
+sidebar too and remain available only to the owner's own client.
 
 `quick_prompt_list` is on it and the other three quick prompt tools are not, which is the same test
 applied four times. The listing is offered to `.workspace`, so it can be called by an agent running on

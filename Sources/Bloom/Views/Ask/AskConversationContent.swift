@@ -1,11 +1,14 @@
 import SwiftUI
 import BloomCore
 
-/// The selected Ask conversation, its transcript and its composer, with nothing around them.
-///
-/// What the panel puts beside it, the rail of conversations and a header, is `AskPanelView`'s.
+/// A project-free conversation in the main detail column.
 struct AskConversationContent: View {
     @Environment(AppModel.self) private var app
+    var sessionID: SessionID?
+
+    init(sessionID: SessionID? = nil) {
+        self.sessionID = sessionID
+    }
 
     private var textSize: ChatTextSize { ColourThemePreference.shared.chatTextSize }
     private var chatFontID: String { ColourThemePreference.shared.chatFont }
@@ -21,7 +24,7 @@ struct AskConversationContent: View {
                     message: trouble
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let transcript = app.ask.transcript {
+            } else if let transcript = displayedTranscript {
                 AskConversationView(transcript: transcript)
                     .id(transcript.session.id)
             } else {
@@ -36,15 +39,17 @@ struct AskConversationContent: View {
         .environment(\.chatFont, ChatFont(rawValue: chatFontID))
         .environment(\.chatLineHeight, lineHeight)
         // Not in a body: `open()` writes observed state and can create a session row.
-        .task { await app.ask.open() }
+        .task(id: sessionID) {
+            await app.ask.open()
+            if let sessionID { await app.ask.select(sessionID) }
+        }
         // A popover rather than a sheet over the window, like the app's other destructive
-        // questions. It hangs off the conversation rather than a control, because it is raised
-        // both from a tab's close button in the rail and from Cmd+W in the menu bar, and neither
-        // of those is a view this one can reach.
+        // questions. It hangs off the conversation rather than a control, because archive can
+        // be requested from the model while a turn is still running.
         .popover(isPresented: $ask.closingID.isPresent(), arrowEdge: .top) {
             ConfirmationPopover(
-                title: "Stop and close this conversation?",
-                confirmLabel: "Stop and Close",
+                title: "Stop and archive this conversation?",
+                confirmLabel: "Stop and Archive",
                 tint: Palette.negative,
                 onConfirm: {
                     // Read before clearing: clearing is what dismisses the popover.
@@ -57,6 +62,11 @@ struct AskConversationContent: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private var displayedTranscript: TranscriptModel? {
+        if let sessionID { return app.ask.transcript(for: sessionID) }
+        return app.ask.transcript
     }
 }
 

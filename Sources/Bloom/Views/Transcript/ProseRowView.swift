@@ -6,6 +6,7 @@ struct ProseRowView: View {
     var isStreaming = false
     /// Present only on the response that closes a completed turn.
     var copyText: String?
+    @State private var isHovered = false
 
     var body: some View {
         HStack(alignment: .top, spacing: TranscriptLayout.block) {
@@ -25,6 +26,7 @@ struct ProseRowView: View {
                     CopyButton(
                         text: copyText,
                         title: "Copy this answer",
+                        isVisible: isHovered,
                         size: 18,
                         imageScale: .small
                     )
@@ -41,6 +43,7 @@ struct ProseRowView: View {
         // putting a hard line between the work and the response.
         .padding(.top, TranscriptLayout.block * 2)
         .padding(.bottom, TranscriptLayout.block)
+        .onHover { isHovered = $0 }
     }
 
     /// **Plain text while it is still arriving, markdown once it has landed.**

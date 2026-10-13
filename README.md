@@ -40,11 +40,42 @@ account. Agent CLIs use their own authentication and provider connections.
 
 Workspaces live under `~/bloom/workspaces.noindex` by default. The `.noindex` suffix keeps Spotlight
 from indexing every worktree. Bloom also supports multiple chats in one workspace, reusable quick
-prompts and subagents that work in the same branch. **Ask Bloom** is a separate conversation area
-for questions that do not need a worktree.
+prompts and subagents that work in the same branch. Conversation workspaces appear below projects
+in the sidebar and need no project, Git repository or worktree.
 
-Useful shortcuts include Cmd+N for a new workspace, Cmd+P to search files in the current workspace
-and Cmd+T for a new conversation. See [the menu reference](docs/MENUS.md) for the full list.
+Useful shortcuts include Cmd+N for a new workspace, Cmd+J for a project-free conversation and
+Cmd+P to search files in the current project workspace. See [the menu reference](docs/MENUS.md)
+for the full list.
+
+### Browser access (alpha)
+
+Browser access is in alpha and may change or be removed at any time. Bloom can show conversations
+in a browser while the Mac app is running. The browser can send
+prompts, create projects and workspaces, and inspect transcripts and file references. Some Mac
+features, including native diff review and terminal panes, are not available there yet.
+
+On the same Mac, open **Settings > Browser Access**, enable **Allow browser access**, then choose
+**Open in Browser**. Bloom opens a one-use link, so you do not need to type an access code. Bloom Dev
+also accepts direct connections to `http://127.0.0.1:53544` on the host Mac without a code.
+
+To open Bloom from a phone or another computer through Tailscale:
+
+1. Install [Tailscale](https://tailscale.com/docs/install) on both devices and sign in to the same
+   tailnet. Keep Bloom running on the Mac.
+2. In Bloom's Browser Access settings, enable access and expand **Manual connection**. Note the
+   port in the address and use **Copy Code** for the access code.
+3. In Terminal on the Mac, run `tailscale serve --bg PORT`, replacing `PORT` with the port from
+   Bloom. For example, Bloom Dev uses `tailscale serve --bg 53544`.
+4. Tailscale prints a private HTTPS address such as `https://your-mac.your-tailnet.ts.net`. Open
+   it on the other device and enter Bloom's access code. [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve)
+   keeps this address within your tailnet.
+
+The hostname names your Mac in Tailscale, not a separate Bloom account. You can [rename the Mac in
+Tailscale](https://tailscale.com/docs/concepts/machine-names) if you want a shorter hostname. The
+regular Bloom app chooses a new browser port and access code when it restarts. If the port changes,
+run `tailscale serve --bg PORT` again with the new port and use the new access code. Bloom Dev keeps
+port 53544, but its remote connections still require the code. To stop remote access, run
+`tailscale serve off` on the Mac or turn off browser access in Bloom.
 
 ### Repository settings
 

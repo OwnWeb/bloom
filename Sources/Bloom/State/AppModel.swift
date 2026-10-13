@@ -54,6 +54,15 @@ final class AppModel {
     /// start one.
     @ObservationIgnored private(set) var bridge: BridgeServer?
 
+    /// Optional browser access is local to this app instance and disabled until explicitly enabled.
+    @ObservationIgnored var localWebServer: LocalWebServer?
+    var localWebEnabled = UserDefaults.standard.bool(forKey: "localWeb.enabled")
+    var localWebAddress: String?
+    var localWebToken: String?
+    var localWebError: String?
+    @ObservationIgnored var localWebConnectTicket: (value: String, expiresAt: Date)?
+    @ObservationIgnored var localWebUploads: [SessionID: [LocalWebUpload]] = [:]
+
     private(set) var repos: [Repo] = []
     private(set) var workspaces: [Workspace] = [] {
         didSet { updateInspectorPresentation() }
@@ -80,6 +89,7 @@ final class AppModel {
             // sidebar row can arrive here again, and without this guard it writes defaults,
             // rebuilds the subagent rows and starts another settings read for no state change.
             guard newValue != storedSelection else { return }
+            highlightedSidebarSelection = nil
             if let id = newValue.workspaceID, id != storedSelection.workspaceID {
                 SwitchTrace.begin(workspaceID: id)
             }
@@ -113,6 +123,30 @@ final class AppModel {
     }
 
     private var storedSelection: SidebarSelection = .home
+
+    /// The row the sidebar has highlighted while its display-link activation is pending.
+    /// Menu shortcuts must follow that row, not the workspace the centre column is still showing.
+    private var highlightedSidebarSelection: SidebarSelection?
+
+    func highlightSidebarSelection(_ selection: SidebarSelection?) {
+        guard let selection, selection != storedSelection else {
+            highlightedSidebarSelection = nil
+            return
+        }
+        if let id = selection.workspaceID,
+           let workspace = workspaces.first(where: { $0.id == id }) {
+            _ = model(for: workspace)
+        }
+        highlightedSidebarSelection = selection
+    }
+
+    /// The model used by menu commands during the sidebar's brief selection animation.
+    var shortcutModel: WorkspaceModel? {
+        guard let highlightedSidebarSelection else { return selectedModel }
+        guard let id = highlightedSidebarSelection.workspaceID,
+              workspaces.contains(where: { $0.id == id }) else { return nil }
+        return workspaceModels[id]
+    }
 
     /// The current workspace column and the one immediately before it, in stable structural order.
     ///
@@ -570,6 +604,7 @@ final class AppModel {
             // jumps to the workspace.
             restoreLastSelection()
             isLoaded = true
+            startLocalWebIfEnabled()
             let blocking = Int(Date().timeIntervalSince(began) * 1000)
             Log.launch.info("window usable after \(blocking, privacy: .public)ms")
             Log.launchStep("loaded")
@@ -705,6 +740,8 @@ final class AppModel {
         // held in memory precisely so nothing outlives the launch that minted it.
         bridge?.stop()
         bridge = nil
+        localWebServer?.stop()
+        localWebServer = nil
 
         let models = Array(workspaceModels.values)
         // Signal every agent first, so the SIGTERM escalations all run at the same time rather than
@@ -801,6 +838,9 @@ final class AppModel {
             for workspace in workspaces {
                 CenterTabStore.shared.load(workspaceID: workspace.id)
                 if let existing = workspaceModels[workspace.id], existing.workspace != workspace {
+                    if existing.workspace.path != workspace.path {
+                        existing.invalidateFileTree(keepListing: false)
+                    }
                     existing.workspace = workspace
                 }
             }
@@ -1048,7 +1088,7 @@ final class AppModel {
         await model.refreshChanges(.quiet)
     }
 
-    /// What the file system watcher saw, turned into workspaces the next tick has to ask git about.
+    /// What the file system watcher saw, turned into workspaces whose diff and file tree changed.
     ///
     /// Paths rather than ids come back, because a watcher has no idea what a workspace is. A path
     /// that matches nothing is dropped, which is what happens for the moment between a worktree
@@ -1057,6 +1097,7 @@ final class AppModel {
         let changed = workspaces.filter { paths.contains($0.path) }.map(\.id)
         guard !changed.isEmpty else { return }
         diffInvalidations.record(Set(changed))
+        for id in changed { workspaceModels[id]?.invalidateFileTree() }
     }
 
     /// - Returns: the workspaces this pass actually asked git about.

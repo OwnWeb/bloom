@@ -50,9 +50,7 @@ struct ToolPaneView: View {
                     if readyTabID == tab.id {
                         TerminalSplitView(
                             ownerID: tab.id,
-                            workspace: model.workspace,
-                            repo: model.repo,
-                            port: model.port,
+                            owner: .workspace(model.workspace, model.repo, port: model.port),
                             directory: tab.directory,
                             runScript: runScript,
                             onCloseTab: {
@@ -146,6 +144,8 @@ struct ToolPaneView: View {
     private func prepareTerminal() async {
         TerminalSessionStore.shared.useStore(model.store)
         await model.ensurePort()
+        guard !Task.isCancelled else { return }
         readyTabID = tab.id
+        TerminalSplitStore.shared.requestKeyboard(in: tab.id)
     }
 }

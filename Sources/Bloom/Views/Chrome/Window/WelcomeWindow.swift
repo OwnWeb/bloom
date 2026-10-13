@@ -211,7 +211,7 @@ enum WelcomeWindow {
         window.isMovableByWindowBackground = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
-        window.contentViewController = host
+        window.contentViewController = WelcomeContentController(host: host)
         window.center()
         // Closing this window is how somebody says they have seen it. See
         // `WelcomeLaunch.recordDismissal`, which is where the reasoning is.

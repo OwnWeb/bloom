@@ -74,6 +74,7 @@ struct UserTurnRowView: View {
     /// moment it arrives. Nil for every bubble nobody is pointing at, which is what keeps the
     /// probe below and the timer beside it off every other row in the transcript.
     @State private var hovered: FileChipHover?
+    @State private var isBubbleHovered = false
     /// Where the sentence is in the window, read only while a pill in it is under the pointer. See
     /// `chipProbe`.
     @State private var textFrame: CGRect = .zero
@@ -134,42 +135,58 @@ struct UserTurnRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             if side == .trailing { Spacer(minLength: Self.inset) }
 
-            VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
-                CappedWidth(width: maxWidth) {
-                    bubble.padding(Self.padding)
+            HStack(alignment: .top, spacing: 0) {
+                if !copyText.isEmpty {
+                    CopyButton(
+                        text: copyText,
+                        title: "Copy this prompt",
+                        isVisible: isBubbleHovered,
+                        size: 18,
+                        imageScale: .small
+                    )
+                    .padding(.trailing, TranscriptLayout.tight)
+                    .padding(.top, Self.padding.top)
                 }
-                .padding(.bottom, OutgoingBubbleShape.tailDrop)
-                .background(
-                    background,
-                    in: OutgoingBubbleShape(cornerRadius: Self.corner, tail: side)
-                )
-                // No stroke around the fill. A border on a filled shape is a control's outline,
-                // and the fill already separates the turn from the ground in both appearances.
-                //
-                // Everything inside is told it is sitting on the accent fill, which is the same
-                // signal a selected sidebar row sends. `Chip`, `DiffStatLabel`, `RepoIcon` and
-                // `AttachmentChip` all read it and swap to the variant that survives the inversion,
-                // so a chip inside a user turn needs no knowledge of this view.
-                .environment(\.isOnEmphasizedSelection, true)
-                // And that the ground under them is dark, which on a light page it now is.
-                //
-                // This is not a stylistic flourish, it is what makes the text selectable in any
-                // useful sense. Selecting text paints `selectedTextBackgroundColor` BEHIND the glyphs
-                // and leaves the foreground exactly as it was: on the light ramp that colour is a pale
-                // blue, so dragging over a white sentence on this fill wrote it in white on near white
-                // and the selection was unreadable while it was being made. Measured off a probe of
-                // this exact bubble: the highlight comes out #BAD6FB and white on it is 1.5 to 1.
-                //
-                // Naming the scheme resolves every appearance-dependent colour inside the bubble on
-                // the dark ramp. The claim is honest rather than a trick: this bubble IS a dark
-                // surface whatever the page around it is doing. AppKit cannot read it, which is why
-                // the text view below is handed `Palette.bubbleTextSelection` as well.
-                .environment(\.colorScheme, .dark)
-                .overlay(alignment: .bottomLeading) { copyControl }
+
+                VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
+                    CappedWidth(width: maxWidth) {
+                        bubble.padding(Self.padding)
+                    }
+                    .padding(.bottom, OutgoingBubbleShape.tailDrop)
+                    .background(
+                        background,
+                        in: OutgoingBubbleShape(cornerRadius: Self.corner, tail: side)
+                    )
+                    // No stroke around the fill. A border on a filled shape is a control's outline,
+                    // and the fill already separates the turn from the ground in both appearances.
+                    //
+                    // Everything inside is told it is sitting on the accent fill, which is the same
+                    // signal a selected sidebar row sends. `Chip`, `DiffStatLabel`, `RepoIcon` and
+                    // `AttachmentChip` all read it and swap to the variant that survives the inversion,
+                    // so a chip inside a user turn needs no knowledge of this view.
+                    .environment(\.isOnEmphasizedSelection, true)
+                    // And that the ground under them is dark, which on a light page it now is.
+                    //
+                    // This is not a stylistic flourish, it is what makes the text selectable in any
+                    // useful sense. Selecting text paints `selectedTextBackgroundColor` BEHIND the glyphs
+                    // and leaves the foreground exactly as it was: on the light ramp that colour is a pale
+                    // blue, so dragging over a white sentence on this fill wrote it in white on near white
+                    // and the selection was unreadable while it was being made. Measured off a probe of
+                    // this exact bubble: the highlight comes out #BAD6FB and white on it is 1.5 to 1.
+                    //
+                    // Naming the scheme resolves every appearance-dependent colour inside the bubble on
+                    // the dark ramp. The claim is honest rather than a trick: this bubble IS a dark
+                    // surface whatever the page around it is doing. AppKit cannot read it, which is why
+                    // the text view below is handed `Palette.bubbleTextSelection` as well.
+                    .environment(\.colorScheme, .dark)
+                    .overlay(alignment: .bottomLeading) { copyControl }
+                }
             }
+            .contentShape(Rectangle())
+            .onHover { isBubbleHovered = $0 }
 
             if side == .leading { Spacer(minLength: Self.inset) }
         }
@@ -196,6 +213,8 @@ struct UserTurnRowView: View {
             withdraw()
         }
     }
+
+    private var copyText: String { SentTurn.withoutInstructions(text) }
 
     /// The words and then the files, which is the order they were written in and the order the
     /// composer showed them in, except that up there the chips sat above the text because that is

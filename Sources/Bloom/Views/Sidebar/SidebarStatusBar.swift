@@ -1,9 +1,8 @@
 import SwiftUI
 import BloomCore
 
-/// The strip pinned to the bottom of the sidebar: Home, New and Ask Bloom (`SidebarDock`), the two
-/// controls that narrow or explain the list, and a line the pane borrows when it has something to
-/// say about itself.
+/// The strip pinned to the bottom of the sidebar: a transient note at the leading edge, then
+/// Archive (`SidebarDock`) and filter together at the trailing edge.
 ///
 /// The filter lives down here rather than in a header, which is where Xcode and Finder put the
 /// controls that narrow a source list.
@@ -11,18 +10,16 @@ struct SidebarStatusBar: View {
     @Environment(AppModel.self) private var app
 
     @Binding var filter: SidebarFilter
-    /// Raised to the sidebar so the projects submenu's New workspace posts for the create window
+    /// Raised to the sidebar so the project browser's New workspace posts for the create window
     /// through the same door every other entry point uses. See `SidebarView.presentCreate`.
     var onCreateWorkspace: (Repo) -> Void = { _ in }
-    /// New workspace with no project named, which the create window asks for.
-    var onNewWorkspace: () -> Void = {}
+    var onSelectProject: (Repo) -> Void = { _ in }
     var onStartProject: () -> Void = {}
-    /// The New menu's recent section. See `NewMenuItems`.
-    var recentProjects: [Repo] = []
     /// Whether the projects the owner has hidden are in the list. A preference rather than this
     /// window's state, which is why it is `@AppStorage` here and in `SidebarView` rather than a
     /// second `@State` passed down. See `ProjectVisibility.showsHiddenKey`.
     @AppStorage(ProjectVisibility.showsHiddenKey) private var showsHiddenProjects = false
+    @AppStorage(ProjectVisibility.showsEmptyKey) private var showsEmptyProjects = false
     /// Something the pane has to say about itself, for a moment, in place of the running count.
     /// The sidebar owns both the sentence and how long it lasts. See `SidebarView.move(from:to:)`.
     var note: String?
@@ -32,36 +29,31 @@ struct SidebarStatusBar: View {
     /// disagree about it. See `SidebarGrouping`.
     @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.fallback.rawValue
 
-    @State private var isShowingLegend = false
     @State private var isFilterHovered = false
-    @State private var isLegendHovered = false
+    @State private var showingProjectsBrowser = false
 
     var body: some View {
         VStack(spacing: 0) {
             Hairline()
 
             HStack(spacing: Metrics.spacingSmall) {
-                SidebarDock(
-                    onNewWorkspace: onNewWorkspace,
-                    onStartProject: onStartProject,
-                    onCreateWorkspace: onCreateWorkspace,
-                    recentProjects: recentProjects
-                )
-
                 noteLabel
 
                 Spacer(minLength: Metrics.spacingSmall)
+
+                SidebarDock()
 
                 Menu {
                     SidebarFilterMenuItems(
                         filter: $filter,
                         showsHiddenProjects: $showsHiddenProjects,
+                        showsEmptyProjects: $showsEmptyProjects,
                         hiddenCount: ProjectVisibility.hiddenCount(app.repos),
                         grouping: $storedGrouping
                     )
-                    SidebarProjectsMenu(repos: app.repos, onCreateWorkspace: onCreateWorkspace)
-                    // The same words the New button's menu uses, so one action is not named two
-                    // ways inside one pane. See `SidebarDock`.
+                    Button("Browse projects…") { showingProjectsBrowser = true }
+                    // The same words the toolbar's New menu uses, so one action is not named two
+                    // ways inside one pane. See `NewMenuItems`.
                     Button("New project…", action: onStartProject)
                 } label: {
                     controlLabel(
@@ -83,29 +75,20 @@ struct SidebarStatusBar: View {
                 .onHoverChange { isFilterHovered = $0 }
                 .help("Filter the sidebar")
                 .accessibilityValue(filterValue)
-
-                Button {
-                    isShowingLegend.toggle()
-                } label: {
-                    controlLabel(
-                        "What the sidebar glyphs mean",
-                        systemImage: "questionmark.circle",
-                        isHovered: isLegendHovered || isShowingLegend
+                .popover(isPresented: $showingProjectsBrowser, arrowEdge: .trailing) {
+                    SidebarProjectsBrowser(
+                        repos: app.repos,
+                        onSelect: { repo in
+                            showingProjectsBrowser = false
+                            onSelectProject(repo)
+                        },
+                        onCreateWorkspace: { repo in
+                            showingProjectsBrowser = false
+                            onCreateWorkspace(repo)
+                        }
                     )
-                    .foregroundStyle(Palette.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .onHoverChange { isLegendHovered = $0 }
-                .help("What the sidebar glyphs mean")
-                .popover(isPresented: $isShowingLegend, arrowEdge: .top) {
-                    SidebarLegend()
                 }
 
-                // **No Settings cogwheel.** There was one here, and it was the one control in this
-                // strip that duplicated something every Mac user already knows: Command-comma, and
-                // the Bloom menu. The other two earn their place because neither is reachable any
-                // other way, and a third glyph beside them spent the strip's width saying what the
-                // menu bar says for free.
             }
             .padding(.horizontal, Metrics.spacingSmall)
             .frame(height: Metrics.barHeight)
@@ -113,10 +96,8 @@ struct SidebarStatusBar: View {
         // Let the native sidebar ground continue behind these controls without a second material.
     }
 
-    // The native accessory style did not show a hover fill here. Both labels own the square
-    // target so the menu and button draw and respond over the same area. The plate is handed its
-    // flag rather than tracking the pointer, because hover is read off the `Menu` and the legend
-    // stays lit while its popover is open.
+    // The native accessory style did not show a hover fill here. The label owns the square
+    // target, and the plate is handed its flag because hover is read off the `Menu`.
     private func controlLabel(_ title: String, systemImage: String, isHovered: Bool) -> some View {
         Label(title, systemImage: systemImage)
             .labelStyle(.iconOnly)
@@ -128,12 +109,16 @@ struct SidebarStatusBar: View {
 
     /// Whether the pane is showing what it shows when nothing has been asked of it.
     private var isDefaultView: Bool {
-        filter == .all && !showsHiddenProjects
+        filter == .all && !showsHiddenProjects && !showsEmptyProjects
     }
 
     /// Both halves of the control, in words, since the glyph can only show one of them.
     private var filterValue: String {
-        showsHiddenProjects ? "\(filter.rawValue), hidden projects showing" : filter.rawValue
+        [filter.rawValue,
+         showsHiddenProjects ? "hidden projects showing" : nil,
+         showsEmptyProjects ? "empty projects showing" : nil]
+            .compactMap { $0 }
+            .joined(separator: ", ")
     }
 
     /// A readout, so it is set as text rather than as the filled `Chip` it used to be. A pill in a

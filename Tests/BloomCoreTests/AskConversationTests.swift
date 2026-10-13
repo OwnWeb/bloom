@@ -45,80 +45,59 @@ struct AskConversationTests {
         #expect(AskConversation.prepareDirectory(besideDatabaseAt: database) == path)
     }
 
-    /// It opens on Ask, and the thing it is not opening on is Full access.
-    @Test("a new chat has no workspace and opens on Ask")
-    func newSessionOpensOnAsk() {
+    @Test("a new chat has no workspace and starts with the built-in permission fallback")
+    func newSessionStartsWithFallback() {
         let session = AskConversation.newSession()
         #expect(session.workspaceID == nil)
-        #expect(session.permissionMode == .auto)
-        #expect(session.permissionMode != AppDefaults.fallbackPermissionMode)
+        #expect(session.permissionMode == AppDefaults.fallbackPermissionMode)
         #expect(session.title == AskConversation.title)
         #expect(session.state == .idle)
     }
 
-    /// The row was created on `.auto` and the composer settles a new chat's defaults the first
-    /// time it is opened, so without this the mode would have been overwritten before the first
-    /// turn with whatever the Models tab holds. The default is `bypassPermissions`, so the chat
-    /// that sits above every project would have opened on Full access.
-    @Test("the owner's default permission mode does not land on a chat with no worktree")
-    func defaultsDoNotOverruleTheMode() {
+    @Test("new conversations use an isolated directory and keep legacy titles readable")
+    func workspaceDirectoryAndLegacyTitle() throws {
+        let root = TestScratch.unique("conversation-directory")
+        let database = root + "/bloom.sqlite"
+        let first = SessionID("first")
+        let path = try #require(AskConversation.prepareWorkspaceDirectory(
+            besideDatabaseAt: database, id: first
+        ))
+        #expect(path == root + "/Conversations/first")
+        #expect(AskConversation.workspaceDirectory(
+            besideDatabaseAt: database, id: SessionID("second")
+        ) != path)
+        #expect(AskConversation.isBlank(Session(workspaceID: nil, title: "Ask Bloom")))
+        #expect(AskConversation.automaticTitle(current: "Ask Bloom", prompt: "Plan a trip") == "Plan a trip")
+    }
+
+    @Test("Ask Bloom inherits the permission preference with its model and effort")
+    func defaultsReachAskBloom() {
         var defaults = AppDefaults()
-        defaults.permissionMode = .bypassPermissions
+        defaults.permissionMode = .acceptEdits
         defaults.planMode = false
 
         let inWorktree = ComposerDefaults.resolve(repo: RepoSettings(), app: defaults)
-        #expect(inWorktree.permissionMode == .bypassPermissions)
+        #expect(inWorktree.permissionMode == .acceptEdits)
 
         let ask = ComposerDefaults.resolve(repo: RepoSettings(), app: defaults, hasWorktree: false)
-        #expect(ask.permissionMode == AskConversation.permissionMode)
-        // And only the mode. What a conversation costs is the same question here as anywhere.
+        #expect(ask.permissionMode == inWorktree.permissionMode)
         #expect(ask.model == inWorktree.model)
         #expect(ask.effort == inWorktree.effort)
     }
 
-    /// Plan mode is the more specific instruction and beats the picker in a worktree. It does not
-    /// beat this, because this is not a preference being overruled: it is the one mode that is
-    /// true of a conversation with nothing to edit.
-    @Test("start in plan mode does not reach it either")
-    func planModeDoesNotOverruleTheMode() {
+    @Test("Claude Code's plan preference also reaches Ask Bloom")
+    func planModeReachesAskBloom() {
         var defaults = AppDefaults()
         defaults.planMode = true
 
         #expect(ComposerDefaults.resolve(repo: RepoSettings(), app: defaults).permissionMode == .plan)
         #expect(
             ComposerDefaults.resolve(repo: RepoSettings(), app: defaults, hasWorktree: false)
-                .permissionMode == AskConversation.permissionMode
+                .permissionMode == .plan
         )
     }
 
-    /// Without this the lock holds exactly once. `ComposerDefaults.resolve` settles a chat's mode
-    /// the first time it is opened and never again, and the picker writes the owner's choice onto
-    /// the row, so a Full access chosen once to get something done would have been what this
-    /// conversation opened on for ever after.
-    @Test("the mode goes back to Ask on the next launch, and not before")
-    func theModeIsReappliedEachLaunch() {
-        // What the owner left it on, a launch later.
-        #expect(
-            AskConversation.modeOnOpening(stored: .bypassPermissions, isFirstOpenSinceLaunch: true)
-                == AskConversation.permissionMode
-        )
-
-        // The same choice, still in the launch it was made in. Overruling it while somebody is
-        // watching would be a picker that does not work.
-        #expect(
-            AskConversation.modeOnOpening(stored: .bypassPermissions, isFirstOpenSinceLaunch: false)
-                == nil
-        )
-
-        // Nothing to do, so nothing is written: this is a column with two writers.
-        #expect(
-            AskConversation.modeOnOpening(
-                stored: AskConversation.permissionMode, isFirstOpenSinceLaunch: true
-            ) == nil
-        )
-    }
-
-    /// The choice expires, so the menu has to say so before it is made rather than after.
+    /// The menu must explain the wider scope and when the preference returns.
     @Test("the permission menu says what a mode means with no worktree")
     func theMenuSaysWhatAModeMeansHere() throws {
         let inWorktree = ComposerControls(
@@ -135,7 +114,7 @@ struct AskConversationTests {
         #expect(!ask.hasWorktree)
         let note = try #require(ask.permissionModeNote)
         #expect(note.contains("whole machine"))
-        #expect(note.contains("Bloom next starts"))
+        #expect(note.contains("saved for this conversation"))
     }
 
     /// The empty state is the first thing the owner sees, and it used to open by listing what this

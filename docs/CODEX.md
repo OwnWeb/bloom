@@ -153,6 +153,16 @@ had moved:
 `codex-auto-review`. `gpt-5.4-mini` now carries an `upgradeInfo` block naming `gpt-5.6-luna` and a
 retirement date, which nothing here reads yet.
 
+#### GPT-6.1 Sol during the Codex rollout
+
+On 2026-09-29, codex-cli 0.156.1 still listed `gpt-6-sol` but not the newly released
+`gpt-6.1-sol`. [OpenAI's model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
+documents the id, a `medium` default effort, image input and Fast mode. Its
+[Codex model guide](https://learn.chatgpt.com/docs/models) describes efforts through Ultra. Bloom
+temporarily supplements a nonempty CLI list with that choice.
+When `model/list` includes it, the CLI's own name, efforts and service tiers take precedence.
+The model picker keeps Astra first, then 6.1 Sol, because Astra remains the most capable model.
+
 **Nothing in Bloom changed to offer the new generation.** It was fetched, drawn under the
 `displayName` the server sent, put at the head of the picker by `CodexModelRank` because 6 is above
 5.6, and given its own six-level effort list with its own default of `medium`. That is the whole

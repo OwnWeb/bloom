@@ -120,10 +120,11 @@ struct PlanApprovalTests {
         #expect(try await store.planImplementationMode(sessionID: session.id, hasWorktree: true) == .acceptEdits)
     }
 
-    @Test("a chat without a worktree never inherits the app's bypass default")
+    @Test("a chat without a worktree uses the configured implementation mode")
     func noWorktree() async throws {
         let store = try makeTestStore("plan-no-worktree")
+        try await store.setSetting(AppDefaults.Key.permissionMode, PermissionMode.acceptEdits.rawValue)
         let session = try await store.upsert(Session(workspaceID: nil, permissionMode: .plan))
-        #expect(try await store.planImplementationMode(sessionID: session.id, hasWorktree: false) == .auto)
+        #expect(try await store.planImplementationMode(sessionID: session.id, hasWorktree: false) == .acceptEdits)
     }
 }

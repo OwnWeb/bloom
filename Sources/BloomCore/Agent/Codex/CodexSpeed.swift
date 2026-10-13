@@ -37,7 +37,7 @@ public struct CodexSpeed: Equatable, Sendable {
         do {
             try await client.start()
             let config = try await client.readConfiguration(cwd: cwd)
-            let models = try await client.listModels()
+            let models = CodexModel.includingReleasedSol(try await client.listModels())
             let resolvedModel = ModelIdentifier.resolve(modelID).model
             guard let model = models.first(where: { $0.id == resolvedModel }) else {
                 throw CodexClientError.unexpectedResult(method: "model/list")

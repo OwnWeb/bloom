@@ -43,11 +43,14 @@ struct SidebarView: View {
     /// hidden project. See `ProjectVisibility.showsHiddenKey`, which the status bar's own menu
     /// binds to the same key, so the two views cannot disagree.
     @AppStorage(ProjectVisibility.showsHiddenKey) private var showsHiddenProjects = false
+    @AppStorage(ProjectVisibility.showsEmptyKey) private var showsEmptyProjects = false
 
     /// Which shape the pane is in: projects with their workspaces, or sections by what each
     /// workspace needs. A preference for the same reason hiding a project is one, and the status
     /// bar binds the same key so the two cannot disagree. See `SidebarGrouping`.
     @AppStorage(SidebarGrouping.storageKey) private var storedGrouping = SidebarGrouping.fallback.rawValue
+    @AppStorage(SidebarSectionOrder.storageKey)
+    private var storedSectionOrder = SidebarSectionOrder.fallback.rawValue
     @AppStorage(SidebarPreferences.showsDiffStatsKey)
     private var showsDiffStats = SidebarPreferences.showsDiffStatsByDefault
 
@@ -63,6 +66,7 @@ struct SidebarView: View {
     /// What the list itself thinks is selected. See the `onChange` pair below for why this is not
     /// bound straight to the model.
     @State private var listSelection: SidebarSelection?
+    @State private var projectToReveal: RepoID?
     /// Whether the list's table is the first responder, and whether its window is key. Only the
     /// edge on the selection reads these; the fill is the same either way. See
     /// `SidebarKeyboardFocus`.
@@ -148,30 +152,16 @@ struct SidebarView: View {
     /// because the chain as one expression was past what the CI runner's type checker would
     /// finish in a release build: green on this Mac, red there, three times.
     private var list: some View {
-        List(selection: $listSelection) {
-            // No rows above the projects. Home and Ask Bloom were two here, with the pane's `+` on
-            // Home, and all three are buttons in the status bar now. See `SidebarDock`.
-            //
-            // One native section supplies the Projects heading's font and spacing. The rows
-            // stay in one ForEach so dragging still uses the same indices in `paneRows`.
-            //
-            // The heading is the project view's alone. The status view's headings are its own
-            // sections, and a "Projects" label over rows that are not grouped by project would be
-            // naming something that is not there. Starting a project is still one press away, on
-            // the projects button in the status bar, in both shapes, which is why the heading has
-            // no button of its own: it had one, and it was the same action twice in one pane.
-            if grouping == .projects {
-                Section {
-                    paneRowsList
-                } header: {
-                    Text("Projects")
-                        .bold()
-                        .accessibilityAddTraits(.isHeader)
+        ScrollViewReader { proxy in
+            List(selection: $listSelection) {
+                ForEach(topSections, id: \.rawValue) { section in
+                    if section == .work {
+                        workSection
+                    } else {
+                        conversationsSection
+                    }
                 }
-            } else {
-                Section { paneRowsList }
             }
-        }
         // The native list owns row height, keyboard navigation and which row is selected. How the
         // selected row is drawn is `SidebarSelectionFill`'s, on each row, for the reason given there.
         //
@@ -182,17 +172,93 @@ struct SidebarView: View {
         // rows sideways. Reaching 28 means giving up `.listStyle(.sidebar)`, and with it the
         // selection above, keyboard navigation and the standard insets. Four points is not worth
         // that. Project rows use the list's own vertical insets too.
-        .listStyle(.sidebar)
-        .confirmation($stoppingCrew) { pending in
-            Confirmation(
-                title: "Stop \(pending.name)?",
-                message: Self.crewStopMessage,
-                confirmLabel: "Stop",
-                cancelLabel: "Keep Working"
-            )
-        } onConfirm: { pending in
-            Task { await stop(pending) }
+            .listStyle(.sidebar)
+            .animation(reduceMotion ? nil : Motion.pane, value: storedSectionOrder)
+            .confirmation($stoppingCrew) { pending in
+                Confirmation(
+                    title: "Stop \(pending.name)?",
+                    message: Self.crewStopMessage,
+                    confirmLabel: "Stop",
+                    cancelLabel: "Keep Working"
+                )
+            } onConfirm: { pending in
+                Task { await stop(pending) }
+            }
+            .onChange(of: projectToReveal) { _, _ in scrollToProject(proxy) }
+            .onChange(of: paneRows.map(\.id)) { _, _ in scrollToProject(proxy) }
         }
+    }
+
+    @ViewBuilder
+    private var workSection: some View {
+        if grouping == .projects, !groups.isEmpty {
+            Section {
+                sectionHeader(for: .work, title: "Projects")
+                    .selectionDisabled()
+                paneRowsList
+            }
+        } else if grouping == .status {
+            Section {
+                sectionHeader(for: .work, title: "Workspaces")
+                    .selectionDisabled()
+                paneRowsList
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var conversationsSection: some View {
+        if filter == .all {
+            Section {
+                HStack {
+                    Text("Conversations")
+                        .font(Typo.label)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Palette.textSecondary)
+                        .reorderableSection(.conversations, order: $storedSectionOrder)
+                    Spacer()
+                    Button("New conversation", systemImage: "plus") {
+                        NotificationCenter.default.post(name: .bloomNewConversationWorkspace, object: nil)
+                    }
+                    .labelStyle(.iconOnly)
+                    .font(Typo.label)
+                    .frame(width: Metrics.headerButton.width, height: Metrics.headerButton.height)
+                    .buttonStyle(.plain)
+                }
+                .accessibilityAddTraits(.isHeader)
+                .selectionDisabled()
+
+                ForEach(app.ask.workspaceConversations, id: \.id) { chat in
+                    ConversationSidebarRow(chat: chat)
+                        .tag(SidebarSelection.conversation(chat.id))
+                        .sidebarSelection(selectionStyle(for: .conversation(chat.id)))
+                }
+                .onMove { offsets, destination in
+                    Task { await app.ask.reorderConversations(from: offsets, to: destination) }
+                }
+            }
+        }
+    }
+
+    private func sectionHeader(for section: SidebarTopSection, title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(Typo.label)
+                .fontWeight(.semibold)
+                .foregroundStyle(Palette.textSecondary)
+                .reorderableSection(section, order: $storedSectionOrder)
+            Spacer()
+        }
+        .padding(.trailing, Metrics.inset + Metrics.spacingWide)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var sectionOrder: SidebarSectionOrder {
+        SidebarSectionOrder(rawValue: storedSectionOrder) ?? .fallback
+    }
+
+    private var topSections: [SidebarTopSection] {
+        sectionOrder == .conversationsFirst ? [.conversations, .work] : [.work, .conversations]
     }
 
     /// The motion keyed to the list's values, one step of `body`. See `list`.
@@ -225,6 +291,9 @@ struct SidebarView: View {
         // pending and stored workspaces share an id, so finishing a create does not reinsert it.
         .animation(workspaceMotion, value: workspaceIdentities)
         .animation(workspaceMotion, value: statusArrangement)
+        // Project-free conversations are drawn outside `paneRows`, so workspace membership never
+        // changes when one is archived. Key their membership to the same row-removal curve.
+        .animation(workspaceMotion, value: conversationIdentities)
         // A subagent's row leaving when its work is done, which is another insertion or removal
         // and so another reflow, at the one length this pane confirms anything in.
         //
@@ -272,9 +341,8 @@ struct SidebarView: View {
             SidebarStatusBar(
                 filter: $filter,
                 onCreateWorkspace: { presentCreate(in: $0) },
-                onNewWorkspace: { presentCreate(in: nil) },
+                onSelectProject: revealProject,
                 onStartProject: startProject,
-                recentProjects: recentProjects,
                 note: reorderNote?.sentence
             )
         }
@@ -294,6 +362,9 @@ struct SidebarView: View {
             hasSettled = true
         }
         .onChange(of: app.repos, initial: true) { _, _ in regroup() }
+        .task(id: app.isLoaded) {
+            if app.isLoaded { await app.ask.open() }
+        }
         .onChange(of: app.workspaces) { _, _ in regroup() }
         // The whole run changes shape, and nothing in it counts as having arrived: every row was
         // already on screen a moment ago, in another order. See the filter's own change below.
@@ -350,7 +421,9 @@ struct SidebarView: View {
             regroup(rescoped: !ProjectVisibilityMotion.filterToggle(reduceMotion: reduceMotion)
                 .fadesArrivals)
         }
+        .onChange(of: showsEmptyProjects) { _, _ in reflow() }
         .onChange(of: listSelection) { _, selected in
+            app.highlightSidebarSelection(selected)
             if selected == nil { listSelection = app.selection }
         }
         .background {
@@ -443,6 +516,7 @@ struct SidebarView: View {
         case .project(let group):
             RepoHeaderRow(
                 repo: group.repo,
+                isFirstProject: groups.first?.id == group.id,
                 hasUnreadWork: group.hasUnreadWork,
                 workspaceCount: group.workspaces.count,
                 onCreateWorkspace: presentCreate
@@ -548,6 +622,10 @@ struct SidebarView: View {
     /// Membership only, so renames, reordering and status updates do not trigger visibility motion.
     private var projectIdentities: Set<RepoID> {
         Set(groups.map(\.id))
+    }
+
+    private var conversationIdentities: Set<SessionID> {
+        Set(app.ask.workspaceConversations.map(\.id))
     }
 
     /// Hidden projects still on screen, whose headers dim when "Show hidden projects" is on.
@@ -661,6 +739,7 @@ struct SidebarView: View {
         case .projects:
             return SidebarPaneRow.rows(
                 groups,
+                showingEmptyProjects: showsEmptyProjects,
                 crew: app.crew(of:),
                 subagents: app.subagents(of:),
                 pending: pending(in:),
@@ -690,6 +769,24 @@ struct SidebarView: View {
                 showsSubagents: subagentDisclosure.shows
             )
         }
+    }
+
+    private func revealProject(_ repo: Repo) {
+        filter = .all
+        storedGrouping = SidebarGrouping.projects.rawValue
+        if repo.hidden { showsHiddenProjects = true }
+        if !app.workspaces.contains(where: { $0.repoID == repo.id }) {
+            showsEmptyProjects = true
+        }
+        projectToReveal = repo.id
+    }
+
+    private func scrollToProject(_ proxy: ScrollViewProxy) {
+        guard let id = projectToReveal else { return }
+        let rowID = "project:" + id.rawValue
+        guard paneRows.contains(where: { $0.id == rowID }) else { return }
+        proxy.scrollTo(rowID, anchor: .center)
+        projectToReveal = nil
     }
 
     /// What one workspace amounts to, which is the same verdict its row's mark is drawn from.
@@ -732,7 +829,7 @@ struct SidebarView: View {
             break
 
         case .project(let id, let offset):
-            let visible = groups.map(\.id)
+            let visible = SidebarReorder.visibleProjects(in: paneRows.map(\.identity))
             Task { await app.reorderProjects(id: id, visible: visible, to: offset) }
 
         case .workspace(let projectID, let offsets, let offset, let landedOutside):
@@ -873,7 +970,7 @@ struct SidebarView: View {
     // No empty state of its own. With no projects, Home in the middle of the window already says
     // so and carries the button that starts one, and a second "No projects yet" with a second
     // Start a project button in the sidebar was the same call to action printed twice on first
-    // run. The Projects heading's `+` and the status bar's projects button are still here.
+    // run. The Projects heading's `+` and the status bar's project browser are still here.
 
     // MARK: - Actions
 
@@ -1008,7 +1105,7 @@ struct SidebarToolbar: ToolbarContent {
                     Label("New", systemImage: "plus")
                 }
                 .menuIndicator(.hidden)
-                .help("New workspace or project")
+                .help("New workspace, project or conversation")
 
                 SidebarToggleButton()
             }

@@ -160,6 +160,7 @@ enum SidebarPaneRow: Identifiable {
     ///   minute later, and the workspace they belong to says how many there are either way.
     static func rows(
         _ groups: [SidebarRepoGroup],
+        showingEmptyProjects: Bool = false,
         crew: (WorkspaceID) -> [CrewRow] = { _ in [] },
         subagents: (WorkspaceID) -> [SubagentRow] = { _ in [] },
         pending: (RepoID) -> [PendingWorkspace] = { _ in [] },
@@ -168,18 +169,16 @@ enum SidebarPaneRow: Identifiable {
         var rows: [SidebarPaneRow] = []
         for group in groups {
             let waiting = pending(group.id)
-            // **A project with nothing in it is not drawn at all.** It used to take two rows, its
-            // header and a sentence saying there was nothing under it, neither of which is work and
-            // both of which are in the way of the rows that are. It is still one press away: the
-            // projects button at the foot of the pane lists every project, empty ones included,
-            // each with its own `+`.
+            // Empty projects are optional because a long list of headers with no work can bury
+            // active work. When shown, they need only a header and its New workspace button.
             //
             // A project whose rows the FILTER is hiding keeps its header and says so, which is the
             // difference `totalWorkspaces` is for: a filter is a question asked for a moment, and a
             // project disappearing while it is asked would be the pane answering a different one.
-            guard group.totalWorkspaces > 0 || !waiting.isEmpty else { continue }
+            guard showingEmptyProjects || group.totalWorkspaces > 0 || !waiting.isEmpty else { continue }
             rows.append(.project(group))
             guard !group.repo.collapsed else { continue }
+            if group.totalWorkspaces == 0, waiting.isEmpty { continue }
             // A project whose only row is one being cut is not a project with no workspaces, so
             // the notice stays away: "No workspaces yet" printed directly above the workspace
             // being made is the sentence answering itself.

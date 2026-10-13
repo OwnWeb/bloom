@@ -264,6 +264,7 @@ enum MenuProbe {
             NSHostingMenu(rootView: SidebarFilterMenuItems(
                 filter: .constant(.all),
                 showsHiddenProjects: .constant(true),
+                showsEmptyProjects: .constant(true),
                 hiddenCount: 2,
                 grouping: .constant(SidebarGrouping.fallback.rawValue)
             ))

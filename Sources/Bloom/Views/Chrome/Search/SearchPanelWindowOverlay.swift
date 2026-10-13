@@ -62,8 +62,8 @@ import BloomCore
 /// The cost is one gesture: a press in the title bar while the panel is up dismisses rather than
 /// starting a window drag, because the drag is a mouse-down and the dismissal takes it. The next
 /// press drags the window normally, which is the same bargain every other click outside makes.
-/// Nothing is swallowed while the panel is closed: the host hit tests to nothing at all then, so
-/// the window under it behaves exactly as it did before this file existed.
+/// Nothing is swallowed while the panel is closed: the host is removed, and its hit test also
+/// answers nothing during the closing transition.
 struct SearchPanelWindowOverlay: View {
     let app: AppModel
     let panel: SearchPanelModel
@@ -72,25 +72,16 @@ struct SearchPanelWindowOverlay: View {
 
     private var geometry: SearchPanelWindowGeometry { .shared }
 
-    /// Ask Bloom's panel shares this ground. It is the other card that has to be in front of the
-    /// whole window rather than one pane of it, and the two never show at once: opening either
-    /// closes the other. See `AskPanelModel`.
-    private var ask: AskPanelModel { .shared }
-
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
                 if panel.isOpen {
                     dim
                     card(inWindow: proxy.size.width)
-                } else if ask.isOpen {
-                    dim
-                    askCard(in: proxy.size)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .animation(reduceMotion ? nil : Motion.pane, value: panel.isOpen)
-            .animation(reduceMotion ? nil : Motion.pane, value: ask.isOpen)
         }
         // A hosting view starts a new SwiftUI environment, so the model has to be handed back in.
         // `TitleBarStrip` does the same, one accessory along, for the same reason.
@@ -110,7 +101,6 @@ struct SearchPanelWindowOverlay: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 panel.close(app: app)
-                ask.close()
             }
             .accessibilityHidden(true)
             .transition(.opacity)
@@ -139,20 +129,6 @@ struct SearchPanelWindowOverlay: View {
         .transition(.opacity)
     }
 
-    /// Centred in the window below the title bar, rather than hung from the top as the search card
-    /// is: it is tall, and a tall card hung from the top leaves its composer at the foot of the
-    /// window with nothing under it.
-    private func askCard(in window: CGSize) -> some View {
-        let room = CGSize(width: window.width, height: window.height - geometry.titleBarHeight)
-        return AskPanelView(
-            app: app,
-            width: AskPanelLayout.width(inWindow: room.width),
-            height: AskPanelLayout.height(inWindow: room.height)
-        )
-        .frame(width: room.width, height: room.height)
-        .padding(.top, geometry.titleBarHeight)
-        .transition(.opacity)
-    }
 }
 
 /// Where the window's own chrome is, measured off the window rather than assumed.
@@ -234,16 +210,12 @@ final class SearchPanelOverlayHost: NSHostingView<SearchPanelWindowOverlay> {
     /// read 72 by 26 at six points of padding and 66 by 20 at three, on every capture, first time.
     private static let trafficLightPadding: CGFloat = 3
 
-    /// Nothing at all while the panel is closed.
-    ///
-    /// This view is installed once and left in the window, because taking it out and putting it
-    /// back is a chance to land in the wrong place in the subview order. So it has to be honestly
-    /// invisible to the pointer the rest of the time: without this, a permanently installed sheet
-    /// of glass over the whole window would eat every click in the app.
+    /// Nothing at all while the panel is closed, including the interval before its host is removed
+    /// from the window. `SearchPanelOverlay` installs it above the other views on each opening.
     ///
     /// The traffic lights are the second nil, and the head of `SearchPanelWindowOverlay` says why.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard SearchPanelModel.shared.isOpen || AskPanelModel.shared.isOpen else { return nil }
+        guard SearchPanelModel.shared.isOpen else { return nil }
         // `point` arrives in the SUPERVIEW's coordinates and the buttons were measured in the
         // superview's coordinates, so they are compared there and nothing is converted. Converting
         // into this view would be the mistake: a hosting view is flipped, so the y would come out

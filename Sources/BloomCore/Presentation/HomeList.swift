@@ -530,7 +530,30 @@ public enum HomeList {
         listing: HomeListing,
         filter: HomeFilter,
         projects: Int,
-        database: DatabaseSize? = nil
+        database: DatabaseSize? = nil,
+        conversationCount: Int = 0
+    ) -> String {
+        let projectSummary = projectSummary(
+            listing: listing, filter: filter, projects: projects, database: database
+        )
+        guard conversationCount > 0 else { return projectSummary }
+        if listing.isSearching {
+            let found = listing.counts.count(of: filter.scope, searching: true) + conversationCount
+            let query = filter.query.trimmingCharacters(in: .whitespaces)
+            return "\(ArchiveDeletion.count(found, "result")) for \u{201C}\(query)\u{201D}"
+        }
+        let phrase = ArchiveDeletion.count(conversationCount, "conversation")
+        if filter.scope == .archived, listing.counts.archived == 0 {
+            return "\(conversationCount) archived \(conversationCount == 1 ? "conversation" : "conversations")"
+        }
+        return projectSummary.isEmpty ? phrase : projectSummary + " \u{00B7} " + phrase
+    }
+
+    private static func projectSummary(
+        listing: HomeListing,
+        filter: HomeFilter,
+        projects: Int,
+        database: DatabaseSize?
     ) -> String {
         guard listing.considered > 0 || listing.archived > 0 else { return "" }
 

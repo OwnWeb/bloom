@@ -507,9 +507,7 @@ final class TerminalHostView: NSView {
 /// `TerminalSessionStore`, which is what keeps a shell running across tab and workspace switches.
 struct TerminalView: NSViewRepresentable {
     var tab: TerminalTab
-    var workspace: Workspace
-    var repo: Repo?
-    var port: Int
+    var owner: TerminalOwner
     /// The folder this pane's shell starts in, empty for the worktree root. Every pane of a tab
     /// gets the tab's, so splitting a terminal opened on a folder stays in that folder, which is
     /// what splitting does in every other terminal.
@@ -552,7 +550,28 @@ struct TerminalView: NSViewRepresentable {
 
     @MainActor private var session: BloomTerminalView {
         TerminalSessionStore.shared.terminal(
-            for: tab, workspace: workspace, repo: repo, port: port, directory: directory, output: output
+            for: tab, owner: owner, directory: directory, output: output
         )
+    }
+}
+
+/// A terminal's directory and identity without claiming that a project-free conversation is a
+/// Git worktree. Conversation shells start in their own directory and have no project environment.
+enum TerminalOwner {
+    case workspace(Workspace, Repo?, port: Int)
+    case conversation(SessionID, directory: String)
+
+    var id: WorkspaceID {
+        switch self {
+        case .workspace(let workspace, _, _): workspace.id
+        case .conversation(let id, _): WorkspaceID("conversation:" + id.rawValue)
+        }
+    }
+
+    var root: String {
+        switch self {
+        case .workspace(let workspace, _, _): workspace.path
+        case .conversation(_, let directory): directory
+        }
     }
 }
