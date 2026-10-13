@@ -222,11 +222,54 @@ struct ChatToolTests {
         #expect(beside.text.contains("Another chat in this workspace is working"))
         #expect(await recorder.created == [
             .init(workspaceID: workspace.id, order: ChatCreateOrder(
-                permissionMode: .acceptEdits, message: "/mr", messageSender: "Current"
+                permissionMode: .acceptEdits, interactionMode: .build,
+                message: "/mr", messageSender: "Current"
             )),
             .init(workspaceID: release.id, order: ChatCreateOrder(message: "Tag it.")),
             .init(workspaceID: workspace.id, order: ChatCreateOrder(
-                permissionMode: .acceptEdits, message: "/mr", messageSender: "Current"
+                permissionMode: .acceptEdits, interactionMode: .build,
+                message: "/mr", messageSender: "Current"
+            )),
+        ])
+    }
+
+    @Test("a message from a Plan chat cannot start a Build turn")
+    func createWithMessageKeepsPlanMode() async throws {
+        let store = try makeTestStore("chat-create-plan-message")
+        let (workspace, current, identity) = try await seed(store)
+        let recorder = ChatMutationRecorder(workspace: workspace)
+        let tool = ChatCreateTool { workspaceID, order in
+            await recorder.create(workspaceID: workspaceID, order: order)
+        }
+        var calling = current
+        calling.agentKind = .codex
+        calling.permissionMode = .acceptEdits
+        calling.interactionMode = .plan
+        calling.state = .running
+        _ = try await store.upsert(calling)
+
+        let inherited = await tool.call(request(["message": .string("Review this")]), as: identity, store: store)
+        let explicit = await tool.call(
+            request(["message": .string("Review this"), "interaction_mode": .string("plan")]),
+            as: identity, store: store
+        )
+        let build = await tool.call(
+            request(["message": .string("Edit this"), "interaction_mode": .string("build")]),
+            as: identity, store: store
+        )
+
+        #expect(!inherited.isError, "\(inherited.text)")
+        #expect(!explicit.isError, "\(explicit.text)")
+        #expect(build.isError)
+        #expect(build.text.contains("own work mode"))
+        #expect(await recorder.created == [
+            .init(workspaceID: workspace.id, order: ChatCreateOrder(
+                permissionMode: .acceptEdits, interactionMode: .plan,
+                message: "Review this", messageSender: "Current"
+            )),
+            .init(workspaceID: workspace.id, order: ChatCreateOrder(
+                permissionMode: .acceptEdits, interactionMode: .plan,
+                message: "Review this", messageSender: "Current"
             )),
         ])
     }

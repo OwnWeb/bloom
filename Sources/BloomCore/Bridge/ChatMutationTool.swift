@@ -58,7 +58,7 @@ public struct ChatCreateOrder: Sendable, Equatable {
     public let model: String?
     public let effort: String?
     public internal(set) var permissionMode: PermissionMode?
-    public let interactionMode: InteractionMode?
+    public internal(set) var interactionMode: InteractionMode?
     public let fastMode: Bool?
     public let outputStyle: String?
     public let contextWindow: Int?
@@ -169,7 +169,7 @@ public struct ChatCreateTool: BridgeToolHandling {
             chat becomes the workspace's active destination. \
             Pass 'message' to start a turn in the new chat with it, as though the owner had typed \
             it, so a slash command runs. Only in your own workspace, and only while no other \
-            chat there is working, in your own permission mode, headed with your chat's name: a \
+            chat there is working, in your own permission and work modes, headed with your chat's name: a \
             message to another workspace goes through workspace_say. \
             A chat started with a message is never terminal-backed. \
             For a handover, close the old chat next.
@@ -294,7 +294,7 @@ public struct ChatCreateTool: BridgeToolHandling {
     }
 
     /// A self-approved turn needs brakes, as `agent_start` and `workspace_say` have: the caller's
-    /// own workspace and permission mode, and one working chat beside it at a time, so a handover
+    /// own workspace, permission mode and work mode, and one working chat beside it at a time, so a handover
     /// passes and a fan-out or an escalation does not.
     static func messageOrder(
         _ order: ChatCreateOrder, from identity: BridgeIdentity, into workspaceID: WorkspaceID, among sessions: [Session]
@@ -313,6 +313,12 @@ public struct ChatCreateTool: BridgeToolHandling {
                     + "'\(caller.permissionMode.rawValue)'. Leave 'permission_mode' out."
             ))
         }
+        if let asked = order.interactionMode, asked != caller.interactionMode {
+            return .failure(PaneRefusal(
+                "With a 'message', the new chat runs in your own work mode, "
+                    + "'\(caller.interactionMode.rawValue)'. Leave 'interaction_mode' out."
+            ))
+        }
         let busy = sessions.contains {
             $0.id != caller.id && $0.parentSessionID == nil && $0.sideConversationParentID == nil && $0.state.isMidTurn
         }
@@ -324,6 +330,7 @@ public struct ChatCreateTool: BridgeToolHandling {
         }
         var headed = order
         headed.permissionMode = caller.permissionMode
+        headed.interactionMode = caller.interactionMode
         headed.messageSender = ChatListTool.title(of: caller)
         return .success(headed)
     }
