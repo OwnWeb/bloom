@@ -44,6 +44,20 @@ enum GitLabDecoding {
         let finishedAt: String?
     }
 
+    struct CommitPayload: Decodable, Equatable {
+        let sha: String?
+        let title: String?
+
+        enum CodingKeys: String, CodingKey {
+            case sha = "id"
+            case title
+        }
+    }
+
+    static func commits(from data: Data) throws -> [CommitPayload] {
+        try decode([CommitPayload].self, from: data)
+    }
+
     static func mergeRequest(from data: Data) throws -> MergeRequestPayload {
         try decode(MergeRequestPayload.self, from: data)
     }

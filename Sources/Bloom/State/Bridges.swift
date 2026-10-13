@@ -5,11 +5,13 @@ import BloomCore
 /// The one place the app layer touches `GitHub`. Keeping it behind a single adapter means a
 /// change to the gh wrapper's signature is a one-file fix rather than a sweep through views.
 ///
-/// Pull requests can be prepared by an agent or directly through git and gh. Direct merges and
-/// marking a draft ready also use the GitHub CLI without involving an agent.
+/// Pull requests can be prepared by an agent or directly through git and gh, or glab on GitLab.
+/// Direct merges and marking a draft ready also use the forge's CLI without involving an agent.
 enum GitHubBridge {
     static func createPullRequestDirectly(for workspace: Workspace) async throws -> PullRequest {
-        try await DirectPullRequestCreation.create(for: workspace)
+        try await DirectPullRequestCreation.create(
+            for: workspace, forge: await ForgeResolver.forge(for: workspace.path)
+        )
     }
     static func readPullRequest(for workspace: Workspace, maxAge: Duration = .zero) async -> PullRequestRead {
         guard await ForgeResolver.forge(for: workspace.path) == .gitHub else {
@@ -51,7 +53,9 @@ enum GitHubBridge {
     static func mergePullRequest(
         _ pullRequest: PullRequest, base: String, method: GitHub.MergeMethod, worktree: String
     ) async throws -> DirectMergeOutcome {
-        try await GitHub.mergePullRequest(pullRequest, into: base, method: method, worktree: worktree)
+        try await ForgeResolver.client(of: pullRequest.forge).mergePullRequest(
+            pullRequest, into: base, method: method, worktree: worktree
+        )
     }
 
     /// Nil when GitHub refused this token the check runs. A failed read is still an empty list,

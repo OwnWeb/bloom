@@ -158,7 +158,7 @@ struct PullRequestCreator: View {
 
     /// A single title-bar control. Its popover chooses how to create the PR now.
     private var branchActionsButton: some View {
-        Button("Create PR") { isShowingBranchActions = true }
+        Button("Create \(forge.shortRequest)") { isShowingBranchActions = true }
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.roundedRectangle(radius: Metrics.corner))
             .tint(Palette.controlAccent)

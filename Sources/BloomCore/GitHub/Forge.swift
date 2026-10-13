@@ -14,6 +14,32 @@ public enum Forge: String, Sendable, Hashable, Codable {
         }
     }
 
+    /// `request` at the start of a sentence.
+    public var titledRequest: String {
+        request.prefix(1).uppercased() + request.dropFirst()
+    }
+
+    /// `PR` or `MR`, where a button has room for little else.
+    public var shortRequest: String {
+        switch self {
+        case .gitHub: "PR"
+        case .gitLab: "MR"
+        }
+    }
+
+    /// The command line tool Bloom runs for this forge.
+    public var cli: String {
+        switch self {
+        case .gitHub: "gh"
+        case .gitLab: "glab"
+        }
+    }
+
+    /// `gh pr merge`, `glab mr merge`.
+    public func command(_ verb: String) -> String {
+        "\(cli) \(self == .gitHub ? "pr" : "mr") \(verb)"
+    }
+
     public var name: String {
         switch self {
         case .gitHub: "GitHub"
