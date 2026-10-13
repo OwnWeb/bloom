@@ -15,7 +15,10 @@ extension WorkspaceModel {
         await checkFailures.send(run, in: self)
     }
 
-    var gitHubReadiness: GitHubAvailability.State { GitHubAvailability.shared.state }
+    /// GitLab reports its own access through the read, so gh's state says nothing about it.
+    var gitHubReadiness: GitHubAvailability.State {
+        forge == .gitLab ? .ready : GitHubAvailability.shared.state
+    }
 
     func continueAfterMerge(_ pullRequest: PullRequest) async -> AppModel.ContinuationOutcome {
         await app.continueAfterMerge(workspace, pullRequest: pullRequest)
