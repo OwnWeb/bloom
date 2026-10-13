@@ -23,6 +23,9 @@ final class GitHubSignIn {
         /// Where the login runs. Any directory would do; the worktree the user was looking at
         /// keeps the shell's idea of "here" the same as theirs.
         var directory: String
+        var forge: Forge = .gitHub
+        /// The GitLab host to sign in to. Nil on GitHub.
+        var host: String?
 
         static func == (lhs: Request, rhs: Request) -> Bool { lhs.id == rhs.id }
     }
@@ -69,6 +72,20 @@ final class GitHubSignIn {
     /// updated by the probe, so whatever offered this button goes away on its own.
     func present(directory: String) {
         run(directory: directory) {}
+    }
+
+    /// glab's state for this directory's host, with the accounts read again once it is ready, so a
+    /// sign in shows in Agents and in `gitlab_username` without a relaunch.
+    func gitLabAccess(in directory: String) async -> GitHubAvailability.State {
+        let state = GitHubAvailability.State(await GitLab.access(in: directory))
+        if state == .ready { await GitLabIdentity.resolve(force: true) }
+        return state
+    }
+
+    /// The GitLab sheet, for a read that failed because glab is missing or signed out.
+    func presentGitLab(directory: String, host: String?, access: GitHubAvailability.State) {
+        pending = nil
+        request = Request(access: access, directory: directory, forge: .gitLab, host: host)
     }
 
     /// Closes the sheet. On success the remembered action runs, on the same turn of the run loop

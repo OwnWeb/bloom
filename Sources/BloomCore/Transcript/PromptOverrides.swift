@@ -61,11 +61,32 @@ public struct PromptOverrides: @unchecked Sendable {
         return override
     }
 
+    /// The built-in a forge starts from. Prompts with no GitLab variant are shared, overrides too.
+    public static func defaultTemplate(for id: PromptID, forge: Forge) -> String {
+        let shared = PromptRegistry.definition(for: id).defaultTemplate
+        return forge == .gitLab ? GitLabInstructions.defaultTemplate(for: id) ?? shared : shared
+    }
+
+    public static func hasVariant(_ id: PromptID, for forge: Forge) -> Bool {
+        forge == .gitHub || GitLabInstructions.defaultTemplate(for: id) != nil
+    }
+
+    public func stored(for id: PromptID, forge: Forge) -> String? {
+        guard Self.hasVariant(id, for: forge), forge == .gitLab else { return stored(for: id) }
+        return defaults.string(forKey: Self.key(for: id, forge: forge))
+    }
+
+    public func set(_ text: String?, for id: PromptID, forge: Forge) {
+        guard Self.hasVariant(id, for: forge), forge == .gitLab else { return set(text, for: id) }
+        let key = Self.key(for: id, forge: forge)
+        if let text { defaults.set(text, forKey: key) } else { defaults.removeObject(forKey: key) }
+    }
+
     public func template(for id: PromptID, forge: Forge) -> String {
-        guard forge == .gitLab else { return template(for: id) }
-        let override = defaults.string(forKey: Self.key(for: id, forge: forge)) ?? ""
+        guard forge == .gitLab, Self.hasVariant(id, for: .gitLab) else { return template(for: id) }
+        let override = stored(for: id, forge: forge) ?? ""
         guard !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return GitLabInstructions.defaultTemplate(for: id) ?? PromptRegistry.definition(for: id).defaultTemplate
+            return Self.defaultTemplate(for: id, forge: forge)
         }
         return override
     }
