@@ -12,6 +12,9 @@ enum GitHubBridge {
         try await DirectPullRequestCreation.create(for: workspace)
     }
     static func readPullRequest(for workspace: Workspace, maxAge: Duration = .zero) async -> PullRequestRead {
+        guard await ForgeResolver.forge(for: workspace.path) == .gitHub else {
+            return await GitLab.readPullRequest(for: workspace, maxAge: maxAge)
+        }
         let availability = await GitHubAvailability.shared.check()
         if availability == .notInstalled {
             return .unavailable(GitHubReadFailure(reason: .unavailable, message: "Install the GitHub CLI to refresh pull requests."))
@@ -19,7 +22,7 @@ enum GitHubBridge {
         guard availability == .ready else {
             return .unavailable(GitHubReadFailure(reason: .authentication, message: "Connect GitHub to refresh pull requests."))
         }
-        return await ForgeResolver.client(for: workspace.path).readPullRequest(for: workspace, maxAge: maxAge)
+        return await GitHub.readPullRequest(for: workspace, maxAge: maxAge)
     }
 
     /// - Parameter maxAge: how old an answer from the last `gh pr view` may be and still be used.
