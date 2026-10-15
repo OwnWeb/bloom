@@ -37,7 +37,7 @@ struct PullRequestSummary: View {
     /// and `onMerge`.
     var onChooseMergeMethod: (GitHub.MergeMethod) -> Void
     var onChooseMergeExecution: (MergeExecution) -> Void
-    var onMerge: (GitHub.MergeMethod, MergeExecution) -> Void
+    var onMerge: (GitHub.MergeMethod, MergeExecution, SquashCommitMessage?) -> Void
     var onMarkReadyForReview: () -> Void
     /// Hands the outstanding work to the workspace's agent to commit and push.
     var onPush: () -> Void
@@ -229,9 +229,9 @@ struct PullRequestSummary: View {
                         deletesBranch: Self.deletesBranch,
                         canMerge: canConfirmMerge,
                         tint: status.tone.fill,
-                        onConfirm: {
+                        onConfirm: { message in
                             pendingMerge = nil
-                            onMerge(method, mergeExecution)
+                            onMerge(method, mergeExecution, message)
                         },
                         onCancel: { pendingMerge = nil }
                     )

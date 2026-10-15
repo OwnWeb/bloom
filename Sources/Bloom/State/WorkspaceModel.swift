@@ -2606,6 +2606,7 @@ final class WorkspaceModel {
     func requestMerge(
         _ pullRequest: PullRequest,
         method: GitHub.MergeMethod,
+        squashMessage: SquashCommitMessage? = nil,
         overrides: PromptOverrides = PromptOverrides()
     ) async -> String? {
         guard let session = await sessionForPullRequest(titledIfNew: "Merge") else {
@@ -2622,17 +2623,19 @@ final class WorkspaceModel {
         )
         let render = context.render(template: overrides.template(for: .mergePullRequest))
 
-        let text = await turn(render.text, for: .merge)
+        let asked = squashMessage?.instruction(proposed: .proposed(for: pullRequest))
+        let text = await turn([render.text, asked].compactMap { $0 }.joined(separator: "\n\n"), for: .merge)
         activeSessionID = session.id
         await transcript(for: session).submit(text)
         return nil
     }
 
     func mergePullRequestDirectly(
-        _ pullRequest: PullRequest, method: GitHub.MergeMethod
+        _ pullRequest: PullRequest, method: GitHub.MergeMethod, squashMessage: SquashCommitMessage? = nil
     ) async throws -> DirectMergeOutcome {
         let outcome = try await GitHubBridge.mergePullRequest(
-            pullRequest, base: workspace.baseBranch, method: method, worktree: workspace.path
+            pullRequest, base: workspace.baseBranch, method: method,
+            squashMessage: squashMessage, worktree: workspace.path
         )
         await refreshPullRequest()
         return outcome

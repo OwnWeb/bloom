@@ -392,7 +392,8 @@ public enum GitHub {
     /// automatic merge flag. GitHub may put a repository with a merge queue into that queue.
     /// The result says whether it has actually landed, rather than calling a queued request done.
     public static func mergePullRequest(
-        _ expected: PullRequest, into base: String, method: MergeMethod, worktree: String
+        _ expected: PullRequest, into base: String, method: MergeMethod,
+        squashMessage: SquashCommitMessage? = nil, worktree: String
     ) async throws -> DirectMergeOutcome {
         guard expected.number > 0, !expected.url.isEmpty,
               let expectedHead = expected.headRevision, Self.isCommitID(expectedHead),
@@ -432,7 +433,7 @@ public enum GitHub {
         let arguments = [
             "pr", "merge", String(expected.number), method.flag,
             "--match-head-commit", expectedHead,
-        ]
+        ] + (method == .squash ? squashMessage?.mergeArguments ?? [] : [])
         let result = try await run("gh", arguments, cwd: worktree, timeout: .seconds(60))
         if !result.ok {
             if let after = try? await snapshot(

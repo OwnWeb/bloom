@@ -46,9 +46,12 @@ enum GitHubBridge {
     }
 
     static func mergePullRequest(
-        _ pullRequest: PullRequest, base: String, method: GitHub.MergeMethod, worktree: String
+        _ pullRequest: PullRequest, base: String, method: GitHub.MergeMethod,
+        squashMessage: SquashCommitMessage?, worktree: String
     ) async throws -> DirectMergeOutcome {
-        try await GitHub.mergePullRequest(pullRequest, into: base, method: method, worktree: worktree)
+        try await GitHub.mergePullRequest(
+            pullRequest, into: base, method: method, squashMessage: squashMessage, worktree: worktree
+        )
     }
 
     /// Nil when GitHub refused this token the check runs. A failed read is still an empty list,
