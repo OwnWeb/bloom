@@ -158,10 +158,10 @@ struct ChecksView: View {
             EmptyStateView(
                 glyph: "checkmark.seal",
                 title: "No checks",
-                message: "GitHub has not reported a check run for this branch."
+                message: "\(model.forge.name) has not reported a check run for this branch."
             )
         } else {
-            LoadingView("Asking GitHub")
+            LoadingView("Asking \(model.forge.name)")
         }
     }
 
@@ -220,7 +220,7 @@ struct ChecksView: View {
             // Asked every pass rather than once: gh can be signed in from a terminal while this
             // tab is open, and the answer is cached, so this costs a subprocess only when it
             // has actually expired.
-            let state = await GitHubAvailability.shared.check()
+            let state = await model.checksReadiness()
             github = state
 
             if state == .ready {

@@ -36,7 +36,11 @@ public enum ForgeResolver {
     private static let resolutions = ForgeResolutions()
 
     public static func client(for directory: String) async -> any ForgeClient.Type {
-        switch await forge(for: directory) {
+        client(of: await forge(for: directory))
+    }
+
+    public static func client(of forge: Forge) -> any ForgeClient.Type {
+        switch forge {
         case .gitHub: GitHubForge.self
         case .gitLab: GitLab.self
         }
