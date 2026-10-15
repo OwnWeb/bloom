@@ -401,7 +401,7 @@ struct PullRequestSummary: View {
     }
 
     private var archiveHelp: String {
-        return "Remove this workspace's worktree. #\(pullRequest.number) is merged, so "
+        return "Remove this workspace's worktree. \(pullRequest.forge.reference(pullRequest.number)) is merged, so "
             + "this asks first only when something here exists nowhere else."
     }
 
@@ -434,7 +434,7 @@ struct PullRequestSummary: View {
                 branchActions.reason
                     ?? "Ask this workspace's agent to \(pushLabel.lowercased()) branch "
                         + "\(pullRequest.branch.isEmpty ? "this branch" : pullRequest.branch), so "
-                        + "#\(pullRequest.number) is what is on this disk."
+                        + "\(pullRequest.forge.reference(pullRequest.number)) is what is on this disk."
             )
     }
 
@@ -502,7 +502,7 @@ struct PullRequestSummary: View {
             .help(
                 branchActions.reason
                     ?? "Ask this workspace's agent to bring \(baseBranch) into this worktree and "
-                        + "resolve the conflicts here. Nothing is pushed and #\(pullRequest.number)"
+                        + "resolve the conflicts here. Nothing is pushed and \(pullRequest.forge.reference(pullRequest.number))"
                         + " is not merged."
             )
     }
@@ -582,7 +582,7 @@ struct PullRequestSummary: View {
     /// request is this" without spending any of the strip's width on an answer the reader already
     /// has from the workspace name.
     private var helpText: String {
-        var text = "#\(pullRequest.number) \(pullRequest.title)"
+        var text = "\(pullRequest.forge.reference(pullRequest.number)) \(pullRequest.title)"
         if let detail = status.detail { text += "\n\(detail)" }
         if let reason = status.blockedReason { text += "\n\(reason)" }
         return text
