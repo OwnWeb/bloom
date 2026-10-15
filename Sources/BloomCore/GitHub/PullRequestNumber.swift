@@ -28,7 +28,8 @@ public enum PullRequestNumber {
         // Zero is a real value rather than a hypothetical: `GitHub.decodePullRequest` reads a
         // payload with no `number` in it as 0, which an older gh produces, and a 0 written here
         // would be asked about by `gh pr view 0` on every poll for the rest of the row's life.
-        guard let found, found.number > 0, found.number != recorded else { return nil }
+        // GitHub's only: GitLab needs no recorded number, and an iid here would be read as one.
+        guard let found, found.forge == .gitHub, found.number > 0, found.number != recorded else { return nil }
         return found.number
     }
 
