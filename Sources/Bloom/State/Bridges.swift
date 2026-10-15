@@ -19,7 +19,7 @@ enum GitHubBridge {
         guard availability == .ready else {
             return .unavailable(GitHubReadFailure(reason: .authentication, message: "Connect GitHub to refresh pull requests."))
         }
-        return await GitHub.readPullRequest(for: workspace, maxAge: maxAge)
+        return await ForgeResolver.client(for: workspace.path).readPullRequest(for: workspace, maxAge: maxAge)
     }
 
     /// - Parameter maxAge: how old an answer from the last `gh pr view` may be and still be used.
@@ -42,7 +42,7 @@ enum GitHubBridge {
     }
 
     static func markReadyForReview(_ pullRequest: PullRequest, worktree: String) async throws {
-        try await GitHub.markReadyForReview(pullRequest, worktree: worktree)
+        try await ForgeResolver.client(for: worktree).markReadyForReview(pullRequest, worktree: worktree)
     }
 
     static func mergePullRequest(
@@ -58,7 +58,7 @@ enum GitHubBridge {
     /// as it always was, because `try?` would flatten it into that nil.
     static func checks(for workspace: Workspace) async -> [CheckRun]? {
         do {
-            return try await GitHub.checks(for: workspace)
+            return try await ForgeResolver.client(for: workspace.path).checks(for: workspace)
         } catch {
             return []
         }
