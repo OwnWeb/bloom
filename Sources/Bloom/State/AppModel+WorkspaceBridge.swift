@@ -344,13 +344,14 @@ extension AppModel {
             inheriting: inherited
         )
 
-        if let permission = order.permissionMode {
+        let modes = order.modes(on: controls.agentKind)
+        if let permission = modes.permission {
             guard controls.availablePermissionModes.contains(permission) else {
                 throw BridgeAgentControlFailure.unsupportedPermission(permission, agent: controls.agentKind)
             }
             controls.permissionMode = permission
         }
-        if let interaction = order.interactionMode {
+        if let interaction = modes.interaction {
             guard interaction.nearest(on: controls.agentKind) == interaction else {
                 throw BridgeAgentControlFailure.unsupportedInteraction(interaction, agent: controls.agentKind)
             }
@@ -556,7 +557,9 @@ extension AppModel {
         guard let content = await model.createChat(
             title: order.title,
             controls: controls,
-            usesCLI: order.terminalChat
+            usesCLI: order.terminalChat,
+            message: order.message,
+            messageSender: order.messageSender
         ),
               case .chat(let sessionID) = content,
               let session = model.sessions.first(where: { $0.id == sessionID }) else {

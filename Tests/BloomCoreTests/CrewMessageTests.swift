@@ -37,6 +37,16 @@ struct CrewMessageTests {
         #expect(!brief.sent.contains(BridgeUntrustedText.opening))
     }
 
+    /// A slash command only runs when it reaches the model as the first characters of the turn.
+    @Test("a chat's opening is not wrapped, so a slash command in it runs")
+    func openingIsNotWrapped() {
+        let opening = CrewMessage.opening(from: "Chat", text: "/mr")
+
+        #expect(opening.event == .opening)
+        #expect(opening.sent == "/mr")
+        #expect(opening.text == "/mr")
+    }
+
     /// The model needs the sentence that tells it what to do next. The owner needs to know an
     /// agent finished, and does not need an instruction addressed to somebody else.
     @Test("a stop says one line on screen and a paragraph to the model")
