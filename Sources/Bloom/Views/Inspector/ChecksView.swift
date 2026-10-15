@@ -150,15 +150,19 @@ struct ChecksView: View {
         } else if checksUnavailable {
             EmptyStateView(
                 glyph: "lock",
-                title: "Checks unavailable",
-                message: "GitHub did not let this token read check runs. A fine-grained personal "
-                    + "access token cannot be given that permission, so their results are unknown."
+                title: model.forge == .gitHub ? "Checks unavailable" : "Pipeline unavailable",
+                message: model.forge == .gitHub
+                    ? "GitHub did not let this token read check runs. A fine-grained personal "
+                        + "access token cannot be given that permission, so their results are unknown."
+                    : "GitLab did not let this token read the pipeline's jobs, so their results are unknown."
             )
         } else if hasLoaded {
             EmptyStateView(
                 glyph: "checkmark.seal",
-                title: "No checks",
-                message: "\(model.forge.name) has not reported a check run for this branch."
+                title: model.forge == .gitHub ? "No checks" : "No pipeline",
+                message: model.forge == .gitHub
+                    ? "GitHub has not reported a check run for this branch."
+                    : "GitLab has not reported a pipeline for this merge request."
             )
         } else {
             LoadingView("Asking \(model.forge.name)")
