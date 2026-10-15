@@ -185,6 +185,13 @@ public extension GitHub {
     internal static func snapshot(
         for workspace: Workspace, onBranch head: String, maxAge: Duration
     ) async throws -> PullRequestSnapshot? {
+        // A local-only repository has no GitHub pull request to refresh. Let a failed git
+        // probe continue through the normal lookup so an actual repository error stays visible.
+        if ProcessInfo.processInfo.environment["GH_REPO"] == nil,
+           let remotes = try? await Git.remoteNames(of: workspace.path), remotes.isEmpty {
+            return nil
+        }
+
         if let found = try await snapshot(
             forBranch: head, worktree: workspace.path, maxAge: maxAge
         ), await owns(found.pullRequest, workspace: workspace, onBranch: head) {

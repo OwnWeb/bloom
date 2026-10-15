@@ -4,6 +4,28 @@ import Testing
 
 @Suite("GitHub read reliability", .scratchDirectory)
 struct GitHubReadReliabilityTests {
+    @Test("a local repository without remotes has no pull request to refresh", .tags(.git))
+    func localRepositoryWithoutRemotes() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        let workspace = Workspace(
+            repoID: RepoID.new(), name: "Local work", branch: "main",
+            path: repo.path, baseBranch: "main"
+        )
+
+        let read = await GitHub.$commandOverride.withValue({ _, _ in
+            Issue.record("A local-only repository should not call gh")
+            return ShellResult(status: 1, stdout: "", stderr: "no git remotes found")
+        }) {
+            await GitHub.readPullRequest(for: workspace)
+        }
+        guard case .current(let pullRequest) = read else {
+            Issue.record("A local-only repository should be a confirmed absence")
+            return
+        }
+        #expect(pullRequest == nil)
+    }
+
     @Test("a missing numbered PR is an answer, while transport and malformed output remain failures")
     func absenceVersusFailure() async throws {
         let missingPath = TestScratch.unique("missing-pr")
