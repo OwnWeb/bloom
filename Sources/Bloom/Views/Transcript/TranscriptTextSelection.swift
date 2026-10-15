@@ -99,15 +99,20 @@ final class TranscriptTextSelection {
     func extend(at point: NSPoint) {
         let views = orderedViews
         // A table has neighbours on the same line, so choose the nearest rectangle in both axes.
-        guard let target = views.min(by: { distance(point, from: $0) < distance(point, from: $1) }) else { return }
+        guard let target = views.min(by: {
+            $0.squaredDistance(fromWindowPoint: point) < $1.squaredDistance(fromWindowPoint: point)
+        }) else { return }
         extend(to: target, offset: target.selectionOffset(at: point))
     }
+}
 
-    private func distance(_ point: NSPoint, from view: NSView) -> CGFloat {
-        let rect = view.convert(view.bounds, to: nil)
-        let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
-        let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
-        return dx * dx + dy * dy
+extension NSView {
+    /// How far a window point is from this view's rectangle, squared, and nought inside it.
+    func squaredDistance(fromWindowPoint point: NSPoint) -> CGFloat {
+        let rect = convert(bounds, to: nil)
+        let horizontal = max(rect.minX - point.x, 0, point.x - rect.maxX)
+        let vertical = max(rect.minY - point.y, 0, point.y - rect.maxY)
+        return horizontal * horizontal + vertical * vertical
     }
 }
 
@@ -158,7 +163,12 @@ extension LinkTextView {
                 // later click in the window unhandled until Bloom quits.
                 break
             }
-            guard latest.type == .leftMouseDragged else { continue }
+            // A press on a link that shifts by a point is still a click, and must still open it.
+            guard latest.type == .leftMouseDragged,
+                  dragged || TranscriptDrag.text.leavesClick(
+                      dx: latest.locationInWindow.x - event.locationInWindow.x,
+                      dy: latest.locationInWindow.y - event.locationInWindow.y
+                  ) else { continue }
             dragged = true
             // The transcript's vertical scroll view, including when this text is inside a
             // horizontally scrolling code fence. Repeating at the edge also scrolls a held drag.
