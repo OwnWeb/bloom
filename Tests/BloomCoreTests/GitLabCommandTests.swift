@@ -55,7 +55,8 @@ struct GitLabCommandTests {
     func unreadableJobs() async throws {
         let repo = try await TempRepo()
         defer { repo.cleanUp() }
-        try await Shell.check("git", ["remote", "add", "origin", "git@gitlab.com:gitlab-org/cli.git"], cwd: repo.path)
+        // Its own host, so the finished pipeline another test reads is not served from the cache.
+        try await Shell.check("git", ["remote", "add", "origin", "git@gitlab.unreadable.example:gitlab-org/cli.git"], cwd: repo.path)
         let detail = try fixture("mr-not-approved.json")
 
         let found = try await GitLab.$commandOverride.withValue({ arguments, _ in
@@ -103,5 +104,41 @@ private actor GlabLog {
 
     func append(_ arguments: [String]) {
         commands.append(arguments)
+    }
+}
+
+@Suite("GitLab read sharing")
+struct GitLabReadSharingTests {
+    @Test("a finished pipeline's jobs are read once, a running one's every time")
+    func finishedJobs() async {
+        let reads = GitLabReads()
+        let runs = [CheckRun(name: "test", status: "COMPLETED", conclusion: "SUCCESS")]
+        await reads.remember(runs, of: "host/1/10", status: "running")
+        #expect(await reads.jobs(of: "host/1/10", status: "running") == nil)
+        await reads.remember(runs, of: "host/1/11", status: "failed")
+        #expect(await reads.jobs(of: "host/1/11", status: "failed") == runs)
+        // A retried job moves the same pipeline back to running: the old jobs must not be served.
+        #expect(await reads.jobs(of: "host/1/11", status: "running") == nil)
+    }
+
+    @Test("an answer is reused only for a caller that allows one")
+    func maxAge() async throws {
+        let reads = GitLabReads()
+        let counter = ReadCounter()
+        for _ in 0..<2 {
+            _ = try await reads.snapshot(for: "/tmp/w", maxAge: .seconds(60)) { await counter.read() }
+        }
+        #expect(await counter.count == 1)
+        _ = try await reads.snapshot(for: "/tmp/w", maxAge: .zero) { await counter.read() }
+        #expect(await counter.count == 2)
+    }
+}
+
+private actor ReadCounter {
+    private(set) var count = 0
+
+    func read() -> GitLab.Snapshot? {
+        count += 1
+        return nil
     }
 }
