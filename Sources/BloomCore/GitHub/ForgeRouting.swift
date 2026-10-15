@@ -120,7 +120,7 @@ actor GlabSignIn {
     private var probes: [String: Task<Bool, Never>] = [:]
 
     static func isInstalled() -> Bool {
-        GitLab.commandOverride != nil || Shell.which("glab") != nil
+        GitLab.isInstalled
     }
 
     func isSignedIn(to host: String) async -> Bool {
