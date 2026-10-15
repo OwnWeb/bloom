@@ -88,10 +88,28 @@ enum BrowserTab {
     /// have is `BrowserPopups`, which has already answered by the time this is called.
     static func openWindow(_ url: URL, in model: WorkspaceModel) {
         guard canOpen(url) else { return }
+        addInFront(url, in: model)
+    }
+
+    /// A tab 1Password's extension asked for, in front, with its session made now rather than on
+    /// the pane's next update, because the extension is waiting on it. `openWindow` above refuses
+    /// the extension's own pages, which is right for a page and wrong here, so this is its own
+    /// door with its own, narrower, rule.
+    static func openExtensionTab(_ url: URL, in model: WorkspaceModel) -> BrowserSession? {
+        guard BrowserPasswordManager.mayOpenTab(url) else { return nil }
+        let tab = addInFront(url, in: model)
+        return CenterTabStore.shared.browser(for: tab, root: model.workspace.path)
+    }
+
+    /// A new browser tab on `url`, in front. The two doors above differ only in which addresses
+    /// they let through, and this is everything they share, so they cannot drift apart.
+    @discardableResult
+    private static func addInFront(_ url: URL, in model: WorkspaceModel) -> CenterTab {
         let tab = CenterTabStore.shared.add(
             kind: .browser, workspaceID: model.workspace.id, url: url.absoluteString
         )
         WorkspaceTabsStore.shared.reveal(.tool(tab.id), in: model)
+        return tab
     }
 
     static func open(_ url: URL, in model: WorkspaceModel) {

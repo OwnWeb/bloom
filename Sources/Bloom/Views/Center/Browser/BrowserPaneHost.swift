@@ -20,6 +20,13 @@ import BloomCore
 struct BrowserPaneHost {
     /// Open a browser tab on this address, in front. `BrowserTab.openWindow` is the one door.
     var openTab: (URL) -> Void = { _ in }
+    /// Open a browser tab for the 1Password extension and hand back its session, because the
+    /// extension reads the tab it asked for straight away and throws on nil. Wider than `openTab`
+    /// by the extension's own pages only. See `BrowserPasswordManager.mayOpenTab`.
+    var openExtensionTab: (URL) -> BrowserSession? = { _ in nil }
+    /// Close this tab, for the 1Password extension's `tabs.remove`. False when no pane is drawing
+    /// the session, which leaves nothing that knows which tab it is.
+    var closeTab: () -> Bool = { false }
     /// Tell the reader something Bloom decided on their behalf. There is one of these so far, and
     /// it is a page being refused more windows than `BrowserPopups` allows.
     var report: (BrowserPopups.Notice) -> Void = { _ in }

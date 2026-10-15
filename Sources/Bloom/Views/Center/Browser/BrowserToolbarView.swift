@@ -76,6 +76,9 @@ struct BrowserToolbarView: View {
     var isSavingReview = false
     var viewport: Binding<BrowserViewport> = .constant(BrowserViewport())
     var submit: @MainActor () -> Void = {}
+    /// 1Password's button, when its extension is loaded in this tab. See `BrowserExtensionHost`.
+    var extensionAction: BrowserExtensionAction?
+    var extensionAnchor: @MainActor (NSView) -> Void = { _ in }
 
     /// Drawn inside the field's own edge rather than outside it, so the bar does not have to give
     /// the ring clearance. See `HomeBar.focusRingWidth`.
@@ -167,6 +170,15 @@ struct BrowserToolbarView: View {
     /// Joining all six buttons made unrelated actions read as one segmented control.
     private var pageActions: some View {
         HStack(spacing: Metrics.spacing) {
+            // First, beside the address, which is where every Mac browser puts an extension's
+            // button, because what it acts on is the page at that address.
+            if let extensionAction {
+                actionGroup {
+                    BrowserExtensionButton(action: extensionAction, anchor: extensionAnchor)
+                        .frame(width: pageActionWidth, height: Metrics.controlHeight)
+                }
+                .disabled(isReviewing)
+            }
             actionGroup {
                 BrowserViewportButton(viewport: viewport)
                     .frame(width: pageActionWidth, height: Metrics.controlHeight)

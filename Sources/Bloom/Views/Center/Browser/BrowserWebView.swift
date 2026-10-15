@@ -65,6 +65,10 @@ final class BrowserPageWebView: WKWebView {
     /// state the bar is drawn from.
     var findCommand: (@MainActor (BrowserFindCommand) -> Void)?
 
+    /// Told when the page arrives in a window or is clicked, which is how the browser extension
+    /// learns which tab the reader is looking at. Set by `BrowserSession`.
+    var wasShown: (@MainActor () -> Void)?
+
     /// `NSMenuItem` does not own what answers it, so the menu the items came out of is kept until
     /// the next right click replaces it. Letting it go at the end of `willOpenMenu` leaves a menu
     /// of rows that draw and do nothing.
@@ -85,6 +89,16 @@ final class BrowserPageWebView: WKWebView {
             hosted.removeItem(item)
             menu.addItem(item)
         }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { wasShown?() }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        wasShown?()
+        super.mouseDown(with: event)
     }
 
     // MARK: - Find in page

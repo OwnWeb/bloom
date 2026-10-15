@@ -18,10 +18,17 @@ import BloomCore
 /// calls `browser_console`. What a page can do with it is post lines into a capped log that
 /// reaches a model marked as untrusted, which is no more than the page could already say in its
 /// own text. See `BrowserSession+Agent`.
+///
+/// The one addition is 1Password's Safari extension, when it is switched on in Settings: it runs
+/// in these pages as it would in Safari, and its own pages are kept from every `browser_` tool.
+/// See `BrowserExtensionHost` and `BrowserPasswordManager.agentRefusal`.
 @MainActor
 @Observable
 final class BrowserSession {
-    let webView: BrowserPageWebView
+    /// The page. A `var` for one reason: a tab showing one of 1Password's own pages has to be
+    /// given a new web view once the extension loads, because WebKit takes a web view's
+    /// configuration when it is made and never again. See `adoptExtension(configuration:)`.
+    @ObservationIgnored private(set) var webView: BrowserPageWebView
 
     /// What a pane actually puts on screen, which is not the web view itself.
     ///
@@ -110,6 +117,29 @@ final class BrowserSession {
     /// two of them racing to file an answer against two different origins.
     @ObservationIgnored private var iconRequest: Task<Void, Never>?
 
+    /// This tab as 1Password's extension sees it, or nil when the extension was off as the web view
+    /// was made, which is the only moment WebKit lets one be attached. See `BrowserExtensionHost`.
+    @ObservationIgnored private(set) var extensionTab: BrowserExtensionTab?
+
+    /// The extension's toolbar button, which its popup hangs from. Set by the button as it is
+    /// drawn, weak because the pane owns it.
+    @ObservationIgnored weak var extensionAnchor: NSView?
+
+    /// How many times this tab has arrived on one of 1Password's own pages. Only ever moves up, so
+    /// a bridge call that reads it before and after knows whether the tab went to one in between,
+    /// even if it has left again. See `BrowserPasswordManager.agentRefusal`.
+    @ObservationIgnored private(set) var protectedPageArrivals = 0
+
+    /// Whether the web view was made with the extension's configuration, which is the only kind
+    /// that can show 1Password's own pages and the one kind that cannot leave them. See
+    /// `BrowserPasswordManager.crossing`.
+    @ObservationIgnored private var showsExtensionPages = false
+
+    /// Set by `stop`. A closed tab can still be reached by the extension's waiting list or by a
+    /// navigation decision that was in flight as it closed, and either would otherwise give it a
+    /// new web view and report it to 1Password as an open tab again.
+    @ObservationIgnored private var isStopped = false
+
     /// KVO on everything the toolbar reads, because the navigation delegate does not see every
     /// navigation.
     ///
@@ -140,8 +170,44 @@ final class BrowserSession {
     init(url: String, root: String = "") {
         self.root = root
         Self.preferInspectorDocked()
-        let configuration = WKWebViewConfiguration()
-        Self.enableDeveloperExtras(on: configuration.preferences)
+        // One of 1Password's own pages needs the extension's configuration rather than a fresh
+        // one, or WebKit refuses to serve it. See `BrowserExtensionHost.configuration(forPageAt:)`.
+        let extensionConfiguration = BrowserExtensionHost.shared.configuration(forPageAt: url)
+        let configuration = extensionConfiguration ?? WKWebViewConfiguration()
+        let usesExtensions = BrowserExtensionHost.shared.attach(to: configuration)
+        webView = Self.makeWebView(configuration, scrollObserver: scrollObserver)
+        showsExtensionPages = extensionConfiguration != nil
+        navigation.owner = self
+        scrollObserver.owner = self
+        ui.owner = self
+        install(webView)
+        // Shown in the address field from the first frame, before anything has been fetched.
+        currentURL = BrowserAddress.url(from: url)
+        page = BrowserTabTitle.BrowserPage(address: displayAddress)
+        if usesExtensions {
+            let tab = BrowserExtensionTab(session: self)
+            extensionTab = tab
+            BrowserExtensionHost.shared.didOpen(tab)
+        }
+        if extensionConfiguration == nil, let address = currentURL,
+           BrowserPasswordManager.isExtensionPage(address) {
+            waitForExtension()
+        } else {
+            load(url)
+        }
+    }
+
+    /// A web view on `configuration`, set up the way every browser tab is. Shared by `init` and by
+    /// the swap in `adoptExtension(configuration:)`.
+    ///
+    /// The scroll observer is added to the configuration's own content controller, which WebKit
+    /// throws on if the name is already taken there. A browser tab's configuration is made fresh
+    /// for it, and one of 1Password's pages is handed a copy of the extension's, which was
+    /// measured to come with a content controller of its own, so neither can collide.
+    private static func makeWebView(
+        _ configuration: WKWebViewConfiguration, scrollObserver: BrowserScrollObserver
+    ) -> BrowserPageWebView {
+        enableDeveloperExtras(on: configuration.preferences)
         configuration.userContentController.add(
             scrollObserver, contentWorld: .defaultClient, name: BrowserScrollObserver.handlerName
         )
@@ -153,53 +219,182 @@ final class BrowserSession {
                 in: .defaultClient
             )
         )
-        webView = BrowserPageWebView(frame: .zero, configuration: configuration)
-        Self.keepPageFromTakingKeyboard(webView)
-        webView.allowsBackForwardNavigationGestures = true
-        pageView.attach(webView)
+        let view = BrowserPageWebView(frame: .zero, configuration: configuration)
+        keepPageFromTakingKeyboard(view)
+        view.allowsBackForwardNavigationGestures = true
         // A dev server is the whole point of this tab, and one that is still booting answers with
         // a connection refused rather than with a page. Painting the app's own surface behind the
         // page keeps that moment from flashing white in a dark window.
-        webView.underPageBackgroundColor = NSColor(Palette.surface)
-        navigation.owner = self
-        scrollObserver.owner = self
-        webView.navigationDelegate = navigation
-        ui.owner = self
-        webView.uiDelegate = ui
+        view.underPageBackgroundColor = NSColor(Palette.surface)
+        return view
+    }
+
+    /// Wires a web view to this session and puts it on screen. Shared by `init` and by the swap
+    /// in `adoptExtension(configuration:)`, so a replaced page is wired exactly as the first one.
+    private func install(_ view: BrowserPageWebView) {
+        pageView.attach(view)
+        view.navigationDelegate = navigation
+        view.uiDelegate = ui
         // Weak, because the web view is owned by this session: a strong capture here would be the
         // session holding itself through its own subview.
-        webView.findCommand = { [weak self] command in self?.perform(command) }
+        view.findCommand = { [weak self] command in self?.perform(command) }
+        view.wasShown = { [weak self] in self?.becomeActiveTab() }
         observations = [
-            webView.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
+            view.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
                 // On the main thread, measured rather than assumed: WebKit posts every one of
                 // these from there, which is also the only thread its properties may be read on.
                 MainActor.assumeIsolated {
                     self?.adopt(BrowserTabTitle.BrowserPage(title: view.title ?? ""))
                 }
             },
-            // No `.initial` on these, unlike the title: the three lines at the end of this
-            // initialiser set the same facts from the address the tab is opening on, and an
-            // initial notification would land before them and read an empty web view.
-            webView.observe(\.url) { [weak self] _, _ in
+            // No `.initial` on these, unlike the title: the lines at the end of the initialiser
+            // set the same facts from the address the tab is opening on, and an initial
+            // notification would land before them and read an empty web view.
+            view.observe(\.url) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.refresh() }
             },
-            webView.observe(\.canGoBack) { [weak self] _, _ in
+            view.observe(\.canGoBack) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.refresh() }
             },
-            webView.observe(\.canGoForward) { [weak self] _, _ in
+            view.observe(\.canGoForward) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.refresh() }
             },
-            webView.observe(\.isLoading) { [weak self] _, _ in
+            view.observe(\.isLoading) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.refresh() }
             },
-            webView.observe(\.estimatedProgress) { [weak self] _, _ in
+            view.observe(\.estimatedProgress) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.refresh() }
             },
         ]
-        // Shown in the address field from the first frame, before anything has been fetched.
-        currentURL = BrowserAddress.url(from: url)
+    }
+
+    // MARK: - 1Password's own pages
+
+    /// One of 1Password's own pages that this tab cannot show yet, because the extension serving
+    /// it is not loaded. The tab says so, and the host hands it the extension's configuration the
+    /// moment there is one. Nothing is loaded meanwhile: loading it now would only be the -1008
+    /// blank page again, on a web view that can never recover from it.
+    @ObservationIgnored private var awaitsExtension = false
+
+    private func waitForExtension() {
+        awaitsExtension = true
+        showWaiting(BrowserExtensionHost.shared.waitingPage)
+        BrowserExtensionHost.shared.waitForExtension(self)
+    }
+
+    /// What the tab says while it waits, which the host sends again every time the extension's
+    /// status moves, so it never goes on promising something that has stopped being true.
+    func showWaiting(_ page: BrowserLoadFailure?) {
+        guard awaitsExtension, let page else { return }
+        if failure != page { failure = page }
+    }
+
+    /// The extension is being unloaded. A tab on one of its pages is left on a configuration that
+    /// serves nothing, so it stops and waits, and answers whether it did. The host puts it on the
+    /// waiting list itself and says what it shows, because this is called from inside `stop`.
+    func pauseForExtension() -> Bool {
+        guard let address = currentURL, BrowserPasswordManager.isExtensionPage(address) else {
+            return false
+        }
+        webView.stopLoading()
+        awaitsExtension = true
+        return true
+    }
+
+    /// The extension has loaded, and this tab was waiting for it. The web view is replaced by one
+    /// made with the extension's configuration, and the page this tab was on is loaded into it.
+    ///
+    /// **The tab is registered with the extension afresh, around the new web view.** Its old
+    /// registration, if it had one, was made while it held the old web view, and a tab restored
+    /// with the switch off had none at all, which left the page loaded with no 1Password button
+    /// and invisible to `tabs.query`.
+    func adoptExtension(configuration: WKWebViewConfiguration) {
+        guard !isStopped, awaitsExtension, let address = currentURL else { return }
+        awaitsExtension = false
+        replaceWebView(configuration: configuration, showsExtensionPages: true)
+        failure = nil
+        load(address.absoluteString)
+    }
+
+    /// Onto one of 1Password's own pages from an ordinary web view, which cannot show it. Asked for
+    /// by the address bar or by the extension's own `tabs.update`, never by a page. See
+    /// `BrowserPasswordManager.crossing`.
+    ///
+    /// The history the tab had stays with the web view it had, because WebKit gives no way to hand
+    /// a back list from one web view to another.
+    private func enterExtensionPages(at url: URL) {
+        // Counted here, because `currentURL` is moved below and `refresh` will then see no change.
+        protectedPageArrivals += 1
+        webView.stopLoading()
+        currentURL = url
         page = BrowserTabTitle.BrowserPage(address: displayAddress)
-        load(url)
+        guard let configuration = BrowserExtensionHost.shared.configuration(forPageAt: url.absoluteString) else {
+            waitForExtension()
+            return
+        }
+        replaceWebView(configuration: configuration, showsExtensionPages: true)
+        failure = nil
+        webView.load(URLRequest(url: url))
+    }
+
+    /// Out to the web from one of 1Password's own pages, whose web view will not go. This is
+    /// 1Password's Sign in, which sends its welcome page to `start.1password.com`.
+    func leaveExtensionPages(for url: URL) {
+        guard !isStopped else { return }
+        replaceWebView(configuration: WKWebViewConfiguration(), showsExtensionPages: false)
+        failure = nil
+        webView.load(URLRequest(url: url))
+    }
+
+    /// Puts a new web view made with `configuration` where the old one was, wired the same way.
+    ///
+    /// **The tab is registered with the extension afresh, around the new web view.** Its old
+    /// registration, if it had one, was made while it held the old web view, and a tab restored
+    /// with the switch off had none at all, which left the page loaded with no 1Password button
+    /// and invisible to `tabs.query`.
+    private func replaceWebView(configuration: WKWebViewConfiguration, showsExtensionPages: Bool) {
+        let host = BrowserExtensionHost.shared
+        if let extensionTab {
+            host.didClose(extensionTab)
+            self.extensionTab = nil
+        }
+        let usesExtensions = host.attach(to: configuration)
+        let listening = consoleLog.isListening
+        stopListeningToConsole()
+        consoleLog.isListening = false
+        let old = webView
+        old.stopLoading()
+        old.navigationDelegate = nil
+        old.uiDelegate = nil
+        let view = Self.makeWebView(configuration, scrollObserver: scrollObserver)
+        view.paneMenu = old.paneMenu
+        view.underPageBackgroundColor = old.underPageBackgroundColor
+        webView = view
+        self.showsExtensionPages = showsExtensionPages
+        install(view)
+        if usesExtensions {
+            let tab = BrowserExtensionTab(session: self)
+            extensionTab = tab
+            host.didOpen(tab)
+        }
+        if listening { listenToConsole() }
+        if view.window != nil { becomeActiveTab() }
+    }
+
+    /// Whether a navigation the page itself started has to leave for an ordinary web view. Asked
+    /// by the navigation delegate, which cancels it and calls `leaveExtensionPages`.
+    fileprivate func mustLeaveExtensionPages(for url: URL) -> Bool {
+        BrowserPasswordManager.crossing(
+            to: url, showsExtensionPages: showsExtensionPages, requestedByPage: true
+        ) == .outOfExtension
+    }
+
+    /// The reader put this tab on screen or clicked in it, so it is the one 1Password fills. A
+    /// navigation does not count, because a dev server reloading a tab in another pane is not the
+    /// reader turning to it. See `BrowserExtensionHost.activate`.
+    func becomeActiveTab() {
+        guard let extensionTab else { return }
+        BrowserExtensionHost.shared.activate(extensionTab)
     }
 
     func setPageScrollOffset(_ offset: Double) {
@@ -245,6 +440,14 @@ final class BrowserSession {
     /// ignored rather than handed to a search engine: this field is for the dev server next door,
     /// and shipping a half-typed line off to a third party is not what it is for.
     func load(_ text: String) {
+        // A tab waiting for 1Password can be sent somewhere else, which ends the wait, but not
+        // back to one of 1Password's pages, which is the load that cannot work yet.
+        if awaitsExtension {
+            if let url = BrowserAddress.url(from: text), BrowserPasswordManager.isExtensionPage(url) {
+                return
+            }
+            awaitsExtension = false
+        }
         // A page out of the worktree, which cannot go the way every other address goes. WebKit
         // drops a `file://` handed to it as a `URLRequest` and leaves the pane blank, and a page
         // loaded with read access to itself alone comes out unstyled, because the stylesheet
@@ -252,13 +455,23 @@ final class BrowserSession {
         // the supported answer to both, and `LocalPage.fileURL` is what refuses an address
         // pointing outside that root before the root is handed over.
         if let file = LocalPage.fileURL(from: text, root: root) {
+            // A web view made for 1Password's pages will not load anything else. See `crossing`.
+            if showsExtensionPages {
+                replaceWebView(configuration: WKWebViewConfiguration(), showsExtensionPages: false)
+            }
             webView.loadFileURL(
                 file, allowingReadAccessTo: URL(filePath: root, directoryHint: .isDirectory)
             )
             return
         }
         guard let url = BrowserAddress.url(from: text) else { return }
-        webView.load(URLRequest(url: url))
+        switch BrowserPasswordManager.crossing(
+            to: url, showsExtensionPages: showsExtensionPages, requestedByPage: false
+        ) {
+        case .stay: webView.load(URLRequest(url: url))
+        case .intoExtension: enterExtensionPages(at: url)
+        case .outOfExtension: leaveExtensionPages(for: url)
+        }
     }
 
     func goBack() { webView.goBack() }
@@ -290,6 +503,8 @@ final class BrowserSession {
     }
 
     func reload() {
+        // Nothing to reload until the extension serving this page is back. See `awaitsExtension`.
+        guard !awaitsExtension else { return }
         // A reader pressing reload is asking for this page again, icon included. It is the only
         // way to get a second look at an origin that had no icon the first time, which a dev
         // server that has since grown one is exactly. See `BrowserFaviconStore.claim`.
@@ -632,6 +847,7 @@ final class BrowserSession {
     }
 
     func stop() {
+        isStopped = true
         observations = []
         // A question put to a page whose tab has gone. Nothing would come back through it, and a
         // sleeping task holding this session is one more thing keeping a closed web view alive.
@@ -642,6 +858,10 @@ final class BrowserSession {
         // sheet standing on the window either. See `BrowserDialogPresenter`.
         dialogPresenter.dismiss()
         stopListeningToConsole()
+        if let extensionTab {
+            BrowserExtensionHost.shared.didClose(extensionTab)
+            self.extensionTab = nil
+        }
         webView.stopLoading()
         webView.navigationDelegate = nil
         // With the navigation delegate, and for the same reason: a page whose pane has gone must
@@ -673,7 +893,15 @@ final class BrowserSession {
     private func adopt(_ page: BrowserTabTitle.BrowserPage) {
         let next = BrowserTabTitle.advance(from: self.page, to: page)
         guard next != self.page else { return }
+        let retitled = next.title != self.page.title
         self.page = next
+        if retitled { tell([.title]) }
+    }
+
+    /// Passes a change the extension can see on to it. Nothing when it is not loaded in this tab.
+    private func tell(_ properties: WKWebExtension.TabChangedProperties) {
+        guard let extensionTab, !properties.isEmpty else { return }
+        BrowserExtensionHost.shared.changed(properties, on: extensionTab)
     }
 
     /// Reads the whole of the web view's state and writes back only what moved.
@@ -684,14 +912,23 @@ final class BrowserSession {
     /// the five properties it watches. Writing every field each time made a single page load a
     /// dozen redraws of the centre column for three actual changes.
     fileprivate func refresh() {
+        var changed: WKWebExtension.TabChangedProperties = []
         if canGoBack != webView.canGoBack { canGoBack = webView.canGoBack }
         if canGoForward != webView.canGoForward { canGoForward = webView.canGoForward }
-        if isLoading != webView.isLoading { isLoading = webView.isLoading }
+        if isLoading != webView.isLoading {
+            isLoading = webView.isLoading
+            changed.insert(.loading)
+        }
         let progress = (webView.estimatedProgress * 100).rounded() / 100
         if loadProgress != progress { loadProgress = progress }
         // Nil is a web view that has not loaded anything rather than a page at no address, so the
         // tab keeps the address it was opened on. See `reload`, which is the other half of that.
-        if let url = webView.url, url != currentURL { currentURL = url }
+        if let url = webView.url, url != currentURL {
+            currentURL = url
+            changed.insert(.URL)
+            if BrowserPasswordManager.isExtensionPage(url) { protectedPageArrivals += 1 }
+        }
+        tell(changed)
         adopt(BrowserTabTitle.BrowserPage(address: displayAddress))
     }
 
@@ -823,7 +1060,16 @@ private final class NavigationObserver: NSObject, WKNavigationDelegate {
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction
     ) async -> WKNavigationActionPolicy {
-        navigationAction.shouldPerformDownload ? .download : .allow
+        // One of 1Password's pages heading for the web, which its web view would accept here and
+        // then never perform. Cancelled, and done again in an ordinary web view once this
+        // callback has returned, because the web view asking is the one being replaced.
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           owner?.mustLeaveExtensionPages(for: url) == true {
+            Task { @MainActor [weak self] in self?.owner?.leaveExtensionPages(for: url) }
+            return .cancel
+        }
+        return navigationAction.shouldPerformDownload ? .download : .allow
     }
 
     /// A response a web view cannot draw, which is the other half: a zip, a tarball, a PDF served

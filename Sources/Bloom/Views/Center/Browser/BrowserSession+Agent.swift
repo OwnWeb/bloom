@@ -219,6 +219,13 @@ final class BrowserConsoleListener: NSObject, WKScriptMessageHandler {
         _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
     ) {
         guard let owner else { return }
+        // Nothing from one of 1Password's own pages, for the reason no `browser_` tool may read
+        // one: a line kept here would still be in the log after the tab moved to a page an agent
+        // may read. See `BrowserPasswordManager.agentRefusal`.
+        if let url = message.frameInfo.request.url ?? owner.currentURL,
+           BrowserPasswordManager.isExtensionPage(url) {
+            return
+        }
         owner.consoleLog.append(message.body, address: owner.displayAddress)
     }
 }

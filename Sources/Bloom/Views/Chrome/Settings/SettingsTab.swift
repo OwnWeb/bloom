@@ -11,6 +11,7 @@ enum SettingsTab: String, Hashable, CaseIterable {
     case prompts
     case terminal
     case browserAccess
+    case passwords
     case commandLine
 
     var title: String {
@@ -26,6 +27,7 @@ enum SettingsTab: String, Hashable, CaseIterable {
         case .prompts: "Prompts"
         case .terminal: "Terminal"
         case .browserAccess: "Browser Access"
+        case .passwords: "Passwords"
         case .commandLine: "Command Line"
         }
     }
@@ -43,6 +45,7 @@ enum SettingsTab: String, Hashable, CaseIterable {
         case .prompts: "text.bubble"
         case .terminal: "terminal"
         case .browserAccess: "network"
+        case .passwords: "key"
         case .commandLine: "link"
         }
     }

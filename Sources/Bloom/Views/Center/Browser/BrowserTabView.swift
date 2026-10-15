@@ -223,7 +223,9 @@ struct BrowserTabView: View {
                 isAddressFocused = false
                 // The page can no longer take it itself. See `keepPageFromTakingKeyboard`.
                 session.webView.window?.makeFirstResponder(session.webView)
-            }
+            },
+            extensionAction: BrowserExtensionHost.shared.action(for: session),
+            extensionAnchor: { [weak session] view in session?.extensionAnchor = view }
         )
     }
 
@@ -238,6 +240,15 @@ struct BrowserTabView: View {
             openTab: { [weak model] url in
                 guard let model else { return }
                 BrowserTab.openWindow(url, in: model)
+            },
+            openExtensionTab: { [weak model] url in
+                guard let model else { return nil }
+                return BrowserTab.openExtensionTab(url, in: model)
+            },
+            closeTab: { [weak model, tab] in
+                guard let model else { return false }
+                Task { await CenterTabStore.shared.close(tab, in: model) }
+                return true
             },
             report: { [weak app] notice in
                 app?.alert = BloomAlert(title: notice.title, message: notice.message)
