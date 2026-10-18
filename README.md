@@ -47,6 +47,15 @@ Useful shortcuts include Cmd+N for a new workspace, Cmd+J for a project-free con
 Cmd+P to search files in the current project workspace. See [the menu reference](docs/MENUS.md)
 for the full list.
 
+### Incoming mails
+
+In **Settings > Incoming mails**, enable the built-in inbox. Point your local app's SMTP host to
+`127.0.0.1` and port to `1025`, with no encryption or authentication. Bloom Dev uses port `1026` so
+it can run beside the regular app. The inbox runs while Bloom is open and keeps its messages in
+Bloom's application data between launches. You can change the SMTP port in Settings. The sidebar
+footer opens the message list. Agents running in Bloom can use its `mail_send` bridge tool to put
+plain text test messages in the same inbox, including from projects with no mail setup.
+
 ### Browser access (alpha)
 
 Browser access is in alpha and may change or be removed at any time. Bloom can show conversations
@@ -101,6 +110,10 @@ are also supported. Bloom supplies `BLOOM_WORKSPACE_ID`, `BLOOM_WORKSPACE_PATH`,
 A browser pane normally opens `http://localhost:$BLOOM_PORT`. Set `browser.url` as above or write an
 address to the file named by `BLOOM_URL_FILE` from your setup script. The file is ignored by Git and
 read when a browser pane opens.
+
+Workspace agents can call `project_setup_guide` for the supported settings format and this copy of
+Bloom's current local SMTP port. Incoming mails is configured in Bloom Settings, not in the
+repository's `.bloom/settings.toml`.
 
 ### Agent bridge
 

@@ -37,7 +37,8 @@ public struct ProjectAddTool: BridgeToolHandling {
             existing repository registers that repository, not the folder.
 
             Adding a project Bloom already has is not an error and changes nothing. This does not \
-            copy, move or write anything inside the repository.
+            copy, move or write anything inside the repository. For .bloom/settings.toml and local \
+            mail setup, call project_setup_guide before editing the repository.
             """,
         inputSchema: .object([
             "type": .string("object"),

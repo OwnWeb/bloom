@@ -202,6 +202,13 @@ final class AppModel {
 
     private static let lastWorkspaceKey = "sidebar.lastWorkspaceID"
 
+    /// Mail is app-wide, so a link opened in Bloom uses the workspace the reader last visited.
+    var lastSelectedWorkspace: Workspace? {
+        guard let id = UserDefaults.standard.string(forKey: Self.lastWorkspaceKey).map(WorkspaceID.init)
+        else { return nil }
+        return workspaces.first { $0.id == id }
+    }
+
     /// Only a workspace is worth remembering. Home and Search are where you go when you are
     /// looking for something, so reopening on them would be reopening on a question rather than
     /// on the work.
@@ -631,6 +638,8 @@ final class AppModel {
         startObservingWorkspaceMessages()
         startObservingQuotas()
         startPollingQuotas()
+        // Looks for a Mailpit and keeps the app-wide Mail destination fed.
+        Mailbox.shared.start()
         // After the bridge is bound, because it is the bridge that says what the entry should
         // point at, and nothing waits for it. See `startOwnerRegistrationRepair`.
         startOwnerRegistrationRepair()

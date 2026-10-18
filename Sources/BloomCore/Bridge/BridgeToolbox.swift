@@ -36,7 +36,7 @@ public struct BridgeToolbox: Sendable {
     /// where that was answered, and its head says which tools Bloom answers for and why the rest
     /// are not on the list. See `LiveBridgeTests`.
     ///
-    /// `workspace_start`, `workspace_archive`, `workspace_merge`, `reveal`, the chat mutation tools and the pane and tab tools are the
+    /// `mail_send`, `workspace_start`, `workspace_archive`, `workspace_merge`, `reveal`, the chat mutation tools and the pane and tab tools are the
     /// exceptions and are added by `AppModel.bridgeToolbox()`, because starting a workspace has to
     /// reach the main-actor graph that runs one, asking one to merge has to reach the same path
     /// the Merge button takes, moving the selection is the window's own, and a pane is a thing the
@@ -49,6 +49,7 @@ public struct BridgeToolbox: Sendable {
     /// workspace is in is held nowhere but in memory on the main actor.
     public static let standard = BridgeToolbox(handlers: [
         WhoamiTool(),
+        ProjectSetupGuideTool(),
         ProjectListTool(),
         ProjectAddTool(),
         ProjectHideTool(),

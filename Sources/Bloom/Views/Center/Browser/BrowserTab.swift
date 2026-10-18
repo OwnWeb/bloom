@@ -63,6 +63,17 @@ enum BrowserTab {
         }
     }
 
+    /// Splits the focused pane of the current tab for a link opened outside a workspace pane.
+    static func splitFocused(_ url: URL, in model: WorkspaceModel) {
+        guard canOpen(url) else { return }
+        let tabs = WorkspaceTabsStore.shared
+        guard let tab = tabs.selectedTab(in: model) else {
+            openWindow(url, in: model)
+            return
+        }
+        split(url, in: model, pane: tabs.focusedPane(of: tab), axis: .horizontal)
+    }
+
     /// Opens an address in the workspace's browser tab, in front.
     ///
     /// **In front, because the reader asked for it by name.** Every other route into this column

@@ -47,6 +47,13 @@ extension AppModel {
         }
 
         return BridgeToolbox(handlers: BridgeToolbox.standard.handlers + [
+            // The configured port alone could belong to another local SMTP service if our inbox
+            // failed to bind. Only the live Mailbox can say this app owns a ready listener.
+            MailSendTool {
+                await MainActor.run {
+                    Mailbox.shared.mailSendPort.map(MailSendTool.Endpoint.init(port:))
+                }
+            },
             WorkspaceStartTool { [weak self] order, project, identity, origin in
                 guard let self else { throw AppNotReady.stillStartingUp }
                 return try await self.startWorkspaceForBridge(
