@@ -55,6 +55,25 @@ struct WorkspaceMarkTests {
         #expect(WorkspaceUnreadMark.action(for: workspace(unread: true, state: .archived)) == nil)
     }
 
+    // MARK: - The on hold mark
+
+    @Test("a workspace is offered On hold, a held one its removal, an archived one nothing")
+    func theOnHoldItemChangesItsLabel() {
+        var held = workspace()
+        held.onHold = true
+        #expect(WorkspaceOnHoldMark.action(for: workspace()) == .putOnHold)
+        #expect(WorkspaceOnHoldMark.action(for: held) == .takeOffHold)
+        #expect(WorkspaceOnHoldMark.action(for: workspace(state: .archived)) == nil)
+    }
+
+    /// A permission question asked under a folded On hold would hold its agent unseen.
+    @Test("a turn in progress cannot be put on hold, and never stops one coming off")
+    func aTurnInProgressCannotBePutOnHold() {
+        #expect(!WorkspaceOnHoldMark.isEnabled(.putOnHold, turnIsOpen: true))
+        #expect(WorkspaceOnHoldMark.isEnabled(.putOnHold, turnIsOpen: false))
+        #expect(WorkspaceOnHoldMark.isEnabled(.takeOffHold, turnIsOpen: true))
+    }
+
     // MARK: - The colour
 
     /// The whole reason `WorkspaceColour` exists rather than a second list of hexes. A workspace's

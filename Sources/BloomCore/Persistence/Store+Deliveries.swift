@@ -45,6 +45,15 @@ extension Store {
         if delivery.kind == .owner, delivery.interactionMode == nil {
             delivery.interactionMode = try session(id: delivery.targetSessionID)?.interactionMode
         }
+        // Whoever sends it, a message means the work is moving again. `on_hold = 1` keeps the
+        // common case from firing the update hook for a row that does not change.
+        try db.run(
+            """
+            UPDATE workspaces SET on_hold = 0
+            WHERE on_hold = 1 AND id = (SELECT workspace_id FROM sessions WHERE id = ?)
+            """,
+            [.text(delivery.targetSessionID)]
+        )
         try db.run(
             """
             INSERT INTO deliveries

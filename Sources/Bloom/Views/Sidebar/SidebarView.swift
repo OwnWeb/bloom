@@ -59,6 +59,13 @@ struct SidebarView: View {
     /// working, not a decision about how the app looks.
     @State private var foldedStatusGroups: Set<SidebarStatusGroup> = []
 
+    /// Folded until opened, so a glance at the pane shows only the work in progress. Window state,
+    /// like the status sections above.
+    @State private var isOnHoldFolded = true
+    /// The room below the content, which sets the gap that keeps On hold at the foot of the pane.
+    /// See `SidebarOnHoldGap`.
+    @State private var onHoldRoom = SidebarOnHoldRoom()
+
     /// Which workspaces have their subagent rows folded away. Held here because the rows it
     /// controls are built here, and open by default: see `SubagentDisclosure`.
     @State private var subagentDisclosure = SubagentDisclosure()
@@ -180,6 +187,7 @@ struct SidebarView: View {
                         conversationsSection
                     }
                 }
+                onHoldSection
             }
         // The native list owns row height, keyboard navigation and which row is selected. How the
         // selected row is drawn is `SidebarSelectionFill`'s, on each row, for the reason given there.
@@ -192,6 +200,9 @@ struct SidebarView: View {
         // selection above, keyboard navigation and the standard insets. Four points is not worth
         // that. Project rows use the list's own vertical insets too.
             .listStyle(.sidebar)
+            // A gap above On hold means the content fits, so there is nothing to scroll. Without
+            // this, resizing the window flashed a scroller for the turn the gap takes to follow.
+            .scrollIndicators(onHoldRoom.gap > 0 ? .never : .automatic)
             .animation(reduceMotion ? nil : Motion.pane, value: storedSectionOrder)
             .confirmation($stoppingCrew) { pending in
                 Confirmation(
@@ -254,6 +265,30 @@ struct SidebarView: View {
                 }
                 .onMove { offsets, destination in
                     Task { await app.ask.reorderConversations(from: offsets, to: destination) }
+                }
+            }
+        }
+    }
+
+    /// Last whatever the order of the two above, because it holds what was put away. No `onMove`:
+    /// a workspace on hold has left its project's order, and gets its place back when it returns.
+    @ViewBuilder
+    private var onHoldSection: some View {
+        let count = groups.reduce(0) { $0 + $1.onHold.count }
+        if count > 0 {
+            Section {
+                SidebarOnHoldHeader(count: count, isFolded: isOnHoldFolded) {
+                    toggleOnHold(count: count)
+                }
+                // Outside the button, so the gap is not something to click.
+                .padding(.top, onHoldRoom.gap)
+                .selectionDisabled()
+                if !isOnHoldFolded {
+                    ForEach(groups) { group in
+                        ForEach(group.onHold) { workspace in
+                            workspaceRow(workspace, projectName: group.repo.name)
+                        }
+                    }
                 }
             }
         }
@@ -451,6 +486,14 @@ struct SidebarView: View {
             }
             .allowsHitTesting(false)
         }
+        .background {
+            SidebarOnHoldGap(
+                gap: onHoldRoom.gap,
+                isShown: groups.contains { !$0.onHold.isEmpty },
+                isFolded: isOnHoldFolded
+            ) { onHoldRoom = $0 }
+            .allowsHitTesting(false)
+        }
         // Delete on a selected row, which every Mac list that can delete binds and which
         // `onDeleteCommand` appeared nowhere in this app to answer. It is the menu item's own
         // action rather than a second path to the same place: `AppModel.archive` runs the git
@@ -603,6 +646,13 @@ struct SidebarView: View {
     private func toggleSubagents(_ id: WorkspaceID) {
         subagentDisclosure.toggle(id)
         reflow()
+    }
+
+    /// The rows and the gap move in one update and without animation. Animated, or with the gap
+    /// left to the probe a turn later, the heading jumped after the rows had already moved.
+    private func toggleOnHold(count: Int) {
+        onHoldRoom = onHoldRoom.adding(rows: isOnHoldFolded ? count : -count)
+        isOnHoldFolded.toggle()
     }
 
     private func toggleFold(_ group: SidebarStatusGroup) {
@@ -925,9 +975,12 @@ struct SidebarView: View {
     }
 
     /// Whether this workspace has a row in the pane right now, rather than being filtered out or
-    /// folded away inside a project.
+    /// folded away inside a project or On hold.
     private func isDrawn(_ workspace: Workspace) -> Bool {
-        paneRows.contains { row in
+        if workspace.onHold {
+            return !isOnHoldFolded && groups.contains { $0.onHold.contains { $0.id == workspace.id } }
+        }
+        return paneRows.contains { row in
             guard case .workspace(let shown, _) = row else { return false }
             return shown.id == workspace.id
         }
@@ -950,8 +1003,8 @@ struct SidebarView: View {
             workspace: workspace,
             arrival: arrival,
             projectName: projectName,
-            // Only the status view, where no header above the row says which project this is.
-            trailingRepo: grouping == .status
+            // Where no header above the row says which project this is: the status view, and On hold.
+            trailingRepo: grouping == .status || workspace.onHold
                 ? app.repos.first { $0.id == workspace.repoID }
                 : nil,
             isShowingSubagents: subagentDisclosure.shows(workspace.id),

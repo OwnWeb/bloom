@@ -39,6 +39,7 @@ extension Store {
             changedFiles: Int(row.int("changed_files") ?? 0),
             unread: row.bool("unread"),
             pinned: row.bool("pinned"),
+            onHold: row.bool("on_hold"),
             colour: row.string("colour"),
             origin: WorkspaceOrigin(
                 parentWorkspaceID: row.string("parent_workspace_id"),

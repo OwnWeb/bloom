@@ -163,6 +163,9 @@ public struct Workspace: Identifiable, Sendable, Hashable, Codable {
     public var changedFiles: Int
     public var unread: Bool
     public var pinned: Bool
+    /// Set aside while somebody else has the next move, such as a review. The sidebar draws it under
+    /// On hold instead of in its project, and any message sent to it clears the mark.
+    public var onHold: Bool
     /// A colour the user put on this row so they can find it again, as a hex string, or nil.
     ///
     /// Nil is the normal case and has to look like nothing at all, which is why it is a nullable
@@ -252,6 +255,7 @@ public struct Workspace: Identifiable, Sendable, Hashable, Codable {
         changedFiles: Int = 0,
         unread: Bool = false,
         pinned: Bool = false,
+        onHold: Bool = false,
         colour: String? = nil,
         origin: WorkspaceOrigin = .user,
         port: Int = 0,
@@ -275,6 +279,7 @@ public struct Workspace: Identifiable, Sendable, Hashable, Codable {
         self.changedFiles = changedFiles
         self.unread = unread
         self.pinned = pinned
+        self.onHold = onHold
         self.colour = colour
         self.origin = origin
         self.port = port

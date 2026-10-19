@@ -12,7 +12,7 @@ struct SearchPanelActionsTests {
         let rows = SearchPanelActions.rows(for: .live(WorkspaceID("w1")))
         #expect(rows.map(\.item.action) == [
             .openInEditor, .revealInFinder, .copyName, .copyBranchName,
-            .pin, .unreadMark, .renameWorkspace, .archive,
+            .pin, .onHold, .unreadMark, .renameWorkspace, .archive,
         ])
     }
 

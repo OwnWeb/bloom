@@ -89,6 +89,12 @@ extension Store {
                 "ALTER TABLE review_comments ADD COLUMN span INTEGER NOT NULL DEFAULT 1;",
                 nil
             ),
+            // `upsert` names it, so a database missing it cannot save a workspace at all.
+            (
+                "workspaces", "on_hold",
+                "ALTER TABLE workspaces ADD COLUMN on_hold INTEGER NOT NULL DEFAULT 0;",
+                nil
+            ),
         ]
 
         for wanted in required {
@@ -1026,6 +1032,18 @@ extension Store {
             // the same two columns as messages_session. Keeping both writes two B-trees for every
             // message, while every read can use messages_session_seq.
             sql("DROP INDEX IF EXISTS messages_session;"),
+
+            // A workspace set aside while somebody else has the next move. See `Workspace.onHold`.
+            { db in
+                let names = Set(
+                    try db.query("PRAGMA table_info(workspaces);").compactMap { $0.string("name") }
+                )
+                if !names.contains("on_hold") {
+                    try db.execute(
+                        "ALTER TABLE workspaces ADD COLUMN on_hold INTEGER NOT NULL DEFAULT 0;"
+                    )
+                }
+            },
         ]
 
         let current = Int(try db.readUserVersion())

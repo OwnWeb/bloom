@@ -150,9 +150,9 @@ extension Store {
             INSERT INTO workspaces (
                 id, repo_id, name, branch, path, base_branch, state, setup_state, setup_log,
                 sort_order, created_at, last_activity_at, archived_at,
-                additions, deletions, changed_files, unread, pinned, colour,
+                additions, deletions, changed_files, unread, pinned, on_hold, colour,
                 parent_workspace_id, spawn_tool_use_id, port, pull_request_number
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 branch = excluded.branch,
@@ -169,6 +169,7 @@ extension Store {
                 changed_files = excluded.changed_files,
                 unread = excluded.unread,
                 pinned = excluded.pinned,
+                on_hold = excluded.on_hold,
                 colour = excluded.colour,
                 parent_workspace_id = excluded.parent_workspace_id,
                 spawn_tool_use_id = excluded.spawn_tool_use_id,
@@ -186,6 +187,7 @@ extension Store {
                 .int(Int64(workspace.additions)), .int(Int64(workspace.deletions)),
                 .int(Int64(workspace.changedFiles)),
                 .int(workspace.unread ? 1 : 0), .int(workspace.pinned ? 1 : 0),
+                .int(workspace.onHold ? 1 : 0),
                 workspace.colour.map { .text($0) } ?? .null,
                 workspace.origin.parentWorkspaceID.map { .text($0) } ?? .null,
                 workspace.origin.spawnToolUseID.map { .text($0) } ?? .null,

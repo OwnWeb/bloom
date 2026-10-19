@@ -119,6 +119,13 @@ public enum MenuBarCatalogue {
         // a key: each is done once in a workspace's life, and a key spent here is a key not
         // available to something done every few minutes.
         MenuBarItem(.pin, in: .workspace, "Pin", alternateTitle: "Unpin", availability: .needsWorkspaceSubject),
+        // Unlike those three, done every time a review is asked for. O for On hold, because
+        // Shift-Command-H is Go to Home.
+        MenuBarItem(
+            .onHold, in: .workspace, OnHoldMarkAction.putOnHold.title,
+            alternateTitle: OnHoldMarkAction.takeOffHold.title,
+            key: .init("o", .command, .shift), availability: .needsWorkspaceSubject
+        ),
         // The two labels are `UnreadMarkAction`'s rather than a second copy of them, because a
         // workspace row's menu draws the same item off that rule and the two must not word one
         // workspace differently.
@@ -224,6 +231,7 @@ public enum MenuBarAction: String, CaseIterable, Sendable {
 
     case renameWorkspace
     case pin
+    case onHold
     case unreadMark
     case colour
     case archive

@@ -93,6 +93,7 @@ contribute for free.
 | --- | --- | --- |
 | Rename | | a workspace is the subject |
 | Pin / Unpin | | a live workspace is the subject |
+| Put on Hold / Take Off Hold | `⇧⌘O` | a live workspace is the subject, with no turn open to put it on hold |
 | Mark as Unread / Mark as Read | | a live workspace is the subject |
 | Colour > None and ten colours | | a live workspace is the subject |
 | Archive Workspace | `⇧⌘⌫` | a live workspace is the subject |
@@ -188,6 +189,7 @@ only by trying it.
 | Copy Branch Name | yes | `⇧⌘C` |
 | Run Setup / Run Setup Again | yes | none |
 | Pin / Unpin | **no** | none |
+| Put on Hold / Take Off Hold | yes | `⇧⌘O` |
 | Mark as Read / Mark as Unread | **no** | none |
 | Colour > None and ten colours | **no** | none |
 | Rename | yes | none |

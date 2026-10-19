@@ -25,6 +25,7 @@ public enum SearchPanelActions {
         .copyName,
         .copyBranchName,
         .pin,
+        .onHold,
         .unreadMark,
         .rename,
         .restore,
@@ -61,6 +62,7 @@ public enum SearchPanelActions {
         case .copyBranchName: .copyBranchName
         case .rename: .renameWorkspace
         case .pin: .pin
+        case .onHold: .onHold
         case .unreadMark: .unreadMark
         case .colour: .colour
         case .copyName: .copyName

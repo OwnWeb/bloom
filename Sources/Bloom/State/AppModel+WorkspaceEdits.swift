@@ -1,7 +1,7 @@
 import BloomCore
 
 /// The small changes a person makes to a workspace that is already there: its name, its pin, its
-/// colour, and whether it is showing as unread.
+/// colour, whether it is showing as unread, and whether it is on hold.
 ///
 /// One subject, and the thing they share is the rule that makes them safe. Every one of these
 /// goes through `Store.update(workspaceID:)` rather than `upsert`, because a workspace row has a
@@ -78,6 +78,12 @@ extension AppModel {
     func setUnread(_ workspace: Workspace, _ unread: Bool) async {
         guard let store else { return }
         _ = try? await store.update(workspaceID: workspace.id) { $0.unread = unread }
+    }
+
+    /// Sending a message clears it too, in `Store.enqueueDelivery`.
+    func setOnHold(_ workspace: Workspace, _ onHold: Bool) async {
+        guard let store else { return }
+        _ = try? await store.update(workspaceID: workspace.id) { $0.onHold = onHold }
     }
 
     /// The colour on a workspace row, or nil to take it off.
