@@ -123,7 +123,7 @@ final class TranscriptModel {
     /// Where this chat's agent runs: its worktree, or the directory retained by its Ask tab.
     /// New Ask conversations use the folder chosen in Settings, with Bloom's own folder as fallback.
     let cwd: String
-    private unowned let app: AppModel
+    unowned let app: AppModel
     /// Where this conversation's file paths point, and which workspace a file chip opens into.
     /// One value rather than the whole workspace, because those two fields are all a row has ever
     /// read off it. See `TranscriptHome`.
@@ -279,7 +279,7 @@ final class TranscriptModel {
 
     /// The `!` command running from this chat's composer, which holds the queue while it runs (see
     /// `DeliveryHold.command`). On the session for the reason
-    /// `promptRecall` is: the composer is handed from chat to chat. See `WorkspaceModel+ShellCommands`.
+    /// `promptRecall` is: the composer is handed from chat to chat. See `TranscriptModel+ShellCommands`.
     var shellRun: ShellCommand.Run?
     @ObservationIgnored var shellRunTask: Task<Void, Never>?
 
@@ -294,9 +294,8 @@ final class TranscriptModel {
     /// hands back, turning all of them into one command.
     func startWaitingShellCommand() {
         guard shellRun?.isWaiting == true, !isRunning, !isAwaitingPermission,
-              !history.isCapturing, !history.isFinalisingTurn, !isWorkspaceArchiving,
-              let workspace, let model = app.existingModel(for: workspace.id) else { return }
-        model.startShellCommand(in: self)
+              !history.isCapturing, !history.isFinalisingTurn, !isWorkspaceArchiving else { return }
+        startShellCommand()
     }
 
     /// Stop on a running command, or Remove on a waiting one.
