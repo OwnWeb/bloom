@@ -97,7 +97,7 @@ public enum WorkspaceMenuSubject: Hashable, Sendable {
         // lists an archived workspace at all. The unread mark has the same answer for a second
         // reason of its own, written out on `WorkspaceUnreadMark.action(for:)`: an archived row's
         // `unread` is a flag nothing draws and the user has no way to answer.
-        case .archive, .openInEditor, .revealInFinder, .rename, .pin, .unreadMark, .colour:
+        case .archive, .openInEditor, .revealInFinder, .rename, .pin, .onHold, .unreadMark, .colour:
             liveID != nil
         }
     }
@@ -120,6 +120,7 @@ public enum WorkspaceMenuAction: String, Hashable, Sendable, CaseIterable {
     case copyBranchName
     case rename
     case pin
+    case onHold
     case unreadMark
     case colour
     case copyName

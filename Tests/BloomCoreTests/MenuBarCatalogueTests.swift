@@ -17,6 +17,10 @@ struct MenuBarCatalogueTests {
         }
     }
 
+    @Test func onHoldShortcut() {
+        #expect(MenuBarCatalogue[.onHold].key == MenuShortcut("o", .command, .shift))
+    }
+
     @Test func fileHistoryShortcuts() {
         #expect(MenuBarCatalogue[.fileBack].key == MenuShortcut("[", .command))
         #expect(MenuBarCatalogue[.fileForward].key == MenuShortcut("]", .command))
@@ -118,7 +122,7 @@ struct MenuBarCatalogueTests {
     @Test("a two-state item carries both of its titles")
     func twoStateItems() {
         let twoState = MenuBarCatalogue.commands.filter { $0.alternateTitle != nil }
-        #expect(Set(twoState.map(\.action)) == [.pin, .unreadMark])
+        #expect(Set(twoState.map(\.action)) == [.pin, .onHold, .unreadMark])
         for item in twoState {
             #expect(item.title(alternate: false) == item.title, "\(item.action)")
             #expect(item.title(alternate: true) == item.alternateTitle, "\(item.action)")

@@ -122,6 +122,7 @@ struct WorkspaceMenuItems: View {
         WorkspaceUnreadItem(workspace: workspace, app: app)
         renameItem
         WorkspacePinItem(workspace: workspace, app: app)
+        WorkspaceOnHoldItem(workspace: workspace, app: app)
         WorkspaceColourItem(workspace: workspace, app: app)
         Divider()
         openInEditorItem
@@ -284,6 +285,22 @@ struct WorkspacePinItem: View {
     var body: some View {
         MenuCommand(.pin, alternate: workspace.pinned) {
             Task { await app.togglePinned(workspace) }
+        }
+    }
+}
+
+/// The on hold mark, as a menu item. See `WorkspaceOnHoldMark` for when it is offered and pressable.
+struct WorkspaceOnHoldItem: View {
+    var workspace: Workspace
+    var app: AppModel
+
+    var body: some View {
+        if let mark = WorkspaceOnHoldMark.action(for: workspace) {
+            let turnIsOpen = app.isRunning(workspace) || app.isAwaitingPermission(workspace)
+            MenuCommand(.onHold, alternate: mark == .takeOffHold) {
+                Task { await app.setOnHold(workspace, mark.onHold) }
+            }
+            .disabled(!WorkspaceOnHoldMark.isEnabled(mark, turnIsOpen: turnIsOpen))
         }
     }
 }

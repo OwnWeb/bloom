@@ -99,6 +99,12 @@ extension Store {
                 nil
             ),
             ("workspaces", "kind", Self.workspaceKindColumn, Self.oneProjectCheckoutIndex),
+            // `upsert` names it, so a database missing it cannot save a workspace at all.
+            (
+                "workspaces", "on_hold",
+                "ALTER TABLE workspaces ADD COLUMN on_hold INTEGER NOT NULL DEFAULT 0;",
+                nil
+            ),
         ]
 
         for wanted in required {
@@ -1055,6 +1061,18 @@ extension Store {
                     try db.execute(Self.workspaceKindColumn)
                 }
                 try db.execute(Self.oneProjectCheckoutIndex)
+            },
+
+            // A workspace set aside while somebody else has the next move. See `Workspace.onHold`.
+            { db in
+                let names = Set(
+                    try db.query("PRAGMA table_info(workspaces);").compactMap { $0.string("name") }
+                )
+                if !names.contains("on_hold") {
+                    try db.execute(
+                        "ALTER TABLE workspaces ADD COLUMN on_hold INTEGER NOT NULL DEFAULT 0;"
+                    )
+                }
             },
         ]
 
