@@ -140,6 +140,9 @@ public enum BridgeToolApproval {
         // piece of work stopped and asked the owner to rename the workspace by hand, and an ask
         // on this from a parent running unattended is the hung turn described above.
         "workspace_rename",
+        // The same answer as a rename: one column, nothing on disk, and the row is still in the
+        // sidebar under On hold. The way back is the same call with on_hold false.
+        "workspace_hold",
         // The only one of the four quick prompt tools on this list, and the only one of them a
         // parent can call unattended. It reads the owner's own library and changes nothing in it,
         // so the ask would carry nothing for a person to weigh, and an unanswered ask on a read is

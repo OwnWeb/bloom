@@ -86,6 +86,19 @@ extension AppModel {
         _ = try? await store.update(workspaceID: workspace.id) { $0.onHold = onHold }
     }
 
+    /// Carries out a hold the workspace's own agent asked for, now that its turn has ended.
+    ///
+    /// Asked again, because a crew member or a queued message can have arrived since. Only the
+    /// chat whose turn has just ended is excused. Dropped when the owner pressed Stop: they have
+    /// just stepped in.
+    func holdIfRequested(_ workspace: Workspace, endedIn sessionID: SessionID, wasStopped: Bool) async {
+        guard takeHoldBooking(of: workspace.id, endedIn: sessionID), !wasStopped, let store,
+              workspaces.contains(where: { $0.id == workspace.id }) else { return }
+        let objection = await WorkspaceHoldSafety.objection(to: workspace, excusing: sessionID, store: store)
+        guard objection == nil else { return }
+        await setOnHold(workspace, true)
+    }
+
     /// The colour on a workspace row, or nil to take it off.
     ///
     /// Stored as the hex rather than as a position in `WorkspaceColour.all`, so reordering that
