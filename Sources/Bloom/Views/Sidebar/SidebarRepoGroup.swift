@@ -10,6 +10,10 @@ import BloomCore
 struct SidebarRepoGroup: Identifiable {
     var repo: Repo
     var workspaces: [Workspace]
+    /// The project's workspaces on hold, filtered and ordered like `workspaces`. They are drawn in
+    /// the On hold section below Conversations, and neither field below counts them: a project
+    /// whose work is all on hold has nothing in progress.
+    var onHold: [Workspace]
     /// Whether any workspace in this project has finished a turn nobody has read yet.
     ///
     /// Computed over every workspace the project has, not over `workspaces`. The rows are what
@@ -47,11 +51,12 @@ struct SidebarRepoGroup: Identifiable {
         }
 
         return ProjectVisibility.listed(repos, showingHidden: showingHidden).map { repo in
-            let all = byRepo[repo.id] ?? []
-            let rows = SidebarReorder.drawn(all.filter(filter.accepts))
+            let every = byRepo[repo.id] ?? []
+            let all = every.filter { !$0.onHold }
             return SidebarRepoGroup(
                 repo: repo,
-                workspaces: rows,
+                workspaces: SidebarReorder.drawn(all.filter(filter.accepts)),
+                onHold: SidebarReorder.drawn(every.filter { $0.onHold && filter.accepts($0) }),
                 hasUnreadWork: all.contains(where: \.unread),
                 totalWorkspaces: all.count
             )

@@ -96,6 +96,11 @@ enum SearchPanelWorkspaceCommands {
             Clipboard.copy(workspace.branch)
         case .pin:
             Task { await app.togglePinned(workspace) }
+        case .onHold:
+            let turnIsOpen = app.isRunning(workspace) || app.isAwaitingPermission(workspace)
+            guard let mark = WorkspaceOnHoldMark.action(for: workspace),
+                  WorkspaceOnHoldMark.isEnabled(mark, turnIsOpen: turnIsOpen) else { return }
+            Task { await app.setOnHold(workspace, mark.onHold) }
         case .unreadMark:
             guard let mark = WorkspaceUnreadMark.action(for: workspace) else { return }
             Task { await app.setUnread(workspace, mark.unread) }

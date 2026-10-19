@@ -528,6 +528,12 @@ struct BloomCommands: Commands {
                 MenuCommand(.pin) {}.disabled(true)
             }
 
+            if let workspace = workspace(for: .onHold) {
+                WorkspaceOnHoldItem(workspace: workspace, app: model)
+            } else {
+                MenuCommand(.onHold) {}.disabled(true)
+            }
+
             if let workspace = workspace(for: .unreadMark) {
                 WorkspaceUnreadItem(workspace: workspace, app: model)
             } else {

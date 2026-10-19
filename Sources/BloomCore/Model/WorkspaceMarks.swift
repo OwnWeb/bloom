@@ -1,11 +1,11 @@
 import Foundation
 
-// The two marks a person puts on a workspace by hand.
+// The marks a person puts on a workspace by hand.
 //
 // Everything else a sidebar row draws is reported rather than chosen: the status glyph is what
 // `WorkspaceStatus` worked out, the diff counts are what `git` said, the unread weight is what a
-// finishing turn wrote. These two are the opposite. Nothing sets them but the user, nothing
-// clears them but the user or the one rule written out below, and they exist so a person can say
+// finishing turn wrote. These are the opposite. Nothing sets them but the user, nothing
+// clears them but the user or the rules written out below, and they exist so a person can say
 // something about a row that the machine has no way to know.
 //
 // They live here, in the core, rather than in the menus that offer them, because both lists offer
@@ -80,6 +80,40 @@ public enum WorkspaceUnreadMark {
     /// store writes and the one every other reader of this rule uses.
     public static func isUnread(_ workspace: Workspace) -> Bool {
         action(for: workspace) == .markRead
+    }
+}
+
+// MARK: - The on hold mark
+
+/// What the row menu's on hold item should say. One item with two labels, like the unread mark.
+public enum OnHoldMarkAction: String, Sendable, Hashable, CaseIterable {
+    case putOnHold
+    case takeOffHold
+
+    public var title: String {
+        switch self {
+        case .putOnHold: "Put on Hold"
+        case .takeOffHold: "Take Off Hold"
+        }
+    }
+
+    /// What the item writes to `Workspace.onHold`.
+    public var onHold: Bool {
+        self == .putOnHold
+    }
+}
+
+public enum WorkspaceOnHoldMark {
+    /// The item to offer, or nil for an archived workspace, which the sidebar never lists.
+    public static func action(for workspace: Workspace) -> OnHoldMarkAction? {
+        guard workspace.state == .active else { return nil }
+        return workspace.onHold ? .takeOffHold : .putOnHold
+    }
+
+    /// Whether the item can be pressed. Never while a turn is open: a permission question asked
+    /// under a folded On hold would wait there unseen, holding the agent with it.
+    public static func isEnabled(_ action: OnHoldMarkAction, turnIsOpen: Bool) -> Bool {
+        action == .takeOffHold || !turnIsOpen
     }
 }
 

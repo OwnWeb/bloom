@@ -128,7 +128,8 @@ final class SidebarKeyboardFocusView: NSView {
         return frame.convert(frame.bounds, to: nil).contains(point)
     }
 
-    private static func table(under view: NSView, covering point: NSPoint) -> NSTableView? {
+    /// Also how `SidebarOnHoldGap` finds the same table.
+    static func table(under view: NSView, covering point: NSPoint) -> NSTableView? {
         if let table = view as? NSTableView, covers(table, point) { return table }
         for subview in view.subviews {
             if let found = table(under: subview, covering: point) { return found }
