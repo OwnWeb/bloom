@@ -12,8 +12,8 @@ struct ComposerShellModeHint: View {
     var body: some View {
         if ShellCommand.isShellMode(draft) {
             Text(waitsForTurn
-                ? "! for shell mode. Runs in the worktree when this turn ends, and the agent gets the output."
-                : "! for shell mode. Runs in the worktree, and the agent gets the output when it finishes.")
+                ? "! for shell mode. Runs in this chat's folder when this turn ends, and the agent gets the output."
+                : "! for shell mode. Runs in this chat's folder, and the agent gets the output when it finishes.")
                 .font(Typo.caption)
                 .foregroundStyle(Palette.warning)
                 .frame(maxWidth: .infinity, alignment: .leading)
