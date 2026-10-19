@@ -1,7 +1,7 @@
 import Foundation
 
-/// A composer draft that starts with `!`: a shell command run in the worktree rather than a message,
-/// whose output goes to the agent as the next message once it has finished.
+/// A composer draft that starts with `!`: a shell command run in the chat's folder rather than a
+/// message, whose output goes to the agent as the next message once it has finished.
 ///
 /// This is Claude Code's shell mode, done by Bloom. stream-json has no such mode, and Codex and Grok
 /// have nothing like it either, so the output reaches the agent as an ordinary user message and every
