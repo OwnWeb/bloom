@@ -435,6 +435,21 @@ final class AppModel {
         return booking.review
     }
 
+    /// Workspaces whose own agent asked to be put on hold, keyed to the chat whose turn has to end
+    /// first, exactly as `archiveBookings` is. See `WorkspaceHoldTool`.
+    private var holdBookings: [WorkspaceID: SessionID] = [:]
+
+    /// Books the hold, or withdraws it when `sessionID` is nil.
+    func bookHold(of id: WorkspaceID, after sessionID: SessionID?) {
+        holdBookings[id] = sessionID
+    }
+
+    func takeHoldBooking(of id: WorkspaceID, endedIn sessionID: SessionID) -> Bool {
+        guard holdBookings[id] == sessionID else { return false }
+        holdBookings[id] = nil
+        return true
+    }
+
     /// Workspaces the owner has asked for whose worktree is still being cut.
     ///
     /// The mirror of `archivingWorkspaceIDs` above: that one takes a row away before the disk work
@@ -1530,6 +1545,7 @@ final class AppModel {
         // today, but a booking outliving the worktree it names is a request that can only ever be
         // refused, and it would be refused at the owner rather than at the agent that made it.
         archiveBookings[id] = nil
+        holdBookings[id] = nil
         storedActivity.removeAll { $0.workspaceID == id }
         // The crew rows go for the same reason the activity rows above do: `ON DELETE CASCADE`
         // has taken this workspace's sessions with it, and rows read before that would keep

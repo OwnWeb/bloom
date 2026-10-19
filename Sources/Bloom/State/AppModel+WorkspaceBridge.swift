@@ -136,6 +136,9 @@ extension AppModel {
                 guard let self else { return .refused("Bloom is still starting up.") }
                 return await self.archiveWorkspaceForBridge(order)
             },
+            WorkspaceHoldTool { [weak self] workspaceID, sessionID in
+                await self?.bookHold(of: workspaceID, after: sessionID)
+            },
             WorkspaceRestoreTool { [weak self] workspace in
                 guard let self else { return .refused("Bloom is still starting up.") }
                 return await self.restoreWorkspaceForBridge(workspace)

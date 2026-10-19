@@ -64,6 +64,10 @@ public struct WorkspaceListTool: BridgeToolHandling {
             agent_running. If the two ever look as though they disagree, one of them is being \
             read as the other's number.
 
+            on_hold is true for a workspace set aside while somebody else has the next move, by \
+            the owner or through workspace_hold. It is still a live workspace, folded at the \
+            bottom of the sidebar, and any message sent to it takes it off hold.
+
             By default it reads Bloom's database and nothing else, and at that price GitHub is \
             not consulted at all: there is no pull request, no checks, and the status can never \
             say merged, closed, draft or anything about checks. A default call has not looked, so \
@@ -266,6 +270,7 @@ public struct WorkspaceListTool: BridgeToolHandling {
             "agent_running": .bool(isRunning),
             "awaiting_permission": .bool(isAwaiting),
             "unread": .bool(workspace.unread),
+            "on_hold": .bool(workspace.onHold),
             "diff": .object([
                 "additions": .integer(workspace.additions),
                 "deletions": .integer(workspace.deletions),

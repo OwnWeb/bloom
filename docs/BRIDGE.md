@@ -162,6 +162,7 @@ places: the listing, the dispatch and the gate.
 | `workspace_list` | Every workspace, its state, its worktree path, its chats and their cost, what an agent is stopped on, what is queued and why, and its local state. Read only | ✓ | ✓ |
 | `workspace_start` | Cut a worktree and put an agent in it with a task, on a new branch, existing branch or GitHub pull request. Optional `model` and `effort` choose the first chat's exact controls; either omitted value inherits the caller or Bloom's default. A workspace agent starts it in its own project, or in another one it names. With `notify_when_done`, Bloom tells the calling chat once when the new agent's first turn finishes, fails or blocks on the owner | ✓ | ✓ |
 | `workspace_rename` | Give a workspace the name the work in it turned out to be about. Its own by default, or any workspace named out loud by name or id; the owner must name one | ✓ | ✓ |
+| `workspace_hold` | Put a workspace on hold while somebody else has the next move, or take it off with `on_hold: false`. Its own by default, held once the asking turn has ended; any other named out loud, at once, and refused while an agent runs there or a message is queued. Any message sent to a workspace takes it off hold | ✓ | ✓ |
 | `workspace_archive` | Archive a workspace through normal safety checks, keeping its branch and history. For a workspace agent, its own once the turn asking for it has ended, or one it started, by id and at once; any of them, named out loud and at once, for the owner | ✓ | ✓ |
 | `workspace_restore` | Rebuild an archived workspace's worktree from its surviving branch, returning it to the active list. Takes its exact id from `workspace_list` with `include_archived: true` | | ✓ |
 | `workspace_merge` | Ask a workspace's own agent to merge its pull request | | ✓ |
@@ -850,7 +851,7 @@ So `BridgeToolApproval` names the tools Bloom answers for itself:
 
 | Self-approved | Not |
 | --- | --- |
-| `whoami`, `project_setup_guide`, `mail_send`, `mail_list`, `mail_read`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `chat_create`, `chat_close`, `chat_rename`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list`, `workspace_list` | everything else |
+| `whoami`, `project_setup_guide`, `mail_send`, `mail_list`, `mail_read`, `workspace_start`, `pane_open`, `pane_split`, `pane_close`, `pane_rename`, `workspace_rename`, `workspace_hold`, `pane_list`, `workspace_tabs`, `workspace_tab_select`, `chat_list`, `chat_read`, `chat_create`, `chat_close`, `chat_rename`, `workspace_diff`, `browser_read`, `media_show`, `quick_prompt_list`, `reveal`, `agent_start`, `agent_say`, `agent_list`, `agent_stop`, `workspace_say`, `project_list`, `workspace_list` | everything else |
 
 It is a list rather than "anything with our prefix", so a tool added later is opted in by somebody
 thinking about it rather than by inheriting a decision made before it existed.
