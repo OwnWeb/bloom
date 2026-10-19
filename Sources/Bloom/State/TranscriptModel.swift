@@ -1925,6 +1925,7 @@ final class TranscriptModel {
                 await app.archiveIfRequested(
                     workspaceNow, endedIn: session.id, wasStopped: wasStoppedByHand
                 )
+                await app.holdIfRequested(workspaceNow, endedIn: session.id, wasStopped: wasStoppedByHand)
             }
 
             history.isFinalisingTurn = false
@@ -2383,6 +2384,7 @@ final class TranscriptModel {
         await app.archiveIfRequested(
             workspaceNow, endedIn: session.id, wasStopped: wasStoppedByHand
         )
+        await app.holdIfRequested(workspaceNow, endedIn: session.id, wasStopped: wasStoppedByHand)
     }
 
 }

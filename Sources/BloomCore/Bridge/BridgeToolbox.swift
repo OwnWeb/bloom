@@ -37,7 +37,7 @@ public struct BridgeToolbox: Sendable {
     /// are not on the list. See `LiveBridgeTests`.
     ///
     /// `mail_send`, `mail_list`, `mail_read`, `workspace_start`, `workspace_archive`,
-    /// `workspace_merge`, `reveal`, the chat mutation tools and the pane and tab tools are the
+    /// `workspace_hold`, `workspace_merge`, `reveal`, the chat mutation tools and the pane and tab tools are the
     /// exceptions and are added by `AppModel.bridgeToolbox()`, because the mail tools must reach
     /// this app's live bundled inbox, and starting a workspace has to
     /// reach the main-actor graph that runs one, asking one to merge has to reach the same path
