@@ -5,9 +5,10 @@ project on GitLab gets the merge request strip, its pipeline's jobs, a failed jo
 the agent, create and merge directly or through the agent, ready and rebase, and workspaces started
 from a merge request, in GitLab's own words. Checked against `glab` 1.92.1 and the REST API v4.
 
-The rule every part of it follows: **nothing changes for a project on GitHub.** The one deliberate
-exception is the onboarding checks screen, which shows an optional "GitLab CLI" row to everybody.
-It never changes the verdict or its sentence.
+The rule every part of it follows: **nothing changes for a project on GitHub.** The deliberate
+exceptions are the onboarding checks screen, which shows an optional "GitLab CLI" row to everybody
+and never changes the verdict or its sentence, and Settings > GitHub & GitLab, which took the
+GitHub account row out of Agents.
 
 ## Which forge a project uses
 
@@ -88,6 +89,10 @@ The GitHub decoder never fills `blockers`.
 
 ## Settings
 
+- Settings > GitHub & GitLab, shown with or without either CLI: the account each is signed in as,
+  per host for `glab`, and the sign in sheet to install it with Homebrew, sign in, sign in again,
+  or switch account with `gh auth switch`. `glab` keeps one account per host, so switching there
+  is signing in again as the other one.
 - `git.forge`, in the project's settings screen as "Hosted on" when `glab` is installed.
 - `git.branch_prefix_type = "gitlab_username"`, the user `glab` is signed in as on the project's
   host, read once per launch from `glab auth status` and again after a sign in.

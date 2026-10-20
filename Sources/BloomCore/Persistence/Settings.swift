@@ -377,8 +377,9 @@ public enum GitHubIdentity {
         state.withLock(\.username)
     }
 
-    public static func resolve() async {
-        guard !state.withLock(\.resolved) else { return }
+    /// - Parameter force: read again, after a sign in in Settings that may have changed the answer.
+    public static func resolve(force: Bool = false) async {
+        guard force || !state.withLock(\.resolved) else { return }
 
         var username: String?
         if let result = try? await Shell.run("gh", ["api", "user", "--jq", ".login"], timeout: .seconds(10)),
@@ -392,7 +393,8 @@ public enum GitHubIdentity {
         }
 
         state.withLock {
-            $0.username = username
+            // A read again that failed, offline or timed out, keeps the name it had.
+            $0.username = username ?? $0.username
             $0.resolved = true
         }
     }
