@@ -31,7 +31,7 @@ struct GitLabDirectTests {
         let repo = try await featureRepo()
         defer { repo.cleanUp() }
         let head = try await Git.headSHA(of: repo.path)
-        let rebased = String(repeating: "b", count: 40)
+        let rebased = try await rebasedOnServer(repo, writing: "a\n")
         let glab = MergeGlab(head: head, rebasedHead: rebased)
 
         let outcome = try await GitLab.$commandOverride.withValue({ arguments, _ in
@@ -45,6 +45,79 @@ struct GitLabDirectTests {
         #expect(await glab.merges == [
             ["mr", "merge", "42", "--yes", "--auto-merge=false", "--sha", rebased, "-R", project],
         ])
+    }
+
+    @Test("a rebase onto a target that changed a line beside a confirmed change is still merged")
+    func rebaseBesideATargetChange() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        try await git(repo, "remote", "add", "origin", "git@gitlab.com:group/app.git")
+        try repo.write("f.txt", (1...10).map(String.init).joined(separator: "\n") + "\n")
+        try await git(repo, "add", "f.txt")
+        try await git(repo, "commit", "-q", "-m", "Count")
+        try await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+        try await git(repo, "checkout", "-q", "-b", "feature")
+        try await replace("3", with: "three", in: repo)
+        let head = try await Git.headSHA(of: repo.path)
+        _ = try await server(for: "git@gitlab.com:group/app.git", in: repo)
+        // Two lines from the confirmed change: a patch id counts it as context and differs.
+        try await git(repo, "checkout", "-q", "-b", "rebased", "main")
+        try await replace("5", with: "five", in: repo)
+        try await git(repo, "cherry-pick", head)
+        let rebased = try await Git.headSHA(of: repo.path)
+        try await git(repo, "push", "-q", "origin", "rebased:refs/merge-requests/42/head")
+        try await git(repo, "checkout", "-q", "feature")
+        let glab = MergeGlab(head: head, rebasedHead: rebased)
+
+        let outcome = try await GitLab.$commandOverride.withValue({ arguments, _ in
+            await glab.execute(arguments)
+        }) {
+            try await GitLab.mergePullRequest(expected(head: head), into: "main", method: .rebase, worktree: repo.path)
+        }
+
+        #expect(outcome == .merged)
+        #expect(await glab.merges.first?.contains(rebased) == true)
+    }
+
+    @Test("a merge request already on its target, which the rebase leaves alone, merges at the confirmed head")
+    func rebaseThatChangesNothing() async throws {
+        let repo = try await featureRepo()
+        defer { repo.cleanUp() }
+        let head = try await Git.headSHA(of: repo.path)
+        let glab = MergeGlab(head: head)
+
+        let outcome = try await GitLab.$commandOverride.withValue({ arguments, _ in
+            await glab.execute(arguments)
+        }) {
+            try await GitLab.mergePullRequest(expected(head: head), into: "main", method: .rebase, worktree: repo.path)
+        }
+
+        #expect(outcome == .merged)
+        #expect(await glab.merges == [
+            ["mr", "merge", "42", "--yes", "--auto-merge=false", "--sha", head, "-R", project],
+        ])
+    }
+
+    @Test("a rebase whose commits have the confirmed titles but other contents is not merged")
+    func refusesOtherContents() async throws {
+        let repo = try await featureRepo()
+        defer { repo.cleanUp() }
+        let head = try await Git.headSHA(of: repo.path)
+        // A push between the confirmation and the rebase: the same title, a different change.
+        let rebased = try await rebasedOnServer(repo, writing: "not what was confirmed\n")
+        let glab = MergeGlab(head: head, rebasedHead: rebased)
+
+        do {
+            _ = try await GitLab.$commandOverride.withValue({ arguments, _ in
+                await glab.execute(arguments)
+            }) {
+                try await GitLab.mergePullRequest(expected(head: head), into: "main", method: .rebase, worktree: repo.path)
+            }
+            Issue.record("A rebase with unconfirmed contents was merged")
+        } catch let error as GitHubError {
+            #expect(error.message.contains("not the ones confirmed"))
+        }
+        #expect(await glab.merges.isEmpty)
     }
 
     @Test("a rebase that brought in a commit nobody confirmed is not merged")
@@ -176,6 +249,31 @@ struct GitLabDirectTests {
         try await Shell.check("git", ["init", "-q", "--bare", server], cwd: repo.path)
         try await git(repo, "config", "url.\(server).insteadOf", url)
         return server
+    }
+
+    /// What GitLab's rebase leaves on the server: `main` moved on by a commit, and `feature`'s one
+    /// commit, titled as confirmed and writing `contents` to `a.txt`, on top of it as the head of !42.
+    private func rebasedOnServer(_ repo: TempRepo, writing contents: String) async throws -> String {
+        _ = try await server(for: "git@gitlab.com:group/app.git", in: repo)
+        try await git(repo, "checkout", "-q", "-b", "rebased", "main")
+        try repo.write("m.txt", "m\n")
+        try await git(repo, "add", "m.txt")
+        try await git(repo, "commit", "-q", "-m", "Move main")
+        try repo.write("a.txt", contents)
+        try await git(repo, "add", "a.txt")
+        try await git(repo, "commit", "-q", "-m", "Add a")
+        let rebased = try await Git.headSHA(of: repo.path)
+        try await git(repo, "push", "-q", "origin", "rebased:refs/merge-requests/42/head")
+        try await git(repo, "checkout", "-q", "feature")
+        try await git(repo, "branch", "-q", "-D", "rebased")
+        return rebased
+    }
+
+    /// Rewrites one line of `f.txt` and commits it, titled after the line.
+    private func replace(_ line: String, with text: String, in repo: TempRepo) async throws {
+        let lines = (repo.read("f.txt") ?? "").components(separatedBy: "\n").map { $0 == line ? text : $0 }
+        try repo.write("f.txt", lines.joined(separator: "\n"))
+        try await git(repo, "commit", "-q", "-am", "Change \(line)")
     }
 
     private func git(_ repo: TempRepo, _ arguments: String...) async throws {
