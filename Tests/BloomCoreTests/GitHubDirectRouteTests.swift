@@ -77,6 +77,8 @@ struct GitHubDirectRouteTests {
     func createRefusedWhenOneExists() async throws {
         let repo = try await featureRepo()
         defer { repo.cleanUp() }
+        // A repository with no remote has no pull request to read, so gh would never be asked.
+        try await Shell.check("git", ["remote", "add", "origin", "https://github.com/org/repo.git"], cwd: repo.path)
         try repo.write("work.txt", "work\n")
         let head = try await Git.headSHA(of: repo.path)
         let gh = DirectGH(head: head)
