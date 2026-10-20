@@ -90,6 +90,69 @@ struct GitLabCommandTests {
         #expect(chosen("origin", ["origin": gitHub]) == nil)
     }
 
+    @Test("a fork's merge request checked out the way glab does is found by the number on the row")
+    func forkCheckoutByNumber() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        try await Shell.check("git", ["remote", "add", "origin", "git@gitlab.com:gitlab-org/cli.git"], cwd: repo.path)
+        // What `glab mr checkout 4020 --branch 8591-iteration-list-total-2` writes: the fork's
+        // branch by name, no merge request ref, and a local name GitLab has never heard of.
+        try await Shell.check("git", ["checkout", "-q", "-b", "8591-iteration-list-total-2"], cwd: repo.path)
+        try await Shell.check("git", [
+            "config", "branch.8591-iteration-list-total-2.remote", "git@gitlab.com:gitlab-community/gitlab-org/cli.git",
+        ], cwd: repo.path)
+        try await Shell.check("git", [
+            "config", "branch.8591-iteration-list-total-2.merge", "refs/heads/8591-iteration-list-total",
+        ], cwd: repo.path)
+
+        let found = try await lookUp(
+            workspace(repo, branch: "8591-iteration-list-total-2", number: 4020),
+            searching: "8591-iteration-list-total-2", detail: "mr-draft-conflicting-fork.json"
+        )
+        #expect(found?.number == 4020)
+    }
+
+    @Test("a branch renamed after its merge request was found keeps it, through the number on the row")
+    func renamedBranchByNumber() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        try await Shell.check("git", ["remote", "add", "origin", "git@gitlab.com:group/sub/app.git"], cwd: repo.path)
+        try await Shell.check("git", ["checkout", "-q", "-b", "renamed-here"], cwd: repo.path)
+
+        let found = try await lookUp(
+            workspace(repo, branch: "feature/x", number: 4021), searching: "renamed-here", detail: "mr-not-approved.json"
+        )
+        #expect(found?.number == 4021)
+    }
+
+    /// The source branch search answers nothing, as GitLab does for a name it has no merge request
+    /// from; only reading the row's number by iid answers.
+    private func lookUp(
+        _ workspace: Workspace, searching branch: String, detail name: String
+    ) async throws -> PullRequest? {
+        let detail = try fixture(name)
+        let jobs = try fixture("jobs-failed-pipeline.json")
+        let log = GlabLog()
+        let found = try await GitLab.$commandOverride.withValue({ arguments, _ in
+            await log.append(arguments)
+            let endpoint = arguments.last ?? ""
+            if endpoint.contains("/jobs") { return ShellResult(status: 0, stdout: jobs, stderr: "") }
+            if endpoint.contains("source_branch=") { return ShellResult(status: 0, stdout: "[]", stderr: "") }
+            return ShellResult(status: 0, stdout: detail, stderr: "")
+        }) {
+            try await GitLab.pullRequest(for: workspace, maxAge: .zero)
+        }
+        #expect(await log.commands.first?.last?.contains("source_branch=\(branch)&") == true)
+        return found
+    }
+
+    private func workspace(_ repo: TempRepo, branch: String, number: Int) -> Workspace {
+        Workspace(
+            repoID: RepoID("r"), name: "review", branch: branch, path: repo.path, baseBranch: "main",
+            pullRequestNumber: number
+        )
+    }
+
     @Test("a pipeline whose jobs cannot be read leaves the checks unknown, not the merge request")
     func unreadableJobs() async throws {
         let repo = try await TempRepo()
