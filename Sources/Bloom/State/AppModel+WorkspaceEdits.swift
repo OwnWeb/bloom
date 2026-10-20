@@ -104,6 +104,12 @@ extension AppModel {
         }
     }
 
+    /// An open pull request's target, taken without a word: it arrives from a poll, not a press.
+    func adoptPullRequestBase(_ pullRequest: PullRequest?, for workspace: Workspace) async {
+        guard let base = await BaseBranchChange.adoptable(from: pullRequest, by: workspace) else { return }
+        try? await writeBaseBranch(base, of: workspace)
+    }
+
     private func writeBaseBranch(_ base: String, of workspace: Workspace) async throws {
         guard let store else { return }
         try await BaseBranchChange.record(base, for: workspace)

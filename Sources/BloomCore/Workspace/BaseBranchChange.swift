@@ -30,6 +30,29 @@ public enum BaseBranchChange {
         try await Git.recordBase(context, for: workspace.branch, in: workspace.path)
     }
 
+    /// The target of an open pull request, when the stored base has fallen behind it: changed on
+    /// the forge, or moved there by GitHub when a stacked base merged. A finished one is history.
+    public static func adopted(from pullRequest: PullRequest?, by workspace: Workspace) -> String? {
+        guard let pullRequest, pullRequest.isOpen, let base = pullRequest.baseBranch,
+              base != workspace.baseBranch, base != workspace.branch,
+              Git.isValidBranchName(base) else { return nil }
+        return base
+    }
+
+    /// `adopted`, once this clone can resolve it. Fetched first, because the diff never fetches
+    /// and a target it has never seen would turn the Changes tab into an error.
+    ///
+    /// Only on the remote the current base resolves to, which is the repository the pull request
+    /// was found in: a local `main` tracking `upstream` is another repository's `main`.
+    public static func adoptable(from pullRequest: PullRequest?, by workspace: Workspace) async -> String? {
+        guard !workspace.path.isEmpty, let base = adopted(from: pullRequest, by: workspace),
+              let current = try? await Git.repositoryContext(in: workspace.path, baseBranch: workspace.baseBranch),
+              let next = try? await Git.repositoryContext(in: workspace.path, baseBranch: base),
+              current.baseRemote == next.baseRemote,
+              (try? await Git.baseRevision(branch: base, in: workspace.path)) != nil else { return nil }
+        return base
+    }
+
     /// Why `choice` cannot be the base, or nil when it can. Asked against a fresh listing, because
     /// the menu's may be minutes old.
     public static func refusal(of choice: String, branch: String, available: [String]) -> String? {

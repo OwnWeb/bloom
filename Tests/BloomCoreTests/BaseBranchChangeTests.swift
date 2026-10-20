@@ -45,6 +45,41 @@ struct BaseBranchChangeTests {
     }
 }
 
+@Suite("Following an open pull request's target")
+struct BaseBranchAdoptionTests {
+    private let workspace = Workspace(
+        repoID: RepoID("repo"), name: "Caribbean Sea", branch: "caribbean-sea", path: "/p", baseBranch: "main"
+    )
+
+    private func request(state: String = "OPEN", base: String?) -> PullRequest {
+        PullRequest(number: 12, title: "Sea", url: "", state: state, branch: "caribbean-sea", baseBranch: base)
+    }
+
+    @Test("An open pull request aimed elsewhere moves the base")
+    func openRetargeted() {
+        #expect(BaseBranchChange.adopted(from: request(base: "ownweb"), by: workspace) == "ownweb")
+    }
+
+    @Test("Nothing moves when the target already is the base, or is not known")
+    func nothingToFollow() {
+        #expect(BaseBranchChange.adopted(from: request(base: "main"), by: workspace) == nil)
+        #expect(BaseBranchChange.adopted(from: request(base: nil), by: workspace) == nil)
+        #expect(BaseBranchChange.adopted(from: nil, by: workspace) == nil)
+    }
+
+    @Test("A merged or closed pull request is history and moves nothing")
+    func finishedIsHistory() {
+        #expect(BaseBranchChange.adopted(from: request(state: "MERGED", base: "ownweb"), by: workspace) == nil)
+        #expect(BaseBranchChange.adopted(from: request(state: "CLOSED", base: "ownweb"), by: workspace) == nil)
+    }
+
+    @Test("Neither the workspace's own branch nor a name git would refuse becomes the base")
+    func refusedTargets() {
+        #expect(BaseBranchChange.adopted(from: request(base: "caribbean-sea"), by: workspace) == nil)
+        #expect(BaseBranchChange.adopted(from: request(base: "-rf"), by: workspace) == nil)
+    }
+}
+
 @Suite("Listing a workspace's possible bases", .tags(.git, .destructive), .scratchDirectory)
 struct BaseBranchChangeListingTests {
     @Test("A worktree lists the repository's branches, less its own")
@@ -81,5 +116,41 @@ struct BaseBranchChangeListingTests {
         )
         #expect(recorded.trimmed == "ownweb")
         #expect(try await Git.repositoryContext(in: workspace.path).baseBranch == "ownweb")
+    }
+
+    @Test("A target this clone can resolve is followed, one it cannot is left alone")
+    func adoptsOnlyResolvableTargets() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        let store = try makeTestStore("base-branch-adoption")
+        let manager = WorkspaceManager(store: store)
+        let registered = try await manager.addRepository(at: repo.path)
+        let workspace = try await manager.createWorkspace(repo: registered, prompt: "Fix draft tickets")
+        try await Shell.check("git", ["branch", "ownweb"], cwd: repo.path)
+
+        func open(_ base: String) -> PullRequest {
+            PullRequest(number: 1, title: "", url: "", state: "OPEN", branch: workspace.branch, baseBranch: base)
+        }
+        #expect(await BaseBranchChange.adoptable(from: open("ownweb"), by: workspace) == "ownweb")
+        #expect(await BaseBranchChange.adoptable(from: open("nowhere"), by: workspace) == nil)
+    }
+
+    @Test("A target that resolves to another remote than the current base is left alone")
+    func keepsToTheSameRemote() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        let store = try makeTestStore("base-branch-adoption-remote")
+        let manager = WorkspaceManager(store: store)
+        let registered = try await manager.addRepository(at: repo.path)
+        let workspace = try await manager.createWorkspace(repo: registered, prompt: "Fix draft tickets")
+        try await Shell.check("git", ["branch", "ownweb"], cwd: repo.path)
+        try await Shell.check("git", ["remote", "add", "origin", "/nowhere/fork"], cwd: repo.path)
+        try await Shell.check("git", ["remote", "add", "upstream", "/nowhere/upstream"], cwd: repo.path)
+        try await Shell.check("git", ["config", "branch.ownweb.remote", "upstream"], cwd: repo.path)
+
+        let retargeted = PullRequest(
+            number: 1, title: "", url: "", state: "OPEN", branch: workspace.branch, baseBranch: "ownweb"
+        )
+        #expect(await BaseBranchChange.adoptable(from: retargeted, by: workspace) == nil)
     }
 }
