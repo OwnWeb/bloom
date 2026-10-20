@@ -111,6 +111,35 @@ struct GitLabDirectTests {
         ]])
     }
 
+    @Test("beside a GitHub origin, the branch is pushed to the GitLab remote and the request names no fork")
+    func pushesToTheGitLabRemote() async throws {
+        let repo = try await featureRepo()
+        defer { repo.cleanUp() }
+        try await git(repo, "remote", "rename", "origin", "gitlab")
+        try await git(repo, "remote", "add", "origin", "git@github.com:group/app.git")
+        try await git(repo, "update-ref", "refs/remotes/origin/main", "refs/remotes/gitlab/main")
+        let gitLab = try await server(for: "git@gitlab.com:group/app.git", in: repo)
+        let gitHub = try await server(for: "git@github.com:group/app.git", in: repo)
+        let head = try await Git.headSHA(of: repo.path)
+        let glab = MergeGlab(head: head)
+        let workspace = Workspace(repoID: RepoID("r"), name: "Feature", branch: "feature", path: repo.path, baseBranch: "main")
+
+        let created = try await GitLab.$commandOverride.withValue({ arguments, _ in
+            if arguments.last?.contains("source_branch=") == true { return ShellResult(status: 0, stdout: "[]", stderr: "") }
+            return await glab.execute(arguments)
+        }) {
+            try await DirectPullRequestCreation.create(for: workspace, forge: .gitLab)
+        }
+
+        #expect(created.number == 42)
+        #expect(await Git.revision(of: "refs/heads/feature", in: gitLab) == head)
+        #expect(await Git.revision(of: "refs/heads/feature", in: gitHub) == nil)
+        #expect(await glab.creates == [[
+            "mr", "create", "--source-branch", "feature", "--target-branch", "main",
+            "--title", "Feature", "--description", "Why a", "--yes", "-R", project,
+        ]])
+    }
+
     @Test("a single commit's body is the description, and glab's printed URL names the request")
     func descriptionAndNumber() {
         #expect(GitLab.description(fromCommits: [(subject: "Add a", body: "Why a\n")]) == "Why a")
@@ -139,6 +168,18 @@ struct GitLabDirectTests {
         try await Shell.check("git", ["add", "a.txt"], cwd: repo.path)
         try await Shell.check("git", ["commit", "-q", "-m", "Add a", "-m", "Why a"], cwd: repo.path)
         return repo
+    }
+
+    /// A bare repository standing in for the server at `url`, which git in `repo` is sent to instead.
+    private func server(for url: String, in repo: TempRepo) async throws -> String {
+        let server = TestScratch.unique("server")
+        try await Shell.check("git", ["init", "-q", "--bare", server], cwd: repo.path)
+        try await git(repo, "config", "url.\(server).insteadOf", url)
+        return server
+    }
+
+    private func git(_ repo: TempRepo, _ arguments: String...) async throws {
+        try await Shell.check("git", arguments, cwd: repo.path)
     }
 
     private func expected(head: String) -> PullRequest {
