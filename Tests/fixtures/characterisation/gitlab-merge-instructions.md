@@ -17,9 +17,9 @@ Nothing below chooses any of those, and nothing below may change them.
   project setting to get round it. A refusal is an answer, and the person who pressed the
   button is reading this.
 - Only once the merge has actually succeeded, delete the branch on the server with
-  `git push --delete -- origin refs/heads/<branch>`, using the branch the message names. If
-  git answers that the remote ref does not exist, it was deleted on merge and there is
-  nothing left to do.
+  `git push --delete -- <remote> refs/heads/<branch>`, using the branch the message names and
+  the remote `git remote -v` lists on GitLab, usually `origin`. If git answers that the remote
+  ref does not exist, it was deleted on merge and there is nothing left to do.
 - Change nothing on this machine. Do not delete the local branch, do not remove or move the
   worktree, and do not check out anything else.
 - Do not commit and do not push. If the worktree is holding work GitLab has not got, say in

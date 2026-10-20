@@ -37,7 +37,10 @@ the launch and a no for five minutes.
 ## What runs
 
 Reads go through `glab api --hostname <host>` against the REST API, naming the project rather
-than letting `glab` guess it from the remotes. `GitLabReads` shares them: one read in flight per
+than letting `glab` guess it from the remotes. The project is the base remote's when that is on
+GitLab, else the GitLab remote beside it, gitlab.com and hosts `glab` is signed in to first, so a
+GitLab project mirrored to a GitHub `origin` is read, checked out, pushed to and merged through
+its GitLab remote. `GitLabReads` shares them: one read in flight per
 workspace, `maxAge` honoured as on GitHub, and the jobs of a finished pipeline read once.
 
 | Need | Call |
@@ -55,7 +58,7 @@ agent's steps are `GitLabInstructions`; the direct ones are in `GitLab`:
 
 | Direct route | Call |
 |---|---|
-| Create | `glab mr create --source-branch <branch> --target-branch <base> --title <title> --description <commits> --yes -R <project URL>`, after Bloom commits and pushes |
+| Create | `glab mr create --source-branch <branch> --target-branch <base> --title <title> --description <commits> --yes -R <project URL>`, after Bloom commits and pushes, setting the branch's `pushRemote` to the GitLab remote if pushes would go elsewhere |
 | Merge | `glab mr merge <iid> --yes --auto-merge=false --sha <head> [--squash] -R <project URL>` |
 | Rebase merge | `glab mr rebase <iid>` first, then the merge above at the new head |
 

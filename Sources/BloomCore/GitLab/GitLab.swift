@@ -341,14 +341,35 @@ public enum GitLab: ForgeClient {
     }
 
     static func project(in directory: String) async -> GitLabProject? {
+        await remote(in: directory)?.project
+    }
+
+    static func remote(in directory: String) async -> GitLabRemote? {
         guard let config = Git.repositoryPaths(in: directory).map({ ($0.commonDirectory as NSString).appendingPathComponent("config") })
         else { return nil }
         let written = (try? FileManager.default.attributesOfItem(atPath: config))?[.modificationDate] as? Date
-        if let known = await GitLabReads.shared.project(in: directory, configWritten: written) { return known }
+        if let known = await GitLabReads.shared.remote(in: directory, configWritten: written) { return known }
         let context = try? await Git.repositoryContext(in: directory)
-        let project = GitLabProject(remote: context?.baseRemoteURL)
-        await GitLabReads.shared.store(project, in: directory, configWritten: written)
-        return project
+        let configuration = (try? await Git.repositoryConfiguration(in: directory)) ?? [:]
+        let remotes = configuration.reduce(into: [String: String]()) { remotes, entry in
+            guard entry.key.hasPrefix("remote."), entry.key.hasSuffix(".url") else { return }
+            remotes[String(entry.key.dropFirst("remote.".count).dropLast(".url".count))] = entry.value
+        }
+        let remote = GitLabRemote.choose(
+            base: context?.baseRemote, remotes: remotes, signedInHosts: Set(GitLabIdentity.usernames.keys)
+        )
+        await GitLabReads.shared.store(remote, in: directory, configWritten: written)
+        return remote
+    }
+
+    /// Points the branch's pushes at the GitLab remote when they would go anywhere else, such as a
+    /// GitHub `origin`: GitLab can only open a merge request from a branch it has.
+    static func routePushes(of branch: String, in worktree: String) async throws {
+        guard Git.isValidBranchName(branch) else { throw GitHubError("'\(branch)' is not a valid branch name") }
+        guard let remote = await remote(in: worktree) else { throw notAProject }
+        let context = try await Git.repositoryContext(in: worktree, branch: branch)
+        guard GitLabProject(remote: context.publishRemoteURL)?.host != remote.project.host else { return }
+        try await Git.check(["config", "branch.\(branch).pushRemote", remote.name], in: worktree)
     }
 
     private static let notAProject = GitHubError("This repository has no GitLab remote Bloom can read.")
