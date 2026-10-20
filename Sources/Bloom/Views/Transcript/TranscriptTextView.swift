@@ -231,7 +231,7 @@ struct TranscriptTextView: NSViewRepresentable {
             view.textStorage?.setAttributedString(text)
             view.bubbleAlignmentWidth = nil
             view.measurements.removeAll()
-            view.lastReportedMeasurement = nil
+            view.lastReportedWidth = nil
         }
         conversation?.adopt(view)
         view.linkColor = linkColor
@@ -289,15 +289,14 @@ struct TranscriptTextView: NSViewRepresentable {
         // **An answer already given is given again without typesetting**, whichever question came
         // in between. See `TranscriptTextMeasureCache` for the multi-second switches this was.
         //
-        // The container still follows the question, exactly as it did when every question was
-        // typeset, because the view draws at whatever width it was last asked about. Setting a
-        // container's size only marks the layout stale, so TextKit lays the run out when it is next
-        // drawn or hit tested, at the width the pass left it at, instead of once per question.
+        // The container still follows the question. Setting its size only marks the layout stale,
+        // so TextKit lays the run out when it is next drawn or hit tested instead of once per
+        // question, and `viewWillDraw` moves it to the placed frame first.
         if let known = nsView.measurements.value(for: key) {
             if container.containerSize != wanted { container.containerSize = wanted }
             nsView.bubbleInkOffset = known.bubbleInkOffset
             nsView.bubbleAlignmentWidth = alignsBubbleInk ? width : nil
-            nsView.lastReportedMeasurement = (known.size, alignsBubbleInk)
+            nsView.lastReportedWidth = known.size.width
             return known.size
         }
         if container.containerSize != wanted { container.containerSize = wanted }
@@ -323,7 +322,7 @@ struct TranscriptTextView: NSViewRepresentable {
         nsView.measurements.store(
             LinkTextView.Measurement(size: result, bubbleInkOffset: nsView.bubbleInkOffset), for: key
         )
-        nsView.lastReportedMeasurement = (result, alignsBubbleInk)
+        nsView.lastReportedWidth = result.width
         return result
     }
 
@@ -455,14 +454,17 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     var copyPrefix = ""
     var copySeparatorBefore = "\n\n"
 
-    /// `sizeThatFits` can leave the container wider than the placed frame, which drew a long
-    /// pasted turn past its bubble. Only an overflowing run is laid out again.
+    /// `sizeThatFits` leaves the container at its last question's width, which can be a probe
+    /// rather than the placed frame. See `TranscriptTextMeasure.needsRelayoutAtFrame`.
     override func viewWillDraw() {
-        if let container = textContainer, let measured = lastReportedMeasurement,
-           measured.size.width > bounds.width + Self.overflowTolerance {
+        if let container = textContainer, TranscriptTextMeasure.needsRelayoutAtFrame(
+            containerWidth: Double(container.containerSize.width),
+            frameWidth: Double(bounds.width),
+            reportedWidth: lastReportedWidth.map(Double.init)
+        ) {
             container.containerSize = CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
-            lastReportedMeasurement = nil
-            if measured.alignsBubbleInk, let layout = layoutManager {
+            lastReportedWidth = nil
+            if bubbleAlignmentWidth != nil, let layout = layoutManager {
                 layout.ensureLayout(for: container)
                 bubbleInkOffset = BubbleTextAlignment.offset(layout: layout, container: container)
                 bubbleAlignmentWidth = bounds.width
@@ -470,10 +472,6 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
         }
         super.viewWillDraw()
     }
-
-    /// Frames land on half points on a Retina display, and a reported width rounded up can sit
-    /// that far over one without a glyph crossing the edge.
-    private static let overflowTolerance: CGFloat = 0.5
 
     /// Whether whoever has the keyboard is selecting this view's text along with its own.
     private var isSelectedWithTheKeyboardOwner: Bool {
@@ -579,8 +577,8 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     /// text storage is written, and it clears these; anything that ever edits the storage in place
     /// has to clear them too.
     var measurements = TranscriptTextMeasureCache<Measurement>()
-    /// The last answer handed to SwiftUI, for correcting a wider layout before drawing a bubble.
-    var lastReportedMeasurement: (size: CGSize, alignsBubbleInk: Bool)?
+    /// The last width handed to SwiftUI, for correcting a wider layout before drawing a bubble.
+    var lastReportedWidth: CGFloat?
     var bubbleAlignmentWidth: CGFloat?
     var bubbleInkOffset: CGFloat = 0 {
         didSet {
