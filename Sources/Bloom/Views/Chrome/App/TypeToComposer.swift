@@ -40,11 +40,18 @@ enum TypeToComposer {
         guard let window = NSApp.keyWindow,
               window.canBecomeMain, !window.isSheet, window.attachedSheet == nil,
               !takesKeys(window.firstResponder, isPaste: isPaste),
-              let sessionKey = focusedChat() else { return }
+              let sessionKey = (isPaste ? selectedConversation(in: window) : nil) ?? focusedChat()
+        else { return }
         for case let editor as ComposerEditorHandle in editors.keyEnumerator()
         where editors.object(forKey: editor) as String? == sessionKey {
             if editor.takeKeyboard(in: window) { return }
         }
+    }
+
+    /// A side conversation is not the focused pane, so its selection names its own composer.
+    private static func selectedConversation(in window: NSWindow) -> String? {
+        guard let view = window.firstResponder as? NSView else { return nil }
+        return SelectionToChat.transcript(containing: view)?.session?.rawValue
     }
 
     private static func focusedChat() -> String? {
