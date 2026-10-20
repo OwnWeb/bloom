@@ -2,7 +2,7 @@ import Foundation
 import Synchronization
 
 /// The GitLab user glab is signed in as, per host, for `gitlab_username` branch prefixes, the
-/// Agents pane and onboarding. Read once per launch, and only when glab is installed.
+/// GitHub & GitLab settings and onboarding. Read once per launch, and only when glab is installed.
 ///
 /// Host by host rather than one `glab auth status`: that one asks every configured host in turn
 /// and took 43 seconds on a machine with one unreachable instance among four.

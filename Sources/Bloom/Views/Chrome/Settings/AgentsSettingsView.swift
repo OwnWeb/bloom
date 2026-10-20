@@ -29,7 +29,6 @@ struct AgentsSettingsView: View {
     @State private var accountToRemove: AgentAccountProfile?
     @State private var showsRemoveConfirmation = false
     @State private var pathDraft = ""
-    @State private var gitLabAccounts: [String: String] = [:]
     /// Which agent `pathDraft` belongs to. `selection` has already moved on by the time the
     /// change handler runs, so committing against it would file one agent's path under another.
     @State private var draftKind: AgentKind = .claudeCode
@@ -85,33 +84,6 @@ struct AgentsSettingsView: View {
                     notInstalledSection
                 }
 
-                Section("GitHub") {
-                    SettingsRow("Account") {
-                        Text(GitHubIdentity.cachedUsername ?? "Not available")
-                            .foregroundStyle(Palette.textSecondary)
-                            .textSelection(.enabled)
-                    }
-                }
-
-                if GitLab.isInstalled {
-                    Section("GitLab") {
-                        let accounts = gitLabAccounts.sorted { $0.key < $1.key }
-                        if accounts.isEmpty {
-                            SettingsRow("Account") {
-                                Text("Not signed in with glab")
-                                    .foregroundStyle(Palette.textSecondary)
-                            }
-                        }
-                        ForEach(accounts, id: \.key) { host, username in
-                            SettingsRow(host) {
-                                Text(username)
-                                    .foregroundStyle(Palette.textSecondary)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                    }
-                }
-
                 Section {
                     DisclosureGroup("Advanced configuration") {
                         executableSection(status)
@@ -122,7 +94,6 @@ struct AgentsSettingsView: View {
         }
         .settingsForm()
         .task { await bootstrap() }
-        .task { gitLabAccounts = await app.gitLabAccounts() }
         .sheet(item: $loginRequest, onDismiss: { Task { await refresh() } }) { request in
             AgentSignInSheet(request: request) {
                 Task { await refresh() }

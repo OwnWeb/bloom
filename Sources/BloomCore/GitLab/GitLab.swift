@@ -23,10 +23,15 @@ public enum GitLab: ForgeClient {
     private static let listLimit = 30
 
     public static func access(in directory: String) async -> GitHubAccess {
-        guard commandOverride != nil || Shell.which("glab") != nil else { return .notInstalled }
-        guard let project = await project(in: directory),
-              let result = try? await run(["auth", "status", "--hostname", project.host], cwd: nil)
-        else { return .signedOut }
+        guard isInstalled else { return .notInstalled }
+        guard let project = await project(in: directory) else { return .signedOut }
+        return await access(host: project.host)
+    }
+
+    /// glab's state on one host, for a sign in that names it.
+    public static func access(host: String) async -> GitHubAccess {
+        guard isInstalled else { return .notInstalled }
+        guard let result = try? await run(["auth", "status", "--hostname", host], cwd: nil) else { return .signedOut }
         return result.ok ? .ready : .signedOut
     }
 
@@ -345,8 +350,7 @@ public enum GitLab: ForgeClient {
 
     // MARK: Running glab
 
-    /// Whether glab is on this Mac: a walk of the PATH, no process. Settings show GitLab's rows only
-    /// then, so somebody without it sees what they saw before.
+    /// Whether glab is on this Mac: a walk of the PATH, no process.
     public static var isInstalled: Bool {
         commandOverride != nil || Shell.which("glab") != nil
     }
