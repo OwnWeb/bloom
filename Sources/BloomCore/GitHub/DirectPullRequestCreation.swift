@@ -39,6 +39,7 @@ public enum DirectPullRequestCreation {
         }
 
         do {
+            if forge == .gitLab { try await GitLab.routePushes(of: workspace.branch, in: worktree) }
             try await GitHub.push(
                 worktree: worktree, branch: workspace.branch, setUpstream: !local.hasUpstream
             )

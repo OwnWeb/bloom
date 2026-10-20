@@ -11,8 +11,9 @@ The message this file came with names the branch to target. Call it the target b
   first. It outranks everything here.
 - Run `git status`. If anything is uncommitted, review it and commit it, following whatever
   this project says about commit messages.
-- Push the branch with `git push -u origin HEAD`. If it already tracks a different upstream,
-  push to that one instead.
+- Push the branch with `git push -u <remote> HEAD`, where `<remote>` is the remote
+  `git remote -v` lists on GitLab, usually `origin`. If it already tracks a different
+  upstream on GitLab, push to that one instead.
 - Read the whole branch with `git diff <target branch>...` before writing anything. The
   description has to cover every change on the branch, not only what was done in this session.
 - Open the merge request with `glab mr create --target-branch <target branch> --title <title>

@@ -10,6 +10,11 @@ public enum GitLabInstructions {
         translate(PullRequestInstructions.defaultMarkdown).replacingOccurrences(
             of: "`gh pr create --base <target branch> --title <title> --body\n  <description>`",
             with: "`glab mr create --target-branch <target branch> --title <title>\n  --description <description> --yes`"
+        ).replacingOccurrences(
+            of: "Push the branch with `git push -u origin HEAD`. If it already tracks a different upstream,\n  push to that one instead.",
+            with: "Push the branch with `git push -u <remote> HEAD`, where `<remote>` is the remote\n"
+                + "  `git remote -v` lists on GitLab, usually `origin`. If it already tracks a different\n"
+                + "  upstream on GitLab, push to that one instead."
         )
     }
 
@@ -35,9 +40,9 @@ public enum GitLabInstructions {
       project setting to get round it. A refusal is an answer, and the person who pressed the
       button is reading this.
     - Only once the merge has actually succeeded, delete the branch on the server with
-      `git push --delete -- origin refs/heads/<branch>`, using the branch the message names. If
-      git answers that the remote ref does not exist, it was deleted on merge and there is
-      nothing left to do.
+      `git push --delete -- <remote> refs/heads/<branch>`, using the branch the message names and
+      the remote `git remote -v` lists on GitLab, usually `origin`. If git answers that the remote
+      ref does not exist, it was deleted on merge and there is nothing left to do.
     - Change nothing on this machine. Do not delete the local branch, do not remove or move the
       worktree, and do not check out anything else.
     - Do not commit and do not push. If the worktree is holding work GitLab has not got, say in

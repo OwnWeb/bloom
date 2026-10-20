@@ -2,7 +2,7 @@ import Foundation
 
 /// What GitLab reads can share: one read in flight per workspace, the last answer for a caller
 /// that allows one, the jobs of a pipeline that has finished, which cannot change, and each
-/// directory's project until its git config is written.
+/// directory's GitLab remote until its git config is written.
 actor GitLabReads {
     static let shared = GitLabReads()
     /// Final until somebody retries a job, which moves the pipeline back to running and so misses.
@@ -11,7 +11,7 @@ actor GitLabReads {
     private var snapshots: [String: (snapshot: GitLab.Snapshot?, at: ContinuousClock.Instant)] = [:]
     private var flights: [String: Task<GitLab.Snapshot?, Error>] = [:]
     private var finishedJobs: [String: (status: String, runs: [CheckRun])] = [:]
-    private var projects: [String: (configWritten: Date?, project: GitLabProject?)] = [:]
+    private var remotes: [String: (configWritten: Date?, remote: GitLabRemote?)] = [:]
 
     func snapshot(
         for worktree: String, maxAge: Duration,
@@ -43,12 +43,12 @@ actor GitLabReads {
         finishedJobs[pipeline] = (status, runs)
     }
 
-    func project(in directory: String, configWritten: Date?) -> GitLabProject?? {
-        guard let entry = projects[directory], entry.configWritten == configWritten else { return nil }
-        return .some(entry.project)
+    func remote(in directory: String, configWritten: Date?) -> GitLabRemote?? {
+        guard let entry = remotes[directory], entry.configWritten == configWritten else { return nil }
+        return .some(entry.remote)
     }
 
-    func store(_ project: GitLabProject?, in directory: String, configWritten: Date?) {
-        projects[directory] = (configWritten, project)
+    func store(_ remote: GitLabRemote?, in directory: String, configWritten: Date?) {
+        remotes[directory] = (configWritten, remote)
     }
 }

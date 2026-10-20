@@ -51,6 +51,45 @@ struct GitLabCommandTests {
         #expect(await log.commands.count == 1)
     }
 
+    @Test("a GitLab project with a GitHub origin is read and checked out through its GitLab remote")
+    func gitLabBesideGitHubOrigin() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        try await Shell.check("git", ["remote", "add", "origin", "git@github.com:group/app.git"], cwd: repo.path)
+        try await Shell.check("git", ["remote", "add", "gitlab", "git@gitlab.com:group/sub/app.git"], cwd: repo.path)
+        let log = GlabLog()
+
+        try await GitLab.$commandOverride.withValue({ arguments, _ in
+            await log.append(arguments)
+            return ShellResult(status: 0, stdout: arguments.first == "api" ? "[]" : "", stderr: "")
+        }) {
+            _ = try await GitLab.pullRequest(forBranch: "feature/x", worktree: repo.path)
+            try await GitLab.checkoutPullRequest(number: 7, into: repo.path, localBranch: "review/7")
+        }
+
+        #expect(await log.commands == [
+            ["api", "--hostname", "gitlab.com",
+             "projects/group%2Fsub%2Fapp/merge_requests?source_branch=feature%2Fx&state=all&order_by=created_at&sort=desc&per_page=20"],
+            ["mr", "checkout", "7", "--branch", "review/7", "-R", "https://gitlab.com/group/sub/app"],
+        ])
+    }
+
+    @Test("the GitLab remote is the base one when that is on GitLab, else the GitLab one beside it")
+    func choosesTheGitLabRemote() {
+        let gitHub = "git@github.com:group/app.git"
+        let gitLab = "git@gitlab.com:group/app.git"
+        let ownHost = "https://git.example.com/group/app.git"
+        func chosen(_ base: String?, _ remotes: [String: String], signedIn: Set<String> = []) -> String? {
+            GitLabRemote.choose(base: base, remotes: remotes, signedInHosts: signedIn)?.name
+        }
+        #expect(chosen("origin", ["origin": gitHub, "gitlab": gitLab]) == "gitlab")
+        #expect(chosen("mirror", ["origin": gitLab, "mirror": ownHost]) == "mirror")
+        // glab names a fork's branch remote by URL, which is no remote of this repository.
+        #expect(chosen("git@gitlab.com:fork/app.git", ["origin": gitLab, "fork": ownHost]) == "origin")
+        #expect(chosen("origin", ["origin": gitHub, "a": "https://bitbucket.org/g/app.git", "work": ownHost], signedIn: ["git.example.com"]) == "work")
+        #expect(chosen("origin", ["origin": gitHub]) == nil)
+    }
+
     @Test("a pipeline whose jobs cannot be read leaves the checks unknown, not the merge request")
     func unreadableJobs() async throws {
         let repo = try await TempRepo()
