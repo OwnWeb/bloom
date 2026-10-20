@@ -68,9 +68,13 @@ has moved, so neither route uses it. The direct rebase merge goes ahead only if 
 holds the commits that were confirmed and no others. The description is what `gh pr create --fill`
 writes: one commit's body, or the subjects of several. Not glab's `--fill`, which pushes again.
 
-A merge request is found by its source branch, which GitLab keeps after the branch is deleted, so
-no number is recorded and no column was added. A fork's merge request with the same branch name is
-ignored unless the worktree was checked out from it.
+A merge request is found by its source branch, which GitLab keeps after the branch is deleted, and
+otherwise by the number on the workspace row, as on GitHub: written when a workspace is opened from
+a merge request and when one is first found. A fork's merge request is only ever found by that
+number, because `glab mr checkout` tracks the fork's branch under a local name GitLab does not know,
+and the same number keeps a branch renamed after its merge request was found. A project that moves
+to the other forge, through the question when it is added or through "Hosted on", forgets these
+numbers, which the other forge would read as its own.
 
 ## What GitLab says that GitHub has no word for
 

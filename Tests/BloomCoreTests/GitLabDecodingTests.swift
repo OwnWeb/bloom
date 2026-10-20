@@ -107,12 +107,10 @@ struct GitLabDecodingTests {
         #expect(pullRequest.blockers.isEmpty)
     }
 
-    @Test("a GitLab number is never written into the GitHub column")
-    func numberNotRecorded() {
+    @Test("a GitLab merge request's number is written down, so a renamed branch keeps it")
+    func numberRecorded() {
         let gitLab = PullRequest(number: 12, title: "", url: "", state: "OPEN", forge: .gitLab)
-        let gitHub = PullRequest(number: 12, title: "", url: "", state: "OPEN")
-        #expect(PullRequestNumber.toRecord(found: gitLab, recorded: nil) == nil)
-        #expect(PullRequestNumber.toRecord(found: gitHub, recorded: nil) == 12)
+        #expect(PullRequestNumber.toRecord(found: gitLab, recorded: nil) == 12)
     }
 
     @Test("a GitLab job page names its job and the project it ran in")
