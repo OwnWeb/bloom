@@ -65,7 +65,10 @@ agent's steps are `GitLabInstructions`; the direct ones are in `GitLab`:
 Without `--auto-merge=false` glab sets "merge when the pipeline succeeds" instead of merging.
 glab's own `--rebase` rebases and then GitLab refuses the `--sha` it was given, because the head
 has moved, so neither route uses it. The direct rebase merge goes ahead only if the rebased branch
-holds the commits that were confirmed and no others. The description is what `gh pr create --fill`
+has as many commits as the confirmed one and holds exactly the tree `git merge-tree` gives for the
+confirmed head on the new base. Bloom fetches `refs/merge-requests/<iid>/head` from the GitLab
+remote to compare them, so a push with the same titles and other contents is refused, and a target
+that changed a line beside a confirmed change is not. The description is what `gh pr create --fill`
 writes: one commit's body, or the subjects of several. Not glab's `--fill`, which pushes again.
 
 A merge request is found by its source branch, which GitLab keeps after the branch is deleted, and
