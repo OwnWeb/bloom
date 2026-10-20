@@ -256,26 +256,23 @@ public enum GitLab: ForgeClient {
         let runs: [CheckRun]
     }
 
-    /// The newest merge request from the workspace's head that had not ended before it existed.
-    /// GitLab filters on the recorded source branch, so this survives the branch being deleted.
+    /// The newest merge request from the workspace's head that had not ended before it existed,
+    /// else the one on the row. GitLab filters on the recorded source branch, so the first survives
+    /// the branch being deleted; the row's number is the only way to a fork's merge request, whose
+    /// local branch glab names after nothing GitLab knows, and to a branch renamed since.
     static func snapshot(for workspace: Workspace) async throws -> Snapshot? {
         guard let project = await project(in: workspace.path) else { return nil }
         let head = await GitHub.headBranch(of: workspace)
-        let checkedOut = await checkedOutMergeRequest(branch: head, worktree: workspace.path)
         let candidates = try await mergeRequests(withSource: head, in: project, worktree: workspace.path)
-        // A fork's merge request with the same branch name is somebody else's, unless this
-        // worktree was checked out from it.
+        // A fork's merge request with the same branch name is somebody else's.
         let matches = candidates.compactMap { candidate -> PullRequestHeadMatch? in
-            guard let iid = candidate.iid,
-                  candidate.sourceProjectId == candidate.targetProjectId || iid == checkedOut
-            else { return nil }
+            guard let iid = candidate.iid, candidate.sourceProjectId == candidate.targetProjectId else { return nil }
             let ended = GitLabDecoding.pullRequest(candidate, runs: []).closedAt
             return PullRequestHeadMatch(number: iid, closedAt: ended)
         }
-        guard let chosen = PullRequestOwnership.choose(
-            from: matches, startedAt: workspace.createdAt, checkedOutAs: checkedOut
-        ) else { return nil }
-        return try await snapshot(number: chosen, in: project, worktree: workspace.path)
+        let chosen = PullRequestOwnership.choose(from: matches, startedAt: workspace.createdAt, checkedOutAs: nil)
+        guard let number = chosen ?? workspace.pullRequestNumber else { return nil }
+        return try await snapshot(number: number, in: project, worktree: workspace.path)
     }
 
     private static func snapshot(number: Int, in project: GitLabProject, worktree: String) async throws -> Snapshot {
@@ -312,19 +309,6 @@ public enum GitLab: ForgeClient {
             api(project.host, "projects/\(project.apiID)/merge_requests?\(query)"), cwd: worktree
         )
         return try GitLabDecoding.mergeRequests(from: Data(result.stdout.utf8))
-    }
-
-    /// The merge request `glab mr checkout` wrote into the branch's config, if it did.
-    private static func checkedOutMergeRequest(branch: String, worktree: String) async -> Int? {
-        guard Git.isValidBranchName(branch),
-              let result = try? await Shell.run("git", ["config", "--get", "branch.\(branch).merge"], cwd: worktree),
-              result.ok
-        else { return nil }
-        let reference = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "refs/merge-requests/"
-        let suffix = "/head"
-        guard reference.hasPrefix(prefix), reference.hasSuffix(suffix) else { return nil }
-        return Int(reference.dropFirst(prefix.count).dropLast(suffix.count))
     }
 
     // MARK: Running glab

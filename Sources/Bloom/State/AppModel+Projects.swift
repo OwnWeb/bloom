@@ -130,6 +130,8 @@ extension AppModel {
         if let forge, let repo {
             do {
                 try ForgeResolver.remember(forge, for: repo.path)
+                // Unanswered, the project was GitHub's.
+                if forge == .gitLab { Task { await forgetPullRequestNumbers(of: repo.id) } }
             } catch {
                 alert = BloomAlert(title: "Could not save the forge", message: error.readableMessage)
             }
@@ -137,6 +139,15 @@ extension AppModel {
         let answered = forgeQuestionAnswered
         forgeQuestionAnswered = nil
         answered?.resume()
+    }
+
+    /// After a project moved forge. See `Store.clearPullRequestNumbers`.
+    func forgetPullRequestNumbers(of repoID: RepoID) async {
+        do {
+            try await store?.clearPullRequestNumbers(repoID: repoID)
+        } catch {
+            alert = BloomAlert(title: "Could not forget the old pull request numbers", message: error.readableMessage)
+        }
     }
 
     /// Called by `ProjectSetupSheet` once the folder really is a repository.
