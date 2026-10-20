@@ -226,24 +226,37 @@ struct GitHubSignInSheet: View {
     // MARK: - Copy
 
     private var title: String {
-        access == .notInstalled ? "Install the \(words.cliName)" : "Connect \(words.service)"
+        if access == .notInstalled { return "Install the \(words.cliName)" }
+        return request.purpose == .switchAccount ? "Switch \(words.service) account" : "Connect \(words.service)"
     }
 
     private var sentence: String {
-        switch access {
-        case .notInstalled where canBrew:
-            "This action needs the \(words.command) command, and it is not installed on this Mac. "
+        let needs = request.purpose == .action ? "This action needs" : "Bloom works with \(words.service) through"
+        switch (access, request.purpose) {
+        case (.notInstalled, _) where canBrew:
+            return "\(needs) the \(words.command) command, and it is not installed on this Mac. "
                 + "Homebrew can install it here."
-        case .notInstalled:
-            "This action needs the \(words.command) command, and it is not installed on this Mac. "
+        case (.notInstalled, _):
+            return "\(needs) the \(words.command) command, and it is not installed on this Mac. "
                 + "Install it from \(words.downloadName), then come back."
-        default:
-            "This action needs \(words.service) access. Sign in with the \(words.cliName) to continue."
+        case (_, .action):
+            return "This action needs \(words.service) access. Sign in with the \(words.cliName) to continue."
+        case (_, .connect):
+            return "Sign in with the \(words.cliName) so Bloom can read, open and merge \(request.forge.request)s."
+        case (_, .switchAccount):
+            return "Choose which of the accounts signed in to the \(words.cliName) Bloom uses. "
+                + "To add another, sign in again."
         }
     }
 
+    /// The command this state runs, as the button names it and as it starts.
+    private var invocation: (executable: String, arguments: [String]) {
+        if access == .notInstalled { return ("brew", ["install", words.command]) }
+        return (words.command, request.purpose == .switchAccount ? ["auth", "switch"] : words.loginArguments)
+    }
+
     private var primaryTitle: String {
-        access == .notInstalled ? "Run brew install \(words.command)" : "Run \(words.login)"
+        "Run " + ([invocation.executable] + invocation.arguments).joined(separator: " ")
     }
 
     /// Resolved once when the sheet opens rather than on every render: `which` walks the PATH,
@@ -256,14 +269,13 @@ struct GitHubSignInSheet: View {
     private func start() {
         session?.stop()
 
-        let executable = access == .notInstalled ? "brew" : words.command
-        let arguments = access == .notInstalled ? ["install", words.command] : words.loginArguments
+        let (executable, arguments) = invocation
 
         guard let session = LoginTerminalSession(
             executable: executable,
             arguments: arguments,
             directory: request.directory,
-            onExit: { _ in finished() }
+            onExit: { exit in finished(exit) }
         ) else {
             phase = .failed("\(executable) is not on this Mac.")
             return
@@ -275,10 +287,15 @@ struct GitHubSignInSheet: View {
 
     /// The command has ended. Whether it worked is gh's answer to give, not the exit status's:
     /// a login the user backed out of exits zero just the same.
-    private func finished() {
+    private func finished(_ exit: TerminalExit) {
         phase = .checking
         Task {
             let state = await currentAccess()
+            // From Settings an account may already have been there, so a failed run is no proof.
+            if request.purpose != .action, state == .ready, exit != .exited(0) {
+                phase = .failed("\(words.command) did not finish. You can run it again.")
+                return
+            }
             switch state {
             case .ready:
                 phase = .connected
@@ -320,7 +337,7 @@ struct GitHubSignInSheet: View {
 
     private func currentAccess() async -> GitHubAvailability.State {
         guard request.forge == .gitLab else { return await GitHubAvailability.shared.check(force: true) }
-        return await GitHubSignIn.shared.gitLabAccess(in: request.directory)
+        return await GitHubSignIn.shared.gitLabAccess(in: request.directory, host: request.host)
     }
 }
 
