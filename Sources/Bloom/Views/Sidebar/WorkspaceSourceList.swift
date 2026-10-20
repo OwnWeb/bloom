@@ -1,8 +1,9 @@
 import SwiftUI
 import BloomCore
 
-/// The search field over one tab of ranked sources, with the panel's keyboard: the half of
-/// `WorkspaceSourcePicker` another branch picker can share, so choosing a branch stays one idiom.
+/// The search field over one tab of ranked sources, with the panel's keyboard. Shared by the
+/// create window's `WorkspaceSourcePicker` and the inspector's `TargetBranchPanel`, so choosing a
+/// branch is one idiom in both.
 struct WorkspaceSourceList: View {
     /// Ranked once by the panel for the whole pass. See `WorkspaceSourcePicker.panel`.
     var matches: WorkspaceSourceMatches
@@ -15,6 +16,10 @@ struct WorkspaceSourceList: View {
     @Binding var selected: WorkspaceSource?
     /// What the list says when it is empty before anything is typed.
     var emptyText: String
+    /// What every row is, when it is not what its kind says. See `WorkspaceSourceRow.role`.
+    var rowRole: WorkspaceSourceRow.Role?
+    /// What the search field says, when the tab's own words are not this panel's.
+    var placeholder: String?
     var onPick: @MainActor (WorkspaceSource) -> Void
     var onEscape: @MainActor () -> Void
 
@@ -54,7 +59,7 @@ struct WorkspaceSourceList: View {
 
             MenuSearchField(
                 text: $query,
-                placeholder: tab.searchPlaceholder,
+                placeholder: placeholder ?? tab.searchPlaceholder,
                 onKey: handle(key:)
             )
             .frame(height: Metrics.rowHeight)
@@ -76,6 +81,7 @@ struct WorkspaceSourceList: View {
                         WorkspaceSourceRow(
                             source: row,
                             isSelected: row == selected,
+                            role: rowRole,
                             onPick: { onPick(row) },
                             onHover: { selected = row }
                         )
