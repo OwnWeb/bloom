@@ -47,11 +47,9 @@ enum GitLabDecoding {
 
     struct CommitPayload: Decodable, Equatable {
         let sha: String?
-        let title: String?
 
         enum CodingKeys: String, CodingKey {
             case sha = "id"
-            case title
         }
     }
 

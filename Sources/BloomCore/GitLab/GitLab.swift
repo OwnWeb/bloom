@@ -10,6 +10,8 @@ public enum GitLab: ForgeClient {
     private static let readTimeout = Duration.seconds(20)
     /// Checking out fetches objects, so it gets what `gh pr checkout` gets.
     private static let checkoutTimeout = Duration.seconds(120)
+    /// One merge request's head, over the network.
+    private static let fetchTimeout = Duration.seconds(60)
     private static let logTimeout = Duration.seconds(90)
     /// What `gh pr merge` and `gh pr create` get.
     private static let mergeTimeout = Duration.seconds(60)
@@ -163,14 +165,15 @@ public enum GitLab: ForgeClient {
         squashMessage: SquashCommitMessage? = nil, worktree: String
     ) async throws -> DirectMergeOutcome {
         let (head, expectedBase) = try await DirectMergeCheck.confirmed(expected, base: base, worktree: worktree)
-        guard let project = await project(in: worktree) else { throw notAProject }
+        guard let remote = await remote(in: worktree) else { throw notAProject }
+        let project = remote.project
         let number = expected.number
         let current = try await snapshot(number: number, in: project, worktree: worktree).pullRequest
         try DirectMergeCheck.verify(current, against: expected, head: head, base: expectedBase)
 
         var mergeHead = head
         if method == .rebase {
-            mergeHead = try await rebase(number, confirmedHead: head, in: project, worktree: worktree)
+            mergeHead = try await rebase(number, confirmedHead: head, through: remote, worktree: worktree)
         }
         var arguments = ["mr", "merge", String(number), "--yes", "--auto-merge=false", "--sha", mergeHead]
         if method == .squash {
@@ -193,22 +196,51 @@ public enum GitLab: ForgeClient {
     }
 
     /// glab's `--rebase` rebases, then GitLab refuses the `--sha` it was given. So the rebase runs
-    /// first, and its new head is merged only if it replayed the confirmed commits and nothing else.
+    /// first, and its new head is merged only if it replayed the confirmed changes and nothing else.
     private static func rebase(
-        _ number: Int, confirmedHead: String, in project: GitLabProject, worktree: String
+        _ number: Int, confirmedHead: String, through remote: GitLabRemote, worktree: String
     ) async throws -> String {
+        let project = remote.project
         let confirmed = try await commits(of: number, in: project, worktree: worktree)
         guard confirmed.contains(where: { $0.sha == confirmedHead }) else {
             throw GitHubError("The merge request changed since it was shown. Refresh it before merging.")
         }
         try await check(["mr", "rebase", String(number), "-R", project.webURL], cwd: worktree, timeout: rebaseTimeout)
         let rebased = try await snapshot(number: number, in: project, worktree: worktree).pullRequest
+        // Already on its target, GitLab leaves the head as it was: the confirmed commits themselves.
+        if rebased.headRevision == confirmedHead { return confirmedHead }
         let replayed = try await commits(of: number, in: project, worktree: worktree)
-        guard let head = rebased.headRevision, replayed.contains(where: { $0.sha == head }),
-              replayed.map(\.title) == confirmed.map(\.title) else {
+        guard let head = rebased.headRevision, DirectMergeCheck.isCommitID(head),
+              replayed.contains(where: { $0.sha == head }), replayed.count == confirmed.count,
+              // One page of commits: a longer merge request is refused rather than paged through.
+              replayed.count < commitLimit,
+              try await fetchedHead(of: number, from: remote, worktree: worktree) == head,
+              try await holdsConfirmedChanges(head, commits: replayed.count, confirmedHead: confirmedHead, worktree: worktree)
+        else {
             throw GitHubError("GitLab rebased \(Forge.gitLab.reference(number)), but its commits are not the ones confirmed. Nothing was merged.")
         }
         return head
+    }
+
+    /// The merge request's head as git fetches it, so its commits can be compared with this checkout's.
+    private static func fetchedHead(of number: Int, from remote: GitLabRemote, worktree: String) async throws -> String? {
+        let fetch = ["fetch", "--no-tags", "--quiet", "--", remote.name, "refs/merge-requests/\(number)/head"]
+        guard try await Git.run(fetch, in: worktree, timeout: fetchTimeout).ok else {
+            throw GitHubError("GitLab rebased \(Forge.gitLab.reference(number)), but Bloom could not fetch it from \(remote.name) to check its commits. Nothing was merged.")
+        }
+        return await Git.revision(of: "FETCH_HEAD", in: worktree)
+    }
+
+    /// Whether the rebased head holds exactly what merging the confirmed head onto its new base
+    /// gives, so a push with the same titles and other contents is never merged. Trees rather than
+    /// patch ids, which count context lines and so refuse a target that moved a line nearby.
+    private static func holdsConfirmedChanges(
+        _ head: String, commits count: Int, confirmedHead: String, worktree: String
+    ) async throws -> Bool {
+        let merged = try await Git.run(["merge-tree", "--write-tree", "\(head)~\(count)", confirmedHead], in: worktree)
+        let rebased = try await Git.run(["rev-parse", "--verify", "\(head)^{tree}"], in: worktree)
+        guard merged.ok, rebased.ok, let tree = merged.lines.first else { return false }
+        return tree == rebased.trimmed
     }
 
     private static func commits(
