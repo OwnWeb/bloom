@@ -231,7 +231,7 @@ struct TranscriptTextView: NSViewRepresentable {
             view.textStorage?.setAttributedString(text)
             view.bubbleAlignmentWidth = nil
             view.measurements.removeAll()
-            view.lastReportedWidth = nil
+            view.lastReportedMeasurement = nil
         }
         conversation?.adopt(view)
         view.linkColor = linkColor
@@ -289,14 +289,15 @@ struct TranscriptTextView: NSViewRepresentable {
         // **An answer already given is given again without typesetting**, whichever question came
         // in between. See `TranscriptTextMeasureCache` for the multi-second switches this was.
         //
-        // The container still follows the question. Setting its size only marks the layout stale,
-        // so TextKit lays the run out when it is next drawn or hit tested instead of once per
-        // question, and `viewWillDraw` moves it to the placed frame first.
+        // The container still follows the question, exactly as it did when every question was
+        // typeset, because the view draws at whatever width it was last asked about. Setting a
+        // container's size only marks the layout stale, so TextKit lays the run out when it is next
+        // drawn or hit tested, at the width the pass left it at, instead of once per question.
         if let known = nsView.measurements.value(for: key) {
             if container.containerSize != wanted { container.containerSize = wanted }
             nsView.bubbleInkOffset = known.bubbleInkOffset
             nsView.bubbleAlignmentWidth = alignsBubbleInk ? width : nil
-            nsView.lastReportedWidth = known.size.width
+            nsView.lastReportedMeasurement = (known.size, alignsBubbleInk)
             return known.size
         }
         if container.containerSize != wanted { container.containerSize = wanted }
@@ -322,7 +323,7 @@ struct TranscriptTextView: NSViewRepresentable {
         nsView.measurements.store(
             LinkTextView.Measurement(size: result, bubbleInkOffset: nsView.bubbleInkOffset), for: key
         )
-        nsView.lastReportedWidth = result.width
+        nsView.lastReportedMeasurement = (result, alignsBubbleInk)
         return result
     }
 
@@ -457,14 +458,15 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     /// `sizeThatFits` leaves the container at its last question's width, which can be a probe
     /// rather than the placed frame. See `TranscriptTextMeasure.needsRelayoutAtFrame`.
     override func viewWillDraw() {
-        if let container = textContainer, TranscriptTextMeasure.needsRelayoutAtFrame(
-            containerWidth: Double(container.containerSize.width),
-            frameWidth: Double(bounds.width),
-            reportedWidth: lastReportedWidth.map(Double.init)
-        ) {
+        if let container = textContainer, let measured = lastReportedMeasurement,
+           TranscriptTextMeasure.needsRelayoutAtFrame(
+               containerWidth: Double(container.containerSize.width),
+               frameWidth: Double(bounds.width),
+               reportedWidth: Double(measured.size.width)
+           ) {
             container.containerSize = CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
-            lastReportedWidth = nil
-            if bubbleAlignmentWidth != nil, let layout = layoutManager {
+            lastReportedMeasurement = nil
+            if measured.alignsBubbleInk, let layout = layoutManager {
                 layout.ensureLayout(for: container)
                 bubbleInkOffset = BubbleTextAlignment.offset(layout: layout, container: container)
                 bubbleAlignmentWidth = bounds.width
@@ -577,8 +579,8 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     /// text storage is written, and it clears these; anything that ever edits the storage in place
     /// has to clear them too.
     var measurements = TranscriptTextMeasureCache<Measurement>()
-    /// The last width handed to SwiftUI, for correcting a wider layout before drawing a bubble.
-    var lastReportedWidth: CGFloat?
+    /// The last answer handed to SwiftUI, for correcting a wider layout before drawing a bubble.
+    var lastReportedMeasurement: (size: CGSize, alignsBubbleInk: Bool)?
     var bubbleAlignmentWidth: CGFloat?
     var bubbleInkOffset: CGFloat = 0 {
         didSet {

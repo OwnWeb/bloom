@@ -137,8 +137,8 @@ public enum TranscriptTextMeasure {
     /// Whether a run must be laid out again at its placed frame before it draws. The container keeps
     /// the width of SwiftUI's last question, which can be a probe: the ideal size drew a long pasted
     /// turn past its bubble, the minimum (`floorWidth`) drew one sliver of glyph per line.
-    public static func needsRelayoutAtFrame(containerWidth: Double, frameWidth: Double, reportedWidth: Double?) -> Bool {
-        let overflowsFrame = (reportedWidth ?? 0) > frameWidth + frameTolerance
+    public static func needsRelayoutAtFrame(containerWidth: Double, frameWidth: Double, reportedWidth: Double) -> Bool {
+        let overflowsFrame = reportedWidth > frameWidth + frameTolerance
         let narrowerThanFrame = containerWidth < frameWidth - frameTolerance
         return overflowsFrame || narrowerThanFrame
     }

@@ -214,7 +214,6 @@ struct TranscriptTextMeasureTests {
         let floor = TranscriptTextMeasure.floorWidth
         let ideal = TranscriptTextMeasure.idealWidth
         #expect(TranscriptTextMeasure.needsRelayoutAtFrame(containerWidth: floor, frameWidth: 456, reportedWidth: 48))
-        #expect(TranscriptTextMeasure.needsRelayoutAtFrame(containerWidth: 0, frameWidth: 456, reportedWidth: nil))
         #expect(TranscriptTextMeasure.needsRelayoutAtFrame(containerWidth: ideal, frameWidth: 456, reportedWidth: 1_200))
     }
 
