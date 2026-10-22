@@ -100,12 +100,23 @@ build_in_worktree "./$BUILD_SCRIPT" -r
 BUILT="$WORK/.build/release/Bloom.app"
 [ -d "$BUILT" ] || BUILT="$(cd "$WORK" && swift build -c release --show-bin-path)/Bloom.app"
 
+# Record what this is, so a stale install can be identified without guessing.
+/usr/bin/defaults write "$BUILT/Contents/Info.plist" BloomMasterCommit -string "$RESOLVED" 2>/dev/null || true
+
+# Re-signed, because the write above breaks the seal Tools/build.sh applied: every copy
+# installed without this failed `codesign --verify`, and that copy never showed a notification.
+source "$PWD/Tools/codesign-identity.sh"
+SIGN_IDENTITY="$(bloom_codesign_identity)"
+bloom_codesign_note "$SIGN_IDENTITY"
+if ! signing="$(codesign --force --deep --sign "$SIGN_IDENTITY" "$BUILT" 2>&1)"; then
+  print -ru2 -- "$signing"
+  print -ru2 -- "==> re-signing $BUILT failed. Nothing was installed, so $DEST is whatever it was before."
+  exit 1
+fi
+
 mkdir -p "$HOME/Applications"
 rm -rf "$DEST"
 cp -R "$BUILT" "$DEST"
-
-# Record what this is, so a stale install can be identified without guessing.
-/usr/bin/defaults write "$DEST/Contents/Info.plist" BloomMasterCommit -string "$RESOLVED" 2>/dev/null || true
 
 git worktree remove --force "$WORK" 2>/dev/null || true
 
