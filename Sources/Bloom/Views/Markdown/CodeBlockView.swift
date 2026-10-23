@@ -21,6 +21,8 @@ public struct CodeBlockView: View {
     /// Whether an edited fence is showing the agent's code rather than the reader's. A glance,
     /// not a mode worth keeping, so `@State` is enough here where the draft itself is not.
     @State private var showsOriginal = false
+    /// Like `showsOriginal`, a glance and not a mode worth keeping across a recycled row.
+    @State private var wraps = false
     /// An attach in flight. The draft is frozen until it lands, so a second press cannot attach
     /// it twice and nothing typed meanwhile is wiped by the clear that follows.
     @State private var isAttaching = false
@@ -83,6 +85,7 @@ public struct CodeBlockView: View {
                         previewHeight = 0
                     }
                 }
+                if !showsEditor { wrapButton }
                 editControls(versions)
                 CopyButton(
                     text: showsEditor ? versions.draft ?? shown : shown,
@@ -143,22 +146,15 @@ public struct CodeBlockView: View {
         }
     }
 
+    @ViewBuilder
     private func reader(_ prepared: CodeBlockPreparation, upTo visibleCount: Int) -> some View {
-        ScrollView(.horizontal) {
-            if selection != nil {
-                TranscriptTextView(
-                    text: nativeHighlighted(prepared, upTo: visibleCount),
-                    linkColor: Palette.linkNSColor,
-                    overlaysScroller: true
-                )
-                .fixedSize(horizontal: true, vertical: false)
+        if wraps {
+            readerText(prepared, upTo: visibleCount)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(MarkdownMetrics.blockGap)
-            } else {
-                Text(highlighted(prepared, upTo: visibleCount))
-                    .font(CodeMetrics.measuredFont)
-                    .lineSpacing(CodeMetrics.rowSpacing)
-                    .foregroundStyle(Palette.codeForeground)
-                    .textSelection(.enabled)
+        } else {
+            ScrollView(.horizontal) {
+                readerText(prepared, upTo: visibleCount)
                     .padding(MarkdownMetrics.blockGap)
             }
         }
@@ -175,6 +171,41 @@ public struct CodeBlockView: View {
                 .padding(MarkdownMetrics.blockGap)
         case .html, .svg:
             HTMLSnippetView(html: code) { previewIsReady = true }
+        }
+    }
+
+    @ViewBuilder
+    private func readerText(_ prepared: CodeBlockPreparation, upTo visibleCount: Int) -> some View {
+        if selection != nil {
+            // Wrapped, there is no horizontal scroll view of the block's own for the overlay
+            // scroller to apply to: the enclosing one is the transcript's.
+            TranscriptTextView(
+                text: nativeHighlighted(prepared, upTo: visibleCount),
+                linkColor: Palette.linkNSColor,
+                overlaysScroller: !wraps
+            )
+            .fixedSize(horizontal: !wraps, vertical: false)
+        } else {
+            Text(highlighted(prepared, upTo: visibleCount))
+                .font(CodeMetrics.measuredFont)
+                .lineSpacing(CodeMetrics.rowSpacing)
+                .foregroundStyle(Palette.codeForeground)
+                .textSelection(.enabled)
+        }
+    }
+
+    /// Only for plain text, which is prose more often than code: a fence in a language keeps the
+    /// horizontal scroll that keeps its indentation readable.
+    @ViewBuilder
+    private var wrapButton: some View {
+        if language == .plainText {
+            iconButton(
+                "return", ink: wraps ? Palette.link : Palette.textTertiary,
+                title: wraps ? "Stop wrapping long lines" : "Wrap long lines"
+            ) {
+                if let entryID { table?.willResize(entryID) }
+                wraps.toggle()
+            }
         }
     }
 
