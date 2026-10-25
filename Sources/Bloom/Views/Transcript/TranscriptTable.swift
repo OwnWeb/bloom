@@ -574,17 +574,15 @@ struct TranscriptTable: NSViewRepresentable {
                 changed.insert(new)
                 if pendingUnfolds.contains(newEntries[new].id) { unfolding.insert(new) }
             }
-            switch change {
-            case .same:
-                for offset in newEntries.indices { noteChange(old: offset, new: offset) }
-            case .grew, .shrank:
-                for offset in newEntries.indices {
+            // The unmoved head is matched by position: looking every entry up by id was an O(n)
+            // dictionary walk on each row an agent wrote into a long chat.
+            let unmoved = change.unmovedPrefix(count: newEntries.count)
+            if change != .rebuilt {
+                for offset in 0..<unmoved { noteChange(old: offset, new: offset) }
+                for offset in unmoved..<newEntries.count {
                     guard let old = index[newEntries[offset].id] else { continue }
                     noteChange(old: old, new: offset)
                 }
-            case .rebuilt:
-                // Every cell is going anyway.
-                break
             }
             // An in-place edit can change a row the idle pass has already walked past. Its next
             // settle starts a fresh pass at the visible row and sees the new content key.
@@ -610,10 +608,15 @@ struct TranscriptTable: NSViewRepresentable {
                 onContentWillChange?()
             }
 
+            if case .shrank(let head, let tail) = change {
+                for offset in head { index[ids[offset]] = nil }
+                for offset in tail { index[ids[offset]] = nil }
+            } else if change == .rebuilt {
+                index = [:]
+            }
             entries = newEntries
             ids = newIDs
-            index = [:]
-            for (offset, id) in newIDs.enumerated() { index[id] = offset }
+            for offset in unmoved..<newIDs.count { index[newIDs[offset]] = offset }
             // The activity slot observes the sending state itself, so its content key stays
             // stable. Measure it alongside the echo instead of waiting for a later height report.
             if let sending = index[.sending], changed.contains(sending), let streaming = index[.streaming] {
