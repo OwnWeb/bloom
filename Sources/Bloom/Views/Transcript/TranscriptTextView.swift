@@ -455,7 +455,7 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
     weak var conversationSelection: TranscriptConversationSelection?
     /// The table entry this text is drawn in, which orders it among the rows of the conversation.
     var entryID: TranscriptEntryID?
-    var rowSeq: Int? { entryID?.selectionOrder }
+    var selectionPlace: TranscriptSelection.Place? { entryID?.selectionPlace }
     var copyPrefix = ""
     var copySeparatorBefore = "\n\n"
 

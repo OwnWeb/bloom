@@ -741,40 +741,58 @@ struct TranscriptListView: View {
                     }
                 ))
             } else {
-                out.append(TranscriptTableEntry(
-                    id: .row(row.seq), contentKey: key, drawsNothing: blank, shape: shape,
-                    fixedHeight: TranscriptRowInk.isDefinitelySilent(kind: row.kind, payload: row.payload) ? 0 : nil,
-                    estimatedHeight: TranscriptLongAnswer.estimate(kind: row.kind, payloadBytes: row.payload.count)
-                        .map { CGFloat($0) },
-                    sentArrival: row.kind == .user ? transcript.messageArrivals.row(row.seq) : nil,
-                    content: {
-                        let content = TranscriptRowView(
-                            row: row,
-                            home: home,
-                            isExpanded: isExpanded,
-                            summariseTool: summariseTool,
-                            isNested: row.parentToolUseID != nil,
-                            smoothMarkdownHandoff: row.kind == .assistantText
-                                && arrivals.isArriving(row.seq)
-                                && transcript.messageArrivals.wasStreamedAssistant(row.seq),
-                            subagentActions: subagentActions,
-                            subagentHasRun: subagentHasRun,
-                            runActions: runActions,
-                            responseCopyText: responseCopyText,
-                            projectName: projectName,
-                            onToggle: { toggle(row.seq) },
-                            onAnswer: { requestID, decision in
-                                Task { await transcript.answer(requestID: requestID, decision: decision) }
-                            }
-                        )
-                        // The arriving animation belongs to the bubble, not the earlier work.
-                        .arrivingRow(settles && arrivals.isArriving(row.seq))
-                        .messageArrival(transcript.messageArrivals.row(row.seq))
-                        return AnyView(content
-                            .padding(.horizontal, TranscriptLayout.inset)
-                            .frame(maxWidth: .infinity, alignment: .leading))
+                func drawn(_ part: AnswerPart?) -> AnyView {
+                    let content = TranscriptRowView(
+                        row: row,
+                        home: home,
+                        isExpanded: isExpanded,
+                        summariseTool: summariseTool,
+                        isNested: row.parentToolUseID != nil,
+                        smoothMarkdownHandoff: row.kind == .assistantText
+                            && arrivals.isArriving(row.seq)
+                            && transcript.messageArrivals.wasStreamedAssistant(row.seq),
+                        subagentActions: subagentActions,
+                        subagentHasRun: subagentHasRun,
+                        runActions: runActions,
+                        responseCopyText: responseCopyText,
+                        answerPart: part,
+                        projectName: projectName,
+                        onToggle: { toggle(row.seq) },
+                        onAnswer: { requestID, decision in
+                            Task { await transcript.answer(requestID: requestID, decision: decision) }
+                        }
+                    )
+                    // The arriving animation belongs to the bubble, not the earlier work.
+                    .arrivingRow(settles && arrivals.isArriving(row.seq))
+                    .messageArrival(transcript.messageArrivals.row(row.seq))
+                    return AnyView(content
+                        .padding(.horizontal, TranscriptLayout.inset)
+                        .frame(maxWidth: .infinity, alignment: .leading))
+                }
+                // A long answer is drawn in parts, so scrolling past it builds what is on screen.
+                // The first part keeps the row's id, which places and search results name.
+                if let parts = TranscriptAnswerPartsCache.parts(of: row) {
+                    for (index, text) in parts.enumerated() {
+                        let part = AnswerPart(text: text, index: index, count: parts.count)
+                        out.append(TranscriptTableEntry(
+                            id: index == 0 ? .row(row.seq) : .answerPart(seq: row.seq, part: index),
+                            contentKey: TranscriptContentKey { $0.combine(key); $0.combine(index) },
+                            drawsNothing: blank, shape: shape,
+                            estimatedHeight: TranscriptLongAnswer.estimate(kind: row.kind, payloadBytes: text.utf8.count)
+                                .map { CGFloat($0) },
+                            content: { drawn(part) }
+                        ))
                     }
-                ))
+                } else {
+                    out.append(TranscriptTableEntry(
+                        id: .row(row.seq), contentKey: key, drawsNothing: blank, shape: shape,
+                        fixedHeight: TranscriptRowInk.isDefinitelySilent(kind: row.kind, payload: row.payload) ? 0 : nil,
+                        estimatedHeight: TranscriptLongAnswer.estimate(kind: row.kind, payloadBytes: row.payload.count)
+                            .map { CGFloat($0) },
+                        sentArrival: row.kind == .user ? transcript.messageArrivals.row(row.seq) : nil,
+                        content: { drawn(nil) }
+                    ))
+                }
             }
         }
 
