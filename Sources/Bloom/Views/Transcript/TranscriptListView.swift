@@ -107,7 +107,6 @@ struct TranscriptListView: View {
     /// Completed turn boundaries and durations for the control beneath their activity.
     @State private var turnFolds = TranscriptTurnFold.Folds.none
     @State private var turnFoldSession: SessionID?
-    @State private var turnFoldRevision = -1
     @State private var geometry = TranscriptGeometry()
     /// The width a bubble may fill, held as an object rather than in `geometry` so a pane changing
     /// width invalidates the handful of views that draw a bubble rather than this whole body. See
@@ -321,14 +320,12 @@ struct TranscriptListView: View {
         return TranscriptFold.mayAdopt(fresh, over: folds, drawn: drawn) ? fresh : folds
     }
 
-    /// A result lands before its duration control appears. A new session still gets its own
-    /// boundaries on the first pass.
+    /// A result lands before its duration control appears. See `TranscriptTurnFold.takesFreshTurns`.
     private func turnFoldsForThisPass() -> TranscriptTurnFold.Folds {
-        guard turnFoldSession == transcript.session.id else {
-            return transcript.presentationTurnFolds()
-        }
-        guard turnFoldRevision == transcript.presentationRevision else { return turnFolds }
-        return turnFolds
+        let takesFresh = TranscriptTurnFold.takesFreshTurns(
+            held: turnFolds, heldFor: turnFoldSession, showing: transcript.session.id
+        )
+        return takesFresh ? transcript.presentationTurnFolds() : turnFolds
     }
 
     /// What a link in any row of this transcript does. Comparable, so that a fresh struct per pass
@@ -747,6 +744,8 @@ struct TranscriptListView: View {
                 out.append(TranscriptTableEntry(
                     id: .row(row.seq), contentKey: key, drawsNothing: blank, shape: shape,
                     fixedHeight: TranscriptRowInk.isDefinitelySilent(kind: row.kind, payload: row.payload) ? 0 : nil,
+                    estimatedHeight: TranscriptLongAnswer.estimate(kind: row.kind, payloadBytes: row.payload.count)
+                        .map { CGFloat($0) },
                     sentArrival: row.kind == .user ? transcript.messageArrivals.row(row.seq) : nil,
                     content: {
                         let content = TranscriptRowView(
@@ -1151,7 +1150,6 @@ struct TranscriptListView: View {
             let rescannedTurns = transcript.presentationTurnFolds()
             if rescannedTurns != turnFolds { turnFolds = rescannedTurns }
             turnFoldSession = transcript.session.id
-            turnFoldRevision = transcript.presentationRevision
             // An open live turn is useful while the reader is inspecting it. Once they are back at
             // the live end and more work arrives, it is a growing log again: keep the newest item
             // visible and return everything completed above it to the compact count.
@@ -1209,7 +1207,6 @@ struct TranscriptListView: View {
             foldRevision = transcript.presentationRevision
             turnFolds = transcript.presentationTurnFolds()
             turnFoldSession = transcript.session.id
-            turnFoldRevision = transcript.presentationRevision
             // A session opens at its live end whatever the one being left was scrolled to, and the
             // anchor is read before the new rows arrive.
             geometry.isNearBottom = true

@@ -49,6 +49,9 @@ struct TranscriptTableEntry: Identifiable {
     var minimumHeight: CGFloat = 0
     /// A retired live slot is zero immediately, even if its child reports the previous layout.
     var fixedHeight: CGFloat?
+    /// What the table is told until the row's own cell has measured it, for a row never measured
+    /// off screen. See `TranscriptLongAnswer`.
+    var estimatedHeight: CGFloat?
     var sentArrival: MessageArrival?
 
     func resolvedHeight(_ measured: CGFloat) -> CGFloat {
@@ -818,6 +821,7 @@ struct TranscriptTable: NSViewRepresentable {
         /// months on the strength of how plausible it sounds.
         private func height(of entry: TranscriptTableEntry) -> CGFloat {
             guard heights.isReady else { return Self.hair }
+            if let estimate = unmeasuredEstimate(of: entry) { return estimate }
             return entry.resolvedHeight(CGFloat(heights.assumed(
                 for: entry.contentKey, shape: entry.shape, drawsNothing: entry.drawsNothing
             )))
@@ -1102,12 +1106,19 @@ struct TranscriptTable: NSViewRepresentable {
         /// or the mean. The same number `height(of:)` gives the table, so the two cannot disagree
         /// about what counts as a row drawn wrong.
         private func owedHeight(of entry: TranscriptTableEntry) -> Double {
-            max(
+            if let estimate = unmeasuredEstimate(of: entry) { return Double(estimate) }
+            return max(
                 Double(Self.hair),
                 heights.assumed(
                     for: entry.contentKey, shape: entry.shape, drawsNothing: entry.drawsNothing
                 )
             )
+        }
+
+        /// A long answer's estimate, until its cell has reported what it really is.
+        private func unmeasuredEstimate(of entry: TranscriptTableEntry) -> CGFloat? {
+            guard let estimate = entry.estimatedHeight, heights.height(for: entry.contentKey) == nil else { return nil }
+            return estimate
         }
 
         /// Every height change in this file goes through here.
@@ -1758,7 +1769,7 @@ struct TranscriptTable: NSViewRepresentable {
                     let entry = entries[row]
                     // A silent stored row needs no view. The live slots can change without a
                     // content key change, so their first height cannot be warmed here.
-                    guard !entry.id.redrawsItself, entry.fixedHeight != 0 else { return false }
+                    guard !entry.id.redrawsItself, entry.fixedHeight != 0, entry.estimatedHeight == nil else { return false }
                     let key = entry.contentKey
                     return heights.height(for: key) == nil || heights.isStale(key)
                 }
@@ -2052,6 +2063,7 @@ struct TranscriptTable: NSViewRepresentable {
             for row in rows where entries.indices.contains(row) {
                 let entry = entries[row]
                 if !entry.id.redrawsItself, entry.fixedHeight == 0 { continue }
+                if entry.estimatedHeight != nil { continue }
                 guard heights.needsMeasuring(
                     entry.contentKey, redrawsItself: entry.id.redrawsItself
                 ) else { continue }
@@ -2388,6 +2400,8 @@ final class TranscriptTableCell: NSView {
     /// Which generation of the table's cells this one is from. Nothing to start with, so a cell
     /// built here is always behind and is always applied. See `Coordinator.cellGeneration`.
     private var appliedGeneration: Int?
+    /// Content applied while the cell has no window. See `viewDidMoveToWindow`.
+    private var pendingRoot: TranscriptCellRoot?
     private var unclip: Task<Void, Never>?
     private var clipsForGrowth = false
     private var clipsForLiveScroll = false
@@ -2457,13 +2471,28 @@ final class TranscriptTableCell: NSView {
         // rather than only which row reported it. See `Coordinator.noted`.
         let key = entry.contentKey
         // One concrete root type, whatever the row is. See `TranscriptCellRoot`.
-        host.rootView = TranscriptCellRoot(
+        let root = TranscriptCellRoot(
             content: entry.content(),
             id: id,
             environment: environment,
             report: { [weak self] size in self?.onMeasured?(id, key, size) }
         )
+        if window == nil {
+            pendingRoot = root
+        } else {
+            pendingRoot = nil
+            host.rootView = root
+        }
         return true
+    }
+
+    /// A table reopened with its heights known lays out before it reaches a window, and a long
+    /// answer was laid out there at the wrong display scale and again on arrival: 2.8 s, then 5.9.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, let pendingRoot else { return }
+        self.pendingRoot = nil
+        host.rootView = pendingRoot
     }
 
     override func layout() {

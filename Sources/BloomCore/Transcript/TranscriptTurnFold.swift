@@ -6,6 +6,13 @@ import Foundation
 /// and duration so the work before its final answer can sit under one disclosure after the prompt.
 /// It keeps completed turns when new rows arrive and rescans only the live tail.
 public enum TranscriptTurnFold {
+    /// Whether a pass takes freshly scanned turns over those held from the pass before. Held turns
+    /// lag a pass so a result and its disclosure are two edits; held from an empty conversation,
+    /// they only turned the first rows' disclosures into a scattered edit that reloaded every cell.
+    public static func takesFreshTurns(held: Folds, heldFor heldSession: SessionID?, showing session: SessionID) -> Bool {
+        heldSession != session || held.scannedRows == 0
+    }
+
     public struct Fact: Equatable, Sendable {
         public var seq: Int
         public var kind: MessageKind
