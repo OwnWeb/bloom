@@ -2,7 +2,8 @@ import Foundation
 
 /// An answer too long to build twice. Measuring a 140,674 byte answer off screen took as long as
 /// drawing it, so an answer this long is measured only by the cell that draws it, and the table is
-/// told an estimate from its size until then.
+/// told an estimate from its size until then. Long answers are cut into parts now (see
+/// `TranscriptAnswerParts`), so what still reaches this is a single block that long: a fence or a table.
 public enum TranscriptLongAnswer {
     /// Two answers in the owner's 203 chats were longer than this.
     public static let threshold = 20_000
