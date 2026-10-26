@@ -20,6 +20,21 @@ struct TranscriptTurnFoldTests {
         )
     }
 
+    @Test("held turns are kept for the session they were scanned from")
+    func heldTurnsKept() {
+        let held = TranscriptTurnFold.folds(in: [fact(0, .user), fact(1, .assistantText), fact(2, .result)])
+        let session = SessionID("shown")
+        #expect(!TranscriptTurnFold.takesFreshTurns(held: held, heldFor: session, showing: session))
+        #expect(TranscriptTurnFold.takesFreshTurns(held: held, heldFor: session, showing: SessionID("other")))
+        #expect(TranscriptTurnFold.takesFreshTurns(held: held, heldFor: nil, showing: session))
+    }
+
+    @Test("turns held from an empty conversation are scanned again at once")
+    func emptyHeldTurnsRescanned() {
+        let session = SessionID("shown")
+        #expect(TranscriptTurnFold.takesFreshTurns(held: .none, heldFor: session, showing: session))
+    }
+
     @Test("a result closes the turn after the agent's response")
     func completedTurn() throws {
         let facts = [
