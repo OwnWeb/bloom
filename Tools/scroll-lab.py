@@ -25,6 +25,7 @@ import statistics
 import struct
 import subprocess
 import sys
+import uuid
 import zlib
 from pathlib import Path
 
@@ -74,6 +75,9 @@ class Conversation:
         self.random = random.Random(seed)
         self.tool_count = 0
         self.unread_from = None
+        self.edited = []
+        # (start seq, result seq, paths edited) for every turn that gets a checkpoint.
+        self.turns = []
 
     def words(self, count):
         return " ".join(self.random.choice(WORDS) for _ in range(count))
@@ -109,6 +113,8 @@ class Conversation:
             "Edit": {"file_path": f"/tmp/lab/{self.random.choice(WORDS)}.swift",
                      "old_string": self.words(8), "new_string": self.words(9)},
         }.get(name, {"query": self.words(4)})
+        if name == "Edit":
+            self.edited.append(inputs["file_path"])
         self.add("toolUse", {"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "id": ref, "name": name, "input": inputs}]}, **self.nesting(parent)}, ref)
         if finished:
@@ -284,6 +290,23 @@ def corpus_fleuve(c, turns=450):
     c.close()
 
 
+def corpus_fichiers(c, turns=30):
+    """Short turns that each edit a few files, with the snapshots Bloom reads a footer's files
+    from, so several footers on the first screen list them once git has answered."""
+    c.open()
+    for turn in range(turns):
+        if turn:
+            c.user(c.sentence())
+        start, edited = len(c.rows), len(c.edited)
+        for _ in range(c.random.randint(1, 4)):
+            c.tool("Edit", output_lines=1)
+        c.assistant(c.paragraph(1))
+        c.result()
+        c.turns.append((start, len(c.rows), c.edited[edited:]))
+    c.user(c.sentence())
+    c.close()
+
+
 def corpus_nonlu(c):
     corpus_texte(c, turns=40)
     c.unread_from = len(c.rows) // 2
@@ -302,6 +325,7 @@ CORPORA = {
     "fleuve": corpus_fleuve,
     "longue": corpus_longue,
     "enorme": lambda c: corpus_longue(c, turns=385),
+    "fichiers": corpus_fichiers,
 }
 
 
@@ -319,8 +343,33 @@ def write_png(path, width, height, seed):
                      + chunk(b"IEND", b""))
 
 
-def git(*arguments, cwd):
-    subprocess.run(["git", *arguments], cwd=cwd, check=True, capture_output=True)
+def git(*arguments, cwd, text=None):
+    done = subprocess.run(["git", *arguments], cwd=cwd, check=True, capture_output=True, input=text, text=True)
+    return done.stdout.strip()
+
+
+def checkpoints(conversation, worktree, session_id):
+    """Each turn's snapshots as Bloom keeps them, a commit under `refs/bloom/checkpoints/<id>/worktree`
+    for before and after, and the records the footer matches to its result row by `endSeq`."""
+    blobs, records = {}, []
+
+    def snapshot():
+        listing = "".join(f"100644 blob {blob}\t{name}\n" for name, blob in sorted(blobs.items()))
+        tree = git("mktree", cwd=worktree, text=listing)
+        commit = git("-c", "user.name=Scroll Lab", "-c", "user.email=lab@example.test",
+                     "commit-tree", tree, "-m", "Lab snapshot", cwd=worktree)
+        identifier = str(uuid.UUID(int=conversation.random.getrandbits(128), version=4))
+        git("update-ref", f"refs/bloom/checkpoints/{identifier}/worktree", commit, cwd=worktree)
+        return {"id": identifier, "sessionID": session_id, "createdAt": 814000000.0, "indexWasPresent": True}
+
+    for start, end, paths in conversation.turns:
+        before = snapshot()
+        for path in paths:
+            name = Path(path).name
+            blobs[name] = git("hash-object", "-w", "--stdin", cwd=worktree, text=conversation.paragraph(2) + "\n")
+        records.append({"id": before["id"], "sessionID": session_id, "startSeq": start, "endSeq": end,
+                        "before": before, "after": snapshot()})
+    return json.dumps(records, **COMPACT)
 
 
 def seed(directory):
@@ -359,6 +408,10 @@ def seed(directory):
                 "insert into messages (session_id, seq, kind, payload, created_at, ref_id) values (?,?,?,?,?,?)",
                 (session_id, seq, kind, json.dumps(payload, **COMPACT).encode(), now + seq, ref))
         last_seq = len(conversation.rows)
+        if conversation.turns:
+            database.execute("create table if not exists settings (key text primary key, value text not null)")
+            database.execute("insert into settings (key, value) values (?,?)",
+                             (f"turn.checkpoints.{session_id}", checkpoints(conversation, worktree, session_id)))
         read_seq = conversation.unread_from or last_seq
         database.execute(
             "insert into sessions (id, workspace_id, title, agent_session_id, state, created_at, updated_at,"

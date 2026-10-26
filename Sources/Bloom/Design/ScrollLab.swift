@@ -377,7 +377,9 @@ private final class ScrollLabRun: NSObject {
         while now() < deadline {
             resolveScrollView()
             pass += 1
-            if pass % 2 == 0, let scroll, let rows = signature() {
+            // From the first pass: a turn footer's file chips land within a tenth of a second of
+            // the first draw, which a capture starting on the second pass never saw.
+            if pass % 2 == 1, let scroll, let rows = signature() {
                 if let previous, previous.scroll === scroll {
                     let found = compare(previous.rows, rows)
                     shifts.append([now(), Double(found["shift"] as? Int ?? 0), found["residue"] as? Double ?? -1,
