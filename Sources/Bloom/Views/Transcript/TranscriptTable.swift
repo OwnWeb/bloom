@@ -1904,8 +1904,10 @@ struct TranscriptTable: NSViewRepresentable {
         /// notifications. Reading it afterwards mistakes a shorter viewport for scrolling up.
         private func viewportWillResize() {
             guard !isLiveScrolling, viewportPlace == nil, heights.isReady else { return }
+            // The middle row, as every correction after the resize holds: anchored on the top row
+            // instead, an inspector opened and closed again left the reader tens of points away.
             viewportPlace = PlaceBeforeResize(
-                wasAtEnd: holdsEnd || isFollowingAlong, anchor: anchorEntry()
+                wasAtEnd: holdsEnd || isFollowingAlong, anchor: centreAnchor()
             )
         }
 
@@ -2003,7 +2005,7 @@ struct TranscriptTable: NSViewRepresentable {
                 anchor = place.anchor
             } else {
                 wasAtEnd = isFollowingAlong
-                anchor = anchorEntry()
+                anchor = centreAnchor()
             }
             // **Before the measuring, and that is not tidiness.** A user bubble is capped at a
             // share of the pane's width, and the pane publishes that cap through this report. Rows
