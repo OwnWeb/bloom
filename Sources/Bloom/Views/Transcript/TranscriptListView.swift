@@ -482,25 +482,28 @@ struct TranscriptListView: View {
                 keepsVisible: TranscriptTurnVisibilityCache.keepsVisible(row)
             )
         }
-        var hiddenTurnIndices: Set<Int> = []
+        var collapsedTurns = TranscriptTurnFold.Collapsed()
         var turnDisclosures: [Int: (durationMS: Int, isExpanded: Bool, shows: Bool)] = [:]
         var turnsWithDisclosure: Set<Int> = []
         for turn in turnFolds.all where drawnRange.contains(turn.span.lowerBound) {
-            let base = TranscriptTurnFold.hiddenIndices(
+            let base = TranscriptTurnFold.foldedWork(
                 turn: turn, answerIndex: answerIndexByTurn[turn.firstSeq],
                 in: visibility, revealed: [], drawn: drawnRange
             )
-            let shown = !base.isEmpty
-            let protected = revealed.isEmpty ? base : TranscriptTurnFold.hiddenIndices(
+            let shown = base != nil
+            let protected = revealed.isEmpty ? base : TranscriptTurnFold.foldedWork(
                 turn: turn, answerIndex: answerIndexByTurn[turn.firstSeq],
                 in: visibility, revealed: revealed, drawn: drawnRange
             )
-            let isExpanded = unfoldedTurns.contains(turn.firstSeq) || (shown && protected.isEmpty)
+            let isExpanded = unfoldedTurns.contains(turn.firstSeq) || (shown && protected == nil)
             turnDisclosures[turn.span.lowerBound] = (
                 durationMS: turn.durationMS ?? 0, isExpanded: isExpanded, shows: shown
             )
             if shown { turnsWithDisclosure.insert(turn.firstSeq) }
-            if !isExpanded { hiddenTurnIndices.formUnion(protected) }
+            if !isExpanded, let protected { collapsedTurns.add(protected) }
+        }
+        func isCollapsed(_ index: Int) -> Bool {
+            collapsedTurns.contains(index) && !TranscriptTurnVisibilityCache.keepsVisible(rows[index])
         }
 
         // What an Agent call row opens. Built once for the pass, and nil where there is no
@@ -600,7 +603,7 @@ struct TranscriptListView: View {
                     session: sessionID
                 ))
             }
-            if hiddenTurnIndices.contains(index) { continue }
+            if isCollapsed(index) { continue }
             // The result or next user row still supplies the duration to the footer when a turn
             // has no work disclosure after its prompt.
             let closingTurn: TranscriptTurnFold.Turn?
@@ -621,7 +624,7 @@ struct TranscriptListView: View {
                 // A silent result or notice between hidden calls can still land inside this
                 // activity span. It must not recreate the group's disclosure below a closed
                 // turn after the first visible call has already been hidden above.
-                if hiddenTurnIndices.contains(folds.all[at].span.lowerBound) { continue }
+                if isCollapsed(folds.all[at].span.lowerBound) { continue }
                 // By index above and by value here, so the turn's own array of rows is taken up
                 // once per turn rather than once per row. See `TranscriptFold.Folds.index`.
                 if folds.all[at].firstSeq != foldSeq {
