@@ -604,7 +604,7 @@ struct TranscriptTable: NSViewRepresentable {
             // last screen. Keep that row where it was instead of treating the new children as
             // live transcript activity and following them to the end.
             let wasAtEnd = changesFoldRows || !unfolding.isEmpty ? false : isFollowingAlong
-            let anchor = foldAnchor ?? unfoldAnchor ?? (change.movesRows ? anchorEntry() : nil)
+            let anchor = foldAnchor ?? unfoldAnchor ?? (change.movesRows ? centreAnchor() : nil)
 
             if !changesFoldRows, !remeasured, !environmentMoved, holdView?.isHolding != true,
                wasAtEnd || isFollowerDriving {
@@ -962,7 +962,7 @@ struct TranscriptTable: NSViewRepresentable {
                 // rows in at the top, each reports a height that differs from what it was measured
                 // at, and every correction moves everything below it. Without the anchor the text
                 // slides under the eye on the way up.
-                let anchor = anchorEntry()
+                let anchor = centreAnchor()
                 if wasAtEnd || isFollowerDriving { onContentWillChange?() }
                 noteHeights(rows)
                 // **The correction is also what leaves a reader short of the end**, and it is the
@@ -1073,7 +1073,7 @@ struct TranscriptTable: NSViewRepresentable {
             let rows = IndexSet(visibleRows.filter { entries.indices.contains($0) })
             guard !rows.isEmpty else { return }
             let wasAtEnd = isFollowingAlong
-            let anchor = anchorEntry()
+            let anchor = centreAnchor()
             // **Measured before it is told, because re-telling a guess tells the table the guess
             // again.** This used to hand the table whatever `assumed` said, which for a row nobody
             // has measured is the running mean, so a screenful of guesses was reported by the
@@ -1195,15 +1195,12 @@ struct TranscriptTable: NSViewRepresentable {
         private func keepPlace(
             wasAtEnd: Bool, anchor: (id: TranscriptEntryID, delta: CGFloat)?
         ) {
-            // A new row or a late height report can arrive between two wheel events. The
-            // reader's gesture owns the clip view until it ends, including while AppKit is
-            // correcting the document height underneath it.
-            guard !isLiveScrolling else { return }
             switch TranscriptAnchor.place(
                 holdsEnd: holdsEnd,
                 wasAtEnd: wasAtEnd,
                 followerDriving: isFollowerDriving,
-                hasAnchor: anchor != nil
+                hasAnchor: anchor != nil,
+                underHand: isLiveScrolling
             ) {
             case .end:
                 putEnd()
@@ -1522,6 +1519,16 @@ struct TranscriptTable: NSViewRepresentable {
             )
         }
 
+        /// The row under the middle of the pane, which is where the reader is reading. Scrolling
+        /// up, the rows at the top are the ones just drawn and being corrected, and most rows
+        /// there draw nothing, so the topmost row holds nothing still.
+        private func centreAnchor() -> (id: TranscriptEntryID, delta: CGFloat)? {
+            guard let tableView, let scrollView else { return nil }
+            let row = tableView.row(at: NSPoint(x: 0, y: scrollView.contentView.documentVisibleRect.midY))
+            guard entries.indices.contains(row) else { return anchorEntry() }
+            return anchorEntry(entries[row].id)
+        }
+
         /// The clicked disclosure row at its current visual position. Unlike `anchorEntry()`,
         /// this keeps the control itself under the pointer while rows open or close beneath it.
         private func anchorEntry(
@@ -1784,7 +1791,7 @@ struct TranscriptTable: NSViewRepresentable {
                     return
                 }
                 let wasAtEnd = isFollowingAlong
-                let anchor = anchorEntry()
+                let anchor = centreAnchor()
                 isApplyingWarmHeights = true
                 noteHeights(moved)
                 keepPlace(wasAtEnd: wasAtEnd, anchor: anchor)
@@ -1869,7 +1876,7 @@ struct TranscriptTable: NSViewRepresentable {
             guard heights.isReady, !isLiveScrolling else { return }
             let rows = TranscriptPaneHold.eager(visible: visibleRows, count: entries.count)
             let wasAtEnd = isFollowingAlong
-            let anchor = anchorEntry()
+            let anchor = centreAnchor()
             measureExactly(rows)
             let moved = heightUpdates(in: rows)
             guard !moved.isEmpty else { return }
