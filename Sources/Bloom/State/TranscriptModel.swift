@@ -441,6 +441,13 @@ final class TranscriptModel {
     }
 
     private var store: Store? { app.store }
+
+    /// Where a turn's snapshots are read. Their refs are shared by every worktree of a repository,
+    /// so an archived workspace, whose worktree was removed, still reads them from its project.
+    var snapshotDirectory: String {
+        guard let workspace, !FileManager.default.fileExists(atPath: cwd) else { return cwd }
+        return app.repo(for: workspace)?.path ?? cwd
+    }
     private var draftStore: Store? { app.store }
 
     // MARK: - Loading
