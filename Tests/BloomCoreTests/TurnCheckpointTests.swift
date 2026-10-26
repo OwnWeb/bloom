@@ -71,6 +71,21 @@ struct TurnCheckpointTests {
         #expect(try Data(contentsOf: URL(fileURLWithPath: indexPath)) == index)
     }
 
+    @Test("snapshots taken in a worktree are still read from the repository once it is removed")
+    func readableAfterWorktreeRemoval() async throws {
+        let repo = try await TempRepo()
+        defer { repo.cleanUp() }
+        let worktree = TestScratch.unique("bloom-snapshot-worktree")
+        try await Shell.check("git", ["worktree", "add", "-q", "-b", "archived", worktree], cwd: repo.path)
+        let session = SessionID.new()
+        let before = try await Git.captureSnapshot(in: worktree, sessionID: session)
+        try TempRepo(existing: worktree).write("changed.txt", "after\n")
+        let after = try await Git.captureSnapshot(in: worktree, sessionID: session)
+        try await Shell.check("git", ["worktree", "remove", "--force", worktree], cwd: repo.path)
+        let files = try await Git.snapshotFiles(from: before, to: after, in: repo.path)
+        #expect(files.map(\.path) == ["changed.txt"])
+    }
+
     @Test("checkpoint metadata survives a Store reopen")
     func persistence() async throws {
         let path = TestScratch.path("checkpoints.sqlite")

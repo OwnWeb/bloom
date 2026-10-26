@@ -288,11 +288,11 @@ struct TurnFooterView: View {
         guard knownFiles == nil, let transcript else { return }
         if let checkpoint {
             do {
-                let changed = try await transcript.history.files(checkpoint, cwd: worktree)
+                let changed = try await transcript.history.files(checkpoint, cwd: transcript.snapshotDirectory)
                 guard !Task.isCancelled else { return }
                 loaded = changed
             } catch {
-                // The turn's own edits stay drawn: an archived worktree fails here on every visit.
+                // The turn's own edits stay drawn, so a failure adds its line without the chips leaving.
                 guard !Task.isCancelled else { return }
                 snapshotFailure = "Could not load the saved file summary: \(error)"
             }
