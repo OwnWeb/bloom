@@ -363,6 +363,7 @@ struct TranscriptListView: View {
             bubbleWidth: bubbleWidth,
             conversation: conversationSelection,
             linkActions: linkActions,
+            table: controller,
             fontScale: fontScale,
             chatFont: chatFont,
             lineHeight: chatLineHeight,
