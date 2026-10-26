@@ -441,6 +441,9 @@ final class TranscriptModel {
     /// without both walking the whole transcript and still sometimes returning an older sequence.
     /// Outside observation because it is only a database cursor and nothing draws it.
     @ObservationIgnored private var highestSeenMessageSeq = -1
+    /// What each turn with no snapshot to read wrote, by its result row's id. Built with the rows,
+    /// so a footer is measured with its files rather than growing a frame later. See `TurnScan`.
+    @ObservationIgnored var turnScans: [Int64: [TurnFile]] = [:]
     /// When the current turn was handed to the runner, so a session row written before that can be
     /// recognised as belonging to the previous turn.
     private var turnStartedAt: Date?
@@ -530,6 +533,8 @@ final class TranscriptModel {
         // actor, so opening a long conversation does not wait for three more store round trips
         // after its rows are ready.
         async let opening = loadOpening(from: store)
+        let sessionID = session.id
+        async let checkpointsLoaded: Void = history.load(store: store, sessionID: sessionID)
 
         // Off the main actor, and not for tidiness. The fold below is the one place in the app
         // that JSON-parses a whole session in one go: `ParentProbe.parentToolUseID` materialises
@@ -552,13 +557,18 @@ final class TranscriptModel {
                 highestMessageSeq = max(highestMessageSeq, message.seq)
                 Self.absorb(message, decisions: decisions, into: &rows, indexByRefID: &index)
             }
-            return (rows: rows, index: index, highestMessageSeq: highestMessageSeq)
+            return (rows: rows, index: index, highestMessageSeq: highestMessageSeq,
+                    scans: TurnScan.everyTurn(in: rows))
         }.value
+        // Before the rows, for the scans' reason: a footer reads its snapshot's files from these.
+        await checkpointsLoaded
+        SwitchTrace.mark("transcript.checkpoints.loaded", workspace: workspace?.id)
 
         foldCache.reset()
         turnFoldCache.reset()
         freshCalls = []
         questionIndex = PinnedQuestionIndex()
+        turnScans = built.scans
         rows = built.rows
         presentationRevision += 1
         indexByRefID = built.index
@@ -596,8 +606,6 @@ final class TranscriptModel {
         // the owner's next message. See `DeliveryHold.none`.
         await refreshQueue()
         SwitchTrace.mark("transcript.queue.loaded", workspace: workspace?.id)
-        await history.load(store: store, sessionID: session.id)
-        SwitchTrace.mark("transcript.checkpoints.loaded", workspace: workspace?.id)
     }
 
     /// Folds a stored message into the row list, pairing tool results onto their tool call.
