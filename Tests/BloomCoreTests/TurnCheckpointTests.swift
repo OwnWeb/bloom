@@ -99,4 +99,31 @@ struct TurnCheckpointTests {
         #expect(saved.after == completed.after)
         #expect(saved.endSeq == 9)
     }
+
+    @Test("a completed turn's file summary survives a reopen and is replaced only for its own snapshot")
+    func fileSummary() async throws {
+        let path = TestScratch.path("checkpoint-files.sqlite")
+        let store = try Store(path: path)
+        let session = SessionID.new()
+        let original = TurnCheckpoint(sessionID: session, startSeq: 3, before: GitSnapshot(sessionID: session))
+        try await store.saveTurnCheckpoint(original)
+        var completed = original
+        completed.after = GitSnapshot(sessionID: session)
+        completed.endSeq = 9
+        try await store.saveTurnCheckpoint(completed)
+        var summarised = completed
+        summarised.files = [TurnFile(path: "Sources/App.swift", additions: 3, deletions: 1)]
+        try await store.saveTurnCheckpoint(summarised)
+
+        try await store.saveTurnCheckpoint(completed)
+        try await store.saveTurnCheckpoint(original)
+        var foreign = original
+        foreign.after = GitSnapshot(sessionID: session)
+        foreign.endSeq = 9
+        foreign.files = [TurnFile(path: "Other.swift", additions: 1, deletions: 0)]
+        try await store.saveTurnCheckpoint(foreign)
+
+        let reopened = try Store(path: path)
+        #expect(try await reopened.turnCheckpoints(sessionID: session) == [summarised])
+    }
 }
