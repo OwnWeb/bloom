@@ -9,11 +9,11 @@ enum TurnScan {
     /// A turn with more rows than this is pathological, and the footer is not worth the scan.
     private static let scanLimit = 400
 
-    /// Every turn's files, by its result row's id. Each walk stops at the turn before, so the
-    /// whole session is read once.
-    static func everyTurn(in rows: [TranscriptRow]) -> [Int64: [TurnFile]] {
+    /// Every turn's files, by its result row's id, but for the turns ending at `summarised`, whose
+    /// snapshot already holds them. Each walk stops at the turn before, so the rest is read once.
+    static func everyTurn(in rows: [TranscriptRow], skipping summarised: Set<Int>) -> [Int64: [TurnFile]] {
         var files: [Int64: [TurnFile]] = [:]
-        for row in rows where row.kind == .result {
+        for row in rows where row.kind == .result && !summarised.contains(row.seq) {
             files[row.id] = Self.files(rows: rows, endingAt: row.seq)
         }
         return files
