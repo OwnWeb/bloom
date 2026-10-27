@@ -419,6 +419,20 @@ def seed(directory):
             (session_id, workspace_id, f"Lab {name}", f"lab-agent-{name}", "idle", now, now, read_seq))
         manifest["corpora"][name] = {"workspace": workspace_id, "session": session_id, "rows": last_seq,
                                      "lastReadSeq": read_seq}
+        if name in TABBED:
+            side = Conversation(f"{name}side", seed=1000 + order)
+            corpus_court(side)
+            side_id = f"LAB-SIDE-{name.upper()}"
+            for seq, (kind, payload, ref) in enumerate(side.rows, start=1):
+                database.execute(
+                    "insert into messages (session_id, seq, kind, payload, created_at, ref_id) values (?,?,?,?,?,?)",
+                    (side_id, seq, kind, json.dumps(payload, **COMPACT).encode(), now + seq, ref))
+            database.execute(
+                "insert into sessions (id, workspace_id, title, agent_session_id, state, sort_order, created_at,"
+                " updated_at, last_read_seq) values (?,?,?,?,?,?,?,?,?)",
+                (side_id, workspace_id, f"Lab {name} side", f"lab-agent-{name}-side", "idle", 1, now, now,
+                 len(side.rows)))
+            manifest["corpora"][name]["side"] = side_id
     database.commit()
     database.close()
     (root / "corpus.json").write_text(json.dumps(manifest, indent=2))
@@ -435,7 +449,9 @@ GESTURES = {
 }
 CLIMBS = {"molette": ["texte", "sousagents"], "trackpad": LONG, "frenetique": ["markdown", "outils"]}
 ALL_SCENARIOS = ["arrivee", "bascule", "molette", "trackpad", "frenetique", "saut", "redimension", "direct", "fleuve",
-                 "direct-longue", "retour", "derive"]
+                 "direct-longue", "retour", "derive", "onglet"]
+# Corpora whose workspace gets a second chat, so the pane can leave a conversation for another tab.
+TABBED = ["outils", "longue", "markdown"]
 
 
 def plan(manifest_path, output, size, scenarios):
@@ -561,6 +577,18 @@ def plan(manifest_path, output, size, scenarios):
             visit(again, f"{prefix}/away-again")
             visit(name, f"{prefix}/back")
             step("rest", f"{prefix}/rest-back", ms=1500)
+            step("capture", f"{prefix}/return", compareTo=f"{prefix}/leave")
+    if "onglet" in scenarios:
+        # A chat left for another tab of the same workspace and picked again: the pane is rebuilt.
+        for name, fraction in [(name, fraction) for name in TABBED for fraction in (0.5, 0.2)]:
+            prefix = f"onglet-{int(fraction * 100)}/{name}"
+            visit(name, f"{prefix}/select")
+            place(f"{prefix}/place", fraction)
+            step("rest", f"{prefix}/rest-before", ms=1200)
+            step("capture", f"{prefix}/leave")
+            step("select", f"{prefix}/away", workspace=corpora[name]["workspace"], session=corpora[name]["side"])
+            visit(name, f"{prefix}/back")
+            step("rest", f"{prefix}/rest-back", ms=1200)
             step("capture", f"{prefix}/return", compareTo=f"{prefix}/leave")
     if "direct-longue" in scenarios:
         gesture = {key: value for key, value in GESTURES["trackpad"].items() if key != "kind"}
