@@ -7,6 +7,7 @@ import BloomCore
 final class ComposerTextView: NSTextView, HoverQuickLookSource {
     private var attachmentDropSession = AttachmentDropSession()
     var previewAttachment: (@MainActor (String) -> URL?)?
+    weak var dropHint: ComposerDropHint?
 
     func quickLookURL(at point: NSPoint) -> URL? {
         guard let path = chip(at: point)?.path else { return nil }
@@ -95,6 +96,7 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
     /// picture if that is all there is, and otherwise nothing, so a drag of text is still a drag
     /// of text and the text system handles it as well as it always has.
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        dropHint?.set(.editor, false)
         if AttachmentDrop.canRead(sender.draggingPasteboard), onAttach != nil {
             let range = dropRange(for: sender)
             return AttachmentDrop.receive(
@@ -151,7 +153,19 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
     // is anything to take rather than taking it: reading the bytes here would copy a screenshot
     // out of the drag on every frame of it.
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        AttachmentDrop.canRead(sender.draggingPasteboard) ? .copy : super.draggingEntered(sender)
+        guard AttachmentDrop.canRead(sender.draggingPasteboard) else { return super.draggingEntered(sender) }
+        dropHint?.set(.editor, true)
+        return .copy
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dropHint?.set(.editor, false)
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dropHint?.set(.editor, false)
+        super.draggingEnded(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
