@@ -609,7 +609,7 @@ def plan(manifest_path, output, size, scenarios):
         step("appendStop", "neuve/neuve/stop")
         visit("neuve", "neuve/neuve/back")
         step("rest", "neuve/neuve/rest-back", ms=1500)
-        step("capture", "neuve/neuve/return", ocr=[FIRST_MARK])
+        step("capture", "neuve/neuve/return")
     if "direct-longue" in scenarios:
         gesture = {key: value for key, value in GESTURES["trackpad"].items() if key != "kind"}
         for name in ["longue", "enorme"]:
@@ -830,6 +830,8 @@ def judge_capture(entry, scenario, phase, result, place, places):
             if not seen:
                 entry["failures"].append("première ligne invisible en haut" if token == FIRST_MARK
                                          else "dernière ligne invisible en bas")
+    if scenario == "neuve" and phase == "return" and place.get("fromEnd", 0) > 4:
+        entry["failures"].append(f"conversation neuve rouverte ailleurs qu'en bas ({place['fromEnd']:.0f} pt du bas)")
     pixels = result.get("pixels")
     if pixels and phase == "return":
         entry["return"] = pixels
