@@ -307,6 +307,13 @@ def corpus_fichiers(c, turns=30):
     c.close()
 
 
+def corpus_neuve(c):
+    """A conversation just started: the prompt and nothing else yet."""
+    c.add("system", {"type": "system", "subtype": "init", "cwd": "/tmp/lab", "session_id": "lab",
+                     "tools": ["Bash"], "model": "claude-opus-5-5", "permissionMode": "acceptEdits"})
+    c.user(f"{FIRST_MARK} {c.name}. " + c.sentence())
+
+
 def corpus_nonlu(c):
     corpus_texte(c, turns=40)
     c.unread_from = len(c.rows) // 2
@@ -326,6 +333,7 @@ CORPORA = {
     "longue": corpus_longue,
     "enorme": lambda c: corpus_longue(c, turns=385),
     "fichiers": corpus_fichiers,
+    "neuve": corpus_neuve,
 }
 
 
@@ -449,9 +457,9 @@ GESTURES = {
 }
 CLIMBS = {"molette": ["texte", "sousagents"], "trackpad": LONG, "frenetique": ["markdown", "outils"]}
 ALL_SCENARIOS = ["arrivee", "bascule", "molette", "trackpad", "frenetique", "saut", "redimension", "direct", "fleuve",
-                 "direct-longue", "retour", "derive", "onglet"]
+                 "direct-longue", "retour", "derive", "onglet", "neuve"]
 # Corpora whose workspace gets a second chat, so the pane can leave a conversation for another tab.
-TABBED = ["outils", "longue", "markdown"]
+TABBED = ["outils", "longue", "markdown", "neuve"]
 
 
 def plan(manifest_path, output, size, scenarios):
@@ -590,6 +598,18 @@ def plan(manifest_path, output, size, scenarios):
             visit(name, f"{prefix}/back")
             step("rest", f"{prefix}/rest-back", ms=1200)
             step("capture", f"{prefix}/return", compareTo=f"{prefix}/leave")
+    if "neuve" in scenarios:
+        # A new chat read once, left for the other tab while the agent writes, and picked again.
+        live = corpora["neuve"]
+        visit("neuve", "neuve/neuve/select")
+        step("rest", "neuve/neuve/read", ms=1500)
+        step("select", "neuve/neuve/away", workspace=live["workspace"], session=live["side"])
+        step("append", "neuve/neuve/agent", session=live["session"], startSeq=live["rows"], intervalMs=150)
+        step("rest", "neuve/neuve/working", ms=6000)
+        step("appendStop", "neuve/neuve/stop")
+        visit("neuve", "neuve/neuve/back")
+        step("rest", "neuve/neuve/rest-back", ms=1500)
+        step("capture", "neuve/neuve/return", ocr=[FIRST_MARK])
     if "direct-longue" in scenarios:
         gesture = {key: value for key, value in GESTURES["trackpad"].items() if key != "kind"}
         for name in ["longue", "enorme"]:
