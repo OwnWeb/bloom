@@ -232,7 +232,9 @@ private struct HeldWidth: ViewModifier {
     func body(content: Content) -> some View {
         content
             .frame(width: isActive ? nil : shownWidth)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // Zero, or a held column wider than the pane widens the stack, and the visible column
+            // is laid out at that width, centred, its tabs cut at both ends.
+            .frame(minWidth: isActive ? nil : 0, maxWidth: .infinity, alignment: .leading)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
                 if isActive { shownWidth = width }
             }
