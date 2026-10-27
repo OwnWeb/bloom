@@ -63,6 +63,11 @@ enum Log {
     /// Run scripts: an autostart approval that could not be written, which is why nothing started.
     static let runScripts = Logger(subsystem: subsystem, category: "runScripts")
 
+    /// Where a conversation opened and why, and the row heights the table refused. Both put a
+    /// reader at the top or under a gap with nothing else to say so:
+    /// `log show --last 1h --predicate 'category == "transcript"'`.
+    static let transcript = Logger(subsystem: subsystem, category: "transcript")
+
     /// The app's own bundle id, so an instance running against `BLOOM_DB_PATH` for a test can be
     /// told apart from the one somebody is using.
     private static let subsystem = Bundle.main.bundleIdentifier ?? "be.spatie.bloom"
