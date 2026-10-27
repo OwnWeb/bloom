@@ -903,14 +903,15 @@ struct TranscriptTable: NSViewRepresentable {
             // Counted before it is refused, and counted whatever the height was: what is being
             // watched for is a cell laid out at a width the table is not, and a report that
             // happens to agree about the height is the same event.
+            let cacheWidth = heights.measure?.width
             if !TranscriptRowHeights.isEvidence(
-                measuredAt: Double(size.width), forCacheAt: heights.measure?.width
+                measuredAt: Double(size.width), forCacheAt: cacheWidth
             ) {
                 TranscriptHoldCensus.reportedAtAnotherWidth(TranscriptHoldCensus.Mismatch(
                     row: row,
                     shape: String(describing: entries[row].shape),
                     reportedWidth: Double(size.width),
-                    cacheWidth: heights.measure?.width ?? 0,
+                    cacheWidth: cacheWidth ?? 0,
                     columnWidth: Double(columnWidth),
                     // Minus one for "the table is holding no view for this row", which is a
                     // different fact from a view that is nought wide and was conflated with it
@@ -921,13 +922,15 @@ struct TranscriptTable: NSViewRepresentable {
                     reportedHeight: Double(height),
                     knownHeight: heights.height(for: contentKey) ?? -1
                 ))
-                let cacheWidth = heights.measure?.width ?? 0
-                let drawnHeight = tableView?.rect(ofRow: row).height ?? -1
-                Log.transcript.notice("""
-                    refused \(entryID, privacy: .public) at \(size.width, privacy: .public)pt: \
-                    \(height, privacy: .public)pt, cache width \(cacheWidth, privacy: .public)pt, \
-                    drawn at \(drawnHeight, privacy: .public)pt
-                    """)
+                // Not while a window is dragged, where every frame refuses a few of these.
+                if tableView?.inLiveResize == false {
+                    let drawnHeight = tableView?.rect(ofRow: row).height ?? -1
+                    Log.transcript.notice("""
+                        refused \(entryID, privacy: .public) at \(size.width, privacy: .public)pt: \
+                        \(height, privacy: .public)pt, cache width \(cacheWidth ?? 0, privacy: .public)pt, \
+                        drawn at \(drawnHeight, privacy: .public)pt
+                        """)
+                }
                 return
             }
             // The other half of the same question `measureExactly` asks: a row the reader was
