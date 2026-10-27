@@ -530,6 +530,10 @@ final class TranscriptModel {
     /// dragged.
     private func read(from store: Store) async {
         SwitchTrace.mark("transcript.read.start", workspace: workspace?.id)
+        let sessionID = session.id
+        // Beside the messages, because the fold below needs them: a turn whose snapshot already
+        // has its summary is not scanned, and a footer reads that summary from here.
+        async let checkpointsLoaded: Void = history.load(store: store, sessionID: sessionID)
         let messages = (try? await store.messages(sessionID: session.id)) ?? []
         SwitchTrace.mark("transcript.read.done", workspace: workspace?.id)
         // Read once for the whole session rather than per row: a transcript can hold thousands of
@@ -540,8 +544,9 @@ final class TranscriptModel {
         // actor, so opening a long conversation does not wait for three more store round trips
         // after its rows are ready.
         async let opening = loadOpening(from: store)
-        let sessionID = session.id
-        async let checkpointsLoaded: Void = history.load(store: store, sessionID: sessionID)
+        await checkpointsLoaded
+        SwitchTrace.mark("transcript.checkpoints.loaded", workspace: workspace?.id)
+        let summarised = Set(history.checkpoints.filter { $0.files != nil }.compactMap(\.endSeq))
 
         // Off the main actor, and not for tidiness. The fold below is the one place in the app
         // that JSON-parses a whole session in one go: `ParentProbe.parentToolUseID` materialises
@@ -565,11 +570,8 @@ final class TranscriptModel {
                 Self.absorb(message, decisions: decisions, into: &rows, indexByRefID: &index)
             }
             return (rows: rows, index: index, highestMessageSeq: highestMessageSeq,
-                    scans: TurnScan.everyTurn(in: rows))
+                    scans: TurnScan.everyTurn(in: rows, skipping: summarised))
         }.value
-        // Before the rows, for the scans' reason: a footer reads its snapshot's files from these.
-        await checkpointsLoaded
-        SwitchTrace.mark("transcript.checkpoints.loaded", workspace: workspace?.id)
 
         foldCache.reset()
         turnFoldCache.reset()
