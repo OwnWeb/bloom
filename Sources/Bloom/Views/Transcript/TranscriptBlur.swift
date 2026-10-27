@@ -1,4 +1,5 @@
 import AppKit
+import BloomCore
 
 /// The system's blur over a chat's transcript while a file is being dragged towards its composer.
 ///
@@ -12,7 +13,9 @@ import AppKit
 /// over pays for nothing.
 @MainActor
 enum TranscriptBlur {
-    private static let holds = NSHashTable<TranscriptHoldView>.weakObjects()
+    /// Each pane's hold view and the chat it is showing now. The pane is reused across chats, so
+    /// the chat is written again on every update rather than once on creation.
+    private static let sessions = NSMapTable<TranscriptHoldView, NSString>.weakToStrongObjects()
     private static let veils = NSMapTable<TranscriptHoldView, NSVisualEffectView>.weakToWeakObjects()
 
     /// Translucent enough that the colours and shapes of the conversation come through the blur.
@@ -20,14 +23,15 @@ enum TranscriptBlur {
     /// ground hid the transcript completely.
     private static let material = NSVisualEffectView.Material.popover
 
-    static func register(_ hold: TranscriptHoldView) { holds.add(hold) }
+    static func register(_ hold: TranscriptHoldView, showing session: SessionID) {
+        sessions.setObject(session.rawValue as NSString, forKey: hold)
+    }
 
     /// Blurs the transcripts of the chats in `keys` and clears every other. Called when the answer
     /// changes, so it runs twice per drag.
     static func apply(to keys: Set<String>) {
-        for hold in holds.allObjects {
-            let key = (hold.scroll.documentView as? TranscriptTableView)?.session?.rawValue
-            let isBlurred = key.map(keys.contains) ?? false
+        for case let hold as TranscriptHoldView in sessions.keyEnumerator() {
+            let isBlurred = (sessions.object(forKey: hold) as String?).map(keys.contains) ?? false
             guard let veil = veil(for: hold, creating: isBlurred) else { continue }
             veil.isHidden = !isBlurred
         }

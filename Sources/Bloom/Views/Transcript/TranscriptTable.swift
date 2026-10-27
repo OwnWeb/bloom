@@ -283,7 +283,6 @@ struct TranscriptTable: NSViewRepresentable {
         // The scroll view is not this representable's view any more. See `TranscriptHoldView`,
         // which draws nothing in its place while a conversation arrives.
         let hold = TranscriptHoldView(scroll: scroll)
-        TranscriptBlur.register(hold)
         hold.delegate = context.coordinator
         context.coordinator.holdView = hold
         return hold
@@ -313,6 +312,7 @@ struct TranscriptTable: NSViewRepresentable {
         (coordinator.tableView as? TranscriptTableView)?.conversation = rowEnvironment.conversation
         // Before the entries, so that a pass carrying another conversation's rows is applied to a
         // pane that has already stopped drawing.
+        TranscriptBlur.register(nsView, showing: session)
         coordinator.showing(session: session, in: nsView)
         coordinator.apply(entries: entries, scale: scale, environment: rowEnvironment)
     }
