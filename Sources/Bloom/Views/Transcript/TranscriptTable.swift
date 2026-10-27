@@ -283,6 +283,7 @@ struct TranscriptTable: NSViewRepresentable {
         // The scroll view is not this representable's view any more. See `TranscriptHoldView`,
         // which draws nothing in its place while a conversation arrives.
         let hold = TranscriptHoldView(scroll: scroll)
+        TranscriptBlur.register(hold)
         hold.delegate = context.coordinator
         context.coordinator.holdView = hold
         return hold

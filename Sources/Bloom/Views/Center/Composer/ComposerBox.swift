@@ -5,7 +5,8 @@ import SwiftUI
 struct ComposerBox: ViewModifier {
     @Binding var isFocused: Bool
     var isFloating = false
-    var isDropTarget = false
+    /// Tints the box while a file is being dragged towards it. See `ComposerDropHint`.
+    var dropHint: ComposerDropHint?
     /// A border that stays up whatever the focus, for a mode the box is in. Shell mode is the one.
     var accent: Color?
     @Environment(\.controlActiveState) private var activeState
@@ -14,6 +15,8 @@ struct ComposerBox: ViewModifier {
     /// Enough of the accent in the glass to say the box is in another mode, little enough that the
     /// text on it keeps its contrast.
     private static let accentTint = 0.25
+
+    private var isDropTarget: Bool { dropHint?.isShown == true }
 
     private var isRingVisible: Bool { isFocused && activeState.showsFocusRing }
 
@@ -41,24 +44,29 @@ struct ComposerBox: ViewModifier {
             padded
                 // One material for the whole composer. Its controls keep their ordinary styles,
                 // and completion menus are attached outside this modifier.
-                .glassEffect(.regular.tint(accent?.opacity(Self.accentTint)), in: shape)
+                .glassEffect(
+                    .regular.tint((accent ?? (isDropTarget ? Palette.accent : nil))?.opacity(Self.accentTint)),
+                    in: shape
+                )
                 .overlay {
                     shape.strokeBorder(
-                        isDropTarget ? Palette.controlAccent : (accent ?? focusColour),
-                        lineWidth: isDropTarget || accent != nil || contrast == .increased ? 2 : 0.5
+                        accent ?? focusColour,
+                        lineWidth: accent != nil || contrast == .increased ? 2 : 0.5
                     )
-                    .opacity(isDropTarget || accent != nil ? 1 : (isRingVisible ? focusOpacity : 0))
+                    .opacity(accent != nil ? 1 : (isRingVisible ? focusOpacity : 0))
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 }
         } else {
             padded
                 .overlay {
-                    shape.strokeBorder(
-                        isDropTarget ? Palette.accent : Palette.border,
-                        lineWidth: isDropTarget ? Metrics.outline * 2 : Metrics.outline
-                    )
-                    .allowsHitTesting(false)
+                    shape.strokeBorder(Palette.border, lineWidth: Metrics.outline)
+                        .allowsHitTesting(false)
+                }
+                .overlay {
+                    if isDropTarget {
+                        shape.fill(Palette.accent.opacity(Self.accentTint)).allowsHitTesting(false)
+                    }
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: Metrics.corner + 1.5)
@@ -80,10 +88,16 @@ struct ComposerBox: ViewModifier {
 
 extension View {
     func composerBox(
-        isFocused: Binding<Bool>, isDropTarget: Bool = false, isFloating: Bool = false, accent: Color? = nil
+        isFocused: Binding<Bool>,
+        dropHint: ComposerDropHint? = nil,
+        isFloating: Bool = false,
+        accent: Color? = nil
     ) -> some View {
         modifier(ComposerBox(
-            isFocused: isFocused, isFloating: isFloating, isDropTarget: isDropTarget, accent: accent
+            isFocused: isFocused,
+            isFloating: isFloating,
+            dropHint: dropHint,
+            accent: accent
         ))
     }
 }
