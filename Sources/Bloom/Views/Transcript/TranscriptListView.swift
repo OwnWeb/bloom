@@ -1585,10 +1585,17 @@ struct TranscriptListView: View {
         // A pane coming back to a session it has already drawn is put back where the reader left
         // it, and none of the three openings below applies: they are all answers to "where should
         // somebody arriving at this conversation start reading", and this reader is not arriving.
-        switch TranscriptResume.placement(
-            for: memory?.remembered(session: transcript.session.id),
-            rowCount: transcript.rows.count
-        ) {
+        let remembered = memory?.remembered(session: transcript.session.id)
+        let placement = TranscriptResume.placement(for: remembered, rowCount: transcript.rows.count)
+        defer {
+            Log.transcript.notice("""
+                opened \(transcript.session.id.rawValue, privacy: .public) at \
+                \(opening.map { String(describing: $0) } ?? "nowhere", privacy: .public) from \(String(describing: placement), privacy: .public); \
+                remembered: \(remembered != nil, privacy: .public), \
+                unread \(transcript.firstUnreadSeq ?? -1, privacy: .public) of \(transcript.rows.count, privacy: .public) rows
+                """)
+        }
+        switch placement {
         case .liveEnd:
             opening = .liveEnd
         case .offset(let y):

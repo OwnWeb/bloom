@@ -921,6 +921,13 @@ struct TranscriptTable: NSViewRepresentable {
                     reportedHeight: Double(height),
                     knownHeight: heights.height(for: contentKey) ?? -1
                 ))
+                let cacheWidth = heights.measure?.width ?? 0
+                let drawnHeight = tableView?.rect(ofRow: row).height ?? -1
+                Log.transcript.notice("""
+                    refused \(entryID, privacy: .public) at \(size.width, privacy: .public)pt: \
+                    \(height, privacy: .public)pt, cache width \(cacheWidth, privacy: .public)pt, \
+                    drawn at \(drawnHeight, privacy: .public)pt
+                    """)
                 return
             }
             // The other half of the same question `measureExactly` asks: a row the reader was
