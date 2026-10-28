@@ -353,6 +353,9 @@ struct TranscriptTable: NSViewRepresentable {
         private var warmWork: Task<Void, Never>?
         /// A height correction made by the warm pass is not the reader taking the scroll view.
         private var isApplyingWarmHeights = false
+        /// AppKit can move the clip view before its row-height cache has finished updating.
+        private var isNotingHeights = false
+        private var clipMoveIsScheduled = false
         /// A reflow saying its placement a second time. See `rewidth`.
         private var placeWork: Task<Void, Never>?
         /// The last layout of a resize, waiting for the width to be still. See `settleWidth`.
@@ -1119,6 +1122,8 @@ struct TranscriptTable: NSViewRepresentable {
         /// change in this file that somebody asked for. See `unfoldSeconds`.
         private func noteHeights(_ rows: IndexSet, over seconds: Double = 0) {
             guard let tableView, !rows.isEmpty else { return }
+            isNotingHeights = true
+            defer { isNotingHeights = false }
             (tableView as? TranscriptTableView)?.deferRowAlignment(for: seconds)
             if seconds > 0 {
                 // Only while the row travels, and only the rows travelling. A cell is exactly its
@@ -1552,6 +1557,20 @@ struct TranscriptTable: NSViewRepresentable {
             // Correcting prepared heights can move the document while the reader's row is held
             // still. It must not release the live end or restart the idle task that made it.
             guard !isApplyingWarmHeights else { return }
+            // A question arriving after streamed prose can resize the document inside
+            // `noteHeightOfRows`. Reporting here asks the pane for `topmostPlace`, which calls
+            // `rect(ofRow:)` and reenters AppKit's half-updated row-height cache. Coalesce those
+            // notifications onto the next turn, when both the heights and placement are final.
+            if isNotingHeights {
+                guard !clipMoveIsScheduled else { return }
+                clipMoveIsScheduled = true
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    clipMoveIsScheduled = false
+                    clipMoved()
+                }
+                return
+            }
             // **However the view got away from the end, the standing instruction goes with it.**
             //
             // `willStartLiveScroll` below is the ordinary way a reader takes hold, and it covers a
