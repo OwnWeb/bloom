@@ -457,7 +457,7 @@ GESTURES = {
 }
 CLIMBS = {"molette": ["texte", "sousagents"], "trackpad": LONG, "frenetique": ["markdown", "outils"]}
 ALL_SCENARIOS = ["arrivee", "bascule", "molette", "trackpad", "frenetique", "saut", "redimension", "direct", "fleuve",
-                 "direct-longue", "retour", "derive", "onglet", "neuve"]
+                 "direct-longue", "retour", "derive", "onglet", "neuve", "largeur", "vivant"]
 # Corpora whose workspace gets a second chat, so the pane can leave a conversation for another tab.
 TABBED = ["outils", "longue", "markdown", "neuve"]
 
@@ -610,6 +610,40 @@ def plan(manifest_path, output, size, scenarios):
         visit("neuve", "neuve/neuve/back")
         step("rest", "neuve/neuve/rest-back", ms=1500)
         step("capture", "neuve/neuve/return")
+    if "vivant" in scenarios:
+        # Back to a chat while its agent is still writing, from another workspace and another tab.
+        for name, away in [("longue", "texte"), ("neuve", None)]:
+            live = corpora[name]
+            prefix = f"vivant-{'onglet' if away is None else 'espace'}/{name}"
+            visit(name, f"{prefix}/select")
+            step("rest", f"{prefix}/read", ms=1200)
+            if away is None:
+                step("select", f"{prefix}/away", workspace=live["workspace"], session=live["side"])
+            else:
+                visit(away, f"{prefix}/away")
+            step("append", f"{prefix}/agent", session=live["session"], startSeq=live["rows"] + 100000,
+                 intervalMs=120)
+            step("rest", f"{prefix}/working", ms=2500)
+            visit(name, f"{prefix}/back")
+            step("rest", f"{prefix}/rest-back", ms=1500)
+            step("capture", f"{prefix}/return")
+            step("appendStop", f"{prefix}/stop")
+            step("rest", f"{prefix}/after", ms=1000)
+    if "largeur" in scenarios:
+        # Back to a chat held at another width: the inspector differs from when it was last shown.
+        for name, other in [("longue", "texte"), ("outils", "markdown")]:
+            for first, then in [(False, True), (True, False)]:
+                prefix = f"largeur-{'ouvert' if then else 'ferme'}/{name}"
+                step("select", f"{prefix}/select", workspace=corpora[name]["workspace"],
+                     session=corpora[name]["session"], inspector=first)
+                step("rest", f"{prefix}/rest", ms=1500)
+                step("select", f"{prefix}/away", workspace=corpora[other]["workspace"],
+                     session=corpora[other]["session"], inspector=then)
+                step("rest", f"{prefix}/rest-away", ms=800)
+                step("select", f"{prefix}/back", workspace=corpora[name]["workspace"],
+                     session=corpora[name]["session"], inspector=then)
+                step("rest", f"{prefix}/rest-back", ms=1500)
+                step("capture", f"{prefix}/return")
     if "direct-longue" in scenarios:
         gesture = {key: value for key, value in GESTURES["trackpad"].items() if key != "kind"}
         for name in ["longue", "enorme"]:
@@ -830,8 +864,9 @@ def judge_capture(entry, scenario, phase, result, place, places):
             if not seen:
                 entry["failures"].append("première ligne invisible en haut" if token == FIRST_MARK
                                          else "dernière ligne invisible en bas")
-    if scenario == "neuve" and phase == "return" and place.get("fromEnd", 0) > 4:
-        entry["failures"].append(f"conversation neuve rouverte ailleurs qu'en bas ({place['fromEnd']:.0f} pt du bas)")
+    if scenario in ("neuve", "largeur-ouvert", "largeur-ferme", "vivant-onglet", "vivant-espace") \
+            and phase == "return" and place.get("fromEnd", 0) > 4:
+        entry["failures"].append(f"rouverte ailleurs qu'en bas ({place['fromEnd']:.0f} pt du bas)")
     pixels = result.get("pixels")
     if pixels and phase == "return":
         entry["return"] = pixels
