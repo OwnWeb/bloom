@@ -96,7 +96,7 @@ final class TranscriptTableController {
     func goToEnd() { coordinator?.goToEnd() }
 
     /// Lets go of the standing instruction above, without moving anything.
-    func releaseEnd() { coordinator?.releaseEnd() }
+    func releaseEnd(_ caller: String = #function) { coordinator?.releaseEnd(caller) }
 
     /// Whether that instruction is standing now. Read by the pane when it writes down where the
     /// reader was: an instruction to be at the end is where somebody is, even on the frames a
@@ -1355,7 +1355,8 @@ struct TranscriptTable: NSViewRepresentable {
             }
         }
 
-        func releaseEnd() {
+        func releaseEnd(_ caller: String = #function) {
+            if holdsEnd { Log.transcript.notice("end released by \(caller, privacy: .public)") }
             holdsEnd = false
             isSettlingResizeAtEnd = false
             endWork?.cancel()
