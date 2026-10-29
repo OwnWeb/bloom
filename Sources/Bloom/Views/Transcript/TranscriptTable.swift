@@ -2083,7 +2083,7 @@ struct TranscriptTable: NSViewRepresentable {
             // scrolls away in the next moment is not pinned: see `clipMoved`.
             if wasAtEnd, !isFollowerDriving, !isLiveScrolling {
                 holdsEnd = true
-                endLanded = true
+                endLanded = TranscriptAnchor.canPlace(viewportHeight: Double(currentGeometry.viewportHeight))
                 isSettlingResizeAtEnd = true
                 scheduleSettle()
             }
