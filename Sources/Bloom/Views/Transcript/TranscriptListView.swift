@@ -1349,6 +1349,14 @@ struct TranscriptListView: View {
             await Task.yield()
             guard !Task.isCancelled else { return }
             controller.arrived()
+            let shown = controller.geometry
+            let holdsEnd = controller.holdsEnd
+            let following = follower.isFollowing
+            Log.transcript.notice("""
+                revealed \(transcript.session.id.rawValue, privacy: .public) at \(shown.offset, privacy: .public) of \
+                \(shown.contentHeight, privacy: .public)pt, viewport \(shown.viewportHeight, privacy: .public)pt, \
+                holding the end: \(holdsEnd, privacy: .public), following: \(following, privacy: .public)
+                """)
             SwitchTrace.mark("transcript.revealed", workspace: transcript.workspace?.id)
             SwitchTrace.markOnScreen("transcript.revealed", workspace: transcript.workspace?.id)
 

@@ -1393,6 +1393,10 @@ struct TranscriptTable: NSViewRepresentable {
             // round costs nothing once the rows are measured, which is every return to a
             // conversation this pane has already drawn.
             for _ in 0..<2 { measureLanding(at: scrollView.endOffset) }
+            let viewport = Double(scrollView.contentView.bounds.height)
+            if !TranscriptAnchor.canPlace(viewportHeight: viewport) {
+                Log.transcript.notice("end refused: viewport \(viewport, privacy: .public)pt")
+            }
             // The only number that means the end. A row being *visible* is not it: the last row of
             // a transcript is often taller than the pane. See `NSScrollView.endOffset`.
             put(scrollView.endOffset, in: scrollView)
