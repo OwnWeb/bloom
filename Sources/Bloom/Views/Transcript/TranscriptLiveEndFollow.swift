@@ -282,10 +282,11 @@ final class TranscriptLiveEndFollower {
         let end = scrollView.endOffset
         var offset = clip.bounds.origin.y
 
-        // Whose gap this is, decided before anything is done with it. Upwards only: see
-        // `lastPut`.
         // The mark `startLink` could not take in a pane that was not laid out yet.
         if ownsGap, lastPut == nil { lastPut = offset }
+
+        // Whose gap this is, decided before anything is done with it. Upwards only: see
+        // `lastPut`.
         if ownsGap, let lastPut, offset < lastPut - CGFloat(TranscriptFollow.arrived) {
             Log.transcript.notice("follower let the end go: at \(offset, privacy: .public), put at \(lastPut, privacy: .public)")
             ownsGap = false
