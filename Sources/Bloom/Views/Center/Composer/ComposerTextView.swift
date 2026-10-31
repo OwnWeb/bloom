@@ -6,6 +6,7 @@ import BloomCore
 /// file or a picture rather than as text.
 final class ComposerTextView: NSTextView, HoverQuickLookSource {
     private var attachmentDropSession = AttachmentDropSession()
+    private lazy var sheetSuspension = SheetDropSuspension(self)
     var previewAttachment: (@MainActor (String) -> URL?)?
     weak var dropHint: ComposerDropHint?
 
@@ -70,6 +71,7 @@ final class ComposerTextView: NSTextView, HoverQuickLookSource {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         HoverQuickLookController.shared.update(self)
+        sheetSuspension.windowChanged(to: window)
         if window == nil { resetChipHover() }
         if window == nil { attachmentDropSession.cancelAll() }
         if window != nil, !attachmentDropSession.isActive {

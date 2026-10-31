@@ -67,8 +67,9 @@ final class WindowFileDrop {
 }
 
 extension View {
-    /// For the sidebar, which is SwiftUI all the way down and has no container of ours to hold a
-    /// `WindowFileDrop`. The pane containers do the same for the centre column and the inspector.
+    /// For the sidebar and the create sheet, which are SwiftUI all the way down and have no
+    /// container of ours to hold a `WindowFileDrop`. The pane containers do the same for the centre
+    /// column and the inspector.
     func routesFileDropsToComposer() -> some View { modifier(RoutedFileDrop()) }
 }
 
@@ -78,12 +79,14 @@ private struct RoutedFileDrop: ViewModifier {
 
     private static let types = AttachmentDrop.types.compactMap { UTType($0.rawValue) }
 
-    /// The main window by `canBecomeMain` rather than the key window: a drag from Finder arrives
-    /// while Bloom is not the active application, and then nothing is key.
-    private var window: NSWindow? { NSApp.windows.first { $0.canBecomeMain } }
+    /// The window this view is in, rather than the key one: a drag from Finder arrives while Bloom
+    /// is not the active application, and then nothing is key. It is also what tells a sidebar
+    /// from a sheet.
+    @State private var window: NSWindow?
 
     func body(content: Content) -> some View {
         content
+            .background { WindowAccessor(window: $window) }
             .onDrop(of: Self.types, isTargeted: $isTargeted) { _ in
                 relay.perform(NSPasteboard(name: .drag), in: window, at: nil)
             }
