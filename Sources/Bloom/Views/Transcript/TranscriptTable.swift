@@ -1497,8 +1497,6 @@ struct TranscriptTable: NSViewRepresentable {
             put(y, in: scrollView)
         }
 
-        /// Somebody is taking the view somewhere that is not the end, so every standing claim on
-        /// it comes down first.
         /// See `pendingPlacement`.
         private func keepIfNoRoom(_ again: @escaping () -> Void) {
             let viewport = Double(scrollView?.contentView.bounds.height ?? 0)
@@ -1513,6 +1511,8 @@ struct TranscriptTable: NSViewRepresentable {
             pending()
         }
 
+        /// Somebody is taking the view somewhere that is not the end, so every standing claim on
+        /// it comes down first.
         private func aimingElsewhere() {
             pendingPlacement = nil
             pendingResizeAnchor = nil
@@ -2049,6 +2049,7 @@ struct TranscriptTable: NSViewRepresentable {
             viewportWork?.cancel()
             viewportWork = nil
             viewportPlace = nil
+            pendingPlacement = nil
             // Nothing in the reuse pool belongs to this conversation, whatever key it says it
             // holds. See `cellGeneration`.
             cellGeneration += 1
