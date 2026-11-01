@@ -287,7 +287,7 @@ final class TranscriptLiveEndFollower {
 
         // Whose gap this is, decided before anything is done with it. Upwards only: see
         // `lastPut`.
-        if ownsGap, let lastPut, offset < lastPut - CGFloat(TranscriptFollow.arrived) {
+        if ownsGap, let lastPut, TranscriptFollow.readerMovedUp(offset: Double(offset), mark: Double(lastPut)) {
             Log.transcript.notice("follower let the end go: at \(offset, privacy: .public), put at \(lastPut, privacy: .public)")
             ownsGap = false
         }
