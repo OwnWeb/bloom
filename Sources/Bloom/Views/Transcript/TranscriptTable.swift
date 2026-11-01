@@ -1356,7 +1356,10 @@ struct TranscriptTable: NSViewRepresentable {
         }
 
         func releaseEnd(_ caller: String = #function) {
-            if holdsEnd { Log.transcript.notice("end released by \(caller, privacy: .public)") }
+            if holdsEnd {
+                let session = shownSession?.rawValue ?? "-"
+                Log.transcript.notice("end released in \(session, privacy: .public) by \(caller, privacy: .public)")
+            }
             holdsEnd = false
             isSettlingResizeAtEnd = false
             endWork?.cancel()
@@ -1401,7 +1404,8 @@ struct TranscriptTable: NSViewRepresentable {
             for _ in 0..<2 { measureLanding(at: scrollView.endOffset) }
             let viewport = Double(scrollView.contentView.bounds.height)
             if !TranscriptAnchor.canPlace(viewportHeight: viewport) {
-                Log.transcript.notice("end refused: viewport \(viewport, privacy: .public)pt")
+                let session = shownSession?.rawValue ?? "-"
+                Log.transcript.notice("end refused in \(session, privacy: .public): viewport \(viewport, privacy: .public)pt")
             }
             // The only number that means the end. A row being *visible* is not it: the last row of
             // a transcript is often taller than the pane. See `NSScrollView.endOffset`.
@@ -1634,8 +1638,9 @@ struct TranscriptTable: NSViewRepresentable {
             if holdsEnd, endLanded, !isPutting, viewportPlace == nil,
                !isSettlingResizeAtEnd, !currentGeometry.isAtEnd {
                 let shown = currentGeometry
+                let session = shownSession?.rawValue ?? "-"
                 Log.transcript.notice("""
-                    end released: moved to \(shown.offset, privacy: .public) of \
+                    end released in \(session, privacy: .public): moved to \(shown.offset, privacy: .public) of \
                     \(shown.contentHeight, privacy: .public)pt, viewport \(shown.viewportHeight, privacy: .public)pt
                     """)
                 releaseEnd()
