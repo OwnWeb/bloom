@@ -1500,8 +1500,9 @@ struct TranscriptTable: NSViewRepresentable {
             put(y, in: scrollView)
         }
 
-        /// A jump up of more than a screen with no reader behind it, logged with the stack that made
-        /// it: conversations shown at their end were thrown to the top a few milliseconds later.
+        /// A jump up of more than a screen with no live scroll behind it, logged with the stack that
+        /// made it: conversations shown at their end were thrown to the top a few milliseconds later.
+        /// A jump up somebody asked for, like Back, is logged too.
         private func logJumpUp() {
             guard let scrollView else { return }
             let clip = scrollView.contentView.bounds
@@ -2071,6 +2072,7 @@ struct TranscriptTable: NSViewRepresentable {
             viewportWork = nil
             viewportPlace = nil
             pendingPlacement = nil
+            lastClipOrigin = 0
             // Nothing in the reuse pool belongs to this conversation, whatever key it says it
             // holds. See `cellGeneration`.
             cellGeneration += 1
