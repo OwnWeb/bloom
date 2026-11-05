@@ -402,6 +402,9 @@ struct TranscriptTable: NSViewRepresentable {
         /// and then forgotten, it left a returning reader at the top: in the lab, coming back to
         /// the middle of `longue` revealed it at nought with its remembered row never applied.
         private var pendingPlacement: (() -> Void)?
+        /// Where the clip view stood at its last bounds change. See `logJumpUp`.
+        private var lastClipOrigin: CGFloat = 0
+        private static let jumpStackDepth = 24
         /// A pane reflow that began at the end is not a user scroll. AppKit can deliver the
         /// bounds changes caused by its row-height corrections after `noteHeightOfRows` returns,
         /// so `isPutting` alone cannot distinguish them from a wheel event. Keep that distinction
@@ -1508,6 +1511,23 @@ struct TranscriptTable: NSViewRepresentable {
             put(y, in: scrollView)
         }
 
+        /// A jump up of more than a screen with no reader behind it, logged with the stack that made
+        /// it: conversations shown at their end were thrown to the top a few milliseconds later.
+        private func logJumpUp() {
+            guard let scrollView else { return }
+            let clip = scrollView.contentView.bounds
+            let from = lastClipOrigin
+            lastClipOrigin = clip.origin.y
+            guard !isLiveScrolling, clip.height > 0, from - clip.origin.y > clip.height else { return }
+            let session = shownSession?.rawValue ?? "-"
+            let putting = isPutting
+            let stack = Thread.callStackSymbols.prefix(Self.jumpStackDepth).joined(separator: " | ")
+            Log.transcript.notice("""
+                view thrown up in \(session, privacy: .public) from \(from, privacy: .public) to \
+                \(clip.origin.y, privacy: .public), putting: \(putting, privacy: .public): \(stack, privacy: .public)
+                """)
+        }
+
         /// See `pendingPlacement`.
         private func keepIfNoRoom(_ again: @escaping () -> Void) {
             let viewport = Double(scrollView?.contentView.bounds.height ?? 0)
@@ -1665,6 +1685,7 @@ struct TranscriptTable: NSViewRepresentable {
         // MARK: What the scroll view says
 
         @objc private func clipMoved() {
+            logJumpUp()
             // Correcting prepared heights can move the document while the reader's row is held
             // still. It must not release the live end or restart the idle task that made it.
             guard !isApplyingWarmHeights else { return }
