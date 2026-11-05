@@ -19,6 +19,9 @@ struct ProseRowView: View {
     /// Present only on the response that closes a completed turn.
     var copyText: String?
     var smoothMarkdownHandoff = false
+    /// When the answer was stored, shown beside the copy slot on hover. Nil on streaming prose and
+    /// on every part of a long answer but the first.
+    var sentAt: Date?
     @State private var isHovered = false
     @State private var markdownReady = false
     @State private var markdownSettled = false
@@ -53,6 +56,12 @@ struct ProseRowView: View {
                 }
             }
             .frame(width: 18, height: 18)
+        }
+        .overlay(alignment: .topTrailing) {
+            if isHovered, let sentAt {
+                MessageTimeLabel(date: sentAt)
+                    .padding(.trailing, MessageTimeLabel.height + TranscriptLayout.block)
+            }
         }
         .padding(.horizontal, TranscriptLayout.inset)
         // Equal air above and below keeps an activity disclosure centred between paragraphs.
