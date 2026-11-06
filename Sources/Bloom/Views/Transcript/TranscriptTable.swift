@@ -1346,7 +1346,7 @@ struct TranscriptTable: NSViewRepresentable {
             pendingResizeAnchor = nil
             pendingPlacement = nil
             // A place read before a resize, replayed a turn later, threw a conversation opened at
-            // its end back to the top row. The resize pass still runs, with nothing to restore.
+            // its end back to the top row. The resize pass still runs, and restores the end only.
             if viewportPlace != nil { viewportPlace = PlaceBeforeResize(wasAtEnd: true, anchor: nil) }
             placeWork?.cancel()
             placeWork = nil
