@@ -1345,7 +1345,11 @@ struct TranscriptTable: NSViewRepresentable {
             guard !isLiveScrolling else { return }
             pendingResizeAnchor = nil
             pendingPlacement = nil
-            forgetKeptPlace()
+            // A place read before a resize, replayed a turn later, threw a conversation opened at
+            // its end back to the top row. The resize pass still runs, with nothing to restore.
+            if viewportPlace != nil { viewportPlace = PlaceBeforeResize(wasAtEnd: true, anchor: nil) }
+            placeWork?.cancel()
+            placeWork = nil
             endLanded = false
             putEnd()
             // **A movement rather than an instruction while the follower is running**, because
@@ -1574,8 +1578,7 @@ struct TranscriptTable: NSViewRepresentable {
             releaseEnd()
         }
 
-        /// A place read before a resize, replayed a turn later, undoes any move made since: a
-        /// conversation opened at its end was thrown back to the top row the pane held before it.
+        /// A place read before a resize, replayed a turn later, undoes any move made since.
         private func forgetKeptPlace() {
             viewportWork?.cancel()
             viewportWork = nil
@@ -2109,11 +2112,10 @@ struct TranscriptTable: NSViewRepresentable {
             owedWork = nil
             owedHeights.removeAll()
             deferredWarmHeights.removeAll()
-            viewportWork?.cancel()
-            viewportWork = nil
-            viewportPlace = nil
+            forgetKeptPlace()
             pendingPlacement = nil
             lastClipOrigin = 0
+            lastPutAsked = 0
             // Nothing in the reuse pool belongs to this conversation, whatever key it says it
             // holds. See `cellGeneration`.
             cellGeneration += 1
