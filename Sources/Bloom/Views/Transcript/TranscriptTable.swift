@@ -1431,7 +1431,6 @@ struct TranscriptTable: NSViewRepresentable {
             // The only number that means the end. A row being *visible* is not it: the last row of
             // a transcript is often taller than the pane. See `NSScrollView.endOffset`.
             put(scrollView.endOffset, in: scrollView)
-            let viewport = Double(scrollView.contentView.bounds.height)
             if TranscriptAnchor.canPlace(viewportHeight: viewport) { endLanded = true }
         }
 

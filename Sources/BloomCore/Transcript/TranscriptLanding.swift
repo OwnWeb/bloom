@@ -20,7 +20,7 @@ public enum TranscriptLanding {
     private static func start(of id: TranscriptEntryID) -> Int? {
         switch id {
         case .row(let seq), .answerPart(let seq, _), .fold(let seq), .turnFold(let seq): seq
-        case .setup, .sending, .streaming, .pending, .bottomSpacing: nil
+        case .setup, .sending, .streaming, .shellRun, .pending, .bottomSpacing: nil
         }
     }
 }
