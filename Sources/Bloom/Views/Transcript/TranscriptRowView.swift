@@ -171,7 +171,8 @@ struct TranscriptRowView: View, Equatable {
                 ProseRowView(
                     text: text, part: answerPart,
                     copyText: answerPart?.isFirst == false ? nil : responseCopyText,
-                    smoothMarkdownHandoff: smoothMarkdownHandoff, sentAt: row.createdAt
+                    smoothMarkdownHandoff: smoothMarkdownHandoff,
+                    sentAt: answerPart?.isFirst == false ? nil : row.createdAt
                 )
             }
 

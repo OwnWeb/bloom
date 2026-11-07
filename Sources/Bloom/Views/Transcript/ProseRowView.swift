@@ -19,7 +19,8 @@ struct ProseRowView: View {
     /// Present only on the response that closes a completed turn.
     var copyText: String?
     var smoothMarkdownHandoff = false
-    /// When the answer was stored, shown beside the copy slot on hover. Nil on streaming prose.
+    /// When the answer was stored, shown beside the copy slot on hover. Nil on streaming prose and
+    /// on every part of a long answer but the first.
     var sentAt: Date?
     @State private var isHovered = false
     @State private var markdownReady = false
