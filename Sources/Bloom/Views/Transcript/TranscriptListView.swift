@@ -1303,6 +1303,7 @@ struct TranscriptListView: View {
             // can be the same conversation again.
             let arrival = UUID()
             follower.arriving = arrival
+            follower.label = transcript.session.id.rawValue
             defer { if follower.arriving == arrival { follower.arriving = nil } }
             // **The table's half of the hand-off with the follower, and it is the argument the
             // lazy stack made about `ScrollPosition` arriving in AppKit.**

@@ -404,7 +404,10 @@ struct TranscriptTable: NSViewRepresentable {
         private var pendingPlacement: (() -> Void)?
         /// Where the clip view stood at its last bounds change. See `logJumpUp`.
         private var lastClipOrigin: CGFloat = 0
-        private static let jumpStackDepth = 24
+        /// The last point `put(_:in:)` was asked for, before clamping. See `logJumpUp`.
+        private var lastPutAsked: CGFloat = 0
+        private static let jumpStackDepth = 40
+        private static let jumpChunkBytes = 800
         /// A pane reflow that began at the end is not a user scroll. AppKit can deliver the
         /// bounds changes caused by its row-height corrections after `noteHeightOfRows` returns,
         /// so `isPutting` alone cannot distinguish them from a wheel event. Keep that distinction
@@ -1522,11 +1525,39 @@ struct TranscriptTable: NSViewRepresentable {
             guard !isLiveScrolling, clip.height > 0, from - clip.origin.y > clip.height else { return }
             let session = shownSession?.rawValue ?? "-"
             let putting = isPutting
-            let stack = Thread.callStackSymbols.prefix(Self.jumpStackDepth).joined(separator: " | ")
+            let asked = lastPutAsked
+            let document = scrollView.documentView?.frame.height ?? 0
             Log.transcript.notice("""
                 view thrown up in \(session, privacy: .public) from \(from, privacy: .public) to \
-                \(clip.origin.y, privacy: .public), putting: \(putting, privacy: .public): \(stack, privacy: .public)
+                \(clip.origin.y, privacy: .public), putting: \(putting, privacy: .public), asked \
+                \(asked, privacy: .public) of \(document, privacy: .public)pt
                 """)
+            // One line per chunk: os_log cuts a message at about 1 KB, which lost every caller.
+            for (part, chunk) in Self.jumpStackChunks().enumerated() {
+                Log.transcript.notice("jump stack \(part, privacy: .public): \(chunk, privacy: .public)")
+            }
+        }
+
+        /// The caller frames only, as `Module symbol + offset`, without the notification plumbing.
+        private static func jumpStackChunks() -> [String] {
+            let plumbing = ["logJumpUp", "clipMoved", "Notification", "CFXRegistrationPost", "CFXNotificationPost"]
+            let frames = Thread.callStackSymbols
+                .map { $0.split(separator: " ", omittingEmptySubsequences: true) }
+                .filter { $0.count > 3 }
+                .map { "\($0[1]) \($0.dropFirst(3).joined(separator: " "))" }
+                .filter { frame in !plumbing.contains { frame.contains($0) } }
+                .prefix(jumpStackDepth)
+            var chunks: [String] = []
+            var current = ""
+            for frame in frames {
+                if !current.isEmpty, current.utf8.count + frame.utf8.count > jumpChunkBytes {
+                    chunks.append(current)
+                    current = ""
+                }
+                current += current.isEmpty ? frame : " | \(frame)"
+            }
+            if !current.isEmpty { chunks.append(current) }
+            return chunks
         }
 
         /// See `pendingPlacement`.
@@ -1575,6 +1606,7 @@ struct TranscriptTable: NSViewRepresentable {
             guard TranscriptAnchor.canPlace(viewportHeight: Double(clip.bounds.height)) else {
                 return
             }
+            lastPutAsked = y
             let target = TranscriptAnchor.clamped(
                 y,
                 contentHeight: Double(scrollView.documentView?.frame.height ?? 0),
@@ -2103,6 +2135,7 @@ struct TranscriptTable: NSViewRepresentable {
             forgetKeptPlace()
             pendingPlacement = nil
             lastClipOrigin = 0
+            lastPutAsked = 0
             // Nothing in the reuse pool belongs to this conversation, whatever key it says it
             // holds. See `cellGeneration`.
             cellGeneration += 1

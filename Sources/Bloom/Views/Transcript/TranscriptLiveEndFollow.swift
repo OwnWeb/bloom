@@ -152,6 +152,8 @@ final class TranscriptLiveEndFollower {
     private var lastPut: CGFloat?
     /// How much shorter the document has become since `lastPut`. See `TranscriptFollow.readerMovedUp`.
     private var shrunkSinceMark: CGFloat = 0
+    /// The conversation, for the log line that says the end was let go.
+    var label = ""
     private var ownsGap = false
 
     /// Whether this object is holding the view at the live end: the link is up and the view is
@@ -308,6 +310,12 @@ final class TranscriptLiveEndFollower {
         if ownsGap, let lastPut, TranscriptFollow.readerMovedUp(
             offset: Double(offset), mark: Double(lastPut), shrunk: Double(shrunkSinceMark)
         ) {
+            let shrunk = shrunkSinceMark
+            let session = label
+            Log.transcript.notice("""
+                follower let the end go in \(session, privacy: .public): at \(offset, privacy: .public), \
+                put at \(lastPut, privacy: .public), document shorter by \(shrunk, privacy: .public)
+                """)
             ownsGap = false
         }
         // A move the shrink explains is spent here, so it cannot hide a reader's scroll later.
