@@ -134,6 +134,7 @@ struct UserTurnRowView: View {
             if side == .trailing { Spacer(minLength: Self.inset) }
 
             HStack(alignment: .top, spacing: 0) {
+                let copyText = copyText
                 if !copyText.isEmpty {
                     CopyButton(
                         text: copyText,
