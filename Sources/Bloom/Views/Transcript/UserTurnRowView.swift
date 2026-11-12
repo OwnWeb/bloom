@@ -91,13 +91,16 @@ struct UserTurnRowView: View {
     /// pointer crossing from one chip to the next raises the second before the first is told it
     /// was left.
     @State private var published: TranscriptHoverCard?
+    /// False where the caller folds the text itself, as the subagent pane does with its brief.
+    var foldsLongText = true
+    /// Shut again when the table recycles the row, which is the state a pasted page should open in.
     @State private var showsWhole = false
     @Environment(\.transcriptEntryID) private var entryID
     @Environment(\.transcriptTable) private var table
 
     /// The head drawn in place of a pasted page, or nil when the whole message is drawn.
     /// See `SentTurnPreview`.
-    private var head: String? { showsWhole ? nil : SentTurnPreview.cut(text) }
+    private var head: String? { showsWhole || !foldsLongText ? nil : SentTurnPreview.cut(text) }
 
     /// How much of the pane a user turn always leaves empty on its left, so it reads as one side of
     /// a conversation even when it is short.
@@ -222,13 +225,13 @@ struct UserTurnRowView: View {
     private var copyText: String { SentTurn.withoutInstructions(text) }
 
     private var wholeToggle: some View {
-        Button(showsWhole ? "Show less" : "Show all") {
+        Button(TextFold.title(isExpanded: showsWhole)) {
             if let entryID { table?.willResize(entryID) }
             showsWhole.toggle()
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(Palette.textTertiary)
-        .pointerStyle(.link)
+        .linkButton()
+        .font(Typo.caption)
+        .accessibilityLabel(showsWhole ? "Show less of the message" : "Show all of the message")
     }
 
     /// The words and then the files, which is the order they were written in and the order the

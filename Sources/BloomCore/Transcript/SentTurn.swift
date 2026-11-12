@@ -117,6 +117,17 @@ public enum SentTurn {
         return out
     }
 
+    /// Where each block Bloom appended sits in `text`, in order. See `SentTurnPreview`.
+    static func blockRanges(in text: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        var start = text.startIndex
+        while let found = firstBlock(in: text, from: start) {
+            ranges.append(found.range)
+            start = found.range.upperBound
+        }
+        return ranges
+    }
+
     /// The turn with every injected block taken out of it: what the message says on its own.
     ///
     /// For the one reader that has a line rather than a bubble to put a turn in, which is the

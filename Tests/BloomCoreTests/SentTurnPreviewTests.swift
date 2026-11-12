@@ -38,4 +38,24 @@ struct SentTurnPreviewTests {
         let cut = SentTurnPreview.cut(lines.joined(separator: "\r\n"))
         #expect(cut == lines.prefix(SentTurnPreview.maxLines).joined(separator: "\r\n") + SentTurnPreview.ellipsis)
     }
+
+    @Test("a final line break is not a line of its own")
+    func trailingNewlineIsWhole() {
+        let lines = Array(repeating: "x", count: SentTurnPreview.maxLines).joined(separator: "\n")
+        #expect(SentTurnPreview.cut(lines + "\n") == nil)
+    }
+
+    @Test("a merge turn keeps its instructions whole, so they are still drawn as a chip")
+    func mergeTurnIsWhole() {
+        let turn = "Merge #42.\n\n\(MergeInstructions.canonical)"
+        #expect(turn.count > SentTurnPreview.maxCharacters)
+        #expect(SentTurnPreview.cut(turn) == nil)
+    }
+
+    @Test("a paste before Bloom's instructions is cut, and the instructions go with the rest")
+    func pasteBeforeInstructionsIsCut() {
+        let paste = String(repeating: "QUJD", count: 5_000)
+        let cut = SentTurnPreview.cut(paste + "\n\n" + MergeInstructions.canonical)
+        #expect(cut == String(paste.prefix(SentTurnPreview.maxCharacters)) + SentTurnPreview.ellipsis)
+    }
 }
