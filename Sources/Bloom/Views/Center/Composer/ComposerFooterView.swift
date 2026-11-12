@@ -294,6 +294,7 @@ struct ComposerFooterView: View, Equatable {
                     onPermissionMode: selectPermissionMode,
                     onContextWindow: { tokens in edit { $0.codexContextWindow = tokens } },
                     onInteractionMode: { mode in edit { $0.interactionMode = mode } },
+                    onAdvisor: { advisor in edit { $0.advisor = advisor } },
                     autoModel: autoModel
                 )
 
