@@ -20,7 +20,7 @@ public enum SentTurnPreview {
     }
 
     /// What the bubble opens on, then what "Show more" adds before the whole message.
-    public static let stages = [Stage(lines: 100, bytes: 10_000), Stage(lines: 1_100, bytes: 100_000)]
+    public static let stages = [Stage(lines: 100, bytes: 10_000), Stage(lines: 400, bytes: 30_000)]
     public static let ellipsis = "…"
 
     /// The head drawn at `stage`, or nil when the message fits in it or `stage` is past the last.
