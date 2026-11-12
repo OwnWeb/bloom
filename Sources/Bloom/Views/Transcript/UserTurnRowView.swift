@@ -93,14 +93,16 @@ struct UserTurnRowView: View {
     @State private var published: TranscriptHoverCard?
     /// False where the caller folds the text itself, as the subagent pane does with its brief.
     var foldsLongText = true
-    /// Shut again when the table recycles the row, which is the state a pasted page should open in.
-    @State private var showsWhole = false
+    /// The `SentTurnPreview` stage drawn, past the last one for the whole message. Back to the
+    /// first when the table recycles the row: a pasted page drawn whole froze each time it came back.
+    @State private var stage = 0
+    @State private var copyFlash = CopyFlash()
     @Environment(\.transcriptEntryID) private var entryID
     @Environment(\.transcriptTable) private var table
 
     /// The head drawn in place of a pasted page, or nil when the whole message is drawn.
-    /// See `SentTurnPreview`.
-    private var head: String? { showsWhole || !foldsLongText ? nil : SentTurnPreview.cut(text) }
+    private var head: String? { foldsLongText ? SentTurnPreview.cut(text, stage: stage) : nil }
+    private var isLong: Bool { foldsLongText && SentTurnPreview.cut(text, stage: 0) != nil }
 
     /// How much of the pane a user turn always leaves empty on its left, so it reads as one side of
     /// a conversation even when it is short.
@@ -179,7 +181,7 @@ struct UserTurnRowView: View {
                     // the text view below is handed `Palette.bubbleTextSelection` as well.
                     .environment(\.colorScheme, .dark)
 
-                    if showsWhole || head != nil { wholeToggle }
+                    if isLong { foldControls }
                 }
             }
             // Placed with an offset by its own measured width: an `alignmentGuide` here was ignored
@@ -225,14 +227,27 @@ struct UserTurnRowView: View {
 
     private var copyText: String { SentTurn.withoutInstructions(text) }
 
-    private var wholeToggle: some View {
-        Button(TextFold.title(isExpanded: showsWhole)) {
-            if let entryID { table?.willResize(entryID) }
-            showsWhole.toggle()
+    private var foldControls: some View {
+        HStack(spacing: Metrics.gutter) {
+            if head != nil {
+                let whole = SentTurnPreview.cut(text, stage: stage + 1) == nil
+                Button(whole ? "Show all" : "Show more") { reveal(stage + 1) }
+                    .accessibilityLabel(whole ? "Show all of the message" : "Show more of the message")
+            }
+            if stage > 0 {
+                Button("Show less") { reveal(0) }
+                    .accessibilityLabel("Show less of the message")
+            }
+            Button(copyFlash.isShowing ? "Copied" : "Copy") { copyFlash.copy(copyText) }
+                .accessibilityLabel("Copy the whole message")
         }
         .linkButton()
         .font(Typo.caption)
-        .accessibilityLabel(showsWhole ? "Show less of the message" : "Show all of the message")
+    }
+
+    private func reveal(_ next: Int) {
+        if let entryID { table?.willResize(entryID) }
+        stage = next
     }
 
     /// The words and then the files, which is the order they were written in and the order the
