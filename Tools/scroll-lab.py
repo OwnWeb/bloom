@@ -469,7 +469,7 @@ def seed(directory):
 
 # MARK: - Plans
 
-LONG = ["texte", "markdown", "sousagents", "geante", "outils", "pieces"]
+LONG = ["texte", "markdown", "sousagents", "geante", "outils", "pieces", "collee"]
 GESTURES = {
     "molette": {"kind": "wheel", "lines": 2, "burst": 1, "intervalMs": 60},
     "trackpad": {"kind": "trackpad", "flickPoints": 40, "flickFrames": 6, "momentumMs": 700, "pauseMs": 90},
