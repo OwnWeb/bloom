@@ -317,6 +317,10 @@ def corpus_collee(c):
     c.user("Voici la réponse de l'API :\n\n" + '{"data":[' + records + "]}")
     c.assistant(c.paragraph(2))
     c.result()
+    log = "\n".join(f"2026-11-12 08:{index // 60 % 60:02d}:{index % 60:02d} INFO {c.sentence(8)}" for index in range(5_000))
+    c.user("Le build échoue, voici le log :\n\n" + log)
+    c.assistant(c.paragraph(2))
+    c.result()
     alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
     blob = "".join(c.random.choice(alphabet) for _ in range(240_000))
     c.user("curl -X POST https://api.example.test/upload -d 'image=data:image/png;base64," + blob + "'")
@@ -677,6 +681,10 @@ def plan(manifest_path, output, size, scenarios):
             step("trackpad", f"trackpad/{name}/up", direction="up", **gesture, timeoutMs=240000)
             step("rest", f"trackpad/{name}/rest-top", ms=1500)
             step("capture", f"trackpad/{name}/top", ocr=[FIRST_MARK])
+    # SCROLL_LAB_CORPORA=collee,texte keeps those corpora's steps only, for a question about one of them.
+    wanted = [name for name in os.environ.get("SCROLL_LAB_CORPORA", "").split(",") if name]
+    if wanted:
+        steps = [step for step in steps if step["label"].split("/")[1:2] and step["label"].split("/")[1] in wanted]
     Path(output).write_text(json.dumps({"width": width, "height": height, "steps": steps}, indent=1))
     print(f"{len(steps)} steps")
 
