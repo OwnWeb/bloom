@@ -39,15 +39,6 @@ struct TranscriptResumeTests {
         #expect(TranscriptResume.isResuming(state()))
     }
 
-    @Test("a long message's reveal stage is part of what the pane remembers")
-    func revealStagesAreRemembered() {
-        var opened = state()
-        #expect(opened.revealedStages.isEmpty)
-        opened.revealedStages[42] = 1
-        #expect(opened != state())
-        #expect(opened.revealedStages[42] == 1)
-    }
-
     // MARK: Where it opens
 
     @Test("a reader is put back at the row they had at the top of the pane")

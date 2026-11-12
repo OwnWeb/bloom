@@ -94,7 +94,8 @@ struct UserTurnRowView: View {
     /// False where the caller folds the text itself, as the subagent pane does with its brief.
     var foldsLongText = true
     /// The `SentTurnPreview` stage drawn, past the last one for the whole message. Kept by the
-    /// caller, which outlives this view; without `onReveal` the head shows with no way to more.
+    /// caller, which outlives this view. Without `onReveal`, as for a message still being sent, the
+    /// head shows with no controls until the stored row takes over.
     var stage = 0
     var onReveal: ((Int) -> Void)?
     @State private var copyFlash = CopyFlash()
