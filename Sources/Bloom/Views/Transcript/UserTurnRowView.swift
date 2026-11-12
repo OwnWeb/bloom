@@ -101,7 +101,8 @@ struct UserTurnRowView: View {
     @Environment(\.transcriptTable) private var table
 
     /// The head drawn in place of a pasted page, or nil when the whole message is drawn. Read once
-    /// per pass and handed down: each cut looks for Bloom's blocks across the whole paste.
+    /// per pass and handed down, since each cut looks for Bloom's blocks across the whole paste;
+    /// only the fold controls cut once more, to name their button.
     private var head: String? { foldsLongText ? SentTurnPreview.cut(text, stage: stage) : nil }
 
     /// How much of the pane a user turn always leaves empty on its left, so it reads as one side of
