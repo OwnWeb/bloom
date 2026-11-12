@@ -93,12 +93,11 @@ struct UserTurnRowView: View {
     @State private var published: TranscriptHoverCard?
     /// False where the caller folds the text itself, as the subagent pane does with its brief.
     var foldsLongText = true
-    /// The `SentTurnPreview` stage drawn, past the last one for the whole message. Back to the
-    /// first when the table recycles the row: a pasted page drawn whole froze each time it came back.
-    @State private var stage = 0
+    /// The `SentTurnPreview` stage drawn, past the last one for the whole message. Kept by the
+    /// caller, which outlives this view; without `onReveal` the head shows with no way to more.
+    var stage = 0
+    var onReveal: ((Int) -> Void)?
     @State private var copyFlash = CopyFlash()
-    @Environment(\.transcriptEntryID) private var entryID
-    @Environment(\.transcriptTable) private var table
 
     /// The head drawn in place of a pasted page, or nil when the whole message is drawn. Read once
     /// per pass and handed down, since each cut looks for Bloom's blocks across the whole paste;
@@ -184,7 +183,9 @@ struct UserTurnRowView: View {
                     .environment(\.colorScheme, .dark)
 
                     // A stage past the first is only ever reached from a message too long for it.
-                    if foldsLongText, head != nil || stage > 0 { foldControls(head: head) }
+                    if foldsLongText, let onReveal, head != nil || stage > 0 {
+                        foldControls(head: head, reveal: onReveal)
+                    }
                 }
             }
             // Placed with an offset by its own measured width: an `alignmentGuide` here was ignored
@@ -231,7 +232,7 @@ struct UserTurnRowView: View {
 
     private var copyText: String { SentTurn.withoutInstructions(text) }
 
-    private func foldControls(head: String?) -> some View {
+    private func foldControls(head: String?, reveal: @escaping (Int) -> Void) -> some View {
         HStack(spacing: Metrics.gutter) {
             if head != nil {
                 let whole = SentTurnPreview.cut(text, stage: stage + 1) == nil
@@ -247,11 +248,6 @@ struct UserTurnRowView: View {
         }
         .linkButton()
         .font(Typo.caption)
-    }
-
-    private func reveal(_ next: Int) {
-        if let entryID { table?.willResize(entryID) }
-        stage = next
     }
 
     /// The words and then the files, which is the order they were written in and the order the

@@ -58,6 +58,7 @@ struct TranscriptListView: View {
         let remembered = memory?.remembered(session: transcript.session.id)
         _expanded = State(initialValue: remembered?.expanded ?? [])
         _unfolded = State(initialValue: remembered?.unfolded ?? [])
+        _revealedStages = State(initialValue: remembered?.revealedStages ?? [:])
         _unfoldedTurns = State(initialValue: remembered?.unfoldedTurns ?? [])
         _liveEndRequest = State(initialValue: TranscriptLiveEndRequest(
             handled: remembered?.liveEndRequest ?? 0
@@ -84,6 +85,8 @@ struct TranscriptListView: View {
     /// each. Kept in the pane's memory beside `expanded` and for the same reason: a turn somebody
     /// opened to read must not fold itself away again behind a tab switch.
     @State private var unfolded: Set<Int> = []
+    /// How far each long sent message is revealed. See `TranscriptPaneState.revealedStages`.
+    @State private var revealedStages: [Int: Int] = [:]
     /// Folds opened by a click in this pane, which stay open at the live end. Not remembered, so a
     /// live fold restored after a pane change still folds back. See `refoldedAtLiveEnd`.
     @State private var openedHere: Set<Int> = []
@@ -672,6 +675,7 @@ struct TranscriptListView: View {
             // count's reason: the row becomes openable where it stands.
             let subagentHasRun = row.kind == .toolUse && folds.hasRun(underCall: row.refID)
             let isExpanded = expanded.contains(row.seq)
+            let revealStage = revealedStages[row.seq] ?? 0
             let summariseTool = row.kind == .toolUse && !revealsRawTool
             let responseCopyText = responseCopies[row.seq]
             let wasStopped = row.seq == stoppedTurnSeq
@@ -688,6 +692,7 @@ struct TranscriptListView: View {
             // settle it is meant to be showing. See `TranscriptArrivals`.
             let routeChoices = routePlacement.offer?.sessionStartSeq == row.seq ? offeredChoices : nil
             let key = TranscriptContentKey {
+                $0.combine(revealStage)
                 $0.combine(routeNote)
                 $0.combine(routeChoices)
                 $0.combine(row.id)
@@ -770,6 +775,8 @@ struct TranscriptListView: View {
                         responseCopyText: responseCopyText,
                         answerPart: part,
                         projectName: projectName,
+                        revealStage: revealStage,
+                        onReveal: { reveal(row.seq, to: $0) },
                         onToggle: { toggle(row.seq) },
                         onAnswer: { requestID, decision in
                             Task { await transcript.answer(requestID: requestID, decision: decision) }
@@ -1271,6 +1278,7 @@ struct TranscriptListView: View {
             liveEndRequest = TranscriptLiveEndRequest(handled: remembered?.liveEndRequest ?? 0)
             expanded = remembered?.expanded ?? []
             unfolded = remembered?.unfolded ?? []
+            revealedStages = remembered?.revealedStages ?? [:]
             openedHere = []
             unfoldedTurns = remembered?.unfoldedTurns ?? []
             setupLogOpen = nil
@@ -1696,6 +1704,7 @@ struct TranscriptListView: View {
             TranscriptPaneState(
                 expanded: expanded,
                 unfolded: unfolded,
+                revealedStages: revealedStages,
                 unfoldedTurns: unfoldedTurns,
                 offset: contentOffset.value,
                 // The row at the top of the pane and how far into it the reader was, which is the
@@ -1757,6 +1766,15 @@ struct TranscriptListView: View {
         if unfoldedTurns.remove(firstSeq) == nil {
             unfoldedTurns.insert(firstSeq)
         }
+        remember()
+    }
+
+    /// A long sent message revealed further or folded back, which the table animates and anchors
+    /// as it does a fold. See `toggle`.
+    private func reveal(_ seq: Int, to stage: Int) {
+        follower.stop()
+        controller.willUnfold(.row(seq))
+        revealedStages[seq] = stage == 0 ? nil : stage
         remember()
     }
 
