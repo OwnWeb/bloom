@@ -37,9 +37,12 @@ struct SentTurnPreviewTests {
 
     @Test("a cut never falls inside a character")
     func cutKeepsCharactersWhole() {
-        let cut = SentTurnPreview.cut(String(repeating: "é", count: 100), within: small)
-        #expect(cut == String(repeating: "é", count: 20) + SentTurnPreview.ellipsis)
-        let flags = SentTurnPreview.cut(String(repeating: "🇧🇪", count: 30), within: small)
+        // Limits that fall inside the accent of the 14th decomposed é (3 bytes) and inside the second
+        // half of the 6th flag (8 bytes): rounding to a scalar alone would leave a bare e or half a flag.
+        let decomposed = "e\u{301}"
+        let accents = SentTurnPreview.cut(String(repeating: decomposed, count: 100), within: .init(lines: 3, bytes: 41))
+        #expect(accents == String(repeating: decomposed, count: 13) + SentTurnPreview.ellipsis)
+        let flags = SentTurnPreview.cut(String(repeating: "🇧🇪", count: 30), within: .init(lines: 3, bytes: 45))
         #expect(flags == String(repeating: "🇧🇪", count: 5) + SentTurnPreview.ellipsis)
     }
 

@@ -100,9 +100,9 @@ struct UserTurnRowView: View {
     @Environment(\.transcriptEntryID) private var entryID
     @Environment(\.transcriptTable) private var table
 
-    /// The head drawn in place of a pasted page, or nil when the whole message is drawn.
+    /// The head drawn in place of a pasted page, or nil when the whole message is drawn. Read once
+    /// per pass and handed down: each cut looks for Bloom's blocks across the whole paste.
     private var head: String? { foldsLongText ? SentTurnPreview.cut(text, stage: stage) : nil }
-    private var isLong: Bool { foldsLongText && SentTurnPreview.cut(text, stage: 0) != nil }
 
     /// How much of the pane a user turn always leaves empty on its left, so it reads as one side of
     /// a conversation even when it is short.
@@ -137,6 +137,7 @@ struct UserTurnRowView: View {
 
             HStack(alignment: .top, spacing: 0) {
                 let copyText = copyText
+                let head = head
                 if !copyText.isEmpty {
                     CopyButton(
                         text: copyText,
@@ -151,7 +152,7 @@ struct UserTurnRowView: View {
 
                 VStack(alignment: side == .leading ? .leading : .trailing, spacing: TranscriptLayout.tight) {
                     CappedWidth(width: maxWidth) {
-                        bubble.padding(Self.padding)
+                        bubble(head: head).padding(Self.padding)
                     }
                     .padding(.bottom, OutgoingBubbleShape.tailDrop)
                     .background(
@@ -181,7 +182,8 @@ struct UserTurnRowView: View {
                     // the text view below is handed `Palette.bubbleTextSelection` as well.
                     .environment(\.colorScheme, .dark)
 
-                    if isLong { foldControls }
+                    // A stage past the first is only ever reached from a message too long for it.
+                    if foldsLongText, head != nil || stage > 0 { foldControls(head: head) }
                 }
             }
             // Placed with an offset by its own measured width: an `alignmentGuide` here was ignored
@@ -204,6 +206,7 @@ struct UserTurnRowView: View {
         }
         .padding(.horizontal, TranscriptLayout.inset)
         .padding(.vertical, TranscriptLayout.inset)
+        .onDisappear { copyFlash.cancel() }
         .onChange(of: hovered) { _, chip in
             hoverTask?.cancel()
             guard let chip else {
@@ -227,7 +230,7 @@ struct UserTurnRowView: View {
 
     private var copyText: String { SentTurn.withoutInstructions(text) }
 
-    private var foldControls: some View {
+    private func foldControls(head: String?) -> some View {
         HStack(spacing: Metrics.gutter) {
             if head != nil {
                 let whole = SentTurnPreview.cut(text, stage: stage + 1) == nil
@@ -254,7 +257,7 @@ struct UserTurnRowView: View {
     /// composer showed them in, except that up there the chips sat above the text because that is
     /// where the row of them lives. Here the sentence comes first: it is what the turn is about.
     @ViewBuilder
-    private var bubble: some View {
+    private func bubble(head: String?) -> some View {
         VStack(alignment: .leading, spacing: TranscriptLayout.block) {
             // A prompt of nothing but attachments is a turn in its own right, and an empty `Text`
             // above the chips would put a blank line inside the bubble.
