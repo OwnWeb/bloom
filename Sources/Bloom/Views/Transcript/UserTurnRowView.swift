@@ -91,6 +91,13 @@ struct UserTurnRowView: View {
     /// pointer crossing from one chip to the next raises the second before the first is told it
     /// was left.
     @State private var published: TranscriptHoverCard?
+    @State private var showsWhole = false
+    @Environment(\.transcriptEntryID) private var entryID
+    @Environment(\.transcriptTable) private var table
+
+    /// The head drawn in place of a pasted page, or nil when the whole message is drawn.
+    /// See `SentTurnPreview`.
+    private var head: String? { showsWhole ? nil : SentTurnPreview.cut(text) }
 
     /// How much of the pane a user turn always leaves empty on its left, so it reads as one side of
     /// a conversation even when it is short.
@@ -167,6 +174,8 @@ struct UserTurnRowView: View {
                     // surface whatever the page around it is doing. AppKit cannot read it, which is why
                     // the text view below is handed `Palette.bubbleTextSelection` as well.
                     .environment(\.colorScheme, .dark)
+
+                    if showsWhole || head != nil { wholeToggle }
                 }
             }
             // Placed with an offset by its own measured width: an `alignmentGuide` here was ignored
@@ -212,6 +221,16 @@ struct UserTurnRowView: View {
 
     private var copyText: String { SentTurn.withoutInstructions(text) }
 
+    private var wholeToggle: some View {
+        Button(showsWhole ? "Show less" : "Show all") {
+            if let entryID { table?.willResize(entryID) }
+            showsWhole.toggle()
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Palette.textTertiary)
+        .pointerStyle(.link)
+    }
+
     /// The words and then the files, which is the order they were written in and the order the
     /// composer showed them in, except that up there the chips sat above the text because that is
     /// where the row of them lives. Here the sentence comes first: it is what the turn is about.
@@ -234,7 +253,7 @@ struct UserTurnRowView: View {
                 // nothing at all. See the note on that type.
                 TranscriptTextView(
                     text: TranscriptLink.attributedString(
-                        sent: text,
+                        sent: head ?? text,
                         font: font,
                         // White, the same ink a selected row uses on the same fill. Measured 5.2
                         // to 1 on Spatie Blue, which passes AA for body text in both appearances.
