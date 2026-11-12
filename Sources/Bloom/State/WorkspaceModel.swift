@@ -58,6 +58,8 @@ final class WorkspaceModel {
     /// One transcript per session, built on demand.
     private var transcripts: [SessionID: TranscriptModel] = [:]
 
+    @ObservationIgnored var lastTerminalRun: (pane: String, run: TerminalCommandRun)?
+
     // Inspector.
     private var lastChangesScope: DiffScope = .all
     private var lastHistoryCommit: BranchCommit?
@@ -537,7 +539,8 @@ final class WorkspaceModel {
         controls suppliedControls: ComposerControls?,
         usesCLI suppliedCLIChoice: Bool?,
         message: String? = nil,
-        messageSender: String? = nil
+        messageSender: String? = nil,
+        allowsCLIMessage: Bool = false
     ) async -> PaneContent? {
         guard let store, let repo = app.repo(for: workspace) else { return nil }
         let defaults = await AppDefaults.loadForNewSessions(
@@ -556,7 +559,9 @@ final class WorkspaceModel {
                 codexContextWindow: defaults.codexContextWindow
             )
         guard let session = await createSession(title: title, controls: controls) else { return nil }
-        let usesCLI = message == nil && (suppliedCLIChoice ?? defaults.terminalChat)
+        // Only workspace_start may supply a CLI opening task. chat_create messages keep their
+        // existing queue and sender rules, even when the app prefers terminal chats.
+        let usesCLI = (message == nil || allowsCLIMessage) && (suppliedCLIChoice ?? defaults.terminalChat)
         guard WorkspaceStartMode.chat(usesCLI: usesCLI, agent: controls.agentKind).cliAgentKind != nil else {
             await send(message, from: messageSender, toNew: session)
             return .chat(session.id)
@@ -566,7 +571,7 @@ final class WorkspaceModel {
             title: title ?? session.agentKind.label, agentSessionID: session.id
         )
         pendingCLILaunches.insert(session.id)
-        await launchCLI(session, prompt: "", repo: repo)
+        await launchCLI(session, prompt: message ?? "", repo: repo)
         return .chat(session.id)
     }
 

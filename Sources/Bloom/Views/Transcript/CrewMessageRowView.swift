@@ -41,6 +41,8 @@ struct CrewMessageRowView: View {
     /// an envelope nobody asked for.
     @State private var showsEnvelope = false
 
+    @Environment(\.chatMeasures) private var chatMeasures
+
     var body: some View {
         content.opacity(isWaiting ? TranscriptLayout.waitingOpacity : 1)
     }
@@ -48,7 +50,7 @@ struct CrewMessageRowView: View {
     @ViewBuilder private var content: some View {
         switch message.event {
         case .said, .brief, .opening, .relayed: spoken
-        case .stopped, .failed, .cancelled, .workspaceDone: fact
+        case .stopped, .failed, .cancelled, .workspaceDone, .terminalRun: fact
         }
     }
 
@@ -62,10 +64,7 @@ struct CrewMessageRowView: View {
                 .font(Typo.body)
                 .proseLeading()
                 .textSelection(.enabled)
-                // Capped and then left aligned in what is left, exactly as `ProseRowView` does it:
-                // one frame would centre the paragraph in a wide pane and take it off the line the
-                // rest of the transcript starts on.
-                .frame(maxWidth: TranscriptLayout.proseMeasure, alignment: .leading)
+                .environment(\.markdownProseMeasure, chatMeasures.prose)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if hasEnvelope { envelope }
@@ -110,7 +109,7 @@ struct CrewMessageRowView: View {
         case .relayed: "said"
         // Never drawn: a fact is its own line. Answered rather than defaulted so that a fifth
         // event has to be argued about here instead of arriving as the word "said".
-        case .stopped, .failed, .cancelled, .workspaceDone: ""
+        case .stopped, .failed, .cancelled, .workspaceDone, .terminalRun: ""
         }
     }
 
@@ -169,15 +168,18 @@ struct CrewMessageRowView: View {
     /// their own window wants to know that an agent finished rather than to read the instruction
     /// that went with it.
     private var fact: some View {
-        Text(message.text)
-            .font(Typo.label)
-            .foregroundStyle(Palette.textSecondary)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: TranscriptLayout.proseMeasure, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, TranscriptLayout.inset)
-            .padding(.vertical, TranscriptLayout.tight)
+        VStack(alignment: .leading, spacing: TranscriptLayout.tight) {
+            Text(message.text)
+                .font(Typo.label)
+                .foregroundStyle(Palette.textSecondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: chatMeasures.prose, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if message.event == .terminalRun, hasEnvelope { envelope }
+        }
+        .padding(.horizontal, TranscriptLayout.inset)
+        .padding(.vertical, TranscriptLayout.tight)
     }
 
     // MARK: The rule

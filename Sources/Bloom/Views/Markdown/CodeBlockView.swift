@@ -87,6 +87,13 @@ public struct CodeBlockView: View {
                 }
                 if !showsEditor { wrapButton }
                 editControls(versions)
+                if language == .shell, !isStreaming, let run = linkActions.runInTerminal {
+                    let command = showsEditor ? versions.draft ?? shown : shown
+                    iconButton("play", ink: Palette.textTertiary, title: "Run in terminal") {
+                        Task { await run(command) }
+                    }
+                    .disabled(command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
                 CopyButton(
                     text: showsEditor ? versions.draft ?? shown : shown,
                     title: "Copy code",
