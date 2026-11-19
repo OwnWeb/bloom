@@ -285,10 +285,12 @@ public actor OpenCodeRunner: SessionRunner {
     /// Whether a refused resume means the stored session cannot come back, measured on 2.3.2 as
     /// `-32602` "session not found" or "does not belong to cwd". Anything else (a timeout, a dead
     /// connection) keeps the stored id, so the next send resumes rather than forgets the chat.
-    /// Matched loosely on "not found" so a reworded "Session ses_x not found" still counts.
+    /// "session" and "not found" are matched apart, so "Session ses_x not found" still counts and
+    /// another thing not found does not forget the chat.
     static func sessionIsGone(_ error: ACPRPCError) -> Bool {
-        error.code == invalidParamsCode && (error.message.localizedCaseInsensitiveContains("not found")
-            || error.message.localizedCaseInsensitiveContains("does not belong"))
+        let message = error.message.lowercased()
+        let gone = message.contains("session") && message.contains("not found")
+        return error.code == invalidParamsCode && (gone || message.contains("does not belong to cwd"))
     }
 
     /// Sets the composer's model, then its effort if that model offers it.
@@ -436,7 +438,12 @@ public actor OpenCodeRunner: SessionRunner {
         if PermissionGrantIndex.covers(ask: ask, sessionRules: sessionRules),
            let claimed = pending.take(ask.requestID) {
             await write(answerTo: claimed, decision: .allow(scope: .session), request: request)
-            await close(claimed, as: PermissionAskOutcome.auto, note: PermissionGrantIndex.sessionNote)
+            // Stored as a session allow, not `auto`, which reads back as a project grant.
+            await close(
+                claimed,
+                as: PermissionDecision.allow(scope: .session).storedName,
+                note: PermissionGrantIndex.sessionNote(for: claimed)
+            )
             return
         }
 

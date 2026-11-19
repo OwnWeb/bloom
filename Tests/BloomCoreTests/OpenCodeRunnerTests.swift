@@ -153,6 +153,14 @@ struct OpenCodeRunnerTests {
         #expect(try await store.session(id: session.id)?.agentSessionID == "ses_kept")
     }
 
+    @Test("only a session that is not found counts as gone")
+    func goneSessionWording() {
+        let code = OpenCodeRunner.invalidParamsCode
+        #expect(OpenCodeRunner.sessionIsGone(ACPRPCError(code: code, message: "Invalid params: session not found")))
+        #expect(OpenCodeRunner.sessionIsGone(ACPRPCError(code: code, message: "Session ses_x not found")))
+        #expect(!OpenCodeRunner.sessionIsGone(ACPRPCError(code: code, message: "Invalid params: model not found")))
+    }
+
     @Test("an effort the model offers is set after the model")
     func offeredEffortIsSet() async throws {
         let store = try makeTestStore("opencode-effort-offered")
@@ -257,7 +265,38 @@ struct OpenCodeRunnerTests {
                 $0["id"]?.intValue == 1 && $0["result"]?["outcome"]?["optionId"]?.stringValue == "once"
             }
         }
-        #expect(try await store.pendingPermissionAsks(sessionID: session.id).isEmpty)
+        await eventually("both questions resolved in the store") {
+            ((try? await store.pendingPermissionAsks(sessionID: session.id)) ?? [ask]).isEmpty
+        }
+        let decisions = try await store.permissionAskDecisions(sessionID: session.id)
+        let sessionAllow = PermissionDecision.allow(scope: .session).storedName
+        #expect(decisions.values.filter { $0 == sessionAllow }.count == 2)
+        #expect(!decisions.values.contains(PermissionAskOutcome.auto))
+    }
+
+    @Test("a session grant is forgotten with the process")
+    func sessionGrantEndsWithTheProcess() async throws {
+        let store = try makeTestStore("opencode-session-grant-forgotten")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("run it")
+        box.process.emit(OpenCodeFixture.permissionLine(id: 0))
+        await eventually("first question stored") {
+            ((try? await store.pendingPermissionAsks(sessionID: session.id)) ?? []).count == 1
+        }
+        let ask = try #require(try await store.pendingPermissionAsks(sessionID: session.id).first)
+        await runner.answer(requestID: ask.id, decision: .allow(scope: .session))
+        box.process.endOutput()
+        await eventually("the process to be gone") { await !runner.isProcessAlive }
+
+        try await runner.send("again")
+        box.process.emit(OpenCodeFixture.permissionLine(id: 0))
+        await eventually("the same question waits for a person") {
+            ((try? await store.pendingPermissionAsks(sessionID: session.id)) ?? []).count == 1
+        }
     }
 
     @Test("a question from a process that closed is stopped, and a late answer writes nothing")
