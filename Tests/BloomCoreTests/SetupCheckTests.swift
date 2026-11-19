@@ -266,6 +266,7 @@ struct SetupToolTests {
         #expect(SetupTool.claudeCode.agentKind?.canRunWorkspaces == true)
         #expect(SetupTool.codex.agentKind?.canRunWorkspaces == true)
         #expect(SetupTool.grok.agentKind?.canRunWorkspaces == true)
+        #expect(SetupTool.openCode.agentKind?.canRunWorkspaces == true)
         #expect(SetupTool.git.agentKind == nil)
         #expect(SetupTool.gitHub.agentKind == nil)
     }

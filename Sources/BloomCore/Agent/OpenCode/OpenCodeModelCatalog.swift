@@ -40,7 +40,7 @@ public struct OpenCodeModel: Sendable, Hashable, Identifiable {
 /// `initialize` lists no models and `opencode models` goes through the background service, so the
 /// list is read off a throwaway session: its `model` option names every model, and selecting each
 /// one in turn returns that model's `effort` option. No prompt is sent, and the session is deleted
-/// so nothing is left in the user's history. Measured on 2.3.2: fourteen models in 0.02 seconds.
+/// so nothing is left in the user's history. Measured on 2.3.2: thirteen models in 0.02 seconds.
 public actor OpenCodeModelCatalog {
     private let cache: AgentModelCache<OpenCodeModel>
 
@@ -70,10 +70,14 @@ public actor OpenCodeModelCatalog {
         })
     }
 
-    static func discover(on client: OpenCodeClient, cwd: String) async throws -> [OpenCodeModel] {
+    static func discover(
+        on client: OpenCodeClient, cwd: String, announcementWait: Duration = .seconds(5)
+    ) async throws -> [OpenCodeModel] {
         let session = try await client.newSession(cwd: cwd)
+        // The reply missed Ollama in four runs out of twenty; the announcement after it had it.
+        let listed = await client.announcedOptions(within: announcementWait) ?? session.options
         var models: [OpenCodeModel] = []
-        for choice in session.options.models {
+        for choice in listed.models {
             // A model that cannot be selected is still listed, with no effort levels.
             let options = try? await client.setConfigOption(
                 sessionID: session.id, configID: OpenCodeConfigOptions.modelID, value: choice.value

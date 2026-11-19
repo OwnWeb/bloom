@@ -117,6 +117,59 @@ struct OpenCodeClientTests {
         await client.stop()
     }
 
+    @Test("a model detected after the session opened is waited for, and found in the announcement")
+    func waitsForAnnouncedModel() async throws {
+        let box = ProcessBox()
+        box.reply(to: "initialize", with: .object([:]))
+        let client = OpenCodeClient(
+            configuration: OpenCodeClient.Configuration(cwd: "/tmp/w", environment: [:]),
+            makeProcess: box.factory
+        )
+        try await client.start()
+        // A cap on infinity: the announcement below is what ends the wait.
+        let waiting = Task { await client.waitUntilOffered(OpenCodeFixture.localModel, within: .seconds(30)) }
+        box.process.emit(OpenCodeFixture.announcementLine(model: OpenCodeFixture.localModel))
+        #expect(await waiting.value)
+        let announced = await client.announcedOptions(within: .seconds(30))
+        #expect(announced?.models.contains { $0.value == OpenCodeFixture.localModel } == true)
+        await client.stop()
+    }
+
+    @Test("a model never announced is reported as not offered once the cap passes")
+    func unannouncedModelIsNotOffered() async throws {
+        let box = ProcessBox()
+        box.reply(to: "initialize", with: .object([:]))
+        let client = OpenCodeClient(
+            configuration: OpenCodeClient.Configuration(cwd: "/tmp/w", environment: [:]),
+            makeProcess: box.factory
+        )
+        try await client.start()
+        #expect(await client.waitUntilOffered("nope/none", within: .milliseconds(10)) == false)
+        await client.stop()
+    }
+
+    /// A prompt sent while a cancelled one is still open is refused by OpenCode 2.3.2.
+    @Test("waiting for no prompt returns once the open prompt has replied")
+    func waitsForTheOpenPromptToEnd() async throws {
+        let box = ProcessBox()
+        box.reply(to: "initialize", with: .object([:]))
+        box.ignore("session/prompt")
+        let client = OpenCodeClient(
+            configuration: OpenCodeClient.Configuration(cwd: "/tmp/w", environment: [:]),
+            makeProcess: box.factory
+        )
+        try await client.start()
+        await client.waitUntilNoPrompt(within: .seconds(30))
+        let id = try await client.beginPrompt(sessionID: "ses_1", text: "one")
+        #expect(await client.hasPromptInFlight)
+        // A cap on infinity: the reply below is what ends the wait.
+        let waiting = Task { await client.waitUntilNoPrompt(within: .seconds(30)) }
+        box.process.emit("{\"jsonrpc\":\"2.0\",\"id\":\(id.jsonLiteral),\"result\":{\"stopReason\":\"cancelled\"}}")
+        await waiting.value
+        #expect(await client.hasPromptInFlight == false)
+        await client.stop()
+    }
+
     @Test("a refused resume throws, so the runner can open a new session instead")
     func refusedResumeThrows() async throws {
         let box = ProcessBox()
@@ -152,7 +205,10 @@ struct OpenCodeModelCatalogTests {
             makeProcess: box.factory
         )
         try await client.start()
-        let models = try await OpenCodeModelCatalog.discover(on: client, cwd: "/tmp/w")
+        // No announcement here, so the reply's own list is used once the wait gives up.
+        let models = try await OpenCodeModelCatalog.discover(
+            on: client, cwd: "/tmp/w", announcementWait: .milliseconds(10)
+        )
         await client.stop()
 
         #expect(models.map(\.id) == [OpenCodeFixture.localModel, OpenCodeFixture.hostedModel])
@@ -164,6 +220,28 @@ struct OpenCodeModelCatalogTests {
         #expect(selections.count == 2)
         #expect(box.process.sentMethods.last == "session/delete")
         #expect(!box.process.sentMethods.contains("session/prompt"))
+    }
+
+    @Test("a provider the session reply missed is taken from the announcement after it")
+    func discoveryUsesTheAnnouncement() async throws {
+        let box = ProcessBox()
+        box.reply(to: "initialize", with: .object([:]))
+        var created = OpenCodeFixture.optionsWithoutOllama().objectValue ?? [:]
+        created["sessionId"] = .string("ses_scratch")
+        box.reply(to: "session/new", with: .object(created))
+        box.reply(to: "session/delete", with: .object([:]))
+        let client = OpenCodeClient(
+            configuration: OpenCodeClient.Configuration(cwd: "/tmp/w", environment: [:]),
+            makeProcess: box.factory
+        )
+        try await client.start()
+        box.process.emit(OpenCodeFixture.announcementLine(model: OpenCodeFixture.hostedModel))
+        // A cap on infinity: the announcement is already in, so this does not wait.
+        let models = try await OpenCodeModelCatalog.discover(
+            on: client, cwd: "/tmp/w", announcementWait: .seconds(30)
+        )
+        await client.stop()
+        #expect(models.map(\.id).contains(OpenCodeFixture.localModel))
     }
 
     @Test("a slash names a provider, and a Bedrock ARN is not one")

@@ -71,6 +71,12 @@ public actor OpenCodeClient {
     private var handshakeCompleted = false
     private var closedReason: String?
     private var version = ""
+    /// The latest `config_option_update`. Provider detection runs after `session/new` returns, so
+    /// a local provider such as Ollama can be missing from that reply and arrive here instead.
+    private var announced: OpenCodeConfigOptions?
+    private var announcementWaiters: [UUID: CheckedContinuation<OpenCodeConfigOptions?, Never>] = [:]
+    private var offerWaiters: [UUID: (model: String, continuation: CheckedContinuation<Bool, Never>)] = [:]
+    private var idleWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     private var stderrTail: [String] = []
     private static let stderrTailLimit = 40
@@ -204,6 +210,84 @@ public actor OpenCodeClient {
         process?.writeLine(line)
     }
 
+    // MARK: Waiting on the server
+
+    /// The latest announced options, waiting for the first one when none has come yet. Nil when
+    /// none came within `timeout`, which is a cap on a missing update rather than a measurement.
+    public func announcedOptions(within timeout: Duration = .seconds(5)) async -> OpenCodeConfigOptions? {
+        if let announced { return announced }
+        guard closedReason == nil else { return nil }
+        let id = UUID()
+        let watchdog = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            await self?.releaseAnnouncement(id)
+        }
+        defer { watchdog.cancel() }
+        return await withCheckedContinuation { announcementWaiters[id] = $0 }
+    }
+
+    /// Whether `model` is offered, waiting for an announcement that offers it when it is not.
+    public func waitUntilOffered(_ model: String, within timeout: Duration = .seconds(10)) async -> Bool {
+        if announced?.models.contains(where: { $0.value == model }) == true { return true }
+        guard closedReason == nil else { return false }
+        let id = UUID()
+        let watchdog = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            await self?.releaseOffer(id, offered: false)
+        }
+        defer { watchdog.cancel() }
+        return await withCheckedContinuation { offerWaiters[id] = (model, $0) }
+    }
+
+    /// Returns once no prompt is open. A prompt sent while a cancelled one is still winding down
+    /// is refused with "Session already has an active ACP prompt" (measured on 2.3.2).
+    public func waitUntilNoPrompt(within timeout: Duration = .seconds(30)) async {
+        guard !promptIDs.isEmpty, closedReason == nil else { return }
+        let id = UUID()
+        let watchdog = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            await self?.releaseIdle(id)
+        }
+        defer { watchdog.cancel() }
+        await withCheckedContinuation { idleWaiters[id] = $0 }
+    }
+
+    public var hasPromptInFlight: Bool { !promptIDs.isEmpty }
+
+    private func releaseAnnouncement(_ id: UUID) {
+        announcementWaiters.removeValue(forKey: id)?.resume(returning: announced)
+    }
+
+    private func releaseOffer(_ id: UUID, offered: Bool) {
+        offerWaiters.removeValue(forKey: id)?.continuation.resume(returning: offered)
+    }
+
+    private func releaseIdle(_ id: UUID) {
+        idleWaiters.removeValue(forKey: id)?.resume()
+    }
+
+    private func announce(_ options: OpenCodeConfigOptions) {
+        announced = options
+        for id in Array(announcementWaiters.keys) { releaseAnnouncement(id) }
+        for (id, waiter) in offerWaiters where options.models.contains(where: { $0.value == waiter.model }) {
+            releaseOffer(id, offered: true)
+        }
+    }
+
+    private func promptEnded(_ id: ACPRequestID) -> Bool {
+        guard promptIDs.remove(id) != nil else { return false }
+        if promptIDs.isEmpty {
+            for id in Array(idleWaiters.keys) { releaseIdle(id) }
+        }
+        return true
+    }
+
+    private func releaseAllWaiters() {
+        for id in Array(announcementWaiters.keys) { releaseAnnouncement(id) }
+        for id in Array(offerWaiters.keys) { releaseOffer(id, offered: false) }
+        for id in Array(idleWaiters.keys) { releaseIdle(id) }
+    }
+
     // MARK: Typed calls
 
     public func newSession(cwd: String? = nil, mcpServers: [JSONValue] = []) async throws -> OpenCodeSession {
@@ -307,7 +391,7 @@ public actor OpenCodeClient {
     private func handle(_ frame: ACPFrame) {
         switch frame {
         case .response(let id, let result, _):
-            if promptIDs.remove(id) != nil {
+            if promptEnded(id) {
                 sink.yield(.promptCompleted(ACPPromptResult(
                     requestID: id,
                     sessionID: "",
@@ -320,7 +404,7 @@ public actor OpenCodeClient {
 
         case .failure(let id, let error, _):
             // A turn that cannot reach its provider fails the prompt request itself.
-            if promptIDs.remove(id) != nil {
+            if promptEnded(id) {
                 sink.yield(.promptCompleted(ACPPromptResult(
                     requestID: id,
                     sessionID: "",
@@ -345,6 +429,9 @@ public actor OpenCodeClient {
         case .notification(let notification):
             if notification.method == "session/update",
                let update = ACPSessionUpdate.decode(params: notification.params) {
+                if case .other("config_option_update") = update.kind {
+                    announce(OpenCodeConfigOptions.decode(update.raw))
+                }
                 sink.yield(.update(update))
             } else {
                 sink.yield(.unknown(method: notification.method, raw: notification.raw))
@@ -365,6 +452,7 @@ public actor OpenCodeClient {
             continuation.resume(throwing: ACPClientError.connectionClosed(reason))
         }
         promptIDs.removeAll()
+        releaseAllWaiters()
 
         sink.yield(.closed(reason: reason))
         sink.finish()

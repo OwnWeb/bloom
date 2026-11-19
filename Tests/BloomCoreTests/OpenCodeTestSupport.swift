@@ -66,6 +66,23 @@ enum OpenCodeFixture {
         ])
     }
 
+    /// What OpenCode sends once provider detection has finished after `session/new`.
+    static func announcementLine(model: String) -> String {
+        var update = configOptions(model: model).objectValue ?? [:]
+        update["sessionUpdate"] = .string("config_option_update")
+        let params = JSONValue.object(["sessionId": .string("ses_1"), "update": .object(update)])
+        return "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":\(params.compactJSON)}"
+    }
+
+    /// `configOptions` offering only the hosted model, as a reply that missed Ollama does.
+    static func optionsWithoutOllama() -> JSONValue {
+        .object(["configOptions": .array([.object([
+            "id": .string("model"),
+            "currentValue": .string(hostedModel),
+            "options": .array([.object(["value": .string(hostedModel)])]),
+        ])])])
+    }
+
     static func permissionLine(id: Int = 0) -> String {
         "{\"jsonrpc\":\"2.0\",\"id\":\(id),\"method\":\"session/request_permission\","
             + "\"params\":\(permissionRequest(id: id).compactJSON)}"

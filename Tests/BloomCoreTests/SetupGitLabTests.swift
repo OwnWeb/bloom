@@ -10,6 +10,7 @@ struct SetupGitLabTests {
             SetupCheck(tool: .claudeCode, outcome: .ready(detail: nil)),
             SetupCheck(tool: .codex, outcome: .missing),
             SetupCheck(tool: .grok, outcome: .missing),
+            SetupCheck(tool: .openCode, outcome: .missing),
             SetupCheck(tool: .gitHub, outcome: gitHub),
             SetupCheck(tool: .gitLab, outcome: gitLab),
         ])
@@ -33,6 +34,7 @@ struct SetupGitLabTests {
             SetupCheck(tool: .claudeCode, outcome: .ready(detail: nil)),
             SetupCheck(tool: .codex, outcome: .ready(detail: nil)),
             SetupCheck(tool: .grok, outcome: .ready(detail: nil)),
+            SetupCheck(tool: .openCode, outcome: .ready(detail: nil)),
             SetupCheck(tool: .gitHub, outcome: .ready(detail: "Signed in")),
             SetupCheck(tool: .gitLab, outcome: .missing),
         ])

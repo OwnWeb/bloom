@@ -42,10 +42,11 @@ stopping a chat cannot stop a turn of theirs.
 The child server exits with its parent on stdin close (exit code 0), on SIGTERM and on SIGKILL,
 each observed within half a second.
 
-Not measured: a private server and the background service both open on the real data directory.
-Both use the same SQLite database there, so a Bloom chat is expected to show up in the owner's
-session list. Measuring it means touching the owner's real OpenCode data, which the measurements
-were not allowed to do.
+Two `acp` processes on one data directory share its database: each lists the other's session.
+So a Bloom chat is expected to show up in the user's own session list. Each private server
+starts its own `opencode-pty` daemon under a name of its own, which exits with it; closing one
+process left the other's shell calls working. Measured on an isolated data directory only. The
+real one, next to a running `opencode serve --service`, was not touched.
 
 OpenCode reads `~/.agents/skills` and, unless `OPENCODE_DISABLE_CLAUDE_CODE` is set, Claude Code's
 own configuration. Neither is isolated by XDG. Bloom sets neither variable: a chat should see what
@@ -86,7 +87,7 @@ never in that state, because OpenCode ships hosted free models that need no acco
 | `effort` | `thought_level` | depends on the current model, for example `none`, `high`, `default` |
 | `mode` | `mode` | `build`, `plan` |
 
-**The `effort` option is absent when the current model has no effort levels.** Of the fourteen
+**The `effort` option is absent when the current model has no effort levels.** Of the thirteen
 models listed here, six had none.
 
 `session/set_config_option {sessionId, configId, value}` takes `value` as a **bare string** and
@@ -102,12 +103,14 @@ hosted free model. Bloom always sets the composer's model before a turn.
 Bloom opens a short ACP connection instead: `initialize`, `session/new` in a scratch directory,
 read the `model` option, then `session/set_config_option` once per model to read that model's
 `effort` option, then `session/delete` and close stdin. Measured: handshake and session in 0.5
-seconds, fourteen models walked in 0.02 seconds, and `session/list` empty after the delete, so
+seconds, thirteen models walked in 0.02 seconds, and `session/list` empty after the delete, so
 discovery leaves nothing in the user's session history. No prompt is sent, so nothing is spent.
 
-One run out of roughly fifteen listed the configured providers without the locally detected Ollama one:
-provider detection is asynchronous and a session created early can miss it. A
-`config_option_update` notification follows when the list changes.
+Provider detection runs after `session/new` returns. A session opened right after `initialize`
+missed the local Ollama provider in four runs out of twenty. A `session/update` of kind
+`config_option_update` followed within four seconds in all twenty, and the last one always had
+it. So discovery reads the model list from that announcement, and a turn whose model is refused
+waits once for an announcement that offers it.
 
 ## A turn
 
@@ -126,7 +129,12 @@ Updates arrive as `session/update` notifications:
 The reply is `{stopReason, usage {inputTokens, outputTokens, totalTokens, cachedReadTokens}}`.
 
 A second `session/prompt` during a turn is refused: `-32603`, "Session already has an active ACP
-prompt".
+prompt". So is one sent straight after `session/cancel`, before the cancelled prompt has
+replied. Bloom waits for that reply before the next prompt.
+
+The session title is written by OpenCode's hidden `title` agent. With no model configured for it,
+the binary picks the small model of the session's own provider, else the session's model, so a
+chat on a local model does not send its first message to another provider.
 
 A turn that cannot reach its provider retries on its own, announcing each attempt in
 `session_info_update` `_meta["opencode/retry"]`, and after about ninety seconds fails the prompt
@@ -208,7 +216,9 @@ which Bloom does not store.
 
 Credentials live in OpenCode's SQLite database under the data directory, not in a file Bloom
 could read without opening that database. Bloom therefore shows no account for OpenCode, and
-treats a non-empty model list as "ready". Signing in is `opencode auth login`, run by the user.
+treats an installed binary as ready, because a stock install has hosted models that need no
+account. With every provider removed, the first send fails with OpenCode's own "No models are
+available". Signing in is `opencode auth login`, run by the user.
 
 Global configuration is the directory `~/.config/opencode/` (`opencode.json` or `opencode.jsonc`).
 

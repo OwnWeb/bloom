@@ -40,12 +40,15 @@ public actor OpenCodeRunner: SessionRunner {
     private var wasEvicted = false
     private var trouble = PersistenceTrouble()
     private let bridge: BridgeAttachment?
+    /// A cap on a provider announcement that never comes. Seen within four seconds on 2.3.2.
+    private let announcementWait: Duration
 
     public init(
         workspacePath: String,
         session: Session,
         store: Store,
         bridge: BridgeAttachment? = nil,
+        announcementWait: Duration = .seconds(10),
         makeClient: @escaping @Sendable (OpenCodeClient.Configuration) -> OpenCodeClient = OpenCodeRunner.spawn
     ) {
         self.workspacePath = workspacePath
@@ -53,6 +56,7 @@ public actor OpenCodeRunner: SessionRunner {
         self.session = session
         self.store = store
         self.bridge = bridge
+        self.announcementWait = announcementWait
         self.makeClient = makeClient
         self.grants = SessionGrants(store: store, workspaceID: session.workspaceID)
         self.translation = OpenCodeTranslation(context: OpenCodeTranslation.Context(
@@ -123,6 +127,8 @@ public actor OpenCodeRunner: SessionRunner {
         let openCodeSessionID = try await openSession(on: client)
         try handle.check(generation)
         try await applyComposerSettings(on: client, sessionID: openCodeSessionID)
+        try handle.check(generation)
+        await client.waitUntilNoPrompt()
         try handle.check(generation)
 
         if deliveryID == nil {
@@ -289,18 +295,32 @@ public actor OpenCodeRunner: SessionRunner {
         }
     }
 
-    /// A refused model fails the turn, unlike Grok's. A session that keeps its previous model
-    /// here keeps OpenCode's default, which on a stock install is a hosted one nobody picked.
+    /// A refused model fails the turn, unlike Grok's: the session would otherwise keep OpenCode's
+    /// default, a hosted model nobody picked. A local provider can be detected after the session
+    /// opens, so a refusal waits once for an announcement that offers the model.
     private func select(
         _ model: String, on client: OpenCodeClient, sessionID: String
     ) async throws -> OpenCodeConfigOptions {
         do {
-            return try await client.setConfigOption(
-                sessionID: sessionID, configID: OpenCodeConfigOptions.modelID, value: model
-            )
+            return try await setModel(model, on: client, sessionID: sessionID)
+        } catch let error as ACPRPCError {
+            guard await client.waitUntilOffered(model, within: announcementWait) else {
+                throw OpenCodeRunnerError.modelRefused(model: model, reason: error.message)
+            }
+        }
+        do {
+            return try await setModel(model, on: client, sessionID: sessionID)
         } catch let error as ACPRPCError {
             throw OpenCodeRunnerError.modelRefused(model: model, reason: error.message)
         }
+    }
+
+    private func setModel(
+        _ model: String, on client: OpenCodeClient, sessionID: String
+    ) async throws -> OpenCodeConfigOptions {
+        try await client.setConfigOption(
+            sessionID: sessionID, configID: OpenCodeConfigOptions.modelID, value: model
+        )
     }
 
     // MARK: - Events

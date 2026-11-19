@@ -28,6 +28,8 @@ private func makeRunner(store: Store, session: Session, box: ProcessBox) -> Open
         workspacePath: "/tmp/w",
         session: session,
         store: store,
+        // No test here announces a provider, so a refused model gives up at once.
+        announcementWait: .milliseconds(10),
         makeClient: { configuration in
             OpenCodeClient(configuration: configuration, makeProcess: box.factory)
         }
