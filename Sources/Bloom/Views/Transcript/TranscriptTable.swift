@@ -2199,6 +2199,10 @@ struct TranscriptTable: NSViewRepresentable {
             pendingPlacement = nil
             isPlaced = false
             revealIsOwed = false
+            // Entry ids repeat across conversations, so a row asked of the one being left would
+            // be found in this one.
+            reaimWork?.cancel()
+            reaimWork = nil
             lastClipOrigin = 0
             lastPutAsked = 0
             // Nothing in the reuse pool belongs to this conversation, whatever key it says it
