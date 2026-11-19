@@ -122,6 +122,16 @@ public enum PermissionGrantIndex {
         return matched.isEmpty ? nil : matched
     }
 
+    /// Whether rules granted for this session alone cover every rule the ask needs, under the
+    /// same gates and the same exact equality as `match`. For a backend whose own "always"
+    /// outlives the session, so Bloom has to remember the session itself. See `OpenCodePermission`.
+    public static func covers(ask: PermissionAsk, sessionRules: Set<PermissionRule>) -> Bool {
+        guard ask.canWiden, let suggestion = ask.allowSuggestion, !suggestion.rules.isEmpty else { return false }
+        return suggestion.rules.allSatisfy(sessionRules.contains)
+    }
+
+    public static let sessionNote = "Allowed by a rule you approved for this session."
+
     /// The sentence the transcript prints when Bloom answered instead of the user.
     ///
     /// A call that ran because of a decision made days ago must not look like a call that simply

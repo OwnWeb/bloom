@@ -31,6 +31,9 @@ public actor OpenCodeRunner: SessionRunner {
     private var wireModel: String { ModelIdentifier.resolve(session.model).model }
 
     private var approvals: [String: ACPPermissionRequest] = [:]
+    /// Rules allowed "for this session", answered by Bloom because OpenCode's own `allow_always`
+    /// outlives the session. Forgotten with the process, as the prompt's sentence promises.
+    private var sessionRules: Set<PermissionRule> = []
 
     private let connection = LiveConnection()
     private let pending = PendingAsks()
@@ -182,6 +185,7 @@ public actor OpenCodeRunner: SessionRunner {
 
     public func answer(requestID: String, decision: PermissionDecision) async {
         guard let ask = pending.take(requestID) else { return }
+        if case .allow(.session) = decision { sessionRules.formUnion(ask.rules) }
         let request = approvals[requestID]
         await write(answerTo: ask, decision: decision, request: request)
         await close(ask, as: decision.storedName, note: "")
@@ -205,6 +209,7 @@ public actor OpenCodeRunner: SessionRunner {
         pumpTask = nil
         handle.end()
         approvals.removeAll()
+        sessionRules.removeAll()
         for event in translation.finishInterruptedTurn() { await emit(event) }
         if let sessionToClose {
             await closing?.closeSession(sessionToClose)
@@ -280,9 +285,10 @@ public actor OpenCodeRunner: SessionRunner {
     /// Whether a refused resume means the stored session cannot come back, measured on 2.3.2 as
     /// `-32602` "session not found" or "does not belong to cwd". Anything else (a timeout, a dead
     /// connection) keeps the stored id, so the next send resumes rather than forgets the chat.
+    /// Matched loosely on "not found" so a reworded "Session ses_x not found" still counts.
     static func sessionIsGone(_ error: ACPRPCError) -> Bool {
-        error.code == invalidParamsCode && (error.message.localizedCaseInsensitiveContains("session not found")
-            || error.message.localizedCaseInsensitiveContains("does not belong to cwd"))
+        error.code == invalidParamsCode && (error.message.localizedCaseInsensitiveContains("not found")
+            || error.message.localizedCaseInsensitiveContains("does not belong"))
     }
 
     /// Sets the composer's model, then its effort if that model offers it.
@@ -426,6 +432,13 @@ public actor OpenCodeRunner: SessionRunner {
         }
         await persist(kind: .permissionAsk, payload: ask.raw, refID: ask.toolUseID)
         sink.yield(.permissionAsk(ask))
+
+        if PermissionGrantIndex.covers(ask: ask, sessionRules: sessionRules),
+           let claimed = pending.take(ask.requestID) {
+            await write(answerTo: claimed, decision: .allow(scope: .session), request: request)
+            await close(claimed, as: PermissionAskOutcome.auto, note: PermissionGrantIndex.sessionNote)
+            return
+        }
 
         let matched = await grants.matching(ask)
         if let matched, let claimed = pending.take(ask.requestID) {

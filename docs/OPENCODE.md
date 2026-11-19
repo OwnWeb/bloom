@@ -195,8 +195,9 @@ prompt replies `stopReason: "cancelled"`. There is no deny that lets the model c
 **`allow_always` outlives the chat.** Measured on 2026-11-19: it covers the exact command (`ls -a`
 asked again after `echo one` was always allowed), but the same command then ran without a
 question in a new session and after the process was restarted on the same data directory. Bloom
-therefore answers every allow with `allow_once`, and keeps a session or project grant itself in
-`SessionGrants`, which answers the next matching question and can be revoked from Bloom.
+therefore answers every allow with `allow_once` and keeps the grant itself: a session grant in
+`OpenCodeRunner`, forgotten with the process, a project grant in `SessionGrants`, which can be
+revoked from Bloom. Either answers the next matching question without a card.
 
 ## MCP
 

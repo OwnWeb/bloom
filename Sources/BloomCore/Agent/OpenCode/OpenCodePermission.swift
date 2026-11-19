@@ -95,8 +95,9 @@ public enum OpenCodePermission {
     /// **Every allow is `allow_once`, `allow_always` never.** Measured on 2.3.2: `allow_always`
     /// covers the exact command, but it outlives the session and the process, so a grant Bloom
     /// shows as "for this session" would have stayed in OpenCode's own data for every later chat.
-    /// A session or project grant is kept by Bloom instead (`SessionGrants`), which answers the
-    /// next matching question itself and can be revoked from Bloom.
+    /// Bloom keeps the grant instead and answers the next matching question itself: a session
+    /// grant in `OpenCodeRunner`, forgotten with the process, a project grant in `SessionGrants`,
+    /// which can be revoked from Bloom.
     public static func optionID(for decision: PermissionDecision, in request: ACPPermissionRequest) -> String? {
         let wanted: [String]
         switch decision {

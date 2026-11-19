@@ -235,6 +235,53 @@ struct OpenCodeRunnerTests {
         })
     }
 
+    @Test("a command allowed for this session is answered by Bloom the next time it is asked")
+    func sessionGrantAnswersTheNextAsk() async throws {
+        let store = try makeTestStore("opencode-session-grant")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("run it")
+        box.process.emit(OpenCodeFixture.permissionLine(id: 0))
+        await eventually("first question stored") {
+            ((try? await store.pendingPermissionAsks(sessionID: session.id)) ?? []).count == 1
+        }
+        let ask = try #require(try await store.pendingPermissionAsks(sessionID: session.id).first)
+        await runner.answer(requestID: ask.id, decision: .allow(scope: .session))
+
+        box.process.emit(OpenCodeFixture.permissionLine(id: 1))
+        await eventually("the second question answered without a card") {
+            box.process.stdin.compactMap(JSONValue.parse).contains {
+                $0["id"]?.intValue == 1 && $0["result"]?["outcome"]?["optionId"]?.stringValue == "once"
+            }
+        }
+        #expect(try await store.pendingPermissionAsks(sessionID: session.id).isEmpty)
+    }
+
+    @Test("a question from a process that closed is stopped, and a late answer writes nothing")
+    func closedProcessStopsItsQuestions() async throws {
+        let store = try makeTestStore("opencode-closed-ask")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("run it")
+        box.process.emit(OpenCodeFixture.permissionLine(id: 0))
+        await eventually("question stored") {
+            ((try? await store.pendingPermissionAsks(sessionID: session.id)) ?? []).count == 1
+        }
+        let ask = try #require(try await store.pendingPermissionAsks(sessionID: session.id).first)
+        box.process.endOutput()
+        await eventually("question stopped") {
+            ((try? await store.pendingPermissionAsks(sessionID: session.id)) ?? []).isEmpty
+        }
+        await runner.answer(requestID: ask.id, decision: .allow(scope: .project))
+        #expect(!box.process.stdin.compactMap(JSONValue.parse).contains { $0["id"]?.intValue == 0 && $0["result"] != nil })
+    }
+
     @Test("stop answers a pending question as cancelled, then cancels the session")
     func stopCancelsPendingAsks() async throws {
         let store = try makeTestStore("opencode-stop")

@@ -158,8 +158,10 @@ public extension PermissionMode {
         // cannot name servers it does not know. `execute` itself reaches no file or process.
         case .auto, .autoReview, .plan:
             "OpenCode asks before it edits a file or runs a command. MCP tools run without asking."
-        case .acceptEdits: "File edits run without a prompt. Commands still ask."
-        case .bypassPermissions: "Bloom adds no rule. Your OpenCode configuration decides."
+        case .acceptEdits: "File edits run without a prompt. Commands still ask. MCP tools run without asking."
+        case .bypassPermissions:
+            "Bloom adds no rule. Your OpenCode configuration decides, and by default almost "
+                + "everything runs without asking."
         }
     }
 

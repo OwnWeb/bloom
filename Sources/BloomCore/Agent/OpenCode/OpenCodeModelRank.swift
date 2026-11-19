@@ -6,14 +6,16 @@ import Foundation
 /// other backend's ids contain a slash. The one exception Bloom knows is a Bedrock ARN handed to
 /// Claude Code, which is why `arn:` is ruled out first.
 public enum OpenCodeModelRank {
-    /// Whether `opencode` is on the PATH, looked up once per launch.
+    /// Whether `opencode` is on the PATH, asked each time: `Shell.which` caches what it finds and
+    /// looks again for what it did not, so an install or the login shell's PATH arriving late is
+    /// seen on the next call.
     ///
     /// A slash is only read as OpenCode's when OpenCode can run it: a repository's
     /// `models.default` or a bridge call naming `openai/…` for another CLI would otherwise open a
-    /// chat that cannot start. The ceiling: a custom executable path set in Settings, or an
-    /// install made while Bloom runs, is not seen until the next launch. Discovery's own list
-    /// still recognises its ids exactly, see `ModelIdentifier.resolve`.
-    public static let isInstalled = Shell.which(AgentKind.openCode.executableName) != nil
+    /// chat that cannot start. The ceiling: an executable set only as a custom path in Settings,
+    /// off the PATH, is not seen here, so such an id needs `opencode:` in front of it or
+    /// discovery's own list, which `ModelIdentifier.resolve` reads first.
+    public static var isInstalled: Bool { Shell.which(AgentKind.openCode.executableName) != nil }
 
     public static func recognises(_ raw: String) -> Bool {
         let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
