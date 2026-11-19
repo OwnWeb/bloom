@@ -439,6 +439,15 @@ public actor OpenCodeRunner: SessionRunner {
         sink.yield(.permissionAsk(ask))
 
         if bySession {
+            // A stop or a closed process during the awaits above wins, as it would for a queued
+            // question: `filePendingAsks` cannot see this one, so it is stopped here instead.
+            guard !handle.wasCancelled, approvals[ask.requestID] != nil else {
+                if approvals.removeValue(forKey: ask.requestID) != nil {
+                    await client?.answer(request.id, with: OpenCodePermission.cancelledResult)
+                }
+                await close(ask, as: PermissionAskOutcome.stopped, note: "")
+                return
+            }
             await write(answerTo: ask, decision: .allow(scope: .session), request: request)
             // Stored as a session allow, not `auto`, which reads back as a project grant.
             await close(
