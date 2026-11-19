@@ -164,7 +164,7 @@ struct TranscriptResumeTests {
         #expect(TranscriptResume.placement(for: state(), rowCount: 0) == .liveEnd)
     }
 
-    @Test("a searched row is where a pane with no place to restore opens")
+    @Test("a searched row opens a pane that has nothing to restore")
     func searchedRowOutranksTheLiveEnd() {
         #expect(TranscriptResume.placement(for: nil, rowCount: 400, searched: 120) == .searched(seq: 120))
         #expect(TranscriptResume.placement(for: state(rowCount: 400), rowCount: 12, searched: 7)
