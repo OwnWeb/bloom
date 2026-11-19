@@ -428,9 +428,10 @@ extension AppModel {
         // which CLI runs it. This used to be free: everything inherited Claude Code, so
         // `workspace_start(model: "opus")` could only mean Claude Code. It stopped being free the
         // moment the Models screen could make Codex the default, which would have turned that
-        // same call into "opus is not a Codex model". No list is fetched to answer it: the four
-        // families `ClaudeModelRank` knows are what the old reading covered, and anything else
-        // stays on the backend that was inherited. See `DefaultBackend`.
+        // same call into "opus is not a Codex model". No list is fetched to answer it: the
+        // families the rank types know (Claude's four, Grok's, and OpenCode's `provider/model`
+        // when OpenCode is installed) are read, and anything else stays on the backend that was
+        // inherited. See `DefaultBackend`.
         let agent = requestedAgent
             ?? requestedModel.map {
                 DefaultBackend.kind(ofModel: $0, running: inheritedAgent, models: [:])

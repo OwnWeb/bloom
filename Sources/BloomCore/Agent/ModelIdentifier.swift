@@ -58,9 +58,12 @@ public struct ModelIdentifier: Equatable, Sendable {
     ///   yet. Empty costs only the label reading and the Codex half of the recognition; a string
     ///   that names its own backend is read without any list at all, which is the whole reason
     ///   the namespace is trusted over a lookup.
+    /// - Parameter openCodeInstalled: whether a bare `provider/model` may be read as OpenCode's.
+    ///   Without it the id stays on whatever backend the caller has, as before OpenCode could run.
     public static func resolve(
         _ raw: String,
-        models: [AgentKind: [AgentModel]] = [:]
+        models: [AgentKind: [AgentModel]] = [:],
+        openCodeInstalled: Bool = OpenCodeModelRank.isInstalled
     ) -> ModelIdentifier {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return ModelIdentifier(model: raw) }
@@ -76,7 +79,7 @@ public struct ModelIdentifier: Equatable, Sendable {
                 return ModelIdentifier(model: trimmed, kind: .grok)
             }
             // Before Claude's, which reads `anthropic/claude-sonnet-5` by its `sonnet` token.
-            if OpenCodeModelRank.recognises(trimmed) {
+            if openCodeInstalled, OpenCodeModelRank.recognises(trimmed) {
                 return ModelIdentifier(model: trimmed, kind: .openCode)
             }
             if ClaudeModelRank.recognises(trimmed) {

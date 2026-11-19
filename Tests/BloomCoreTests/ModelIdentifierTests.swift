@@ -219,14 +219,14 @@ struct ModelIdentifierTests {
 struct OpenCodeModelIdentifierTests {
     @Test("a provider and a model are OpenCode's, with no list fetched")
     func slashNamesOpenCode() {
-        #expect(ModelIdentifier.resolve("ollama/qwen3.5:4b").kind == .openCode)
-        #expect(ModelIdentifier.resolve("ollama/qwen3.5:4b").model == "ollama/qwen3.5:4b")
+        #expect(ModelIdentifier.resolve("ollama/qwen3.5:4b", openCodeInstalled: true).kind == .openCode)
+        #expect(ModelIdentifier.resolve("ollama/qwen3.5:4b", openCodeInstalled: true).model == "ollama/qwen3.5:4b")
     }
 
     /// `ClaudeModelRank` reads tokens, and `anthropic/claude-sonnet-5-5` has `sonnet` in it.
     @Test("an Anthropic model through OpenCode is not parked on Claude Code")
     func anthropicThroughOpenCode() {
-        let resolved = ModelIdentifier.resolve("anthropic/claude-sonnet-5-5")
+        let resolved = ModelIdentifier.resolve("anthropic/claude-sonnet-5-5", openCodeInstalled: true)
         #expect(resolved.kind == .openCode)
         #expect(resolved.model == "anthropic/claude-sonnet-5-5")
         #expect(!resolved.namesBackend)
@@ -246,7 +246,14 @@ struct OpenCodeModelIdentifierTests {
     @Test("a Bedrock ARN for Claude Code stays Claude Code's")
     func bedrockArn() {
         let arn = "arn:aws:bedrock:eu-west-1:123456789012:inference-profile/eu.anthropic.claude-sonnet-5-5"
-        #expect(ModelIdentifier.resolve(arn).kind != .openCode)
+        #expect(ModelIdentifier.resolve(arn, openCodeInstalled: true).kind != .openCode)
+    }
+
+    @Test("without OpenCode installed, a slash stays on the caller's backend")
+    func slashWithoutOpenCode() {
+        let resolved = ModelIdentifier.resolve("openai/gpt-5.6-sol", openCodeInstalled: false)
+        #expect(resolved.kind == nil)
+        #expect(resolved.model == "openai/gpt-5.6-sol")
     }
 
     @Test("an id written with the backend in front still reaches OpenCode")
