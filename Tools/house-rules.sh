@@ -293,6 +293,7 @@ id_type_allowed_files=(
   'Sources/BloomCore/Agent/Codex/CodexEvent.swift'   # the Codex app-server protocol
   'Sources/BloomCore/Agent/Codex/CodexTurnHandle.swift' # turn ids assigned by that server
   'Sources/BloomCore/Agent/Codex/CodexClient.swift'  # the same protocol's request envelopes
+  'Sources/BloomCore/Agent/ACP/ACPSessionUpdate.swift' # ACP session, tool-call and option ids, the agent's own
   'Sources/BloomCore/Agent/Grok/GrokEvent.swift'     # Grok's ACP session and tool-call ids
   'Sources/BloomCore/Agent/Grok/GrokClient.swift'    # the same protocol's request envelopes
   'Sources/BloomCore/Agent/Grok/GrokRunner.swift'    # Grok session ids assigned by that server
