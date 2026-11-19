@@ -168,6 +168,20 @@ public enum BridgeRegistration {
             + shellQuoted(attachment.shimPath)
     }
 
+    /// The same owner connection registered in OpenCode's global configuration.
+    ///
+    /// From `opencode mcp add --help` on 2.3.2: `--env KEY=value` is repeatable, the server
+    /// command follows `--`, and `--global` writes `~/.config/opencode/` rather than the
+    /// project's own `opencode.json`, which is meant to be committed.
+    public static func ownerOpenCodeAddCommand(_ attachment: BridgeAttachment) -> String {
+        let environment = attachment.environment
+            .sorted { $0.key < $1.key }
+            .map { "--env \(shellQuoted("\($0.key)=\($0.value)"))" }
+            .joined(separator: " ")
+        return "opencode mcp add --global \(ownerServerName) \(environment) -- "
+            + shellQuoted(attachment.shimPath)
+    }
+
     /// A POSIX single quoted word. The one character that cannot appear inside single quotes is a
     /// single quote, which is closed, escaped and reopened in the usual way.
     static func shellQuoted(_ value: String) -> String {
@@ -284,6 +298,15 @@ public enum BridgeRegistration {
             "args": .array([]),
             "env": .array(environment),
         ])]
+    }
+
+    // MARK: OpenCode
+
+    /// OpenCode takes ACP `mcpServers` in the shape Grok does, and is additive over the user's
+    /// own config the same way. Measured on 2.3.2 with a stub server: started with its `env`,
+    /// listed and called. See `docs/OPENCODE.md` for how the model reaches the tools.
+    public static func openCodeServers(_ attachment: BridgeAttachment?) -> [JSONValue] {
+        grokServers(attachment)
     }
 
     /// A TOML basic string. Every value here is a path or a hex token today, so nothing needs

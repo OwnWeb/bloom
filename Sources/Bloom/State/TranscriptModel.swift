@@ -1801,11 +1801,19 @@ final class TranscriptModel {
                 bridge: bridge?.attachment,
                 accountHome: accountHome
             )
-        // Cursor and OpenCode have no runner, and `AgentKind.canRunWorkspaces` is what stops a
-        // chat ever being on one. A chat that somehow is falls back to Claude Code rather than
-        // refusing to start, because a transcript that cannot be typed into is a worse answer
-        // than one running the backend every existing chat already runs.
-        case .claudeCode, .cursor, .openCode:
+        // No account home: OpenCode keeps its sign in beside its session history.
+        case .openCode:
+            return OpenCodeRunner(
+                workspacePath: workspacePath,
+                session: session,
+                store: store,
+                bridge: bridge?.attachment
+            )
+        // Cursor has no runner, and `AgentKind.canRunWorkspaces` is what stops a chat ever being
+        // on it. A chat that somehow is falls back to Claude Code rather than refusing to start,
+        // because a transcript that cannot be typed into is a worse answer than one running the
+        // backend every existing chat already runs.
+        case .claudeCode, .cursor:
             return AgentRunner(
                 workspacePath: workspacePath,
                 session: session,

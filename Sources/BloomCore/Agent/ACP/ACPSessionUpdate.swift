@@ -72,7 +72,8 @@ public struct ACPToolCall: Sendable, Hashable {
             title: json["title"]?.stringValue ?? "",
             kind: json["kind"]?.stringValue ?? "",
             status: json["status"]?.stringValue ?? (isUpdate ? "" : "pending"),
-            toolName: json["toolName"]?.stringValue ?? "",
+            // Grok names the tool `toolName`, OpenCode `name`.
+            toolName: json["toolName"]?.stringValue ?? json["name"]?.stringValue ?? "",
             rawInput: json["rawInput"] ?? .object([:]),
             rawOutput: json["rawOutput"] ?? .null,
             contentText: contentText(json["content"]),

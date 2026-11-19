@@ -225,7 +225,7 @@ public final class BridgeServer: Sendable {
         let attachment = attach(
             session: session, workspace: workspace, shimPath: shimPath, configurationPath: configurationPath
         )
-        if !reconnectable, session.agentKind == .codex || session.agentKind == .grok {
+        if !reconnectable, [.codex, .grok, .openCode].contains(session.agentKind) {
             return BridgeHandle(attachment: attachment, mcpConfigPath: nil)
         }
         do {

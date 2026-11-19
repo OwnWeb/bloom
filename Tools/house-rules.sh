@@ -297,6 +297,9 @@ id_type_allowed_files=(
   'Sources/BloomCore/Agent/Grok/GrokEvent.swift'     # Grok's ACP session and tool-call ids
   'Sources/BloomCore/Agent/Grok/GrokClient.swift'    # the same protocol's request envelopes
   'Sources/BloomCore/Agent/Grok/GrokRunner.swift'    # Grok session ids assigned by that server
+  'Sources/BloomCore/Agent/OpenCode/OpenCodeEvent.swift'  # OpenCode's ACP session ids
+  'Sources/BloomCore/Agent/OpenCode/OpenCodeClient.swift' # the same protocol's request envelopes
+  'Sources/BloomCore/Agent/OpenCode/OpenCodeRunner.swift' # OpenCode session ids assigned by that server
   'Sources/BloomCore/Agent/AgentRetry.swift'   # the same stream-json, one line of it
   'Sources/BloomCore/Transcript/ContextCompaction.swift' # the same stream-json, one line of it
 )
@@ -331,6 +334,7 @@ id_type_allowed_lines=(
   'Sources/BloomCore/Persistence/Settings.swift'                  # a run script named in settings
   'Sources/BloomCore/Agent/Codex/CodexModelCatalog.swift'         # a model name the CLI offers
   'Sources/BloomCore/Agent/Grok/GrokModelCatalog.swift'           # a model name the CLI offers
+  'Sources/BloomCore/Agent/OpenCode/OpenCodeModelCatalog.swift'   # a model name the CLI offers
   'Sources/BloomCore/Agent/ClaudeModelCatalog.swift'               # a model name the CLI offers
   'Sources/BloomCore/Agent/AgentModel.swift'                      # model and effort names the CLIs offer
   'Sources/BloomCore/System/EditorCatalog.swift'             # an application, by bundle id
