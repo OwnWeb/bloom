@@ -217,7 +217,8 @@ Measured on 2026-11-19, under the Ask mode's rules: `execute` is a sandbox. `nod
 what it reaches is the MCP servers. An MCP call through it asks only under a rule naming that
 server's tool, `<server>_<tool>` (`fake-bridge_whoami: ask` asked). `execute: ask` and `*_*: ask`
 asked nothing, and `"*": ask` asked but would also outrank every rule the user denied. So Bloom
-adds no MCP rule, and the Ask mode says that MCP tools run without asking.
+adds no MCP rule, and the Ask mode says that MCP tools follow the user's own rules and run
+without asking by default.
 
 The owner's own client is registered with `opencode mcp add --global <name> --env KEY=value --
 <command…>`.
