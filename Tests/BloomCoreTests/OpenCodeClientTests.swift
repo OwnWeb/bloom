@@ -128,9 +128,11 @@ struct OpenCodeClientTests {
         try await client.start()
         // A cap on infinity: the announcement below is what ends the wait.
         let waiting = Task { await client.waitUntilOffered(OpenCodeFixture.localModel, within: .seconds(30)) }
+        // Measured: a first announcement can lack the local provider that a second one carries.
+        box.process.emit(OpenCodeFixture.announcementLine(model: OpenCodeFixture.hostedModel))
         box.process.emit(OpenCodeFixture.announcementLine(model: OpenCodeFixture.localModel))
         #expect(await waiting.value)
-        let announced = await client.announcedOptions(within: .seconds(30))
+        let announced = await client.latestAnnouncedOptions(after: .zero)
         #expect(announced?.models.contains { $0.value == OpenCodeFixture.localModel } == true)
         await client.stop()
     }
@@ -236,9 +238,9 @@ struct OpenCodeModelCatalogTests {
         )
         try await client.start()
         box.process.emit(OpenCodeFixture.announcementLine(model: OpenCodeFixture.hostedModel))
-        // A cap on infinity: the announcement is already in, so this does not wait.
+        // No window: the announcement is read off the wire before the `session/new` reply behind it.
         let models = try await OpenCodeModelCatalog.discover(
-            on: client, cwd: "/tmp/w", announcementWait: .seconds(30)
+            on: client, cwd: "/tmp/w", announcementWait: .zero
         )
         await client.stop()
         #expect(models.map(\.id).contains(OpenCodeFixture.localModel))

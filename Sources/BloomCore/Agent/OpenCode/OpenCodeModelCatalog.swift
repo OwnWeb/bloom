@@ -74,8 +74,8 @@ public actor OpenCodeModelCatalog {
         on client: OpenCodeClient, cwd: String, announcementWait: Duration = .seconds(5)
     ) async throws -> [OpenCodeModel] {
         let session = try await client.newSession(cwd: cwd)
-        // The reply missed Ollama in four runs out of twenty; the announcement after it had it.
-        let listed = await client.announcedOptions(within: announcementWait) ?? session.options
+        // The reply missed Ollama in four runs out of twenty; the last announcement after it had it.
+        let listed = await client.latestAnnouncedOptions(after: announcementWait) ?? session.options
         var models: [OpenCodeModel] = []
         for choice in listed.models {
             // A model that cannot be selected is still listed, with no effort levels.

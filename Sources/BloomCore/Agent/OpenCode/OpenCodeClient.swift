@@ -74,7 +74,6 @@ public actor OpenCodeClient {
     /// The latest `config_option_update`. Provider detection runs after `session/new` returns, so
     /// a local provider such as Ollama can be missing from that reply and arrive here instead.
     private var announced: OpenCodeConfigOptions?
-    private var announcementWaiters: [UUID: CheckedContinuation<OpenCodeConfigOptions?, Never>] = [:]
     private var offerWaiters: [UUID: (model: String, continuation: CheckedContinuation<Bool, Never>)] = [:]
     private var idleWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
@@ -212,18 +211,13 @@ public actor OpenCodeClient {
 
     // MARK: Waiting on the server
 
-    /// The latest announced options, waiting for the first one when none has come yet. Nil when
-    /// none came within `timeout`, which is a cap on a missing update rather than a measurement.
-    public func announcedOptions(within timeout: Duration = .seconds(5)) async -> OpenCodeConfigOptions? {
-        if let announced { return announced }
-        guard closedReason == nil else { return nil }
-        let id = UUID()
-        let watchdog = Task { [weak self] in
-            try? await Task.sleep(for: timeout)
-            await self?.releaseAnnouncement(id)
-        }
-        defer { watchdog.cancel() }
-        return await withCheckedContinuation { announcementWaiters[id] = $0 }
+    /// The last options announced by the end of `window`, nil when none came.
+    ///
+    /// The last rather than the first: on 2.3.2 one run in twenty announced twice, and only the
+    /// second announcement had the local Ollama provider. All of them came within four seconds.
+    public func latestAnnouncedOptions(after window: Duration = .seconds(5)) async -> OpenCodeConfigOptions? {
+        try? await Task.sleep(for: window)
+        return announced
     }
 
     /// Whether `model` is offered, waiting for an announcement that offers it when it is not.
@@ -254,10 +248,6 @@ public actor OpenCodeClient {
 
     public var hasPromptInFlight: Bool { !promptIDs.isEmpty }
 
-    private func releaseAnnouncement(_ id: UUID) {
-        announcementWaiters.removeValue(forKey: id)?.resume(returning: announced)
-    }
-
     private func releaseOffer(_ id: UUID, offered: Bool) {
         offerWaiters.removeValue(forKey: id)?.continuation.resume(returning: offered)
     }
@@ -268,7 +258,6 @@ public actor OpenCodeClient {
 
     private func announce(_ options: OpenCodeConfigOptions) {
         announced = options
-        for id in Array(announcementWaiters.keys) { releaseAnnouncement(id) }
         for (id, waiter) in offerWaiters where options.models.contains(where: { $0.value == waiter.model }) {
             releaseOffer(id, offered: true)
         }
@@ -283,7 +272,6 @@ public actor OpenCodeClient {
     }
 
     private func releaseAllWaiters() {
-        for id in Array(announcementWaiters.keys) { releaseAnnouncement(id) }
         for id in Array(offerWaiters.keys) { releaseOffer(id, offered: false) }
         for id in Array(idleWaiters.keys) { releaseIdle(id) }
     }

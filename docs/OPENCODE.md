@@ -111,8 +111,9 @@ discovery leaves nothing in the user's session history. No prompt is sent, so no
 Provider detection runs after `session/new` returns. A session opened right after `initialize`
 missed the local Ollama provider in four runs out of twenty. A `session/update` of kind
 `config_option_update` followed within four seconds in all twenty, and the last one always had
-it. So discovery reads the model list from that announcement, and a turn whose model is refused
-waits once for an announcement that offers it.
+it; one run announced twice, the first time without Ollama. So discovery waits five seconds and
+reads the model list from the last announcement, and a turn whose model is refused waits once for
+an announcement that offers it.
 
 ## A turn
 
