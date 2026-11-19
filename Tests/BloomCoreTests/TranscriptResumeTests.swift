@@ -171,16 +171,21 @@ struct TranscriptResumeTests {
             == .searched(seq: 7))
     }
 
-    /// As it was before the unread row stopped being an opening: the search result is asked only
-    /// where nothing is restored.
-    @Test("a remembered place is restored even with a searched row outstanding")
-    func rememberedPlaceOutranksASearchedRow() {
-        #expect(TranscriptResume.placement(for: state(isAtLiveEnd: true), rowCount: 400, searched: 120)
-            == .liveEnd)
-        #expect(TranscriptResume.placement(for: state(anchorSeq: 300, anchorDelta: -40), rowCount: 400, searched: 120)
-            == .row(seq: 300, delta: -40))
-        #expect(TranscriptResume.placement(for: state(offset: 1_200), rowCount: 400, searched: 120)
-            == .offset(1_200))
+    /// It used to be the other way round: a result clicked in a session the pane remembered opened
+    /// where the reader had left off, and the result stayed outstanding.
+    @Test("a searched row outranks a remembered place")
+    func searchedRowOutranksARememberedPlace() {
+        let remembered = [
+            state(isAtLiveEnd: true), state(anchorSeq: 300, anchorDelta: -40), state(offset: 1_200)
+        ]
+        for place in remembered {
+            #expect(TranscriptResume.placement(for: place, rowCount: 400, searched: 120) == .searched(seq: 120))
+        }
+    }
+
+    @Test("a session with no rows has no searched row to open on")
+    func emptySessionIgnoresASearchedRow() {
+        #expect(TranscriptResume.placement(for: nil, rowCount: 0, searched: 120) == .liveEnd)
     }
 
     @Test("a reader who left at the end is put back at the end, not at the offset")

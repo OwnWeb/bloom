@@ -148,7 +148,7 @@ public struct TranscriptPaneState: Equatable, Sendable {
 public enum TranscriptPlacement: Equatable, Sendable {
     /// The reader left at the live end, or left no place worth restoring.
     case liveEnd
-    /// No place worth restoring, and a row somebody searched for: they asked for that line.
+    /// A row somebody searched for. They asked for that line, so it outranks where they left off.
     case searched(seq: Int)
     /// The reader left this many points down. The fallback, for a pane that could not name a row.
     case offset(Double)
@@ -181,7 +181,10 @@ public enum TranscriptResume {
         rowCount: Int,
         searched: Int? = nil
     ) -> TranscriptPlacement {
-        let arriving: TranscriptPlacement = searched.map { .searched(seq: $0) } ?? .liveEnd
+        // A search result is a navigation somebody asked for. Behind a remembered place it was
+        // never shown, and stayed outstanding to be shown on some later arrival instead.
+        if let searched, rowCount > 0 { return .searched(seq: searched) }
+        let arriving = TranscriptPlacement.liveEnd
         guard let remembered, rowCount > 0 else { return arriving }
         // The end has moved if a turn ran while the reader was away, and it is still the end. A
         // width change moves nobody who was there, because the end is a place rather than a

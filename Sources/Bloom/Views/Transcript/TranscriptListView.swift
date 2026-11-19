@@ -294,7 +294,7 @@ struct TranscriptListView: View {
     /// asked there because asking it here was how the returning reader's case went missing.
     ///
     /// **Read from `opening` rather than from the search result that answered it, because that is
-    /// gone moments later.** `decideOpening` takes it, so a rule that asked it directly would fold
+    /// gone moments later.** `takeSearched` takes it, so a rule that asked it directly would fold
     /// the run away a beat after putting the reader inside it. `opening` is what that decision was
     /// written down as and it lasts as long as the visit. The result is still asked while it is
     /// outstanding, because the pass that assembles the entries runs before the opening is decided.
@@ -308,11 +308,20 @@ struct TranscriptListView: View {
         return out
     }
 
-    /// The row of a search result still waiting to be shown in this workspace.
+    /// The row of a search result still waiting to be shown in this conversation. Matched on the
+    /// session too, or another chat of the same workspace would take it and scroll to that number.
     private var searchedSeq: Int? {
         guard let target = app.pendingTranscriptTarget,
-              target.workspaceID == transcript.workspace?.id else { return nil }
+              target.workspaceID == transcript.workspace?.id,
+              target.sessionID == transcript.session.id else { return nil }
         return target.seq
+    }
+
+    /// Takes the search result this opening answers. At the scroll and not at the decision: an
+    /// arrival cancelled between the two leaves it outstanding rather than losing it.
+    private func takeSearched() {
+        guard case .row = opening, searchedSeq != nil, let workspaceID = transcript.workspace?.id else { return }
+        _ = app.takeTranscriptTarget(for: workspaceID)
     }
 
     /// Keep insertion and folding as separate table updates during a live turn. A new session
@@ -1370,7 +1379,10 @@ struct TranscriptListView: View {
             await Task.yield()
             guard !Task.isCancelled else { return }
             adoptScrollView()
-            if decided { open(opening) }
+            if decided {
+                takeSearched()
+                open(opening)
+            }
             SwitchTrace.mark("transcript.positioned", workspace: transcript.workspace?.id)
             // **The pane may be drawn again now.** It has been blank since the session changed:
             // its rows are in, its window is chosen and `position` has applied the placement, so
@@ -1619,12 +1631,13 @@ struct TranscriptListView: View {
     /// it had arrived. An arrival decides and opens a turn apart: see the `task` above.
     private func position() {
         guard decideOpening() else { return }
+        takeSearched()
         open(opening)
     }
 
-    /// Where a session opens: where the reader left it, else on a row they searched for, else on
-    /// its live end. Once per arrival, because it consumes what it reads: decided before the load
-    /// and again after it, the two answers differed and the first replayed over the second.
+    /// Where a session opens: on a row the reader searched for, else where they left it, else on
+    /// its live end. Once per arrival: decided before the load and again after it, the two
+    /// answers differed and the first replayed over the second.
     private func decideOpening() -> Bool {
         guard !transcript.rows.isEmpty, !didPosition else { return false }
         let openingWindow = drawnWindow
@@ -1637,7 +1650,7 @@ struct TranscriptListView: View {
         TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
 
         // A pane coming back to a session it has already drawn is put back where the reader left
-        // it. The search result is only read here, and taken below if it is the answer.
+        // it, unless they searched for a row. The result is only read here: see `takeSearched`.
         let remembered = memory?.remembered(session: transcript.session.id)
         let placement = TranscriptResume.placement(
             for: remembered, rowCount: transcript.rows.count, searched: searchedSeq
@@ -1665,10 +1678,7 @@ struct TranscriptListView: View {
         case .searched(let seq):
             // Somebody who clicked a line of a transcript in the search screen asked for that
             // line. Centred rather than at the top, because the sentence usually needs the turn
-            // around it to make sense. Taken, or every reload would send the reader back there.
-            if let workspaceID = transcript.workspace?.id {
-                _ = app.takeTranscriptTarget(for: workspaceID)
-            }
+            // around it to make sense.
             opening = .row(seq, .center)
         }
         Task { await transcript.markAllRead() }
