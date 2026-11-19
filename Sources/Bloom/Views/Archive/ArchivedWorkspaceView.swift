@@ -66,8 +66,8 @@ struct ArchivedWorkspaceView: View {
                 sessions
                 Hairline()
             }
-            // This view is built again on every visit, so without a memory the reader was put back
-            // on the first unread row, or the end, each time they came back.
+            // This view is built again on every visit, so without a memory the reader is put back
+            // at the end each time they come back.
             TranscriptView(transcript: model.activeTranscript, memory: model.transcriptMemory(pane: "archive"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environment(\.fontScale, textSize.scale)
