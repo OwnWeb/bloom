@@ -1381,6 +1381,10 @@ struct TranscriptTable: NSViewRepresentable {
             if viewportPlace != nil { viewportPlace = PlaceBeforeResize(wasAtEnd: true, anchor: nil) }
             placeWork?.cancel()
             placeWork = nil
+            // An earlier `scroll(to:)` says itself again a turn later, which took a conversation
+            // just sent to its end back up to the row asked for first.
+            reaimWork?.cancel()
+            reaimWork = nil
             putEnd()
             // **A movement rather than an instruction while the follower is running**, because
             // keeping the view at the end during a turn is precisely the follower's job and it is
