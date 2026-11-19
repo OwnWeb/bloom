@@ -375,6 +375,16 @@ struct TranscriptListView: View {
         )
     }
 
+    /// The wall a failed turn ran into, from its own rows. Only a turn that ended on the limit
+    /// walks back, so a pass over a long session costs one cached decode per result.
+    private func limitHit(closing index: Int, in rows: [TranscriptRow]) -> LimitHit? {
+        let row = rows[index]
+        guard case .result(let result)? = TranscriptEventCache.event(rowID: row.id, payload: row.payload),
+              !result.succeeded, LimitResume.isLimitHit(result) else { return nil }
+        let turn = rows[..<index].reversed().lazy.map { (kind: $0.kind, payload: $0.payload) }
+        return LimitHit.latest(walkingBack: turn)
+    }
+
     /// Everything the table draws, in order.
     ///
     /// Assembled on every pass over this body, which is what the lazy stack's `ForEach` was doing
@@ -691,6 +701,7 @@ struct TranscriptListView: View {
             // the cell again a fifth of a second later when the answer expired, throwing away the
             // settle it is meant to be showing. See `TranscriptArrivals`.
             let routeChoices = routePlacement.offer?.sessionStartSeq == row.seq ? offeredChoices : nil
+            let limitHit = row.kind == .result ? limitHit(closing: index, in: rows) : nil
             let key = TranscriptContentKey {
                 $0.combine(revealStage)
                 $0.combine(routeNote)
@@ -715,6 +726,7 @@ struct TranscriptListView: View {
                 $0.combine(stillRunning)
                 $0.combine(closingTurn?.durationMS)
                 $0.combine(showsTurnDuration)
+                $0.combine(limitHit)
             }
             // Free, and no for the two kinds that make up most of a long session, so it is asked
             // here rather than inside the closure that runs per cell.
@@ -746,7 +758,8 @@ struct TranscriptListView: View {
                                 closesTranscript: closesTranscript,
                                 transcript: transcript,
                                 showsDuration: showsTurnDuration,
-                                durationMS: closingTurn?.durationMS
+                                durationMS: closingTurn?.durationMS,
+                                limitHit: limitHit
                             )
                             .arrivingRow(settles && arrivals.isArriving(row.seq))
                             .padding(.horizontal, TranscriptLayout.inset)
