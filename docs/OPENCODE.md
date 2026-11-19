@@ -192,6 +192,12 @@ edit, a `diff` content block. The options are always the same three:
 **Rejecting ends the turn.** The tool call fails with "The user declined this tool call" and the
 prompt replies `stopReason: "cancelled"`. There is no deny that lets the model carry on.
 
+**`allow_always` outlives the chat.** Measured on 2026-11-19: it covers the exact command (`ls -a`
+asked again after `echo one` was always allowed), but the same command then ran without a
+question in a new session and after the process was restarted on the same data directory. Bloom
+therefore answers every allow with `allow_once`, and keeps a session or project grant itself in
+`SessionGrants`, which answers the next matching question and can be revoked from Bloom.
+
 ## MCP
 
 `mcpServers` on `session/new` and `session/resume` takes a stdio server as
@@ -204,6 +210,13 @@ OpenCode does not hand MCP tools to the model as tools of their own. They are re
 `return await tools["bloom-workspace-bridge"].whoami({})`. A bridge call therefore shows in the
 transcript as an `execute` tool call. No permission question was asked for it under the Ask mode's
 rules. A small local model needed the exact expression spelt out before it managed the call.
+
+Measured on 2026-11-19, under the Ask mode's rules: `execute` is a sandbox. `node:fs`,
+`node:child_process`, `Bun` and `global` are all refused inside it, and no file was written, so
+what it reaches is the MCP servers. An MCP call through it asks only under a rule naming that
+server's tool, `<server>_<tool>` (`fake-bridge_whoami: ask` asked). `execute: ask` and `*_*: ask`
+asked nothing, and `"*": ask` asked but would also outrank every rule the user denied. So Bloom
+adds no MCP rule, and the Ask mode says that MCP tools run without asking.
 
 The owner's own client is registered with `opencode mcp add --global <name> --env KEY=value --
 <command…>`.

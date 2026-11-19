@@ -153,11 +153,13 @@ public extension PermissionMode {
 
     private var openCodeSummary: String {
         switch self {
-        case .auto, .autoReview, .plan: "OpenCode asks before it edits a file or runs a command."
+        // MCP tools are named because they are the exception: measured on 2.3.2, a call through
+        // OpenCode's `execute` tool asks only under a rule naming that server's tool, and Bloom
+        // cannot name servers it does not know. `execute` itself reaches no file or process.
+        case .auto, .autoReview, .plan:
+            "OpenCode asks before it edits a file or runs a command. MCP tools run without asking."
         case .acceptEdits: "File edits run without a prompt. Commands still ask."
-        case .bypassPermissions:
-            "Bloom adds no rule. Your OpenCode configuration decides, and it allows everything "
-                + "unless you changed it."
+        case .bypassPermissions: "Bloom adds no rule. Your OpenCode configuration decides."
         }
     }
 
