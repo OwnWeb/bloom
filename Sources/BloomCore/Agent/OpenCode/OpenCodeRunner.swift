@@ -424,7 +424,10 @@ public actor OpenCodeRunner: SessionRunner {
 
     private func ask(_ request: ACPPermissionRequest) async {
         let ask = OpenCodePermission.ask(for: request, connectionID: permissionConnectionID)
-        pending.add(ask)
+        // Decided before the first await and never queued, so no answer from a person can land
+        // on a question the session grant is about to answer.
+        let bySession = PermissionGrantIndex.covers(ask: ask, sessionRules: sessionRules)
+        if !bySession { pending.add(ask) }
         approvals[ask.requestID] = request
 
         do {
@@ -435,14 +438,13 @@ public actor OpenCodeRunner: SessionRunner {
         await persist(kind: .permissionAsk, payload: ask.raw, refID: ask.toolUseID)
         sink.yield(.permissionAsk(ask))
 
-        if PermissionGrantIndex.covers(ask: ask, sessionRules: sessionRules),
-           let claimed = pending.take(ask.requestID) {
-            await write(answerTo: claimed, decision: .allow(scope: .session), request: request)
+        if bySession {
+            await write(answerTo: ask, decision: .allow(scope: .session), request: request)
             // Stored as a session allow, not `auto`, which reads back as a project grant.
             await close(
-                claimed,
+                ask,
                 as: PermissionDecision.allow(scope: .session).storedName,
-                note: PermissionGrantIndex.sessionNote(for: claimed)
+                note: PermissionGrantIndex.sessionNote(for: ask)
             )
             return
         }

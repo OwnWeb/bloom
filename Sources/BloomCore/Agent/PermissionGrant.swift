@@ -132,7 +132,7 @@ public enum PermissionGrantIndex {
 
     /// The sentence for an ask answered by a session grant, naming the rule as `note(for:)` does.
     public static func sessionNote(for ask: PermissionAsk) -> String {
-        "Allowed by \(ask.rules.map(\.displayText).joined(separator: ", ")), which you approved for this session."
+        "Allowed by \(ask.ruleText), which you approved for this session."
     }
 
     /// The sentence the transcript prints when Bloom answered instead of the user.

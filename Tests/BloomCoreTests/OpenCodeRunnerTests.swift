@@ -293,10 +293,18 @@ struct OpenCodeRunnerTests {
         await eventually("the process to be gone") { await !runner.isProcessAlive }
 
         try await runner.send("again")
-        box.process.emit(OpenCodeFixture.permissionLine(id: 0))
-        await eventually("the same question waits for a person") {
+        let second = box.process
+        second.emit(OpenCodeFixture.permissionLine(id: 0))
+        await eventually("the same question stored") {
             ((try? await store.pendingPermissionAsks(sessionID: session.id)) ?? []).count == 1
         }
+        // A question a session grant answered was never queued, so this deny would write nothing.
+        let again = try #require(try await store.pendingPermissionAsks(sessionID: session.id).first)
+        await runner.answer(requestID: again.id, decision: .deny(message: "", endsTurn: false))
+        let answers = second.stdin.compactMap(JSONValue.parse)
+            .filter { $0["id"]?.intValue == 0 && $0["result"] != nil }
+            .compactMap { $0["result"]?["outcome"]?["optionId"]?.stringValue }
+        #expect(answers == ["reject"])
     }
 
     @Test("a question from a process that closed is stopped, and a late answer writes nothing")
