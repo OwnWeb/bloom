@@ -141,6 +141,7 @@ struct TranscriptRowView: View, Equatable {
                     reviewChips: review.chips,
                     home: home,
                     sentAt: row.createdAt,
+                    rewindSeq: row.seq,
                     // A row with no one to keep its stage, as in a subagent's thread, is drawn whole.
                     foldsLongText: onReveal != nil,
                     stage: revealStage,
@@ -159,6 +160,7 @@ struct TranscriptRowView: View, Equatable {
                     attachments: turn.paths,
                     home: home,
                     sentAt: row.createdAt,
+                    rewindSeq: row.seq,
                     foldsLongText: onReveal != nil,
                     stage: revealStage,
                     onReveal: onReveal
