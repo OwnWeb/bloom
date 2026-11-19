@@ -91,13 +91,17 @@ public enum OpenCodePermission {
     /// The option to send back for this decision, or nil when the agent offered none that means
     /// it. A missing option is answered as cancelled: an invented `optionId` is how a deny
     /// becomes an allow. OpenCode has one reject, and it ends the turn.
+    ///
+    /// **Every allow is `allow_once`, `allow_always` never.** Measured on 2.3.2: `allow_always`
+    /// covers the exact command, but it outlives the session and the process, so a grant Bloom
+    /// shows as "for this session" would have stayed in OpenCode's own data for every later chat.
+    /// A session or project grant is kept by Bloom instead (`SessionGrants`), which answers the
+    /// next matching question itself and can be revoked from Bloom.
     public static func optionID(for decision: PermissionDecision, in request: ACPPermissionRequest) -> String? {
         let wanted: [String]
         switch decision {
-        case .allow(.once), .answer, .approvePlan:
+        case .allow, .answer, .approvePlan:
             wanted = ["allow_once"]
-        case .allow(.session), .allow(.project):
-            wanted = ["allow_always", "allow_once"]
         case .deny:
             wanted = ["reject_once", "reject_always"]
         }
@@ -106,7 +110,9 @@ public enum OpenCodePermission {
                 return match.id
             }
         }
-        return request.options.first { decision.isAllow ? $0.isAllow : !$0.isAllow }?.id
+        return request.options.first { option in
+            option.kind != "allow_always" && (decision.isAllow ? option.isAllow : !option.isAllow)
+        }?.id
     }
 
     public static func selectedResult(optionID: String) -> JSONValue {

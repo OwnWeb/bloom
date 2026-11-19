@@ -223,8 +223,9 @@ struct OpenCodePermissionTests {
     func decisionsMapOntoOptions() throws {
         let request = try request()
         #expect(OpenCodePermission.optionID(for: .allow(scope: .once), in: request) == "once")
-        #expect(OpenCodePermission.optionID(for: .allow(scope: .session), in: request) == "always")
-        #expect(OpenCodePermission.optionID(for: .allow(scope: .project), in: request) == "always")
+        // `allow_always` outlives the session in OpenCode's own data, so Bloom keeps the grant.
+        #expect(OpenCodePermission.optionID(for: .allow(scope: .session), in: request) == "once")
+        #expect(OpenCodePermission.optionID(for: .allow(scope: .project), in: request) == "once")
         // One reject, whatever the deny was meant to do to the turn.
         #expect(OpenCodePermission.optionID(for: .deny(message: "", endsTurn: false), in: request) == "reject")
         #expect(OpenCodePermission.optionID(for: .deny(message: "", endsTurn: true), in: request) == "reject")
