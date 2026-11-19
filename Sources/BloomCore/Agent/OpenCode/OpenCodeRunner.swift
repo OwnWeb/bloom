@@ -252,7 +252,7 @@ public actor OpenCodeRunner: SessionRunner {
         if let stored = session.agentSessionID, !stored.isEmpty {
             do {
                 opened = try await client.resumeSession(stored, cwd: workspacePath, mcpServers: servers)
-            } catch {
+            } catch let error as ACPRPCError where Self.sessionIsGone(error) {
                 opened = try await client.newSession(cwd: workspacePath, mcpServers: servers)
             }
         } else {
@@ -275,22 +275,34 @@ public actor OpenCodeRunner: SessionRunner {
         return opened.id
     }
 
+    static let invalidParamsCode = -32602
+
+    /// Whether a refused resume means the stored session cannot come back, measured on 2.3.2 as
+    /// `-32602` "session not found" or "does not belong to cwd". Anything else (a timeout, a dead
+    /// connection) keeps the stored id, so the next send resumes rather than forgets the chat.
+    static func sessionIsGone(_ error: ACPRPCError) -> Bool {
+        error.code == invalidParamsCode && (error.message.localizedCaseInsensitiveContains("session not found")
+            || error.message.localizedCaseInsensitiveContains("does not belong to cwd"))
+    }
+
     /// Sets the composer's model, then its effort if that model offers it.
     ///
     /// The effort option belongs to the current model and is absent for a model with no levels,
     /// so it is read back from the model's own reply. An effort left over from another model is
     /// dropped without a word rather than sent and refused.
     private func applyComposerSettings(on client: OpenCodeClient, sessionID: String) async throws {
+        // One snapshot: a change adopted during the awaits below belongs to the next send.
         let model = wireModel
+        let effort = session.effort
         if !model.isEmpty {
             options = try await select(model, on: client, sessionID: sessionID)
             translation.context.model = model
         }
-        guard !session.effort.isEmpty, options.offersEffort(session.effort),
-              options.currentEffort != session.effort else { return }
+        guard !effort.isEmpty, options.offersEffort(effort),
+              options.currentEffort != effort else { return }
         do {
             options = try await client.setConfigOption(
-                sessionID: sessionID, configID: OpenCodeConfigOptions.effortID, value: session.effort
+                sessionID: sessionID, configID: OpenCodeConfigOptions.effortID, value: effort
             )
         } catch let error as ACPClientError {
             // A dead connection must fail the send. Anything else leaves the model's own effort.
@@ -337,6 +349,12 @@ public actor OpenCodeRunner: SessionRunner {
         guard generation == connectionGeneration else { return }
 
         if case .closed = event, handle.wasCancelled || trouble.hasStopped { return }
+        if case .closed = event {
+            // The process that asked is gone: its questions are stopped, never answered later,
+            // or a late answer would record a grant for a call that can no longer run.
+            approvals.removeAll()
+            await filePendingAsks()
+        }
 
         if case .permission(let request) = event {
             if handle.wasCancelled {

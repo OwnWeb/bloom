@@ -152,9 +152,12 @@ public struct OpenCodeTranslation: Sendable {
 
         case .thought(let chunk):
             guard !chunk.isEmpty else { return [] }
+            // As text flushes a thought: text, thought, text is stored in that order, not as two.
+            var events = flushText()
             if thought.isEmpty { thoughtMessageID = UUID().uuidString }
             thought += chunk
-            return [.streamDelta(.thinking(chunk))]
+            events.append(.streamDelta(.thinking(chunk)))
+            return events
 
         case .toolCall(let call), .toolCallUpdate(let call):
             let stored = merged(call, onto: tools[call.id])

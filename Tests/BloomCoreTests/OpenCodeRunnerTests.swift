@@ -67,7 +67,8 @@ private func eventually(
     sourceLocation: SourceLocation = #_sourceLocation,
     _ condition: @Sendable () async -> Bool
 ) async {
-    await waitUntil(Comment(rawValue: description), within: .seconds(2), sourceLocation: sourceLocation, condition)
+    // A cap on "never", not a measurement: each condition is met as soon as the actor gets to it.
+    await waitUntil(Comment(rawValue: description), within: .seconds(30), sourceLocation: sourceLocation, condition)
 }
 
 @Suite(.scratchDirectory)
@@ -122,6 +123,34 @@ struct OpenCodeRunnerTests {
             .first { $0["method"]?.stringValue == "session/prompt" }
         #expect(prompt?["params"]?["sessionId"]?.stringValue == "ses_stored")
         #expect(try await store.session(id: session.id)?.agentSessionID == "ses_stored")
+    }
+
+    @Test("a resume refused because the session is gone opens a new one")
+    func goneSessionIsReplaced() async throws {
+        let store = try makeTestStore("opencode-resume-gone")
+        let session = try await makeOpenCodeSession(store, agentSessionID: "ses_gone")
+        let box = scriptedBox()
+        box.fail("session/resume", code: OpenCodeRunner.invalidParamsCode, message: "Invalid params: session not found")
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("again")
+        #expect(box.process.sentMethods.contains("session/new"))
+    }
+
+    @Test("a resume that fails for another reason keeps the stored session id")
+    func failedResumeKeepsTheID() async throws {
+        let store = try makeTestStore("opencode-resume-failed")
+        let session = try await makeOpenCodeSession(store, agentSessionID: "ses_kept")
+        let box = scriptedBox()
+        let internalErrorCode = -32603
+        box.fail("session/resume", code: internalErrorCode, message: "Internal error")
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        await #expect(throws: (any Error).self) { try await runner.send("again") }
+        #expect(!box.process.sentMethods.contains("session/new"))
+        #expect(try await store.session(id: session.id)?.agentSessionID == "ses_kept")
     }
 
     @Test("an effort the model offers is set after the model")

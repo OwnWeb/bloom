@@ -145,6 +145,21 @@ struct OpenCodeTranslationTests {
         #expect(result.isError)
     }
 
+    @Test("a thought after text closes that text first, so the order is kept")
+    func thoughtFlushesText() {
+        var translation = ready()
+        _ = translation.translate(.update(ACPSessionUpdate(sessionID: "ses_1", kind: .text("A"), raw: .object([:]))))
+        let events = translation.translate(.update(ACPSessionUpdate(
+            sessionID: "ses_1", kind: .thought("T"), raw: .object([:])
+        )))
+        #expect(events.count == 2)
+        guard case .streamDelta(.thinking(let chunk)) = events.last else {
+            Issue.record("expected the thought delta after the flushed text")
+            return
+        }
+        #expect(chunk == "T")
+    }
+
     @Test("the gauge comes from usage_update and the output tokens from the prompt reply")
     func usageComesFromBothPlaces() {
         var translation = ready()
