@@ -33,7 +33,8 @@ final class AgentAvailability {
         let store = store
         loadTask = Task { [weak self] in
             let overrides = await AgentCatalog.executablePathOverrides(in: store)
-            let statuses = await AgentCatalog(overrides: overrides).statuses()
+            // The router never runs OpenCode, so it does not launch one to ask about providers.
+            let statuses = await AgentCatalog(overrides: overrides, asksOpenCodeForProviders: false).statuses()
             guard !Task.isCancelled else { return }
             self?.adopt(statuses: statuses, overrides: overrides)
         }

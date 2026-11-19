@@ -412,8 +412,8 @@ struct AgentCatalogLocalTests {
         }
 
         #expect(byKind[.cursor]?.connection == .notInstalled)
-        #expect(byKind[.openCode]?.connection == .notInstalled)
+        #expect(byKind[.openCode]?.connection != .notInstalled)
         #expect(byKind[.cursor]?.version == nil)
-        #expect(byKind[.openCode]?.version == nil)
+        #expect(byKind[.openCode]?.version?.isEmpty == false)
     }
 }

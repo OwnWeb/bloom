@@ -104,9 +104,13 @@ public actor AgentCatalog {
     /// How many detections have actually been run, as opposed to served from the cache or joined
     /// while already in flight. Exists so the sharing can be asserted on rather than assumed.
     public private(set) var detectionCount = 0
+    /// Whether OpenCode is asked if it has a provider, which launches `opencode acp`. Off for a
+    /// reader that never runs OpenCode, such as the router, so it does not pay for that process.
+    private let asksOpenCodeForProviders: Bool
 
-    public init(overrides: [AgentKind: String] = [:]) {
+    public init(overrides: [AgentKind: String] = [:], asksOpenCodeForProviders: Bool = true) {
         self.overrides = overrides
+        self.asksOpenCodeForProviders = asksOpenCodeForProviders
     }
 
     /// Detects everything, concurrently. Cheap enough to call on view appearance.
@@ -149,7 +153,8 @@ public actor AgentCatalog {
             task = running
         } else {
             let override = overrides[kind]
-            task = Task { await Self.detect(kind, override: override) }
+            let asksProviders = asksOpenCodeForProviders
+            task = Task { await Self.detect(kind, override: override, asksOpenCodeForProviders: asksProviders) }
             inFlight[kind] = task
             detectionCount += 1
         }
@@ -168,7 +173,9 @@ public actor AgentCatalog {
 
     // MARK: - Detection
 
-    static func detect(_ kind: AgentKind, override: String?) async -> AgentStatus {
+    static func detect(
+        _ kind: AgentKind, override: String?, asksOpenCodeForProviders: Bool = true
+    ) async -> AgentStatus {
         let configPath = resolvedPath(kind.configPath)
 
         if let override, !override.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -186,13 +193,17 @@ public actor AgentCatalog {
                     configPath: configPath
                 )
             }
-            return await describe(kind, executablePath: path, configPath: configPath)
+            return await describe(
+                kind, executablePath: path, configPath: configPath, asksOpenCodeForProviders: asksOpenCodeForProviders
+            )
         }
 
         guard let path = Shell.which(kind.executableName) else {
             return AgentStatus(kind: kind, connection: .notInstalled, configPath: configPath)
         }
-        return await describe(kind, executablePath: path, configPath: configPath)
+        return await describe(
+            kind, executablePath: path, configPath: configPath, asksOpenCodeForProviders: asksOpenCodeForProviders
+        )
     }
 
     // MARK: - Which agents this machine has
@@ -252,7 +263,8 @@ public actor AgentCatalog {
     private static func describe(
         _ kind: AgentKind,
         executablePath: String,
-        configPath: String?
+        configPath: String?,
+        asksOpenCodeForProviders: Bool
     ) async -> AgentStatus {
         let version = await readVersion(executablePath: executablePath)
 
@@ -277,7 +289,8 @@ public actor AgentCatalog {
         case .openCode:
             details = openCodeDetails(
                 version: version,
-                hasProvider: await OpenCodeProviderCheck.hasProvider(executable: executablePath)
+                hasProvider: asksOpenCodeForProviders
+                    ? await OpenCodeProviderCheck.hasProvider(executable: executablePath) : nil
             )
         case .cursor:
             // Its auth file format is not verified, so claiming an account would be a guess.
@@ -494,7 +507,7 @@ public actor AgentCatalog {
         guard hasProvider != false else { return [] }
         return [
             AgentDetail(label: "Version", value: version ?? unknown),
-            AgentDetail(label: "Providers", value: "Managed by OpenCode, with `opencode auth login`"),
+            AgentDetail(label: "Providers", value: "Managed by OpenCode, with opencode auth login"),
         ]
     }
 

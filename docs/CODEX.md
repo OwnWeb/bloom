@@ -585,8 +585,8 @@ hardcoded levels, shown by `ComposerFooterView` and again by `ModelSettingsView`
 What it becomes:
 
 - **Sections named by backend.** "Claude Code" then "Codex", each with its own models.
-- **Only backends that can run** get a section. Cursor and OpenCode are detected and configurable
-  and cannot drive a chat, so they are not in this menu at all.
+- **Only backends that can run** get a section. Cursor is detected and configurable and cannot
+  drive a chat, so it is not in this menu at all. OpenCode, Grok and Codex each have their own.
 - **Models fetched, not hardcoded**, for Codex, from `CodexModelCatalog`. Claude's three stay a
   list for now; the CLI has no equivalent of `model/list`.
 - **The effort picker follows the model, within the chat.** Codex efforts differ per model, so

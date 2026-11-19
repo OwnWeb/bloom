@@ -203,7 +203,7 @@ struct RepoSettingsView: View {
             }
             Button("Save Model Choice") { Task { await saveAgentDefault() } }
 
-            ForEach(AgentKind.runnable) { kind in
+            ForEach(AgentKind.runnable.filter(\.hasAccountProfiles)) { kind in
                 Picker("\(kind.label) account", selection: accountBinding(for: kind)) {
                     Text("Default account").tag("")
                     ForEach(accountProfiles.filter { $0.kind == kind }) { profile in

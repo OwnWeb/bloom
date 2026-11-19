@@ -45,7 +45,8 @@ Claude Code: `~/.claude.json` or `ANTHROPIC_API_KEY`. Codex: `~/.codex/auth.json
 `~/.grok/auth.json` or `XAI_API_KEY`. The check is local, so an expired token still counts, and the
 call then fails like any other failure: the chat keeps what the window was set to. Cursor is never
 connected, because Bloom does not read its account and has no runner for it. OpenCode has a runner
-and counts as connected once installed, and the router still leaves it alone
+and counts as connected unless it answers that it has no provider (`OpenCodeProviderCheck`, which
+the router's own detection skips), and the router still leaves it alone
 (`AgentKind.takesPartInRouting`): it neither asks OpenCode nor picks a model for a chat on it,
 because OpenCode's models are whatever providers the user connected and none can be named as the
 small reliable one.

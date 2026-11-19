@@ -23,9 +23,9 @@ struct ClaudeModelSourceTests {
         #expect(haiku?.resolvedEffort(preferring: "high") == "")
     }
 
-    @Test("the menu's other backends are unchanged, and Claude's is the CLI")
+    @Test("every backend that can run a chat has a model source")
     func registered() {
-        #expect(Set(AgentModelSource.live().keys) == [.claudeCode, .codex, .grok])
+        #expect(Set(AgentModelSource.live().keys) == [.claudeCode, .codex, .grok, .openCode])
     }
 
     @Test("a newly released Sonnet remains selectable while Claude Code lists the previous one")
