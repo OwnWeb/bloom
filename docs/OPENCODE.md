@@ -95,7 +95,9 @@ returns the whole `configOptions` again. Grok's `value: {value: …}` is refused
 unknown model is `-32602` "model not found", an unknown effort `-32602` "effort not found".
 
 The default model of a new session is whatever OpenCode picks, which on a stock install is a
-hosted free model. Bloom always sets the composer's model before a turn.
+hosted free model. Bloom always sets the composer's model before a turn, and its effort when the
+model offers it, so a model or effort changed in the composer is taken by the next turn on the
+same process and the same `ses_…`. Only a permission mode change restarts the process.
 
 ### Discovering models
 
@@ -215,10 +217,18 @@ which Bloom does not store.
 ## Sign in and credentials
 
 Credentials live in OpenCode's SQLite database under the data directory, not in a file Bloom
-could read without opening that database. Bloom therefore shows no account for OpenCode, and
-treats an installed binary as ready, because a stock install has hosted models that need no
-account. With every provider removed, the first send fails with OpenCode's own "No models are
-available". Signing in is `opencode auth login`, run by the user.
+could read without opening that database. Bloom therefore shows no account for OpenCode. Whether
+it has a provider at all is asked the way a chat would ask it: detection opens a session in a
+scratch directory and deletes it (`OpenCodeProviderCheck`). `CatalogNotReady` shows OpenCode as
+installed but not connected; any other failure learns nothing and leaves it connected, which a
+stock install is, because it has hosted models that need no account. Signing in is
+`opencode auth login`, run by the user.
+
+Measured on 2026-11-19 with Ollama as the only provider (`disabled_providers: ["opencode",
+"lmstudio"]`, `OPENCODE_DISABLE_FREE_MODELS=1`): `session/new` right after `initialize`
+succeeded in twenty runs out of twenty and listed `ollama/qwen3.5:4b` every time. A local
+provider detected late is therefore not read as none; it is only missing from the list, as
+"Discovering models" says.
 
 Global configuration is the directory `~/.config/opencode/` (`opencode.json` or `opencode.jsonc`).
 

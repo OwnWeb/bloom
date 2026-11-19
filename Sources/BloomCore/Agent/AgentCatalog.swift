@@ -275,7 +275,10 @@ public actor AgentCatalog {
                 apiKeyIsSet: !(key ?? "").isEmpty
             )
         case .openCode:
-            details = openCodeDetails(version: version)
+            details = openCodeDetails(
+                version: version,
+                hasProvider: await OpenCodeProviderCheck.hasProvider(executable: executablePath)
+            )
         case .cursor:
             // Its auth file format is not verified, so claiming an account would be a guess.
             details = []
@@ -480,13 +483,16 @@ public actor AgentCatalog {
 
     // MARK: - OpenCode
 
-    /// OpenCode is usable as installed: it ships hosted models that need no account.
+    /// OpenCode is usable once it has a provider, which a stock install has: it ships hosted models
+    /// that need no account. None at all reads as installed but not connected; a check that learnt
+    /// nothing reads as connected, the state a stock install is in.
     ///
     /// No account is shown, because its credentials are rows in its own SQLite database rather
     /// than a file to read (measured on 2.3.2, see `docs/OPENCODE.md`). What can be said without
     /// opening that database is where the providers are managed.
-    public static func openCodeDetails(version: String?) -> [AgentDetail] {
-        [
+    public static func openCodeDetails(version: String?, hasProvider: Bool?) -> [AgentDetail] {
+        guard hasProvider != false else { return [] }
+        return [
             AgentDetail(label: "Version", value: version ?? unknown),
             AgentDetail(label: "Providers", value: "Managed by OpenCode, with `opencode auth login`"),
         ]

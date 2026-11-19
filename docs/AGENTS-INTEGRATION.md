@@ -82,8 +82,9 @@ Login command: `grok login`.
 
 Measured on opencode 2.3.2 on 2026-11-19, see `OPENCODE.md`. There is no auth file: credentials
 are rows in OpenCode's own SQLite database under its data directory, which Bloom does not open.
-So no account is shown. OpenCode is usable as installed, because it ships hosted models that need
-no account, and it reads as connected once the binary is found. The details say where providers
+So no account is shown. Detection opens and deletes a scratch session: OpenCode reads as
+installed when it answers that it has no model at all, and as connected otherwise, which a stock
+install is, because it ships hosted models that need no account. The details say where providers
 are managed and nothing else.
 
 Config directory to offer for opening: `~/.config/opencode/`, which holds `opencode.json` or
