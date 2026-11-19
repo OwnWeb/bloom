@@ -60,8 +60,7 @@ extension AppModel {
     /// the workspace id, so it fires when the window ARRIVES on a workspace and not again while it
     /// sits there. The row goes heavy under the pointer, the badge counts it, and it is still
     /// there when you come back. `TranscriptModel.markAllRead` is a different mark on a different
-    /// row (`Session.lastReadSeq`, which is where the transcript reopens) and it does not touch
-    /// this one.
+    /// row (`Session.lastReadSeq`) and it does not touch this one.
     ///
     /// The one thing that does clear it is a turn FINISHING in that workspace while you are still
     /// looking at it, because `TranscriptModel.notifyFinished` writes `unread` either way. That is

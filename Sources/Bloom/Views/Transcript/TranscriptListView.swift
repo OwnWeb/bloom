@@ -227,9 +227,9 @@ struct TranscriptListView: View {
     /// Where this session was opened, so the reveal can put it back there once the history has
     /// landed under it.
     ///
-    /// Three openings and only one of them is the live end: a session opened on an unread mark or
-    /// on a row somebody searched for was opened where the reader asked to be, and putting it back
-    /// means putting it back THERE.
+    /// Only one of these is the live end: a session opened on a row somebody searched for, or on
+    /// the place they left, was opened where the reader asked to be, and putting it back means
+    /// putting it back THERE.
     private enum Opening: Equatable {
         case liveEnd
         case row(Int, UnitPoint)
@@ -287,31 +287,32 @@ struct TranscriptListView: View {
     /// vanish the moment the run around it closed.
     ///
     /// **The rest is the row this session was OPENED on, and it is worse than cosmetic.** A scroll
-    /// can only find a row the table is drawing, so a search hit, an unread mark or the row a
-    /// returning reader left at the top of the pane, folded away, is not a row somewhere off
-    /// screen: `put(at:)` finds no index, nothing moves, and the reader lands at the top of a
-    /// conversation they were meant to be put back into. Which openings
-    /// name a row is `Opening.seq`'s question, and it is asked there because asking it here was
-    /// how the returning reader's case went missing.
+    /// can only find a row the table is drawing, so a search hit or the row a returning reader
+    /// left at the top of the pane, folded away, is not a row somewhere off screen: `put(at:)`
+    /// finds no index, nothing moves, and the reader lands at the top of a conversation they were
+    /// meant to be put back into. Which openings name a row is `Opening.seq`'s question, and it is
+    /// asked there because asking it here was how the returning reader's case went missing.
     ///
-    /// **Read from `opening` rather than from the two things that answered it, because both are
-    /// gone moments later.** `takeTranscriptTarget` consumes the search result and `markAllRead`
-    /// clears the unread mark, both in `position`, so a rule that asked them directly would fold
+    /// **Read from `opening` rather than from the search result that answered it, because that is
+    /// gone moments later.** `decideOpening` takes it, so a rule that asked it directly would fold
     /// the run away a beat after putting the reader inside it. `opening` is what that decision was
-    /// written down as and it lasts as long as the visit. The live two are still asked, because
-    /// the pass that assembles the entries runs before `position` has run at all.
+    /// written down as and it lasts as long as the visit. The result is still asked while it is
+    /// outstanding, because the pass that assembles the entries runs before the opening is decided.
     ///
     /// The cost is one run staying open for the visit, at the place the reader was put. That is
     /// the run whose context they are most likely to want.
     private var revealedSeqs: Set<Int> {
         var out = expanded
         if let seq = opening?.seq { out.insert(seq) }
-        if let target = app.pendingTranscriptTarget,
-           target.workspaceID == transcript.workspace?.id {
-            out.insert(target.seq)
-        }
-        if let unread = transcript.firstUnreadSeq { out.insert(unread) }
+        if let seq = searchedSeq { out.insert(seq) }
         return out
+    }
+
+    /// The row of a search result still waiting to be shown in this workspace.
+    private var searchedSeq: Int? {
+        guard let target = app.pendingTranscriptTarget,
+              target.workspaceID == transcript.workspace?.id else { return nil }
+        return target.seq
     }
 
     /// Keep insertion and folding as separate table updates during a live turn. A new session
@@ -1221,7 +1222,9 @@ struct TranscriptListView: View {
         }
         .onChange(of: transcript.presentationRevision, initial: true) { _, _ in
             updatePinnedQuestion(at: controller.topmostPlace)
-            position()
+            // Only for a session that arrived empty: any other was opened by its arrival, and an
+            // opening decided here as well, before the load, gave two answers that then fought.
+            if arrivalSession == transcript.session.id { position() }
             trackArrivals()
             // **The runs are refreshed HERE, one pass behind the row that changed them, and that
             // is the whole reason folding costs no reload.** The pass above has already drawn the
@@ -1352,10 +1355,11 @@ struct TranscriptListView: View {
             )
             TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
             writingTo = memory.map { WriteTarget(memory: $0, session: transcript.session.id) }
-            // **And the positioning is owed again, because the one that has already run was run
-            // too early to mean anything.** `position` latches on `didPosition`, and the row
-            // count's `onChange` fires with `initial: true` before the load above has finished.
+            // **The opening is decided here, once, and applied a turn later.** Decided before the
+            // body runs so that `revealedSeqs` has unfolded the row it names by the time the
+            // scroll looks for it. Each run of this task is an arrival, so the latch is reset.
             didPosition = false
+            let decided = decideOpening()
             // Whatever the session arrived with, taken in without a settle. This runs whether or
             // not the row count changed, which matters: two sessions can hold the same number of
             // rows, and then nothing else would have told the tracker it is looking at a
@@ -1366,7 +1370,7 @@ struct TranscriptListView: View {
             await Task.yield()
             guard !Task.isCancelled else { return }
             adoptScrollView()
-            position()
+            if decided { open(opening) }
             SwitchTrace.mark("transcript.positioned", workspace: transcript.workspace?.id)
             // **The pane may be drawn again now.** It has been blank since the session changed:
             // its rows are in, its window is chosen and `position` has applied the placement, so
@@ -1395,6 +1399,8 @@ struct TranscriptListView: View {
             // The session has finished arriving, so from here on a row that turns up is a row the
             // reader is watching turn up.
             arrivalSession = transcript.session.id
+            // A session empty when it loaded may have taken its first row since.
+            position()
             honourLiveEndRequest()
             SwitchTrace.mark("transcript.window", workspace: transcript.workspace?.id)
             SwitchTrace.markOnScreen("transcript.window", workspace: transcript.workspace?.id)
@@ -1609,24 +1615,33 @@ struct TranscriptListView: View {
         if scrollNavigation.pinnedQuestion != next { scrollNavigation.pinnedQuestion = next }
     }
 
-    /// Where a session opens: on the first thing the reader has not read, which is the whole point
-    /// of leaving a session and coming back to it, and otherwise on its live end.
+    /// Decides and applies the opening in one go, for a session whose first row turned up after
+    /// it had arrived. An arrival decides and opens a turn apart: see the `task` above.
     private func position() {
-        guard !transcript.rows.isEmpty, !didPosition else { return }
+        guard decideOpening() else { return }
+        open(opening)
+    }
+
+    /// Where a session opens: where the reader left it, else on a row they searched for, else on
+    /// its live end. Once per arrival, because it consumes what it reads: decided before the load
+    /// and again after it, the two answers differed and the first replayed over the second.
+    private func decideOpening() -> Bool {
+        guard !transcript.rows.isEmpty, !didPosition else { return false }
         let openingWindow = drawnWindow
         didPosition = true
 
         // The window this opening is resolved against, pinned before anything below can take the
-        // reason for it away. `drawnWindow` moves to hold a search result or an unread mark, and
-        // both of those are gone moments from now.
+        // reason for it away. `drawnWindow` moves to hold a search result, and that is gone
+        // moments from now.
         drawn = Drawn(session: transcript.session.id, window: openingWindow, rowCount: transcript.rows.count)
         TranscriptDrawn.note(drawn.window.count, session: transcript.session.id)
 
         // A pane coming back to a session it has already drawn is put back where the reader left
-        // it, and none of the three openings below applies: they are all answers to "where should
-        // somebody arriving at this conversation start reading", and this reader is not arriving.
+        // it. The search result is only read here, and taken below if it is the answer.
         let remembered = memory?.remembered(session: transcript.session.id)
-        let placement = TranscriptResume.placement(for: remembered, rowCount: transcript.rows.count)
+        let placement = TranscriptResume.placement(
+            for: remembered, rowCount: transcript.rows.count, searched: searchedSeq
+        )
         defer {
             Log.transcript.notice("""
                 opened \(transcript.session.id.rawValue, privacy: .public) at \
@@ -1647,23 +1662,17 @@ struct TranscriptListView: View {
             // is what a search result gets, because a search result is a row somebody is being
             // shown rather than a place somebody is being put back.
             opening = .rowOffset(seq, part, delta)
-        case .first:
-            // A search result outranks both of the others. Somebody who clicked a line of a
-            // transcript in the search screen asked for that line. Centred rather than at the top,
-            // because the sentence usually needs the turn around it to make sense.
-            // A search result is always a row in a workspace's transcript, because search is
-            // over workspaces. A chat with none has nothing to be taken.
-            if let workspaceID = transcript.workspace?.id,
-               let target = app.takeTranscriptTarget(for: workspaceID) {
-                opening = .row(target.seq, .center)
-            } else if let unread = transcript.firstUnreadSeq, unread != transcript.rows.first?.seq {
-                opening = .row(unread, .top)
-            } else {
-                opening = .liveEnd
+        case .searched(let seq):
+            // Somebody who clicked a line of a transcript in the search screen asked for that
+            // line. Centred rather than at the top, because the sentence usually needs the turn
+            // around it to make sense. Taken, or every reload would send the reader back there.
+            if let workspaceID = transcript.workspace?.id {
+                _ = app.takeTranscriptTarget(for: workspaceID)
             }
+            opening = .row(seq, .center)
         }
-        open(opening)
         Task { await transcript.markAllRead() }
+        return true
     }
 
     /// Puts the view where the session was opened.

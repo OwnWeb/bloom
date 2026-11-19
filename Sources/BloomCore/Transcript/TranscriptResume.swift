@@ -146,11 +146,10 @@ public struct TranscriptPaneState: Equatable, Sendable {
 
 /// Where a chat pane opens.
 public enum TranscriptPlacement: Equatable, Sendable {
-    /// Nowhere worth restoring, so the session is opened the way a session has always been opened:
-    /// on the first unread row, or on a row somebody searched for, or on the live end.
-    case first
-    /// The reader left at the live end, so that is where they are put back.
+    /// The reader left at the live end, or left no place worth restoring.
     case liveEnd
+    /// No place worth restoring, and a row somebody searched for: they asked for that line.
+    case searched(seq: Int)
     /// The reader left this many points down. The fallback, for a pane that could not name a row.
     case offset(Double)
     /// The reader left this row or answer part at the top of the pane, with an offset within it.
@@ -174,14 +173,16 @@ public enum TranscriptResume {
     /// Asked once the list has been laid out, so `measure` is what the pane is now and
     /// `remembered.measure` is what it was. Either being nil means one of the two was never taken.
     ///
-    /// Every `.first` below is a case where restoring would put the reader somewhere that is not
-    /// where they were, and the arrival that answers instead is not merely a fallback: it opens on
-    /// the first unread row, which is what a session nobody has read wants.
+    /// Every `arriving` below is a case where restoring would put the reader somewhere that is not
+    /// where they were. It used to open on the first unread row, and the owner chose the live end
+    /// instead: after an agent has worked, that row is the middle of a conversation.
     public static func placement(
         for remembered: TranscriptPaneState?,
-        rowCount: Int
+        rowCount: Int,
+        searched: Int? = nil
     ) -> TranscriptPlacement {
-        guard let remembered, rowCount > 0 else { return .first }
+        let arriving: TranscriptPlacement = searched.map { .searched(seq: $0) } ?? .liveEnd
+        guard let remembered, rowCount > 0 else { return arriving }
         // The end has moved if a turn ran while the reader was away, and it is still the end. A
         // width change moves nobody who was there, because the end is a place rather than a
         // measurement, so this is asked before the measure is looked at.
@@ -208,7 +209,7 @@ public enum TranscriptResume {
         }
         // Fewer rows than it had is a transcript read again from the store, which can fold a few
         // rows a live one kept apart. The end and a row survive that; a point into it does not.
-        guard remembered.rowCount <= rowCount else { return .first }
+        guard remembered.rowCount <= rowCount else { return arriving }
         // **Nought is a place: it is the top of the conversation.** This used to refuse it, on the
         // reasoning that a pane which has never been laid out reports nought and restoring that
         // would be a restore of nothing. The pane not being laid out is a fact about the PANE, and

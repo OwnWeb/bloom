@@ -34,26 +34,21 @@ enum TranscriptPrime {
     /// Fills the caches for the rows the list is about to draw.
     ///
     /// The same window the list will settle on, worked out with the same two functions it uses, so
-    /// this cannot prepare a different four hundred rows from the ones asked for. `unreadSeq` is
-    /// what moves that window off the live end, and it is also where the reader lands, which is
-    /// why it decides the order as well.
-    static func run(rows: [TranscriptRow], worktree: String, unreadSeq: Int?) async {
+    /// this cannot prepare a different four hundred rows from the ones asked for. Outwards from
+    /// the live end, which is where a session with no place to restore opens.
+    static func run(rows: [TranscriptRow], worktree: String) async {
         guard !rows.isEmpty else { return }
-        let unread = unreadSeq.flatMap {
-            TranscriptWindow.index(ofSeqAtOrAfter: $0, in: rows.lazy.map(\.seq))
-        }
         let window = TranscriptWindow.settling(
             from: .opening(
                 rowCount: rows.count,
-                tailStart: TranscriptTail.start(in: rows.lazy.map(\.kind)),
-                mustReach: unread
+                tailStart: TranscriptTail.start(in: rows.lazy.map(\.kind))
             ),
             rowCount: rows.count
         )
 
         await withTaskGroup(of: Void.self) { group in
             var started = 0
-            for index in window.indices(outwardFrom: unread ?? rows.count - 1) {
+            for index in window.indices(outwardFrom: rows.count - 1) {
                 if started >= width { _ = await group.next() }
                 let row = rows[index]
                 group.addTask { prime(row, worktree: worktree) }

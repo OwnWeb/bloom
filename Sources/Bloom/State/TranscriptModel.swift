@@ -605,9 +605,8 @@ final class TranscriptModel {
         // `TranscriptPrime`, which is where the whole argument for it is. Nothing cancels it: it
         // is one window of a session that has just been asked for, at `.utility`, and a handle
         // nobody would ever call `cancel` on is bookkeeping.
-        let unread = firstUnreadSeq
         Task.detached(priority: .utility) { [rows = built.rows, worktree = cwd] in
-            await TranscriptPrime.run(rows: rows, worktree: worktree, unreadSeq: unread)
+            await TranscriptPrime.run(rows: rows, worktree: worktree)
         }
 
         // Stays on the main actor, and can afford to: it walks backwards and stops as soon as it

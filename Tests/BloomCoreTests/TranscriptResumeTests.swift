@@ -151,17 +151,36 @@ struct TranscriptResumeTests {
     /// a different size. See `TranscriptResume.placement`, which carries the reversal and the
     /// reason for it.
 
-    @Test("a pane that has never held this session opens the way it always did")
+    @Test("a pane that has never held this session opens at its live end")
     func nothingRemembered() {
         let placement = TranscriptResume.placement(
             for: nil, rowCount: 400
         )
-        #expect(placement == .first)
+        #expect(placement == .liveEnd)
     }
 
-    @Test("a session with no rows opens the way it always did")
+    @Test("a session with no rows opens at its live end")
     func emptySession() {
-        #expect(TranscriptResume.placement(for: state(), rowCount: 0) == .first)
+        #expect(TranscriptResume.placement(for: state(), rowCount: 0) == .liveEnd)
+    }
+
+    @Test("a searched row is where a pane with no place to restore opens")
+    func searchedRowOutranksTheLiveEnd() {
+        #expect(TranscriptResume.placement(for: nil, rowCount: 400, searched: 120) == .searched(seq: 120))
+        #expect(TranscriptResume.placement(for: state(rowCount: 400), rowCount: 12, searched: 7)
+            == .searched(seq: 7))
+    }
+
+    /// As it was before the unread row stopped being an opening: the search result is asked only
+    /// where nothing is restored.
+    @Test("a remembered place is restored even with a searched row outstanding")
+    func rememberedPlaceOutranksASearchedRow() {
+        #expect(TranscriptResume.placement(for: state(isAtLiveEnd: true), rowCount: 400, searched: 120)
+            == .liveEnd)
+        #expect(TranscriptResume.placement(for: state(anchorSeq: 300, anchorDelta: -40), rowCount: 400, searched: 120)
+            == .row(seq: 300, delta: -40))
+        #expect(TranscriptResume.placement(for: state(offset: 1_200), rowCount: 400, searched: 120)
+            == .offset(1_200))
     }
 
     @Test("a reader who left at the end is put back at the end, not at the offset")
@@ -206,11 +225,11 @@ struct TranscriptResumeTests {
         let placement = TranscriptResume.placement(
             for: state(rowCount: 400), rowCount: 12
         )
-        #expect(placement == .first)
+        #expect(placement == .liveEnd)
     }
 
     /// Seen in the owner's log: a chat read again from the store had a few rows fewer than when
-    /// its place was written, and opened on its first unread row instead.
+    /// its place was written, and opened on what was then its first unread row instead.
     @Test("a row or the end is restored in a session read again with fewer rows")
     func shrunkSessionKeepsItsRowAndEnd() {
         #expect(TranscriptResume.placement(for: state(anchorSeq: 300, anchorDelta: -40, rowCount: 400), rowCount: 396)
