@@ -125,10 +125,14 @@ public struct ComposerControls: Equatable, Sendable {
     /// Claude Code has no Approve for me, and loses nothing by it: its own Auto mode is that mode
     /// under another name, so a second row would be two names for one `--permission-mode auto`.
     /// See `PermissionMode.autoReview`.
+    ///
+    /// OpenCode has three: ask, accept edits, and its own configuration. Its plan mode is a
+    /// session option rather than a permission, and Bloom does not set it yet.
     public var availablePermissionModes: [PermissionMode] {
         switch agentKind {
         case .codex: PermissionMode.allCases.filter { $0 != .plan }
-        case .claudeCode, .grok, .cursor, .openCode: PermissionMode.allCases.filter { $0 != .autoReview }
+        case .openCode: [.auto, .acceptEdits, .bypassPermissions]
+        case .claudeCode, .grok, .cursor: PermissionMode.allCases.filter { $0 != .autoReview }
         }
     }
 

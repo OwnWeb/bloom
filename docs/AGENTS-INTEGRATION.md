@@ -19,7 +19,7 @@ log, put on the pasteboard, or included in an error message. When a field is mis
 | Codex | `codex` | `codex --version` | `codex-cli 0.147.0` |
 | Grok | `grok` | `grok --version` | `grok 1.0.24 (68e414c661e3) [alpha]` |
 | Cursor | `cursor-agent` | `cursor-agent --version` | not installed here |
-| OpenCode | `opencode` | `opencode --version` | not installed here |
+| OpenCode | `opencode` | `opencode --version` | `opencode v2.3.2` |
 
 Resolve the executable through `Shell.which(_:)`, which already augments PATH for a GUI launch.
 The observed output is the shape to parse and not a version to match: both installed CLIs move
@@ -78,23 +78,38 @@ auth file is present. Config file to offer for opening: `~/.grok/config.toml`.
 
 Login command: `grok login`.
 
-## Cursor and OpenCode
+## OpenCode
 
-Not installed here, so nothing about their auth files is verified. Detect the binary and show the
-version if present. Do NOT invent an auth file format for them: show "Connected" only when there
-is real evidence, otherwise show that the CLI was found and leave the account block out. Cursor's
-config directory is `~/.cursor` (exists here, holds `hooks.json`). OpenCode's is `~/.opencode`
-(absent here).
+Measured on opencode 2.3.2 on 2026-11-19, see `OPENCODE.md`. There is no auth file: credentials
+are rows in OpenCode's own SQLite database under its data directory, which Bloom does not open.
+So no account is shown. OpenCode is usable as installed, because it ships hosted models that need
+no account, and it reads as connected once the binary is found. The details say where providers
+are managed and nothing else.
+
+Config directory to offer for opening: `~/.config/opencode/`, which holds `opencode.json` or
+`opencode.jsonc`. Login command: `opencode auth login`.
+
+## Cursor
+
+Not installed here, so nothing about its auth file is verified. Detect the binary and show the
+version if present. Do NOT invent an auth file format for it: show "Connected" only when there
+is real evidence, otherwise show that the CLI was found and leave the account block out. Its
+config directory is `~/.cursor` (exists here, holds `hooks.json`).
 
 ## What Bloom can actually run
 
-Claude Code, Codex and Grok. The stream-json protocol in `PROTOCOL.md` is Claude Code's and
-`AgentRunner` speaks it; the JSON-RPC app-server protocol in `CODEX.md` is Codex's and
+Claude Code, Codex, Grok and OpenCode. The stream-json protocol in `PROTOCOL.md` is Claude Code's
+and `AgentRunner` speaks it; the JSON-RPC app-server protocol in `CODEX.md` is Codex's and
 `CodexRunner` speaks it; ACP over `grok agent --no-leader stdio` in `GROK.md` is Grok's and
-`GrokRunner` speaks it. All three answer to `SessionRunner`, and `AgentKind.canRunWorkspaces` is
-the one place that decides which backends a chat can be started on. Cursor and OpenCode are
-detected and configurable and neither has a runner, so neither is offered anywhere a chat is
-started. The UI must say so plainly rather than implying a connected CLI is a usable backend.
+`GrokRunner` speaks it; ACP over `opencode acp` in `OPENCODE.md` is OpenCode's and
+`OpenCodeRunner` speaks it. The two ACP backends share the wire layer in `Agent/ACP/` and nothing
+above it. All four answer to `SessionRunner`, and `AgentKind.canRunWorkspaces` is the one place
+that decides which backends a chat can be started on. Cursor is detected and configurable and has
+no runner, so it is not offered anywhere a chat is started. The UI must say so plainly rather
+than implying a connected CLI is a usable backend.
+
+A runner is not every feature. `AgentKind.takesPartInRouting` and `AgentKind.hasAccountProfiles`
+answer for the automatic router and for extra accounts, and OpenCode has neither.
 
 ## Adding a backend
 

@@ -6,13 +6,15 @@ struct OnboardingAgentChoiceTests {
     private func report(
         claude: SetupOutcome = .ready(detail: nil),
         codex: SetupOutcome = .ready(detail: nil),
-        grok: SetupOutcome = .missing
+        grok: SetupOutcome = .missing,
+        openCode: SetupOutcome = .missing
     ) -> SetupReport {
         SetupReport(checks: [
             SetupCheck(tool: .git, outcome: .ready(detail: nil)),
             SetupCheck(tool: .claudeCode, outcome: claude),
             SetupCheck(tool: .codex, outcome: codex),
             SetupCheck(tool: .grok, outcome: grok),
+            SetupCheck(tool: .openCode, outcome: openCode),
             SetupCheck(tool: .gitHub, outcome: .ready(detail: nil)),
         ])
     }

@@ -274,8 +274,10 @@ public actor AgentCatalog {
                 version: version,
                 apiKeyIsSet: !(key ?? "").isEmpty
             )
-        case .cursor, .openCode:
-            // Their auth file formats are not verified, so claiming an account would be a guess.
+        case .openCode:
+            details = openCodeDetails(version: version)
+        case .cursor:
+            // Its auth file format is not verified, so claiming an account would be a guess.
             details = []
         }
 
@@ -474,6 +476,20 @@ public actor AgentCatalog {
     private static func nonEmpty(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         return value
+    }
+
+    // MARK: - OpenCode
+
+    /// OpenCode is usable as installed: it ships hosted models that need no account.
+    ///
+    /// No account is shown, because its credentials are rows in its own SQLite database rather
+    /// than a file to read (measured on 2.3.2, see `docs/OPENCODE.md`). What can be said without
+    /// opening that database is where the providers are managed.
+    public static func openCodeDetails(version: String?) -> [AgentDetail] {
+        [
+            AgentDetail(label: "Version", value: version ?? unknown),
+            AgentDetail(label: "Providers", value: "Managed by OpenCode, with `opencode auth login`"),
+        ]
     }
 
     // MARK: - Grok

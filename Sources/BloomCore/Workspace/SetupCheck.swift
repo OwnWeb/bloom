@@ -6,9 +6,9 @@ import Foundation
 ///
 /// Five, and they are not equal. `git` is the only flat requirement: a workspace IS a worktree,
 /// so `Git.worktreeAdd` is reached on the first task anybody describes and there is no path
-/// through the app that avoids it. Claude Code, Codex and Grok are a set, and what is required
-/// is **any** of them, because `AgentKind.runnable` is derived from `canRunWorkspaces` and all
-/// three answer true: a machine with Grok and no Claude Code is a working machine, and telling
+/// through the app that avoids it. Claude Code, Codex, Grok and OpenCode are a set, and what is
+/// required is **any** of them, because `AgentKind.runnable` is derived from `canRunWorkspaces`
+/// and all four answer true: a machine with Grok and no Claude Code is a working machine, and telling
 /// that person they are missing something would be a lie. The GitHub CLI is wanted and not needed,
 /// which the README already says in as many words, so it is never allowed to read as a failure.
 public enum SetupTool: String, Sendable, Hashable, CaseIterable, Identifiable, Codable {
@@ -16,6 +16,7 @@ public enum SetupTool: String, Sendable, Hashable, CaseIterable, Identifiable, C
     case claudeCode
     case codex
     case grok
+    case openCode
     case gitHub
     /// Shown so GitLab is visibly supported, and optional: never in the verdict or its sentence.
     case gitLab
@@ -31,6 +32,7 @@ public enum SetupTool: String, Sendable, Hashable, CaseIterable, Identifiable, C
         case .claudeCode: .claudeCode
         case .codex: .codex
         case .grok: .grok
+        case .openCode: .openCode
         case .git, .gitHub, .gitLab: nil
         }
     }
@@ -42,6 +44,7 @@ public enum SetupTool: String, Sendable, Hashable, CaseIterable, Identifiable, C
         case .claudeCode: "Claude Code"
         case .codex: "Codex"
         case .grok: "Grok"
+        case .openCode: "OpenCode"
         case .gitHub: "GitHub CLI"
         case .gitLab: "GitLab CLI"
         }
@@ -54,7 +57,7 @@ public enum SetupTool: String, Sendable, Hashable, CaseIterable, Identifiable, C
         switch self {
         case .gitHub: "the GitHub CLI"
         case .gitLab: "the GitLab CLI"
-        case .git, .claudeCode, .codex, .grok: title
+        case .git, .claudeCode, .codex, .grok, .openCode: title
         }
     }
 
@@ -73,6 +76,8 @@ public enum SetupTool: String, Sendable, Hashable, CaseIterable, Identifiable, C
             "OpenAI's agent. Bloom can drive a workspace with it instead of Claude Code."
         case .grok:
             "xAI's agent. Bloom can drive a workspace with it instead of Claude Code or Codex."
+        case .openCode:
+            "An open source agent that runs models from many providers, local ones included."
         case .gitHub:
             "Pull requests, checks and merges. Everything else in Bloom works without it."
         case .gitLab:
@@ -84,7 +89,7 @@ public enum SetupTool: String, Sendable, Hashable, CaseIterable, Identifiable, C
     public var executableName: String {
         switch self {
         case .git: "git"
-        case .claudeCode, .codex, .grok: agentKind?.executableName ?? rawValue
+        case .claudeCode, .codex, .grok, .openCode: agentKind?.executableName ?? rawValue
         case .gitHub: "gh"
         case .gitLab: "glab"
         }
@@ -92,7 +97,7 @@ public enum SetupTool: String, Sendable, Hashable, CaseIterable, Identifiable, C
 
     /// The order the window lists them in: the flat requirement, then the agents, then the one
     /// that is optional. Reading down the column is reading down the strength of the ask.
-    public static let displayOrder: [SetupTool] = [.git, .claudeCode, .codex, .grok, .gitHub, .gitLab]
+    public static let displayOrder: [SetupTool] = [.git, .claudeCode, .codex, .grok, .openCode, .gitHub, .gitLab]
 
     /// A row the verdict ignores whatever it says.
     public var isOptional: Bool { self == .gitLab }
@@ -250,6 +255,21 @@ public extension SetupCheck {
                 isInteractive: true
             )
 
+        case (.openCode, .missing):
+            return SetupFix(
+                summary: "Install OpenCode",
+                command: "brew install opencode",
+                url: URL(string: "https://opencode.ai")
+            )
+
+        case (.openCode, .needsSignIn):
+            return SetupFix(
+                summary: "Connect a provider to OpenCode",
+                command: AgentKind.openCode.loginCommand,
+                url: nil,
+                isInteractive: true
+            )
+
         case (.gitHub, .missing):
             return SetupFix(
                 summary: "Install the GitHub CLI",
@@ -376,7 +396,7 @@ public struct SetupReport: Sendable, Hashable {
         switch tool {
         case .git:
             return .problem
-        case .claudeCode, .codex, .grok:
+        case .claudeCode, .codex, .grok, .openCode:
             // A missing agent is only a problem when it is the LAST agent. While the other row is
             // still being looked at, this one holds its tongue rather than flashing red and going
             // quiet again half a second later.

@@ -12,7 +12,7 @@ struct RouterSettingsSection: View {
 
     /// The agents the router can ask, in the order Bloom offers agents everywhere else.
     private var agents: [AgentKind] {
-        AgentKind.runnable.filter { AgentAvailability.shared.connected.contains($0) }
+        AgentKind.runnable.filter { $0.takesPartInRouting && AgentAvailability.shared.connected.contains($0) }
     }
 
     var body: some View {

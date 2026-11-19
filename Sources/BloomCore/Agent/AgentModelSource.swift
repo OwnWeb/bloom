@@ -17,6 +17,7 @@ public struct AgentModelSource: Sendable {
     public static func live(store: Store? = nil) -> [AgentKind: AgentModelSource] {
         let codex = CodexModelCatalog.live()
         let grok = GrokModelCatalog.live(store: store)
+        let openCode = OpenCodeModelCatalog.live(store: store)
         return [
             .claudeCode: .claude(),
             .codex: AgentModelSource(
@@ -26,6 +27,10 @@ public struct AgentModelSource: Sendable {
             .grok: AgentModelSource(
                 models: { try await grok.models().map(\.agentModel) },
                 invalidate: { await grok.invalidate() }
+            ),
+            .openCode: AgentModelSource(
+                models: { try await openCode.models().map(\.agentModel) },
+                invalidate: { await openCode.invalidate() }
             ),
         ]
     }

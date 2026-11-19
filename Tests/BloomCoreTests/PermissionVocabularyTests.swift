@@ -68,6 +68,12 @@ struct PermissionVocabularyTests {
         #expect(grok.contains(.plan))
         #expect(!grok.contains(.autoReview))
         #expect(PermissionMode.bypassPermissions.label(on: .grok) == "Always approve")
+
+        // OpenCode's plan mode is a session option, not a permission, so the picker has three rows.
+        let openCode = ComposerControls(agentKind: .openCode).availablePermissionModes
+        #expect(openCode == [.auto, .acceptEdits, .bypassPermissions])
+        #expect(PermissionMode.auto.label(on: .openCode) == "Ask")
+        #expect(PermissionMode.plan.nearest(on: .openCode) == .auto)
     }
 
     @Test("a mode the new backend has no row for lands somewhere that mode still means something")

@@ -461,8 +461,8 @@ struct WorkspaceStartToolTests {
         #expect(recorder.orders.isEmpty)
     }
 
-    /// Cursor and OpenCode are in `AgentKind` and have no runner, so a workspace on either would
-    /// exist and never start. Refusing names the two that work rather than silently choosing.
+    /// Cursor is in `AgentKind` and has no runner, so a workspace on it would exist and never
+    /// start. Refusing names the two that work rather than silently choosing.
     @Test("an agent Bloom cannot run is refused, and the refusal says which ones it can")
     func unrunnableAgent() async throws {
         let fixture = try await fixture()

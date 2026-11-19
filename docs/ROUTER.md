@@ -43,8 +43,12 @@ it is going, puts the chat on that rung's model and sends the opening message ag
 "Connected" is `AgentStatus.Connection.connected`: the CLI is found and an account is configured.
 Claude Code: `~/.claude.json` or `ANTHROPIC_API_KEY`. Codex: `~/.codex/auth.json`. Grok:
 `~/.grok/auth.json` or `XAI_API_KEY`. The check is local, so an expired token still counts, and the
-call then fails like any other failure: the chat keeps what the window was set to. Cursor and
-OpenCode are never connected, because Bloom does not read their accounts and has no runner for them.
+call then fails like any other failure: the chat keeps what the window was set to. Cursor is never
+connected, because Bloom does not read its account and has no runner for it. OpenCode has a runner
+and counts as connected once installed, and the router still leaves it alone
+(`AgentKind.takesPartInRouting`): it neither asks OpenCode nor picks a model for a chat on it,
+because OpenCode's models are whatever providers the user connected and none can be named as the
+small reliable one.
 
 `AgentAvailability` holds the answer for the app. It detects at launch when the router is on, takes over whatever the
 Agents pane detects, and the create window asks again when the last answer is five minutes old.

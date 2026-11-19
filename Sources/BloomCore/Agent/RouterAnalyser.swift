@@ -29,7 +29,7 @@ public struct RouterAnalyser: Sendable, Hashable {
         connected: Set<AgentKind>,
         models: [AgentKind: [AgentModel]]
     ) -> RouterAnalyser? {
-        let candidates = AgentKind.runnable.filter { connected.contains($0) }
+        let candidates = AgentKind.runnable.filter { $0.takesPartInRouting && connected.contains($0) }
         guard !candidates.isEmpty else { return nil }
 
         let kind: AgentKind

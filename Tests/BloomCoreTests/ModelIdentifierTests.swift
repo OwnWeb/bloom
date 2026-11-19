@@ -212,3 +212,48 @@ struct ModelIdentifierTests {
         ) == .codex)
     }
 }
+
+/// OpenCode names a model `provider/model`, which is the one thing that tells its ids apart from
+/// every other backend's before its list has been fetched.
+@Suite("An OpenCode model id")
+struct OpenCodeModelIdentifierTests {
+    @Test("a provider and a model are OpenCode's, with no list fetched")
+    func slashNamesOpenCode() {
+        #expect(ModelIdentifier.resolve("ollama/qwen3.5:4b").kind == .openCode)
+        #expect(ModelIdentifier.resolve("ollama/qwen3.5:4b").model == "ollama/qwen3.5:4b")
+    }
+
+    /// `ClaudeModelRank` reads tokens, and `anthropic/claude-sonnet-5-5` has `sonnet` in it.
+    @Test("an Anthropic model through OpenCode is not parked on Claude Code")
+    func anthropicThroughOpenCode() {
+        let resolved = ModelIdentifier.resolve("anthropic/claude-sonnet-5-5")
+        #expect(resolved.kind == .openCode)
+        #expect(resolved.model == "anthropic/claude-sonnet-5-5")
+        #expect(!resolved.namesBackend)
+    }
+
+    /// The colon follows a provider and a model, not a backend, so nothing is taken off the front.
+    @Test("a colon inside an OpenCode id is not a backend name")
+    func colonIsKept() {
+        let resolved = ModelIdentifier.resolve("ollama/qwen3.5:4b", models: [
+            .openCode: [AgentModel(id: "ollama/qwen3.5:4b", displayName: "ollama/qwen3.5:4b")],
+        ])
+        #expect(resolved.model == "ollama/qwen3.5:4b")
+        #expect(resolved.kind == .openCode)
+        #expect(!resolved.namesBackend)
+    }
+
+    @Test("a Bedrock ARN for Claude Code stays Claude Code's")
+    func bedrockArn() {
+        let arn = "arn:aws:bedrock:eu-west-1:123456789012:inference-profile/eu.anthropic.claude-sonnet-5-5"
+        #expect(ModelIdentifier.resolve(arn).kind != .openCode)
+    }
+
+    @Test("an id written with the backend in front still reaches OpenCode")
+    func namespaced() {
+        let resolved = ModelIdentifier.resolve("opencode:ollama/qwen3.5:4b")
+        #expect(resolved.kind == .openCode)
+        #expect(resolved.model == "ollama/qwen3.5:4b")
+        #expect(resolved.namesBackend)
+    }
+}

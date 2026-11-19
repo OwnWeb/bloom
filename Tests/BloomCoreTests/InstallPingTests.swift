@@ -230,8 +230,11 @@ struct InstallPingTests {
     /// Having `cursor-agent` on `PATH` is not Bloom using Cursor.
     @Test("does not claim an agent Bloom cannot run a turn with")
     func otherCLIsAreNotTheAgent() {
-        #expect(InstallPing.agentName(installed: [.cursor, .openCode]) == "none")
-        #expect(InstallPing.agentName(installed: [.codex, .cursor, .openCode]) == "codex")
+        #expect(InstallPing.agentName(installed: [.cursor]) == "none")
+        #expect(InstallPing.agentName(installed: [.codex, .cursor]) == "codex")
+        // OpenCode has a runner, so it is named, and the joined name still fits the pattern.
+        #expect(InstallPing.agentName(installed: [.codex, .cursor, .openCode]) == "codex_opencode")
+        #expect(InstallPing.matches("claude_codex_grok_opencode", InstallPing.namePattern))
     }
 
     @Test("says so when nothing is installed to run")

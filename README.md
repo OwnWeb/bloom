@@ -19,10 +19,10 @@ Or [download the disk image](https://runbloom.app/download) and drag Bloom to Ap
 checks for updates from inside the app.
 
 Install at least one supported agent CLI on your Mac: [Claude Code](https://claude.com/claude-code)
-(`claude`), [Codex](https://developers.openai.com/codex/cli) (`codex`), or Grok (`grok`). Bloom uses
-the CLI you choose for each conversation. Git is required; [GitHub CLI](https://cli.github.com)
-(`gh`) enables pull request and checks features. Cursor and OpenCode can be detected in Settings but
-cannot run conversations yet.
+(`claude`), [Codex](https://developers.openai.com/codex/cli) (`codex`), Grok (`grok`), or
+[OpenCode](https://opencode.ai) (`opencode`). Bloom uses the CLI you choose for each conversation.
+Git is required; [GitHub CLI](https://cli.github.com) (`gh`) enables pull request and checks
+features. Cursor can be detected in Settings but cannot run conversations yet.
 
 Bloom keeps its workspaces and conversation database on your Mac. It does not require a Bloom
 account. Agent CLIs use their own authentication and provider connections.

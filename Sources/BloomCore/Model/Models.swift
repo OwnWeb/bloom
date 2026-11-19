@@ -733,8 +733,8 @@ public struct PullRequest: Sendable, Hashable, Codable {
 
 /// The coding agent CLIs Bloom knows how to talk about.
 ///
-/// Two of the four can drive a chat. The others are detected and configurable so the settings
-/// screen can be honest about what is installed and what is not.
+/// Four of the five can drive a chat. Cursor is detected and configurable so the settings screen
+/// can be honest about what is installed and what is not.
 ///
 /// **A chat picks one of these, not a workspace.** One worktree can hold a Claude Code
 /// conversation and a Codex one at the same time. See `Session.agentKind` and docs/CODEX.md.
@@ -769,9 +769,10 @@ public enum AgentKind: String, Sendable, Codable, CaseIterable, Identifiable {
 
     /// Absolute path to the file the settings screen offers to open.
     ///
-    /// Claude Code and Codex point at a real config file. Cursor and OpenCode point at their
-    /// config directory instead, because their file layout is not verified and guessing a
-    /// filename would send the user to something that does not exist.
+    /// Claude Code, Codex and Grok point at a real config file. Cursor points at its config
+    /// directory, because its file layout is not verified. OpenCode points at its directory too:
+    /// the file there is `opencode.json` or `opencode.jsonc`, and guessing which would send the
+    /// user to something that does not exist.
     public var configPath: String {
         let home = NSHomeDirectory()
         switch self {
@@ -779,7 +780,7 @@ public enum AgentKind: String, Sendable, Codable, CaseIterable, Identifiable {
         case .codex: return "\(home)/.codex/config.toml"
         case .grok: return "\(home)/.grok/config.toml"
         case .cursor: return "\(home)/.cursor"
-        case .openCode: return "\(home)/.opencode"
+        case .openCode: return "\(home)/.config/opencode"
         }
     }
 
@@ -800,15 +801,15 @@ public enum AgentKind: String, Sendable, Codable, CaseIterable, Identifiable {
 
     /// Whether Bloom can actually drive a chat with it.
     ///
-    /// Three, now. `AgentRunner` speaks Claude Code's stream-json, `CodexRunner` speaks Codex's
-    /// JSON-RPC, and `GrokRunner` speaks Grok's ACP over stdio. All three answer to
-    /// `SessionRunner`. Cursor and OpenCode are detected and configurable so the settings screen
-    /// can be honest about what is installed, and neither has a runner, so neither is offered
-    /// anywhere a chat is started.
+    /// Four, now. `AgentRunner` speaks Claude Code's stream-json, `CodexRunner` speaks Codex's
+    /// JSON-RPC, and `GrokRunner` and `OpenCodeRunner` each speak their CLI's ACP over stdio. All
+    /// four answer to `SessionRunner`. Cursor is detected and configurable so the settings screen
+    /// can be honest about what is installed, and has no runner, so it is not offered anywhere a
+    /// chat is started.
     public var canRunWorkspaces: Bool {
         switch self {
-        case .claudeCode, .codex, .grok: true
-        case .cursor, .openCode: false
+        case .claudeCode, .codex, .grok, .openCode: true
+        case .cursor: false
         }
     }
 
@@ -840,10 +841,15 @@ public enum AgentKind: String, Sendable, Codable, CaseIterable, Identifiable {
     /// Codex's `turn/steer` is. The TUI can interject; this wire has not been shown to. Queuing
     /// until the turn ends is the honest default, and a measurement that says otherwise flips this.
     ///
-    /// **Cursor and OpenCode: no**, and not as a judgement about the CLIs. Neither has a runner,
-    /// so there is no turn to write into and no wire to write on. This answers `false` for the
-    /// same reason `canRunWorkspaces` does, and a backend that grows a runner has to measure this
-    /// rather than inherit it.
+    /// **OpenCode: not yet.** The wire can do it: `_session/steering` during a turn was measured
+    /// on 2.3.2 to reply `injected` and the model took the message into the same turn, while a
+    /// second `session/prompt` is refused (`docs/OPENCODE.md`). `OpenCodeRunner` does not send it
+    /// yet, so this stays `false` until it does.
+    ///
+    /// **Cursor: no**, and not as a judgement about the CLI. It has no runner, so there is no
+    /// turn to write into and no wire to write on. This answers `false` for the same reason
+    /// `canRunWorkspaces` does, and a backend that grows a runner has to measure this rather
+    /// than inherit it.
     ///
     /// **What this is NOT.** It does not widen `DeliveryHold.question` or `DeliveryHold.setup`,
     /// neither of which is about the backend: a turn blocked on a permission answer is not

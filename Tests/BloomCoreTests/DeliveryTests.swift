@@ -67,8 +67,8 @@ struct DeliveryHoldTests {
 
     @Test("only a runnable backend claims to take a message mid turn")
     func onlyRunnableBackendsAccept() {
-        // Not a judgement about Cursor or OpenCode: neither has a runner, so there is no turn to
-        // write into. A backend that grows one has to measure this rather than inherit it.
+        // Not a judgement about Cursor: it has no runner, so there is no turn to write into. A
+        // backend that grows one has to measure this rather than inherit it.
         for agent in AgentKind.allCases where agent.acceptsMidTurnMessage {
             #expect(agent.canRunWorkspaces)
         }

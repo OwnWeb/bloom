@@ -9,6 +9,7 @@ private func report(
     claude: SetupOutcome = .ready(detail: "freek@example.com"),
     codex: SetupOutcome = .ready(detail: "freek@example.com"),
     grok: SetupOutcome = .ready(detail: "ada@example.com"),
+    openCode: SetupOutcome = .ready(detail: "2.3.2"),
     gitHub: SetupOutcome = .ready(detail: "Signed in"),
     gitLab: SetupOutcome = .ready(detail: "Signed in to gitlab.com")
 ) -> SetupReport {
@@ -17,6 +18,7 @@ private func report(
         SetupCheck(tool: .claudeCode, outcome: claude),
         SetupCheck(tool: .codex, outcome: codex),
         SetupCheck(tool: .grok, outcome: grok),
+        SetupCheck(tool: .openCode, outcome: openCode),
         SetupCheck(tool: .gitHub, outcome: gitHub),
         SetupCheck(tool: .gitLab, outcome: gitLab),
     ])
@@ -55,10 +57,10 @@ struct SetupVerdictTests {
 
     @Test("neither agent is the one thing that blocks a machine that has git")
     func noAgent() {
-        let blocked = report(claude: .missing, codex: .missing, grok: .missing)
+        let blocked = report(claude: .missing, codex: .missing, grok: .missing, openCode: .missing)
         #expect(!blocked.hasRunnableAgent)
         #expect(blocked.verdict == .blocked)
-        #expect(blocked.blocking.map(\.tool) == [.claudeCode, .codex, .grok])
+        #expect(blocked.blocking.map(\.tool) == [.claudeCode, .codex, .grok, .openCode])
     }
 
     @Test("an agent that is installed and signed out does not count as runnable")
@@ -66,7 +68,8 @@ struct SetupVerdictTests {
         let blocked = report(
             claude: .needsSignIn(detail: "2.1.234"),
             codex: .missing,
-            grok: .missing
+            grok: .missing,
+            openCode: .missing
         )
         #expect(blocked.verdict == .blocked)
     }
@@ -103,10 +106,11 @@ struct SetupSeverityTests {
 
     @Test("a missing agent is a problem only when it was the last one")
     func loudWhenAlone() {
-        let blocked = report(claude: .missing, codex: .missing, grok: .missing)
+        let blocked = report(claude: .missing, codex: .missing, grok: .missing, openCode: .missing)
         #expect(blocked.severity(for: .claudeCode) == .problem)
         #expect(blocked.severity(for: .codex) == .problem)
         #expect(blocked.severity(for: .grok) == .problem)
+        #expect(blocked.severity(for: .openCode) == .problem)
     }
 
     @Test("everything that is ready is quiet")
@@ -160,14 +164,14 @@ struct SetupCopyTests {
 
     @Test("a blocked machine is offered another look rather than a closed door")
     func blockedCopy() {
-        let blocked = report(claude: .missing, codex: .missing, grok: .missing)
+        let blocked = report(claude: .missing, codex: .missing, grok: .missing, openCode: .missing)
         #expect(blocked.headline == "Nearly there")
         #expect(blocked.verdict.primaryButtonTitle == "Check again")
     }
 
     @Test("no git and no agent says both, not one")
     func blockedOnBoth() {
-        let blocked = report(git: .missing, claude: .missing, codex: .missing, grok: .missing)
+        let blocked = report(git: .missing, claude: .missing, codex: .missing, grok: .missing, openCode: .missing)
         #expect(blocked.sentence.contains("git and an agent"))
     }
 
@@ -178,7 +182,7 @@ struct SetupCopyTests {
             report(gitHub: .missing),
             report(claude: .missing),
             report(git: .missing),
-            report(claude: .missing, codex: .missing, grok: .missing),
+            report(claude: .missing, codex: .missing, grok: .missing, openCode: .missing),
             SetupReport.pending,
         ]
         for one in cases {

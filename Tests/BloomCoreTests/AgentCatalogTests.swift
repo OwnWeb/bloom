@@ -78,11 +78,15 @@ struct AgentCatalogTests {
     func describesKinds() {
         #expect(AgentKind.allCases.map(\.label) == ["Claude Code", "Codex", "Grok", "Cursor", "OpenCode"])
         #expect(AgentKind.allCases.map(\.executableName) == ["claude", "codex", "grok", "cursor-agent", "opencode"])
-        // Three backends now, and the two that are not on this list are the ones with no runner.
-        #expect(AgentKind.allCases.filter(\.canRunWorkspaces) == [.claudeCode, .codex, .grok])
+        // Four backends now, and the one that is not on this list is the one with no runner.
+        #expect(AgentKind.allCases.filter(\.canRunWorkspaces) == [.claudeCode, .codex, .grok, .openCode])
+        // A runner is not every feature: OpenCode has no router and no second account.
+        #expect(AgentKind.allCases.filter(\.takesPartInRouting) == [.claudeCode, .codex, .grok])
+        #expect(AgentKind.allCases.filter(\.hasAccountProfiles) == [.claudeCode, .codex, .grok])
+        #expect(AgentKind.openCode.configPath.hasSuffix("/.config/opencode"))
         // The sentence the settings screen prints, derived so it cannot say Claude Code alone
         // again once a second backend exists.
-        #expect(AgentKind.runnableSentence == "Claude Code, Codex and Grok")
+        #expect(AgentKind.runnableSentence == "Claude Code, Codex, Grok and OpenCode")
         #expect(AgentKind.claudeCode.loginCommand == "claude auth login")
         #expect(AgentKind.codex.loginCommand == "codex login")
         #expect(AgentKind.grok.loginCommand == "grok login")

@@ -48,7 +48,8 @@ public struct ModelRouter: Sendable {
         case .grok:
             return GrokRouterAsk.ask(request)
         case .cursor, .openCode:
-            // `RouterAnalyser.resolve` never chooses these; failed rather than trusted, as the last door.
+            // `RouterAnalyser.resolve` never chooses these (`takesPartInRouting`); failed rather
+            // than trusted, as the last door.
             return AsyncThrowingStream { $0.finish(throwing: ModelRouterError.unsupported(request.analyser.kind)) }
         }
     }

@@ -71,7 +71,7 @@ public enum ModelRouting {
 
     /// Whether the create window offers Auto at all.
     public static func offers(isEnabled: Bool, hasAnalyser: Bool, mode: WorkspaceStartMode, backend: AgentKind) -> Bool {
-        isEnabled && hasAnalyser && mode == .chat && backend.canRunWorkspaces
+        isEnabled && hasAnalyser && mode == .chat && backend.takesPartInRouting
     }
 
     /// Only the model, the effort and the backend take the model back from the router; a

@@ -26,7 +26,8 @@ public extension PermissionMode {
         switch kind {
         case .codex: codexLabel
         case .grok: grokLabel
-        case .claudeCode, .cursor, .openCode: claudeCodeLabel
+        case .openCode: openCodeLabel
+        case .claudeCode, .cursor: claudeCodeLabel
         }
     }
 
@@ -45,7 +46,8 @@ public extension PermissionMode {
         switch kind {
         case .codex: codexSummary
         case .grok: grokSummary
-        case .claudeCode, .cursor, .openCode: claudeCodeSummary
+        case .openCode: openCodeSummary
+        case .claudeCode, .cursor: claudeCodeSummary
         }
     }
 
@@ -66,7 +68,8 @@ public extension PermissionMode {
     func nearest(on kind: AgentKind) -> PermissionMode {
         switch self {
         case .autoReview: kind == .codex ? self : .auto
-        case .plan: kind == .codex ? .auto : self
+        // OpenCode has no Plan row either, and Ask is its strictest.
+        case .plan: kind == .codex || kind == .openCode ? .auto : self
         case .auto, .acceptEdits, .bypassPermissions: self
         }
     }
@@ -135,6 +138,26 @@ public extension PermissionMode {
         case .autoReview: "Auto"
         case .bypassPermissions: "Always approve"
         case .plan: "Plan"
+        }
+    }
+
+    /// OpenCode has no named modes: permissions are rules in its config, and Bloom adds rules at
+    /// launch. The words are Bloom's, chosen to say which rules. See `OpenCodePermission`.
+    private var openCodeLabel: String {
+        switch self {
+        case .auto, .autoReview, .plan: "Ask"
+        case .acceptEdits: "Accept edits"
+        case .bypassPermissions: "OpenCode's own rules"
+        }
+    }
+
+    private var openCodeSummary: String {
+        switch self {
+        case .auto, .autoReview, .plan: "OpenCode asks before it edits a file or runs a command."
+        case .acceptEdits: "File edits run without a prompt. Commands still ask."
+        case .bypassPermissions:
+            "Bloom adds no rule. Your OpenCode configuration decides, and it allows everything "
+                + "unless you changed it."
         }
     }
 

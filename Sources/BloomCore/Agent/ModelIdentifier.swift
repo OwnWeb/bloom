@@ -23,10 +23,10 @@ import Foundation
 /// 3. Changing the model in Settings, Models did nothing, because a repository's settings file
 ///    outranks that screen (`ComposerDefaults.resolve`) and put the same string straight back.
 ///
-/// A colon is what makes this safe to read rather than guess at: no id either CLI ships has one
-/// in it. `claude-opus-5[1m]`, `opus-5-1m` and `gpt-5.6-sol` pass through untouched, and so does
-/// `internal-preview-3:whatever`, because the part before the colon is only taken off when it
-/// names a backend Bloom actually has.
+/// A colon is what makes this safe to read rather than guess at: the part before it is only
+/// taken off when it names a backend Bloom actually has. `claude-opus-5[1m]`, `opus-5-1m` and
+/// `gpt-5.6-sol` pass through untouched, and so do `internal-preview-3:whatever` and OpenCode's
+/// `ollama/qwen3.5:4b`, whose colon follows a provider and a model rather than a backend.
 ///
 /// The second thing it reads back is a **label written where an id belongs**: a value that
 /// matches a fetched Codex model's id or display name once both are stripped to letters and
@@ -74,6 +74,10 @@ public struct ModelIdentifier: Equatable, Sendable {
             }
             if GrokModelRank.recognises(trimmed) {
                 return ModelIdentifier(model: trimmed, kind: .grok)
+            }
+            // Before Claude's, which reads `anthropic/claude-sonnet-5` by its `sonnet` token.
+            if OpenCodeModelRank.recognises(trimmed) {
+                return ModelIdentifier(model: trimmed, kind: .openCode)
             }
             if ClaudeModelRank.recognises(trimmed) {
                 return ModelIdentifier(model: trimmed, kind: .claudeCode)

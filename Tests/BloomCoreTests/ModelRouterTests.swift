@@ -793,12 +793,17 @@ struct ModelRoutingTests {
 
     @Test("a Bloom chat on any agent Bloom runs, with an analyser and something written, is routed")
     func routes() {
-        for backend in AgentKind.runnable {
+        for backend in AgentKind.runnable where backend.takesPartInRouting {
             #expect(ModelRouting.shouldRoute(
                 isEnabled: true, hasAnalyser: true, mode: .chat, backend: backend,
                 prompt: "Fix it", isResuming: false
             ))
         }
+        // OpenCode runs chats and is never routed: it has no model the router could name.
+        #expect(!ModelRouting.shouldRoute(
+            isEnabled: true, hasAnalyser: true, mode: .chat, backend: .openCode,
+            prompt: "Fix it", isResuming: false
+        ))
     }
 
     @Test("everything else is not")

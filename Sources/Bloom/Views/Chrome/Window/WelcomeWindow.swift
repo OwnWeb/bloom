@@ -372,6 +372,7 @@ enum SetupRehearsal {
         claude: SetupOutcome = .ready(detail: "you@example.com"),
         codex: SetupOutcome = .ready(detail: "you@example.com"),
         grok: SetupOutcome = .missing,
+        openCode: SetupOutcome = .missing,
         gitHub: SetupOutcome = .ready(detail: "Signed in"),
         gitLab: SetupOutcome = .missing
     ) -> SetupReport {
@@ -382,6 +383,7 @@ enum SetupRehearsal {
             SetupCheck(tool: .claudeCode, outcome: claude),
             SetupCheck(tool: .codex, outcome: codex),
             SetupCheck(tool: .grok, outcome: grok),
+            SetupCheck(tool: .openCode, outcome: openCode),
             SetupCheck(tool: .gitHub, outcome: gitHub),
             SetupCheck(tool: .gitLab, outcome: gitLab),
         ])

@@ -74,6 +74,10 @@ struct CommandLineSettingsView: View {
                 title: "Grok",
                 command: BridgeRegistration.ownerGrokAddCommand(attachment)
             )
+            commandOffer(
+                title: "OpenCode",
+                command: BridgeRegistration.ownerOpenCodeAddCommand(attachment)
+            )
         } header: {
             Text("Use Bloom from your own terminal")
         } footer: {

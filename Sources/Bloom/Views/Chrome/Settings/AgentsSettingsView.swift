@@ -76,7 +76,7 @@ struct AgentsSettingsView: View {
             } else if let status {
                 statusSection(status)
 
-                if selection.canRunWorkspaces {
+                if selection.hasAccountProfiles {
                     accountsSection(status)
                 }
 
@@ -470,7 +470,7 @@ struct AgentsSettingsView: View {
             if let store = app.store {
                 do {
                     try await store.setSetting(AgentCatalog.executablePathSettingKey(kind), value)
-                    if kind == .grok { ComposerModelCatalog.shared.refresh() }
+                    if kind == .grok || kind == .openCode { ComposerModelCatalog.shared.refresh() }
                     saveFailure = nil
                 } catch {
                     saveFailure = "The executable path for \(kind.label) could not be stored."

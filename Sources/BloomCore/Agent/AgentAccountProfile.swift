@@ -62,7 +62,7 @@ extension Store {
 
     public func createAgentAccountProfile(kind: AgentKind, name: String) throws -> AgentAccountProfile {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, kind.canRunWorkspaces else {
+        guard !trimmed.isEmpty, kind.hasAccountProfiles else {
             throw AgentAccountProfileError.invalidNameOrProvider
         }
         var profiles = try agentAccountProfiles()
