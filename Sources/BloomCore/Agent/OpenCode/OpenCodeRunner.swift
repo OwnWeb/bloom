@@ -108,6 +108,12 @@ public actor OpenCodeRunner: SessionRunner {
                        deliveryID: delivery.id, interactionMode: delivery.interactionMode)
     }
 
+    /// `applyComposerSettings` reads these on the next send, so the process and its `ses_…` stay.
+    public func adoptComposerSettings(model: String, effort: String) async {
+        session.model = model
+        session.effort = effort
+    }
+
     private func send(_ text: String, recording: Data?, deliveryID: DeliveryID?,
                       interactionMode: InteractionMode?) async throws {
         guard !wasEvicted else { throw ProviderIdleError.retired }
@@ -126,9 +132,11 @@ public actor OpenCodeRunner: SessionRunner {
         try handle.check(generation)
         let openCodeSessionID = try await openSession(on: client)
         try handle.check(generation)
-        try await applyComposerSettings(on: client, sessionID: openCodeSessionID)
-        try handle.check(generation)
+        // Before the settings: a model changed right after a stop is now set on the same session
+        // while the stopped prompt winds down, and that overlap was never measured.
         await client.waitUntilNoPrompt()
+        try handle.check(generation)
+        try await applyComposerSettings(on: client, sessionID: openCodeSessionID)
         try handle.check(generation)
 
         if deliveryID == nil {

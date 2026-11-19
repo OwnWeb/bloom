@@ -36,8 +36,9 @@ private func makeRunner(store: Store, session: Session, box: ProcessBox) -> Open
     )
 }
 
-/// A server whose model has the given effort levels. `session/resume` names no session.
-private func scriptedBox(efforts: [String] = []) -> ProcessBox {
+/// A server whose model has the given effort levels. `session/resume` names no session. A prompt
+/// is never answered unless `endsTurns`, which ends every turn at once.
+private func scriptedBox(efforts: [String] = [], endsTurns: Bool = false) -> ProcessBox {
     let box = ProcessBox()
     box.reply(to: "initialize", with: .object([:]))
     var created = OpenCodeFixture.configOptions(model: OpenCodeFixture.hostedModel).objectValue ?? [:]
@@ -47,7 +48,11 @@ private func scriptedBox(efforts: [String] = []) -> ProcessBox {
     box.reply(to: "session/set_config_option", with: OpenCodeFixture.configOptions(
         model: OpenCodeFixture.localModel, efforts: efforts
     ))
-    box.ignore("session/prompt")
+    if endsTurns {
+        box.reply(to: "session/prompt", with: .object(["stopReason": .string("end_turn")]))
+    } else {
+        box.ignore("session/prompt")
+    }
     return box
 }
 
@@ -144,6 +149,26 @@ struct OpenCodeRunnerTests {
         try await runner.send("hello")
         #expect(configOptionsSent(box).map(\.id) == ["model"])
         #expect(box.process.sentMethods.contains("session/prompt"))
+    }
+
+    @Test("a model picked between turns is set on the same process and the same session")
+    func adoptedModelKeepsTheProcess() async throws {
+        let store = try makeTestStore("opencode-adopt-model")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox(endsTurns: true)
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("one")
+        await eventually("the first turn to end") {
+            (try? await store.session(id: session.id))?.state == .idle
+        }
+        await runner.adoptComposerSettings(model: "ollama/other", effort: "")
+        try await runner.send("two")
+
+        #expect(box.processes.count == 1)
+        #expect(box.process.sentMethods.filter { $0 == "session/new" }.count == 1)
+        #expect(configOptionsSent(box).map(\.value) == [OpenCodeFixture.localModel, "ollama/other"])
     }
 
     @Test("a refused model fails the send, rather than running the turn on OpenCode's default")

@@ -78,9 +78,15 @@ public protocol SessionRunner: Actor {
 
     /// Answer one permission question. Not a turn: it unblocks a turn already in flight.
     func answer(requestID: String, decision: PermissionDecision) async
+
+    /// Take a model and an effort picked in the composer, for the next turn, on the process that
+    /// is already running. Only asked of a backend whose `AgentKind.takesComposerSettingsLive` is
+    /// true; every other one is restarted instead, see `RunnerPreferences`.
+    func adoptComposerSettings(model: String, effort: String) async
 }
 
 extension SessionRunner {
+    public func adoptComposerSettings(model: String, effort: String) async {}
     public var mayStillEndTurn: Bool { isProcessAlive }
     public func evictIfIdle(for duration: Duration) async -> Bool { false }
     public func contextBreakdown() async -> ContextBreakdown? { nil }

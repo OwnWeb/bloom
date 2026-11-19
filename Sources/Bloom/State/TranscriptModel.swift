@@ -106,33 +106,6 @@ extension TranscriptRow: ModelRouteNoteRow {}
 @MainActor
 @Observable
 final class TranscriptModel {
-    private struct RunnerPreferences: Equatable {
-        var model: String
-        var effort: String
-        var permissionMode: String
-        var agentKind: String
-        /// A launch setting of a process that outlives every turn, so a change in Settings or in
-        /// the chat's own picker reaches an open chat only by starting that process again.
-        var advisor: AdvisorLaunch
-
-        init(session: Session, advisor: AdvisorLaunch) {
-            model = session.model
-            effort = session.effort
-            permissionMode = session.permissionMode.rawValue
-            agentKind = session.agentKind.rawValue
-            // Only Claude Code has one, and another backend must not restart over it.
-            self.advisor = session.agentKind == .claudeCode ? advisor : .consult(.inherit)
-        }
-
-        /// An advisor change, often made in Settings for every chat, waits for the turn to end
-        /// rather than killing a process somebody is steering.
-        func restarts(for next: Self, midTurn: Bool) -> Bool {
-            var sameAdvisor = next
-            sameAdvisor.advisor = advisor
-            return midTurn ? self != sameAdvisor : self != next
-        }
-    }
-
     var session: Session
     let history = TranscriptHistory()
     let workspace: Workspace?
@@ -1736,6 +1709,12 @@ final class TranscriptModel {
         // keep its token too, or the next bridge call closes its still-connected transport.
         if let runner {
             if pumpTask == nil { startPump(on: runner) }
+            if var kept = runnerPreferences, kept.adoptsComposerSettings(of: preferences) {
+                kept.model = preferences.model
+                kept.effort = preferences.effort
+                runnerPreferences = kept
+                await runner.adoptComposerSettings(model: kept.model, effort: kept.effort)
+            }
             return runner
         }
         // Two registrations, because there are two identities. A chat in a worktree gets a token

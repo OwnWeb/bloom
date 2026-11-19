@@ -22,4 +22,14 @@ public extension AgentKind {
     var hasAccountProfiles: Bool {
         canRunWorkspaces && self != .openCode
     }
+
+    /// Whether a model or effort picked in the composer reaches the running process without
+    /// starting it again.
+    ///
+    /// OpenCode sets both with `session/set_config_option` before every prompt, so a restart would
+    /// only cost a server and a pty daemon. Grok sets them the same way but was never measured
+    /// keeping a changed model across turns, so it still restarts.
+    var takesComposerSettingsLive: Bool {
+        self == .openCode
+    }
 }
