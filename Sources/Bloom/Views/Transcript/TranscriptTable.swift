@@ -402,6 +402,11 @@ struct TranscriptTable: NSViewRepresentable {
         /// and then forgotten, it left a returning reader at the top: in the lab, coming back to
         /// the middle of `longue` revealed it at nought with its remembered row never applied.
         private var pendingPlacement: (() -> Void)?
+        /// Whether this conversation has been put somewhere or scrolled since the pane was pointed
+        /// at it. Until then the clip view stands at the top row, which is nobody's place.
+        private var isPlaced = false
+        /// A reveal asked of a pane with no height, made once it has one. See `arrived`.
+        private var revealIsOwed = false
         /// Where the clip view stood at its last bounds change. See `logJumpUp`.
         private var lastClipOrigin: CGFloat = 0
         /// The last point `put(_:in:)` was asked for, before clamping. See `logJumpUp`.
@@ -1301,6 +1306,14 @@ struct TranscriptTable: NSViewRepresentable {
             includesLiveEnd && currentGeometry.isAtEnd
         }
 
+        /// Whether the clip view is where a reader was put or went. A pane with no height, or one
+        /// still owed its placement, reads as its top row: replayed after the first layout, that
+        /// threw a conversation opened at its end back to the top.
+        private var hasPlace: Bool {
+            isPlaced && pendingPlacement == nil && (!holdsEnd || endLanded)
+                && TranscriptAnchor.canPlace(viewportHeight: Double(currentGeometry.viewportHeight))
+        }
+
         // MARK: Scrolling
 
         var currentGeometry: TranscriptTableGeometry {
@@ -1634,6 +1647,7 @@ struct TranscriptTable: NSViewRepresentable {
             guard TranscriptAnchor.canPlace(viewportHeight: Double(clip.bounds.height)) else {
                 return
             }
+            isPlaced = true
             lastPutAsked = y
             let target = TranscriptAnchor.clamped(
                 y,
@@ -1793,6 +1807,7 @@ struct TranscriptTable: NSViewRepresentable {
         @objc private func liveScrollBegan() {
             guard !isLiveScrolling else { return }
             isLiveScrolling = true
+            isPlaced = true
             setLiveScrollClipping(true)
             // The reader outranks every standing claim on this view, including one made by a
             // follower that is about to be paused for exactly this reason.
@@ -2113,6 +2128,7 @@ struct TranscriptTable: NSViewRepresentable {
 
         private func viewportDidResize() {
             applyPendingPlacement()
+            revealIfOwed()
             guard viewportPlace != nil else { return }
             viewportWork?.cancel()
             viewportWork = Task { @MainActor [weak self] in
@@ -2131,10 +2147,26 @@ struct TranscriptTable: NSViewRepresentable {
             }
         }
 
+        /// A turn later, because the reveal lays the pane out and this is called from inside the
+        /// scroll view's own resize.
+        private func revealIfOwed() {
+            guard revealIsOwed,
+                  TranscriptAnchor.canPlace(viewportHeight: Double(currentGeometry.viewportHeight))
+            else { return }
+            revealIsOwed = false
+            let session = shownSession
+            Task { @MainActor [weak self] in
+                guard let self, shownSession == session else { return }
+                holdView?.ready()
+            }
+        }
+
         /// The conversation a pane was pointed at is in, and the pane is about to fade to it.
         /// A reflow, because the pane may have changed width while it drew nothing.
         func holdEnded() {
             rewidth(keeping: nil, withMargin: true)
+            // An end refused for want of a height is landed before the fade, whatever the width did.
+            if holdsEnd, !endLanded { putEnd() }
             // The first upward scroll otherwise does all of the older rows' height work itself.
             // Start the same cancellable preparation used after a scroll once the new pane is
             // visible and its landing has been measured.
@@ -2165,6 +2197,8 @@ struct TranscriptTable: NSViewRepresentable {
             deferredWarmHeights.removeAll()
             forgetKeptPlace()
             pendingPlacement = nil
+            isPlaced = false
+            revealIsOwed = false
             lastClipOrigin = 0
             lastPutAsked = 0
             // Nothing in the reuse pool belongs to this conversation, whatever key it says it
@@ -2179,7 +2213,16 @@ struct TranscriptTable: NSViewRepresentable {
         }
 
         /// The conversation is in and in the right place. See `TranscriptTableController.arrived`.
-        func arrived() { holdView?.ready() }
+        ///
+        /// A pane with no height is not revealed: what would fade in is its top row, with the
+        /// placement still owed. `viewportDidResize` reveals it, or the hold's own deadline does.
+        func arrived() {
+            guard TranscriptAnchor.canPlace(viewportHeight: Double(currentGeometry.viewportHeight)) else {
+                revealIsOwed = true
+                return
+            }
+            holdView?.ready()
+        }
 
         /// **The transcript, laid out at the width the pane is now.**
         ///
@@ -2205,9 +2248,13 @@ struct TranscriptTable: NSViewRepresentable {
             if let place {
                 wasAtEnd = place.wasAtEnd
                 anchor = place.anchor
-            } else {
+            } else if hasPlace {
                 wasAtEnd = isFollowingAlong
                 anchor = centreAnchor()
+            } else {
+                // Nothing to keep. A held end still lands through `keepPlace`.
+                wasAtEnd = false
+                anchor = nil
             }
             // **Before the measuring, and that is not tidiness.** A user bubble is capped at a
             // share of the pane's width, and the pane publishes that cap through this report. Rows
