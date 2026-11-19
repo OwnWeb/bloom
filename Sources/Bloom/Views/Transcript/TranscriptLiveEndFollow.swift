@@ -312,9 +312,13 @@ final class TranscriptLiveEndFollower {
         ) {
             let shrunk = shrunkSinceMark
             let session = label
+            // The last event says whether a key or a wheel came first: a key scrolls with no
+            // live scroll phase, so nothing else tells a reader paging up from a jump.
+            let event = TranscriptScrollEvidence.lastEvent()
             Log.transcript.notice("""
                 follower let the end go in \(session, privacy: .public): at \(offset, privacy: .public), \
-                put at \(lastPut, privacy: .public), document shorter by \(shrunk, privacy: .public)
+                put at \(lastPut, privacy: .public), document shorter by \(shrunk, privacy: .public), \
+                last event: \(event, privacy: .public)
                 """)
             ownsGap = false
         }
@@ -346,8 +350,12 @@ final class TranscriptLiveEndFollower {
     }
 
     private func put(_ y: CGFloat, in clip: NSClipView, of scrollView: NSScrollView) {
+        // Said to the table, which otherwise sees this move as one nobody made.
+        let transcriptScroll = scrollView as? TranscriptScrollView
+        transcriptScroll?.isFollowerPutting = true
         clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))
         scrollView.reflectScrolledClipView(clip)
+        transcriptScroll?.isFollowerPutting = false
         // Read back rather than remembered, because a clip view snaps its origin to the backing
         // store and clamps it to the document: what the next frame compares against has to be
         // where the view actually is, or every frame would read its own rounding as a reader.

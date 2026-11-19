@@ -183,6 +183,10 @@ final class TranscriptScrollView: NSScrollView {
     var willResizeViewport: (() -> Void)?
     var didResizeViewport: (() -> Void)?
     var onUserWheel: (() -> Void)?
+    /// The two writers of the clip view that are neither the table nor a reader, said while they
+    /// write so a move can be told from one nobody made. See `Coordinator.noteClipMove`.
+    private(set) var isResizingViewport = false
+    var isFollowerPutting = false
 
     override func scrollWheel(with event: NSEvent) {
         // Some mice never send live-scroll notifications. Claim the gesture before AppKit moves
@@ -194,7 +198,10 @@ final class TranscriptScrollView: NSScrollView {
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         if changed { willResizeViewport?() }
+        let wasResizing = isResizingViewport
+        isResizingViewport = true
         super.setFrameSize(newSize)
+        isResizingViewport = wasResizing
         if changed { didResizeViewport?() }
     }
 
@@ -411,6 +418,41 @@ struct TranscriptTable: NSViewRepresentable {
         private var lastClipOrigin: CGFloat = 0
         /// The last point `put(_:in:)` was asked for, before clamping. See `logJumpUp`.
         private var lastPutAsked: CGFloat = 0
+        /// The clip view's height at its last bounds change. A different one is the pane resizing.
+        private var lastClipHeight: CGFloat = 0
+        /// The last move of the clip view and who was writing it. See `noteClipMove`.
+        private var lastMove: ClipMove?
+        /// What last told the table a height, and the last change to its rows: what an end let go
+        /// by position is blamed on. Kept raw and worded only when that line is written.
+        private var lastHeightNote: HeightNote?
+        private var lastRowChange: RowChange?
+        private var moveBudget = TranscriptClipMove.Budget()
+        /// Whether this bounds change has already logged its stack, so a line is not given two.
+        private var saidStackForMove = false
+        /// Whether `clipMoved` is running a turn after its notification. See `isNotingHeights`.
+        private var isReplayingClipMove = false
+        /// Past this many rows a height note says only how many, not how far they moved.
+        private static let measuredNoteRows = 4
+
+        private struct ClipMove {
+            var from: CGFloat
+            var to: CGFloat
+            var writers: TranscriptClipMove.Writers
+            var at: CFTimeInterval
+        }
+
+        private struct HeightNote {
+            var cause: StaticString
+            var rows: Int
+            var first: TranscriptEntryID?
+            var grew: CGFloat?
+            var at: CFTimeInterval
+        }
+
+        private struct RowChange {
+            var change: TranscriptEntryChange
+            var at: CFTimeInterval
+        }
         private static let jumpStackDepth = 40
         private static let jumpChunkBytes = 800
         /// A pane reflow that began at the end is not a user scroll. AppKit can deliver the
@@ -674,6 +716,7 @@ struct TranscriptTable: NSViewRepresentable {
             // then reload on top of them, so the reload had every staged row view to tear off the
             // window as well as the ones on screen, at O(n²) in the observers each one removes.
             let plan = TranscriptTableUpdate.plan(change: change, environmentMoved: environmentMoved)
+            if change.movesRows { lastRowChange = RowChange(change: change, at: CACurrentMediaTime()) }
             // New live rows must enter at their measured height. An estimate followed by a
             // correction gave the scroll animation two different destinations during one send.
             if wasAtEnd || isFollowerDriving, case .rows(.grew(let head, let tail)) = plan {
@@ -1196,8 +1239,11 @@ struct TranscriptTable: NSViewRepresentable {
         ///
         /// The exception is a fold the reader has just clicked open, which is the one height
         /// change in this file that somebody asked for. See `unfoldSeconds`.
-        private func noteHeights(_ rows: IndexSet, over seconds: Double = 0) {
+        private func noteHeights(
+            _ rows: IndexSet, over seconds: Double = 0, for cause: StaticString = #function
+        ) {
             guard let tableView, !rows.isEmpty else { return }
+            remember(noting: rows, for: cause, in: tableView)
             isNotingHeights = true
             defer { isNotingHeights = false }
             (tableView as? TranscriptTableView)?.deferRowAlignment(for: seconds)
@@ -1226,6 +1272,22 @@ struct TranscriptTable: NSViewRepresentable {
             NSAnimationContext.endGrouping()
             TranscriptHoldCensus.noted(
                 rows: rows.count, seconds: TranscriptHoldCensus.since(started)
+            )
+        }
+
+        /// Twenty-six ends in twenty-seven were let go a few points short with nothing to say
+        /// which row had grown under them. Read before the table is told, so the old height is
+        /// still the one it holds.
+        private func remember(noting rows: IndexSet, for cause: StaticString, in tableView: NSTableView) {
+            let first = rows.first.flatMap { entries.indices.contains($0) ? entries[$0].id : nil }
+            var grew: CGFloat?
+            if rows.count <= Self.measuredNoteRows {
+                grew = rows.filter { entries.indices.contains($0) }.reduce(0) { total, row in
+                    total + CGFloat(owedHeight(of: entries[row])) - tableView.rect(ofRow: row).height
+                }
+            }
+            lastHeightNote = HeightNote(
+                cause: cause, rows: rows.count, first: first, grew: grew, at: CACurrentMediaTime()
             )
         }
 
@@ -1558,30 +1620,109 @@ struct TranscriptTable: NSViewRepresentable {
         /// A jump up of more than a screen with no live scroll behind it, logged with the stack that
         /// made it: conversations shown at their end were thrown to the top a few milliseconds later.
         /// A jump up somebody asked for, like Back, is logged too.
-        private func logJumpUp() {
-            guard let scrollView else { return }
-            let clip = scrollView.contentView.bounds
-            let from = lastClipOrigin
-            lastClipOrigin = clip.origin.y
-            guard !isLiveScrolling, clip.height > 0, from - clip.origin.y > clip.height else { return }
+        private func logJumpUp(from: CGFloat, clip: CGRect, document: CGFloat) -> Bool {
+            guard !isLiveScrolling, clip.height > 0, from - clip.origin.y > clip.height else { return false }
             let session = shownSession?.rawValue ?? "-"
             let putting = isPutting
             let asked = lastPutAsked
-            let document = scrollView.documentView?.frame.height ?? 0
             Log.transcript.notice("""
                 view thrown up in \(session, privacy: .public) from \(from, privacy: .public) to \
                 \(clip.origin.y, privacy: .public), putting: \(putting, privacy: .public), asked \
                 \(asked, privacy: .public) of \(document, privacy: .public)pt
                 """)
-            // One line per chunk: os_log cuts a message at about 1 KB, which lost every caller.
+            sayStack(as: "jump stack")
+            return true
+        }
+
+        /// One line per chunk: os_log cuts a message at about 1 KB, which lost every caller.
+        private func sayStack(as name: String) {
+            guard !saidStackForMove else { return }
+            saidStackForMove = true
             for (part, chunk) in Self.jumpStackChunks().enumerated() {
-                Log.transcript.notice("jump stack \(part, privacy: .public): \(chunk, privacy: .public)")
+                Log.transcript.notice("\(name, privacy: .public) \(part, privacy: .public): \(chunk, privacy: .public)")
             }
+        }
+
+        /// **Says a move of the clip view that nobody claims, which is a jump.**
+        ///
+        /// Who is writing is sampled here, at the notification: by the time a deferred `clipMoved`
+        /// runs every flag has dropped. `view thrown up` above logs moves somebody asked for and
+        /// misses any shorter than a screen, so this is the line the redesign's invariant reads.
+        private func noteClipMove() {
+            saidStackForMove = false
+            guard let scrollView else { return }
+            let clip = scrollView.contentView.bounds
+            let from = lastClipOrigin
+            let viewportMoved = clip.height != lastClipHeight
+            lastClipOrigin = clip.origin.y
+            lastClipHeight = clip.height
+            guard from != clip.origin.y else { return }
+            let now = CACurrentMediaTime()
+            let writers = clipWriters(viewportMoved: viewportMoved, at: now)
+            lastMove = ClipMove(from: from, to: clip.origin.y, writers: writers, at: now)
+            let document = scrollView.documentView?.frame.height ?? 0
+            let thrown = logJumpUp(from: from, clip: clip, document: document)
+            guard TranscriptClipMove.isUnexplained(from: Double(from), to: Double(clip.origin.y), writers: writers),
+                  let unsaid = moveBudget.spend(at: now) else { return }
+            let session = shownSession?.rawValue ?? "-"
+            let state = "holding the end: \(holdsEnd), follower driving: \(isFollowerDriving), "
+                + "noting: \(isNotingHeights || isApplyingWarmHeights), held: \(holdView?.isHolding == true)"
+            let event = TranscriptScrollEvidence.lastEvent()
+            Log.transcript.notice("""
+                unexplained move in \(session, privacy: .public) from \(from, privacy: .public) to \
+                \(clip.origin.y, privacy: .public) of \(document, privacy: .public)pt, viewport \
+                \(clip.height, privacy: .public)pt, \(state, privacy: .public), last event: \
+                \(event, privacy: .public), unsaid before: \(unsaid, privacy: .public)
+                """)
+            if !thrown { sayStack(as: "move stack") }
+        }
+
+        private func clipWriters(viewportMoved: Bool, at now: CFTimeInterval) -> TranscriptClipMove.Writers {
+            var writers: TranscriptClipMove.Writers = []
+            let scroll = scrollView as? TranscriptScrollView
+            if isPutting { writers.insert(.table) }
+            if scroll?.isFollowerPutting == true { writers.insert(.follower) }
+            if (tableView as? TranscriptTableView)?.isResizingDocument == true { writers.insert(.documentResize) }
+            if viewportMoved || scroll?.isResizingViewport == true { writers.insert(.viewportResize) }
+            // Momentum goes on a moment after the last wheel event, as `watchForQuiet` allows.
+            if isLiveScrolling || now - lastLiveScroll < Self.quietSeconds { writers.insert(.reader) }
+            return writers
+        }
+
+        /// What had just changed under an end let go by position, in the words of one log line.
+        private func releaseEvidence() -> String {
+            var parts = ["replayed: \(isReplayingClipMove)"]
+            if let move = lastMove {
+                parts.append(
+                    "moved \(move.from) to \(move.to) by \(move.writers) \(TranscriptScrollEvidence.age(of: move.at))ms ago"
+                )
+            }
+            if let note = lastHeightNote {
+                let first = note.first.map { String(describing: $0) } ?? "-"
+                let grew = note.grew.map { "\($0)pt" } ?? "unmeasured"
+                parts.append(
+                    "heights by \(note.cause): \(note.rows) from \(first), \(grew), "
+                        + "\(TranscriptScrollEvidence.age(of: note.at))ms ago"
+                )
+            }
+            if let rows = lastRowChange {
+                parts.append("rows \(rows.change) \(TranscriptScrollEvidence.age(of: rows.at))ms ago")
+            }
+            if let resize = (tableView as? TranscriptTableView)?.lastResize {
+                parts.append(
+                    "document \(resize.from) to \(resize.to)pt \(TranscriptScrollEvidence.age(of: resize.at))ms ago"
+                )
+            }
+            parts.append("last event: \(TranscriptScrollEvidence.lastEvent())")
+            return parts.joined(separator: "; ")
         }
 
         /// The caller frames only, as `Module symbol + offset`, without the notification plumbing.
         private static func jumpStackChunks() -> [String] {
-            let plumbing = ["logJumpUp", "clipMoved", "Notification", "CFXRegistrationPost", "CFXNotificationPost"]
+            let plumbing = [
+                "logJumpUp", "noteClipMove", "sayStack", "clipMoved", "Notification", "CFXRegistrationPost",
+                "CFXNotificationPost"
+            ]
             let frames = Thread.callStackSymbols
                 .map { $0.split(separator: " ", omittingEmptySubsequences: true) }
                 .filter { $0.count > 3 }
@@ -1760,7 +1901,7 @@ struct TranscriptTable: NSViewRepresentable {
         // MARK: What the scroll view says
 
         @objc private func clipMoved() {
-            logJumpUp()
+            noteClipMove()
             // Correcting prepared heights can move the document while the reader's row is held
             // still. It must not release the live end or restart the idle task that made it.
             guard !isApplyingWarmHeights else { return }
@@ -1774,7 +1915,9 @@ struct TranscriptTable: NSViewRepresentable {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     clipMoveIsScheduled = false
+                    isReplayingClipMove = true
                     clipMoved()
+                    isReplayingClipMove = false
                 }
                 return
             }
@@ -1791,10 +1934,14 @@ struct TranscriptTable: NSViewRepresentable {
                !isSettlingResizeAtEnd, !currentGeometry.isAtEnd {
                 let shown = currentGeometry
                 let session = shownSession?.rawValue ?? "-"
+                let evidence = releaseEvidence()
                 Log.transcript.notice("""
                     end released in \(session, privacy: .public): moved to \(shown.offset, privacy: .public) of \
-                    \(shown.contentHeight, privacy: .public)pt, viewport \(shown.viewportHeight, privacy: .public)pt
+                    \(shown.contentHeight, privacy: .public)pt, viewport \(shown.viewportHeight, privacy: .public)pt; \
+                    \(evidence, privacy: .public)
                     """)
+                // A turn later the stack is the task's own and names nobody.
+                if !isReplayingClipMove { sayStack(as: "release stack") }
                 releaseEnd()
             }
             // The reader is moving, so preparation stops until the view settles again.

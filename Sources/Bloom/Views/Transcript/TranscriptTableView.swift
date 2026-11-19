@@ -1,5 +1,6 @@
 import AppKit
 import BloomCore
+import QuartzCore
 
 /// AppKit can retain realised row origins after a resize even though rect(ofRow:) and the
 /// document height have already changed. In a live transcript the final cells were 92 points
@@ -70,8 +71,27 @@ final class TranscriptTableView: NSTableView {
     /// The layout is asked for here as well, rather than trusting a frame change to ask for one.
     override func setFrameSize(_ newSize: NSSize) {
         let widthMoved = newSize.width != frame.width
+        if newSize.height != frame.height {
+            lastResize = DocumentResize(from: frame.height, to: newSize.height, at: CACurrentMediaTime())
+        }
+        let wasResizing = isResizingDocument
+        isResizingDocument = true
         super.setFrameSize(newSize)
+        isResizingDocument = wasResizing
         if widthMoved { needsLayout = true }
+    }
+
+    /// Whether AppKit is changing the document's size right now. A clip view moving inside that
+    /// is the system keeping its origin in range: all sixteen logged jumps with no placement
+    /// behind them came through here.
+    private(set) var isResizingDocument = false
+    /// The document's last change of height, for the line that says an end was let go.
+    private(set) var lastResize: DocumentResize?
+
+    struct DocumentResize {
+        var from: CGFloat
+        var to: CGFloat
+        var at: CFTimeInterval
     }
 
     override func layout() {
