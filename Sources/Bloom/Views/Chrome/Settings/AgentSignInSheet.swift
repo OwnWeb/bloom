@@ -32,20 +32,22 @@ struct AgentSignInSheet: View {
     @State private var failure: String?
     @State private var exit: TerminalExit?
 
+    private var wording: AgentSignInWording { AgentSignInWording(kind: request.kind) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.gutter) {
             Text(request.profile.map { "Sign in to \($0.name)" }
-                ?? AgentSignInWording(kind: request.kind, isConnected: request.isSwitchingAccount).title)
+                ?? wording.title)
                 .font(Typo.heading)
                 .foregroundStyle(Palette.textPrimary)
 
-            Text("Follow the prompts below to sign in. If a browser opens, finish signing in there.")
+            Text(wording.intro)
                 .font(Typo.label)
                 .foregroundStyle(Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if request.isSwitchingAccount && request.profile == nil {
-                Text("This changes the account used by \(request.kind.label) on this Mac.")
+            if request.isSwitchingAccount && request.profile == nil, let note = wording.switchingNote {
+                Text(note)
                     .settingsFootnote()
             }
 
@@ -80,7 +82,7 @@ struct AgentSignInSheet: View {
                     .foregroundStyle(Palette.warning)
                     .fixedSize(horizontal: false, vertical: true)
             } else if exit != nil {
-                Text("Sign-in command finished.")
+                Text(wording.finished)
                     .font(Typo.label)
                     .foregroundStyle(Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -88,14 +90,14 @@ struct AgentSignInSheet: View {
 
             HStack(spacing: Metrics.gutter) {
                 if request.profile == nil {
-                    Button("Copy sign-in command") {
+                    Button(wording.copyCommand) {
                         Clipboard.copy(TerminalLaunchScript.shellCommand(
                             directory: request.directory,
                             executable: request.executable,
                             arguments: request.kind.loginArguments
                         ))
                     }
-                    .help("Run this command in your own terminal to sign in.")
+                    .help(wording.copyHelp)
                 }
 
                 Spacer()
@@ -132,7 +134,7 @@ struct AgentSignInSheet: View {
             onExit: { result in
                 exit = result
                 if result != .exited(0) {
-                    failure = "Sign-in did not finish. Check the terminal above, then try again."
+                    failure = wording.unfinished
                 }
                 onExit()
             }
