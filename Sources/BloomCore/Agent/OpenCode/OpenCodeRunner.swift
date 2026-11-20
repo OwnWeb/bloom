@@ -40,6 +40,10 @@ public actor OpenCodeRunner: SessionRunner {
     private let handle = CodexTurnHandle()
     private let sink = AgentPresentationFeed()
     private var sendsInFlight = 0
+    /// OpenCode has no plan item: a plan turn's answer is its last text block, recorded as the
+    /// plan when the turn ends normally. See "Plan mode" in `docs/OPENCODE.md`.
+    private var turnMode = InteractionMode.build
+    private var planCandidate: AgentTextBlock?
     private var wasEvicted = false
     private var trouble = PersistenceTrouble()
     private let bridge: BridgeAttachment?
@@ -151,6 +155,8 @@ public actor OpenCodeRunner: SessionRunner {
         }
         try handle.check(generation)
 
+        turnMode = interactionMode ?? session.interactionMode
+        planCandidate = nil
         if let deliveryID { try await store.beginDeliveryDispatch(id: deliveryID) }
         let promptID = try await client.beginPrompt(sessionID: openCodeSessionID, text: text)
         if let deliveryID { try await store.acceptDelivery(id: deliveryID, providerTurnID: promptID.turnID) }
@@ -376,6 +382,16 @@ public actor OpenCodeRunner: SessionRunner {
 
     // MARK: - Events
 
+    private func recordPlan(endingWith result: AgentResult) async {
+        defer { planCandidate = nil }
+        guard turnMode == .plan, result.stopReason == "end_turn", let plan = planCandidate else { return }
+        do {
+            _ = try await store.recordPlan(sessionID: session.id, sourceID: plan.messageID, markdown: plan.text)
+        } catch {
+            await report("could not save the proposed plan", error)
+        }
+    }
+
     private func handle(_ event: OpenCodeEvent, from generation: UInt64) async {
         guard generation == connectionGeneration else { return }
 
@@ -420,8 +436,12 @@ public actor OpenCodeRunner: SessionRunner {
         if let endingTurn, !handle.acceptsTerminal(turnID: endingTurn, intent: intent) { return }
 
         switch event {
+        case .assistantText(let block):
+            planCandidate = block
+
         case .result(let result):
             handle.end()
+            await recordPlan(endingWith: result)
             session.apply(.turnFinished(isError: result.isError))
             session = session.with {
                 $0.inputTokens += result.usage.inputTokens

@@ -267,6 +267,36 @@ struct OpenCodeRunnerTests {
         #expect(!box.process.sentMethods.contains("session/prompt"))
     }
 
+    @Test("a plan turn's last answer is recorded as the plan, and a build turn's is not", arguments: [
+        InteractionMode.plan, .build,
+    ])
+    func planTurnRecordsItsAnswer(mode: InteractionMode) async throws {
+        let store = try makeTestStore("opencode-plan-artefact-\(mode.rawValue)")
+        let session = try await makeOpenCodeSession(store, interactionMode: mode)
+        let box = scriptedBox()
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("plan it")
+        let prompt = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
+        let promptID = try #require(prompt["id"])
+        box.process.emit(Self.textChunkLine("1. Add subtract.\n2. Test it."))
+        box.process.emit("{\"jsonrpc\":\"2.0\",\"id\":\(promptID.compactJSON),\"result\":{\"stopReason\":\"end_turn\"}}")
+        await eventually("the turn to end") {
+            (try? await store.session(id: session.id))?.state == .idle
+        }
+        let plans = try await store.planArtefacts(sessionID: session.id)
+        #expect(plans.map(\.markdown) == (mode == .plan ? ["1. Add subtract.\n2. Test it."] : []))
+    }
+
+    private static func textChunkLine(_ text: String) -> String {
+        let params = JSONValue.object(["sessionId": .string("ses_1"), "update": .object([
+            "sessionUpdate": .string("agent_message_chunk"),
+            "content": .object(["type": .string("text"), "text": .string(text)]),
+        ])])
+        return "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":\(params.compactJSON)}"
+    }
+
     @Test("an effort left over from another model is dropped, and the turn still starts")
     func effortNotOfferedIsNotSent() async throws {
         let store = try makeTestStore("opencode-effort-missing")
