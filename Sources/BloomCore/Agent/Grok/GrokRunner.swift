@@ -131,8 +131,10 @@ public actor GrokRunner: SessionRunner {
         }
         try handle.check(generation)
 
+        // A /btw conversation's first question carries the parent's context; the stored row does not.
+        let prompt = try await store.sideConversationTurn(text, sessionID: sessionID)
         if let deliveryID { try await store.beginDeliveryDispatch(id: deliveryID) }
-        let promptID = try await client.beginPrompt(sessionID: grokSessionID, text: text)
+        let promptID = try await client.beginPrompt(sessionID: grokSessionID, text: prompt)
         if let deliveryID { try await store.acceptDelivery(id: deliveryID, providerTurnID: promptID.turnID) }
         guard handle.begin(turnID: promptID.turnID, generation: generation) else {
             await client.cancel(sessionID: grokSessionID)
@@ -141,6 +143,10 @@ public actor GrokRunner: SessionRunner {
 
         session.apply(.turnStarted)
         await save(session)
+        if prompt != text {
+            // The prompt was accepted. A refused one leaves the context for the next attempt.
+            try? await store.acknowledgeSideConversationContext(sessionID: sessionID)
+        }
     }
 
     public nonisolated func cancelNow() {

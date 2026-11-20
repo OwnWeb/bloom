@@ -297,6 +297,11 @@ struct ChatToolTests {
         #expect(claudeAuto.modes(on: .codex) == (.auto, .build))
         #expect(claudeAuto.modes(on: .grok) == (.auto, .build))
         #expect(ownerOrder.modes(on: .codex) == (.plan, .build))
+        // OpenCode has no Plan permission, so asking for it refuses the chat.
+        #expect(claudePlan.modes(on: .openCode) == (.plan, .build))
+        #expect(codexReadOnly.modes(on: .openCode) == (.plan, .build))
+        #expect(PermissionMode.plan.nearest(on: .openCode) != .plan)
+        #expect(claudeAuto.modes(on: .openCode) == (.auto, .build))
     }
 
     @Test("create rejects malformed composer choices before asking the app")

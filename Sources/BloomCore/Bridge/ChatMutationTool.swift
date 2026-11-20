@@ -104,13 +104,14 @@ public struct ChatCreateOrder: Sendable, Equatable {
 
 extension ChatCreateOrder {
     /// An agent's message runs in its caller's modes on the new chat's agent. A caller that may not
-    /// write stays so: Codex and OpenCode hold that as the Plan work mode, the others as the Plan
-    /// permission mode.
+    /// write stays so: Codex holds that as the Plan work mode, Claude Code as the Plan permission
+    /// mode. OpenCode holds it as neither: its plan agent refuses edits but runs the user's MCP
+    /// tools without a card, so a Plan permission is asked for and refused as one it does not have.
     public func modes(on agent: AgentKind) -> (permission: PermissionMode?, interaction: InteractionMode?) {
         guard let sender = messageSenderAgent, sender != agent else { return (permissionMode, interactionMode) }
         let readOnly = permissionMode == .plan || interactionMode == .plan
             || (sender == .codex && permissionMode == .auto)
-        if InteractionMode.supports(agent) {
+        if agent == .codex {
             return (readOnly ? .auto : permissionMode?.nearest(on: agent), readOnly ? .plan : .build)
         }
         return (readOnly ? .plan : permissionMode?.nearest(on: agent), .build)

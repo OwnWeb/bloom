@@ -87,6 +87,26 @@ struct OpenCodeClientTests {
         #expect(OpenCodePermission.configContent(for: .bypassPermissions) == nil)
     }
 
+    @Test("a reply that only asks is not a plan", arguments: [
+        "How should the test be written?",
+        "Which framework do you want?\n1. unittest\n2. pytest",
+        "Before I plan this, two questions:\n- Which Python version?\n- Is pytest allowed?",
+        "Should it go in main.py?\n\n```python\ndef subtract(a, b): ...\n```\nOr in a new module?",
+    ])
+    func questionIsNotAPlan(reply: String) {
+        #expect(!OpenCodePlanReply.isPlan(reply))
+    }
+
+    @Test("a reply that plans is a plan, even when it ends by asking", arguments: [
+        "## Proposed plan\n1. Add subtract.\n2. Test it.\n\nShall I go ahead?",
+        "I will add subtract below add, then cover it with unittest.\nTell me if you prefer pytest?",
+        "1. Add subtract.\n2. Test it.",
+        "| Step | File |\n|---|---|\n| 1 | main.py |",
+    ])
+    func planIsAPlan(reply: String) {
+        #expect(OpenCodePlanReply.isPlan(reply))
+    }
+
     @Test("plan is offered on OpenCode, and Codex's unavailable flag only greys out Codex")
     func planAvailabilityIsPerAgent() {
         #expect(InteractionMode.plan.nearest(on: .openCode) == .plan)

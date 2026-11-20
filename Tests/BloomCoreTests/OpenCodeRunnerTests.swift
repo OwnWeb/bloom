@@ -69,6 +69,12 @@ private func configOptionsSent(_ box: ProcessBox) -> [(id: String, value: String
         .map { ($0["params"]?["configId"]?.stringValue ?? "", $0["params"]?["value"]?.stringValue ?? "") }
 }
 
+private func promptTexts(_ box: ProcessBox) -> [String] {
+    box.process.stdin.compactMap(JSONValue.parse)
+        .filter { $0["method"]?.stringValue == "session/prompt" }
+        .compactMap { $0["params"]?["prompt"]?[0]?["text"]?.stringValue }
+}
+
 private func eventually(
     _ description: String,
     sourceLocation: SourceLocation = #_sourceLocation,
@@ -277,15 +283,21 @@ struct OpenCodeRunnerTests {
 
     /// A refusal reads as a finished turn rather than an error, so only the stop reason keeps its
     /// preamble from becoming the plan.
+    @Test("a plan turn that ends on a question records no plan")
+    func questionPlanTurnRecordsNothing() async throws {
+        #expect(try await planArtefacts(mode: .plan, stopReason: "end_turn", reply: "Which framework?").isEmpty)
+    }
+
     @Test("a plan turn ended by a refused card records no plan")
     func refusedPlanTurnRecordsNothing() async throws {
         #expect(try await planArtefacts(mode: .plan, stopReason: "cancelled", refusingATool: true).isEmpty)
     }
 
     private func planArtefacts(
-        mode: InteractionMode, stopReason: String, refusingATool: Bool = false
+        mode: InteractionMode, stopReason: String, refusingATool: Bool = false,
+        reply: String = "1. Add subtract.\n2. Test it."
     ) async throws -> [String] {
-        let store = try makeTestStore("opencode-plan-artefact-\(mode.rawValue)-\(stopReason)")
+        let store = try makeTestStore("opencode-plan-artefact-\(mode.rawValue)-\(stopReason)-\(reply.count)")
         let session = try await makeOpenCodeSession(store, interactionMode: mode)
         let box = scriptedBox()
         let runner = makeRunner(store: store, session: session, box: box)
@@ -294,7 +306,7 @@ struct OpenCodeRunnerTests {
         try await runner.send("plan it")
         let prompt = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
         let promptID = try #require(prompt["id"])
-        box.process.emit(Self.textChunkLine("1. Add subtract.\n2. Test it."))
+        box.process.emit(Self.textChunkLine(reply))
         if refusingATool { box.process.emit(Self.declinedToolLine()) }
         box.process.emit(
             "{\"jsonrpc\":\"2.0\",\"id\":\(promptID.compactJSON),\"result\":{\"stopReason\":\"\(stopReason)\"}}"
@@ -323,6 +335,30 @@ struct OpenCodeRunnerTests {
             "content": .object(["type": .string("text"), "text": .string(text)]),
         ])])
         return "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":\(params.compactJSON)}"
+    }
+
+    @Test("a /btw conversation's first question carries the parent's context, and only the first")
+    func sideConversationCarriesContextOnce() async throws {
+        let store = try makeTestStore("opencode-side-conversation")
+        let parent = try await makeOpenCodeSession(store, agentSessionID: "ses_parent")
+        let child = try await store.openSideConversation(parentID: parent.id, streamingText: "Original context")
+        let box = scriptedBox(endsTurns: true)
+        let runner = makeRunner(store: store, session: child, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("Why?")
+        await eventually("the first turn to end") {
+            (try? await store.session(id: child.id))?.state.isMidTurn == false
+        }
+        try await runner.send("And then?")
+
+        let prompts = promptTexts(box)
+        #expect(prompts.count == 2)
+        #expect(prompts.first?.contains("Original context") == true)
+        #expect(prompts.last == "And then?")
+        #expect(try await store.setting(SideConversation.contextDeliveredKey(child.id)) == "1")
+        let questions = try await store.messages(sessionID: child.id).filter { $0.kind == .user }
+        #expect(questions.map { UserTurnPrompt.text(in: $0.payload) } == ["Why?", "And then?"])
     }
 
     @Test("an effort left over from another model is dropped, and the turn still starts")

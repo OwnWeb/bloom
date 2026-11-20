@@ -42,6 +42,12 @@ private func scriptedGrokBox() -> ProcessBox {
     return box
 }
 
+private func promptTexts(_ box: ProcessBox) -> [String] {
+    box.process.stdin.compactMap(JSONValue.parse)
+        .filter { $0["method"]?.stringValue == "session/prompt" }
+        .compactMap { $0["params"]?["prompt"]?[0]?["text"]?.stringValue }
+}
+
 private func eventually(
     _ description: String,
     within seconds: Double = 2,
@@ -53,6 +59,22 @@ private func eventually(
 
 @Suite(.scratchDirectory)
 struct GrokRunnerTests {
+    @Test("a /btw conversation's first question carries the parent's context, and the stored question does not")
+    func sideConversationCarriesContext() async throws {
+        let store = try makeTestStore("grok-side-conversation")
+        let parent = try await makeGrokSession(store, agentSessionID: "sess-parent")
+        let child = try await store.openSideConversation(parentID: parent.id, streamingText: "Original context")
+        let box = scriptedGrokBox()
+        let runner = makeRunner(store: store, session: child, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("Why?")
+        #expect(promptTexts(box).first?.contains("Original context") == true)
+        #expect(try await store.setting(SideConversation.contextDeliveredKey(child.id)) == "1")
+        let questions = try await store.messages(sessionID: child.id).filter { $0.kind == .user }
+        #expect(questions.map { UserTurnPrompt.text(in: $0.payload) } == ["Why?"])
+    }
+
     @Test("a restarted server can reuse a permission RPC id without inheriting its old decision")
     func permissionIDsSurviveReconnect() async throws {
         let store = try makeTestStore("grok-permission-reconnect")

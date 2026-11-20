@@ -157,8 +157,10 @@ public actor OpenCodeRunner: SessionRunner {
 
         turnMode = interactionMode ?? session.interactionMode
         planCandidate = nil
+        // A /btw conversation's first question carries the parent's context; the stored row does not.
+        let prompt = try await store.sideConversationTurn(text, sessionID: sessionID)
         if let deliveryID { try await store.beginDeliveryDispatch(id: deliveryID) }
-        let promptID = try await client.beginPrompt(sessionID: openCodeSessionID, text: text)
+        let promptID = try await client.beginPrompt(sessionID: openCodeSessionID, text: prompt)
         if let deliveryID { try await store.acceptDelivery(id: deliveryID, providerTurnID: promptID.turnID) }
         guard handle.begin(turnID: promptID.turnID, generation: generation) else {
             await client.cancel(sessionID: openCodeSessionID)
@@ -167,6 +169,10 @@ public actor OpenCodeRunner: SessionRunner {
 
         session.apply(.turnStarted)
         await save(session)
+        if prompt != text {
+            // The prompt was accepted. A refused one leaves the context for the next attempt.
+            try? await store.acknowledgeSideConversationContext(sessionID: sessionID)
+        }
     }
 
     public nonisolated func cancelNow() {
@@ -384,7 +390,8 @@ public actor OpenCodeRunner: SessionRunner {
 
     private func recordPlan(endingWith result: AgentResult) async {
         defer { planCandidate = nil }
-        guard turnMode == .plan, result.stopReason == "end_turn", let plan = planCandidate else { return }
+        guard turnMode == .plan, result.stopReason == "end_turn", let plan = planCandidate,
+              OpenCodePlanReply.isPlan(plan.text) else { return }
         do {
             _ = try await store.recordPlan(sessionID: session.id, sourceID: plan.messageID, markdown: plan.text)
         } catch {
