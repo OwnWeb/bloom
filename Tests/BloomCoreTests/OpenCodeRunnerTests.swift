@@ -71,6 +71,29 @@ private func eventually(
     await waitUntil(Comment(rawValue: description), within: .seconds(30), sourceLocation: sourceLocation, condition)
 }
 
+/// The runner's presentation events, collected for order checks.
+private final class OpenCodeEventLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [AgentEvent] = []
+
+    func append(_ event: AgentEvent) { lock.lock(); events.append(event); lock.unlock() }
+
+    private var snapshot: [AgentEvent] { lock.lock(); defer { lock.unlock() }; return events }
+
+    func decided(endingIn suffix: String) -> Bool {
+        snapshot.contains { if case .permissionDecided(let resolution) = $0 { resolution.requestID.hasSuffix(suffix) } else { false } }
+    }
+
+    /// The ask for this request is the event right before its decision, and appears nowhere else.
+    func askIsFollowedByItsDecision(endingIn suffix: String) -> Bool {
+        let all = snapshot
+        let asks = all.indices.filter { if case .permissionAsk(let ask) = all[$0] { ask.requestID.hasSuffix(suffix) } else { false } }
+        guard asks.count == 1, let index = asks.first, index + 1 < all.count,
+              case .permissionDecided(let resolution) = all[index + 1] else { return false }
+        return resolution.requestID.hasSuffix(suffix)
+    }
+}
+
 @Suite(.scratchDirectory)
 struct OpenCodeRunnerTests {
     @Test("a first send opens a session, stores its id and selects the composer's model")
@@ -250,6 +273,10 @@ struct OpenCodeRunnerTests {
         let box = scriptedBox()
         let runner = makeRunner(store: store, session: session, box: box)
         defer { runner.terminateNow() }
+        let seen = OpenCodeEventLog()
+        let events = runner.events
+        let listening = Task { for await event in events { seen.append(event) } }
+        defer { listening.cancel() }
 
         try await runner.send("run it")
         box.process.emit(OpenCodeFixture.permissionLine(id: 0))
@@ -272,6 +299,10 @@ struct OpenCodeRunnerTests {
         let sessionAllow = PermissionDecision.allow(scope: .session).storedName
         #expect(decisions.values.filter { $0 == sessionAllow }.count == 2)
         #expect(!decisions.values.contains(PermissionAskOutcome.auto))
+
+        // The granted question is drawn only together with its answer, never as a card first.
+        await eventually("the granted question's events") { seen.decided(endingIn: ":1") }
+        #expect(seen.askIsFollowedByItsDecision(endingIn: ":1"))
     }
 
     @Test("a session grant is forgotten with the process")

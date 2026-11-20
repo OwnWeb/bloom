@@ -165,8 +165,9 @@ struct AgentsSettingsView: View {
             }
 
             if status.connection != .notInstalled {
-                Button(status.connection == .connected ? "Sign in with another account…" : "Sign in…", action: runLogin)
-                    .help("Sign in to \(selection.label) in Bloom.")
+                let wording = AgentSignInWording(kind: selection, isConnected: status.connection == .connected)
+                Button(wording.button, action: runLogin)
+                    .help(wording.help)
             }
         } header: {
             Text(selection.label)

@@ -447,26 +447,17 @@ public actor OpenCodeRunner: SessionRunner {
                 if approvals.removeValue(forKey: ask.requestID) != nil {
                     await client?.answer(request.id, with: OpenCodePermission.cancelledResult)
                 }
-                sink.yield(.permissionAsk(ask))
-                await close(ask, as: PermissionAskOutcome.stopped, note: "")
+                await close(ask, as: PermissionAskOutcome.stopped, note: "", drawingTheCard: true)
                 return
             }
             await write(answerTo: ask, decision: .allow(scope: .session), request: request)
             // Stored as a session allow, not `auto`, which reads back as a project grant.
-            let decision = PermissionDecision.allow(scope: .session).storedName
-            approvals[ask.requestID] = nil
-            do {
-                try await store.resolvePermissionAsk(id: ask.requestID, decision: decision)
-            } catch {
-                await report("could not record a permission decision", error)
-            }
-            sink.yield(.permissionAsk(ask))
-            sink.yield(.permissionDecided(PermissionResolution(
-                requestID: ask.requestID,
-                toolUseID: ask.toolUseID,
-                decision: decision,
-                note: PermissionGrantIndex.sessionNote(for: ask)
-            )))
+            await close(
+                ask,
+                as: PermissionDecision.allow(scope: .session).storedName,
+                note: PermissionGrantIndex.sessionNote(for: ask),
+                drawingTheCard: true
+            )
             return
         }
 
@@ -512,7 +503,11 @@ public actor OpenCodeRunner: SessionRunner {
         await save(session)
     }
 
-    private func close(_ ask: PermissionAsk, as decision: String, note: String) async {
+    /// - Parameter drawingTheCard: for a question never drawn yet, which is drawn here with its
+    ///   answer, the two yielded back to back so no card shows on its own in between.
+    private func close(
+        _ ask: PermissionAsk, as decision: String, note: String, drawingTheCard: Bool = false
+    ) async {
         pending.remove(ask.requestID)
         approvals[ask.requestID] = nil
         do {
@@ -520,6 +515,7 @@ public actor OpenCodeRunner: SessionRunner {
         } catch {
             await report("could not record a permission decision", error)
         }
+        if drawingTheCard { sink.yield(.permissionAsk(ask)) }
         sink.yield(.permissionDecided(PermissionResolution(
             requestID: ask.requestID,
             toolUseID: ask.toolUseID,

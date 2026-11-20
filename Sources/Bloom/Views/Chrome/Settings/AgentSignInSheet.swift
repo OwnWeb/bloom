@@ -34,7 +34,8 @@ struct AgentSignInSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.gutter) {
-            Text(request.profile.map { "Sign in to \($0.name)" } ?? "Sign in to \(request.kind.label)")
+            Text(request.profile.map { "Sign in to \($0.name)" }
+                ?? AgentSignInWording(kind: request.kind, isConnected: request.isSwitchingAccount).title)
                 .font(Typo.heading)
                 .foregroundStyle(Palette.textPrimary)
 
