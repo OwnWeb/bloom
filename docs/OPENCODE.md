@@ -97,7 +97,8 @@ unknown model is `-32602` "model not found", an unknown effort `-32602` "effort 
 The default model of a new session is whatever OpenCode picks, which on a stock install is a
 hosted free model. Bloom always sets the composer's model before a turn, and its effort when the
 model offers it, so a model or effort changed in the composer is taken by the next turn on the
-same process and the same `ses_…`. Only a permission mode change restarts the process.
+same process and the same `ses_…`. The work mode goes the same way (see Plan mode). Only a
+permission mode change restarts the process.
 
 ### Discovering models
 
@@ -171,6 +172,9 @@ server and its own permission rules kept all three, and gained Bloom's rules at 
 | Ask (`default`) | `{"edit": "ask", "shell": "ask"}` |
 | Accept edits | `{"shell": "ask"}` |
 | Bypass | nothing: OpenCode's own configuration decides |
+
+Ask and Accept edits also carry an `agent` block that puts back the built-in agents' denials these
+rules would reopen. See Plan mode.
 
 Bloom names two actions and never `"*"`. A wildcard rule would also be the last match for
 everything the user had denied, and for the `.env` rule above. The cost of the injection that

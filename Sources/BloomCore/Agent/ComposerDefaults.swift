@@ -89,6 +89,7 @@ public struct ComposerDefaults: Equatable {
                 models: models
             )
         }
+        let plansAsWorkMode = hasWorktree && app.planMode && InteractionMode.supports(resolved.kind)
         return ComposerDefaults(
             // `resolved.model` rather than the string the file held. A settings file has to name a
             // model for either CLI in one key, so it can write the backend in front of it, and
@@ -101,10 +102,13 @@ public struct ComposerDefaults: Equatable {
             // Through the backend the model just landed on rather than through the caller's, which
             // is the whole point of settling the two together: Plan plus a Codex default used to
             // depend on the caller passing the right backend in, and the create window passed none.
-            permissionMode: (app.planMode && !InteractionMode.supports(resolved.kind)
+            //
+            // Codex outside a worktree keeps its permission mode as it always has. OpenCode there
+            // has no Plan work mode, so it falls back to the permission Plan lands on, Ask.
+            permissionMode: (app.planMode && resolved.kind != .codex && !plansAsWorkMode
                 ? .plan : app.permissionMode).nearest(on: resolved.kind),
             backend: resolved.kind,
-            interactionMode: hasWorktree && app.planMode && InteractionMode.supports(resolved.kind) ? .plan : .build
+            interactionMode: plansAsWorkMode ? .plan : .build
         )
     }
 

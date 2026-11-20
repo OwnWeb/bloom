@@ -293,6 +293,10 @@ struct DefaultBackendTests {
         #expect(onOpenCode.backend == .openCode)
         #expect(onOpenCode.interactionMode == .plan)
         #expect(onOpenCode.permissionMode == openCode.permissionMode.nearest(on: .openCode))
+
+        let outsideAWorktree = ComposerDefaults.resolve(repo: RepoSettings(), app: openCode, hasWorktree: false)
+        #expect(outsideAWorktree.interactionMode == .build)
+        #expect(outsideAWorktree.permissionMode == .auto)
     }
 
     /// The same rule one layer up, where the value actually reaches a session row: whatever the

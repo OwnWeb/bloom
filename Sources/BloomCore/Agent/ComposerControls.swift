@@ -127,7 +127,7 @@ public struct ComposerControls: Equatable, Sendable {
     /// See `PermissionMode.autoReview`.
     ///
     /// OpenCode has three: ask, accept edits, and its own configuration. Its plan mode is a
-    /// session option rather than a permission, and Bloom does not set it yet.
+    /// session option, so it is the Plan work mode rather than a permission.
     public var availablePermissionModes: [PermissionMode] {
         switch agentKind {
         case .codex: PermissionMode.allCases.filter { $0 != .plan }

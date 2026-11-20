@@ -271,7 +271,17 @@ struct OpenCodeRunnerTests {
         InteractionMode.plan, .build,
     ])
     func planTurnRecordsItsAnswer(mode: InteractionMode) async throws {
-        let store = try makeTestStore("opencode-plan-artefact-\(mode.rawValue)")
+        let plans = try await planArtefacts(mode: mode, stopReason: "end_turn")
+        #expect(plans == (mode == .plan ? ["1. Add subtract.\n2. Test it."] : []))
+    }
+
+    @Test("a plan turn ended by a refused card records no plan")
+    func refusedPlanTurnRecordsNothing() async throws {
+        #expect(try await planArtefacts(mode: .plan, stopReason: "cancelled").isEmpty)
+    }
+
+    private func planArtefacts(mode: InteractionMode, stopReason: String) async throws -> [String] {
+        let store = try makeTestStore("opencode-plan-artefact-\(mode.rawValue)-\(stopReason)")
         let session = try await makeOpenCodeSession(store, interactionMode: mode)
         let box = scriptedBox()
         let runner = makeRunner(store: store, session: session, box: box)
@@ -281,12 +291,13 @@ struct OpenCodeRunnerTests {
         let prompt = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
         let promptID = try #require(prompt["id"])
         box.process.emit(Self.textChunkLine("1. Add subtract.\n2. Test it."))
-        box.process.emit("{\"jsonrpc\":\"2.0\",\"id\":\(promptID.compactJSON),\"result\":{\"stopReason\":\"end_turn\"}}")
+        box.process.emit(
+            "{\"jsonrpc\":\"2.0\",\"id\":\(promptID.compactJSON),\"result\":{\"stopReason\":\"\(stopReason)\"}}"
+        )
         await eventually("the turn to end") {
-            (try? await store.session(id: session.id))?.state == .idle
+            (try? await store.session(id: session.id))?.state.isMidTurn == false
         }
-        let plans = try await store.planArtefacts(sessionID: session.id)
-        #expect(plans.map(\.markdown) == (mode == .plan ? ["1. Add subtract.\n2. Test it."] : []))
+        return try await store.planArtefacts(sessionID: session.id).map(\.markdown)
     }
 
     private static func textChunkLine(_ text: String) -> String {
