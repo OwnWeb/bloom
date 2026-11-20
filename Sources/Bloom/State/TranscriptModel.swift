@@ -75,7 +75,9 @@ struct TranscriptRow: Identifiable, Hashable, Sendable {
             featured: isQuestion
                 || (picturesFromCalls && (MediaShowRow.isCall(payload) || CodexImageViewRow.isCall(payload)))
                 || (kind == .toolUse && WorkspaceSayRow.isCall(payload))
-                || (kind == .toolUse && PlanRow.isCall(payload)),
+                || (kind == .toolUse && PlanRow.isCall(payload))
+                // Written inside the stopped turn, and folded with its grey rows it was never seen.
+                || (kind == .notice && TranscriptRowInk.showsNotice(payload: payload)),
             drawsNothing: TranscriptNoise.isHidden(self)
                 || TranscriptRowInk.drawsNothing(kind: kind, payload: payload),
             settled: settled,

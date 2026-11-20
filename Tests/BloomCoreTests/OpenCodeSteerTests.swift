@@ -142,6 +142,13 @@ struct OpenCodeSteerTests {
         #expect(WorkspaceLifecycleNote(payload: OpenCodeSteerNote.note) == nil)
     }
 
+    @Test("the steer notice is the one notice the transcript draws")
+    func onlyTheSteerNoticeIsShown() {
+        #expect(TranscriptRowInk.showsNotice(payload: OpenCodeSteerNote.note))
+        #expect(!TranscriptRowInk.showsNotice(payload: ConversationNotResumed.note))
+        #expect(!TranscriptRowInk.showsNotice(payload: Data(#"{"type":"rate_limit_event"}"#.utf8)))
+    }
+
     @Test("a new message id closes the answer being streamed, so the reply to a steer is its own row")
     func newMessageClosesTheBlock() {
         var translation = OpenCodeTranslation(context: OpenCodeTranslation.Context(cwd: "/tmp/w"))

@@ -15,7 +15,7 @@ enum TranscriptNoise {
 
     static func isHidden(_ row: TranscriptRow) -> Bool {
         if row.isEmptyAssistantText { return true }
-        if row.kind == .notice { return true }
+        if row.kind == .notice { return !TranscriptRowInk.showsNotice(payload: row.payload) }
         guard row.kind == .system else { return false }
         return TranscriptRowInk.isSessionStart(kind: row.kind, payload: row.payload)
             || TranscriptRowInk.isStreamEvent(kind: row.kind, payload: row.payload)

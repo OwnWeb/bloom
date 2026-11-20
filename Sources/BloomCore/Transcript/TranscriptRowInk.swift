@@ -76,4 +76,12 @@ public enum TranscriptRowInk {
         return !BackgroundWake.isRow(kind: kind, payload: payload)
             && !ContextCompaction.isRow(kind: kind, payload: payload)
     }
+
+    /// Whether a `.notice` row gets a line. Notices are kept out of the transcript, rate limits
+    /// feeding the quota panel instead, except steered words a Stop left for the next prompt:
+    /// those reach the model with no other sign on screen, and the note was written and never
+    /// drawn until this was asked here.
+    public static func showsNotice(payload: Data) -> Bool {
+        OpenCodeSteerNote.sentence(fromNote: payload) != nil
+    }
 }
