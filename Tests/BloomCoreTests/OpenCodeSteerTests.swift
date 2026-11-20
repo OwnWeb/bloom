@@ -44,6 +44,7 @@ struct OpenCodeSteerTests {
     @Test("a thought of a new message is an answer too")
     func newThoughtIsAnAnswer() {
         var reading = OpenCodeSteerReading()
+        reading.observe(chunk("Working", messageID: "msg_1"))
         reading.taken()
         reading.observe(chunk("considering", messageID: "msg_2:reasoning:0", thought: true))
         #expect(!reading.isUnread)
