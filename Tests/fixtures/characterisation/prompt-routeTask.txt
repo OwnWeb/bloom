@@ -1,0 +1,31 @@
+title: Choose a model for a new workspace
+
+summary:
+Sent when a workspace is created with the automatic router on, to judge how much the task asks before the first message goes.
+
+variables:
+- task: The first thing you asked this workspace for.
+- project: The project it was created in.
+
+template:
+Judge how much this coding task asks of the model that will do it.
+
+Project: {{project}}
+
+Choose one complexity:
+
+- trivial: a typo, a rename, a one line configuration change, or a question about one file.
+- simple: a small change in one or two files with an obvious approach.
+- moderate: an ordinary feature or bug fix across a handful of files.
+- complex: work across many files, a refactor, or a bug whose cause is not known yet.
+- deep: architecture, concurrency, security, performance or a migration, where a wrong turn is expensive.
+
+When it sits between two, choose the higher one. Give the reason in one short sentence, in the language the task is written in.
+
+Answer with only this JSON object, and nothing before or after it:
+
+{"complexity": "<one of the five above>", "reason": "<one short sentence>"}
+
+## Task
+
+{{task}}

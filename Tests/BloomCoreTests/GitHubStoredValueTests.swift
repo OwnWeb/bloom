@@ -29,7 +29,7 @@ struct GitHubStoredValueTests {
     func rawValues() {
         #expect(PromptID.allCases.map(\.rawValue) == [
             "createPullRequest", "pushLocalWork", "mergePullRequest", "fixConflicts",
-            "continueAfterMerge", "carryOnArchived", "review", "nameWorkspace",
+            "continueAfterMerge", "carryOnArchived", "review", "nameWorkspace", "routeTask",
         ])
         #expect(GitHub.MergeMethod.allCases.map(\.rawValue) == ["merge", "squash", "rebase"])
         #expect(MergeExecution.allCases.map(\.rawValue) == ["direct", "agent"])
