@@ -192,6 +192,7 @@ public struct TranscriptClientRow: Encodable, Sendable {
                         text: exit.summary, detail: exit.advice, tint: "negative", isError: true)
         case .notice:
             guard let sentence = ConversationNotResumed.sentence(fromNote: message.payload)
+                ?? OpenCodeSteerNote.sentence(fromNote: message.payload)
                 ?? RateLimitNotice.sentence(forRateLimitEvent: message.payload) else { return nil }
             return Self(seq: seq, kind: .notice, title: "Notice", text: sentence)
         case .crew:

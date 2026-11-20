@@ -152,11 +152,9 @@ tool call goes to `failed`, and a pending permission request is withdrawn with a
 
 `_session/steering {sessionId, prompt}` during a turn replies `{outcome: "injected"}` and the
 model takes the message into the same turn. With no turn running it replies
-`{outcome: "promptRequired", reason: "noRunningTurn"}`. Bloom does not send it yet, so
-`AgentKind.acceptsMidTurnMessage` stays false for OpenCode and a message typed during a turn
-waits for the turn to end.
+`{outcome: "promptRequired", reason: "noRunningTurn"}`.
 
-Measured on 2.3.2 (`s21_steer_cases.py`, `s22_steer_race.py`), on the hosted free model:
+Measured on 2.3.2, on the hosted free model:
 
 - **Where it lands.** The message waits for the step that is running (a tool call, a permission
   request) to finish, then becomes a `user` message of its own in OpenCode's session, followed by
@@ -170,13 +168,38 @@ Measured on 2.3.2 (`s21_steer_cases.py`, `s22_steer_race.py`), on the hosted fre
 - **The end of the turn.** `stopReason` stays `end_turn`, and the reply's `usage` covers every
   step of the turn, steered ones included. A steer sent the moment `usage_update` arrives, a few
   milliseconds before the prompt reply, got `promptRequired` six times out of six: the server had
-  already closed the turn, and nothing was stored. So a steer that misses says so, and the message
-  wants an ordinary `session/prompt`.
+  already closed the turn, and nothing was stored. Sent on the answer's last chunk, ten times: two
+  `injected`, both answered inside the turn, and eight `promptRequired`. So a steer that misses
+  says so, and the message wants an ordinary `session/prompt`.
 - **Straight after `session/cancel`.** `injected`, but the cancelled turn ends `cancelled` without
   reading it. The text stays in the session as a `user` message after the turn, and the model
   reads it with the next prompt as if it had been sent with it. Two seconds after the cancel, a
   steer gets `promptRequired`. So the reply cannot be trusted for a turn that has been told to
   stop, and a stopped turn must not be steered into.
+
+So `AgentKind.acceptsMidTurnMessage` is true for OpenCode, and `OpenCodeRunner` sends a message
+that arrives during a turn as a steer:
+
+- The user row is written once. For a message sent straight to the runner, the runner closes the
+  answer streamed so far into its own row and writes the row after it. A queued message, which is
+  how the composer sends during a turn, has its row written when the queue claims it, before the
+  runner sees it, so the answer streamed until then lands under the words. Either way a chunk with
+  a new `messageId`, the reply to the steer, starts a row of its own.
+- `injected` accepts the delivery. `promptRequired` returns the delivery to claimed, since the
+  server stored nothing, waits for the runner to close the turn it missed, so that turn's result
+  and usage are kept, then sends an ordinary prompt. Any other
+  answer, an error or a timeout fails the send and leaves a delivery `uncertain`: the words may
+  be in the session already, and a prompt on top would send them twice.
+- The raw words go, never with a `/btw` context: the turn's first prompt carried it.
+- A stopped turn is never steered into. A Stop that overtakes words already sent, before the
+  model has answered them, leaves them for the next prompt; Bloom then writes a notice saying so.
+  The model's answer is recognised by a chunk whose `messageId` was not seen before the steer;
+  when the steer went before the turn showed any chunk or tool call, the first new id is taken as
+  the running step's own and the answer is the one after it. Tool calls carry no `messageId`, so
+  an answer that is only a tool call is not recognised, and a Stop right then writes the notice
+  although the words were read.
+- A permission question still holds the queue (`DeliveryHold.question`), as on every backend, so
+  a message typed while a card waits goes once it is answered.
 
 ## Permissions
 
@@ -375,6 +398,5 @@ Global configuration is the directory `~/.config/opencode/` (`opencode.json` or 
   which providers the user connected.
 - **Image content blocks, `session/list`, `session/fork`, `session/load`.**
 
-Measured but not wired yet: steering (above).
 Not measured: subagent updates (`_meta["opencode/child-session-updates"]`), `elicitation/create`,
 and whether `opencode -s <id>` opens an ACP session in the terminal interface.

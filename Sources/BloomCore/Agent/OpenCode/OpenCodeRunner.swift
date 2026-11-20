@@ -46,6 +46,10 @@ public actor OpenCodeRunner: SessionRunner {
     /// plan when the turn ends normally. See "Plan mode" in `docs/OPENCODE.md`.
     private var turnMode = InteractionMode.build
     private var planCandidate: AgentTextBlock?
+    /// Whether steered words are still unread, which a Stop would leave for the next prompt.
+    private var steerReading = OpenCodeSteerReading()
+    /// Sends waiting for the runner to close a turn their steer missed. See `waitForTurnEnd`.
+    private var turnEndWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var wasEvicted = false
     private var trouble = PersistenceTrouble()
     private let bridge: BridgeAttachment?
@@ -143,6 +147,27 @@ public actor OpenCodeRunner: SessionRunner {
         try handle.check(generation)
         let openCodeSessionID = try await openSession(on: client)
         try handle.check(generation)
+
+        // A running turn takes the words instead, before anything below waits for it to end.
+        // `steerableTurnID` rather than `turnID`: a stopped turn must not be steered into, because
+        // OpenCode answers `injected` and then never reads the words. See "Steering" in
+        // `docs/OPENCODE.md`, and `AgentKind.acceptsMidTurnMessage` for why a message gets here.
+        var steeredInto: String?
+        if let turnID = handle.steerableTurnID {
+            // The answer so far is its own row, above the words that interrupt it.
+            for event in translation.closeOpenBlocks() { await emit(event) }
+            if deliveryID == nil { await persistSent(text, recording: recording) }
+            try handle.check(generation)
+            if let deliveryID { try await store.beginDeliveryDispatch(id: deliveryID) }
+            if try await steer(text, into: turnID, generation: generation, deliveryID: deliveryID,
+                               on: client, sessionID: openCodeSessionID) {
+                return
+            }
+            steeredInto = turnID
+            await waitForTurnEnd(turnID)
+            try handle.check(generation)
+        }
+
         // Before the settings: a model changed right after a stop is now set on the same session
         // while the stopped prompt winds down, and that overlap was never measured.
         await client.waitUntilNoPrompt()
@@ -152,9 +177,7 @@ public actor OpenCodeRunner: SessionRunner {
         )
         try handle.check(generation)
 
-        if deliveryID == nil {
-            if let recording { await persist(kind: .crew, payload: recording) } else { await persist(kind: .user, payload: Self.userPayload(text)) }
-        }
+        if deliveryID == nil, steeredInto == nil { await persistSent(text, recording: recording) }
         try handle.check(generation)
 
         turnMode = interactionMode ?? session.interactionMode
@@ -170,9 +193,87 @@ public actor OpenCodeRunner: SessionRunner {
             await client.cancel(sessionID: openCodeSessionID)
             throw CancellationError()
         }
+        steerReading.reset()
 
         session.apply(.turnStarted)
         await save(session)
+    }
+
+    /// One row, whichever it is, for the reason `AgentRunner.send` gives: the crew payload already
+    /// holds both renderings, and a user row beside it is the envelope back on screen.
+    private func persistSent(_ text: String, recording: Data?) async {
+        if let recording {
+            await persist(kind: .crew, payload: recording)
+        } else {
+            await persist(kind: .user, payload: Self.userPayload(text))
+        }
+    }
+
+    /// Puts the words into the running turn, and says whether they went.
+    ///
+    /// `promptRequired` is the only answer that lets the caller start a turn with them: the
+    /// server had already closed the turn and stored nothing, so a delivery goes back to claimed
+    /// and the send carries on as if no steer had been tried. An error or a timeout throws, and a
+    /// delivery stays `uncertain`, because the words may be in the session already and a prompt
+    /// on top would send them twice. The raw text goes, never `sideConversationTurn`: a steer
+    /// lands in a turn whose first prompt already carried any /btw context.
+    private func steer(
+        _ text: String, into turnID: String, generation: UInt64, deliveryID: DeliveryID?,
+        on client: OpenCodeClient, sessionID: String
+    ) async throws -> Bool {
+        steerReading.steered()
+        let outcome: Result<OpenCodeSteerOutcome, Error>
+        do {
+            outcome = .success(try await client.steer(sessionID: sessionID, text: text))
+        } catch {
+            outcome = .failure(error)
+        }
+        steerReading.settled(taken: (try? outcome.get()) == .injected)
+        // A Stop while the steer was on the wire left the note to this reply.
+        if handle.generation != generation { await noteUnreadSteer() }
+
+        guard try outcome.get() == .injected else {
+            Self.log.info("a message missed the turn it was steered into, so it starts one")
+            if let deliveryID { try await store.returnDeliveryClaim(id: deliveryID) }
+            return false
+        }
+        if let deliveryID { try await store.acceptDelivery(id: deliveryID, providerTurnID: turnID) }
+        return true
+    }
+
+    /// Waits until the runner itself has closed the turn a steer missed. Its `promptCompleted`
+    /// may still be queued behind this call, and a turn begun first would make `acceptsTerminal`
+    /// throw away that turn's result and usage.
+    private func waitForTurnEnd(_ turnID: String) async {
+        guard handle.turnID == turnID, client != nil else { return }
+        let id = UUID()
+        let watchdog = Task { [weak self] in
+            // A cap on "never", for a reply that does not come: the process closing ends it sooner.
+            try? await Task.sleep(for: .seconds(30))
+            await self?.releaseTurnWaiter(id)
+        }
+        defer { watchdog.cancel() }
+        await withCheckedContinuation { turnEndWaiters[id] = $0 }
+    }
+
+    private func releaseTurnWaiter(_ id: UUID) {
+        turnEndWaiters.removeValue(forKey: id)?.resume()
+    }
+
+    /// A turn that ended by itself read whatever was steered into it: measured, a steer the
+    /// server took near the end was always answered inside the turn.
+    private func endTurn() {
+        handle.end()
+        steerReading.reset()
+        for id in Array(turnEndWaiters.keys) { releaseTurnWaiter(id) }
+    }
+
+    /// Steered words a Stop overtook before the model answered them. Left to the steer's own
+    /// reply while one is on the wire, because only that reply says whether the words went.
+    private func noteUnreadSteer() async {
+        guard steerReading.isUnread, !steerReading.isOnWire else { return }
+        steerReading.reset()
+        await persist(kind: .notice, payload: OpenCodeSteerNote.note)
     }
 
     public nonisolated func cancelNow() {
@@ -184,6 +285,7 @@ public actor OpenCodeRunner: SessionRunner {
         if handle.generation == stopped.generation, handle.wasCancelled {
             for event in translation.finishInterruptedTurn() { await emit(event) }
             await filePendingAsks()
+            await noteUnreadSteer()
         }
         if handle.generation == stopped.generation, handle.wasCancelled,
            session.apply(.cancelled).moves { await save(session) }
@@ -223,7 +325,7 @@ public actor OpenCodeRunner: SessionRunner {
         openCodeSessionID = nil
         pumpTask?.cancel()
         pumpTask = nil
-        handle.end()
+        endTurn()
         approvals.removeAll()
         sessionRules.removeAll()
         for event in translation.finishInterruptedTurn() { await emit(event) }
@@ -419,6 +521,7 @@ public actor OpenCodeRunner: SessionRunner {
             return
         }
 
+        if case .update(let update) = event { steerReading.observe(update) }
         if case .update = event, handle.wasCancelled { return }
 
         let ending = if case .promptCompleted(let result) = event { result.requestID.turnID } else { nil as String? }
@@ -465,7 +568,7 @@ public actor OpenCodeRunner: SessionRunner {
             await acknowledgeSideContext()
 
         case .result(let result):
-            handle.end()
+            endTurn()
             await recordPlan(endingWith: result)
             session.apply(.turnFinished(isError: result.isError))
             session = session.with {
@@ -476,7 +579,7 @@ public actor OpenCodeRunner: SessionRunner {
             await save(session)
 
         case .error:
-            handle.end()
+            endTurn()
             session.apply(.turnFinished(isError: true))
             await save(session)
 

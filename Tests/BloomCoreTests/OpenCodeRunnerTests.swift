@@ -574,3 +574,326 @@ struct OpenCodeRunnerTests {
         #expect(try await store.pendingPermissionAsks(sessionID: session.id).isEmpty)
     }
 }
+
+// MARK: - Steering
+
+private func steerTexts(_ box: ProcessBox) -> [String] {
+    box.process.stdin.compactMap(JSONValue.parse)
+        .filter { $0["method"]?.stringValue == "_session/steering" }
+        .compactMap { $0["params"]?["prompt"]?[0]?["text"]?.stringValue }
+}
+
+private func steerReply(_ outcome: String) -> JSONValue {
+    outcome == "injected"
+        ? .object(["outcome": .string(outcome)])
+        : .object(["outcome": .string(outcome), "reason": .string("noRunningTurn")])
+}
+
+private func userTexts(_ store: Store, _ session: Session) async throws -> [String] {
+    try await store.messages(sessionID: session.id).filter { $0.kind == .user }
+        .map { UserTurnPrompt.text(in: $0.payload) }
+}
+
+/// Counts the streamed chunks the runner has handled, so a test can steer after a chunk it emitted
+/// rather than racing the runner to it.
+private final class StreamedChunks: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen = 0
+
+    init(_ runner: OpenCodeRunner) {
+        let events = runner.events
+        Task { [weak self] in
+            for await event in events {
+                if case .streamDelta = event { self?.bump() }
+            }
+        }
+    }
+
+    private func bump() { lock.lock(); seen += 1; lock.unlock() }
+
+    var count: Int { lock.lock(); defer { lock.unlock() }; return seen }
+}
+
+private func notices(_ store: Store, _ session: Session) async throws -> [String] {
+    try await store.messages(sessionID: session.id).filter { $0.kind == .notice }
+        .compactMap { OpenCodeSteerNote.sentence(fromNote: $0.payload) }
+}
+
+/// Measured on 2.3.2: see "Steering" in `docs/OPENCODE.md`.
+extension OpenCodeRunnerTests {
+    @Test("a message sent during a turn is steered into it, and its row is written once")
+    func midTurnMessageIsSteered() async throws {
+        let store = try makeTestStore("opencode-steer")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.reply(to: "_session/steering", with: steerReply("injected"))
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("first")
+        try await runner.send("and also this")
+
+        #expect(promptTexts(box) == ["first"])
+        #expect(steerTexts(box) == ["and also this"])
+        let steer = try #require(box.process.sentFrame { $0["method"]?.stringValue == "_session/steering" })
+        #expect(steer["params"]?["sessionId"]?.stringValue == "ses_1")
+        #expect(try await userTexts(store, session) == ["first", "and also this"])
+        #expect(try await store.session(id: session.id)?.state.isMidTurn == true)
+    }
+
+    @Test("a delivery steered into a turn is accepted, without a prompt of its own")
+    func steeredDeliveryIsAccepted() async throws {
+        let store = try makeTestStore("opencode-steer-delivery")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.reply(to: "_session/steering", with: steerReply("injected"))
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("first")
+        let delivery = try await store.enqueueDelivery(Delivery(targetSessionID: session.id, body: "follow up"))
+        _ = try await store.claimDelivery(id: delivery.id)
+        try await runner.sendDelivery(delivery)
+
+        #expect(promptTexts(box) == ["first"])
+        #expect(steerTexts(box) == ["follow up"])
+        #expect(try await store.delivery(id: delivery.id)?.state == .accepted)
+        #expect(try await userTexts(store, session) == ["first", "follow up"])
+    }
+
+    @Test("a steer that missed the turn waits for its result, then starts a turn of its own")
+    func missedSteerPromptsAfterTheTurnEnds() async throws {
+        let store = try makeTestStore("opencode-steer-missed")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.reply(to: "_session/steering", with: steerReply("promptRequired"))
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("first")
+        let first = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
+        let delivery = try await store.enqueueDelivery(Delivery(targetSessionID: session.id, body: "late"))
+        _ = try await store.claimDelivery(id: delivery.id)
+        let sending = Task { try await runner.sendDelivery(delivery) }
+        await eventually("the steer is answered") { steerTexts(box) == ["late"] }
+        // The server closed the turn before the steer reached it, so its reply is on its way.
+        box.process.emit(Self.promptReplyLine(id: try #require(first["id"]), stopReason: "end_turn"))
+        try await sending.value
+
+        #expect(promptTexts(box) == ["first", "late"])
+        #expect(try await store.delivery(id: delivery.id)?.state == .accepted)
+        #expect(try await userTexts(store, session) == ["first", "late"])
+        // The first turn's result was filed rather than dropped behind the second turn.
+        #expect(try await store.messages(sessionID: session.id).contains { $0.kind == .result })
+        #expect(try await store.session(id: session.id)?.state.isMidTurn == true)
+    }
+
+    @Test("a steer that fails without an answer starts no turn, and its delivery stays uncertain")
+    func ambiguousSteerFailureStartsNothing() async throws {
+        let store = try makeTestStore("opencode-steer-ambiguous")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.fail("_session/steering", code: -32603, message: "internal failure after dispatch")
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("first")
+        let delivery = try await store.enqueueDelivery(Delivery(targetSessionID: session.id, body: "follow up"))
+        _ = try await store.claimDelivery(id: delivery.id)
+        await #expect(throws: ACPRPCError.self) { try await runner.sendDelivery(delivery) }
+
+        #expect(promptTexts(box) == ["first"])
+        #expect(try await store.delivery(id: delivery.id)?.state == .uncertain)
+    }
+
+    @Test("a stopped turn is not steered into: the next message starts a turn")
+    func stoppedTurnIsNotSteered() async throws {
+        let store = try makeTestStore("opencode-steer-stopped")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.reply(to: "_session/steering", with: steerReply("injected"))
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("first")
+        let first = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
+        runner.cancelNow()
+        await eventually("session/cancel") { box.process.sentMethods.contains("session/cancel") }
+        box.process.emit(Self.promptReplyLine(id: try #require(first["id"]), stopReason: "cancelled"))
+        try await runner.send("again")
+
+        #expect(steerTexts(box).isEmpty)
+        #expect(promptTexts(box) == ["first", "again"])
+        #expect(try await notices(store, session).isEmpty)
+    }
+
+    @Test("a stop that overtakes unanswered steered words says they go with the next message")
+    func stopOverUnreadSteerWritesANotice() async throws {
+        let store = try makeTestStore("opencode-steer-unread")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.reply(to: "_session/steering", with: steerReply("injected"))
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        let chunks = StreamedChunks(runner)
+        try await runner.send("first")
+        box.process.emit(Self.textChunkLine("Working on it.", messageID: "msg_1"))
+        await eventually("the chunk is handled") { chunks.count == 1 }
+        try await runner.send("and also this")
+        runner.cancelNow()
+
+        await eventually("the notice") { (try? await notices(store, session))?.count == 1 }
+        #expect(try await notices(store, session) == [OpenCodeSteerNote.sentence])
+    }
+
+    @Test("a stop after the steered words were answered writes no notice")
+    func stopAfterAnsweredSteerIsSilent() async throws {
+        let store = try makeTestStore("opencode-steer-answered")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.reply(to: "_session/steering", with: steerReply("injected"))
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        let chunks = StreamedChunks(runner)
+        try await runner.send("first")
+        box.process.emit(Self.textChunkLine("Working on it.", messageID: "msg_1"))
+        await eventually("the chunk is handled") { chunks.count == 1 }
+        try await runner.send("and also this")
+        box.process.emit(Self.textChunkLine("Noted.", messageID: "msg_2"))
+        await eventually("the answer is handled") { chunks.count == 2 }
+        runner.cancelNow()
+        await eventually("session/cancel") { box.process.sentMethods.contains("session/cancel") }
+
+        #expect(try await notices(store, session).isEmpty)
+    }
+
+    @Test("a stop while the steer is on the wire leaves the note to the steer's reply")
+    func stopDuringSteerWritesTheNoteOnce() async throws {
+        let store = try makeTestStore("opencode-steer-on-wire")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.ignore("_session/steering")
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("first")
+        let sending = Task { try await runner.send("and also this") }
+        await eventually("the steer is sent") { steerTexts(box) == ["and also this"] }
+        runner.cancelNow()
+        await eventually("session/cancel") { box.process.sentMethods.contains("session/cancel") }
+        let steer = try #require(box.process.sentFrame { $0["method"]?.stringValue == "_session/steering" })
+        let steerID = try #require(steer["id"])
+        box.process.emit("{\"jsonrpc\":\"2.0\",\"id\":\(steerID.compactJSON),\"result\":{\"outcome\":\"injected\"}}")
+        try await sending.value
+
+        await eventually("the notice") { (try? await notices(store, session))?.count == 1 }
+        #expect(try await notices(store, session) == [OpenCodeSteerNote.sentence])
+    }
+
+    @Test("a steer that missed, then a stop before its prompt, gives the delivery back to the queue's claim")
+    func missedSteerThenStopReturnsTheClaim() async throws {
+        let store = try makeTestStore("opencode-steer-missed-stopped")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.reply(to: "_session/steering", with: steerReply("promptRequired"))
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("first")
+        let first = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
+        let delivery = try await store.enqueueDelivery(Delivery(targetSessionID: session.id, body: "late"))
+        _ = try await store.claimDelivery(id: delivery.id)
+        let sending = Task { try await runner.sendDelivery(delivery) }
+        await eventually("the steer is answered") { steerTexts(box) == ["late"] }
+        runner.cancelNow()
+        await eventually("session/cancel") { box.process.sentMethods.contains("session/cancel") }
+        box.process.emit(Self.promptReplyLine(id: try #require(first["id"]), stopReason: "cancelled"))
+        await #expect(throws: CancellationError.self) { try await sending.value }
+
+        #expect(promptTexts(box) == ["first"])
+        // Nothing reached the agent, so the drain may release it back to pending.
+        #expect(try await store.delivery(id: delivery.id)?.state == .claimed)
+    }
+
+    @Test("a steered delivery's row is written when it is claimed, above the answer it interrupts")
+    func steeredDeliveryRowComesFirst() async throws {
+        let store = try makeTestStore("opencode-steer-delivery-order")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.reply(to: "_session/steering", with: steerReply("injected"))
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        let chunks = StreamedChunks(runner)
+        try await runner.send("first")
+        box.process.emit(Self.textChunkLine("Before.", messageID: "msg_1"))
+        await eventually("the chunk is handled") { chunks.count == 1 }
+        let delivery = try await store.enqueueDelivery(Delivery(targetSessionID: session.id, body: "steered"))
+        _ = try await store.claimDelivery(id: delivery.id)
+        try await runner.sendDelivery(delivery)
+        box.process.emit(Self.textChunkLine("After.", messageID: "msg_2"))
+        let first = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
+        box.process.emit(Self.promptReplyLine(id: try #require(first["id"]), stopReason: "end_turn"))
+        await eventually("the turn to end") {
+            (try? await store.session(id: session.id))?.state.isMidTurn == false
+        }
+
+        // The claim wrote the row before the runner saw the delivery, so the answer streamed until
+        // then lands under it. The reply is still a row of its own.
+        let rows = try await store.messages(sessionID: session.id).filter { [.user, .assistantText].contains($0.kind) }
+        #expect(rows.map(\.kind) == [.user, .user, .assistantText, .assistantText])
+    }
+
+    @Test("the answer so far is its own row above the steered words, and the reply a row below")
+    func steerSplitsTheAnswer() async throws {
+        let store = try makeTestStore("opencode-steer-order")
+        let session = try await makeOpenCodeSession(store)
+        let box = scriptedBox()
+        box.reply(to: "_session/steering", with: steerReply("injected"))
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        let chunks = StreamedChunks(runner)
+        try await runner.send("first")
+        box.process.emit(Self.textChunkLine("Before.", messageID: "msg_1"))
+        await eventually("the chunk is handled") { chunks.count == 1 }
+        try await runner.send("steered")
+        box.process.emit(Self.textChunkLine("After.", messageID: "msg_2"))
+        let first = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
+        box.process.emit(Self.promptReplyLine(id: try #require(first["id"]), stopReason: "end_turn"))
+        await eventually("the turn to end") {
+            (try? await store.session(id: session.id))?.state.isMidTurn == false
+        }
+
+        let rows = try await store.messages(sessionID: session.id).filter { [.user, .assistantText].contains($0.kind) }
+        #expect(rows.map(\.kind) == [.user, .assistantText, .user, .assistantText])
+    }
+
+    @Test("a steer in a /btw conversation sends the words alone, never the parent's context")
+    func sideConversationSteerIsRaw() async throws {
+        let store = try makeTestStore("opencode-steer-side")
+        let parent = try await makeOpenCodeSession(store, agentSessionID: "ses_parent")
+        let child = try await store.openSideConversation(parentID: parent.id, streamingText: "Original context")
+        let box = scriptedBox()
+        box.reply(to: "_session/steering", with: steerReply("injected"))
+        let runner = makeRunner(store: store, session: child, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("Why?")
+        try await runner.send("Briefly.")
+
+        #expect(promptTexts(box).first?.contains("Original context") == true)
+        #expect(steerTexts(box) == ["Briefly."])
+    }
+
+    private static func textChunkLine(_ text: String, messageID: String) -> String {
+        let params = JSONValue.object(["sessionId": .string("ses_1"), "update": .object([
+            "sessionUpdate": .string("agent_message_chunk"),
+            "messageId": .string(messageID),
+            "content": .object(["type": .string("text"), "text": .string(text)]),
+        ])])
+        return "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":\(params.compactJSON)}"
+    }
+}

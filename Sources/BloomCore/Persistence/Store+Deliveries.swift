@@ -118,6 +118,13 @@ extension Store {
         guard db.changedRowCount == 1 else { throw DeliveryDispatchError.notClaimed }
     }
 
+    /// Undoes `beginDeliveryDispatch` when the provider has answered that it stored nothing, as
+    /// OpenCode's `promptRequired` does for a steer that missed its turn. The send then carries on
+    /// as if nothing had been tried, and a failure on the way puts it back in the queue.
+    public func returnDeliveryClaim(id: DeliveryID) throws {
+        try db.run("UPDATE deliveries SET delivery_state = 'claimed' WHERE id = ? AND delivery_state = 'uncertain'", [.text(id)])
+    }
+
     public func acceptDelivery(id: DeliveryID, providerTurnID: String? = nil) throws {
         try db.transaction {
             try db.run("UPDATE deliveries SET delivery_state = 'accepted', delivered_at = ?, provider_turn_id = ? WHERE id = ? AND delivery_state = 'uncertain'", [

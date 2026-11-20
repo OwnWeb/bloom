@@ -33,6 +33,8 @@ public struct OpenCodeTranslation: Sendable {
     private var announced: Set<String> = []
     private var textMessageID = ""
     private var thoughtMessageID = ""
+    /// OpenCode's `messageId` of the last chunk. See `blocksEndedBy`.
+    private var chunkMessage = ""
 
     public init(context: Context = Context()) {
         self.context = context
@@ -144,11 +146,26 @@ public struct OpenCodeTranslation: Sendable {
         return events
     }
 
+    /// Ends the blocks being streamed, so what comes next starts rows of its own. A steer closes
+    /// them before its user row is written, which keeps the answer so far above the words.
+    public mutating func closeOpenBlocks() -> [AgentEvent] {
+        flushOpenBlocks()
+    }
+
+    /// The text and thought of one OpenCode message share a `messageId`, the thought's carrying a
+    /// `:reasoning:0` suffix. A new id is a new message: after a steer, the answer to it.
+    private mutating func blocksEndedBy(_ update: ACPSessionUpdate) -> [AgentEvent] {
+        guard let raw = update.raw["messageId"]?.stringValue, !raw.isEmpty else { return [] }
+        let message = String(raw.prefix { $0 != ":" })
+        defer { chunkMessage = message }
+        return chunkMessage.isEmpty || chunkMessage == message ? [] : flushOpenBlocks()
+    }
+
     private mutating func updateEvents(_ update: ACPSessionUpdate) -> [AgentEvent] {
         switch update.kind {
         case .text(let chunk):
             guard !chunk.isEmpty else { return [] }
-            var events = flushThought()
+            var events = blocksEndedBy(update) + flushThought()
             if text.isEmpty { textMessageID = UUID().uuidString }
             text += chunk
             events.append(.streamDelta(.text(chunk)))
@@ -157,7 +174,7 @@ public struct OpenCodeTranslation: Sendable {
         case .thought(let chunk):
             guard !chunk.isEmpty else { return [] }
             // As text flushes a thought: text, thought, text is stored in that order, not as two.
-            var events = flushText()
+            var events = blocksEndedBy(update) + flushText()
             if thought.isEmpty { thoughtMessageID = UUID().uuidString }
             thought += chunk
             events.append(.streamDelta(.thinking(chunk)))

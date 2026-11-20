@@ -841,10 +841,14 @@ public enum AgentKind: String, Sendable, Codable, CaseIterable, Identifiable {
     /// Codex's `turn/steer` is. The TUI can interject; this wire has not been shown to. Queuing
     /// until the turn ends is the honest default, and a measurement that says otherwise flips this.
     ///
-    /// **OpenCode: not yet.** The wire can do it: `_session/steering` during a turn was measured
-    /// on 2.3.2 to reply `injected` and the model took the message into the same turn, while a
-    /// second `session/prompt` is refused (`docs/OPENCODE.md`). `OpenCodeRunner` does not send it
-    /// yet, so this stays `false` until it does.
+    /// **OpenCode: yes.** A second `session/prompt` during a turn is refused, and
+    /// `_session/steering` is the call for this instead. Measured on 2.3.2 (`docs/OPENCODE.md`):
+    /// it replies `injected`, the words wait for the running step to end and are answered inside
+    /// the same turn, two in a row are both read, and a steer that arrives after the server has
+    /// closed the turn replies `promptRequired`, upon which `OpenCodeRunner` sends an ordinary
+    /// prompt. The one landing that is not a turn's is a steer into a turn being stopped, which
+    /// OpenCode keeps for the next prompt: the runner never steers a stopped turn, and says so in
+    /// the transcript when a Stop overtakes words already sent (`OpenCodeSteerNote`).
     ///
     /// **Cursor: no**, and not as a judgement about the CLI. It has no runner, so there is no
     /// turn to write into and no wire to write on. This answers `false` for the same reason
@@ -858,8 +862,8 @@ public enum AgentKind: String, Sendable, Codable, CaseIterable, Identifiable {
     /// dependencies installed to work with.
     public var acceptsMidTurnMessage: Bool {
         switch self {
-        case .claudeCode, .codex: true
-        case .grok, .cursor, .openCode: false
+        case .claudeCode, .codex, .openCode: true
+        case .grok, .cursor: false
         }
     }
 

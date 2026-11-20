@@ -335,6 +335,19 @@ public actor OpenCodeClient {
         return id
     }
 
+    /// Puts more of the user's words into the turn that is running. A second `session/prompt`
+    /// during a turn is refused, and this is the call OpenCode has for it instead.
+    public func steer(sessionID: String, text: String) async throws -> OpenCodeSteerOutcome {
+        let result = try await send("_session/steering", params: .object([
+            "sessionId": .string(sessionID),
+            "prompt": .array([.object(["type": .string("text"), "text": .string(text)])]),
+        ]))
+        guard let outcome = OpenCodeSteerOutcome.decode(result) else {
+            throw ACPClientError.unexpectedResult(method: "_session/steering")
+        }
+        return outcome
+    }
+
     public func cancel(sessionID: String) {
         notify("session/cancel", params: .object(["sessionId": .string(sessionID)]))
     }

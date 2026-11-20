@@ -127,10 +127,11 @@ public enum Crew {
     ///
     /// **The old sentence promised a wait that no longer happens.** It said "If it is mid turn it
     /// will read it when that turn ends", which was true while a running turn held every queue.
-    /// Two of the four backends take a message into the turn they are running, so the caller was
-    /// being told to expect a delay it will not see, and a model told to wait is a model that
-    /// polls or gives up. Here rather than in `WorkspaceModel` so the suite can hold it, for the
-    /// reason `DeliveryHold.sentence(on:)` is in the core.
+    /// Most backends take a message into the turn they are running (see
+    /// `AgentKind.acceptsMidTurnMessage`), so the caller was being told to expect a delay it will
+    /// not see, and a model told to wait is a model that polls or gives up. Here rather than in
+    /// `WorkspaceModel` so the suite can hold it, for the reason `DeliveryHold.sentence(on:)` is in
+    /// the core.
     ///
     /// The clause about something being queued in front of it is the honest hedge, and it is
     /// deliberately not spelled out into the three things that could be: a setup script, an

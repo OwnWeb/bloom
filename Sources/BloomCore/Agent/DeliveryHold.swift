@@ -47,8 +47,8 @@ public enum DeliveryHold: Equatable, Sendable, CaseIterable {
     /// The agent is mid turn.
     ///
     /// **Whether that holds anything is the backend's answer, not this case's.** See
-    /// `allowsDelivery(on:)`: Claude Code and Codex both take a message into a turn that is
-    /// already running, so on those two this names a fact about the session and holds nothing.
+    /// `allowsDelivery(on:)`: Claude Code, Codex and OpenCode take a message into a turn that is
+    /// already running, so on those this names a fact about the session and holds nothing.
     case turn
     /// Nothing in the session is holding it.
     ///
@@ -91,7 +91,7 @@ public enum DeliveryHold: Equatable, Sendable, CaseIterable {
     /// **The backend is asked because only the backend knows.** `.turn` refused on every one of
     /// them, so a message typed during a turn waited for a turn that would have accepted it. It
     /// now refuses only where writing into a live turn is not a thing the CLI does: see
-    /// `AgentKind.acceptsMidTurnMessage`, which carries the measurement for each of the four.
+    /// `AgentKind.acceptsMidTurnMessage`, which carries the measurement for each backend.
     ///
     /// `.setup` and `.question` refuse everywhere and are not asked. A worktree that is still
     /// being built has nothing installed to work with, and a turn blocked on a permission answer
@@ -118,10 +118,10 @@ public enum DeliveryHold: Equatable, Sendable, CaseIterable {
     /// decoration.
     ///
     /// **A running turn says nothing on a backend that would take the message anyway.** "Goes
-    /// when this turn ends" is a promise the drain no longer keeps there: on Claude Code and
-    /// Codex the queue empties into the turn rather than behind it, so the caption would be
-    /// describing a wait that is not happening. Nothing is holding it, so it says what nothing
-    /// holding it has always said, which is nothing. See `Delivery.deliverable(from:hold:on:)`.
+    /// when this turn ends" is a promise the drain no longer keeps there: where
+    /// `AgentKind.acceptsMidTurnMessage` holds, the queue empties into the turn rather than
+    /// behind it, so the caption would be describing a wait that is not happening. Nothing is
+    /// holding it, so it says what nothing holding it has always said, which is nothing. See `Delivery.deliverable(from:hold:on:)`.
     public func sentence(on agent: AgentKind) -> String? {
         guard !allowsDelivery(on: agent) else { return nil }
         switch self {
