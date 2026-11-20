@@ -199,6 +199,60 @@ therefore answers every allow with `allow_once` and keeps the grant itself: a se
 `OpenCodeRunner`, forgotten with the process, a project grant in `SessionGrants`, which can be
 revoked from Bloom. Either answers the next matching question without a card.
 
+## Plan mode
+
+Measured on 2026-11-20 on 2.3.2, with `HOME` isolated as well as XDG, because the plan agent's
+own directory is `$HOME/.opencode/plan`, which XDG does not move. It is under the home directory
+whether or not the working directory is a git repository, so a plan file never lands in the
+worktree.
+
+The `mode` config option (`build`, `plan`) selects OpenCode's `plan` agent. Setting it returns
+the whole `configOptions`, like the model and the effort. **It is stored with the session**:
+`session/resume` in a new process reports `currentValue: "plan"`. A chat that left plan mode has to
+say `build` again, or its next turn still plans.
+
+What the plan agent may do comes from its default rules, read with `opencode debug agents`:
+
+    *:*=allow ... edit:*=deny edit:$HOME/.opencode/plan/*=allow
+
+So it may not edit outside its plan directory, and **it may run any command**. Nothing in the plan
+agent restricts the shell. With no rule injected (Bloom's bypass mode), a plan turn asked to
+create a file wrote it with `printf … > a.txt` after its `write` call was refused.
+
+A refused edit is a failed tool call with "Cannot use write to modify files outside the Plan
+directory: <dir>", no permission request, and the turn carries on to `stopReason: "end_turn"`.
+Unlike a rejected card, it does not end the turn.
+
+**The injected permission block outranks the plan agent's deny.** Rules are appended in order, the
+agent's defaults first, then the user's config, then `OPENCODE_CONFIG_CONTENT`, and the last match
+wins. Ask mode's `edit: ask` therefore comes after `edit:*=deny`, and also after the plan
+directory's allow:
+
+| Bloom mode | Plan agent, edit in the worktree | Shell |
+| --- | --- | --- |
+| Ask, `{"edit":"ask","shell":"ask"}` | a card; `allow_once` wrote the file | a card |
+| Accept edits, `{"shell":"ask"}` | refused | a card |
+| Bypass, nothing injected | refused | runs, no card |
+
+The same append reopens other agents' denials: `explore`, `summary` and `title` start from
+`*:*=deny`, and the Ask block gives each `edit:*=ask` and `shell:*=ask`. That fails towards a
+question rather than towards a silent edit, so it went unnoticed until plan mode was measured.
+
+An agent's own rules can be appended after the global block, under `agent.<id>.permission`, and
+`{env:HOME}` is expanded in a rule. With
+
+    {"permission": {"edit": "ask", "shell": "ask"},
+     "agent": {"plan": {"permission": {"edit": {"*": "deny", "{env:HOME}/.opencode/plan/*": "allow"}}}}}
+
+the plan agent ends `... edit:*=ask shell:*=ask edit:*=deny edit:$HOME/.opencode/plan/*=allow`, and
+a plan turn's `write` into the worktree was refused without a card while its commands still asked.
+Object keys keep their order, so the `*` rule stays before the path.
+
+Not settled by these runs. The local `qwen3.5:4b` never managed to write a plan file (it wrote to
+the directory itself, which fails), so whether a plan turn ends with a file, a `question` call or
+anything other than `end_turn` is unmeasured. No `session/update` announced a mode change, and no
+tool to leave plan mode was called. Whether a model change resets `mode` was not measured either.
+
 ## MCP
 
 `mcpServers` on `session/new` and `session/resume` takes a stdio server as
