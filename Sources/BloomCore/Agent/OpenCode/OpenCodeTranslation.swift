@@ -117,7 +117,11 @@ public struct OpenCodeTranslation: Sendable {
             if !result.sessionID.isEmpty { sessionID = result.sessionID }
             usage.outputTokens = result.raw["usage"]?["outputTokens"]?.intValue ?? 0
             var events = flushOpenBlocks()
-            events.append(.result(self.result(for: result)))
+            // OpenCode's only reject ends the turn as cancelled. That is the person's answer,
+            // not a failure, so it reads as a finished turn with a denied call, as it would
+            // where the agent carries on after a deny.
+            let refused = result.wasCancelled && tools.values.contains(where: Self.wasDeclined)
+            events.append(.result(self.result(for: result, endedByRefusal: refused)))
             tools.removeAll()
             announced.removeAll()
             return events
@@ -292,9 +296,10 @@ public struct OpenCodeTranslation: Sendable {
         )
     }
 
-    private func result(for prompt: ACPPromptResult) -> AgentResult {
+    private func result(for prompt: ACPPromptResult, endedByRefusal: Bool) -> AgentResult {
         let summary = prompt.isError ? prompt.raw["message"]?.stringValue ?? "" : ""
-        let subtype = prompt.wasCancelled ? "error_during_execution"
+        let subtype = endedByRefusal ? "success"
+            : prompt.wasCancelled ? "error_during_execution"
             : prompt.isError ? prompt.stopReason
             : "success"
         return AgentResult(

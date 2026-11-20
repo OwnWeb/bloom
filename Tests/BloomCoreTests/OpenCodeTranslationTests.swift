@@ -143,6 +143,17 @@ struct OpenCodeTranslationTests {
         }
         #expect(result.refusal == .denied)
         #expect(result.isError)
+
+        // The reject ends the turn as cancelled, which is the person's answer, not a failure.
+        let done = translation.translate(.promptCompleted(ACPPromptResult(
+            requestID: .number(1), sessionID: "", stopReason: "cancelled", raw: .object([:])
+        )))
+        guard case .result(let ending) = done.last else {
+            Issue.record("expected result")
+            return
+        }
+        #expect(!ending.isError)
+        #expect(ending.subtype == "success")
     }
 
     @Test("a thought after text closes that text first, so the order is kept")

@@ -436,7 +436,9 @@ public actor OpenCodeRunner: SessionRunner {
             await report("could not store a permission question", error)
         }
         await persist(kind: .permissionAsk, payload: ask.raw, refID: ask.toolUseID)
-        sink.yield(.permissionAsk(ask))
+        // A question the session grant answers is shown with its answer, not before it: drawn
+        // first, it flashed as a card across the store write in between.
+        if !bySession { sink.yield(.permissionAsk(ask)) }
 
         if bySession {
             // A stop or a closed process during the awaits above wins, as it would for a queued
@@ -445,16 +447,26 @@ public actor OpenCodeRunner: SessionRunner {
                 if approvals.removeValue(forKey: ask.requestID) != nil {
                     await client?.answer(request.id, with: OpenCodePermission.cancelledResult)
                 }
+                sink.yield(.permissionAsk(ask))
                 await close(ask, as: PermissionAskOutcome.stopped, note: "")
                 return
             }
             await write(answerTo: ask, decision: .allow(scope: .session), request: request)
             // Stored as a session allow, not `auto`, which reads back as a project grant.
-            await close(
-                ask,
-                as: PermissionDecision.allow(scope: .session).storedName,
+            let decision = PermissionDecision.allow(scope: .session).storedName
+            approvals[ask.requestID] = nil
+            do {
+                try await store.resolvePermissionAsk(id: ask.requestID, decision: decision)
+            } catch {
+                await report("could not record a permission decision", error)
+            }
+            sink.yield(.permissionAsk(ask))
+            sink.yield(.permissionDecided(PermissionResolution(
+                requestID: ask.requestID,
+                toolUseID: ask.toolUseID,
+                decision: decision,
                 note: PermissionGrantIndex.sessionNote(for: ask)
-            )
+            )))
             return
         }
 
