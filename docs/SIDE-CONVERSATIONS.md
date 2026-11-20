@@ -21,8 +21,8 @@ activity in the parent.
 
 The snapshot is attached to the first provider prompt as quoted background. The editable draft,
 queue and visible user bubble retain the actual question. Failed first submissions keep the
-context available for retry. Codex acknowledges it after accepting the turn; the other runner
-acknowledges it when the first answer or thinking block arrives. Subsequent turns resume the
+context available for retry. Codex acknowledges it after accepting the turn; the other runners
+acknowledge it when the first answer or thinking block arrives. Subsequent turns resume the
 child's own conversation.
 
 ## Storage and lifetime

@@ -40,6 +40,8 @@ public actor OpenCodeRunner: SessionRunner {
     private let handle = CodexTurnHandle()
     private let sink = AgentPresentationFeed()
     private var sendsInFlight = 0
+    /// A /btw context sent with a prompt not yet proven taken. See `acknowledgeSideContext`.
+    private var awaitingSideContextAcknowledgement = false
     /// OpenCode has no plan item: a plan turn's answer is its last text block, recorded as the
     /// plan when the turn ends normally. See "Plan mode" in `docs/OPENCODE.md`.
     private var turnMode = InteractionMode.build
@@ -167,12 +169,9 @@ public actor OpenCodeRunner: SessionRunner {
             throw CancellationError()
         }
 
+        awaitingSideContextAcknowledgement = prompt != text
         session.apply(.turnStarted)
         await save(session)
-        if prompt != text {
-            // The prompt was accepted. A refused one leaves the context for the next attempt.
-            try? await store.acknowledgeSideConversationContext(sessionID: sessionID)
-        }
     }
 
     public nonisolated func cancelNow() {
@@ -429,6 +428,20 @@ public actor OpenCodeRunner: SessionRunner {
         }
     }
 
+    /// `beginPrompt` returns once the frame is written, and a refusal arrives later as the turn's
+    /// result. The first answer or thought is what proves the prompt was taken, as in `AgentRunner`,
+    /// so a refused first question is retried with the parent's context still on it.
+    private func acknowledgeSideContext() async {
+        guard awaitingSideContextAcknowledgement else { return }
+        do {
+            try await store.acknowledgeSideConversationContext(sessionID: sessionID)
+            awaitingSideContextAcknowledgement = false
+        } catch {
+            // Repeating the context is safer than losing it after a failed write.
+            Self.log.error("could not acknowledge side context: \(error.readableMessage, privacy: .public)")
+        }
+    }
+
     private func emit(_ event: AgentEvent, endingTurn: String? = nil) async {
         let intent = handle.intent
         var storedMessage: Message?
@@ -445,6 +458,10 @@ public actor OpenCodeRunner: SessionRunner {
         switch event {
         case .assistantText(let block):
             planCandidate = block
+            await acknowledgeSideContext()
+
+        case .thinking:
+            await acknowledgeSideContext()
 
         case .result(let result):
             handle.end()

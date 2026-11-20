@@ -280,8 +280,10 @@ plan turn read the code, ran two commands (each a card under Ask), and wrote the
 ending on `end_turn`. It wrote no plan file, no `session/update` announced a mode change, and no tool
 to leave plan mode was called, so the plan is the transcript's last message and nothing else.
 Bloom therefore records the last text block of a plan turn that ends on `end_turn` as the chat's
-plan, unless it only asks (`OpenCodePlanReply`), the artefact Codex's plan item and Claude Code's `ExitPlanMode` give it, with Refine and
-Implement under it. (The
+plan, the artefact Codex's plan item and Claude Code's `ExitPlanMode` give it, with Refine and
+Implement under it. A reply that only asks is left out (`OpenCodePlanReply`): it is a plan as
+soon as it states something, a heading, a sentence or a step, so steps closed by "Shall I
+proceed?" are kept and a question followed by its options is not. (The
 local `qwen3.5:4b` never managed to write a plan file either: it aimed `write` at the directory.)
 
 On the way it called the `question` tool. With `clientCapabilities: {}` that call fails at once with

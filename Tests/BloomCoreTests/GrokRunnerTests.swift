@@ -32,13 +32,18 @@ private func makeRunner(store: Store, session: Session, box: ProcessBox) -> Grok
     )
 }
 
-private func scriptedGrokBox() -> ProcessBox {
+/// `refusingPrompts` answers every prompt with an error instead of leaving it unanswered.
+private func scriptedGrokBox(refusingPrompts: Bool = false) -> ProcessBox {
     let box = ProcessBox()
     box.reply(to: "initialize", with: .object(["_meta": .object([:])]))
     box.reply(to: "session/new", with: .object(["sessionId": .string("sess-1")]))
     box.reply(to: "session/resume", with: .object(["sessionId": .string("sess-1")]))
     box.reply(to: "session/set_config_option", with: .object([:]))
-    box.ignore("session/prompt")
+    if refusingPrompts {
+        box.fail("session/prompt", code: -32603, message: "Internal error")
+    } else {
+        box.ignore("session/prompt")
+    }
     return box
 }
 
@@ -70,9 +75,42 @@ struct GrokRunnerTests {
 
         try await runner.send("Why?")
         #expect(promptTexts(box).first?.contains("Original context") == true)
-        #expect(try await store.setting(SideConversation.contextDeliveredKey(child.id)) == "1")
+        // Not yet: only an answer proves the prompt was taken.
+        #expect(try await store.setting(SideConversation.contextDeliveredKey(child.id)) == nil)
+        let prompt = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
+        let chunk = JSONValue.object(["sessionId": .string("sess-1"), "update": .object([
+            "sessionUpdate": .string("agent_message_chunk"),
+            "content": .object(["type": .string("text"), "text": .string("Because.")]),
+        ])])
+        box.process.emit("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":\(chunk.compactJSON)}")
+        let promptID = try #require(prompt["id"]).compactJSON
+        box.process.emit("{\"jsonrpc\":\"2.0\",\"id\":\(promptID),\"result\":{\"stopReason\":\"end_turn\"}}")
+        await eventually("the context to be acknowledged", within: 30) {
+            (try? await store.setting(SideConversation.contextDeliveredKey(child.id))) == "1"
+        }
         let questions = try await store.messages(sessionID: child.id).filter { $0.kind == .user }
         #expect(questions.map { UserTurnPrompt.text(in: $0.payload) } == ["Why?"])
+    }
+
+    @Test("a refused first /btw question is retried with the parent's context still on it")
+    func refusedSideQuestionKeepsItsContext() async throws {
+        let store = try makeTestStore("grok-side-conversation-refused")
+        let parent = try await makeGrokSession(store, agentSessionID: "sess-parent")
+        let child = try await store.openSideConversation(parentID: parent.id, streamingText: "Original context")
+        let box = scriptedGrokBox(refusingPrompts: true)
+        let runner = makeRunner(store: store, session: child, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("Why?")
+        await eventually("the refused turn to end", within: 30) {
+            (try? await store.session(id: child.id))?.state.isMidTurn == false
+        }
+        try await runner.send("Why?")
+
+        let prompts = promptTexts(box)
+        #expect(prompts.count == 2)
+        #expect(prompts.allSatisfy { $0.contains("Original context") })
+        #expect(try await store.setting(SideConversation.contextDeliveredKey(child.id)) == nil)
     }
 
     @Test("a restarted server can reuse a permission RPC id without inheriting its old decision")

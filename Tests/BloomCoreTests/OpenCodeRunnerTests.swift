@@ -281,13 +281,13 @@ struct OpenCodeRunnerTests {
         #expect(plans == (mode == .plan ? ["1. Add subtract.\n2. Test it."] : []))
     }
 
-    /// A refusal reads as a finished turn rather than an error, so only the stop reason keeps its
-    /// preamble from becoming the plan.
     @Test("a plan turn that ends on a question records no plan")
     func questionPlanTurnRecordsNothing() async throws {
         #expect(try await planArtefacts(mode: .plan, stopReason: "end_turn", reply: "Which framework?").isEmpty)
     }
 
+    /// A refusal reads as a finished turn rather than an error, so only the stop reason keeps its
+    /// preamble from becoming the plan.
     @Test("a plan turn ended by a refused card records no plan")
     func refusedPlanTurnRecordsNothing() async throws {
         #expect(try await planArtefacts(mode: .plan, stopReason: "cancelled", refusingATool: true).isEmpty)
@@ -308,13 +308,15 @@ struct OpenCodeRunnerTests {
         let promptID = try #require(prompt["id"])
         box.process.emit(Self.textChunkLine(reply))
         if refusingATool { box.process.emit(Self.declinedToolLine()) }
-        box.process.emit(
-            "{\"jsonrpc\":\"2.0\",\"id\":\(promptID.compactJSON),\"result\":{\"stopReason\":\"\(stopReason)\"}}"
-        )
+        box.process.emit(Self.promptReplyLine(id: promptID, stopReason: stopReason))
         await eventually("the turn to end") {
             (try? await store.session(id: session.id))?.state.isMidTurn == false
         }
         return try await store.planArtefacts(sessionID: session.id).map(\.markdown)
+    }
+
+    private static func promptReplyLine(id: JSONValue, stopReason: String) -> String {
+        "{\"jsonrpc\":\"2.0\",\"id\":\(id.compactJSON),\"result\":{\"stopReason\":\"\(stopReason)\"}}"
     }
 
     private static func declinedToolLine() -> String {
@@ -342,11 +344,14 @@ struct OpenCodeRunnerTests {
         let store = try makeTestStore("opencode-side-conversation")
         let parent = try await makeOpenCodeSession(store, agentSessionID: "ses_parent")
         let child = try await store.openSideConversation(parentID: parent.id, streamingText: "Original context")
-        let box = scriptedBox(endsTurns: true)
+        let box = scriptedBox()
         let runner = makeRunner(store: store, session: child, box: box)
         defer { runner.terminateNow() }
 
         try await runner.send("Why?")
+        let prompt = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
+        box.process.emit(Self.textChunkLine("Because."))
+        box.process.emit(Self.promptReplyLine(id: try #require(prompt["id"]), stopReason: "end_turn"))
         await eventually("the first turn to end") {
             (try? await store.session(id: child.id))?.state.isMidTurn == false
         }
@@ -359,6 +364,29 @@ struct OpenCodeRunnerTests {
         #expect(try await store.setting(SideConversation.contextDeliveredKey(child.id)) == "1")
         let questions = try await store.messages(sessionID: child.id).filter { $0.kind == .user }
         #expect(questions.map { UserTurnPrompt.text(in: $0.payload) } == ["Why?", "And then?"])
+    }
+
+    @Test("a refused first /btw question is retried with the parent's context still on it")
+    func refusedSideQuestionKeepsItsContext() async throws {
+        let store = try makeTestStore("opencode-side-conversation-refused")
+        let parent = try await makeOpenCodeSession(store, agentSessionID: "ses_parent")
+        let child = try await store.openSideConversation(parentID: parent.id, streamingText: "Original context")
+        // Answered rather than ignored, because an ignored method is never refused either.
+        let box = scriptedBox(endsTurns: true)
+        box.fail("session/prompt", code: -32603, message: "Internal error: active ACP prompt")
+        let runner = makeRunner(store: store, session: child, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("Why?")
+        await eventually("the refused turn to end") {
+            (try? await store.session(id: child.id))?.state.isMidTurn == false
+        }
+        try await runner.send("Why?")
+
+        let prompts = promptTexts(box)
+        #expect(prompts.count == 2)
+        #expect(prompts.allSatisfy { $0.contains("Original context") })
+        #expect(try await store.setting(SideConversation.contextDeliveredKey(child.id)) == nil)
     }
 
     @Test("an effort left over from another model is dropped, and the turn still starts")

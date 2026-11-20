@@ -101,6 +101,7 @@ struct OpenCodeClientTests {
         "## Proposed plan\n1. Add subtract.\n2. Test it.\n\nShall I go ahead?",
         "I will add subtract below add, then cover it with unittest.\nTell me if you prefer pytest?",
         "1. Add subtract.\n2. Test it.",
+        "Here is the plan:\n1. Add subtract.\n2. Test it.\n\nShall I proceed?",
         "| Step | File |\n|---|---|\n| 1 | main.py |",
     ])
     func planIsAPlan(reply: String) {
