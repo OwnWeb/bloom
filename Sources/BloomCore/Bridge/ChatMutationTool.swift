@@ -103,14 +103,29 @@ public struct ChatCreateOrder: Sendable, Equatable {
 }
 
 extension ChatCreateOrder {
+    /// Whether an agent caller may not write, which its new chat has to carry over.
+    private var callerIsReadOnly: Bool {
+        guard let sender = messageSenderAgent else { return false }
+        return permissionMode == .plan || interactionMode == .plan
+            || (sender == .codex && permissionMode == .auto)
+    }
+
+    /// Why this order cannot open a chat on `agent`, said to the agent that asked, or nil.
+    ///
+    /// OpenCode cannot hold a caller that may not write: its plan agent refuses edits but runs the
+    /// user's MCP tools without a card. An OpenCode caller is not refused, since it gains nothing.
+    public func refusal(on agent: AgentKind) -> String? {
+        guard agent == .openCode, callerIsReadOnly, messageSenderAgent != agent else { return nil }
+        return "A chat that may not write cannot open an OpenCode chat, because OpenCode's plan mode "
+            + "still runs MCP tools without asking. Choose another agent for the new chat."
+    }
+
     /// An agent's message runs in its caller's modes on the new chat's agent. A caller that may not
     /// write stays so: Codex holds that as the Plan work mode, Claude Code as the Plan permission
-    /// mode. OpenCode holds it as neither: its plan agent refuses edits but runs the user's MCP
-    /// tools without a card, so a Plan permission is asked for and refused as one it does not have.
+    /// mode. OpenCode holds it as neither, see `refusal(on:)`.
     public func modes(on agent: AgentKind) -> (permission: PermissionMode?, interaction: InteractionMode?) {
         guard let sender = messageSenderAgent, sender != agent else { return (permissionMode, interactionMode) }
-        let readOnly = permissionMode == .plan || interactionMode == .plan
-            || (sender == .codex && permissionMode == .auto)
+        let readOnly = callerIsReadOnly
         if agent == .codex {
             return (readOnly ? .auto : permissionMode?.nearest(on: agent), readOnly ? .plan : .build)
         }

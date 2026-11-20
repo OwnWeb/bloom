@@ -377,6 +377,9 @@ extension AppModel {
             inheriting: inherited
         )
 
+        if let refusal = order.refusal(on: controls.agentKind) {
+            throw BridgeAgentControlFailure.refused(refusal)
+        }
         let modes = order.modes(on: controls.agentKind)
         if let permission = modes.permission {
             guard controls.availablePermissionModes.contains(permission) else {
@@ -842,9 +845,12 @@ private enum BridgeAgentControlFailure: LocalizedError {
     case unsupportedFastMode(AgentKind)
     case unsupportedOutputStyle(AgentKind)
     case unsupportedContextWindow(AgentKind)
+    case refused(String)
 
     var errorDescription: String? {
         switch self {
+        case .refused(let sentence):
+            return sentence
         case let .invalidModel(model, agent, available):
             let choices = available.isEmpty ? "none were reported" : available.joined(separator: ", ")
             return "The model '\(model)' is not available for \(agent.label). Available models: \(choices)."
