@@ -263,7 +263,12 @@ Bypass plan chat runs the plan agent under OpenCode's rules: edits refused, comm
 
 **The mode is sent whenever the session holds another**, after the model and before the effort, so
 a resumed chat or one that left plan mode is put back to `build`. A mode the session does not offer
-fails the send, unlike an effort, because a plan turn run as `build` would edit the worktree.
+fails the send, unlike an effort, because a plan turn run as `build` would edit the worktree. A
+session that offers no `build` is left on its mode: only a plan run as a build is worth refusing.
+A session whose mode is one of the user's own primary agents is put back to `build` by the next send.
+
+Not measured: whether the plan agent can hand an edit to the `general` subagent, which under
+Accept edits and Bypass is allowed to edit.
 
 **A plan turn ends like any other turn.** With the hosted `opencode/deepseek-v4.1-flash-free`, a
 plan turn read the code, ran two commands (each a card under Ask), and wrote the plan as its reply,
@@ -338,6 +343,6 @@ Global configuration is the directory `~/.config/opencode/` (`opencode.json` or 
   which providers the user connected.
 - **Image content blocks, `session/list`, `session/fork`, `session/load`.**
 
-Measured but not wired yet: steering (above), and plan mode, which is the `mode` config option.
+Measured but not wired yet: steering (above).
 Not measured: subagent updates (`_meta["opencode/child-session-updates"]`), `elicitation/create`,
 and whether `opencode -s <id>` opens an ACP session in the terminal interface.

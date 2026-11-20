@@ -337,8 +337,8 @@ public actor OpenCodeRunner: SessionRunner {
         let wanted = mode.rawValue
         guard options.currentMode != wanted else { return }
         guard options.offersMode(wanted) else {
-            // A session with no mode option at all runs as `build`, which is what was asked.
-            if mode == .build, options.modes.isEmpty { return }
+            // A session that cannot build stays on what it has: only a plan run as `build` edits.
+            if mode == .build { return }
             throw OpenCodeRunnerError.modeUnavailable(mode: wanted)
         }
         options = try await client.setConfigOption(

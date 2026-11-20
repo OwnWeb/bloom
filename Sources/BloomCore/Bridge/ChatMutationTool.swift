@@ -104,7 +104,8 @@ public struct ChatCreateOrder: Sendable, Equatable {
 
 extension ChatCreateOrder {
     /// An agent's message runs in its caller's modes on the new chat's agent. A caller that may not
-    /// write stays so: Codex holds that as Plan or Read only (its `.auto`), the others as Plan.
+    /// write stays so: Codex and OpenCode hold that as the Plan work mode, the others as the Plan
+    /// permission mode.
     public func modes(on agent: AgentKind) -> (permission: PermissionMode?, interaction: InteractionMode?) {
         guard let sender = messageSenderAgent, sender != agent else { return (permissionMode, interactionMode) }
         let readOnly = permissionMode == .plan || interactionMode == .plan
@@ -237,7 +238,7 @@ public struct ChatCreateTool: BridgeToolHandling {
                     "type": .string("string"),
                     "enum": .array(InteractionMode.allCases.map { .string($0.rawValue) }),
                     "description": .string(
-                        "Build or plan. Plan is supported only by Codex; other agents use build."
+                        "Build or plan. Plan is supported by Codex and OpenCode; other agents use build."
                     ),
                 ]),
                 "fast_mode": .object([
