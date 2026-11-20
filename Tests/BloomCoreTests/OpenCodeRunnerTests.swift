@@ -275,12 +275,16 @@ struct OpenCodeRunnerTests {
         #expect(plans == (mode == .plan ? ["1. Add subtract.\n2. Test it."] : []))
     }
 
+    /// A refusal reads as a finished turn rather than an error, so only the stop reason keeps its
+    /// preamble from becoming the plan.
     @Test("a plan turn ended by a refused card records no plan")
     func refusedPlanTurnRecordsNothing() async throws {
-        #expect(try await planArtefacts(mode: .plan, stopReason: "cancelled").isEmpty)
+        #expect(try await planArtefacts(mode: .plan, stopReason: "cancelled", refusingATool: true).isEmpty)
     }
 
-    private func planArtefacts(mode: InteractionMode, stopReason: String) async throws -> [String] {
+    private func planArtefacts(
+        mode: InteractionMode, stopReason: String, refusingATool: Bool = false
+    ) async throws -> [String] {
         let store = try makeTestStore("opencode-plan-artefact-\(mode.rawValue)-\(stopReason)")
         let session = try await makeOpenCodeSession(store, interactionMode: mode)
         let box = scriptedBox()
@@ -291,6 +295,7 @@ struct OpenCodeRunnerTests {
         let prompt = try #require(box.process.sentFrame { $0["method"]?.stringValue == "session/prompt" })
         let promptID = try #require(prompt["id"])
         box.process.emit(Self.textChunkLine("1. Add subtract.\n2. Test it."))
+        if refusingATool { box.process.emit(Self.declinedToolLine()) }
         box.process.emit(
             "{\"jsonrpc\":\"2.0\",\"id\":\(promptID.compactJSON),\"result\":{\"stopReason\":\"\(stopReason)\"}}"
         )
@@ -298,6 +303,18 @@ struct OpenCodeRunnerTests {
             (try? await store.session(id: session.id))?.state.isMidTurn == false
         }
         return try await store.planArtefacts(sessionID: session.id).map(\.markdown)
+    }
+
+    private static func declinedToolLine() -> String {
+        let params = JSONValue.object(["sessionId": .string("ses_1"), "update": .object([
+            "sessionUpdate": .string("tool_call_update"),
+            "toolCallId": .string("call_declined"),
+            "status": .string("failed"),
+            "kind": .string("execute"),
+            "title": .string("shell"),
+            "rawOutput": .object(["error": .string(OpenCodeTranslation.declinedMessage)]),
+        ])])
+        return "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":\(params.compactJSON)}"
     }
 
     private static func textChunkLine(_ text: String) -> String {
