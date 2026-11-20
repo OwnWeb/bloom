@@ -81,7 +81,13 @@ public enum TranscriptRowInk {
     /// feeding the quota panel instead, except steered words a Stop left for the next prompt:
     /// those reach the model with no other sign on screen, and the note was written and never
     /// drawn until this was asked here.
+    ///
+    /// Asked of every notice on every pass over the list, and every rate limit is a notice, so
+    /// the bytes are searched for the note's subtype first and only a match is decoded.
     public static func showsNotice(payload: Data) -> Bool {
-        OpenCodeSteerNote.sentence(fromNote: payload) != nil
+        guard payload.range(of: steerNoteMarker) != nil else { return false }
+        return OpenCodeSteerNote.sentence(fromNote: payload) != nil
     }
+
+    private static let steerNoteMarker = Data(OpenCodeSteerNote.subtype.utf8)
 }
