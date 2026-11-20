@@ -156,6 +156,28 @@ model takes the message into the same turn. With no turn running it replies
 `AgentKind.acceptsMidTurnMessage` stays false for OpenCode and a message typed during a turn
 waits for the turn to end.
 
+Measured on 2.3.2 (`s21_steer_cases.py`, `s22_steer_race.py`), on the hosted free model:
+
+- **Where it lands.** The message waits for the step that is running (a tool call, a permission
+  request) to finish, then becomes a `user` message of its own in OpenCode's session, followed by
+  a new assistant message, all under the one open `session/prompt`. No `session/update` echoes it:
+  the steered words never appear on the wire again, so Bloom's own user row is the only one.
+- **Two in a row.** Both reply `injected`, both are stored as separate `user` messages, and the
+  model followed both. Three hundred in a burst were all read inside the same turn, with none
+  left over.
+- **During a permission request.** `injected`. The request stays pending, and the message is read
+  once it is answered and the tool has run.
+- **The end of the turn.** `stopReason` stays `end_turn`, and the reply's `usage` covers every
+  step of the turn, steered ones included. A steer sent the moment `usage_update` arrives, a few
+  milliseconds before the prompt reply, got `promptRequired` six times out of six: the server had
+  already closed the turn, and nothing was stored. So a steer that misses says so, and the message
+  wants an ordinary `session/prompt`.
+- **Straight after `session/cancel`.** `injected`, but the cancelled turn ends `cancelled` without
+  reading it. The text stays in the session as a `user` message after the turn, and the model
+  reads it with the next prompt as if it had been sent with it. Two seconds after the cancel, a
+  steer gets `promptRequired`. So the reply cannot be trusted for a turn that has been told to
+  stop, and a stopped turn must not be steered into.
+
 ## Permissions
 
 OpenCode decides permissions from its config, as an ordered list of rules where the last match
