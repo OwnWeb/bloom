@@ -7,7 +7,8 @@ public enum InteractionMode: String, Codable, CaseIterable, Sendable, Hashable {
 
     public var label: String { self == .plan ? "Plan" : "Build" }
 
-    public static func supports(_ agent: AgentKind) -> Bool { agent == .codex }
+    /// Codex takes the mode with each turn, OpenCode as its `mode` config option.
+    public static func supports(_ agent: AgentKind) -> Bool { agent == .codex || agent == .openCode }
 
     public func nearest(on agent: AgentKind) -> InteractionMode {
         Self.supports(agent) ? self : .build

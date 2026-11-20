@@ -101,10 +101,10 @@ public struct ComposerDefaults: Equatable {
             // Through the backend the model just landed on rather than through the caller's, which
             // is the whole point of settling the two together: Plan plus a Codex default used to
             // depend on the caller passing the right backend in, and the create window passed none.
-            permissionMode: (app.planMode && resolved.kind != .codex
+            permissionMode: (app.planMode && !InteractionMode.supports(resolved.kind)
                 ? .plan : app.permissionMode).nearest(on: resolved.kind),
             backend: resolved.kind,
-            interactionMode: hasWorktree && app.planMode && resolved.kind == .codex ? .plan : .build
+            interactionMode: hasWorktree && app.planMode && InteractionMode.supports(resolved.kind) ? .plan : .build
         )
     }
 

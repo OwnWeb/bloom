@@ -248,7 +248,7 @@ private struct ComposerSettingsPanel: View {
 
                 if controls.offersInteractionMode {
                     settingRow("Work mode") {
-                        if ComposerPlanningSupport.shared.isAvailable {
+                        if ComposerPlanningSupport.shared.isAvailable(on: controls.agentKind) {
                             optionPicker(
                                 "Work mode", selection: controls.interactionMode.rawValue,
                                 options: InteractionMode.allCases.map { ComposerOption(id: $0.rawValue, label: $0.label) },
@@ -262,7 +262,7 @@ private struct ComposerSettingsPanel: View {
                             Text("Build")
                         }
                     }
-                    if !ComposerPlanningSupport.shared.isAvailable {
+                    if !ComposerPlanningSupport.shared.isAvailable(on: controls.agentKind) {
                         Text(CodexPlanningCapability.explanation).font(Typo.caption)
                         Button("Check Again") { Task { await ComposerPlanningSupport.shared.checkAgain() } }
                             .disabled(ComposerPlanningSupport.shared.isChecking)

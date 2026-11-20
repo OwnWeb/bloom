@@ -107,8 +107,10 @@ public actor OpenCodeRunner: SessionRunner {
     }
 
     public func sendDelivery(_ delivery: Delivery) async throws {
+        var mode = delivery.interactionMode
+        if mode == nil { mode = try await store.session(id: sessionID)?.interactionMode }
         try await send(delivery.sent, recording: delivery.crewPayload,
-                       deliveryID: delivery.id, interactionMode: delivery.interactionMode)
+                       deliveryID: delivery.id, interactionMode: mode)
     }
 
     /// `applyComposerSettings` reads these on the next send, so the process and its `ses_…` stay.
@@ -139,7 +141,9 @@ public actor OpenCodeRunner: SessionRunner {
         // while the stopped prompt winds down, and that overlap was never measured.
         await client.waitUntilNoPrompt()
         try handle.check(generation)
-        try await applyComposerSettings(on: client, sessionID: openCodeSessionID)
+        try await applyComposerSettings(
+            on: client, sessionID: openCodeSessionID, mode: interactionMode ?? session.interactionMode
+        )
         try handle.check(generation)
 
         if deliveryID == nil {
@@ -293,12 +297,14 @@ public actor OpenCodeRunner: SessionRunner {
         return error.code == invalidParamsCode && (gone || message.contains("does not belong to cwd"))
     }
 
-    /// Sets the composer's model, then its effort if that model offers it.
+    /// Sets the composer's model, then the work mode, then the effort if that model offers it.
     ///
     /// The effort option belongs to the current model and is absent for a model with no levels,
     /// so it is read back from the model's own reply. An effort left over from another model is
     /// dropped without a word rather than sent and refused.
-    private func applyComposerSettings(on client: OpenCodeClient, sessionID: String) async throws {
+    private func applyComposerSettings(
+        on client: OpenCodeClient, sessionID: String, mode: InteractionMode
+    ) async throws {
         // One snapshot: a change adopted during the awaits below belongs to the next send.
         let model = wireModel
         let effort = session.effort
@@ -306,6 +312,7 @@ public actor OpenCodeRunner: SessionRunner {
             options = try await select(model, on: client, sessionID: sessionID)
             translation.context.model = model
         }
+        try await selectMode(mode, on: client, sessionID: sessionID)
         guard !effort.isEmpty, options.offersEffort(effort),
               options.currentEffort != effort else { return }
         do {
@@ -321,6 +328,22 @@ public actor OpenCodeRunner: SessionRunner {
         } catch {
             return
         }
+    }
+
+    /// The mode is stored with the session and survives a resume and a model change, so `build` is
+    /// sent as well as `plan` whenever the session says otherwise. Unlike the effort, a mode that
+    /// cannot be set fails the send: a plan turn run as `build` would edit the worktree.
+    private func selectMode(_ mode: InteractionMode, on client: OpenCodeClient, sessionID: String) async throws {
+        let wanted = mode.rawValue
+        guard options.currentMode != wanted else { return }
+        guard options.offersMode(wanted) else {
+            // A session with no mode option at all runs as `build`, which is what was asked.
+            if mode == .build, options.modes.isEmpty { return }
+            throw OpenCodeRunnerError.modeUnavailable(mode: wanted)
+        }
+        options = try await client.setConfigOption(
+            sessionID: sessionID, configID: OpenCodeConfigOptions.modeID, value: wanted
+        )
     }
 
     /// A refused model fails the turn, unlike Grok's: the session would otherwise keep OpenCode's
@@ -597,11 +620,14 @@ public actor OpenCodeRunner: SessionRunner {
 
 public enum OpenCodeRunnerError: Error, Equatable, LocalizedError {
     case modelRefused(model: String, reason: String)
+    case modeUnavailable(mode: String)
 
     public var errorDescription: String? {
         switch self {
         case .modelRefused(let model, let reason):
             "OpenCode could not select \(model): \(reason)"
+        case .modeUnavailable(let mode):
+            "This OpenCode session offers no \(mode) mode."
         }
     }
 }

@@ -41,26 +41,38 @@ public struct OpenCodeConfigOptions: Sendable, Hashable {
 
     public static let modelID = "model"
     public static let effortID = "effort"
+    public static let modeID = "mode"
 
     public var models: [Choice]
     public var currentModel: String
     public var efforts: [Choice]
     public var currentEffort: String
+    /// `build`, `plan`, and any primary agent the user's config defines.
+    public var modes: [Choice]
+    public var currentMode: String
 
     public init(
         models: [Choice] = [],
         currentModel: String = "",
         efforts: [Choice] = [],
-        currentEffort: String = ""
+        currentEffort: String = "",
+        modes: [Choice] = [],
+        currentMode: String = ""
     ) {
         self.models = models
         self.currentModel = currentModel
         self.efforts = efforts
         self.currentEffort = currentEffort
+        self.modes = modes
+        self.currentMode = currentMode
     }
 
     public func offersEffort(_ effort: String) -> Bool {
         efforts.contains { $0.value == effort }
+    }
+
+    public func offersMode(_ mode: String) -> Bool {
+        modes.contains { $0.value == mode }
     }
 
     /// Reads a reply that carries `configOptions`. Options are found by id, never by position.
@@ -79,6 +91,9 @@ public struct OpenCodeConfigOptions: Sendable, Hashable {
             case effortID:
                 decoded.efforts = choices
                 decoded.currentEffort = current
+            case modeID:
+                decoded.modes = choices
+                decoded.currentMode = current
             default:
                 continue
             }

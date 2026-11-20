@@ -286,6 +286,13 @@ struct DefaultBackendTests {
         var claude = AppDefaults()
         claude.planMode = true
         #expect(ComposerDefaults.resolve(repo: RepoSettings(), app: claude).permissionMode == .plan)
+
+        var openCode = AppDefaults(model: "ollama/qwen3.5:4b", backend: .openCode)
+        openCode.planMode = true
+        let onOpenCode = ComposerDefaults.resolve(repo: RepoSettings(), app: openCode)
+        #expect(onOpenCode.backend == .openCode)
+        #expect(onOpenCode.interactionMode == .plan)
+        #expect(onOpenCode.permissionMode == openCode.permissionMode.nearest(on: .openCode))
     }
 
     /// The same rule one layer up, where the value actually reaches a session row: whatever the

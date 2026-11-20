@@ -56,6 +56,46 @@ struct OpenCodeClientTests {
         #expect(!without.offersEffort("high"))
     }
 
+    @Test("the mode option is read by id, with the session's stored mode")
+    func modeOptionDecodes() {
+        let options = OpenCodeConfigOptions.decode(
+            OpenCodeFixture.configOptions(model: OpenCodeFixture.localModel, mode: "plan")
+        )
+        #expect(options.modes.map(\.value) == ["build", "plan"])
+        #expect(options.currentMode == "plan")
+        #expect(options.offersMode("plan"))
+        #expect(!options.offersMode("review"))
+    }
+
+    @Test("the injected block puts back the built-in agents' denials it would otherwise reopen")
+    func injectedBlockRestoresDenials() throws {
+        let ask = try #require(OpenCodePermission.configContent(for: .auto))
+        let parsed = JSONValue.parse(Data(ask.utf8))
+        #expect(parsed?["permission"]?["edit"]?.stringValue == "ask")
+        #expect(parsed?["agent"]?["explore"]?["permission"]?["edit"]?.stringValue == "deny")
+        #expect(parsed?["agent"]?["title"]?["permission"]?["shell"]?.stringValue == "deny")
+        // The plan agent's rules are read in key order, last match winning, so the order is the
+        // string's and not the parsed dictionary's.
+        let wildcard = try #require(ask.range(of: "\"*\":\"deny\""))
+        let planDirectory = try #require(ask.range(of: "\"{env:HOME}/.opencode/plan/*\":\"allow\""))
+        #expect(wildcard.lowerBound < planDirectory.lowerBound)
+
+        let acceptEdits = try #require(OpenCodePermission.configContent(for: .acceptEdits))
+        let agents = JSONValue.parse(Data(acceptEdits.utf8))?["agent"]?.objectValue
+        #expect(agents?.keys.sorted() == ["summary", "title"])
+        #expect(agents?["summary"]?["permission"]?["edit"] == nil)
+        #expect(OpenCodePermission.configContent(for: .bypassPermissions) == nil)
+    }
+
+    @Test("plan is offered on OpenCode, and Codex's unavailable flag only greys out Codex")
+    func planAvailabilityIsPerAgent() {
+        #expect(InteractionMode.plan.nearest(on: .openCode) == .plan)
+        #expect(CodexPlanningCapability.planIsAvailable(on: .openCode, codexReportedUnavailable: true))
+        #expect(!CodexPlanningCapability.planIsAvailable(on: .codex, codexReportedUnavailable: true))
+        #expect(CodexPlanningCapability.planIsAvailable(on: .codex, codexReportedUnavailable: false))
+        #expect(!CodexPlanningCapability.planIsAvailable(on: .grok, codexReportedUnavailable: false))
+    }
+
     @Test("handshake needs no `initialized`, and session/new returns the id with its options")
     func handshakeAndNewSession() async throws {
         let box = ProcessBox()

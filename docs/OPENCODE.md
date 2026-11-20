@@ -246,7 +246,24 @@ An agent's own rules can be appended after the global block, under `agent.<id>.p
 
 the plan agent ends `... edit:*=ask shell:*=ask edit:*=deny edit:$HOME/.opencode/plan/*=allow`, and
 a plan turn's `write` into the worktree was refused without a card while its commands still asked.
-Object keys keep their order, so the `*` rule stays before the path.
+A `write` into `$HOME/.opencode/plan/` went through with no card. Object keys keep their order, so
+the `*` rule stays before the path; the order of `agent` and `permission` does not matter.
+
+**What Bloom injects, therefore.** `OpenCodePermission.restoredDenials` puts back, after the global
+block, each built-in denial an injected action would reopen: the plan agent's edit rules,
+`explore`'s edit, and `summary`'s and `title`'s edit and shell. Only denials: `explore` allows the
+shell by default, and Bloom's `ask` on it is a tightening that stays. The cost: an agent named here
+that a later OpenCode drops comes back as an extra agent with these rules, listed as a value of the
+`mode` option (measured with a made-up name), which Bloom never selects; and a user who loosened one
+of these built-in agents in their own config is denied again inside Bloom.
+
+**Plan with Bypass adds nothing.** In Bloom the work mode and the permission mode are two axes, as
+they are for Codex, whose plan turns on Full access run with no sandbox and no approval. So a
+Bypass plan chat runs the plan agent under OpenCode's rules: edits refused, commands free.
+
+**The mode is sent whenever the session holds another**, after the model and before the effort, so
+a resumed chat or one that left plan mode is put back to `build`. A mode the session does not offer
+fails the send, unlike an effort, because a plan turn run as `build` would edit the worktree.
 
 **A plan turn ends like any other turn.** With the hosted `opencode/deepseek-v4.1-flash-free`, a
 plan turn read the code, ran two commands (each a card under Ask), and wrote the plan as its reply,

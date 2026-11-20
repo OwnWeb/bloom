@@ -388,7 +388,7 @@ extension AppModel {
             guard interaction.nearest(on: controls.agentKind) == interaction else {
                 throw BridgeAgentControlFailure.unsupportedInteraction(interaction, agent: controls.agentKind)
             }
-            if interaction == .plan, !ComposerPlanningSupport.shared.isAvailable {
+            if interaction == .plan, !ComposerPlanningSupport.shared.isAvailable(on: controls.agentKind) {
                 throw InteractionModeFailure.unsupported
             }
             controls.interactionMode = interaction

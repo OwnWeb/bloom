@@ -6,7 +6,8 @@ import BloomCore
 @Observable
 final class ComposerPlanningSupport {
     static let shared = ComposerPlanningSupport()
-    private(set) var isAvailable = true
+    /// What Codex reported. Read it through `isAvailable(on:)`, which knows it is Codex's.
+    private(set) var codexIsAvailable = true
     private(set) var isChecking = false
     @ObservationIgnored private var store: Store?
     @ObservationIgnored private var revision = 0
@@ -18,11 +19,15 @@ final class ComposerPlanningSupport {
         do {
             let available = try await store.setting(CodexPlanningCapability.unavailableKey) != "1"
             guard revision == self.revision, !isChecking else { return }
-            if isAvailable != available { isAvailable = available }
+            if codexIsAvailable != available { codexIsAvailable = available }
         } catch {
             // A failed preference read is not evidence about the provider's capabilities.
             // Retain the last known answer until the next transcript-driven refresh.
         }
+    }
+
+    func isAvailable(on agent: AgentKind) -> Bool {
+        CodexPlanningCapability.planIsAvailable(on: agent, codexReportedUnavailable: !codexIsAvailable)
     }
 
     /// A retry is explicit and only resets discovery. It never sends a prompt or starts a turn.
@@ -34,7 +39,7 @@ final class ComposerPlanningSupport {
         do {
             try await store.setSetting(CodexPlanningCapability.rescanKey, UUID().uuidString)
             try await store.setSetting(CodexPlanningCapability.unavailableKey, nil)
-            isAvailable = true
-        } catch { isAvailable = false }
+            codexIsAvailable = true
+        } catch { codexIsAvailable = false }
     }
 }

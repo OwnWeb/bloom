@@ -7,6 +7,7 @@ private func makeOpenCodeSession(
     model: String = OpenCodeFixture.localModel,
     effort: String = "",
     permissionMode: PermissionMode = .auto,
+    interactionMode: InteractionMode = .build,
     agentSessionID: String? = nil
 ) async throws -> Session {
     let repo = try await store.upsert(Repo(name: "r", path: "/tmp/r-\(UUID().uuidString)"))
@@ -19,7 +20,8 @@ private func makeOpenCodeSession(
         model: model,
         effort: effort,
         agentKind: .openCode,
-        permissionMode: permissionMode
+        permissionMode: permissionMode,
+        interactionMode: interactionMode
     ))
 }
 
@@ -37,16 +39,21 @@ private func makeRunner(store: Store, session: Session, box: ProcessBox) -> Open
 }
 
 /// A server whose model has the given effort levels. `session/resume` names no session. A prompt
-/// is never answered unless `endsTurns`, which ends every turn at once.
-private func scriptedBox(efforts: [String] = [], endsTurns: Bool = false) -> ProcessBox {
+/// is never answered unless `endsTurns`, which ends every turn at once. `mode` is the server's
+/// stored mode in every reply, `modes` what it offers.
+private func scriptedBox(
+    efforts: [String] = [], endsTurns: Bool = false, mode: String = "build", modes: [String] = ["build", "plan"]
+) -> ProcessBox {
     let box = ProcessBox()
     box.reply(to: "initialize", with: .object([:]))
     var created = OpenCodeFixture.configOptions(model: OpenCodeFixture.hostedModel).objectValue ?? [:]
     created["sessionId"] = .string("ses_1")
     box.reply(to: "session/new", with: .object(created))
-    box.reply(to: "session/resume", with: OpenCodeFixture.configOptions(model: OpenCodeFixture.localModel))
+    box.reply(to: "session/resume", with: OpenCodeFixture.configOptions(
+        model: OpenCodeFixture.localModel, mode: mode, modes: modes
+    ))
     box.reply(to: "session/set_config_option", with: OpenCodeFixture.configOptions(
-        model: OpenCodeFixture.localModel, efforts: efforts
+        model: OpenCodeFixture.localModel, efforts: efforts, mode: mode, modes: modes
     ))
     if endsTurns {
         box.reply(to: "session/prompt", with: .object(["stopReason": .string("end_turn")]))
@@ -196,6 +203,68 @@ struct OpenCodeRunnerTests {
         let selected = configOptionsSent(box)
         #expect(selected.map(\.id) == ["model", "effort"])
         #expect(selected.last?.value == "high")
+    }
+
+    @Test("a plan session sets the mode after the model and before the prompt")
+    func planModeIsSetBeforeThePrompt() async throws {
+        let store = try makeTestStore("opencode-plan-mode")
+        let session = try await makeOpenCodeSession(store, interactionMode: .plan)
+        let box = scriptedBox()
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("plan it")
+        let selected = configOptionsSent(box)
+        #expect(selected.map(\.id) == ["model", "mode"])
+        #expect(selected.last?.value == "plan")
+        let methods = box.process.sentMethods
+        let lastSetting = try #require(methods.lastIndex(of: "session/set_config_option"))
+        let prompt = try #require(methods.firstIndex(of: "session/prompt"))
+        #expect(lastSetting < prompt)
+    }
+
+    @Test("a session the server still holds in plan is put back to build")
+    func storedPlanIsPutBackToBuild() async throws {
+        let store = try makeTestStore("opencode-plan-to-build")
+        let session = try await makeOpenCodeSession(store, agentSessionID: "ses_1")
+        let box = scriptedBox(mode: "plan")
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        try await runner.send("build it")
+        #expect(configOptionsSent(box).map(\.id) == ["model", "mode"])
+        #expect(configOptionsSent(box).last?.value == "build")
+    }
+
+    @Test("a delivery's mode is the one set, over the session's")
+    func deliveryModeWins() async throws {
+        let store = try makeTestStore("opencode-delivery-mode")
+        let session = try await makeOpenCodeSession(store, agentSessionID: "ses_1")
+        let box = scriptedBox()
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        let delivery = try await store.enqueueDelivery(
+            Delivery(targetSessionID: session.id, body: "plan it", interactionMode: .plan)
+        )
+        let claimed = try await store.claimDelivery(id: delivery.id)
+        #expect(claimed)
+        try await runner.sendDelivery(delivery)
+        #expect(configOptionsSent(box).last?.value == "plan")
+    }
+
+    @Test("plan on a session that offers no plan mode fails the send rather than building")
+    func planNotOfferedFailsTheSend() async throws {
+        let store = try makeTestStore("opencode-plan-missing")
+        let session = try await makeOpenCodeSession(store, interactionMode: .plan)
+        let box = scriptedBox(modes: ["build"])
+        let runner = makeRunner(store: store, session: session, box: box)
+        defer { runner.terminateNow() }
+
+        await #expect(throws: OpenCodeRunnerError.modeUnavailable(mode: "plan")) {
+            try await runner.send("plan it")
+        }
+        #expect(!box.process.sentMethods.contains("session/prompt"))
     }
 
     @Test("an effort left over from another model is dropped, and the turn still starts")

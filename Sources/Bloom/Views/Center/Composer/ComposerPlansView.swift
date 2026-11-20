@@ -47,7 +47,8 @@ struct ComposerPlansView: View {
                     HStack(spacing: Metrics.spacing) {
                         Button("Refine") { refine() }
                             .disabled(!transcript.draft.contains { !$0.isWhitespace } || isSubmitting
-                                || (transcript.session.agentKind == .codex && !ComposerPlanningSupport.shared.isAvailable))
+                                || (InteractionMode.supports(transcript.session.agentKind)
+                                    && !ComposerPlanningSupport.shared.isAvailable(on: transcript.session.agentKind)))
                             .help("Send the draft as a refinement of this plan")
                         Button("Implement") { implement(plan, inNewConversation: false) }
                             .disabled(isSubmitting)

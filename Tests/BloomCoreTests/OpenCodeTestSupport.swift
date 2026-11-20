@@ -6,8 +6,11 @@ enum OpenCodeFixture {
     static let localModel = "ollama/qwen3.5:4b"
     static let hostedModel = "opencode/hy4-flash-free"
 
-    /// `configOptions` as `session/new` returns them. No effort levels means no effort option.
-    static func configOptions(model: String, efforts: [String] = []) -> JSONValue {
+    /// `configOptions` as `session/new` returns them. No effort levels means no effort option, and
+    /// no modes no mode option.
+    static func configOptions(
+        model: String, efforts: [String] = [], mode: String = "build", modes: [String] = ["build", "plan"]
+    ) -> JSONValue {
         var options: [JSONValue] = [.object([
             "id": .string("model"),
             "category": .string("model"),
@@ -27,12 +30,14 @@ enum OpenCodeFixture {
                 "options": .array(efforts.map { .object(["value": .string($0), "name": .string($0.capitalized)]) }),
             ]))
         }
-        options.append(.object([
-            "id": .string("mode"),
-            "category": .string("mode"),
-            "currentValue": .string("build"),
-            "options": .array([.object(["value": .string("build"), "name": .string("Build")])]),
-        ]))
+        if !modes.isEmpty {
+            options.append(.object([
+                "id": .string("mode"),
+                "category": .string("mode"),
+                "currentValue": .string(mode),
+                "options": .array(modes.map { .object(["value": .string($0), "name": .string($0.capitalized)]) }),
+            ]))
+        }
         return .object(["configOptions": .array(options)])
     }
 

@@ -106,7 +106,7 @@ extension AppModel {
             presets: presets.presets.map { WebComposerPreset(key: $0.id.rawValue, name: $0.name) },
             matchedPreset: presets.matching(controls)?.id.rawValue,
             offersInteractionMode: controls.offersInteractionMode,
-            planAvailable: ComposerPlanningSupport.shared.isAvailable,
+            planAvailable: ComposerPlanningSupport.shared.isAvailable(on: controls.agentKind),
             contextUsed: context.transcript.contextUsage?.used,
             contextLimit: context.transcript.contextUsage?.limit,
             canSideQuestion: context.workspace != nil && context.session.sideConversationParentID == nil
@@ -131,7 +131,7 @@ extension AppModel {
             }
             chosen = chosen.applying(preset)
             chosen.effort = catalog.resolvedEffort(chosen.effort, for: chosen.agentKind, model: chosen.model)
-            if chosen.interactionMode == .plan, !ComposerPlanningSupport.shared.isAvailable {
+            if chosen.interactionMode == .plan, !ComposerPlanningSupport.shared.isAvailable(on: chosen.agentKind) {
                 return .text(400, "Planning is unavailable for this chat")
             }
         case "model":
@@ -156,7 +156,7 @@ extension AppModel {
         case "interactionMode":
             guard let value = change.value.flatMap(InteractionMode.init(rawValue:)),
                   value.nearest(on: chosen.agentKind) == value,
-                  value != .plan || ComposerPlanningSupport.shared.isAvailable else {
+                  value != .plan || ComposerPlanningSupport.shared.isAvailable(on: chosen.agentKind) else {
                 return .text(400, "This work mode is unavailable")
             }
             chosen.interactionMode = value

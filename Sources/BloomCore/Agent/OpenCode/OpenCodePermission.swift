@@ -12,6 +12,9 @@ public enum OpenCodePermission {
     /// Measured on 2.3.2: everything is allowed by default, and `OPENCODE_CONFIG_CONTENT` is
     /// merged after the user's and the project's config, so these rules are the last match.
     /// Only `edit` and `shell` are named. A `"*"` rule would also outrank what the user denied.
+    ///
+    /// The same append outranks the built-in agents' own denials, so an `ask` would turn the plan
+    /// agent's refused edit into a card. `restoredDenials` puts them back after Bloom's rules.
     public static func configContent(for mode: PermissionMode) -> String? {
         let asking: [String]
         switch mode {
@@ -20,7 +23,35 @@ public enum OpenCodePermission {
         case .bypassPermissions: return nil
         }
         let rules = Dictionary(uniqueKeysWithValues: asking.map { ($0, JSONValue.string("ask")) })
-        return JSONValue.object(["permission": .object(rules)]).compactJSON
+        var agents: [String: JSONValue] = [:]
+        for (agent, denials) in restoredDenials {
+            let reopened = denials.filter { asking.contains($0.key) }
+            if !reopened.isEmpty { agents[agent] = .object(["permission": .object(reopened)]) }
+        }
+        var config: [String: JSONValue] = ["permission": .object(rules)]
+        if !agents.isEmpty { config["agent"] = .object(agents) }
+        return orderedJSON(.object(config))
+    }
+
+    /// The built-in agents' rules that an injected `ask` would loosen, read with
+    /// `opencode debug agents` on 2.3.2. Only denials: an `allow` turned into `ask` fails towards
+    /// a question and stays. A name a later OpenCode drops becomes an extra agent with these rules,
+    /// harmless because Bloom selects only `build` and `plan`.
+    static let restoredDenials: [String: [String: JSONValue]] = [
+        // The plan agent may write only its own plan file, under the home directory.
+        "plan": ["edit": .object(["*": .string("deny"), "{env:HOME}/.opencode/plan/*": .string("allow")])],
+        "explore": ["edit": .string("deny")],
+        "summary": ["edit": .string("deny"), "shell": .string("deny")],
+        "title": ["edit": .string("deny"), "shell": .string("deny")],
+    ]
+
+    /// OpenCode reads an object's rules in key order, last match winning, so `"*"` has to come
+    /// before a path. Sorted keys give that, because `*` sorts before `{` and before `/`.
+    private static func orderedJSON(_ value: JSONValue) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes, .sortedKeys]
+        guard let data = try? encoder.encode(value) else { return "null" }
+        return String(decoding: data, as: UTF8.self)
     }
 
     public static func requestID(_ id: ACPRequestID, sessionID: String, connectionID: UUID) -> String {
