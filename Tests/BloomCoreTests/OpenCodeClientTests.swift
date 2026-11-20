@@ -90,6 +90,7 @@ struct OpenCodeClientTests {
     @Test("a reply that only asks is not a plan", arguments: [
         "How should the test be written?",
         "Which framework do you want?\n1. unittest\n2. pytest",
+        "Which framework do you want?\nOptions:\n- unittest\n- pytest",
         "Before I plan this, two questions:\n- Which Python version?\n- Is pytest allowed?",
         "Should it go in main.py?\n\n```python\ndef subtract(a, b): ...\n```\nOr in a new module?",
     ])

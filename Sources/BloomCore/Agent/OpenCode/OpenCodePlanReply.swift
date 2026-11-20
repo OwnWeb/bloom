@@ -23,10 +23,8 @@ public enum OpenCodePlanReply {
                 if !asks, !introducedByQuestion { return true }
                 continue
             }
-            if line.hasSuffix(":") {
-                introducedByQuestion = false
-                continue
-            }
+            // An introduction keeps the question in force: "Which one?" then "Options:" then a list.
+            if line.hasSuffix(":") { continue }
             if !asks { return true }
             introducedByQuestion = true
         }

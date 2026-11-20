@@ -136,6 +136,8 @@ public actor GrokRunner: SessionRunner {
         // A /btw conversation's first question carries the parent's context; the stored row does not.
         let prompt = try await store.sideConversationTurn(text, sessionID: sessionID)
         if let deliveryID { try await store.beginDeliveryDispatch(id: deliveryID) }
+        // Before the prompt goes, so an answer handled during the await is the one that acknowledges.
+        awaitingSideContextAcknowledgement = prompt != text
         let promptID = try await client.beginPrompt(sessionID: grokSessionID, text: prompt)
         if let deliveryID { try await store.acceptDelivery(id: deliveryID, providerTurnID: promptID.turnID) }
         guard handle.begin(turnID: promptID.turnID, generation: generation) else {
@@ -143,7 +145,6 @@ public actor GrokRunner: SessionRunner {
             throw CancellationError()
         }
 
-        awaitingSideContextAcknowledgement = prompt != text
         session.apply(.turnStarted)
         await save(session)
     }
