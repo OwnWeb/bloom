@@ -248,10 +248,19 @@ the plan agent ends `... edit:*=ask shell:*=ask edit:*=deny edit:$HOME/.opencode
 a plan turn's `write` into the worktree was refused without a card while its commands still asked.
 Object keys keep their order, so the `*` rule stays before the path.
 
-Not settled by these runs. The local `qwen3.5:4b` never managed to write a plan file (it wrote to
-the directory itself, which fails), so whether a plan turn ends with a file, a `question` call or
-anything other than `end_turn` is unmeasured. No `session/update` announced a mode change, and no
-tool to leave plan mode was called. Whether a model change resets `mode` was not measured either.
+**A plan turn ends like any other turn.** With the hosted `opencode/deepseek-v4.1-flash-free`, a
+plan turn read the code, ran two commands (each a card under Ask), and wrote the plan as its reply,
+ending on `end_turn`. It wrote no plan file, no `session/update` announced a mode change, and no tool
+to leave plan mode was called, so the plan is the transcript's last message and nothing else. (The
+local `qwen3.5:4b` never managed to write a plan file either: it aimed `write` at the directory.)
+
+On the way it called the `question` tool. With `clientCapabilities: {}` that call fails at once with
+"The question couldn't be shown to the user in this client. Continue without an answer: make
+reasonable assumptions and state them, or ask the user in your reply if you can't proceed.", and the
+model carried on with its recommended option and said so in the reply. Answering it is
+`elicitation/create`, a separate piece of work.
+
+**A model change keeps the mode.** Switching the model of a plan session left `mode` at `plan`.
 
 ## MCP
 
