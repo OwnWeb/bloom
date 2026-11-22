@@ -1851,7 +1851,7 @@ final class TranscriptModel {
                         if let failure = batch.failure { throw PresentationFailure(message: failure) }
                         let result = try await consumePresentation(batch, from: feed, after: cursor)
                         pendingResult = result ?? pendingResult
-                        answeredQuestion.note(batch)
+                        answeredQuestion.note(batch, on: session.agentKind)
                         cursor = batch.revision
                         await feed.acknowledgePage(subscriber: subscriber, through: cursor)
                         // New lifecycle events may have arrived while checkpoints were saved.

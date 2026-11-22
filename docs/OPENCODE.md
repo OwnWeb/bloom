@@ -203,10 +203,10 @@ that arrives during a turn as a steer:
   an answer that is only a tool call is not recognised, and a Stop right then writes the notice
   although the words were read.
 - A permission question still holds the queue (`DeliveryHold.question`), as on every backend, so
-  a message typed while a card waits goes once it is answered: steered into the turn after an
-  allow, and after a refusal sent as the next prompt through `promptRequired`, once the refused
-  turn has ended. The window moves the queue on the answer once it has caught up on the batch
-  that carried it (`AnsweredQuestionDrain`).
+  a message typed while a card waits goes once it is answered. After an allow it is steered into
+  the turn: the window moves the queue on the answer once it has caught up on the batch that
+  carried it (`AnsweredQuestionDrain`). A refusal ends the turn, so the message waits for that
+  turn's result and starts the next one, as any message queued behind a turn does.
 
 ## Permissions
 
