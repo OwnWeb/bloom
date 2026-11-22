@@ -519,8 +519,10 @@ process on its session, and the other way round.
 
 ### What Bloom does with it
 
-An OpenCode CLI chat is chosen when a workspace is created, as Claude CLI and Codex CLI are, so
-a session is never open in both at once. `OpenCodeTerminal` holds the launch:
+An OpenCode chat opens in the terminal wherever Claude Code's and Codex's do: from the create
+window's terminal toggle, and, with "Open new chats in" set to the terminal, for a new chat in a
+workspace and for `workspace_start` from the bridge. A session is chosen for one or the other
+when it is made, so it is never open in both at once. `OpenCodeTerminal` holds the launch:
 
 - `opencode --standalone --session ses_<the chat's id> --prompt=<task>` in the worktree, and the
   same with the stored session and no prompt to resume.
@@ -531,6 +533,8 @@ a session is never open in both at once. `OpenCodeTerminal` holds the launch:
   interface is not reported, so the state stays at the launched session's last event; not
   measured, because Bloom never opens one.
 - No effort: the root command has no flag for it.
+- No agent either, so the interface opens on Build: a chat started in plan mode is not put in
+  OpenCode's plan agent, and asks under the rules of its permission mode.
 
 The card is OpenCode's own, so its `Always allow` is OpenCode's durable grant, which Bloom never
 gives over ACP. It is left as it is, as in an `opencode` the user runs by hand: decided on
