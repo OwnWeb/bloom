@@ -395,6 +395,109 @@ provider detected late is therefore not read as none; it is only missing from th
 
 Global configuration is the directory `~/.config/opencode/` (`opencode.json` or `opencode.jsonc`).
 
+## The terminal interface
+
+Measured on 2.3.2 on 2026-11-22, with `HOME` and the XDG directories pointed at a temporary
+folder, the interface run in a pseudo terminal of 160 by 48 and its screen read through a terminal
+emulator, with no window and no tmux. Turns ran on the hosted free model until its daily limit,
+then on the local Ollama model.
+
+### Launching it
+
+```
+opencode [--standalone] [--session ses_…] [--prompt <text>] [<directory>]
+```
+
+The root command takes `--standalone`, `--server`, `--auto`, `--continue`, `--session` (`-s`) and
+`--prompt`, and nothing else: there is no `--model` and no `--agent` on it (`opencode mini` has
+both). A new session takes its model from the configuration, and `model` in
+`OPENCODE_CONFIG_CONTENT` was honoured. A resumed one keeps its own.
+
+**Without `--standalone` the interface goes through the background service**, the shared
+`opencode serve --service`, which it finds through `service.json` under the state directory and
+starts when none runs: the binary offers a `transient` start and an `ask` mode that installs it
+persistently through launchd. This is read from the help and the binary, not run, because running
+it would have started one. A service already running has its own environment, so a permission
+block or a bridge passed in `OPENCODE_CONFIG_CONTENT` to the interface would not reach it. With
+`--standalone` the interface starts its own `opencode serve --stdio --port 0` child, as `acp`
+does, and that child exits with it. Every launch below used `--standalone`.
+
+**`--session` on a session made over ACP opens it with its history**: the prompt, the answer, the
+session's model and the Build agent, whether the ACP process that made it was still alive and idle
+or had exited.
+
+**`--session` on an id that does not exist creates the session under that id**, provided it starts
+with `ses`. `-s ses_0123456789abcdefBLOOMtest` created a session with exactly that id;
+`-s bloom-chat-1234` printed `Expected a string starting with "ses"` and the interface exited. So
+a caller can choose the id before launch, as Bloom does for Claude Code with `--session-id`.
+
+**`--prompt` is sent at launch**, not left in the input. Tried with `--session` on a new session,
+twice; not tried on an existing one.
+
+A session the interface creates records its directory resolved (`/private/var/…`); one created
+over ACP records the path it was given (`/var/…`).
+
+An idle interface exits on `SIGHUP` and on `SIGTERM` in under half a second, with status 143, and
+its server child exits with it.
+
+### What the screen shows
+
+During a turn, the left of the status line under the input is an eight cell bar of `⬝` and `■`
+followed by `esc interrupt`, in place of the directory, which comes back when the turn ends:
+
+```
+   ⬝⬝⬝■■■■■ esc interrupt                       shift+tab agents  ctrl+p commands    /…/cwd
+```
+
+A permission question is drawn inline under the tool call, and **the bar is gone while it waits**:
+
+```
+  ┃  △ Permission required
+  ┃  $ echo card-test
+  ┃   Allow once   Always allow   Reject              ctrl+f fullscreen  ⇆ select  enter confirm
+```
+
+Enter answers `Allow once`.
+
+### A plugin sees the turn
+
+The interface has no hook of the kind Claude Code and Codex run for Bloom. A plugin does the same
+job. One given in `OPENCODE_CONFIG_CONTENT` as `"plugin": ["file:///…/directory"]` was loaded by
+the private server of `acp` and of the interface alike. A file path is refused ("configured plugin
+path must be a directory"); the directory's `server.js` or `index.js` must export by default
+`{id, setup}`, and `setup` receives a context whose `event.subscribe({types})` is an async
+iterable. Each event carries `data.sessionID`. Seen, in order, on a turn that asked a question:
+
+| Event | When |
+| --- | --- |
+| `session.execution.started` | the prompt is taken |
+| `session.step.started` / `session.step.ended` | each model step |
+| `permission.asked` | the card is drawn (`id`, `action`, `resources`) |
+| `permission.replied` | it is answered (`requestID`, `reply`) |
+| `session.execution.succeeded` | the turn ends |
+
+Subscribed to and not seen: `session.idle`, `session.status`. Not measured: what fires on a
+failed or interrupted turn (`session.execution.failed`, `session.execution.interrupted` exist).
+
+### Two processes on one session
+
+The interface and an ACP process each run their own server on the same data directory, so they
+share the database and nothing else.
+
+- **A turn in the interface beside an idle ACP process.** ACP received no frame during it. The
+  next ACP prompt's model listed the interface's message among the session's, so the history is
+  shared once written.
+- **An ACP turn seen from the interface.** Nothing: no bar and no new rows, during the turn or
+  after it. At the end of the run its screen still showed only the turns it ran itself, the
+  earliest ACP turn missing from it having ended more than thirty seconds before.
+- **A prompt typed in the interface during an ACP turn** was accepted and answered at once by the
+  interface's own server, while the ACP turn was still inside a twelve second tool call. Two turns
+  ran on one session at the same time. The ACP turn, once its tool returned, answered the
+  interface's message instead of its own prompt. Neither side refuses the other.
+
+So one session must have one process: a chat open in the terminal cannot also have an ACP
+process on its session, and the other way round.
+
 ## Left out, and why
 
 - **Quotas and usage limits.** ACP carries none. The only source seen is the experimental HTTP
@@ -405,5 +508,5 @@ Global configuration is the directory `~/.config/opencode/` (`opencode.json` or 
   which providers the user connected.
 - **Image content blocks, `session/list`, `session/fork`, `session/load`.**
 
-Not measured: subagent updates (`_meta["opencode/child-session-updates"]`), `elicitation/create`,
-and whether `opencode -s <id>` opens an ACP session in the terminal interface.
+Not measured: subagent updates (`_meta["opencode/child-session-updates"]`) and
+`elicitation/create`.
