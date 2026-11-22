@@ -1839,6 +1839,7 @@ final class TranscriptModel {
                 defer { feed.unsubscribe(subscriber) }
                 var cursor = baseline.revision
                 var pendingResult: AgentResult?
+                var answeredQuestion = AnsweredQuestionDrain()
                 if baseline.revision > 0, let recovery = baseline.recovery, let self {
                     await recoverPresentation(recovery, after: baseline.revision)
                     setRunning(session.state.isMidTurn)
@@ -1850,6 +1851,7 @@ final class TranscriptModel {
                         if let failure = batch.failure { throw PresentationFailure(message: failure) }
                         let result = try await consumePresentation(batch, from: feed, after: cursor)
                         pendingResult = result ?? pendingResult
+                        answeredQuestion.note(batch)
                         cursor = batch.revision
                         await feed.acknowledgePage(subscriber: subscriber, through: cursor)
                         // New lifecycle events may have arrived while checkpoints were saved.
@@ -1858,11 +1860,18 @@ final class TranscriptModel {
                         guard latest.revision == cursor else { continue }
                         if let event = latest.recovery?.stateEvent, case .error = event { pendingResult = nil }
                         await reportPendingPermissionAsk()
+                        let answerMovesQueue = answeredQuestion.take(
+                            isTurnRunning: isRunning || feed.isTurnRunning,
+                            hasPendingResult: pendingResult != nil,
+                            isAwaitingQuestion: isAwaitingPermission
+                        )
                         if AgentPresentationReconciliation.permitsAutomaticDrain(
                             isCatchingUp: isReconcilingPresentation, isTurnRunning: isRunning || feed.isTurnRunning
                         ), let result = pendingResult {
                             pendingResult = nil
                             await finishPresentationTurn(result)
+                        } else if answerMovesQueue {
+                            await drain()
                         }
                     } catch {
                         runner.terminateNow()
@@ -2196,6 +2205,8 @@ final class TranscriptModel {
             // receive the messages queued behind it during the same turn, so this is a queue
             // trigger too.
             // The runner emits this only after writing the answer to the provider.
+            // Inside a presentation batch, which is where every runner's events arrive, `drain`
+            // refuses, and the pump drains once it has caught up: see `AnsweredQuestionDrain`.
             if !isAwaitingPermission { await drain() }
 
         case .rateLimit(let raw):

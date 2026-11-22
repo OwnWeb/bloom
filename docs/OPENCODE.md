@@ -176,6 +176,10 @@ Measured on 2.3.2, on the hosted free model:
   reads it with the next prompt as if it had been sent with it. Two seconds after the cancel, a
   steer gets `promptRequired`. So the reply cannot be trusted for a turn that has been told to
   stop, and a stopped turn must not be steered into.
+- **The instant a permission answer is written.** After `allow_once`, `injected`, and the turn
+  answered the words after the tool had run. After `reject_once`, `promptRequired` with
+  `noRunningTurn`, six times out of six, before the prompt replied `cancelled`: a refusal closes
+  the turn on the server at once, and nothing is stored. Measured on 2026-11-22.
 
 So `AgentKind.acceptsMidTurnMessage` is true for OpenCode, and `OpenCodeRunner` sends a message
 that arrives during a turn as a steer:
@@ -199,7 +203,10 @@ that arrives during a turn as a steer:
   an answer that is only a tool call is not recognised, and a Stop right then writes the notice
   although the words were read.
 - A permission question still holds the queue (`DeliveryHold.question`), as on every backend, so
-  a message typed while a card waits goes once it is answered.
+  a message typed while a card waits goes once it is answered: steered into the turn after an
+  allow, and after a refusal sent as the next prompt through `promptRequired`, once the refused
+  turn has ended. The window moves the queue on the answer once it has caught up on the batch
+  that carried it (`AnsweredQuestionDrain`).
 
 ## Permissions
 
