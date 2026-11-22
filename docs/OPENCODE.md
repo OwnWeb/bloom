@@ -410,8 +410,15 @@ opencode [--standalone] [--session ses_…] [--prompt <text>] [<directory>]
 
 The root command takes `--standalone`, `--server`, `--auto`, `--continue`, `--session` (`-s`) and
 `--prompt`, and nothing else: there is no `--model` and no `--agent` on it (`opencode mini` has
-both). A new session takes its model from the configuration, and `model` in
-`OPENCODE_CONFIG_CONTENT` was honoured. A resumed one keeps its own.
+both). A new session takes its model from the configuration: with the hosted provider enabled and
+no turn sent, the line under the input read `Build · Tidepool Alpha Free OpenCode` without
+`model` in `OPENCODE_CONFIG_CONTENT`, and `Build · qwen3.5:4b Ollama` with `model` set to the
+local model. A resumed session keeps its own. How an effort would be chosen was not measured.
+
+An MCP server in `OPENCODE_CONFIG_CONTENT` (`"mcp": {"<name>": {"type": "local", "command": […],
+"environment": {…}}}`) was started by the interface's private server, which sent it
+`initialize`, `notifications/initialized` and `tools/list` without any turn. Whether its tools
+are then offered to the model, and how its calls are asked about, was not measured.
 
 **Without `--standalone` the interface goes through the background service**, the shared
 `opencode serve --service`, which it finds through `service.json` under the state directory and
@@ -450,6 +457,7 @@ followed by `esc interrupt`, in place of the directory, which comes back when th
 ```
 
 A permission question is drawn inline under the tool call, and **the bar is gone while it waits**:
+none of sixteen frames taken over eight seconds of a waiting card showed `esc interrupt`. The card:
 
 ```
   ┃  △ Permission required
