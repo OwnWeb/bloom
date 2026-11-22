@@ -418,7 +418,8 @@ local model. A resumed session keeps its own. How an effort would be chosen was 
 An MCP server in `OPENCODE_CONFIG_CONTENT` (`"mcp": {"<name>": {"type": "local", "command": […],
 "environment": {…}}}`) was started by the interface's private server, which sent it
 `initialize`, `notifications/initialized` and `tools/list` without any turn. Whether its tools
-are then offered to the model, and how its calls are asked about, was not measured.
+are then offered to the model, and how its calls are asked about, was not measured: asked to call
+the stub's tool, the local model ran the stub's script through the shell instead.
 
 **Without `--standalone` the interface goes through the background service**, the shared
 `opencode serve --service`, which it finds through `service.json` under the state directory and
@@ -438,8 +439,9 @@ with `ses`. `-s ses_0123456789abcdefBLOOMtest` created a session with exactly th
 `-s bloom-chat-1234` printed `Expected a string starting with "ses"` and the interface exited. So
 a caller can choose the id before launch, as Bloom does for Claude Code with `--session-id`.
 
-**`--prompt` is sent at launch**, not left in the input. Tried with `--session` on a new session,
-twice; not tried on an existing one.
+**`--prompt` is sent at launch**, not left in the input, on a new session and on an existing one
+alike: relaunched with `--session` on a session holding two prompts and with `--prompt`, the
+session held three. A launch command kept with its prompt and run again says it twice.
 
 A session the interface creates records its directory resolved (`/private/var/…`); one created
 over ACP records the path it was given (`/var/…`).
@@ -470,9 +472,9 @@ Enter answers `Allow once`.
 ### A plugin sees the turn
 
 The interface has no hook of the kind Claude Code and Codex run for Bloom. A plugin does the same
-job. One given in `OPENCODE_CONFIG_CONTENT` as `"plugin": ["file:///…/directory"]` was loaded by
-the private server of `acp` and of the interface alike. A file path is refused ("configured plugin
-path must be a directory"); the directory's `server.js` or `index.js` must export by default
+job. One given in `OPENCODE_CONFIG_CONTENT` as `"plugin": ["file:///…/directory"]`, or as a plain
+absolute path, spaces included, was loaded by the private server of `acp` and of the interface
+alike. A file path is refused ("configured plugin path must be a directory"); the directory's `server.js` or `index.js` must export by default
 `{id, setup}`, and `setup` receives a context whose `event.subscribe({types})` is an async
 iterable. Each event carries `data.sessionID`. Seen, in order, on a turn that asked a question:
 
@@ -484,8 +486,13 @@ iterable. Each event carries `data.sessionID`. Seen, in order, on a turn that as
 | `permission.replied` | it is answered (`requestID`, `reply`) |
 | `session.execution.succeeded` | the turn ends |
 
-Subscribed to and not seen: `session.idle`, `session.status`. Not measured: what fires on a
-failed or interrupted turn (`session.execution.failed`, `session.execution.interrupted` exist).
+A turn ended by Reject on the card, and one ended by Esc during a tool, both read `interrupted`
+on the screen and ended with one of the two events Bloom's plugin maps to `Stop`
+(`session.execution.succeeded`, `session.execution.interrupted`); a turn whose permission was
+allowed went on with `permission.replied` and ended the same way. Subscribed to and not seen:
+`session.idle`, `session.status`, `session.execution.failed`. A session given by `--session` was
+the `sessionID` of every event, including one Bloom derived from its own id (`ses_` and a UUID's
+thirty two hex digits).
 
 ### Two processes on one session
 
