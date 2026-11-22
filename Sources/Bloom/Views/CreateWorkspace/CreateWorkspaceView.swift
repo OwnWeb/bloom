@@ -557,7 +557,7 @@ struct CreateWorkspaceView: View {
             }
 
             switch mode {
-            case .chat, .claudeCLI, .codexCLI: chatBox
+            case .chat, .claudeCLI, .codexCLI, .openCodeCLI: chatBox
             // One box for both, because they ask the same question. What differs between a
             // terminal and a browser start is which tab the workspace lands on, and that is
             // settled after the window is gone. See `WorkspaceStartMode.pane`.
@@ -610,7 +610,7 @@ struct CreateWorkspaceView: View {
         .tint(Palette.controlAccent)
         .accessibilityLabel("First tab")
         .help(defaultCLIMode == nil
-              ? "CLI chat supports Claude and Codex. Choose either as your default agent to use it."
+              ? "CLI chat supports Claude, Codex and OpenCode. Choose one as your default agent to use it."
               : "Chat and CLI chat use your default agent configuration")
     }
 
@@ -618,7 +618,8 @@ struct CreateWorkspaceView: View {
         switch controls.agentKind {
         case .claudeCode: .claudeCLI
         case .codex: .codexCLI
-        case .grok, .cursor, .openCode: nil
+        case .openCode: .openCodeCLI
+        case .grok, .cursor: nil
         }
     }
 
@@ -633,7 +634,7 @@ struct CreateWorkspaceView: View {
                     typedName = WorkspaceStartPlan.carriedName(
                         prompt: spokenPrompt, currentName: typedName
                     )
-                case .chat, .claudeCLI, .codexCLI:
+                case .chat, .claudeCLI, .codexCLI, .openCodeCLI:
                     prompt = WorkspaceStartPlan.carriedPrompt(
                         name: typedName, currentPrompt: prompt
                     )

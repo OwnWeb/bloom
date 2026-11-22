@@ -25,7 +25,7 @@ struct SettingsPanePersistenceTests {
         #expect(WorkspaceStartMode.chat(usesCLI: true, agent: .codex) == .codexCLI)
         #expect(WorkspaceStartMode.chat(usesCLI: false, agent: .codex) == .chat)
         #expect(WorkspaceStartMode.chat(usesCLI: true, agent: .cursor) == .chat)
-        #expect(WorkspaceStartMode.chat(usesCLI: true, agent: .openCode) == .chat)
+        #expect(WorkspaceStartMode.chat(usesCLI: true, agent: .openCode) == .openCodeCLI)
         #expect(WorkspaceStartMode.chat(usesCLI: true, agent: .grok) == .chat)
     }
 

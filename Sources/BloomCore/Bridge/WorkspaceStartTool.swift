@@ -295,7 +295,7 @@ public struct WorkspaceStartTool: BridgeToolHandling {
             one the selected model supports.
 
             'terminal_chat' is optional and defaults to the app's "Open new chats in" setting. \
-            When true, Claude Code and Codex open in a visible CLI terminal with the task as \
+            When true, Claude Code, Codex and OpenCode open in a visible CLI terminal with the task as \
             their opening prompt. Other agents open in Bloom chat. workspace_say cannot deliver \
             messages to a CLI chat, and notify_when_done does not report its completion. Use \
             terminal_chat: false when you need either.
@@ -408,7 +408,7 @@ public struct WorkspaceStartTool: BridgeToolHandling {
                 "terminal_chat": .object([
                     "type": .string("boolean"),
                     "description": .string(
-                        "Open Claude Code or Codex in a CLI terminal with the task as its opening "
+                        "Open Claude Code, Codex or OpenCode in a CLI terminal with the task as its opening "
                             + "prompt. Omit it to use the app's Open new chats in setting. "
                             + "workspace_say and notify_when_done do not reach CLI chats."
                     ),

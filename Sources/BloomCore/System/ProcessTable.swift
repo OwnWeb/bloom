@@ -198,6 +198,8 @@ public struct ProcessTable: Sendable, Equatable {
                 }
             }
             return .codex
+        case "opencode":
+            return OpenCodeTerminal.isInterface(arguments: Array(arguments.dropFirst())) ? .openCode : nil
         default:
             return nil
         }

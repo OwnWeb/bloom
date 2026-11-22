@@ -441,7 +441,10 @@ a caller can choose the id before launch, as Bloom does for Claude Code with `--
 
 **`--prompt` is sent at launch**, not left in the input, on a new session and on an existing one
 alike: relaunched with `--session` on a session holding two prompts and with `--prompt`, the
-session held three. A launch command kept with its prompt and run again says it twice.
+session held three. A launch command kept with its prompt and run again says it twice. A task
+starting with `-` and given as its own argument (`--prompt "- fix the bug"`) is read as options:
+the interface printed its help and exited with status 1. Joined, `--prompt=- fix the bug` arrived
+intact, a newline, an `=` and a `--help` inside it included.
 
 A session the interface creates records its directory resolved (`/private/var/…`); one created
 over ACP records the path it was given (`/var/…`).
@@ -474,7 +477,8 @@ Enter answers `Allow once`.
 The interface has no hook of the kind Claude Code and Codex run for Bloom. A plugin does the same
 job. One given in `OPENCODE_CONFIG_CONTENT` as `"plugin": ["file:///…/directory"]`, or as a plain
 absolute path, spaces included, was loaded by the private server of `acp` and of the interface
-alike. A file path is refused ("configured plugin path must be a directory"); the directory's `server.js` or `index.js` must export by default
+alike, and its log shows the server subscribing a watcher to that directory and its file. A
+file path is refused ("configured plugin path must be a directory"); the directory's `server.js` or `index.js` must export by default
 `{id, setup}`, and `setup` receives a context whose `event.subscribe({types})` is an async
 iterable. Each event carries `data.sessionID`. Seen, in order, on a turn that asked a question:
 
@@ -512,6 +516,30 @@ share the database and nothing else.
 
 So one session must have one process: a chat open in the terminal cannot also have an ACP
 process on its session, and the other way round.
+
+### What Bloom does with it
+
+An OpenCode CLI chat is chosen when a workspace is created, as Claude CLI and Codex CLI are, so
+a session is never open in both at once. `OpenCodeTerminal` holds the launch:
+
+- `opencode --standalone --session ses_<the chat's id> --prompt=<task>` in the worktree, and the
+  same with the stored session and no prompt to resume.
+- `OPENCODE_CONFIG_CONTENT` with the chat's permission rules, the same as over ACP, its model, the
+  bridge as an MCP server, and the status plugin, written once beside the launch scripts.
+- The plugin writes the state file Claude Code's and Codex's hooks write, for the session Bloom
+  launched only, and the busy bar is read as well. Another session opened from inside the
+  interface is not reported, so the state stays at the launched session's last event; not
+  measured, because Bloom never opens one.
+- No effort: the root command has no flag for it.
+
+The card is OpenCode's own, so its `Always allow` is OpenCode's durable grant, which Bloom never
+gives over ACP. It is left as it is, as in an `opencode` the user runs by hand: decided on
+2026-11-22.
+
+The launch script keeps the prompt, so running it again sends the prompt a second time into the
+same session: the command kept for a pane before the first state arrives, and the line the pane's
+shell keeps in its history, which Up and Return run again after OpenCode is quit. The same rerun
+hands Claude Code a `--session-id` already in use, which was not measured here.
 
 ## Left out, and why
 

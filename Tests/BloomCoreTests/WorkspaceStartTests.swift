@@ -460,7 +460,7 @@ struct WorkspaceOpeningTabTests {
     /// for, and the sheet now offers three, so what comes back has to say which.
     @Test("the hint says which tab, not whether")
     func hintSaysWhich() {
-        for mode in [WorkspaceStartMode.terminal, .browser, .claudeCLI, .codexCLI] {
+        for mode in [WorkspaceStartMode.terminal, .browser, .claudeCLI, .codexCLI, .openCodeCLI] {
             let defaults = scratchDefaults()
             let id = WorkspaceID("w1")
             WorkspaceStartMode.record(mode, workspaceID: id, defaults: defaults)

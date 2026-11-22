@@ -10,12 +10,21 @@ public extension AgentKind {
         permissionMode: PermissionMode? = nil,
         resuming: String? = nil,
         bridge: BridgeHandle? = nil,
-        accountHome: String? = nil
+        accountHome: String? = nil,
+        statusPlugin: URL? = nil
     ) -> String? {
         guard let arguments = interactiveArguments(
             prompt: prompt, sessionID: sessionID, model: model,
             effort: effort, permissionMode: permissionMode, resuming: resuming, bridge: bridge
         ) else { return nil }
+        // OpenCode takes in its environment what the other two take as arguments.
+        let launchEnvironment = self == .openCode ? OpenCodeTerminal.environment(
+            session: resuming ?? OpenCodeTerminal.sessionID(for: sessionID),
+            configuration: OpenCodeTerminal.configuration(
+                permissionMode: permissionMode, model: model,
+                bridge: bridge?.attachment, statusPlugin: statusPlugin
+            )
+        ) : []
         let command = TerminalLaunchScript.shellCommand(
             directory: directory,
             executable: "/usr/bin/env",
@@ -24,6 +33,7 @@ public extension AgentKind {
             ] + AgentAccountEnvironment.shellArguments(kind: self, home: accountHome) + [
                 "TERM=xterm-256color", "COLORTERM=truecolor",
                 "BLOOM_CLI_STATUS_FILE=\(Self.interactiveStatusURL(sessionID: sessionID).path)",
+            ] + launchEnvironment + [
                 executableName
             ] + arguments
         )
@@ -85,7 +95,13 @@ public extension AgentKind {
             if !effort.isEmpty {
                 arguments += ["-c", "model_reasoning_effort=\(Self.interactiveTOMLString(effort))"]
             }
-        case .cursor, .openCode, .grok:
+        case .openCode:
+            // Before the shared tail: there is no `--model`, and a prompt after `--` would be
+            // read as the directory to open.
+            return OpenCodeTerminal.arguments(
+                session: resuming ?? OpenCodeTerminal.sessionID(for: sessionID), prompt: prompt
+            )
+        case .cursor, .grok:
             return nil
         }
         if !model.isEmpty {
@@ -136,7 +152,9 @@ public extension AgentKind {
                 $0.range(of: #"^\s*esc (?:to )?interrupt(?:\s*[·•].*)?\s*$"#,
                          options: [.regularExpression, .caseInsensitive]) != nil
             }
-        case .cursor, .openCode, .grok:
+        case .openCode:
+            return OpenCodeTerminal.screenIsBusy(lines: lines)
+        case .cursor, .grok:
             return false
         }
     }

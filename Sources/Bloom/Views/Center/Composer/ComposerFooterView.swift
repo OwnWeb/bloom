@@ -410,7 +410,7 @@ struct ComposerFooterView: View, Equatable {
                 .accessibilityValue(usesCLIChat.wrappedValue ? "On" : "Off")
                 .help(supportsCLIChat
                       ? "Open this chat in the CLI"
-                      : "CLI chat supports Claude Code and Codex")
+                      : "CLI chat supports Claude Code, Codex and OpenCode")
                 .accessibilityLabel("Open chat in CLI")
             }
 

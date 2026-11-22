@@ -25,6 +25,7 @@ public enum WorkspaceStartMode: String, CaseIterable, Identifiable, Sendable {
     case chat
     case claudeCLI
     case codexCLI
+    case openCodeCLI
     /// A shell in the worktree, and you run whatever you like in it. You name the branch yourself,
     /// because there is no task to derive one from.
     case terminal
@@ -37,7 +38,8 @@ public enum WorkspaceStartMode: String, CaseIterable, Identifiable, Sendable {
         switch agent {
         case .claudeCode: return .claudeCLI
         case .codex: return .codexCLI
-        case .cursor, .openCode, .grok: return .chat
+        case .openCode: return .openCodeCLI
+        case .cursor, .grok: return .chat
         }
     }
 
@@ -50,6 +52,7 @@ public enum WorkspaceStartMode: String, CaseIterable, Identifiable, Sendable {
         case .chat: "Chat"
         case .claudeCLI: "Claude CLI"
         case .codexCLI: "Codex CLI"
+        case .openCodeCLI: "OpenCode CLI"
         case .terminal: "Terminal"
         case .browser: "Browser"
         }
@@ -71,6 +74,7 @@ public enum WorkspaceStartMode: String, CaseIterable, Identifiable, Sendable {
         case .chat: "Chat with an agent"
         case .claudeCLI: "Claude CLI"
         case .codexCLI: "Codex CLI"
+        case .openCodeCLI: "OpenCode CLI"
         case .terminal: "Terminal"
         case .browser: "Browser"
         }
@@ -85,6 +89,7 @@ public enum WorkspaceStartMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claudeCLI: .claudeCode
         case .codexCLI: .codex
+        case .openCodeCLI: .openCode
         case .chat, .terminal, .browser: nil
         }
     }
@@ -96,7 +101,7 @@ public enum WorkspaceStartMode: String, CaseIterable, Identifiable, Sendable {
     /// than fall through a `default` in a view. See `NewPane`, which is what makes the pane.
     public var pane: PaneKind {
         switch self {
-        case .chat, .claudeCLI, .codexCLI: .chat
+        case .chat, .claudeCLI, .codexCLI, .openCodeCLI: .chat
         case .terminal: .terminal
         case .browser: .browser
         }
@@ -113,6 +118,7 @@ public enum WorkspaceStartMode: String, CaseIterable, Identifiable, Sendable {
         case .chat: "the agent starts on it"
         case .claudeCLI: "Claude opens in a terminal with your task"
         case .codexCLI: "Codex opens in a terminal with your task"
+        case .openCodeCLI: "OpenCode opens in a terminal with your task"
         case .terminal: "a shell opens in the worktree"
         case .browser: "a browser opens beside it"
         }

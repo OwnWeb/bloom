@@ -204,6 +204,7 @@ struct WorkspaceStartModeTests {
         #expect(WorkspaceStartMode.chat.runsAnAgent)
         #expect(WorkspaceStartMode.claudeCLI.runsAnAgent)
         #expect(WorkspaceStartMode.codexCLI.runsAnAgent)
+        #expect(WorkspaceStartMode.openCodeCLI.runsAnAgent)
         #expect(!WorkspaceStartMode.terminal.runsAnAgent)
         #expect(!WorkspaceStartMode.browser.runsAnAgent)
     }
@@ -212,7 +213,8 @@ struct WorkspaceStartModeTests {
     func cliStartsUseAgentTabs() {
         #expect(WorkspaceStartMode.claudeCLI.cliAgentKind == .claudeCode)
         #expect(WorkspaceStartMode.codexCLI.cliAgentKind == .codex)
-        for mode in [WorkspaceStartMode.claudeCLI, .codexCLI] {
+        #expect(WorkspaceStartMode.openCodeCLI.cliAgentKind == .openCode)
+        for mode in [WorkspaceStartMode.claudeCLI, .codexCLI, .openCodeCLI] {
             #expect(mode.pane == .chat)
             #expect(WorkspaceStartMode.remembered(raw: mode.rawValue) == mode)
         }

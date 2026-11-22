@@ -13,12 +13,14 @@ public extension AgentKind {
         bridge: BridgeHandle? = nil,
         accountHome: String? = nil
     ) throws -> String? {
+        let root = try base ?? URL(fileURLWithPath: Store.defaultPath()).deletingLastPathComponent()
+        let statusPlugin = self == .openCode ? try OpenCodeTerminal.installStatusPlugin(base: root) : nil
         guard let script = interactiveCommand(
             directory: directory, prompt: prompt, sessionID: sessionID,
             model: model, effort: effort, permissionMode: permissionMode,
-            resuming: resuming, bridge: bridge, accountHome: accountHome
+            resuming: resuming, bridge: bridge, accountHome: accountHome, statusPlugin: statusPlugin
         ) else { return nil }
-        let folder = try Self.interactiveLaunchDirectory(sessionID: sessionID, base: base)
+        let folder = try Self.interactiveLaunchDirectory(sessionID: sessionID, base: root)
         let file = folder.appendingPathComponent(resuming == nil ? "start.sh" : "resume.sh")
         let command = TerminalLaunchScript.command(
             executable: "/bin/sh", arguments: [file.path]

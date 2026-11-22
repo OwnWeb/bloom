@@ -16,6 +16,12 @@ public enum OpenCodePermission {
     /// The same append outranks the built-in agents' own denials, so an `ask` would turn the plan
     /// agent's refused edit into a card. `restoredDenials` puts them back after Bloom's rules.
     public static func configContent(for mode: PermissionMode) -> String? {
+        config(for: mode).map { orderedJSON(.object($0)) }
+    }
+
+    /// The same rules as an object, for a launch that adds keys of its own beside them
+    /// (`OpenCodeTerminal`). Nil when Bloom adds no rule.
+    static func config(for mode: PermissionMode) -> [String: JSONValue]? {
         let asking: [String]
         switch mode {
         case .auto, .autoReview, .plan: asking = ["edit", "shell"]
@@ -30,7 +36,7 @@ public enum OpenCodePermission {
         }
         var config: [String: JSONValue] = ["permission": .object(rules)]
         if !agents.isEmpty { config["agent"] = .object(agents) }
-        return orderedJSON(.object(config))
+        return config
     }
 
     /// The built-in agents' rules that an injected `ask` would loosen, read with
@@ -47,7 +53,7 @@ public enum OpenCodePermission {
 
     /// OpenCode reads an object's rules in key order, last match winning, so `"*"` has to come
     /// before a path. Sorted keys give that, because `*` sorts before `{` and before `/`.
-    private static func orderedJSON(_ value: JSONValue) -> String {
+    static func orderedJSON(_ value: JSONValue) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes, .sortedKeys]
         guard let data = try? encoder.encode(value) else { return "null" }
