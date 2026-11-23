@@ -93,6 +93,35 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("unwanted").path))
     }
 
+    /// Run again, `start.sh` sent its prompt a second time into the same session, so once there is
+    /// a session to resume it resumes. Codex's starts a new thread, and is left as it was.
+    @Test(arguments: [AgentKind.openCode, .codex])
+    func aStartScriptRunAgainResumesOnOpenCode(agent: AgentKind) throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("opencode-launch-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let session = SessionID.new()
+        let folder = try AgentKind.interactiveLaunchDirectory(sessionID: session, base: base)
+        let start = folder.appendingPathComponent("start.sh")
+        let resume = folder.appendingPathComponent("resume.sh")
+        _ = try agent.prepareInteractiveCommand(
+            directory: "/tmp/worktree", prompt: "the task", sessionID: session, model: "", effort: "", base: base
+        )
+        let first = try String(contentsOf: start, encoding: .utf8)
+        #expect(first.contains("the task"))
+
+        _ = try agent.prepareInteractiveCommand(
+            directory: "/tmp/worktree", prompt: "", sessionID: session, model: "", effort: "",
+            resuming: "ses_native", base: base
+        )
+        let rerun = try String(contentsOf: start, encoding: .utf8)
+        if agent == .openCode {
+            #expect(rerun == (try String(contentsOf: resume, encoding: .utf8)))
+            #expect(!rerun.contains("the task"))
+        } else {
+            #expect(rerun == first)
+        }
+    }
+
     @Test func aResumeCommandCanBeOfferedBack() throws {
         let command = try #require(AgentKind.openCode.interactiveCommand(
             directory: "/tmp/worktree", prompt: "", sessionID: .new(),

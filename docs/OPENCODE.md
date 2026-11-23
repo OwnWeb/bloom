@@ -540,10 +540,12 @@ The card is OpenCode's own, so its `Always allow` is OpenCode's durable grant, w
 gives over ACP. It is left as it is, as in an `opencode` the user runs by hand: decided on
 2026-11-22.
 
-The launch script keeps the prompt, so running it again sends the prompt a second time into the
-same session: the command kept for a pane before the first state arrives, and the line the pane's
-shell keeps in its history, which Up and Return run again after OpenCode is quit. The same rerun
-hands Claude Code a `--session-id` already in use, which was not measured here.
+A launch script run again sends its `--prompt` a second time into the same session, from the
+command kept for a pane or from the line the pane's shell keeps in its history, which Up and
+Return run again after OpenCode is quit. So once the first state names the session, Bloom writes
+the resume over `start.sh` as well, and a rerun resumes. Before that first state, a rerun still
+sends the prompt again. The same rerun hands Claude Code a `--session-id` already in use, which
+was not measured here.
 
 ## Left out, and why
 

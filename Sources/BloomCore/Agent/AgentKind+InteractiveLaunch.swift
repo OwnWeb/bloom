@@ -35,11 +35,21 @@ public extension AgentKind {
         try manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let clear = #"if [ -t 1 ]; then printf '\033[2J\033[H\033[3J'; fi"#
         let data = Data(("#!/bin/sh\n" + clear + "\n" + script + "\n").utf8)
-        if (try? Data(contentsOf: file)) != data {
-            try data.write(to: file, options: .atomic)
-            try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try Self.writeLaunchScript(data, to: file)
+        // OpenCode's `--prompt` is sent again into the same session when `start.sh` runs a second
+        // time, from the command kept for the pane or from the pane's shell history. Once there is
+        // a session to resume, `start.sh` becomes the resume.
+        let start = folder.appendingPathComponent("start.sh")
+        if self == .openCode, resuming != nil, manager.fileExists(atPath: start.path) {
+            try Self.writeLaunchScript(data, to: start)
         }
         return command
+    }
+
+    private static func writeLaunchScript(_ data: Data, to file: URL) throws {
+        guard (try? Data(contentsOf: file)) != data else { return }
+        try data.write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 
     static func interactiveLaunchDirectory(sessionID: SessionID, base: URL? = nil) throws -> URL {
