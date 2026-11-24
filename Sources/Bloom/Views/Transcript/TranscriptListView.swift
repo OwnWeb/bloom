@@ -451,7 +451,11 @@ struct TranscriptListView: View {
             work: folds, revealed: revealed, drawn: drawnRange
         )
         let lastVisibleRow = drawnRows.last(where: { !TranscriptNoise.isHidden($0) })
-        let lastVisibleSeq = lastVisibleRow?.seq
+        // Claude Code stores `commands_changed` or `peer_message_hold` after a result. They draw
+        // nothing, and counting them took the limit resume control off the turn that hit the wall.
+        let closingSeq = drawnRows.last(where: {
+            !TranscriptNoise.isHidden($0) && !TranscriptRowInk.drawsNothing(kind: $0.kind, payload: $0.payload)
+        })?.seq
         // Once per pass, and into each key below: the cell is only rebuilt when its key changes,
         // so a Change worked out inside it stayed on screen after it stopped applying.
         let routePlacement = transcript.routePlacement
@@ -701,7 +705,7 @@ struct TranscriptListView: View {
             let wasStopped = row.seq == stoppedTurnSeq
             // The echo already follows this footer. Waiting for its stored row to land added
             // the inter-turn gap halfway through the send and pushed the travelling bubble down.
-            let closesTranscript = row.kind == .result && row.seq == lastVisibleSeq && sending == nil
+            let closesTranscript = row.kind == .result && row.seq == closingSeq && sending == nil
             let stillRunning = closesTranscript ? backgroundWork : nil
             // The same fields `TranscriptRowView.==` compared, and for the same reason: the
             // payload is never read, because comparing it is 1.6MB of `Data` per pass.
