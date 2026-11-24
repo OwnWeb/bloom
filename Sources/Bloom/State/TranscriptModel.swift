@@ -285,6 +285,8 @@ final class TranscriptModel {
     /// A turn that hit the account's allowance, waiting to be continued once it is back. See
     /// `LimitResume`.
     let limitResumeWatch = LimitResumeWatch()
+    /// Whether the turn running now was sent by the resume itself. See `LimitResume.armsByItself`.
+    @ObservationIgnored private var isLimitResumeTurn = false
 
     var draft = ""
 
@@ -962,6 +964,16 @@ final class TranscriptModel {
             && LimitResume.isLimitHit(result)
     }
 
+    /// A turn that ended on the allowance continues by itself once it is back, as Claude Code's
+    /// own apps do. Cancel under the turn, or anything typed, calls it off.
+    private func continueAfterLimitIfHit(_ result: AgentResult) {
+        let wasResumeTurn = isLimitResumeTurn
+        isLimitResumeTurn = false
+        guard !isRunning, offersLimitResume(after: result),
+              LimitResume.armsByItself(after: result, wasResumeTurn: wasResumeTurn) else { return }
+        continueAfterLimitResets(hitAt: Date())
+    }
+
     /// Waits for the allowance to come back and then sends `LimitResume.prompt`. See `LimitResume`
     /// for when that is.
     func continueAfterLimitResets(hitAt: Date) {
@@ -969,7 +981,11 @@ final class TranscriptModel {
             LimitResume(provider: session.agentKind, hitAt: hitAt),
             quotas: { [unowned app] in app.quotas },
             refresh: { [unowned app] in await app.refreshQuotas(after: QuotaPollSchedule.onDemandFloor) },
-            send: { [weak self] in await self?.submit(LimitResume.prompt) }
+            send: { [weak self] in
+                guard let self else { return }
+                isLimitResumeTurn = true
+                if await !submit(LimitResume.prompt) { isLimitResumeTurn = false }
+            }
         )
     }
 
@@ -1382,6 +1398,9 @@ final class TranscriptModel {
         }
         // The queue is moving, whether or not that begins a turn.
         wasStoppedByHand = false
+        // A message from another workspace or a finished setup reaches here without `submit`,
+        // and it supersedes a continuation waiting on the allowance just as typing does.
+        limitResumeWatch.cancel()
 
         // **Everything below is about a turn beginning, so it is asked whether one is.** On a
         // backend that takes a message mid turn this is reached with a turn already running, and
@@ -1940,6 +1959,7 @@ final class TranscriptModel {
             wasStoppedByHand = false
             await sendSteered(steered)
         } else if !wasStoppedByHand { await drain() }
+        continueAfterLimitIfHit(result)
         if !isRunning {
             await reportToOrchestrator(CrewMessage.stopped(name: session.title, lastMessage: result.summary))
             await app.noteWorkspaceTurnEnded(
@@ -2162,6 +2182,7 @@ final class TranscriptModel {
             } else if !isReconcilingPresentation, !wasStoppedByHand {
                 await drain()
             }
+            if !isReconcilingPresentation { continueAfterLimitIfHit(result) }
             // After the drain, and only if nothing moved: a crew member whose orchestrator said
             // something while it was busy has just started the next turn, and telling the
             // orchestrator it has stopped in the same breath would have it act on an answer that
