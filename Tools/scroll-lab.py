@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """The scroll lab's data half: the synthetic corpus, the scenario plans, and the reading of traces.
 
-Driven by Tools/scroll-lab.sh, whose head has the workflow. Four commands:
+Driven by Tools/scroll-lab.sh, whose head has the workflow. Five commands:
 
     scroll-lab.py seed <dir>                      a corpus: repositories, worktrees, bloom.sqlite
     scroll-lab.py plan <corpus.json> <out> WxH    the steps one run performs, in order
     scroll-lab.py analyse <trace.ndjson>          one run, judged: metrics and broken invariants
     scroll-lab.py report <runs dir>               every run, as a table, compared across builds
+    scroll-lab.py stream-report <runs dir>        StreamProbe's reports from `scroll-lab.sh stream`
 
 Every string in the corpus is generated here. Nothing is read from a real session, and nothing a
 run writes leaves the lab's own temporary directory.
@@ -1275,6 +1276,47 @@ def document_table(runs, builds, lines):
     lines.append("")
 
 
+def stream_report(directory):
+    """Median over passes of what each delta and each keystroke cost the main thread."""
+    runs = []
+    for meta_path in sorted(Path(directory).glob("*/stream.meta.json")):
+        result_path = meta_path.with_name("stream.json")
+        runs.append((json.loads(meta_path.read_text()),
+                     json.loads(result_path.read_text()) if result_path.exists() else None))
+    if not runs:
+        raise SystemExit(f"no stream runs under {directory}")
+    builds = list(dict.fromkeys(meta["build"] for meta, _ in runs))
+    corpora = list(dict.fromkeys(meta["corpus"] for meta, _ in runs))
+    missing = sum(result is None for _, result in runs)
+    lines = ["# Stream en release (StreamProbe)", "",
+             f"Builds : {', '.join(builds)}. Runs : {len(runs)} ({missing} sans rapport). Charge avant chaque run : "
+             + ", ".join(f"{meta.get('loadBefore', 0):.1f}" for meta, _ in runs) + ".", "",
+             "Médiane des passes : CPU du thread principal ms par delta et par frappe, p95 des frames pendant "
+             "le stream ms, part des frames perdues, rangées de la conversation.", "",
+             "| corpus | " + " | ".join(builds) + " |", "|---|" + "---|" * len(builds)]
+    for corpus in corpora:
+        cells = []
+        for build in builds:
+            results = [result for meta, result in runs
+                       if result and (meta["build"], meta["corpus"]) == (build, corpus)]
+            if not results:
+                cells.append("n/a")
+                continue
+            streaming = [result["streaming"] for result in results]
+            pick = lambda key: median([part[key] for part in streaming])
+            configurations = {result.get("configuration") for result in results}
+            cells.append(f"{pick('mainThreadCpuMsPerDelta'):.1f} ms/delta, "
+                         f"{median([r['typing']['mainThreadCpuMsPerKeystroke'] for r in results]):.1f} ms/frappe, "
+                         f"p95 {pick('p95Ms'):.0f} ms, {100 * pick('droppedShare'):.0f} % perdues, "
+                         f"{median([r['sessionRows'] for r in results]):.0f} rangées"
+                         + ("" if configurations == {"release"} else f" ({', '.join(map(str, configurations))})"))
+        lines.append(f"| {corpus} | " + " | ".join(cells) + " |")
+    text = "\n".join(lines) + "\n"
+    Path(directory, "stream.md").write_text(text)
+    print(text)
+    return 1 if missing else 0
+
+
 def main():
     command, *arguments = sys.argv[1:] or ["help"]
     if command == "seed":
@@ -1286,6 +1328,8 @@ def main():
         print(json.dumps(analyse(arguments[0]), indent=1))
     elif command == "report":
         sys.exit(report(arguments[0]))
+    elif command == "stream-report":
+        sys.exit(stream_report(arguments[0]))
     else:
         print(__doc__)
 

@@ -10,6 +10,10 @@
 #       --scenarios <name,...>                 default all; see `plan` in Tools/scroll-lab.py
 #       --out <dir>
 #   ./Tools/scroll-lab.sh report <dir>         reads the traces of an earlier run again
+#   ./Tools/scroll-lab.sh stream [options]     StreamProbe in the lab's release builds, on its corpus:
+#       --builds, --repeat, --out as above     main thread CPU per delta and per keystroke, in stream.md
+#       --corpora <name,...>                   default texte,enorme, chats with no second tab
+#       --deltas <n>                           default 200
 #   ./Tools/scroll-lab.sh profile <ref> <scenario> <corpus> [WxH] [step]
 #                                              one scenario again, with `sample` from its step (default up)
 #                                              for SCROLL_LAB_SAMPLE_SECONDS (default 30)
@@ -193,11 +197,12 @@ fresh_defaults() {
 }
 
 launch() {
-  local app="$1" directory="$2" plan="$3" started=$SECONDS launch_status=0
+  local app="$1" directory="$2" started=$SECONDS launch_status=0
+  shift 2
   fresh_defaults
   open -g -n -W -a "$app" --env BLOOM_DB_PATH="$directory/bloom.sqlite" \
     --stdout "$directory/stdout.log" --stderr "$directory/stderr.log" \
-    --args --scroll-lab "$directory/trace.ndjson" --scroll-lab-plan "$plan" &
+    --args "$@" &
   local waiter=$!
   while kill -0 "$waiter" 2>/dev/null; do
     if (( SECONDS - started > run_ceiling_seconds )); then
@@ -220,6 +225,23 @@ launch() {
   return $launch_status
 }
 
+# Fills the caller's `labels` and `commits` from `label=ref,...`, builds each commit, claims a lane
+# and seeds the corpus.
+prepare() {
+  local builds="$1" out="$2" entry ref commit
+  local -a refs
+  for entry in "${(@s:,:)builds}"; do
+    labels+=("${entry%%=*}")
+    refs+=("${entry#*=}")
+  done
+  # Resolved once, before building: a commit made meanwhile must not move what HEAD names.
+  for ref in "${refs[@]}"; do commits+=("$(commit_of "$ref")"); done
+  for commit in "${commits[@]}"; do build_one "$commit"; done
+  claim_lane
+  for commit in "${commits[@]}"; do lane_copy "$commit"; done
+  python3 -I "$repo/Tools/scroll-lab.py" seed "$out/corpus" >/dev/null
+}
+
 run() {
   local builds="HEAD" repeat=3 sizes="1440x900,1100x800" scenarios="" out=""
   while (( $# )); do
@@ -234,19 +256,10 @@ run() {
   done
   out="${out:-$lab_home/runs/$(date +%Y%m%d-%H%M%S)}"
   mkdir -p "$out"
-  local -a refs labels commits size_list
-  for entry in "${(@s:,:)builds}"; do
-    labels+=("${entry%%=*}")
-    refs+=("${entry#*=}")
-  done
+  local -a labels commits size_list
   size_list=("${(@s:,:)sizes}")
-  # Resolved once, before building: a commit made meanwhile must not move what HEAD names.
-  for ref in "${refs[@]}"; do commits+=("$(commit_of "$ref")"); done
-  for commit in "${commits[@]}"; do build_one "$commit"; done
+  prepare "$builds" "$out"
   local commit label directory seconds load launch_status
-  claim_lane
-  for commit in "${commits[@]}"; do lane_copy "$commit"; done
-  python3 -I "$repo/Tools/scroll-lab.py" seed "$out/corpus" >/dev/null
   local scenario_args=("${(@s:,:)scenarios}")
   for size in "${size_list[@]}"; do
     python3 -I "$repo/Tools/scroll-lab.py" plan "$out/corpus/corpus.json" "$out/plan-$size.json" "$size" \
@@ -262,7 +275,8 @@ run() {
         say "pass $pass/$repeat, $size, $label ($commit)"
         load="$(LC_ALL=C sysctl -n vm.loadavg | awk '{print $2}' | tr , .)"
         launch_status=0
-        seconds="$(launch "$(lane_app_path "$commit")" "$directory" "$out/plan-$size.json")" || launch_status=$?
+        seconds="$(launch "$(lane_app_path "$commit")" "$directory" \
+          --scroll-lab "$directory/trace.ndjson" --scroll-lab-plan "$out/plan-$size.json")" || launch_status=$?
         mv "$directory/trace.ndjson" "$directory/run.ndjson" 2>/dev/null || say "no trace in $directory"
         print -r -- "{\"build\": \"$label\", \"commit\": \"$commit\", \"size\": \"$size\", \"pass\": $pass, \"seconds\": $seconds, \"loadBefore\": $load, \"exitStatus\": $launch_status}" \
           > "$directory/run.meta.json"
@@ -271,6 +285,51 @@ run() {
     done
   done
   python3 -I "$repo/Tools/scroll-lab.py" report "$out"
+}
+
+# **The stream in release.** `StreamProbe` is outside `#if DEBUG`, so the lab's own release build
+# runs it when launched without `--scroll-lab`; every earlier figure for it came from debug builds
+# and the owner's own database. Its window opens through the app's scene, hidden by
+# `--window-hidden` within ten milliseconds, and `open -g` keeps it from taking focus.
+stream() {
+  local builds="HEAD" repeat=3 corpora="texte,enorme" deltas=200 out=""
+  while (( $# )); do
+    case "$1" in
+      --builds) builds="$2"; shift 2 ;;
+      --repeat) repeat="$2"; shift 2 ;;
+      --corpora) corpora="$2"; shift 2 ;;
+      --deltas) deltas="$2"; shift 2 ;;
+      --out) out="$2"; shift 2 ;;
+      *) say "unknown option $1"; return 2 ;;
+    esac
+  done
+  out="${out:-$lab_home/runs/stream-$(date +%Y%m%d-%H%M%S)}"
+  mkdir -p "$out"
+  local -a labels commits
+  prepare "$builds" "$out"
+  local commit label corpus directory workspace seconds load launch_status
+  for (( pass = 1; pass <= repeat; pass++ )); do
+    for corpus in "${(@s:,:)corpora}"; do
+      workspace="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["corpora"][sys.argv[2]]["workspace"])' \
+        "$out/corpus/corpus.json" "$corpus")"
+      for index in {1..${#commits}}; do
+        commit="${commits[$index]}" label="${labels[$index]}"
+        directory="$out/$commit-$corpus-$pass"
+        mkdir -p "$directory"
+        cp "$out/corpus/bloom.sqlite" "$directory/bloom.sqlite"
+        say "stream pass $pass/$repeat, $corpus, $label ($commit)"
+        load="$(LC_ALL=C sysctl -n vm.loadavg | awk '{print $2}' | tr , .)"
+        launch_status=0
+        seconds="$(launch "$(lane_app_path "$commit")" "$directory" --stream-probe "$directory/stream.json" \
+          --stream-workspace "$workspace" --stream-deltas "$deltas" --window-size 1440x900 --window-hidden)" \
+          || launch_status=$?
+        print -r -- "{\"build\": \"$label\", \"commit\": \"$commit\", \"corpus\": \"$corpus\", \"pass\": $pass, \"seconds\": $seconds, \"loadBefore\": $load, \"exitStatus\": $launch_status}" \
+          > "$directory/stream.meta.json"
+        rm -f "$directory/bloom.sqlite"*
+      done
+    done
+  done
+  python3 -I "$repo/Tools/scroll-lab.py" stream-report "$out"
 }
 
 # **Profile the worst run rather than guess at it.** `sample` is attached to the lab's own process
@@ -294,7 +353,8 @@ plan["steps"] = [step for step in plan["steps"] if step["label"].startswith(pref
 json.dump(plan, open(path, "w"))
 PY
   cp "$out/corpus/bloom.sqlite" "$out/run/bloom.sqlite"
-  launch "$(lane_app_path "$commit")" "$out/run" "$out/plan.json" >/dev/null &
+  launch "$(lane_app_path "$commit")" "$out/run" \
+    --scroll-lab "$out/run/trace.ndjson" --scroll-lab-plan "$out/plan.json" >/dev/null &
   local launched=$!
   for _ in {1..600}; do
     grep -q "$scenario/$corpus/$phase" "$out/run/stderr.log" 2>/dev/null && break
@@ -317,5 +377,6 @@ case "$command" in
   run) run "$@" ;;
   report) python3 -I "$repo/Tools/scroll-lab.py" report "$1" ;;
   profile) profile "$@" ;;
-  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  stream) stream "$@" ;;
+  *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac
