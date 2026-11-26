@@ -118,9 +118,15 @@ final class SidebarKeyboardFocusView: NSView {
     /// stale one would answer false for ever.
     private func sidebarTable(in window: NSWindow) -> NSTableView? {
         let centre = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
-        if let table, table.window === window, Self.covers(table, centre) { return table }
-        table = window.contentView.flatMap { Self.table(under: $0, covering: centre) }
+        table = Self.table(reusing: table, in: window, covering: centre)
         return table
+    }
+
+    /// The table last found, while it is still in this window and still under the point, else a
+    /// fresh search. The search walks every view in the window, transcript rows included.
+    static func table(reusing known: NSTableView?, in window: NSWindow, covering point: NSPoint) -> NSTableView? {
+        if let known, known.window === window, covers(known, point) { return known }
+        return window.contentView.flatMap { table(under: $0, covering: point) }
     }
 
     private static func covers(_ table: NSTableView, _ point: NSPoint) -> Bool {

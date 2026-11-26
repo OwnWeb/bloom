@@ -69,6 +69,7 @@ final class SidebarOnHoldGapView: NSView {
     private static let tolerance: CGFloat = 0.5
 
     private weak var observedClip: NSClipView?
+    private weak var table: NSTableView?
     private var resizeObserver: NSObjectProtocol?
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -131,9 +132,13 @@ final class SidebarOnHoldGapView: NSView {
         scroll.contentView.bounds.height - scroll.contentInsets.top - scroll.contentInsets.bottom
     }
 
+    /// Every update of the sidebar measures, so walking the whole window each time added up to
+    /// 196 ms of the main thread in two minutes of use.
     private func sidebarTable() -> NSTableView? {
+        guard let window else { return nil }
         let centre = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
-        return window?.contentView.flatMap { SidebarKeyboardFocusView.table(under: $0, covering: centre) }
+        table = SidebarKeyboardFocusView.table(reusing: table, in: window, covering: centre)
+        return table
     }
 
     private func report(_ room: SidebarOnHoldRoom) {
