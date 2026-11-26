@@ -815,7 +815,8 @@ def judge(record, places):
     place = record.get("place", {})
     entry = {"label": label, "scenario": scenario, "corpus": corpus, "phase": phase, "kind": step["kind"],
              "seconds": record["t1"] - record["t0"], "frames": frame_stats(frames),
-             "document": document_moves(frames), "place": place, "failures": []}
+             "document": document_moves(frames), "place": place, "failures": [],
+             "calls": {name: calls for name, calls in record.get("calls", {}).items() if name in CALLS}}
     failures = entry["failures"]
     if result.get("error"):
         failures.append(f"étape impossible : {result['error']}")
@@ -986,6 +987,7 @@ def report(directory):
     arrival_table(runs, builds, lines)
     switch_table(runs, builds, lines)
     stream_table(runs, builds, lines)
+    calls_table(runs, builds, lines)
     document_table(runs, builds, lines)
     text = "\n".join(lines)
     Path(directory, "report.md").write_text(text)
@@ -1144,6 +1146,38 @@ def stream_table(runs, builds, lines):
     for scenario, corpus in keys:
         cells = [frames_cell(per_run) for per_run in scenario_cells(runs, builds, scenario, corpus, streamed)]
         lines.append(f"| {scenario} | {corpus} | " + " | ".join(cells) + " |")
+    lines.append("")
+
+
+CALLS = ("transcript.putEnd", "transcript.keepPlace", "transcript.measureExactly", "transcript.rewidth",
+         "row.measure")
+
+
+def calls_table(runs, builds, lines):
+    """How often the transcript put its end, kept a place and measured rows in each scenario, so a
+    step of the redesign can say which of those calls it removed."""
+    lines += ["## Appels par scénario (médiane des runs)", "",
+              "appels, temps total ms (plus long appel, pire des runs). Les temps s'emboîtent : "
+              "`putEnd` contient ses `measureExactly`, qui contiennent leurs `row.measure`.", "",
+              "| scénario | appel | " + " | ".join(builds) + " |", "|---|---|" + "---|" * len(builds)]
+    keys = sorted({(entry["scenario"], name) for run in runs for entry in run["steps"] for name in entry["calls"]},
+                  key=lambda key: (key[0], CALLS.index(key[1])))
+    if not keys:
+        lines[-4:] = ["Aucun compte d'appels dans ces runs : builds antérieurs au comptage."]
+    for scenario, name in keys:
+        cells = []
+        for build in builds:
+            per_run = [[entry["calls"][name] for entry in run["steps"]
+                        if entry["scenario"] == scenario and name in entry["calls"]] for run in by_build(runs, build)]
+            per_run = [calls for calls in per_run if calls]
+            if not per_run:
+                cells.append("n/a")
+                continue
+            count = median([sum(call["passes"] for call in calls) for calls in per_run])
+            total = median([sum(call["totalMs"] for call in calls) for calls in per_run])
+            longest = max(call.get("maxMs", 0.0) for calls in per_run for call in calls)
+            cells.append(f"{count:.0f}, {total:.0f} ms ({longest:.0f})")
+        lines.append(f"| {scenario} | {name} | " + " | ".join(cells) + " |")
     lines.append("")
 
 

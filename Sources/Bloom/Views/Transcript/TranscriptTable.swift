@@ -1346,6 +1346,12 @@ struct TranscriptTable: NSViewRepresentable {
         private func keepPlace(
             wasAtEnd: Bool, anchor: (id: TranscriptEntryID, delta: CGFloat)?
         ) {
+            let started = PaneLayoutTiming.isEnabled ? CACurrentMediaTime() : 0
+            defer {
+                if PaneLayoutTiming.isEnabled {
+                    PaneLayoutTiming.record("transcript.keepPlace", CACurrentMediaTime() - started)
+                }
+            }
             switch TranscriptAnchor.place(
                 holdsEnd: holdsEnd,
                 wasAtEnd: wasAtEnd,
@@ -2463,6 +2469,12 @@ struct TranscriptTable: NSViewRepresentable {
         @discardableResult
         private func measureExactly(_ rows: some Sequence<Int>) -> IndexSet {
             guard let sizing = heights.measure else { return IndexSet() }
+            let started = PaneLayoutTiming.isEnabled ? CACurrentMediaTime() : 0
+            defer {
+                if PaneLayoutTiming.isEnabled {
+                    PaneLayoutTiming.record("transcript.measureExactly", CACurrentMediaTime() - started)
+                }
+            }
             var moved = IndexSet()
             for row in rows where entries.indices.contains(row) {
                 let entry = entries[row]

@@ -111,6 +111,8 @@ private final class ScrollLabRun: NSObject {
                "configuration": configuration, "load": loadAverage()])
 
         openWindow(app)
+        // Counts and times `putEnd`, `keepPlace` and row measuring, reset for every step.
+        PaneLayoutTiming.isEnabled = true
         startRecording()
         for (index, step) in plan.enumerated() {
             await perform(step, index: index)
@@ -247,6 +249,7 @@ private final class ScrollLabRun: NSObject {
         let firstFrame = frames.count
         let firstRootRelayout = ScrollLabRootRelayouts.count
         let began = now()
+        PaneLayoutTiming.reset()
         var result: [String: Any] = [:]
         FileHandle.standardError.write(Data("scroll lab: step \(index) \(kind) \(step["label"] ?? "")\n".utf8))
         switch kind {
@@ -270,6 +273,7 @@ private final class ScrollLabRun: NSObject {
             "kind": "step", "index": index, "step": step, "t0": began, "t1": now(),
             "frames": Array(frames[firstFrame...]), "result": result,
             "rootRelayouts": ScrollLabRootRelayouts.count - firstRootRelayout,
+            "calls": PaneLayoutTiming.summary(),
         ]
         record["place"] = place()
         write(record)

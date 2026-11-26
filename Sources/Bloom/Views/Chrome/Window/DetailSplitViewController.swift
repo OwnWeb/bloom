@@ -46,6 +46,7 @@ enum PaneLayoutTiming {
                 "passes": count,
                 "totalMs": total * 1000,
                 "meanMs": count > 0 ? total * 1000 / count : 0,
+                "maxMs": passes[pane]?.map { $0[1] }.max() ?? 0,
             ]
         }
         return result
