@@ -6,6 +6,7 @@ import Foundation
 enum BloomLauncher {
     @MainActor
     static func main() async {
+        ExceptionLog.install()
         Log.launchStep("main")
         TranscriptTableView.asksEveryRowHeight()
         // Release builds too: it measures how scrolling feels, and only a release build says that.
