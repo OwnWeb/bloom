@@ -257,6 +257,7 @@ private final class ScrollLabRun: NSObject {
         case "rest": result = await rest(milliseconds(step["ms"], or: 1500))
         case "wheel", "trackpad": result = await gesture(step)
         case "resize": result = await resize(step)
+        case "pane": result = await pane(step)
         case "capture": result = await capture(step)
         case "jump": result = await jump()
         case "drift": result = await drift(step)
@@ -594,6 +595,42 @@ private final class ScrollLabRun: NSObject {
         var result: [String: Any] = ["anchorDrift": jsonNumber(anchor?.drift(in: scroll)), "shifts": settled.shifts]
         if let before, let after = signature() { result["pixels"] = compare(before, after) }
         return result
+    }
+
+    /// Opens or closes the inspector as its toolbar button does, animated, so the split view ends a
+    /// live resize: what pushed rows' text views off the end in real use. Not the sidebar, whose
+    /// toggle did not animate in this window.
+    private func pane(_ step: [String: Any]) async -> [String: Any] {
+        guard let app else { return ["error": "no app"] }
+        let open = step["open"] as? Bool ?? true
+        let before = Double(scroll?.frame.width ?? 0)
+        let splits = splitViews()
+        func panes() -> [Double] { splits.flatMap { $0.arrangedSubviews.map { Double($0.frame.width) } } }
+        let panesBefore = panes()
+        guard app.isInspectorVisible != open else { return ["error": "inspector already in that state"] }
+        app.isInspectorVisible = open
+        // The panes sampled through the slide: a layout between the two ends proves it was
+        // animated. Not the transcript's width, which only changes once the slide has ended.
+        var layouts: [[Double]] = []
+        for _ in 0..<60 {
+            try? await Task.sleep(for: .milliseconds(8))
+            layouts.append(panes())
+        }
+        let settled = await settle(timeout: 5000)
+        let after = Double(scroll?.frame.width ?? 0)
+        let between = Set(layouts).subtracting([panesBefore, panes()])
+        return ["widthBefore": before, "widthAfter": after, "widthsBetween": between.count,
+                "stable": settled.stable, "shifts": settled.shifts]
+    }
+
+    private func splitViews() -> [NSSplitView] {
+        var found: [NSSplitView] = []
+        func walk(_ view: NSView) {
+            if let split = view as? NSSplitView { found.append(split) }
+            view.subviews.forEach(walk)
+        }
+        if let content = window?.contentView { walk(content) }
+        return found
     }
 
     private func capture(_ step: [String: Any]) async -> [String: Any] {

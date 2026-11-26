@@ -481,7 +481,7 @@ GESTURES = {
 }
 CLIMBS = {"molette": ["texte", "sousagents"], "trackpad": LONG, "frenetique": ["markdown", "outils"]}
 ALL_SCENARIOS = ["arrivee", "bascule", "molette", "trackpad", "frenetique", "saut", "redimension", "direct", "fleuve",
-                 "direct-longue", "retour", "derive", "onglet", "neuve", "largeur", "vivant"]
+                 "direct-longue", "retour", "derive", "onglet", "neuve", "largeur", "vivant", "repli"]
 # Corpora whose workspace gets a second chat, so the pane can leave a conversation for another tab.
 TABBED = ["outils", "longue", "markdown", "neuve"]
 
@@ -681,6 +681,27 @@ def plan(manifest_path, output, size, scenarios):
             step("trackpad", f"trackpad/{name}/up", direction="up", **gesture, timeoutMs=240000)
             step("rest", f"trackpad/{name}/rest-top", ms=1500)
             step("capture", f"trackpad/{name}/top", ocr=[FIRST_MARK])
+    if "repli" in scenarios:
+        # Last, because it appends to its chats. The inspector closed and opened again with a reader
+        # at the end, animated, which ends a live resize down every transcript of the window, the
+        # hidden one included: the end has to stay put and stay held, here and in the workspace
+        # left behind. A chat's inspector starts open, and is left open.
+        for name, other in [("longue", "texte"), ("markdown", "outils")]:
+            prefix = f"repli/{name}"
+            visit(other, f"{prefix}/away")
+            visit(name, f"{prefix}/select")
+            step("rest", f"{prefix}/rest-select", ms=1500)
+            for open_ in (False, True):
+                phase = f"inspector-{'open' if open_ else 'close'}"
+                step("pane", f"{prefix}/{phase}", open=open_)
+                step("rest", f"{prefix}/rest-{phase}", ms=1000)
+            step("capture", f"{prefix}/end", ocr=[LAST_MARK])
+            step("append", f"{prefix}/start", session=corpora[name]["session"], startSeq=corpora[name]["rows"] + 200000,
+                 intervalMs=350)
+            step("rest", f"{prefix}/follow", ms=3000)
+            step("appendStop", f"{prefix}/stop")
+            step("rest", f"{prefix}/after", ms=1000)
+            visit(other, f"{prefix}/back")
     # SCROLL_LAB_CORPORA=collee,texte keeps those corpora's steps only, for a question about one of them.
     wanted = [name for name in os.environ.get("SCROLL_LAB_CORPORA", "").split(",") if name]
     if wanted:
@@ -840,6 +861,8 @@ def judge(record, places):
             failures.append("saut : pas arrivé en bas")
     elif kind in ("rest", "resize"):
         judge_rest(entry, scenario, phase, result, frames, place)
+    elif kind == "pane":
+        judge_pane(entry, result, place)
     elif kind == "capture":
         judge_capture(entry, scenario, phase, result, place, places)
     failures.extend(blank_failures(place, entry.get("blank")))
@@ -860,6 +883,23 @@ def judge_gesture(entry, step, result, frames):
                                  f" (pire {entry['gesture']['worstMiss']:.0f} pt)")
 
 
+def judge_pane(entry, result, place):
+    entry["fold"] = {"longestMs": entry["frames"]["longest"], "widthsBetween": result.get("widthsBetween", 0)}
+    if result.get("error"):
+        return
+    if result.get("widthBefore") == result.get("widthAfter"):
+        entry["failures"].append("panneau immobile")
+    elif not result.get("widthsBetween"):
+        entry["failures"].append("panneau sans animation")
+    entry["failures"].extend(end_failures(place))
+
+
+def end_failures(place):
+    if place.get("fromEnd", 0) > 4:
+        return [f"lâche la fin ({place['fromEnd']:.0f} pt du bas)"]
+    return []
+
+
 def judge_rest(entry, scenario, phase, result, frames, place):
     pixels = result.get("pixels")
     entry["rest"] = {"pixels": pixels, "anchorDrift": result.get("anchorDrift"), "blank": result.get("blank"),
@@ -873,6 +913,10 @@ def judge_rest(entry, scenario, phase, result, frames, place):
     if following_live_end(scenario, phase):
         entry["failures"].extend(live_end_failures(place))
         return
+    # A fold rewraps every row, so what is judged is the end, not the pixels.
+    if scenario == "repli":
+        entry["failures"].extend(end_failures(place))
+        return
     live = scenario.startswith(("direct", "vivant-"))
     # Rows an agent wrote can still land just after it stops, and a reader at the end follows them.
     if live and phase == "after" and place.get("fromEnd", 0) <= 4:
@@ -885,7 +929,7 @@ def judge_rest(entry, scenario, phase, result, frames, place):
 def following_live_end(scenario, phase):
     """The shown chat's agent is still writing and the reader is at its end, so the view has to
     move with it: what is judged is staying at the end, not standing still."""
-    if scenario.startswith("direct"):
+    if scenario.startswith("direct") or scenario == "repli":
         return phase == "follow"
     return scenario.startswith("vivant-") and phase in ("back", "rest-back")
 
@@ -987,6 +1031,7 @@ def report(directory):
     arrival_table(runs, builds, lines)
     switch_table(runs, builds, lines)
     stream_table(runs, builds, lines)
+    fold_table(runs, builds, lines)
     calls_table(runs, builds, lines)
     document_table(runs, builds, lines)
     text = "\n".join(lines)
@@ -1149,6 +1194,24 @@ def stream_table(runs, builds, lines):
     lines.append("")
 
 
+def fold_table(runs, builds, lines):
+    lines += ["## Repli des panneaux (médiane des runs)", "",
+              "plus long blocage du thread principal pendant le repli ms (pire des runs)", "",
+              "| corpus | étape | " + " | ".join(builds) + " |", "|---|---|" + "---|" * len(builds)]
+    keys = list(dict.fromkeys((entry["corpus"], entry["phase"]) for run in runs for entry in run["steps"]
+                              if entry["kind"] == "pane"))
+    if not keys:
+        lines[-4:] = ["Aucun repli dans ces runs."]
+    for corpus, phase in keys:
+        cells = []
+        for build in builds:
+            stalls = [entry["fold"]["longestMs"] for run in by_build(runs, build) for entry in run["steps"]
+                      if entry["kind"] == "pane" and (entry["corpus"], entry["phase"]) == (corpus, phase)]
+            cells.append(f"{median(stalls):.0f} ms ({max(stalls):.0f})" if stalls else "n/a")
+        lines.append(f"| {corpus} | {phase} | " + " | ".join(cells) + " |")
+    lines.append("")
+
+
 CALLS = ("transcript.putEnd", "transcript.keepPlace", "transcript.measureExactly", "transcript.rewidth",
          "row.measure")
 
@@ -1158,7 +1221,8 @@ def calls_table(runs, builds, lines):
     step of the redesign can say which of those calls it removed."""
     lines += ["## Appels par scénario (médiane des runs)", "",
               "appels, temps total ms (plus long appel, pire des runs). Les temps s'emboîtent : "
-              "`putEnd` contient ses `measureExactly`, qui contiennent leurs `row.measure`.", "",
+              "`keepPlace` contient ses `putEnd`, qui contiennent leurs `measureExactly`, "
+              "qui contiennent leurs `row.measure`.", "",
               "| scénario | appel | " + " | ".join(builds) + " |", "|---|---|" + "---|" * len(builds)]
     keys = sorted({(entry["scenario"], name) for run in runs for entry in run["steps"] for name in entry["calls"]},
                   key=lambda key: (key[0], CALLS.index(key[1])))
