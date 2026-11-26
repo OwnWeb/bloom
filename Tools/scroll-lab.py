@@ -828,7 +828,7 @@ def judge(record, places):
         entry["arrival"] = {
             "seconds": (result.get("settledAt") or 0) - (result.get("requestedAt") or record["t0"]),
             "slides": slides(result.get("shifts", [])), "documentMoves": entry["document"]["count"],
-            "longestMs": max(first, entry["frames"]["longest"])}
+            "longestMs": max(first, entry["frames"]["longest"]), "stable": result.get("stable", True)}
         if following_live_end(scenario, phase):
             failures.extend(live_end_failures(place))
         elif not result.get("stable", True):
@@ -984,6 +984,8 @@ def report(directory):
     broken = invariant_table(runs, builds, lines)
     fluidity_table(runs, builds, lines)
     arrival_table(runs, builds, lines)
+    switch_table(runs, builds, lines)
+    stream_table(runs, builds, lines)
     document_table(runs, builds, lines)
     text = "\n".join(lines)
     Path(directory, "report.md").write_text(text)
@@ -1040,22 +1042,23 @@ def gesture_runs(runs, build, scenario, zone):
     return per_run
 
 
+def frames_cell(per_run):
+    """Median over runs of each run's frame stats, or n/a when no run had frames there."""
+    if not per_run:
+        return "n/a"
+    pick = lambda key: median([run[key] for run in per_run])
+    share = lambda key: 100 * median([run[key] / max(1, run["frames"]) for run in per_run])
+    return (f"{pick('p50'):.1f} / {pick('p95'):.1f} / {pick('p99'):.1f}, "
+            f"{share('over16'):.0f} % / {share('over33'):.0f} %, {pick('longest'):.0f}")
+
+
 def fluidity_table(runs, builds, lines):
     lines += ["## Fluidité pendant les gestes (médiane des runs)", "",
               "p50 / p95 / p99 ms, part des frames > 16,7 ms et > 33 ms, plus long blocage du thread principal ms.", "",
               "| geste | zone | " + " | ".join(builds) + " |", "|---|---|" + "---|" * len(builds)]
     for scenario in ("molette", "trackpad", "frenetique"):
         for zone in ("fin", "milieu", "debut", "tout"):
-            cells = []
-            for build in builds:
-                per_run = gesture_runs(runs, build, scenario, zone)
-                if not per_run:
-                    cells.append("n/a")
-                    continue
-                pick = lambda key: median([run[key] for run in per_run])
-                share = lambda key: 100 * median([run[key] / max(1, run["frames"]) for run in per_run])
-                cells.append(f"{pick('p50'):.1f} / {pick('p95'):.1f} / {pick('p99'):.1f}, "
-                             f"{share('over16'):.0f} % / {share('over33'):.0f} %, {pick('longest'):.0f}")
+            cells = [frames_cell(gesture_runs(runs, build, scenario, zone)) for build in builds]
             if any(cell != "n/a" for cell in cells):
                 lines.append(f"| {scenario} | {zone} | " + " | ".join(cells) + " |")
     lines.append("")
@@ -1081,6 +1084,66 @@ def arrival_table(runs, builds, lines):
                          f"{median([a['documentMoves'] for a in arrivals]):.0f}, "
                          f"{median([a.get('longestMs', 0.0) for a in arrivals]):.0f} ms")
         lines.append(f"| {corpus} | " + " | ".join(cells) + " |")
+    lines.append("")
+
+
+def scenario_cells(runs, builds, scenario, corpus, pick):
+    """One cell per build from `pick(entry)` over the matching steps of every run, or None per run."""
+    cells = []
+    for build in builds:
+        values = [pick(entry) for run in by_build(runs, build) for entry in run["steps"]
+                  if (entry["scenario"], entry["corpus"]) == (scenario, corpus)]
+        cells.append([value for value in values if value is not None])
+    return cells
+
+
+def switch_table(runs, builds, lines):
+    """Coming back to a conversation from another workspace or tab: where 300 to 460 ms stalls were
+    seen in real use, through `putEnd` on the way in."""
+    lines += ["## Changements de workspace (retour, médiane des runs)", "",
+              "secondes jusqu'au repos, plus long blocage du thread principal (pire des runs)", "",
+              "| scénario | corpus | " + " | ".join(builds) + " |", "|---|---|" + "---|" * len(builds)]
+    keys = list(dict.fromkeys((entry["scenario"], entry["corpus"]) for run in runs for entry in run["steps"]
+                              if entry["kind"] == "select" and entry["phase"] == "back"))
+    back = lambda entry: entry.get("arrival") if entry["kind"] == "select" and entry["phase"] == "back" else None
+    if not keys:
+        lines[-4:] = ["Aucun retour dans ces runs."]
+    for scenario, corpus in keys:
+        cells = []
+        for arrivals in scenario_cells(runs, builds, scenario, corpus, back):
+            if not arrivals:
+                cells.append("n/a")
+                continue
+            stalls = [arrival["longestMs"] for arrival in arrivals]
+            # A chat whose agent still writes never rests, so its time is the step's timeout.
+            settled = median([arrival["seconds"] for arrival in arrivals if arrival.get("stable", True)])
+            rest = "jamais au repos" if settled is None else f"{settled:.2f} s"
+            cells.append(f"{rest}, {median(stalls):.0f} ms ({max(stalls):.0f})")
+        lines.append(f"| {scenario} | {corpus} | " + " | ".join(cells) + " |")
+    lines.append("")
+
+
+def streaming_rest(scenario, phase):
+    """A rest taken while an agent writes: the shown chat's own in `direct`, another tab's or
+    workspace's in `vivant` and `neuve`."""
+    if scenario.startswith("direct"):
+        return phase == "follow"
+    return scenario.startswith(("vivant-", "neuve")) and phase == "working"
+
+
+def stream_table(runs, builds, lines):
+    lines += ["## Pendant le stream (médiane des runs)", "",
+              "p50 / p95 / p99 ms, part des frames > 16,7 ms et > 33 ms, plus long blocage du thread principal ms.", "",
+              "| scénario | corpus | " + " | ".join(builds) + " |", "|---|---|" + "---|" * len(builds)]
+    keys = list(dict.fromkeys((entry["scenario"], entry["corpus"]) for run in runs for entry in run["steps"]
+                              if entry["kind"] == "rest" and streaming_rest(entry["scenario"], entry["phase"])))
+    streamed = lambda entry: entry["frames"] if entry["kind"] == "rest" and streaming_rest(
+        entry["scenario"], entry["phase"]) and entry["frames"]["frames"] else None
+    if not keys:
+        lines[-4:] = ["Aucune étape pendant un stream dans ces runs."]
+    for scenario, corpus in keys:
+        cells = [frames_cell(per_run) for per_run in scenario_cells(runs, builds, scenario, corpus, streamed)]
+        lines.append(f"| {scenario} | {corpus} | " + " | ".join(cells) + " |")
     lines.append("")
 
 
