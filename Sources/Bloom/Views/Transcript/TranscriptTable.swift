@@ -393,6 +393,9 @@ struct TranscriptTable: NSViewRepresentable {
         /// clip view has actually settled.
         private var deferredWarmHeights: Set<TranscriptEntryID> = []
         private var owedWork: Task<Void, Never>?
+        /// Rows whose drawn height `drainOwedHeights` is applying. Their report outranks an offscreen
+        /// measurement, so the landing it places does not host the streaming tail again per delta.
+        private var applyingDrawnHeights: Set<TranscriptEntryID> = []
 
         /// **A standing instruction to be at the end of the conversation.** See
         /// `TranscriptTableController.goToEnd`, which carries why a single scroll cannot mean it.
@@ -1083,7 +1086,9 @@ struct TranscriptTable: NSViewRepresentable {
                 // second half of "the pill does not go all the way down": a scroll that was right
                 // when it was issued is short the moment a row below the fold turns out taller
                 // than it was measured at.
+                applyingDrawnHeights = owed
                 keepPlace(wasAtEnd: wasAtEnd, anchor: anchor)
+                applyingDrawnHeights = []
                 reportGeometry()
                 // A turn later, because a table lays a height change out on the pass after it is
                 // told about it.
@@ -2480,8 +2485,11 @@ struct TranscriptTable: NSViewRepresentable {
                 let entry = entries[row]
                 if !entry.id.redrawsItself, entry.fixedHeight == 0 { continue }
                 if entry.estimatedHeight != nil { continue }
+                // A height just drawn is the answer. A width change since then leaves the key stale,
+                // which still measures it.
+                let heightIsDrawn = applyingDrawnHeights.contains(entry.id)
                 guard heights.needsMeasuring(
-                    entry.contentKey, redrawsItself: entry.id.redrawsItself
+                    entry.contentKey, redrawsItself: entry.id.redrawsItself && !heightIsDrawn
                 ) else { continue }
                 // A fixed row already supplies its exact answer. Stream deltas are stored as
                 // system rows but can never draw a view, and hosting each of them to rediscover
