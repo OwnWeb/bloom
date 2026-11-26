@@ -829,7 +829,9 @@ def judge(record, places):
             "seconds": (result.get("settledAt") or 0) - (result.get("requestedAt") or record["t0"]),
             "slides": slides(result.get("shifts", [])), "documentMoves": entry["document"]["count"],
             "longestMs": max(first, entry["frames"]["longest"])}
-        if not result.get("stable", True):
+        if following_live_end(scenario, phase):
+            failures.extend(live_end_failures(place))
+        elif not result.get("stable", True):
             failures.append("jamais au repos")
         if entry["arrival"]["slides"]:
             failures.append(f"recalage visible x{len(entry['arrival']['slides'])}")
@@ -867,17 +869,30 @@ def judge_rest(entry, scenario, phase, result, frames, place):
         if moved:
             entry["failures"].append(f"recalage visible au redimensionnement x{len(moved)}")
         return
-    live = scenario.startswith("direct")
-    if live and phase == "follow":
-        if place.get("fromEnd", 0) > 4:
-            entry["failures"].append(f"décroche du direct ({place['fromEnd']:.0f} pt du bas)")
+    if following_live_end(scenario, phase):
+        entry["failures"].extend(live_end_failures(place))
         return
+    live = scenario.startswith(("direct", "vivant-"))
     # Rows an agent wrote can still land just after it stops, and a reader at the end follows them.
     if live and phase == "after" and place.get("fromEnd", 0) <= 4:
         return
     seen = visible_change(pixels)
     if seen:
         entry["failures"].append(f"bouge au repos : {seen}")
+
+
+def following_live_end(scenario, phase):
+    """The shown chat's agent is still writing and the reader is at its end, so the view has to
+    move with it: what is judged is staying at the end, not standing still."""
+    if scenario.startswith("direct"):
+        return phase == "follow"
+    return scenario.startswith("vivant-") and phase in ("back", "rest-back")
+
+
+def live_end_failures(place):
+    if place.get("fromEnd", 0) > 4:
+        return [f"décroche du direct ({place['fromEnd']:.0f} pt du bas)"]
+    return []
 
 
 def same_place(left, right):
