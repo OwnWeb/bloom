@@ -641,6 +641,8 @@ def plan(manifest_path, output, size, scenarios):
             live = corpora[name]
             prefix = f"vivant-{'onglet' if away is None else 'espace'}/{name}"
             visit(name, f"{prefix}/select")
+            # An earlier scenario may have left this chat away from its end, where it reopens.
+            step("jump", f"{prefix}/to-end")
             step("rest", f"{prefix}/read", ms=1200)
             if away is None:
                 step("select", f"{prefix}/away", workspace=live["workspace"], session=live["side"])
@@ -674,6 +676,7 @@ def plan(manifest_path, output, size, scenarios):
         for name in ["longue", "enorme"]:
             live = corpora[name]
             visit(name, f"direct-longue/{name}/select")
+            step("jump", f"direct-longue/{name}/to-end")
             step("rest", f"direct-longue/{name}/prepare", ms=8000)
             step("append", f"direct-longue/{name}/start", session=live["session"], startSeq=live["rows"], intervalMs=350)
             step("rest", f"direct-longue/{name}/follow", ms=8000)
@@ -690,7 +693,9 @@ def plan(manifest_path, output, size, scenarios):
         for name, other in [("longue", "texte"), ("markdown", "outils")]:
             prefix = f"repli/{name}"
             visit(other, f"{prefix}/away")
+            step("jump", f"{prefix}/away-to-end")
             visit(name, f"{prefix}/select")
+            step("jump", f"{prefix}/to-end")
             step("rest", f"{prefix}/rest-select", ms=1500)
             for open_ in (False, True):
                 phase = f"inspector-{'open' if open_ else 'close'}"
@@ -811,21 +816,22 @@ def analyse(path):
     boot = next((record for record in records if record.get("kind") == "boot"), {})
     finished = any(record.get("kind") == "end" for record in records)
     places, left = {}, {}
-    workspace = None
+    # Keyed by chat, not workspace: another tab of the same workspace has a place of its own.
+    conversation = None
     results = []
     for record in (record for record in records if record.get("kind") == "step"):
         step = record["step"]
         if step["kind"] == "select":
-            workspace = step.get("workspace")
-            reopened = left.get(workspace)
+            conversation = (step.get("workspace"), step.get("session"))
+            reopened = left.get(conversation)
         entry = judge(record, places)
         if step["kind"] == "select" and reopened:
             entry["failures"].extend(reopening_failures(reopened, entry["place"]))
         if step["kind"] == "resize":
             left.clear()
         places[entry["label"]] = entry["place"]
-        if workspace and entry["place"].get("found"):
-            left[workspace] = entry["place"]
+        if conversation and entry["place"].get("found"):
+            left[conversation] = entry["place"]
         results.append(entry)
     return {"trace": str(path), "boot": boot, "finished": finished, "steps": results}
 
