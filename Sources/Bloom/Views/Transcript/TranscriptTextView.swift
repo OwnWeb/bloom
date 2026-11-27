@@ -519,6 +519,21 @@ final class LinkTextView: NSTextView, HoverQuickLookSource {
         lastReportedMeasurement = nil
     }
 
+    /// AppKit ends a live resize by scrolling each text view's selection into view, which pushed
+    /// every transcript pane 5 to 22 points off its end when a sidebar or inspector folded.
+    private var isEndingLiveResize = false
+
+    override func viewDidEndLiveResize() {
+        isEndingLiveResize = true
+        defer { isEndingLiveResize = false }
+        super.viewDidEndLiveResize()
+    }
+
+    override func scrollToVisible(_ rect: NSRect) -> Bool {
+        guard !isEndingLiveResize else { return false }
+        return super.scrollToVisible(rect)
+    }
+
     weak var answerSelection: TranscriptTextSelection?
     var overlaysScroller = false
     weak var conversationSelection: TranscriptConversationSelection?
