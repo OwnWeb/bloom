@@ -876,9 +876,31 @@ def judge(record, places):
     return entry
 
 
+def gesture_moved_nothing(step, events, frames, viewport):
+    """A gesture that never took the view off where it started, though it had somewhere to go.
+    Synthetic wheel deltas were all nought one evening, and every gesture was judged green. Judged
+    over the events and the frames, because a delta lands on the clip view after its event."""
+    if not events:
+        return False
+    up = step.get("direction", "up") == "up"
+    _, _, _, start, _, _, document, *_ = events[0]
+    reach = document - viewport
+    fraction = step.get("fraction")
+    if fraction is not None and reach > 1 and (start / reach <= fraction if up else start / reach >= fraction):
+        return False
+    if (start <= EDGE) if up else (reach - start <= EDGE):
+        return False
+    origins = [event[3] for event in events] + [event[4] for event in events]
+    origins += [frame[1] for frame in frames if frame[2] > 0]
+    return all(abs(origin - start) <= 0.5 for origin in origins)
+
+
 def judge_gesture(entry, step, result, frames):
     viewport = entry["place"].get("viewport", 0)
-    entry["gesture"] = gesture_checks(result.get("events", []), viewport)
+    events = result.get("events", [])
+    if gesture_moved_nothing(step, events, frames, viewport):
+        entry["failures"].append(f"mesure invalide : {len(events)} événements, vue immobile")
+    entry["gesture"] = gesture_checks(events, viewport)
     entry["zones"] = {zone: frame_stats(frames, zone) for zone in ("fin", "milieu", "debut")}
     if step.get("until", "edge") == "edge" and result.get("reachedAt") is None:
         up = step.get("direction") == "up"
