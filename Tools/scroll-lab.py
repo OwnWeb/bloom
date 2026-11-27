@@ -750,6 +750,8 @@ RASTER = 0.1          # residue, at the same place and with no slide, left by te
 CLEAN_SLIDE = 0.03    # residue under which a non zero shift is the same page, slid
 EDGE = 2.0            # points from an edge where rubber banding makes a gesture's distance meaningless
 MISSING = -1e8
+MOVED = 0.01          # points of origin change that make a frame part of a traversal
+ZONES = ("fin", "milieu", "debut")
 
 
 def percentile(values, share):
@@ -759,10 +761,23 @@ def percentile(values, share):
     return ordered[min(len(ordered) - 1, int(share * (len(ordered) - 1) + 0.5))]
 
 
-def frame_stats(frames, zone=None):
+def frame_gaps(frames, zone=None, moving=False):
     """Frame gaps in milliseconds. With a zone, every gap of the whole sequence whose closing frame
-    is in that zone, so leaving a zone and coming back is never read as one long frame."""
-    gaps = [(b[0] - a[0]) * 1000 for a, b in zip(frames, frames[1:]) if zone is None or zone_of(b) == zone]
+    is in that zone, so leaving a zone and coming back is never read as one long frame. Moving keeps
+    the gaps that moved the view: waiting at an edge drew 8.3 ms frames that diluted a traversal."""
+    return [(b[0] - a[0]) * 1000 for a, b in zip(frames, frames[1:])
+            if (zone is None or zone_of(b) == zone) and (not moving or moved(a, b))]
+
+
+def moved(before, after):
+    return before[2] > 0 and after[2] > 0 and abs(after[1] - before[1]) > MOVED
+
+
+def frame_stats(frames, zone=None):
+    return gap_stats(frame_gaps(frames, zone))
+
+
+def gap_stats(gaps):
     return {"frames": len(gaps), "p50": percentile(gaps, 0.5), "p95": percentile(gaps, 0.95),
             "p99": percentile(gaps, 0.99), "over16": sum(gap > 16.7 for gap in gaps),
             "over33": sum(gap > 33.4 for gap in gaps), "longest": max(gaps, default=0.0)}
@@ -932,7 +947,8 @@ def judge_gesture(entry, step, result, frames):
     if gesture_moved_nothing(step, events, frames, viewport):
         entry["failures"].append(f"mesure invalide : {len(events)} événements, vue immobile")
     entry["gesture"] = gesture_checks(events, viewport)
-    entry["zones"] = {zone: frame_stats(frames, zone) for zone in ("fin", "milieu", "debut")}
+    entry["traversal"] = {zone: frame_gaps(frames, zone, moving=True) for zone in ZONES}
+    entry["traversal"]["tout"] = frame_gaps(frames, moving=True)
     if step.get("until", "edge") == "edge" and result.get("reachedAt") is None:
         up = step.get("direction") == "up"
         left = entry["place"].get("origin" if up else "fromEnd", 0)
@@ -1027,9 +1043,10 @@ def live_end_failures(place):
 
 
 def same_place(left, right):
-    keys = ("origin", "document")
+    """The same rows on screen. Origin and document move when rows above are measured while the
+    reader is away, and the page is still the page: the pixels judge the rest."""
     table_keys = ("firstVisible", "visibleCount", "rows")
-    return bool(left) and all(left.get(k) == right.get(k) for k in keys) and all(
+    return bool(left) and all(
         (left.get("table") or {}).get(k) == (right.get("table") or {}).get(k) for k in table_keys)
 
 
@@ -1164,15 +1181,14 @@ def median(values):
 
 
 def gesture_runs(runs, build, scenario, zone):
-    """Per run, the frames of every up and down leg of one gesture, merged."""
+    """Per run, the moving frames of every up and down leg of one gesture, merged before the
+    percentiles are taken: the largest of each leg's percentiles was no percentile of anything."""
     per_run = []
     for run in by_build(runs, build):
-        stats = [entry["frames"] if zone == "tout" else (entry.get("zones") or {}).get(zone)
-                 for entry in run["steps"] if entry["scenario"] == scenario and entry["phase"] in ("up", "down")]
-        stats = [stat for stat in stats if stat and stat["frames"]]
-        if stats:
-            per_run.append({key: (sum if key in ("frames", "over16", "over33") else max)(stat[key] for stat in stats)
-                            for key in stats[0]})
+        gaps = [gap for entry in run["steps"] if entry["scenario"] == scenario and entry["phase"] in ("up", "down")
+                for gap in (entry.get("traversal") or {}).get(zone, [])]
+        if gaps:
+            per_run.append(gap_stats(gaps))
     return per_run
 
 
@@ -1188,10 +1204,11 @@ def frames_cell(per_run):
 
 def fluidity_table(runs, builds, lines):
     lines += ["## Fluidité pendant les gestes (médiane des runs)", "",
-              "p50 / p95 / p99 ms, part des frames > 16,7 ms et > 33 ms, plus long blocage du thread principal ms.", "",
+              "Images où la vue bouge, montée et descente fusionnées : p50 / p95 / p99 ms, part des frames "
+              "> 16,7 ms et > 33 ms, plus long blocage du thread principal ms.", "",
               "| geste | zone | " + " | ".join(builds) + " |", "|---|---|" + "---|" * len(builds)]
     for scenario in ("molette", "trackpad", "frenetique"):
-        for zone in ("fin", "milieu", "debut", "tout"):
+        for zone in ZONES + ("tout",):
             cells = [frames_cell(gesture_runs(runs, build, scenario, zone)) for build in builds]
             if any(cell != "n/a" for cell in cells):
                 lines.append(f"| {scenario} | {zone} | " + " | ".join(cells) + " |")
