@@ -28,7 +28,7 @@ struct TranscriptScrollStateTests {
         geometry.contentHeight - geometry.viewportHeight
     }
 
-    @Test("Berlingo, 17/11 10:14: the first opening's re-aim lands after the end was asked for")
+    @Test("17/11 10:14: the first opening's re-aim lands after the end was asked for")
     func reaimAfterTheEnd() {
         let unreadRow: TranscriptEntryID = .row(48)
         var state = State()
