@@ -482,7 +482,8 @@ GESTURES = {
 }
 CLIMBS = {"molette": ["texte", "sousagents"], "trackpad": LONG, "frenetique": ["markdown", "outils"]}
 ALL_SCENARIOS = ["arrivee", "bascule", "molette", "trackpad", "frenetique", "saut", "redimension", "direct", "fleuve",
-                 "direct-longue", "retour", "derive", "onglet", "neuve", "largeur", "vivant", "repli"]
+                 "direct-longue", "retour", "derive", "onglet", "neuve", "largeur", "vivant", "repli", "flux",
+                 "flux-lecture"]
 # Corpora whose workspace gets a second chat, so the pane can leave a conversation for another tab.
 TABBED = ["outils", "longue", "markdown", "neuve"]
 
@@ -708,6 +709,32 @@ def plan(manifest_path, output, size, scenarios):
             step("appendStop", f"{prefix}/stop")
             step("rest", f"{prefix}/after", ms=1000)
             visit(other, f"{prefix}/back")
+    # After every scenario that appends, because the streamed text stays in its chat's tail.
+    if "flux" in scenarios:
+        # An answer streaming in under a reader at the end: the end has to be kept, delta by delta.
+        for name in ["longue", "markdown"]:
+            prefix = f"flux/{name}"
+            visit(name, f"{prefix}/select")
+            step("jump", f"{prefix}/to-end")
+            step("rest", f"{prefix}/rest-before", ms=1000)
+            step("stream", f"{prefix}/start", session=corpora[name]["session"],
+                 startSeq=corpora[name]["rows"] + 300000, intervalMs=40, chunk=14)
+            step("rest", f"{prefix}/follow", ms=6000)
+            step("streamStop", f"{prefix}/stop")
+            step("rest", f"{prefix}/after", ms=1000)
+    if "flux-lecture" in scenarios:
+        # The same answer under a reader who went up to read: the page must not move.
+        for name in ["texte"]:
+            prefix = f"flux-lecture/{name}"
+            visit(name, f"{prefix}/select")
+            step("jump", f"{prefix}/to-end")
+            place(f"{prefix}/place", 0.8)
+            step("rest", f"{prefix}/rest-before", ms=1000)
+            step("stream", f"{prefix}/start", session=corpora[name]["session"],
+                 startSeq=corpora[name]["rows"] + 300000, intervalMs=40, chunk=14)
+            step("rest", f"{prefix}/reading", ms=6000)
+            step("streamStop", f"{prefix}/stop")
+            step("rest", f"{prefix}/after", ms=1000)
     # SCROLL_LAB_CORPORA=collee,texte keeps those corpora's steps only, for a question about one of them.
     wanted = [name for name in os.environ.get("SCROLL_LAB_CORPORA", "").split(",") if name]
     if wanted:
@@ -872,6 +899,10 @@ def judge(record, places):
         judge_pane(entry, result, place)
     elif kind == "capture":
         judge_capture(entry, scenario, phase, result, place, places)
+    elif kind == "streamStop":
+        entry["stream"] = result
+        if result.get("tailCharacters", 0) <= 0:
+            failures.append(f"mesure invalide : {result.get('deltas', 0)} deltas, traîne vide")
     failures.extend(blank_failures(place, entry.get("blank")))
     return entry
 
@@ -941,6 +972,10 @@ def judge_rest(entry, scenario, phase, result, frames, place):
         return
     if following_live_end(scenario, phase):
         entry["failures"].extend(live_end_failures(place))
+        if scenario == "flux":
+            entry["hold"] = end_hold(frames)
+            if entry["hold"]["longestMs"] > LET_GO_MS:
+                entry["failures"].append(f"décroche pendant le stream ({entry['hold']['longestMs']:.0f} ms)")
         return
     # A fold rewraps every row, so what is judged is the end, not the pixels.
     if scenario == "repli":
@@ -955,9 +990,31 @@ def judge_rest(entry, scenario, phase, result, frames, place):
         entry["failures"].append(f"bouge au repos : {seen}")
 
 
+# A cap on a view that never comes back to the end, not a measurement: the table's own catching up
+# is a frame or two per line, and the number to read is `end_hold` in the report.
+LET_GO_MS = 1000
+
+
+def end_hold(frames, slack=4):
+    """How the view kept the end while an answer grew: the share of frames more than `slack` points
+    above it, and the longest stretch spent there in milliseconds."""
+    present = [frame for frame in frames if frame[2] > 0]
+    longest, since, off = 0.0, None, 0
+    for t, origin, document, viewport, _ in present:
+        if document - viewport - origin > slack:
+            off += 1
+            since = t if since is None else since
+            longest = max(longest, (t - since) * 1000)
+        else:
+            since = None
+    return {"offShare": off / max(1, len(present)), "longestMs": longest}
+
+
 def following_live_end(scenario, phase):
     """The shown chat's agent is still writing and the reader is at its end, so the view has to
     move with it: what is judged is staying at the end, not standing still."""
+    if scenario == "flux":
+        return phase in ("follow", "after")
     if scenario.startswith("direct") or scenario == "repli":
         return phase == "follow"
     return scenario.startswith("vivant-") and phase in ("back", "rest-back")
@@ -1060,6 +1117,7 @@ def report(directory):
     arrival_table(runs, builds, lines)
     switch_table(runs, builds, lines)
     stream_table(runs, builds, lines)
+    hold_table(runs, builds, lines)
     fold_table(runs, builds, lines)
     calls_table(runs, builds, lines)
     document_table(runs, builds, lines)
@@ -1202,8 +1260,10 @@ def switch_table(runs, builds, lines):
 def streaming_rest(scenario, phase):
     """A rest taken while an agent writes: the shown chat's own in `direct`, another tab's or
     workspace's in `vivant` and `neuve`."""
-    if scenario.startswith("direct"):
+    if scenario.startswith("direct") or scenario == "flux":
         return phase == "follow"
+    if scenario == "flux-lecture":
+        return phase == "reading"
     return scenario.startswith(("vivant-", "neuve")) and phase == "working"
 
 
@@ -1219,6 +1279,29 @@ def stream_table(runs, builds, lines):
         lines[-4:] = ["Aucune étape pendant un stream dans ces runs."]
     for scenario, corpus in keys:
         cells = [frames_cell(per_run) for per_run in scenario_cells(runs, builds, scenario, corpus, streamed)]
+        lines.append(f"| {scenario} | {corpus} | " + " | ".join(cells) + " |")
+    lines.append("")
+
+
+def hold_table(runs, builds, lines):
+    """A reader at the end while an answer streams in: how long the view spent above it."""
+    lines += ["## Fin tenue pendant le stream (médiane des runs)", "",
+              "part des frames à plus de 4 pt du bas, plus longue absence ms (pire des runs)", "",
+              "| scénario | corpus | " + " | ".join(builds) + " |", "|---|---|" + "---|" * len(builds)]
+    held = lambda entry: entry["hold"] if "hold" in entry and entry["phase"] == "follow" else None
+    keys = list(dict.fromkeys((entry["scenario"], entry["corpus"]) for run in runs for entry in run["steps"]
+                              if held(entry)))
+    if not keys:
+        lines[-4:] = ["Aucun stream suivi à la fin dans ces runs."]
+    for scenario, corpus in keys:
+        cells = []
+        for holds in scenario_cells(runs, builds, scenario, corpus, held):
+            if not holds:
+                cells.append("n/a")
+                continue
+            cells.append(f"{100 * median([hold['offShare'] for hold in holds]):.0f} %, "
+                         f"{median([hold['longestMs'] for hold in holds]):.0f} ms "
+                         f"({max(hold['longestMs'] for hold in holds):.0f})")
         lines.append(f"| {scenario} | {corpus} | " + " | ".join(cells) + " |")
     lines.append("")
 

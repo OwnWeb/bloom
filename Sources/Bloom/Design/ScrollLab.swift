@@ -75,6 +75,7 @@ private final class ScrollLabRun: NSObject {
     private var frames: [[Double]] = []
     private var captures: [String: [[Double]]] = [:]
     private var appending: Task<Void, Never>?
+    private var streaming: Task<Int, Never>?
 
     override init() {
         let arguments = CommandLine.arguments
@@ -267,6 +268,8 @@ private final class ScrollLabRun: NSObject {
             appending?.cancel()
             await appending?.value
             appending = nil
+        case "stream": result = await startStreaming(step)
+        case "streamStop": result = await stopStreaming()
         default: result = ["error": "unknown step \(kind)"]
         }
         resolveScrollView()
@@ -686,6 +689,43 @@ private final class ScrollLabRun: NSObject {
             }
         }
         return ["startSeq": startSeq]
+    }
+
+    /// An answer streaming into the shown chat, through the door `StreamProbe` uses, so every delta
+    /// takes the path a real one does. A turn is opened first with a user row when a session is
+    /// named: a chat whose last row is its turn's result keeps its streaming tail at nought.
+    private func startStreaming(_ step: [String: Any]) async -> [String: Any] {
+        guard let transcript = app?.selectedModel?.activeTranscript else { return ["error": "no transcript"] }
+        if let session = step["session"] as? String {
+            guard let store = app?.store else { return ["error": "no store"] }
+            let text = #"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Lab stream turn."}]}}"#
+            _ = try? await store.append(Message(
+                sessionID: SessionID(session), seq: milliseconds(step["startSeq"], or: 3_000_000),
+                kind: .user, payload: Data(text.utf8), refID: nil
+            ))
+        }
+        let interval = milliseconds(step["intervalMs"], or: 40)
+        let chunk = String(repeating: "x", count: milliseconds(step["chunk"], or: 14)) + " "
+        streaming?.cancel()
+        streaming = Task { @MainActor in
+            var sent = 0
+            while !Task.isCancelled {
+                await transcript.acceptForProbe(.streamDelta(.text(chunk)))
+                sent += 1
+                try? await Task.sleep(for: .milliseconds(interval))
+            }
+            return sent
+        }
+        return ["intervalMs": interval, "chunk": chunk.count]
+    }
+
+    /// Waited for, like `appendStop`. The text stays in the tail, as no turn ends it.
+    private func stopStreaming() async -> [String: Any] {
+        streaming?.cancel()
+        let sent = await streaming?.value ?? 0
+        streaming = nil
+        let tail = app?.selectedModel?.activeTranscript?.streamingText.count ?? -1
+        return ["deltas": sent, "tailCharacters": tail]
     }
 
     private static func liveRows(_ count: Int) -> [(MessageKind, String, String?)] {
